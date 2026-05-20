@@ -22,6 +22,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
@@ -78,7 +79,7 @@ func (r *SentMessageRecorder) HasSentAssembleErrorResponse() bool {
 	return r.hasSentAssembleErrorResponse
 }
 
-func (r *SentMessageRecorder) SendAssembleRequest(ctx context.Context, assemblingNode string, transactionID uuid.UUID, idempotencyID uuid.UUID, transactionPreassembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) error {
+func (r *SentMessageRecorder) SendAssembleRequest(ctx context.Context, assemblingNode string, transactionID uuid.UUID, idempotencyID uuid.UUID, transactionPreassembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64) error {
 	return nil
 }
 
@@ -280,7 +281,7 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		b.queueEventForOriginator,
 		b.metrics)
 
-	txn.stateMachine.CurrentState = b.state
+	txn.stateMachine.SetCurrentState(b.state)
 
 	// Update the private transaction struct to the accumulation that resulted from what ever events that we expect to have happened leading up to the current state
 	// We don't attempt to emulate any other history of those past events but rather assert that the state machine's behavior is determined purely by its current finite state
@@ -331,7 +332,7 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 
 	b.txn = txn
 
-	b.txn.stateMachine.CurrentState = b.state
+	b.txn.stateMachine.SetCurrentState(b.state)
 	return b.txn
 
 }

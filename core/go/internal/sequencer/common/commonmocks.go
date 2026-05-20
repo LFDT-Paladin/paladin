@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -545,120 +546,86 @@ func (_c *MockEngineIntegration_GetBlockHeight_Call) RunAndReturn(run func(ctx c
 	return _c
 }
 
-// GetStateLocks provides a mock function for the type MockEngineIntegration
-func (_mock *MockEngineIntegration) GetStateLocks(ctx context.Context) ([]byte, error) {
-	ret := _mock.Called(ctx)
+// MapPotentialStates provides a mock function for the type MockEngineIntegration
+func (_mock *MockEngineIntegration) MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) ([]*components.StateUpsert, error) {
+	ret := _mock.Called(ctx, potentialStates, createdByTX)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetStateLocks")
+		panic("no return value specified for MapPotentialStates")
 	}
 
-	var r0 []byte
+	var r0 []*components.StateUpsert
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]byte, error)); ok {
-		return returnFunc(ctx)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []*prototk.NewState, *components.PrivateTransaction) ([]*components.StateUpsert, error)); ok {
+		return returnFunc(ctx, potentialStates, createdByTX)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context) []byte); ok {
-		r0 = returnFunc(ctx)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []*prototk.NewState, *components.PrivateTransaction) []*components.StateUpsert); ok {
+		r0 = returnFunc(ctx, potentialStates, createdByTX)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]byte)
+			r0 = ret.Get(0).([]*components.StateUpsert)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = returnFunc(ctx)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, []*prototk.NewState, *components.PrivateTransaction) error); ok {
+		r1 = returnFunc(ctx, potentialStates, createdByTX)
 	} else {
 		r1 = ret.Error(1)
 	}
 	return r0, r1
 }
 
-// MockEngineIntegration_GetStateLocks_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStateLocks'
-type MockEngineIntegration_GetStateLocks_Call struct {
+// MockEngineIntegration_MapPotentialStates_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MapPotentialStates'
+type MockEngineIntegration_MapPotentialStates_Call struct {
 	*mock.Call
 }
 
-// GetStateLocks is a helper method to define mock.On call
+// MapPotentialStates is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockEngineIntegration_Expecter) GetStateLocks(ctx interface{}) *MockEngineIntegration_GetStateLocks_Call {
-	return &MockEngineIntegration_GetStateLocks_Call{Call: _e.mock.On("GetStateLocks", ctx)}
+//   - potentialStates []*prototk.NewState
+//   - createdByTX *components.PrivateTransaction
+func (_e *MockEngineIntegration_Expecter) MapPotentialStates(ctx interface{}, potentialStates interface{}, createdByTX interface{}) *MockEngineIntegration_MapPotentialStates_Call {
+	return &MockEngineIntegration_MapPotentialStates_Call{Call: _e.mock.On("MapPotentialStates", ctx, potentialStates, createdByTX)}
 }
 
-func (_c *MockEngineIntegration_GetStateLocks_Call) Run(run func(ctx context.Context)) *MockEngineIntegration_GetStateLocks_Call {
+func (_c *MockEngineIntegration_MapPotentialStates_Call) Run(run func(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction)) *MockEngineIntegration_MapPotentialStates_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockEngineIntegration_GetStateLocks_Call) Return(bytes []byte, err error) *MockEngineIntegration_GetStateLocks_Call {
-	_c.Call.Return(bytes, err)
-	return _c
-}
-
-func (_c *MockEngineIntegration_GetStateLocks_Call) RunAndReturn(run func(ctx context.Context) ([]byte, error)) *MockEngineIntegration_GetStateLocks_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ResetTransactions provides a mock function for the type MockEngineIntegration
-func (_mock *MockEngineIntegration) ResetTransactions(ctx context.Context, transactionID uuid.UUID) {
-	_mock.Called(ctx, transactionID)
-	return
-}
-
-// MockEngineIntegration_ResetTransactions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResetTransactions'
-type MockEngineIntegration_ResetTransactions_Call struct {
-	*mock.Call
-}
-
-// ResetTransactions is a helper method to define mock.On call
-//   - ctx context.Context
-//   - transactionID uuid.UUID
-func (_e *MockEngineIntegration_Expecter) ResetTransactions(ctx interface{}, transactionID interface{}) *MockEngineIntegration_ResetTransactions_Call {
-	return &MockEngineIntegration_ResetTransactions_Call{Call: _e.mock.On("ResetTransactions", ctx, transactionID)}
-}
-
-func (_c *MockEngineIntegration_ResetTransactions_Call) Run(run func(ctx context.Context, transactionID uuid.UUID)) *MockEngineIntegration_ResetTransactions_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 uuid.UUID
+		var arg1 []*prototk.NewState
 		if args[1] != nil {
-			arg1 = args[1].(uuid.UUID)
+			arg1 = args[1].([]*prototk.NewState)
+		}
+		var arg2 *components.PrivateTransaction
+		if args[2] != nil {
+			arg2 = args[2].(*components.PrivateTransaction)
 		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
 }
 
-func (_c *MockEngineIntegration_ResetTransactions_Call) Return() *MockEngineIntegration_ResetTransactions_Call {
-	_c.Call.Return()
+func (_c *MockEngineIntegration_MapPotentialStates_Call) Return(stateUpserts []*components.StateUpsert, err error) *MockEngineIntegration_MapPotentialStates_Call {
+	_c.Call.Return(stateUpserts, err)
 	return _c
 }
 
-func (_c *MockEngineIntegration_ResetTransactions_Call) RunAndReturn(run func(ctx context.Context, transactionID uuid.UUID)) *MockEngineIntegration_ResetTransactions_Call {
-	_c.Run(run)
+func (_c *MockEngineIntegration_MapPotentialStates_Call) RunAndReturn(run func(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) ([]*components.StateUpsert, error)) *MockEngineIntegration_MapPotentialStates_Call {
+	_c.Call.Return(run)
 	return _c
 }
 
-// WriteLockStatesForTransaction provides a mock function for the type MockEngineIntegration
-func (_mock *MockEngineIntegration) WriteLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
+// WriteStatesForTransaction provides a mock function for the type MockEngineIntegration
+func (_mock *MockEngineIntegration) WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 	ret := _mock.Called(ctx, txn)
 
 	if len(ret) == 0 {
-		panic("no return value specified for WriteLockStatesForTransaction")
+		panic("no return value specified for WriteStatesForTransaction")
 	}
 
 	var r0 error
@@ -670,19 +637,19 @@ func (_mock *MockEngineIntegration) WriteLockStatesForTransaction(ctx context.Co
 	return r0
 }
 
-// MockEngineIntegration_WriteLockStatesForTransaction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WriteLockStatesForTransaction'
-type MockEngineIntegration_WriteLockStatesForTransaction_Call struct {
+// MockEngineIntegration_WriteStatesForTransaction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WriteStatesForTransaction'
+type MockEngineIntegration_WriteStatesForTransaction_Call struct {
 	*mock.Call
 }
 
-// WriteLockStatesForTransaction is a helper method to define mock.On call
+// WriteStatesForTransaction is a helper method to define mock.On call
 //   - ctx context.Context
 //   - txn *components.PrivateTransaction
-func (_e *MockEngineIntegration_Expecter) WriteLockStatesForTransaction(ctx interface{}, txn interface{}) *MockEngineIntegration_WriteLockStatesForTransaction_Call {
-	return &MockEngineIntegration_WriteLockStatesForTransaction_Call{Call: _e.mock.On("WriteLockStatesForTransaction", ctx, txn)}
+func (_e *MockEngineIntegration_Expecter) WriteStatesForTransaction(ctx interface{}, txn interface{}) *MockEngineIntegration_WriteStatesForTransaction_Call {
+	return &MockEngineIntegration_WriteStatesForTransaction_Call{Call: _e.mock.On("WriteStatesForTransaction", ctx, txn)}
 }
 
-func (_c *MockEngineIntegration_WriteLockStatesForTransaction_Call) Run(run func(ctx context.Context, txn *components.PrivateTransaction)) *MockEngineIntegration_WriteLockStatesForTransaction_Call {
+func (_c *MockEngineIntegration_WriteStatesForTransaction_Call) Run(run func(ctx context.Context, txn *components.PrivateTransaction)) *MockEngineIntegration_WriteStatesForTransaction_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -700,12 +667,12 @@ func (_c *MockEngineIntegration_WriteLockStatesForTransaction_Call) Run(run func
 	return _c
 }
 
-func (_c *MockEngineIntegration_WriteLockStatesForTransaction_Call) Return(err error) *MockEngineIntegration_WriteLockStatesForTransaction_Call {
+func (_c *MockEngineIntegration_WriteStatesForTransaction_Call) Return(err error) *MockEngineIntegration_WriteStatesForTransaction_Call {
 	_c.Call.Return(err)
 	return _c
 }
 
-func (_c *MockEngineIntegration_WriteLockStatesForTransaction_Call) RunAndReturn(run func(ctx context.Context, txn *components.PrivateTransaction) error) *MockEngineIntegration_WriteLockStatesForTransaction_Call {
+func (_c *MockEngineIntegration_WriteStatesForTransaction_Call) RunAndReturn(run func(ctx context.Context, txn *components.PrivateTransaction) error) *MockEngineIntegration_WriteStatesForTransaction_Call {
 	_c.Call.Return(run)
 	return _c
 }

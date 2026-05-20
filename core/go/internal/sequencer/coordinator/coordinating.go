@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 )
@@ -48,8 +49,50 @@ func action_TransactionsDelegated(ctx context.Context, c *coordinator, event com
 	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions, e.DelegationID, c.newCoordinatorTransaction)
 }
 
-func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction, coordinatorSigningIdentity string, preAssembleDependsOn *uuid.UUID) transaction.CoordinatorTransaction {
-	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, preAssembleDependsOn, c.transportWriter, c.clock, c.queueEventInternal, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.chainedChildStore, c.metrics)
+func (c *coordinator) coordinatorTransactionHandleEvent(ctx context.Context, txID uuid.UUID, event common.Event) error {
+	txn := c.transactionsByID[txID]
+	if txn == nil {
+		return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, txID)
+	}
+	return txn.HandleEvent(ctx, event)
+}
+
+func (c *coordinator) getCoordinatorTransactionState(ctx context.Context, id uuid.UUID) (transaction.State, bool) {
+	txn := c.transactionsByID[id]
+	if txn == nil {
+		return transaction.State(0), false
+	}
+	return txn.GetCurrentState(), true
+}
+
+func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction, coordinatorSigningIdentity string) transaction.CoordinatorTransaction {
+	return transaction.NewTransaction(
+		ctx,
+		originator,
+		originatorNode,
+		nodeName,
+		pt,
+		coordinatorSigningIdentity,
+		c.transportWriter,
+		c.clock,
+		c.queueEventInternal,
+		c.coordinatorTransactionHandleEvent,
+		c.getCoordinatorTransactionState,
+		c.engineIntegration,
+		c.syncPoints,
+		c.components,
+		c.domainAPI,
+		c.dCtx,
+		c.requestTimeout,
+		c.stateTimeout,
+		c.closingGracePeriod,
+		c.confirmedLockRetentionGracePeriod,
+		c.baseLedgerRevertRetryThreshold,
+		c.assembleErrorRetryThreshhold,
+		c.grapher,
+		c.dependencyTracker,
+		c.metrics,
+	)
 }
 
 // originator must be a fully qualified identity locator otherwise an error will be returned
@@ -64,8 +107,7 @@ func (c *coordinator) addToDelegatedTransactions(
 		originatorNode string,
 		nodeName string,
 		pt *components.PrivateTransaction,
-		coordinatorSigningIdentity string,
-		preAssembleDependsOn *uuid.UUID) transaction.CoordinatorTransaction) error {
+		coordinatorSigningIdentity string) transaction.CoordinatorTransaction) error {
 
 	var previousTransaction transaction.CoordinatorTransaction
 
@@ -128,11 +170,11 @@ func (c *coordinator) addToDelegatedTransactions(
 		// - if the prereq transaction is in a preassembly state then the only goroutine that can move it out of that state is this one
 		//   so we can establish the dependency knowing that the new transaction will definitely receive the selection notitication
 
-		var previousTransactionID *uuid.UUID
 		if previousTransaction != nil {
 			switch previousTransaction.GetCurrentState() {
 			case transaction.State_Initial, transaction.State_PreAssembly_Blocked, transaction.State_Pooled:
 				txID := previousTransaction.GetID()
+				// New delegated transaction depends on the previous one while both are in pre-assembly flow.
 				// There is an incredibly slim possibility that the transaction has actually been repooled, so we are past first assembly,
 				// but since we have no way of checking this it causes no issues to establish the dependency, since the already pooled transaction
 				// will be selected for assembly ahead of this new transaction anyway.
@@ -140,22 +182,11 @@ func (c *coordinator) addToDelegatedTransactions(
 				// This would only be possible if
 				// - the coordinator has been rejecting delegated transaction after reaching its max inflight limit
 				// - the originator has missed the assembly request for the previous transaction, causing it to be repooled
-				err := previousTransaction.HandleEvent(ctx, &transaction.NewPreAssembleDependencyEvent{
-					BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-						TransactionID: txID,
-					},
-					PrereqTransactionID: txn.ID,
-				})
-				if err != nil {
-					txnHandlingError = err
-					delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
-					continue
-				}
-				previousTransactionID = &txID
+				c.dependencyTracker.GetPreassemblyDeps().AddPrerequisite(ctx, txn.ID, txID)
 			}
 		}
 
-		newTransaction := createTransaction(ctx, originator, originatorNode, c.nodeName, txn, c.signingIdentity, previousTransactionID)
+		newTransaction := createTransaction(ctx, originator, originatorNode, c.nodeName, txn, c.signingIdentity)
 
 		c.transactionsByID[txn.ID] = newTransaction
 		c.metrics.IncCoordinatingTransactions()
@@ -253,14 +284,28 @@ func (c *coordinator) removeTransactionFromPool(id uuid.UUID) {
 	}
 }
 
-func validator_TransactionStateTransitionToPooled(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Pooled, nil
+func validator_TransactionStateTransitionFrom(states ...transaction.State) statemachine.Validator[*coordinator] {
+	return func(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+		e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+		for _, s := range states {
+			if e.From == s {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
 }
 
-func validator_TransactionStateTransitionDispatchedToPooled(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.From == transaction.State_Dispatched && e.To == transaction.State_Pooled, nil
+func validator_TransactionStateTransitionTo(states ...transaction.State) statemachine.Validator[*coordinator] {
+	return func(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+		e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+		for _, s := range states {
+			if e.To == s {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
 }
 
 func action_PoolTransaction(ctx context.Context, c *coordinator, event common.Event) error {
@@ -276,11 +321,6 @@ func action_PoolTransaction(ctx context.Context, c *coordinator, event common.Ev
 	return nil
 }
 
-func validator_TransactionStateTransitionToReadyForDispatch(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Ready_For_Dispatch, nil
-}
-
 func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	txn := c.transactionsByID[e.TransactionID]
@@ -293,27 +333,15 @@ func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, eve
 	return nil
 }
 
-func validator_TransactionStateTransitionToFinal(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Final, nil
-}
-
-func validator_TransactionStateTransitionToEvicted(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Evicted, nil
-}
-
 func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	delete(c.transactionsByID, e.TransactionID)
 	// this is a no-op if the transaction is not in the pool
 	c.removeTransactionFromPool(e.TransactionID)
 	c.metrics.DecCoordinatingTransactions()
-	err := c.grapher.Forget(ctx, e.TransactionID)
-	if err != nil {
-		log.L(ctx).Errorf("error forgetting transaction %s: %v", e.TransactionID.String(), err)
-	}
-	c.chainedChildStore.ForgetChainedChild(e.TransactionID)
+	c.grapher.Forget(ctx, e.TransactionID)
+	c.dependencyTracker.Delete(ctx, e.TransactionID)
+
 	log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
 	return nil
 }

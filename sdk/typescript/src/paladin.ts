@@ -3,6 +3,7 @@ import { ethers, InterfaceAbi } from "ethers";
 import {
   ActiveFilter,
   Algorithms,
+  DomainInvokeRPC,
   IABIDecodedData,
   IBlockchainEventListener,
   IDomain,
@@ -1055,6 +1056,14 @@ export default class PaladinClient {
       );
       return res.data.result;
     },
+
+    invokeRPC: async (domainName: string, groupID: string, stateQualifier: string, rpcCall: DomainInvokeRPC) => {
+      const res = await this.post<JsonRpcResult<unknown>>(
+        "pgroup_invokeRPC",
+        [domainName, groupID, stateQualifier, rpcCall]
+      );
+      return res.data.result;
+    },
   };
 
   transport = {
@@ -1161,6 +1170,14 @@ export default class PaladinClient {
         { validateStatus: (status) => status < 300 || status === 404 }
       );
       return res.status === 404 ? undefined : res.data.result;
+    },
+
+    invokeRPC: async (contractAddress: string, stateQualifier: string, rpcCall: DomainInvokeRPC) => {
+      const res = await this.post<JsonRpcResult<unknown>>(
+        "domain_invokeRPC",
+        [contractAddress, stateQualifier, rpcCall]
+      );
+      return res.data.result;
     },
   };
 

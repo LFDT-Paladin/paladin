@@ -462,3 +462,18 @@ func (br *domainBridge) IsBaseLedgerRevertRetryable(ctx context.Context, req *pr
 	)
 	return
 }
+
+func (br *domainBridge) InvokeRPC(ctx context.Context, req *prototk.InvokeRPCRequest) (res *prototk.InvokeRPCResponse, err error) {
+	err = br.toPlugin.RequestReply(ctx,
+		func(dm plugintk.PluginMessage[prototk.DomainMessage]) {
+			dm.Message().RequestToDomain = &prototk.DomainMessage_InvokeRpc{InvokeRpc: req}
+		},
+		func(dm plugintk.PluginMessage[prototk.DomainMessage]) bool {
+			if r, ok := dm.Message().ResponseFromDomain.(*prototk.DomainMessage_InvokeRpcRes); ok {
+				res = r.InvokeRpcRes
+			}
+			return res != nil
+		},
+	)
+	return
+}

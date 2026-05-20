@@ -59,10 +59,6 @@ func (seq *sequencer) shutdown(ctx context.Context) {
 	seq.cancelCtx()
 	seq.coordinator.WaitForDone(ctx)
 	seq.originator.WaitForDone(ctx)
-	if seq.delegateDomainContext != nil {
-		seq.delegateDomainContext.Close()
-		seq.delegateDomainContext = nil
-	}
 	if seq.domainContext != nil {
 		seq.domainContext.Close()
 		seq.domainContext = nil
@@ -78,8 +74,7 @@ type sequencer struct {
 	cancelCtx       context.CancelFunc
 
 	// Registered with StateManager; must Close after coordinator/originator stop (see statemgr.NewDomainContext).
-	domainContext         components.DomainContext
-	delegateDomainContext components.DomainContext
+	domainContext components.DomainContext
 
 	// Sequencer attributes
 	contractAddress string
@@ -184,25 +179,21 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 			// Create a new domain context for the sequencer. This will be re-used for the lifetime of the sequencer
 			dCtx := sMgr.components.StateManager().NewDomainContext(sMgr.ctx, domainAPI.Domain(), contractAddr)
 
-			// Create a 2nd domain context for assembling remote transactions
-			delegateDomainContext := sMgr.components.StateManager().NewDomainContext(sMgr.ctx, domainAPI.Domain(), contractAddr)
-
 			seqCtx, cancelCtx := context.WithCancel(log.WithComponent(sMgr.ctx, "sequencer"))
 			seqCtx = log.WithLogField(seqCtx, "contract", contractAddr.String())
 
 			// Create a transport writer for the sequencer to communicate with sequencers on other peers
 			transportWriter := transport.NewTransportWriter(seqCtx, &contractAddr, sMgr.nodeName, sMgr.components.TransportManager(), sMgr.HandlePaladinMsg)
 
-			sMgr.engineIntegration = common.NewEngineIntegration(seqCtx, sMgr.components, sMgr.nodeName, domainAPI, dCtx, delegateDomainContext, sMgr)
+			engineIntegration := common.NewEngineIntegration(seqCtx, sMgr.components, sMgr.nodeName, domainAPI, dCtx, sMgr)
 			sequencer := &sequencer{
-				contractAddress:       contractAddr.String(),
-				transportWriter:       transportWriter,
-				cancelCtx:             cancelCtx,
-				domainContext:         dCtx,
-				delegateDomainContext: delegateDomainContext,
+				contractAddress: contractAddr.String(),
+				transportWriter: transportWriter,
+				cancelCtx:       cancelCtx,
+				domainContext:   dCtx,
 			}
 
-			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, sMgr.engineIntegration, &contractAddr, sMgr.config, sMgr.metrics)
+			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, engineIntegration, &contractAddr, sMgr.config, sMgr.metrics)
 			if err != nil {
 				cancelCtx()
 				log.L(ctx).Errorf("failed to create sequencer originator for contract %s: %s", contractAddr.String(), err)
@@ -226,7 +217,7 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 				nil,
 				transportWriter,
 				common.RealClock(),
-				sMgr.engineIntegration,
+				engineIntegration,
 				sMgr.syncPoints,
 				initialOriginatorNodes,
 				sMgr.config,

@@ -26,9 +26,10 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.Snaps
 	t.RLock()
 	defer t.RUnlock()
 
-	log.L(ctx).Debugf("next transaction to assess current status of %s. Current state: %s", t.pt.ID.String(), t.stateMachine.CurrentState.String())
+	currentState := t.stateMachine.GetCurrentState()
+	log.L(ctx).Debugf("next transaction to assess current status of %s. Current state: %s", t.pt.ID.String(), currentState.String())
 
-	switch t.stateMachine.CurrentState {
+	switch currentState {
 	// pooled transactions are those that have been delegated but not yet dispatched, this includes
 	// the various states from being delegated up to being ready for dispatch
 	case State_Blocked,

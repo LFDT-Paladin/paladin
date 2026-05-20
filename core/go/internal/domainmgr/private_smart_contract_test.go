@@ -1775,3 +1775,35 @@ func TestWrapPGBadData(t *testing.T) {
 	_, err := goodWrapPGTxCall(psc, pldtypes.RandBytes32())
 	require.Regexp(t, "PD011612", err)
 }
+
+func TestInvokeRPCOK(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	psc := goodPSC(t, td)
+
+	td.tp.Functions.InvokeRPC = func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+		assert.Equal(t, "pente_getCodeHash", req.Method)
+		return &prototk.InvokeRPCResponse{ResultJson: `"0x1234"`}, nil
+	}
+
+	got, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.NoError(t, err)
+	assert.Equal(t, pldtypes.RawJSON(`"0x1234"`), got)
+}
+
+func TestInvokeRPCError(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	psc := goodPSC(t, td)
+
+	td.tp.Functions.InvokeRPC = func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+
+	_, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "pop", err)
+}

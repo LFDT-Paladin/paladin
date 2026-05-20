@@ -83,6 +83,9 @@ paladinNodes:
         rpcWs:
           port: 8549
           nodePort: 31549
+        metrics:
+          port: 6100
+          nodePort: 31550
 
     # ======== Database ========
     database:

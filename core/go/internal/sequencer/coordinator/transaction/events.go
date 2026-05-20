@@ -363,19 +363,6 @@ func (*TransactionUnknownByOriginatorEvent) TypeString() string {
 	return "Event_TransactionUnknownByOriginator"
 }
 
-type NewPreAssembleDependencyEvent struct {
-	BaseCoordinatorEvent
-	PrereqTransactionID uuid.UUID
-}
-
-func (*NewPreAssembleDependencyEvent) Type() EventType {
-	return Event_NewPreAssembleDependency
-}
-
-func (*NewPreAssembleDependencyEvent) TypeString() string {
-	return "Event_NewPreAssembleDependency"
-}
-
 type ChainedDependencyFailedEvent struct {
 	BaseCoordinatorEvent
 	FailedTxID uuid.UUID
