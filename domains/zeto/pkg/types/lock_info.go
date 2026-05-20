@@ -27,7 +27,8 @@ import (
 // and cancelLock both use this same set as proof inputs. SpendOutputs / CancelOutputs are pre-pinned Paladin coin state
 // ids (info states) for the proposed spend and cancel paths; SpendData / CancelData hold recipient JSON for assemble.
 //
-// Commitment preimages use the same tuple shape as zeto_lockable._buildUnlockHash (domain-separated spend vs cancel).
+// SpendCommitment / CancelCommitment match IZetoLockableCapability.computeSpendHash / computeCancelHash at createLock.
+// Commitment preimages use zeto_lockable._buildUnlockHash (domain-separated spend vs cancel); spendLock inner args.data uses SpendData.
 type ZetoLockInfoState struct {
 	Salt   *pldtypes.HexUint256 `json:"salt"`
 	LockID pldtypes.Bytes32     `json:"lockId"`
@@ -39,12 +40,14 @@ type ZetoLockInfoState struct {
 	LockedOutputs []string `json:"lockedOutputs"`
 
 	// Preimage for spend commitment (see _buildUnlockHash with _SPEND_HASH_DOMAIN).
-	SpendOutputs []string          `json:"spendOutputs"`
-	SpendData    pldtypes.HexBytes `json:"spendData"`
+	SpendOutputs     []string          `json:"spendOutputs"`
+	SpendData        pldtypes.HexBytes `json:"spendData"`
+	SpendCommitment  pldtypes.Bytes32  `json:"spendCommitment"`
 
 	// Preimage for cancel commitment (see _buildUnlockHash with _CANCEL_HASH_DOMAIN).
-	CancelOutputs []string          `json:"cancelOutputs"`
-	CancelData    pldtypes.HexBytes `json:"cancelData"`
+	CancelOutputs     []string          `json:"cancelOutputs"`
+	CancelData        pldtypes.HexBytes `json:"cancelData"`
+	CancelCommitment  pldtypes.Bytes32  `json:"cancelCommitment"`
 
 	// Opaque copy of IZetoFungible_V1.createLock unlockData from the createLock request.
 	// No omitempty: ZetoLockInfoState AbiStateSchema validation requires this key (bytes may be empty "0x").
@@ -67,8 +70,10 @@ var ZetoLockInfoStateABI = &abi.Parameter{
 		{Name: "lockedOutputs", Type: "uint256[]"},
 		{Name: "spendOutputs", Type: "uint256[]"},
 		{Name: "spendData", Type: "bytes"},
+		{Name: "spendCommitment", Type: "bytes32"},
 		{Name: "cancelOutputs", Type: "uint256[]"},
 		{Name: "cancelData", Type: "bytes"},
+		{Name: "cancelCommitment", Type: "bytes32"},
 		{Name: "unlockData", Type: "bytes"},
 	},
 }

@@ -310,17 +310,30 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	if err != nil {
 		return nil, err
 	}
+	spendCommitment, cancelCommitment, err := computeCreateLockCommitments(
+		ctx,
+		lockedOutputCommitmentStrs,
+		proposedSpendCoins,
+		proposedCancelCoins,
+		proposedSpendDataJSON,
+		proposedCancelDataJSON,
+	)
+	if err != nil {
+		return nil, err
+	}
 	lockInfo := &types.ZetoLockInfoState{
-		Salt:          (*pldtypes.HexUint256)(salt),
-		LockID:        lockID,
-		Owner:         resolvedEth.Verifier,
-		Spender:       resolvedEthAddr.String(),
-		LockedOutputs: lockedOutputCommitmentStrs,
-		SpendOutputs:  proposedSpendStateIDs,
-		SpendData:     append(pldtypes.HexBytes(nil), proposedSpendDataJSON...),
-		CancelOutputs: proposedCancelStateIDs,
-		CancelData:    append(pldtypes.HexBytes(nil), proposedCancelDataJSON...),
-		UnlockData:    append(pldtypes.HexBytes(nil), params.UnlockData...),
+		Salt:             (*pldtypes.HexUint256)(salt),
+		LockID:           lockID,
+		Owner:            resolvedEth.Verifier,
+		Spender:          resolvedEthAddr.String(),
+		LockedOutputs:    lockedOutputCommitmentStrs,
+		SpendOutputs:     proposedSpendStateIDs,
+		SpendData:        append(pldtypes.HexBytes(nil), proposedSpendDataJSON...),
+		SpendCommitment:  spendCommitment,
+		CancelOutputs:    proposedCancelStateIDs,
+		CancelData:       append(pldtypes.HexBytes(nil), proposedCancelDataJSON...),
+		CancelCommitment: cancelCommitment,
+		UnlockData:       append(pldtypes.HexBytes(nil), params.UnlockData...),
 	}
 	lockInfoState, err := makeNewLockInfoState(ctx, h.stateSchemas.LockInfoSchema, lockInfo, []string{tx.Transaction.From})
 	if err != nil {
@@ -448,15 +461,14 @@ func (h *createLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransac
 	// ZetoCreateLockArgs live only in createArgs; do not duplicate them here.
 	outerData := append(pldtypes.HexBytes(nil), clParams.UnlockData...)
 	outerData = append(outerData, data...)
-	// Zero spend/cancel commitments = unrestricted (ZetoLockable._consumeLock skips hash check). Binding
-	// spend/cancel to recipient-specific output commitments requires the same preimage as a future spendLock
-	// proof assembly (salt-dependent);
-	// TODO: wire that when the domain pins deterministic spend preimages.
-	var zeroCommit pldtypes.Bytes32
+	lockInfo, err := lockInfoFromOutputStates(ctx, h.stateSchemas.LockInfoSchema, req.OutputStates)
+	if err != nil {
+		return nil, err
+	}
 	prepParams = map[string]any{
 		"createArgs":       pldtypes.HexBytes(createArgsBytes).HexString0xPrefix(),
-		"spendCommitment":  zeroCommit.HexString0xPrefix(),
-		"cancelCommitment": zeroCommit.HexString0xPrefix(),
+		"spendCommitment":  lockInfo.SpendCommitment.HexString0xPrefix(),
+		"cancelCommitment": lockInfo.CancelCommitment.HexString0xPrefix(),
 		"data":             pldtypes.HexBytes(outerData).HexString0xPrefix(),
 	}
 

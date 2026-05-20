@@ -281,11 +281,20 @@ func (h *spendLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransact
 
 	inputSize := common.GetInputSize(len(req.InputStates))
 
+	spendParams := tx.Params.(*types.SpendLockParams)
+	li, err := h.loadLockInfoByLockID(ctx, spendParams.LockId, req.StateQueryContext)
+	if err != nil {
+		return nil, err
+	}
+	if li == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoNotFound, spendParams.LockId.HexString0xPrefix())
+	}
+	// Inner ZetoSpendLockArgs.data must match the spendCommitment preimage (SpendData) pinned at createLock.
+	innerUnlockData := append(pldtypes.HexBytes(nil), li.SpendData...)
 	data, err := common.EncodeTransactionData(ctx, req.Transaction, req.InfoStates)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorEncodeTxData, err)
 	}
-	spendParams := tx.Params.(*types.SpendLockParams)
 	fnABI := types.LockableCapabilitySpendLockABI
 	var prepParams map[string]any
 	useNullifiers := common.IsNullifiersToken(tx.DomainConfig.TokenName)
@@ -305,13 +314,13 @@ func (h *spendLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransact
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorParseTxId)
 		}
-		// Inner IZetoLockableCapability.ZetoSpendLockArgs.data carries Paladin tx metadata (mirrors outer spendLock `data` here).
+		// Inner tuple `data` is the spend commitment preimage (SpendData); outer spendLock `data` carries Paladin tx metadata.
 		spendArgsWire := zetoSpendLockArgsWireJSON{
 			TxID:          txID32.HexString0xPrefix(),
 			LockedOutputs: lockedOutputs,
 			Outputs:       outputs,
 			Proof:         pldtypes.HexBytes(proofBytes).HexString0xPrefix(),
-			Data:          pldtypes.HexBytes(data).HexString0xPrefix(),
+			Data:          pldtypes.HexBytes(innerUnlockData).HexString0xPrefix(),
 		}
 		spendArgsJSON, err := json.Marshal([]any{spendArgsWire})
 		if err != nil {
