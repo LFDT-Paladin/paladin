@@ -1,8 +1,8 @@
 // Event indexing (HandleEventBatch): legacy zeto-contracts ~v0.2.x pools emit UTXOsLocked and UTXOTransferWithEncryptedValues.
 // v0.5-style pools emit ZetoLockCreated / ZetoLockSpent / ZetoLockCancelled. UTXOTransferWithMlkemEncryptedValues is omitted until Paladin ships a token that uses ML-KEM transfers (see IZeto_V1 ABI).
 //
-// Nullifier (SMT) semantics: legacy UTXOsLocked records unlocked outputs in the main state SMT and locked outputs in a separate locked SMT.
-// For v0.5 ZetoLock* events, only unlocked outputs feed the nullifier SMT; locked outputs are tracked as locked UTXOs off-tree (spent directly without nullifiers). Locked inputs on spend/cancel events are not inserted into either SMT here.
+// Nullifier (SMT) semantics: legacy UTXOsLocked records unlocked outputs in the main state SMT and locked outputs in the locked SMT.
+// For v0.5 ZetoLock* events, only unlocked outputs feed the nullifier SMT; locked outputs are tracked as locked UTXOs off-tree (v0.5 spendLock does not use nullifier proofs over locked inputs). Locked inputs on spend/cancel events are not inserted into either SMT here.
 //
 // Spent and confirmed state IDs are derived from uint256 UTXO roots in events plus Paladin ZetoTransactionData_V0 in the data payload.
 // Generic LockCreated (bytes32 lockId) registry events are not UTXO state events and are ignored here.
@@ -13,6 +13,7 @@
 package zeto
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
@@ -169,7 +171,7 @@ func (z *Zeto) handleLockedEvent(ctx context.Context, smtTree *common.MerkleTree
 
 // handleZetoLockCreatedEvent indexes ILockableCapability v0.5 lock creation.
 // Unlocked outputs participate in the nullifier SMT for nullifier tokens; locked outputs do not (they are locked UTXOs, not SMT leaves).
-func (z *Zeto) handleZetoLockCreatedEvent(ctx context.Context, smtTree *common.MerkleTreeSpec, ev *prototk.OnChainEvent, tokenName string, res *prototk.HandleEventBatchResponse) error {
+func (z *Zeto) handleZetoLockCreatedEvent(ctx context.Context, stateQueryContext string, smtTree *common.MerkleTreeSpec, ev *prototk.OnChainEvent, tokenName string, res *prototk.HandleEventBatchResponse) error {
 	var lock ZetoLockCreatedEvent
 	if err := json.Unmarshal([]byte(ev.DataJson), &lock); err == nil {
 		txData, err := decodeTransactionData(ctx, lock.Data)
@@ -178,9 +180,12 @@ func (z *Zeto) handleZetoLockCreatedEvent(ctx context.Context, smtTree *common.M
 			return nil
 		}
 		z.recordTransactionInfo(ev, txData, res)
+		log.L(ctx).Infof("ZetoLockCreated: chainLockId=%s chainOwner=%s paladinTxId=%s (lock-info state id equals chain lockId)",
+			lock.LockId.HexString0xPrefix(), lock.Owner.String(), txData.TransactionID.HexString0xPrefix())
 		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txData.TransactionID, lock.Inputs)...)
 		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, lock.Outputs)...)
 		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, lock.LockedOutputs)...)
+		res.ConfirmedStates = append(res.ConfirmedStates, parseStateUpdatesFromBytes32(txData.TransactionID, []pldtypes.Bytes32{lock.LockId})...)
 		if common.IsNullifiersToken(tokenName) {
 			// the locked outputs are not added to the nullifier SMT, because they are not spent with nullifiers
 			// but spent directly with their commitment IDs
@@ -195,24 +200,118 @@ func (z *Zeto) handleZetoLockCreatedEvent(ctx context.Context, smtTree *common.M
 	return nil
 }
 
+type lockInfoRow struct {
+	stateID string
+	info    *types.ZetoLockInfoState
+}
+
+func (z *Zeto) loadLockInfoRowByLockID(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32) (*lockInfoRow, error) {
+	if z.lockInfoSchema == nil || lockID.IsZero() {
+		return nil, nil
+	}
+	queryJSON := query.NewQueryBuilder().Limit(1).Equal("lockId", lockID).Query().String()
+	res, err := z.Callbacks.FindAvailableStates(ctx, &prototk.FindAvailableStatesRequest{
+		StateQueryContext: stateQueryContext,
+		SchemaId:          z.lockInfoSchema.Id,
+		QueryJson:         queryJSON,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if res == nil || len(res.States) == 0 {
+		return nil, nil
+	}
+	st := res.States[0]
+	var li types.ZetoLockInfoState
+	if err := json.Unmarshal([]byte(st.DataJson), &li); err != nil {
+		return nil, err
+	}
+	return &lockInfoRow{stateID: st.Id, info: &li}, nil
+}
+
+// spendLockInfoStateForLock consumes the off-chain lock-info row when a lock is spent or cancelled (Noto OldLockState).
+func (z *Zeto) spendLockInfoStateForLock(ctx context.Context, stateQueryContext string, lockID, txID pldtypes.Bytes32, res *prototk.HandleEventBatchResponse) error {
+	row, err := z.loadLockInfoRowByLockID(ctx, stateQueryContext, lockID)
+	if err != nil || row == nil {
+		return err
+	}
+	res.SpentStates = append(res.SpentStates, &prototk.StateUpdate{
+		Id:            row.stateID,
+		TransactionId: txID.String(),
+	})
+	return nil
+}
+
+// confirmProposedSpendOutputsForLock makes pre-pinned spend coin InfoStates available to recipients when a lock is spent.
+// spendLock proof outputs are the pinned commitments (payload.Outputs); this confirms the Paladin state rows by id.
+// They are created at createLock assemble but must not confirm until ZetoLockSpent (not ZetoLockCreated).
+func (z *Zeto) confirmProposedSpendOutputsForLock(ctx context.Context, stateQueryContext string, lockID, txID pldtypes.Bytes32, res *prototk.HandleEventBatchResponse) error {
+	if z.lockInfoSchema == nil || lockID.IsZero() {
+		return nil
+	}
+	row, err := z.loadLockInfoRowByLockID(ctx, stateQueryContext, lockID)
+	if err != nil {
+		return err
+	}
+	if row == nil {
+		return nil
+	}
+	txIDStr := txID.String()
+	for _, out := range row.info.SpendOutputs {
+		coinID, err := common.CoinStateIDFromPersistedString(ctx, out)
+		if err != nil {
+			log.L(ctx).Warnf("Skipping invalid spendOutputs entry %q for lock %s: %s", out, lockID.HexString0xPrefix(), err)
+			continue
+		}
+		res.ConfirmedStates = append(res.ConfirmedStates, &prototk.StateUpdate{
+			Id:            coinID,
+			TransactionId: txIDStr,
+		})
+	}
+	return nil
+}
+
 // handleZetoLockSpentLikeEvent indexes ZetoLockSpent / ZetoLockCancelled.
 // Only unlocked outputs are added to the nullifier SMT; locked inputs/outputs use direct locked-UTXO semantics (no locked SMT updates here).
-func (z *Zeto) handleZetoLockSpentLikeEvent(ctx context.Context, smtTree *common.MerkleTreeSpec, ev *prototk.OnChainEvent, tokenName string, res *prototk.HandleEventBatchResponse, eventName string) error {
+func (z *Zeto) handleZetoLockSpentLikeEvent(ctx context.Context, stateQueryContext string, smtTree *common.MerkleTreeSpec, ev *prototk.OnChainEvent, tokenName string, res *prototk.HandleEventBatchResponse, eventName string) error {
 	var payload ZetoLockSpentLikeEvent
 	if err := json.Unmarshal([]byte(ev.DataJson), &payload); err == nil {
-		txData, err := decodeTransactionData(ctx, payload.Data)
-		if err != nil || txData == nil {
-			log.L(ctx).Errorf("Failed to decode transaction data for %s event: %s. Skip to the next event", eventName, payload.Data)
+		txData, decodeErr := decodeTransactionData(ctx, payload.Data)
+		if decodeErr != nil {
+			log.L(ctx).Errorf("Failed to decode transaction data for %s event: %s", eventName, decodeErr)
+		}
+		txID := payload.TxId
+		if txData != nil {
+			txID = txData.TransactionID
+		} else if txID.IsZero() {
+			log.L(ctx).Errorf("Failed to decode transaction data for %s event and event txId is zero: data=%s. Skip to the next event", eventName, payload.Data)
 			return nil
 		}
-		z.recordTransactionInfo(ev, txData, res)
-		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txData.TransactionID, payload.LockedInputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, payload.Outputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, payload.LockedOutputs)...)
+		if txData != nil {
+			z.recordTransactionInfo(ev, txData, res)
+		} else {
+			// Outer `data` may be empty or not yet V0-encoded on some public legs; still finalize the spend
+			// so prepared states reconcile and nullifier SMT ingests unlocked outputs (v0.5 spendLock unlock).
+			res.TransactionsComplete = append(res.TransactionsComplete, &prototk.CompletedTransaction{
+				TransactionId: txID.String(),
+				Location:      ev.Location,
+			})
+		}
+		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txID, payload.LockedInputs)...)
+		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txID, payload.Outputs)...)
+		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txID, payload.LockedOutputs)...)
+		if err := z.spendLockInfoStateForLock(ctx, stateQueryContext, payload.LockId, txID, res); err != nil {
+			return err
+		}
+		if eventName == "ZetoLockSpent" {
+			if err := z.confirmProposedSpendOutputsForLock(ctx, stateQueryContext, payload.LockId, txID, res); err != nil {
+				return err
+			}
+		}
 		if common.IsNullifiersToken(tokenName) {
 			// the locked outputs are not added to the nullifier SMT, because they are not spent with nullifiers
 			// but spent directly with their commitment IDs
-			err := z.updateMerkleTree(ctx, smtTree.Tree, smtTree.Storage, txData.TransactionID, payload.Outputs)
+			err := z.updateMerkleTree(ctx, smtTree.Tree, smtTree.Storage, txID, payload.Outputs)
 			if err != nil {
 				return i18n.NewError(ctx, msgs.MsgErrorUpdateSMT, eventName, err)
 			}
@@ -299,6 +398,17 @@ func parseStatesFromEvent(txID pldtypes.Bytes32, states []pldtypes.HexUint256) [
 	return refs
 }
 
+func parseStateUpdatesFromBytes32(txID pldtypes.Bytes32, states []pldtypes.Bytes32) []*prototk.StateUpdate {
+	refs := make([]*prototk.StateUpdate, len(states))
+	for i, state := range states {
+		refs[i] = &prototk.StateUpdate{
+			Id:            state.String(),
+			TransactionId: txID.String(),
+		}
+	}
+	return refs
+}
+
 func formatErrors(errors []string) string {
 	msg := fmt.Sprintf("(failures=%d)", len(errors))
 	for i, err := range errors {
@@ -307,17 +417,32 @@ func formatErrors(errors []string) string {
 	return msg
 }
 
-func decodeTransactionData(ctx context.Context, data pldtypes.HexBytes) (*types.ZetoTransactionData_V0, error) {
+// sliceZetoTransactionDataPayload returns the sub-slice of `data` that begins with ZetoTransactionDataID_V0
+// (Paladin ZetoTransactionData_V0 envelope). ILockableCapability v0.5 lock/spend outer `data` bytes prepend
+// unlock preimage (e.g. 32-byte delegate) before this envelope, so the magic is not always at offset 0.
+func sliceZetoTransactionDataPayload(data pldtypes.HexBytes) pldtypes.HexBytes {
 	if len(data) < 4 {
-		return nil, nil
+		return nil
 	}
-	dataPrefix := data[0:4]
-	if dataPrefix.String() != types.ZetoTransactionDataID_V0.String() {
+	magic := []byte(types.ZetoTransactionDataID_V0)
+	if len(data) >= len(magic) && bytes.HasPrefix(data, magic) {
+		return data
+	}
+	idx := bytes.Index(data, magic)
+	if idx < 0 {
+		return nil
+	}
+	return data[idx:]
+}
+
+func decodeTransactionData(ctx context.Context, data pldtypes.HexBytes) (*types.ZetoTransactionData_V0, error) {
+	payload := sliceZetoTransactionDataPayload(data)
+	if len(payload) < 4 {
 		return nil, nil
 	}
 
 	var dataValues types.ZetoTransactionData_V0
-	dataDecoded, err := types.ZetoTransactionDataABI_V0.DecodeABIDataCtx(ctx, data, 4)
+	dataDecoded, err := types.ZetoTransactionDataABI_V0.DecodeABIDataCtx(ctx, payload, 4)
 	if err == nil {
 		var dataJSON []byte
 		dataJSON, err = dataDecoded.JSON()

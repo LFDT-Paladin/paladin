@@ -719,6 +719,41 @@ func TestAssembleLockWitnessInputs(t *testing.T) {
 	assert.Equal(t, key.PrivateKeyForZkp, result["ownerPrivateKey"])
 }
 
+func TestAssembleFungibleLockKycWitnessInputs(t *testing.T) {
+	extras := &pb.ProvingRequestExtras_NullifiersKyc{
+		SmtKycProof: &pb.MerkleProofObject{
+			Root: "123456",
+			MerkleProofs: []*pb.MerkleProof{
+				{Nodes: []string{"1", "2", "3"}},
+				{Nodes: []string{"0", "0", "0"}},
+			},
+			Enabled: []bool{true, false},
+		},
+	}
+	inputs := FungibleLockKycWitnessInputs{
+		Extras: extras,
+		FungibleWitnessInputs: FungibleWitnessInputs{
+			CommonWitnessInputs: CommonWitnessInputs{
+				inputCommitments: []*big.Int{big.NewInt(1), big.NewInt(2)},
+				inputSalts:       []*big.Int{big.NewInt(3), big.NewInt(4)},
+			},
+			inputValues:  []*big.Int{big.NewInt(5), big.NewInt(6)},
+			outputValues: []*big.Int{big.NewInt(7), big.NewInt(8)},
+		},
+	}
+	key := core.KeyEntry{PrivateKeyForZkp: big.NewInt(123456789)}
+	ctx := context.Background()
+
+	result, err := inputs.Assemble(ctx, &key)
+	assert.NoError(t, err)
+	assert.Equal(t, inputs.inputCommitments, result["inputCommitments"])
+	assert.Contains(t, result, "identitiesRoot")
+	assert.Contains(t, result, "identitiesMerkleProof")
+	assert.NotContains(t, result, "nullifiers")
+	assert.NotContains(t, result, "utxosRoot")
+	assert.NotContains(t, result, "lockDelegate")
+}
+
 func TestAssembleInputsLock(t *testing.T) {
 	inputs := CommonWitnessInputs{
 		inputCommitments: []*big.Int{big.NewInt(100)},

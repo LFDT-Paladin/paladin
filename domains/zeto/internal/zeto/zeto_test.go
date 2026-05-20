@@ -964,5 +964,5 @@ func TestUnimplementedMethods(t *testing.T) {
 func TestGetStateSchemas(t *testing.T) {
 	schemas, err := types.GetStateSchemas()
 	assert.NoError(t, err)
-	assert.Len(t, schemas, 5)
+	assert.Len(t, schemas, 6)
 }

@@ -518,6 +518,23 @@ func TestSerializeProofResponse(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 118, len(bytes))
 
+	var provingRes pb.ProvingResponse
+	require.NoError(t, proto.Unmarshal(bytes, &provingRes))
+	assert.Equal(t, "15", provingRes.PublicInputs["encryptionNonce"])
+
+	circuit = &zetosignerapi.Circuit{
+		Name:           "anon_enc",
+		Type:           zetosignerapi.TransferLocked,
+		UsesNullifiers: false,
+		UsesEncryption: true,
+	}
+	bytes, err = serializeProofResponse(circuit, &snark)
+	assert.NoError(t, err)
+	require.NoError(t, proto.Unmarshal(bytes, &provingRes))
+	assert.Equal(t, "15", provingRes.PublicInputs["encryptionNonce"])
+	assert.NotEmpty(t, provingRes.PublicInputs["ecdhPublicKey"])
+	assert.NotEmpty(t, provingRes.PublicInputs["encryptedValues"])
+
 	circuit = &zetosignerapi.Circuit{
 		Name:           "anon_nullifier",
 		Type:           zetosignerapi.Transfer,
@@ -703,6 +720,14 @@ func TestNewWitnessInputs(t *testing.T) {
 			expectErr:  false,
 		},
 		{
+			name:       "Valid fungible encryption transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_enc", Type: zetosignerapi.TransferLocked, UsesEncryption: true},
+			extras:     &pb.ProvingRequestExtras_Encryption{},
+			expectType: &wtns.FungibleEncWitnessInputs{},
+			expectErr:  false,
+		},
+		{
 			name:       "Valid fungible nullifier witness inputs",
 			tokenType:  pb.TokenType_fungible,
 			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier", Type: zetosignerapi.Transfer, UsesNullifiers: true},
@@ -758,6 +783,14 @@ func TestNewWitnessInputs(t *testing.T) {
 			expectType:  nil,
 			expectErr:   true,
 			errContains: "unexpected extras type for anon nullifier circuit",
+		},
+		{
+			name:       "Valid fungible KYC transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier_kyc_transferLocked", Type: zetosignerapi.TransferLocked, UsesKyc: true},
+			extras:     &pb.ProvingRequestExtras_NullifiersKyc{},
+			expectType: &wtns.FungibleLockKycWitnessInputs{},
+			expectErr:  false,
 		},
 		{
 			name:        "Default fungible witness inputs",

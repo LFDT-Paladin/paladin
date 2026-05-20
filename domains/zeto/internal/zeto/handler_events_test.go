@@ -64,6 +64,24 @@ func TestEncodeDecode(t *testing.T) {
 	assert.Equal(t, "0x30e43028afbb41d6887444f4c2b4ed6d00000000000000000000000000000000", decodedData.TransactionID.String())
 }
 
+func TestDecodeTransactionData_EmbeddedAfterUnlockPrefix(t *testing.T) {
+	ctx := context.Background()
+	inner, err := common.EncodeTransactionData(ctx, &prototk.TransactionSpecification{
+		TransactionId: "0x30e43028afbb41d6887444f4c2b4ed6d00000000000000000000000000000000",
+	}, nil)
+	require.NoError(t, err)
+	// v0.5 lockable createLock/spendLock outer `data`: unlock preimage (e.g. 32-byte delegate word) then ZetoTransactionData_V0.
+	prefix := make([]byte, 32)
+	for i := range prefix {
+		prefix[i] = 0xab
+	}
+	combined := append(append(pldtypes.HexBytes(nil), prefix...), inner...)
+	decoded, err := decodeTransactionData(ctx, combined)
+	require.NoError(t, err)
+	require.NotNil(t, decoded)
+	assert.Equal(t, "0x30e43028afbb41d6887444f4c2b4ed6d00000000000000000000000000000000", decoded.TransactionID.String())
+}
+
 func TestHandleMintEvent(t *testing.T) {
 	ctx := context.Background()
 	z, testCallbacks := newTestZeto()
@@ -523,6 +541,7 @@ func TestHandleIdentityRegisteredEvent(t *testing.T) {
 func TestHandleZetoLockCreatedEvent(t *testing.T) {
 	ctx := context.Background()
 	z, testCallbacks := newTestZeto()
+	z.lockInfoSchema = &prototk.StateSchema{Id: "lock_info"}
 	require.NotEmpty(t, z.eventsV1.zetoLockCreated)
 
 	storage1 := smt.NewStatesStorage(testCallbacks, "t1", "ctx", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
@@ -530,6 +549,7 @@ func TestHandleZetoLockCreatedEvent(t *testing.T) {
 	require.NoError(t, err)
 	smtSpec1 := &common.MerkleTreeSpec{MerkleTreeSpec: smt.MerkleTreeSpec{Tree: tree1, Storage: storage1}}
 
+	chainLockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
 	encodedData, err := common.EncodeTransactionData(ctx, &prototk.TransactionSpecification{
 		TransactionId: "0x30e43028afbb41d6887444f4c2b4ed6d00000000000000000000000000000000",
 	}, nil)
@@ -537,7 +557,7 @@ func TestHandleZetoLockCreatedEvent(t *testing.T) {
 
 	data, _ := json.Marshal(map[string]any{
 		"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
-		"lockId":        "0xccdd000000000000000000000000000000000000000000000000000000000002",
+		"lockId":        chainLockID.HexString0xPrefix(),
 		"owner":         "0x74e71b05854ee819cb9397be01c82570a178d019",
 		"inputs":        []string{"100"},
 		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
@@ -547,10 +567,12 @@ func TestHandleZetoLockCreatedEvent(t *testing.T) {
 	})
 	ev := &prototk.OnChainEvent{DataJson: string(data), SoliditySignature: z.eventsV1.zetoLockCreated}
 	res := &prototk.HandleEventBatchResponse{}
-	err = z.handleZetoLockCreatedEvent(ctx, smtSpec1, ev, "Zeto_AnonNullifier", res)
+	err = z.handleZetoLockCreatedEvent(ctx, "ctx", smtSpec1, ev, "Zeto_AnonNullifier", res)
 	require.NoError(t, err)
 	require.Len(t, res.SpentStates, 1)
-	require.Len(t, res.ConfirmedStates, 2)
+	require.Len(t, res.ConfirmedStates, 3)
+	require.Equal(t, chainLockID.HexString0xPrefix(), res.ConfirmedStates[2].Id)
+	require.Empty(t, res.InfoStates)
 	newStates, err := storage1.GetNewStates(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, newStates, "unlocked outputs must update nullifier SMT")
@@ -585,7 +607,7 @@ func TestHandleZetoLockSpentLikeEvent(t *testing.T) {
 	data, _ := json.Marshal(payload)
 	ev := &prototk.OnChainEvent{DataJson: string(data), SoliditySignature: z.eventsV1.zetoLockSpent}
 	res := &prototk.HandleEventBatchResponse{}
-	err = z.handleZetoLockSpentLikeEvent(ctx, smtSpec1, ev, "Zeto_AnonNullifier", res, "ZetoLockSpent")
+	err = z.handleZetoLockSpentLikeEvent(ctx, "ctx", smtSpec1, ev, "Zeto_AnonNullifier", res, "ZetoLockSpent")
 	require.NoError(t, err)
 	require.Len(t, res.SpentStates, 1)
 	require.Len(t, res.ConfirmedStates, 2)
@@ -600,11 +622,48 @@ func TestHandleZetoLockSpentLikeEvent(t *testing.T) {
 
 	ev.SoliditySignature = z.eventsV1.zetoLockCancelled
 	res = &prototk.HandleEventBatchResponse{}
-	err = z.handleZetoLockSpentLikeEvent(ctx, smtSpec3, ev, "Zeto_AnonNullifier", res, "ZetoLockCancelled")
+	err = z.handleZetoLockSpentLikeEvent(ctx, "ctx", smtSpec3, ev, "Zeto_AnonNullifier", res, "ZetoLockCancelled")
 	require.NoError(t, err)
 	require.Len(t, res.SpentStates, 1)
 	require.Len(t, res.ConfirmedStates, 2)
 	newStates3, err := storage3.GetNewStates(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, newStates3)
+}
+
+// TestHandleZetoLockSpentLikeEvent_EmptyOuterDataStillFinalizesSpend covers v0.5 spendLock where the event's
+// `data` field is empty or not V0-prefixed: we must still emit TransactionsComplete and update the nullifier SMT
+// from `outputs`, otherwise balanceOf never sees the unlocked coin (domains/integration-test zeto_fungible_v050).
+func TestHandleZetoLockSpentLikeEvent_EmptyOuterDataStillFinalizesSpend(t *testing.T) {
+	ctx := context.Background()
+	z, testCallbacks := newTestZeto()
+	require.NotEmpty(t, z.eventsV1.zetoLockSpent)
+
+	storage := smt.NewStatesStorage(testCallbacks, "t-empty-data", "ctx", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	tree, err := zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
+	require.NoError(t, err)
+	smtSpec := &common.MerkleTreeSpec{MerkleTreeSpec: smt.MerkleTreeSpec{Tree: tree, Storage: storage}}
+
+	payload := map[string]any{
+		"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
+		"lockId":        "0xccdd000000000000000000000000000000000000000000000000000000000002",
+		"spender":       "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"lockedInputs":  []string{"300"},
+		"lockedOutputs": []string{},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"proof":         "0x",
+		"data":          "0x",
+	}
+	data, err := json.Marshal(payload)
+	require.NoError(t, err)
+	ev := &prototk.OnChainEvent{DataJson: string(data), SoliditySignature: z.eventsV1.zetoLockSpent}
+	res := &prototk.HandleEventBatchResponse{}
+	err = z.handleZetoLockSpentLikeEvent(ctx, "ctx", smtSpec, ev, "Zeto_AnonNullifier", res, "ZetoLockSpent")
+	require.NoError(t, err)
+	require.Len(t, res.TransactionsComplete, 1, "must complete tx so prepared states reconcile")
+	require.Len(t, res.SpentStates, 1)
+	require.Len(t, res.ConfirmedStates, 1)
+	newStates, err := storage.GetNewStates(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, newStates, "unlocked outputs must still update nullifier SMT when outer data is empty")
 }

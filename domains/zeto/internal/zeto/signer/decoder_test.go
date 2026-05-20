@@ -140,6 +140,19 @@ func TestDecodeProvingRequest(t *testing.T) {
 			extras:      []byte("invalid"),
 			expectError: true,
 		},
+		{
+			name: "AnonNullifierKyc transferLocked spendLock (KYC only, no nullifier SMT)",
+			circuit: &zetosignerapi.Circuit{
+				Name:    "anon_nullifier_kyc_transferLocked",
+				Type:    zetosignerapi.TransferLocked,
+				UsesKyc: true,
+			},
+			extras: &pb.ProvingRequestExtras_NullifiersKyc{
+				SmtUtxoProof: &pb.MerkleProofObject{Root: "utxo-root", Enabled: []bool{false}},
+				SmtKycProof:  &pb.MerkleProofObject{Root: "kyc-root", Enabled: []bool{true}},
+			},
+			expectValue: "kyc-root",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -176,6 +189,8 @@ func TestDecodeProvingRequest(t *testing.T) {
 						assert.Equal(t, tt.expectValue, v.EncryptionNonce)
 					case *pb.ProvingRequestExtras_Nullifiers:
 						assert.Equal(t, tt.expectValue, v.SmtProof.Root)
+					case *pb.ProvingRequestExtras_NullifiersKyc:
+						assert.Equal(t, tt.expectValue, v.SmtKycProof.Root)
 					}
 				} else {
 					assert.Empty(t, extras)

@@ -126,19 +126,32 @@ type LockParams struct {
 	Delegate *pldtypes.EthAddress `json:"delegate"`
 }
 
-// CreateLockParams is the Paladin JSON for IZetoFungibleV1.createLock (see ZetoFungibleABI_V1).
-// Amount and Delegate match legacy lock proving; opaque calldata bytes come from EncodeTransactionData in Prepare (expanded proof ABI).
+// CreateLockParams is the Paladin domain JSON for IZetoFungibleV1.createLock (see ZetoFungibleABI_V1 / IZetoFungible_V1.sol).
+//
+// Surface: from, recipients, unlockData, data — used for validation, proving, and off-chain lock info.
+// unlockData is application-specific opaque bytes copied into lock info and on-chain outer data; locked value is the sum of recipients' amounts.
+// The prepared public transaction uses ILockableCapability.createLock on the pool (see types.LockableCapabilityCreateLockABI).
 type CreateLockParams struct {
-	Amount   *pldtypes.HexUint256 `json:"amount"`
-	Delegate *pldtypes.EthAddress `json:"delegate"`
+	From       string                        `json:"from,omitempty"`
+	Recipients []*FungibleTransferParamEntry `json:"recipients,omitempty"`
+	// No omitempty: IZetoFungible_V1.createLock ABI validation requires unlockData and data keys (bytes may be empty "0x").
+	UnlockData pldtypes.HexBytes `json:"unlockData"`
+	Data       pldtypes.HexBytes `json:"data"`
 }
 
-// SpendLockParams is the Paladin JSON for IZetoFungibleV1.spendLock (recipients match on-chain TransferParam[]).
+// SpendLockParams is the Paladin domain JSON for IZetoFungible_V1.spendLock (see ZetoFungibleABI_V1).
+//
+// The prepared public transaction uses ILockableCapability.spendLock on the pool (lockId, spendArgs, data);
+// ZetoSpendLockArgs from IZetoLockableCapability is ABI-encoded in spendArgs (see types.LockableCapabilitySpendLockABI).
+//
+// Wire JSON is lockId, from, and data only (matching the on-chain entrypoint). Locked coin ids, lock spender witness inputs,
+// and the spend recipient list come from persisted ZetoLockInfoState (see spendLockedOutputs, spendData, Spender).
 type SpendLockParams struct {
-	LockId       pldtypes.Bytes32              `json:"lockId"`
-	LockedInputs []*pldtypes.HexUint256        `json:"lockedInputs"`
-	Delegate     string                        `json:"delegate"`
-	Recipients   []*FungibleTransferParamEntry `json:"recipients"`
+	LockId pldtypes.Bytes32 `json:"lockId"`
+	// From is the Paladin identity that spends the lock (IZetoFungible_V1); must match the transaction signer.
+	From string `json:"from"`
+	// No omitempty: IZetoFungible_V1.spendLock ABI validation requires a `data` key (bytes may be empty "0x").
+	Data pldtypes.HexBytes `json:"data"`
 }
 
 type DepositParams struct {

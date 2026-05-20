@@ -80,6 +80,8 @@ type zetoDomainContract struct {
 	BatchWithdrawVerifier string                  `yaml:"batchWithdrawVerifier"`
 	LockVerifier          string                  `yaml:"lockVerifier"`
 	BatchLockVerifier     string                  `yaml:"batchLockVerifier"`
+	BurnVerifier          string                  `yaml:"burnVerifier,omitempty"`
+	BatchBurnVerifier     string                  `yaml:"batchBurnVerifier,omitempty"`
 	Circuits              *zetosignerapi.Circuits `yaml:"circuits"`
 	AbiAndBytecode        abiAndBytecode          `yaml:"abiAndBytecode"`
 	Libraries             []string                `yaml:"libraries"`
@@ -195,13 +197,14 @@ func deployDomainContracts(ctx context.Context, rpc rpcclient.Client, deployer s
 	}
 
 	// deploy the factory contract
-	factoryAddr, _, err := deployContract(ctx, rpc, deployer, &config.DomainContracts.Factory, deployedContracts)
+	factoryAddr, factoryABI, err := deployContract(ctx, rpc, deployer, &config.DomainContracts.Factory, deployedContracts)
 	if err != nil {
 		return nil, err
 	}
 	log.L(ctx).Infof("Deployed factory contract to %s", factoryAddr.String())
 
 	ctrs := newZetoDomainContracts()
+	ctrs.factoryAbi = factoryABI
 	ctrs.FactoryAddress = factoryAddr
 	ctrs.deployedContracts = deployedContracts
 	ctrs.DeployedContractAbis = deployedContractAbis
@@ -222,6 +225,8 @@ func findCloneableContracts(config *ZetoDomainConfig) map[string]cloneableContra
 				batchWithdrawVerifier: contract.BatchWithdrawVerifier,
 				lockVerifier:          contract.LockVerifier,
 				batchLockVerifier:     contract.BatchLockVerifier,
+				burnVerifier:          contract.BurnVerifier,
+				batchBurnVerifier:     contract.BatchBurnVerifier,
 			}
 		}
 	}
@@ -328,7 +333,7 @@ func registerImpl(ctx context.Context, name string, domainContracts *ZetoDomainC
 	}
 	params.Implementation.Verifiers.Verifier = verifierAddr.String()
 	if params.Implementation.Verifiers.Verifier == "" {
-		return nil
+		return fmt.Errorf("resolved verifier address for %s is empty", verifierName)
 	}
 
 	if batchVerifierName != "" {
@@ -393,6 +398,16 @@ func registerImpl(ctx context.Context, name string, domainContracts *ZetoDomainC
 			return fmt.Errorf("batch lock verifier contract not found among the deployed contracts")
 		}
 		params.Implementation.Verifiers.BatchBurnVerifier = batchBurnVerifierAddr.String()
+	}
+
+	// Match zeto/solidity/scripts/tokens/Zeto_Anon.ts (and Hardhat tests): non-burnable tokens still pass explicit
+	// zero addresses for burn verifiers so IZetoInitializable.VerifiersInfo matches the factory ABI tuple.
+	const zeroVerifierAddress = "0x0000000000000000000000000000000000000000"
+	if params.Implementation.Verifiers.BurnVerifier == "" {
+		params.Implementation.Verifiers.BurnVerifier = zeroVerifierAddress
+	}
+	if params.Implementation.Verifiers.BatchBurnVerifier == "" {
+		params.Implementation.Verifiers.BatchBurnVerifier = zeroVerifierAddress
 	}
 
 	_, err := tb.ExecTransactionSync(ctx, &pldapi.TransactionInput{

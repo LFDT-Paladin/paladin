@@ -58,7 +58,9 @@ dependencies {
     poseidonArtifacts project(path: ":domains:zeto", configuration: "poseidonArtifacts")
 }
 
-// Upstream zeto implementation + verifier ABIs share filenames across releases; keep per-zkpRoot trees (matches helpers.ResolveZetoImplementationAbiPath).
+// Upstream zeto implementation + verifier ABIs share filenames across releases; Gradle extracts each
+// zkpRoot to helpers/abis/zkp/<root>/ (deploy YAML uses those versioned paths; ResolveZetoImplementationAbiPath
+// still resolves legacy flat helpers/abis/<name>.json when present).
 // Poseidon library bytecode JSON uses the same names across releases; copy into each zkpRoot so deploy YAML paths resolve consistently.
 afterEvaluate {
     def zetoProj = project(':domains:zeto')

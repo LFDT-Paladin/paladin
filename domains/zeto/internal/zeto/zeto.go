@@ -62,16 +62,16 @@ var zetoFactoryBuildV0 = solutils.MustLoadBuild(zetoFactoryArtifactV0)
 var zetoFactoryBuildV1 = solutils.MustLoadBuild(zetoFactoryArtifactV1)
 
 type zetoEventSigs struct {
-	mint                  string
-	burn                  string
-	transfer              string
-	transferWithEnc       string
-	withdraw              string
-	lock                  string
-	zetoLockCreated       string
-	zetoLockSpent         string
-	zetoLockCancelled     string
-	identityRegistered    string
+	mint               string
+	burn               string
+	transfer           string
+	transferWithEnc    string
+	withdraw           string
+	lock               string
+	zetoLockCreated    string
+	zetoLockSpent      string
+	zetoLockCancelled  string
+	identityRegistered string
 }
 
 type Zeto struct {
@@ -85,6 +85,7 @@ type Zeto struct {
 	merkleTreeRootSchema *prototk.StateSchema
 	merkleTreeNodeSchema *prototk.StateSchema
 	dataSchema           *prototk.StateSchema
+	lockInfoSchema       *prototk.StateSchema
 	snarkProver          signerapi.InMemorySigner
 	hasher               core.Hasher
 	events               zetoEventSigs
@@ -131,7 +132,7 @@ type IdentityRegisteredEvent struct {
 	Data      pldtypes.HexBytes     `json:"data"`
 }
 
-// ZetoLockCreatedEvent matches ILockableCapability v0.5 ZetoLockCreated. ConfirmedStates include lockedOutputs for ledger indexing; those are not written to the nullifier SMT (unlike legacy UTXOsLocked).
+// ZetoLockCreatedEvent matches ILockableCapability v0.5 ZetoLockCreated. ConfirmedStates include coin commitments and the lock-info row (state id = chain lockId); locked coin outputs are not written to the nullifier SMT (unlike legacy UTXOsLocked).
 type ZetoLockCreatedEvent struct {
 	TxId          pldtypes.Bytes32      `json:"txId"`
 	LockId        pldtypes.Bytes32      `json:"lockId"`
@@ -239,6 +240,10 @@ func (z *Zeto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (
 	z.merkleTreeRootSchema = req.AbiStateSchemas[2]
 	z.merkleTreeNodeSchema = req.AbiStateSchemas[3]
 	z.dataSchema = req.AbiStateSchemas[4]
+	z.lockInfoSchema = nil
+	if len(req.AbiStateSchemas) > 5 {
+		z.lockInfoSchema = req.AbiStateSchemas[5]
+	}
 
 	return &prototk.InitDomainResponse{}, nil
 }
@@ -428,12 +433,12 @@ func (z *Zeto) GetHandler(method, tokenName string, zetoVariant pldtypes.HexUint
 		if fungibleV0 {
 			return nil
 		}
-		return fungible.NewCreateLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema)
+		return fungible.NewCreateLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.lockInfoSchema)
 	case types.METHOD_SPEND_LOCK:
 		if fungibleV0 {
 			return nil
 		}
-		return fungible.NewSpendLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema)
+		return fungible.NewSpendLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema, z.lockInfoSchema)
 	case types.METHOD_DEPOSIT:
 		return fungible.NewDepositHandler(z.name, z.coinSchema)
 	case types.METHOD_WITHDRAW:
@@ -666,11 +671,11 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 		case z.events.lock, z.eventsV1.lock:
 			err = z.handleLockedEvent(ctx, smtForStates, smtForLockedStates, ev, domainConfig.TokenName, &res)
 		case z.eventsV1.zetoLockCreated:
-			err = z.handleZetoLockCreatedEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res)
+			err = z.handleZetoLockCreatedEvent(ctx, req.StateQueryContext, smtForStates, ev, domainConfig.TokenName, &res)
 		case z.eventsV1.zetoLockSpent:
-			err = z.handleZetoLockSpentLikeEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res, "ZetoLockSpent")
+			err = z.handleZetoLockSpentLikeEvent(ctx, req.StateQueryContext, smtForStates, ev, domainConfig.TokenName, &res, "ZetoLockSpent")
 		case z.eventsV1.zetoLockCancelled:
-			err = z.handleZetoLockSpentLikeEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res, "ZetoLockCancelled")
+			err = z.handleZetoLockSpentLikeEvent(ctx, req.StateQueryContext, smtForStates, ev, domainConfig.TokenName, &res, "ZetoLockCancelled")
 		case z.events.identityRegistered, z.eventsV1.identityRegistered:
 			err = z.handleIdentityRegisteredEvent(ctx, smtForKyc, ev, domainConfig.TokenName, &res)
 		}

@@ -72,19 +72,37 @@ var spendLockABINullifiers = &abi.Entry{
 	},
 }
 
-var spendLockABIOnchainPacked = &abi.Entry{
-	Type: abi.Function,
-	Name: types.METHOD_SPEND_LOCK,
-	Inputs: abi.ParameterArray{
-		{Name: "lockId", Type: "bytes32"},
-		{Name: "inputs", Type: "uint256[]"},
-		{Name: "outputs", Type: "uint256[]"},
-		{Name: "proof", Type: "bytes"},
-		{Name: "data", Type: "bytes"},
+// zetoSpendLockArgsTupleABI matches ethers AbiCoder.encode(["tuple(...)"], [args]) for spendArgs; it must be a
+// single wrapped tuple (not top-level ABI params) so the payload starts with the 0x20 offset word Solidity
+// expects when abi.decode(spendArgs, (IZetoLockableCapability.ZetoSpendLockArgs)) (see zetoCreateLockArgsTupleABI / zeto_anon.ts).
+//
+// Components match IZetoLockableCapability.ZetoSpendLockArgs in upstream zeto
+// solidity/contracts/lib/interfaces/IZetoLockableCapability.sol (txId, lockedOutputs, outputs, proof, data).
+// lockedInputs are not in this struct; the contract reads them from lock storage (getLockedInputs / getLockContent).
+var zetoSpendLockArgsTupleABI = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct IZetoLockableCapability.ZetoSpendLockArgs",
+		Components: abi.ParameterArray{
+			{Name: "txId", Type: "bytes32"},
+			{Name: "lockedOutputs", Type: "uint256[]"},
+			{Name: "outputs", Type: "uint256[]"},
+			{Name: "proof", Type: "bytes"},
+			{Name: "data", Type: "bytes"},
+		},
 	},
 }
 
-func NewSpendLockHandler(name string, callbacks plugintk.DomainCallbacks, coinSchema, merkleTreeRootSchema, merkleTreeNodeSchema, dataSchema *pb.StateSchema) *spendLockHandler {
+// zetoSpendLockArgsWireJSON is the inner struct for spendArgs before json.Marshal([]any{wire}) + EncodeABIDataJSONCtx.
+type zetoSpendLockArgsWireJSON struct {
+	TxID          string   `json:"txId"`
+	LockedOutputs []string `json:"lockedOutputs"`
+	Outputs       []string `json:"outputs"`
+	Proof         string   `json:"proof"`
+	Data          string   `json:"data"`
+}
+
+func NewSpendLockHandler(name string, callbacks plugintk.DomainCallbacks, coinSchema, merkleTreeRootSchema, merkleTreeNodeSchema, dataSchema, lockInfoSchema *pb.StateSchema) *spendLockHandler {
 	return &spendLockHandler{
 		baseHandler: baseHandler{
 			name: name,
@@ -93,6 +111,7 @@ func NewSpendLockHandler(name string, callbacks plugintk.DomainCallbacks, coinSc
 				MerkleTreeRootSchema: merkleTreeRootSchema,
 				MerkleTreeNodeSchema: merkleTreeNodeSchema,
 				DataSchema:           dataSchema,
+				LockInfoSchema:       lockInfoSchema,
 			},
 		},
 		callbacks: callbacks,
@@ -105,10 +124,7 @@ func (h *spendLockHandler) ValidateParams(ctx context.Context, config *types.Dom
 		return nil, err
 	}
 
-	if err := validateSpendLockParams(ctx, p); err != nil {
-		return nil, err
-	}
-	if err := validateTransferParams(ctx, p.Recipients); err != nil {
+	if err := validateSpendLockParams(ctx, &p); err != nil {
 		return nil, err
 	}
 
@@ -116,8 +132,6 @@ func (h *spendLockHandler) ValidateParams(ctx context.Context, config *types.Dom
 }
 
 func (h *spendLockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *pb.InitTransactionRequest) (*pb.InitTransactionResponse, error) {
-	params := tx.Params.(*types.SpendLockParams)
-
 	res := &pb.InitTransactionResponse{
 		RequiredVerifiers: []*pb.ResolveVerifierRequest{
 			{
@@ -127,21 +141,6 @@ func (h *spendLockHandler) Init(ctx context.Context, tx *types.ParsedTransaction
 			},
 		},
 	}
-	_, err := pldtypes.ParseEthAddress(params.Delegate)
-	if err != nil {
-		res.RequiredVerifiers = append(res.RequiredVerifiers, &pb.ResolveVerifierRequest{
-			Lookup:       params.Delegate,
-			Algorithm:    algorithms.ECDSA_SECP256K1,
-			VerifierType: verifiers.ETH_ADDRESS,
-		})
-	}
-	for _, r := range params.Recipients {
-		res.RequiredVerifiers = append(res.RequiredVerifiers, &pb.ResolveVerifierRequest{
-			Lookup:       r.To,
-			Algorithm:    h.getAlgoZetoSnarkBJJ(),
-			VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X,
-		})
-	}
 
 	return res, nil
 }
@@ -149,24 +148,51 @@ func (h *spendLockHandler) Init(ctx context.Context, tx *types.ParsedTransaction
 func (h *spendLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *pb.AssembleTransactionRequest) (*pb.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.SpendLockParams)
 
-	resolvedSender := domain.FindVerifier(tx.Transaction.From, h.getAlgoZetoSnarkBJJ(), zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X, req.ResolvedVerifiers)
-	if resolvedSender == nil {
+	if domain.FindVerifier(tx.Transaction.From, h.getAlgoZetoSnarkBJJ(), zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X, req.ResolvedVerifiers) == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorResolveVerifier, tx.Transaction.From)
-	}
-	var delegateAddr string
-	_, err := pldtypes.ParseEthAddress(params.Delegate)
-	if err != nil {
-		resolvedDelegate := domain.FindVerifier(params.Delegate, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, req.ResolvedVerifiers)
-		if resolvedDelegate == nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorResolveVerifier, params.Delegate)
-		}
-		delegateAddr = resolvedDelegate.Verifier
-	} else {
-		delegateAddr = params.Delegate
 	}
 
 	useNullifiers := common.IsNullifiersToken(tx.DomainConfig.TokenName)
-	inputStates, revert, err := h.loadCoins(ctx, params.LockedInputs, useNullifiers, req.StateQueryContext)
+	if h.stateSchemas.LockInfoSchema == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorMissingLockInputs)
+	}
+	li, err := h.loadLockInfoByLockID(ctx, params.LockId, req.StateQueryContext)
+	if err != nil {
+		return nil, err
+	}
+	if li == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoNotFound, params.LockId.HexString0xPrefix())
+	}
+	if len(li.SpendLockedOutputs) == 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoEmptyLockedInputs, params.LockId.HexString0xPrefix())
+	}
+
+	delegateLookup := strings.TrimSpace(li.Spender)
+	if delegateLookup == "" {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "persisted lock info is missing spender")
+	}
+	var delegateAddr string
+	if _, parseErr := pldtypes.ParseEthAddress(delegateLookup); parseErr != nil {
+		resolvedDelegate := domain.FindVerifier(delegateLookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, req.ResolvedVerifiers)
+		if resolvedDelegate == nil {
+			return nil, i18n.NewError(ctx, msgs.MsgErrorResolveVerifier, delegateLookup)
+		}
+		delegateAddr = resolvedDelegate.Verifier
+	} else {
+		delegateAddr = delegateLookup
+	}
+
+	lockedInputIDs := make([]string, 0, len(li.SpendLockedOutputs))
+	for _, s := range li.SpendLockedOutputs {
+		id, err := common.CoinStateIDFromPersistedString(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		lockedInputIDs = append(lockedInputIDs, id)
+	}
+	// useNullifiers only steers state-query indexing for this token; locked inputs are resolved by commitment id
+	// (spendLockedOutputs → coin .id), not by treating them as nullifier spends of the unlocked UTXO tree.
+	inputStates, revert, err := h.loadCoins(ctx, lockedInputIDs, useNullifiers, req.StateQueryContext)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -177,58 +203,69 @@ func (h *spendLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransac
 		}
 		return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxInputs, err)
 	}
-
-	inputTotal := big.NewInt(0)
-	for _, coin := range inputStates.coins {
-		inputTotal = inputTotal.Add(inputTotal, coin.Amount.Int())
+	if len(li.SpendOutputs) == 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoEmptySpendOutputs, params.LockId.HexString0xPrefix())
+	}
+	spendOutputIDs := make([]string, 0, len(li.SpendOutputs))
+	for _, s := range li.SpendOutputs {
+		id, err := common.CoinStateIDFromPersistedString(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		spendOutputIDs = append(spendOutputIDs, id)
+	}
+	outputPrepared, revert, err := h.loadSpendOutputs(ctx, spendOutputIDs, useNullifiers, req.StateQueryContext)
+	if err != nil {
+		if revert {
+			message := err.Error()
+			return &prototk.AssembleTransactionResponse{
+				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+				RevertReason:   &message,
+			}, nil
+		}
+		return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxOutputs, err)
+	}
+	recipients, err := spendRecipientsFromLockInfo(ctx, li)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateTransferParams(ctx, recipients); err != nil {
+		return nil, err
 	}
 	transferTotal := big.NewInt(0)
-	for _, param := range params.Recipients {
+	for _, param := range recipients {
 		transferTotal = transferTotal.Add(transferTotal, param.Amount.Int())
 	}
-	if inputTotal.Cmp(transferTotal) < 0 {
-		message := i18n.NewError(ctx, msgs.MsgErrorInsufficientInputAmount, inputTotal.Text(10), transferTotal.Text(10)).Error()
+	if inputStates.total.Cmp(transferTotal) < 0 {
+		message := i18n.NewError(ctx, msgs.MsgErrorInsufficientInputAmount, inputStates.total.Text(10), transferTotal.Text(10)).Error()
 		return &prototk.AssembleTransactionResponse{
 			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 			RevertReason:   &message,
 		}, nil
 	}
-
-	outputCoins, outputStates, err := prepareOutputsForTransfer(ctx, useNullifiers, params.Recipients, req.ResolvedVerifiers, h.stateSchemas.CoinSchema, h.name)
-	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxOutputs, err)
+	if outputPrepared.total.Cmp(transferTotal) != 0 {
+		message := i18n.NewError(ctx, msgs.MsgErrorInsufficientInputAmount, outputPrepared.total.Text(10), transferTotal.Text(10)).Error()
+		return &prototk.AssembleTransactionResponse{
+			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+			RevertReason:   &message,
+		}, nil
 	}
-	remainder := big.NewInt(0).Sub(inputTotal, transferTotal)
-	if remainder.Sign() > 0 {
-		remainderHex := pldtypes.HexUint256(*remainder)
-		remainderParams := []*types.FungibleTransferParamEntry{
-			{
-				To:     tx.Transaction.From,
-				Amount: &remainderHex,
-			},
-		}
-		returnedCoins, returnedStates, err := prepareOutputsForTransfer(ctx, useNullifiers, remainderParams, req.ResolvedVerifiers, h.stateSchemas.CoinSchema, h.name)
-		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxChange, err)
-		}
-		outputCoins = append(outputCoins, returnedCoins...)
-		outputStates = append(outputStates, returnedStates...)
-	}
-
-	infoStates := make([]*pb.NewState, 0, len(params.Recipients))
-	for _, param := range params.Recipients {
-		info, err := prepareTransactionInfoStates(ctx, param.Data, []string{tx.Transaction.From, param.To}, h.stateSchemas.DataSchema)
+	// Recipients were pre-pinned at createLock (InfoStates; confirmed on ZetoLockSpent). The proof spends locked
+	// collateral into those pinned outputs — do not mint a separate return-to-owner output (that duplicates value).
+	var outputStates []*pb.NewState
+	if useNullifiers {
+		outputStates, err = spendPinnedOutputStatesForNullifiers(ctx, h.stateSchemas.CoinSchema, h.name, spendOutputIDs, outputPrepared.coins, recipients)
 		if err != nil {
 			return nil, err
 		}
-		infoStates = append(infoStates, info...)
 	}
-
 	contractAddress, err := pldtypes.ParseEthAddress(req.Transaction.ContractInfo.ContractAddress)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorDecodeContractAddress, err)
 	}
-	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, signercommon.GetHasher(), inputStates.coins, outputCoins, (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER_LOCKED], tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress, delegateAddr)
+	// Locked inputs are spent by commitment (lock storage + ZetoSpendLockArgs), not via nullifier SMT membership.
+	// v0.5 spendLock uses METHOD_TRANSFER_LOCKED with UsesNullifiers=false (anon / anon_nullifier_kyc_transferLocked per token config).
+	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, signercommon.GetHasher(), inputStates.coins, outputPrepared.coins, (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER_LOCKED], tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress, false, delegateAddr)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorFormatProvingReq, err)
 	}
@@ -237,8 +274,7 @@ func (h *spendLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransac
 		AssemblyResult: pb.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
 			InputStates:  inputStates.states,
-			OutputStates: outputStates,
-			InfoStates:   infoStates,
+			OutputStates: outputStates, // nullifier specs only; reuses pre-pinned state ids from createLock
 		},
 		AttestationPlan: []*pb.AttestationRequest{
 			{
@@ -269,14 +305,6 @@ func (h *spendLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransact
 	}
 
 	inputSize := common.GetInputSize(len(req.InputStates))
-	inputs, err := utxosFromInputStates(ctx, req.InputStates, inputSize)
-	if err != nil {
-		return nil, err
-	}
-	outputs, err := utxosFromOutputStates(ctx, req.OutputStates, inputSize)
-	if err != nil {
-		return nil, err
-	}
 
 	data, err := common.EncodeTransactionData(ctx, req.Transaction, req.InfoStates)
 	if err != nil {
@@ -285,23 +313,55 @@ func (h *spendLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransact
 	spendParams := tx.Params.(*types.SpendLockParams)
 	fnABI := getSpendLockABI(tx.DomainConfig.TokenName, tx.DomainConfig.ZetoVariant)
 	var prepParams map[string]any
+	useNullifiers := common.IsNullifiersToken(tx.DomainConfig.TokenName)
 	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(tx.DomainConfig.ZetoVariant)) {
+		// lockedInputs=true: for nullifier *tokens*, on-chain proof bytes are tuple-only (no root+tuple) because
+		// lock spend does not use unlocked-UTXO nullifier public inputs; spendArgs is ABI-encoded ZetoSpendLockArgs.
 		proofBytes, err := common.EncodeZetoOnchainTransferProofBytes(ctx, tx.DomainConfig.TokenName, proofRes.Proof, proofRes.PublicInputs, true)
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorMarshalPrepedParams)
 		}
-		inCol := inputs
-		if common.IsNullifiersToken(tx.DomainConfig.TokenName) {
-			inCol = strings.Split(proofRes.PublicInputs["nullifiers"], ",")
+		outputs, err := h.spendLockProofOutputs(ctx, spendParams.LockId, req, useNullifiers, inputSize)
+		if err != nil {
+			return nil, err
 		}
+		lockedOutputs := []string{}
+		txID32, err := pldtypes.ParseBytes32Ctx(ctx, req.Transaction.TransactionId)
+		if err != nil {
+			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorParseTxId)
+		}
+		// Inner IZetoLockableCapability.ZetoSpendLockArgs.data carries Paladin tx metadata (mirrors outer spendLock `data` here).
+		spendArgsWire := zetoSpendLockArgsWireJSON{
+			TxID:          txID32.HexString0xPrefix(),
+			LockedOutputs: lockedOutputs,
+			Outputs:       outputs,
+			Proof:         pldtypes.HexBytes(proofBytes).HexString0xPrefix(),
+			Data:          pldtypes.HexBytes(data).HexString0xPrefix(),
+		}
+		spendArgsJSON, err := json.Marshal([]any{spendArgsWire})
+		if err != nil {
+			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorMarshalPrepedParams)
+		}
+		spendArgsBytes, err := zetoSpendLockArgsTupleABI.EncodeABIDataJSONCtx(ctx, spendArgsJSON)
+		if err != nil {
+			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorMarshalPrepedParams)
+		}
+		// ILockableCapability.spendLock(lockId, spendArgs, data): spendArgs is ABI-encoded ZetoSpendLockArgs; outer
+		// `data` carries Paladin tx metadata for on-chain events (inner tuple already embeds proof + state transition).
 		prepParams = map[string]any{
-			"lockId":  spendParams.LockId.HexString0xPrefix(),
-			"inputs":  inCol,
-			"outputs": outputs,
-			"proof":   pldtypes.HexBytes(proofBytes).HexString0xPrefix(),
-			"data":    data,
+			"lockId":    spendParams.LockId.HexString0xPrefix(),
+			"spendArgs": pldtypes.HexBytes(spendArgsBytes).HexString0xPrefix(),
+			"data":      pldtypes.HexBytes(data).HexString0xPrefix(),
 		}
 	} else {
+		inputs, err := utxosFromInputStates(ctx, req.InputStates, inputSize)
+		if err != nil {
+			return nil, err
+		}
+		outputs, err := h.spendLockProofOutputs(ctx, spendParams.LockId, req, useNullifiers, inputSize)
+		if err != nil {
+			return nil, err
+		}
 		prepParams = map[string]any{
 			"lockId":  spendParams.LockId.HexString0xPrefix(),
 			"inputs":  inputs,
@@ -324,10 +384,7 @@ func (h *spendLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransact
 		return nil, err
 	}
 
-	signer := &spendParams.Delegate
-	if req.Transaction.Intent == prototk.TransactionSpecification_PREPARE_TRANSACTION {
-		signer = &req.Transaction.From
-	}
+	signer := &req.Transaction.From
 
 	return &pb.PrepareTransactionResponse{
 		Transaction: &pb.PreparedTransaction{
@@ -338,61 +395,150 @@ func (h *spendLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransact
 	}, nil
 }
 
-func (h *spendLockHandler) loadCoins(ctx context.Context, ids []*pldtypes.HexUint256, useNullifiers bool, stateQueryContext string) (inputs *preparedInputs, revert bool, err error) {
-	inputIDs := make([]any, 0, len(ids))
-	for _, input := range ids {
-		if !input.NilOrZero() {
-			inputIDs = append(inputIDs, common.HexUint256To32ByteHexString(input))
-		}
+func (h *spendLockHandler) loadLockInfoByLockID(ctx context.Context, lockID pldtypes.Bytes32, stateQueryContext string) (*types.ZetoLockInfoState, error) {
+	if h.stateSchemas.LockInfoSchema == nil {
+		return nil, nil
 	}
-
-	queryBuilder := query.NewQueryBuilder().In(".id", inputIDs)
-	inputStates, err := findAvailableStates(ctx, h.callbacks, h.stateSchemas.CoinSchema, useNullifiers, stateQueryContext, queryBuilder.Query().String())
+	queryJSON := query.NewQueryBuilder().Limit(1).Equal("lockId", lockID).Query().String()
+	states, err := findAvailableStates(ctx, h.callbacks, h.stateSchemas.LockInfoSchema, false, stateQueryContext, queryJSON)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	if len(inputStates) != len(inputIDs) {
-		return nil, true, i18n.NewError(ctx, msgs.MsgFailedToQueryStatesById, len(inputIDs), len(inputStates))
+	if len(states) == 0 {
+		return nil, nil
 	}
-
-	inputCoins := make([]*types.ZetoCoin, len(inputStates))
-	stateRefs := make([]*pb.StateRef, 0, len(inputStates))
-	for i, state := range inputStates {
-		err := json.Unmarshal([]byte(state.DataJson), &inputCoins[i])
-		if err != nil {
-			return nil, true, i18n.NewError(ctx, msgs.MsgErrorUnmarshalStateData, err)
-		}
-		if inputCoins[i].Locked == false {
-			return nil, true, i18n.NewError(ctx, msgs.MsgErrorInputNotLocked, state.Id)
-		}
-		stateRefs = append(stateRefs, &pb.StateRef{
-			SchemaId: state.SchemaId,
-			Id:       state.Id,
-		})
-
+	var info types.ZetoLockInfoState
+	if err := json.Unmarshal([]byte(states[0].DataJson), &info); err != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorUnmarshalStateData, err)
 	}
-	return &preparedInputs{
-		coins:  inputCoins,
-		states: stateRefs,
-	}, false, nil
+	return &info, nil
 }
 
-func validateSpendLockParams(ctx context.Context, params types.SpendLockParams) error {
+type pinnedOutputLoad struct {
+	coins  []*types.ZetoCoin
+	stored []*prototk.StoredState
+	total  *big.Int
+}
+
+func (h *spendLockHandler) loadCoins(ctx context.Context, stateIDs []string, useNullifiers bool, stateQueryContext string) (*preparedInputs, bool, error) {
+	inputs, _, revert, err := loadCoinStatesByIDs(ctx, h.callbacks, h.stateSchemas.CoinSchema, useNullifiers, stateQueryContext, stateIDs, true)
+	return inputs, revert, err
+}
+
+// spendPinnedOutputStatesForNullifiers builds OutputStates for spend-pinned coins so dispatch can UpsertNullifiers
+// (info states from createLock cannot). State ids must match the rows pre-allocated at createLock.
+func spendPinnedOutputStatesForNullifiers(ctx context.Context, coinSchema *prototk.StateSchema, domainName string, stateIDs []string, coins []*types.ZetoCoin, recipients []*types.FungibleTransferParamEntry) ([]*pb.NewState, error) {
+	if len(stateIDs) != len(coins) || len(coins) != len(recipients) {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "spend-pinned outputs/recipients length mismatch")
+	}
+	out := make([]*pb.NewState, 0, len(coins))
+	for i, coin := range coins {
+		ns, err := makeNewState(ctx, coinSchema, true, coin, domainName, recipients[i].To)
+		if err != nil {
+			return nil, err
+		}
+		id := stateIDs[i]
+		ns.Id = &id
+		out = append(out, ns)
+	}
+	return out, nil
+}
+
+func (h *spendLockHandler) spendLockProofOutputs(ctx context.Context, lockID pldtypes.Bytes32, req *pb.PrepareTransactionRequest, useNullifiers bool, inputSize int) ([]string, error) {
+	if len(req.OutputStates) > 0 {
+		var unlockedOutputStates []*pb.EndorsableState
+		coinSchemaID := h.stateSchemas.CoinSchema.Id
+		for _, state := range req.OutputStates {
+			if sid := state.GetSchemaId(); sid != "" && sid != coinSchemaID {
+				continue
+			}
+			var coin types.ZetoCoin
+			if err := json.Unmarshal([]byte(state.StateDataJson), &coin); err != nil {
+				return nil, i18n.NewError(ctx, msgs.MsgErrorUnmarshalStateData, err)
+			}
+			if !coin.Locked {
+				unlockedOutputStates = append(unlockedOutputStates, state)
+			}
+		}
+		outputs, err := utxosFromOutputStates(ctx, unlockedOutputStates, inputSize)
+		if err != nil {
+			return nil, err
+		}
+		return trimZeroUtxos(outputs), nil
+	}
+	spendCoins, err := h.spendPinnedCoinsForPrepare(ctx, lockID, req.StateQueryContext, useNullifiers)
+	if err != nil {
+		return nil, err
+	}
+	outputs, err := utxosFromCoins(ctx, spendCoins, inputSize)
+	if err != nil {
+		return nil, err
+	}
+	return trimZeroUtxos(outputs), nil
+}
+
+func (h *spendLockHandler) spendPinnedCoinsForPrepare(ctx context.Context, lockID pldtypes.Bytes32, stateQueryContext string, useNullifiers bool) ([]*types.ZetoCoin, error) {
+	li, err := h.loadLockInfoByLockID(ctx, lockID, stateQueryContext)
+	if err != nil {
+		return nil, err
+	}
+	if li == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoNotFound, lockID.HexString0xPrefix())
+	}
+	spendOutputIDs := make([]string, 0, len(li.SpendOutputs))
+	for _, s := range li.SpendOutputs {
+		id, err := common.CoinStateIDFromPersistedString(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		spendOutputIDs = append(spendOutputIDs, id)
+	}
+	prepared, revert, err := h.loadSpendOutputs(ctx, spendOutputIDs, useNullifiers, stateQueryContext)
+	if err != nil {
+		return nil, err
+	}
+	if revert {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoEmptySpendOutputs, lockID.HexString0xPrefix())
+	}
+	return prepared.coins, nil
+}
+
+func (h *spendLockHandler) loadSpendOutputs(ctx context.Context, stateIDs []string, useNullifiers bool, stateQueryContext string) (*pinnedOutputLoad, bool, error) {
+	// Spend-pinned coins are InfoStates at createLock; load by id even before ZetoLockSpent confirms them.
+	prepared, stored, revert, err := loadCoinStatesByIDs(ctx, h.callbacks, h.stateSchemas.CoinSchema, useNullifiers, stateQueryContext, stateIDs, false)
+	if err != nil {
+		return nil, revert, err
+	}
+	return &pinnedOutputLoad{coins: prepared.coins, stored: stored, total: prepared.total}, false, nil
+}
+
+func validateSpendLockParams(ctx context.Context, params *types.SpendLockParams) error {
+	if strings.TrimSpace(params.From) == "" {
+		return i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "parameter 'from' is required")
+	}
 	if params.LockId.IsZero() {
 		return i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "parameter 'lockId' is required")
-	}
-	if len(params.LockedInputs) == 0 {
-		return i18n.NewError(ctx, msgs.MsgErrorMissingLockInputs)
-	}
-	if params.Delegate == "" {
-		return i18n.NewError(ctx, msgs.MsgErrorMissingLockDelegate)
 	}
 	return nil
 }
 
+func spendRecipientsFromLockInfo(ctx context.Context, li *types.ZetoLockInfoState) ([]*types.FungibleTransferParamEntry, error) {
+	if len(li.SpendData) == 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoMissingSpendData, li.LockID.HexString0xPrefix())
+	}
+	var parsed []*types.FungibleTransferParamEntry
+	if err := json.Unmarshal(li.SpendData, &parsed); err != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid spendData (recipients JSON) in lock info")
+	}
+	if len(parsed) == 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoMissingSpendData, li.LockID.HexString0xPrefix())
+	}
+	return parsed, nil
+}
+
 func getSpendLockABI(tokenName string, zetoVariant pldtypes.HexUint64) *abi.Entry {
 	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(zetoVariant)) {
-		return spendLockABIOnchainPacked
+		return types.LockableCapabilitySpendLockABI
 	}
 	fnABI := spendLockABI
 	if common.IsNullifiersToken(tokenName) {

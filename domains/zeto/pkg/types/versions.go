@@ -47,6 +47,13 @@ func UseZetoOnchainPackedProofCalldata(zetoVariant ZetoFungibleABIVersion) bool 
 	return zetoVariant != ZetoFungibleV0ABI
 }
 
+// LockTransitionVerifierOutputOrderLockedFirst is true when the on-chain pool builds the ZK public-output vector as
+// lockedOutputs || change outputs (ZetoFungible._doLockTransition in zeto-contracts ~v0.5+). Legacy ~v0.2.x tokens concatenate
+// change outputs || lockedOutputs inside lock() before verifyProof; use ZetoFungibleV0ABI / default deploy for that order.
+func LockTransitionVerifierOutputOrderLockedFirst(zetoVariant pldtypes.HexUint64) bool {
+	return ZetoFungibleABIVersion(zetoVariant) == ZetoFungibleV1ABI
+}
+
 // ZetoTargetContractABIVersion selects internal/zeto/abis/IZeto*.json for core token interface shape (events, etc.).
 type ZetoTargetContractABIVersion uint8
 
