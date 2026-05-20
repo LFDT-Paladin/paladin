@@ -130,7 +130,7 @@ func IntTo32ByteHexString(bigInt *big.Int) string {
 }
 
 // CoinStateIDFromPersistedString normalizes a coin state .id from lock-info persistence.
-// spendLockedOutputs uses uint256[] in the AbiStateSchema; after storage round-trip values may be
+// lockedOutputs uses uint256[] in the AbiStateSchema; after storage round-trip values may be
 // 0x-prefixed hex (as written at createLock) or base-10 decimal strings. Decimal values must not
 // be parsed as hexadecimal (that inflates the integer and can panic in FillBytes).
 func CoinStateIDFromPersistedString(ctx context.Context, s string) (string, error) {
@@ -141,29 +141,29 @@ func CoinStateIDFromPersistedString(ctx context.Context, s string) (string, erro
 	if after, ok := strings.CutPrefix(s, "0x"); ok {
 		b, err := pldtypes.ParseHexBytes(ctx, "0x"+after)
 		if err != nil {
-			return "", i18n.WrapError(ctx, err, msgs.MsgErrorValidateFuncParams, "invalid spendLockedOutputs entry in lock info")
+			return "", i18n.WrapError(ctx, err, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
 		}
 		if len(b) != 32 {
-			return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid spendLockedOutputs entry in lock info")
+			return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
 		}
 		return b.String(), nil
 	}
 	if after, ok := strings.CutPrefix(s, "0X"); ok {
 		b, err := pldtypes.ParseHexBytes(ctx, "0x"+after)
 		if err != nil {
-			return "", i18n.WrapError(ctx, err, msgs.MsgErrorValidateFuncParams, "invalid spendLockedOutputs entry in lock info")
+			return "", i18n.WrapError(ctx, err, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
 		}
 		if len(b) != 32 {
-			return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid spendLockedOutputs entry in lock info")
+			return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
 		}
 		return b.String(), nil
 	}
 	bi, ok := new(big.Int).SetString(s, 10)
 	if !ok {
-		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid spendLockedOutputs entry in lock info")
+		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
 	}
 	if bi.Sign() < 0 || bi.BitLen() > 256 {
-		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid spendLockedOutputs entry in lock info")
+		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
 	}
 	return IntTo32ByteHexString(bi), nil
 }

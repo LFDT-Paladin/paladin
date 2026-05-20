@@ -265,7 +265,7 @@ func ZetoLockIDFromZetoLockCreatedEvent(ctx context.Context, t *testing.T, tb te
 }
 
 // ZetoLockedCoinIDFromCreateLockInvoke returns the UTXO commitment id of the locked coin from createLock output states.
-// spendLock resolves coins via spendLockedOutputs in lock info (same commitment strings).
+// spendLock resolves coins via lockedOutputs in lock info (same commitment strings).
 func ZetoLockedCoinIDFromCreateLockInvoke(t *testing.T, tr *testbed.TransactionResult) *pldtypes.HexUint256 {
 	t.Helper()
 	require.NotNil(t, tr)
@@ -281,7 +281,7 @@ func ZetoLockedCoinIDFromCreateLockInvoke(t *testing.T, tr *testbed.TransactionR
 		}
 		require.Nil(t, locked, "expected exactly one locked coin output from createLock")
 		// Use Poseidon commitment from coin fields (same as domain utxosFromOutputStates / spendLock proof),
-		// not raw st.ID bytes, so spendLock spendLockedOutputs match the proof's input commitments.
+		// not raw st.ID bytes, so spendLock lockedOutputs match the proof's input commitments.
 		h, err := coin.Hash(context.Background())
 		require.NoError(t, err)
 		v := *h

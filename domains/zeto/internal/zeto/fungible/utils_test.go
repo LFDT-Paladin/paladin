@@ -26,6 +26,17 @@ func TestQualifyPartyLookup(t *testing.T) {
 	assert.Equal(t, "bob", qualifyPartyLookup("bob", "controller"))
 }
 
+func TestCancelRecipientsForLockInfoJSON(t *testing.T) {
+	amt := pldtypes.Uint64ToUint256(100)
+	raw, err := cancelRecipientsForLockInfoJSON("controller", amt)
+	require.NoError(t, err)
+	var parsed []*types.FungibleTransferParamEntry
+	require.NoError(t, json.Unmarshal(raw, &parsed))
+	require.Len(t, parsed, 1)
+	assert.Equal(t, "controller", parsed[0].To)
+	assert.Equal(t, amt.Int().Int64(), parsed[0].Amount.Int().Int64())
+}
+
 func TestRecipientsForLockInfoJSON(t *testing.T) {
 	amt := pldtypes.Uint64ToUint256(1)
 	raw, err := recipientsForLockInfoJSON(&types.CreateLockParams{

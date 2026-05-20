@@ -145,7 +145,7 @@ type CreateLockParams struct {
 // ZetoSpendLockArgs from IZetoLockableCapability is ABI-encoded in spendArgs (see types.LockableCapabilitySpendLockABI).
 //
 // Wire JSON is lockId, from, and data only (matching the on-chain entrypoint). Locked coin ids, lock spender witness inputs,
-// and the spend recipient list come from persisted ZetoLockInfoState (see spendLockedOutputs, spendData, Spender).
+// and the spend recipient list come from persisted ZetoLockInfoState (see lockedOutputs, spendData, Spender).
 type SpendLockParams struct {
 	LockId pldtypes.Bytes32 `json:"lockId"`
 	// From is the Paladin identity that spends the lock (IZetoFungible_V1); must match the transaction signer.

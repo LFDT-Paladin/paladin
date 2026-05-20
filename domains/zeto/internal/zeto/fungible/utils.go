@@ -488,6 +488,15 @@ func qualifyPartyLookup(lookup, txFrom string) string {
 	return lookup
 }
 
+// cancelRecipientsForLockInfoJSON returns the single owner return entry for cancelLock (locked collateral total).
+func cancelRecipientsForLockInfoJSON(owner string, lockedTotal *pldtypes.HexUint256) ([]byte, error) {
+	entry := &types.FungibleTransferParamEntry{
+		To:     qualifyPartyLookup(owner, owner),
+		Amount: lockedTotal,
+	}
+	return json.Marshal([]*types.FungibleTransferParamEntry{entry})
+}
+
 // recipientsForLockInfoJSON returns createLock recipients with Paladin To lookups aligned to tx.Transaction.From
 // so spendLock assemble can resolve BJJ verifiers from Init.
 func recipientsForLockInfoJSON(params *types.CreateLockParams, txFrom string) ([]byte, error) {

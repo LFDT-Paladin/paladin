@@ -23,9 +23,9 @@ import (
 //   - assemble ZetoSpendLockArgs-shaped calldata (txId, lockedOutputs, outputs, proof, data) for spendLock/cancelLock.
 //
 // Upstream ZetoSpendLockArgs omits lockedInputs — the contract reads them from lock storage. Paladin persists the
-// locked UTXO commitment ids (same strings as coin state .id queries) in spendLockedOutputs at createLock so spendLock
-// can load coins for proofs. SpendOutputs lists Paladin coin state ids pre-allocated at createLock (info states, recipient distribution); they confirm on ZetoLockSpent.
-// SpendData holds JSON-encoded []*FungibleTransferParamEntry (createLock recipients) for amount validation at spendLock assemble.
+// locked collateral commitment strings (uint256 hex, from lockedOutputCoins at createLock) in LockedOutputs. spendLock
+// and cancelLock both use this same set as proof inputs. SpendOutputs / CancelOutputs are pre-pinned Paladin coin state
+// ids (info states) for the proposed spend and cancel paths; SpendData / CancelData hold recipient JSON for assemble.
 //
 // Commitment preimages use the same tuple shape as zeto_lockable._buildUnlockHash (domain-separated spend vs cancel).
 type ZetoLockInfoState struct {
@@ -35,14 +35,16 @@ type ZetoLockInfoState struct {
 	Owner   string `json:"owner"`   // 0x-prefixed ETH address hex
 	Spender string `json:"spender"` // 0x-prefixed ETH address hex
 
-	// Preimage for spend commitment (see _buildUnlockHash with _SPEND_HASH_DOMAIN).
-	SpendLockedOutputs []string          `json:"spendLockedOutputs"`
-	SpendOutputs       []string          `json:"spendOutputs"`
-	SpendData          pldtypes.HexBytes `json:"spendData"`
+	// Locked collateral commitments (shared proof inputs for spendLock and cancelLock).
+	LockedOutputs []string `json:"lockedOutputs"`
 
-	CancelLockedOutputs []string          `json:"cancelLockedOutputs"`
-	CancelOutputs       []string          `json:"cancelOutputs"`
-	CancelData          pldtypes.HexBytes `json:"cancelData"`
+	// Preimage for spend commitment (see _buildUnlockHash with _SPEND_HASH_DOMAIN).
+	SpendOutputs []string          `json:"spendOutputs"`
+	SpendData    pldtypes.HexBytes `json:"spendData"`
+
+	// Preimage for cancel commitment (see _buildUnlockHash with _CANCEL_HASH_DOMAIN).
+	CancelOutputs []string          `json:"cancelOutputs"`
+	CancelData    pldtypes.HexBytes `json:"cancelData"`
 
 	// Opaque copy of IZetoFungible_V1.createLock unlockData from the createLock request.
 	// No omitempty: ZetoLockInfoState AbiStateSchema validation requires this key (bytes may be empty "0x").
@@ -62,10 +64,9 @@ var ZetoLockInfoStateABI = &abi.Parameter{
 		{Name: "lockId", Type: "bytes32", Indexed: true},
 		{Name: "owner", Type: "address"},
 		{Name: "spender", Type: "address"},
-		{Name: "spendLockedOutputs", Type: "uint256[]"},
+		{Name: "lockedOutputs", Type: "uint256[]"},
 		{Name: "spendOutputs", Type: "uint256[]"},
 		{Name: "spendData", Type: "bytes"},
-		{Name: "cancelLockedOutputs", Type: "uint256[]"},
 		{Name: "cancelOutputs", Type: "uint256[]"},
 		{Name: "cancelData", Type: "bytes"},
 		{Name: "unlockData", Type: "bytes"},

@@ -138,7 +138,7 @@ func (h *spendLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransac
 	if li == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoNotFound, params.LockId.HexString0xPrefix())
 	}
-	if len(li.SpendLockedOutputs) == 0 {
+	if len(li.LockedOutputs) == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoEmptyLockedInputs, params.LockId.HexString0xPrefix())
 	}
 
@@ -157,8 +157,8 @@ func (h *spendLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransac
 		delegateAddr = delegateLookup
 	}
 
-	lockedInputIDs := make([]string, 0, len(li.SpendLockedOutputs))
-	for _, s := range li.SpendLockedOutputs {
+	lockedInputIDs := make([]string, 0, len(li.LockedOutputs))
+	for _, s := range li.LockedOutputs {
 		id, err := common.CoinStateIDFromPersistedString(ctx, s)
 		if err != nil {
 			return nil, err
@@ -166,7 +166,7 @@ func (h *spendLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransac
 		lockedInputIDs = append(lockedInputIDs, id)
 	}
 	// useNullifiers only steers state-query indexing for this token; locked inputs are resolved by commitment id
-	// (spendLockedOutputs → coin .id), not by treating them as nullifier spends of the unlocked UTXO tree.
+	// (lockedOutputs → coin .id), not by treating them as nullifier spends of the unlocked UTXO tree.
 	inputStates, revert, err := h.loadCoins(ctx, lockedInputIDs, useNullifiers, req.StateQueryContext)
 	if err != nil {
 		if revert {

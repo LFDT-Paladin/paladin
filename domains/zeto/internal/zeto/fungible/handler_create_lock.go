@@ -167,8 +167,8 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 
 	useNullifiers := common.IsNullifiersToken(tx.DomainConfig.TokenName)
 	lockedTotal := createLockRecipientsTotal(params)
-	sumHex := pldtypes.HexUint256(*lockedTotal)
-	inputStates, revert, err := buildInputsForExpectedTotal(ctx, h.callbacks, h.stateSchemas.CoinSchema, useNullifiers, req.StateQueryContext, resolvedSender.Verifier, lockedTotal, false)
+	lockedTotalHex := pldtypes.HexUint256(*lockedTotal)
+	inputs, revert, err := buildInputsForExpectedTotal(ctx, h.callbacks, h.stateSchemas.CoinSchema, useNullifiers, req.StateQueryContext, resolvedSender.Verifier, lockedTotal, false)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -179,22 +179,26 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 		}
 		return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxInputs, err)
 	}
+	inputCoins := inputs.coins
+	inputStates := inputs.states
 
-	var outputCoins []*types.ZetoCoin
-	var outputStates []*pb.NewState
-	var infoStates []*pb.NewState
-	remainder := big.NewInt(0).Sub(inputStates.total, lockedTotal)
-	if remainder.Sign() > 0 {
+	var remainderOutputCoins []*types.ZetoCoin
+	var remainderOutputStates []*pb.NewState
+	var assembledOutputStates []*pb.NewState
+	var assembledInfoStates []*pb.NewState
+	remainderAmount := big.NewInt(0).Sub(inputs.total, lockedTotal)
+	if remainderAmount.Sign() > 0 {
 		remainderOutputEntries := []*types.FungibleTransferParamEntry{
 			{
 				To:     tx.Transaction.From,
-				Amount: pldtypes.Uint64ToUint256(remainder.Uint64()),
+				Amount: pldtypes.Uint64ToUint256(remainderAmount.Uint64()),
 			},
 		}
-		outputCoins, outputStates, err = prepareOutputsForTransfer(ctx, useNullifiers, remainderOutputEntries, req.ResolvedVerifiers, h.stateSchemas.CoinSchema, h.name)
+		remainderOutputCoins, remainderOutputStates, err = prepareOutputsForTransfer(ctx, useNullifiers, remainderOutputEntries, req.ResolvedVerifiers, h.stateSchemas.CoinSchema, h.name)
 		if err != nil {
 			return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxOutputs, err)
 		}
+		assembledOutputStates = append(assembledOutputStates, remainderOutputStates...)
 	}
 
 	// we create a single locked output for the sender themselves,
@@ -202,7 +206,7 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	lockedOutputEntries := []*types.FungibleTransferParamEntry{
 		{
 			To:     tx.Transaction.From,
-			Amount: &sumHex,
+			Amount: &lockedTotalHex,
 		},
 	}
 	lockedOutputCoins, lockedOutputStates, err := prepareOutputsForTransfer(ctx, useNullifiers, lockedOutputEntries, req.ResolvedVerifiers, h.stateSchemas.CoinSchema, h.name, true)
@@ -212,7 +216,7 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	// Locked collateral is spent by commitment on spendLock (ZetoLockSpent lockedInputs), not via the
 	// unlocked-UTXO nullifier tree — do not register nullifiers here or spendLock cannot retire the input.
 	clearNullifierSpecs(lockedOutputStates)
-	outputStates = append(outputStates, lockedOutputStates...)
+	assembledOutputStates = append(assembledOutputStates, lockedOutputStates...)
 
 	contractAddress, err := pldtypes.ParseEthAddress(req.Transaction.ContractInfo.ContractAddress)
 	if err != nil {
@@ -220,17 +224,18 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	}
 	// construct the proposed spend states for the recipients,
 	// these will be used to construct the spendCommitment for the lock
-	var proposedSpendStates []*pb.NewState
-	qualifiedRecipients := make([]*types.FungibleTransferParamEntry, 0, len(params.Recipients))
+	proposedSpendRecipients := make([]*types.FungibleTransferParamEntry, 0, len(params.Recipients))
 	for _, r := range params.Recipients {
 		if r == nil {
 			continue
 		}
 		entry := *r
 		entry.To = qualifyPartyLookup(entry.To, tx.Transaction.From)
-		qualifiedRecipients = append(qualifiedRecipients, &entry)
+		proposedSpendRecipients = append(proposedSpendRecipients, &entry)
 	}
-	_, proposedSpendStates, err = prepareOutputsForTransfer(ctx, useNullifiers, qualifiedRecipients, req.ResolvedVerifiers, h.stateSchemas.CoinSchema, h.name)
+	var proposedSpendCoins []*types.ZetoCoin
+	var proposedSpendStates []*pb.NewState
+	proposedSpendCoins, proposedSpendStates, err = prepareOutputsForTransfer(ctx, useNullifiers, proposedSpendRecipients, req.ResolvedVerifiers, h.stateSchemas.CoinSchema, h.name)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxOutputs, err)
 	}
@@ -238,10 +243,29 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	// recorded in lock info SpendOutputs below. Lock info itself is an OutputState (lock-info schema).
 	// No NullifierSpecs here — info states are not in creatingStates (PD010126); spendLock registers them.
 	clearNullifierSpecs(proposedSpendStates)
-	infoStates = append(infoStates, proposedSpendStates...)
+	assembledInfoStates = append(assembledInfoStates, proposedSpendStates...)
 
-	// Persist lock info under the lock-info schema (6th AbiStateSchema). spendLock loads
-	// spendLockedOutputs, spendOutputs, and spendData from this row
+	// Pre-pin cancel path: spend locked collateral back to the owner as unlocked outputs (cancelLock).
+	proposedCancelOutputEntries := []*types.FungibleTransferParamEntry{
+		{
+			To:     tx.Transaction.From,
+			Amount: &lockedTotalHex,
+		},
+	}
+	var proposedCancelCoins []*types.ZetoCoin
+	var proposedCancelStates []*pb.NewState
+	proposedCancelCoins, proposedCancelStates, err = prepareOutputsForTransfer(ctx, useNullifiers, proposedCancelOutputEntries, req.ResolvedVerifiers, h.stateSchemas.CoinSchema, h.name)
+	if err != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxOutputs, err)
+	}
+	clearNullifierSpecs(proposedCancelStates)
+	assembledInfoStates = append(assembledInfoStates, proposedCancelStates...)
+	if len(proposedSpendCoins) != len(proposedSpendStates) || len(proposedCancelCoins) != len(proposedCancelStates) {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "proposed spend/cancel coins and states length mismatch")
+	}
+
+	// Persist lock info under the lock-info schema (6th AbiStateSchema). spendLock / cancelLock load
+	// lockedOutputs plus spendOutputs/spendData or cancelOutputs/cancelData from this row
 	txID32, err := common.ParseTransactionIDBytes32(ctx, req.Transaction.TransactionId)
 	if err != nil {
 		return nil, err
@@ -257,50 +281,58 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 
 	// compute the lock id for the lock using the same logic as the onchain Zeto contract
 	lockID := types.ComputeZetoLockIDV1(*contractAddress, *resolvedEthAddr, txID32)
-	lockedInputStrs := make([]string, 0, len(lockedOutputCoins))
-	for _, c := range lockedOutputCoins {
-		hh, err := c.Hash(ctx)
+	lockedOutputCommitmentStrs := make([]string, 0, len(lockedOutputCoins))
+	for _, coin := range lockedOutputCoins {
+		hh, err := coin.Hash(ctx)
 		if err != nil {
 			return nil, err
 		}
-		lockedInputStrs = append(lockedInputStrs, common.HexUint256To32ByteHexString(hh))
+		lockedOutputCommitmentStrs = append(lockedOutputCommitmentStrs, common.HexUint256To32ByteHexString(hh))
 	}
-	spendOutputStrs := make([]string, 0, len(proposedSpendStates))
+	proposedSpendStateIDs := make([]string, 0, len(proposedSpendStates))
 	for _, st := range proposedSpendStates {
 		if st.Id != nil {
-			spendOutputStrs = append(spendOutputStrs, *st.Id)
+			proposedSpendStateIDs = append(proposedSpendStateIDs, *st.Id)
 		}
 	}
 	salt := crypto.NewSalt()
-	recipientsJSON, err := recipientsForLockInfoJSON(params, tx.Transaction.From)
+	proposedSpendDataJSON, err := recipientsForLockInfoJSON(params, tx.Transaction.From)
 	if err != nil {
 		return nil, err
 	}
-	li := &types.ZetoLockInfoState{
-		Salt:               (*pldtypes.HexUint256)(salt),
-		LockID:             lockID,
-		Owner:              resolvedEth.Verifier,
-		Spender:            resolvedEthAddr.String(),
-		SpendLockedOutputs: lockedInputStrs,
-		SpendOutputs:       spendOutputStrs,
-		SpendData:          append(pldtypes.HexBytes(nil), recipientsJSON...),
-		// TODO: add cancel locked outputs and outputs to return things to the owner
-		CancelLockedOutputs: []string{},
-		CancelOutputs:       []string{},
-		CancelData:          pldtypes.HexBytes{},
-		UnlockData:          append(pldtypes.HexBytes(nil), params.UnlockData...),
+	proposedCancelStateIDs := make([]string, 0, len(proposedCancelStates))
+	for _, st := range proposedCancelStates {
+		if st.Id != nil {
+			proposedCancelStateIDs = append(proposedCancelStateIDs, *st.Id)
+		}
 	}
-	lockInfoState, err := makeNewLockInfoState(ctx, h.stateSchemas.LockInfoSchema, li, []string{tx.Transaction.From})
+	proposedCancelDataJSON, err := cancelRecipientsForLockInfoJSON(tx.Transaction.From, &lockedTotalHex)
+	if err != nil {
+		return nil, err
+	}
+	lockInfo := &types.ZetoLockInfoState{
+		Salt:          (*pldtypes.HexUint256)(salt),
+		LockID:        lockID,
+		Owner:         resolvedEth.Verifier,
+		Spender:       resolvedEthAddr.String(),
+		LockedOutputs: lockedOutputCommitmentStrs,
+		SpendOutputs:  proposedSpendStateIDs,
+		SpendData:     append(pldtypes.HexBytes(nil), proposedSpendDataJSON...),
+		CancelOutputs: proposedCancelStateIDs,
+		CancelData:    append(pldtypes.HexBytes(nil), proposedCancelDataJSON...),
+		UnlockData:    append(pldtypes.HexBytes(nil), params.UnlockData...),
+	}
+	lockInfoState, err := makeNewLockInfoState(ctx, h.stateSchemas.LockInfoSchema, lockInfo, []string{tx.Transaction.From})
 	if err != nil {
 		return nil, err
 	}
 	// Lock info is an off-chain output state (not a coin UTXO). Prepare skips non-coin outputs for proof encoding.
-	outputStates = append(outputStates, lockInfoState)
+	assembledOutputStates = append(assembledOutputStates, lockInfoState)
 
-	allOutputCoins := lockTransitionOutputCoinsForProof(tx.DomainConfig.ZetoVariant, outputCoins, lockedOutputCoins)
+	proofOutputCoins := lockTransitionOutputCoinsForProof(tx.DomainConfig.ZetoVariant, remainderOutputCoins, lockedOutputCoins)
 	// createLock spends unlocked inputs, using the proof circuit for the transfer method
 	circuit := (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER]
-	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, signercommon.GetHasher(), inputStates.coins, allOutputCoins, circuit, tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress, false)
+	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, signercommon.GetHasher(), inputCoins, proofOutputCoins, circuit, tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress, false)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorFormatProvingReq, err)
 	}
@@ -308,9 +340,9 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
-			InputStates:  inputStates.states,
-			OutputStates: outputStates,
-			InfoStates:   infoStates,
+			InputStates:  inputStates,
+			OutputStates: assembledOutputStates,
+			InfoStates:   assembledInfoStates,
 		},
 		AttestationPlan: []*prototk.AttestationRequest{
 			{
@@ -346,7 +378,7 @@ func (h *createLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransac
 		return nil, err
 	}
 
-	var unlockedOutputStates []*pb.EndorsableState
+	var remainderOutputStates []*pb.EndorsableState
 	var lockedOutputStates []*pb.EndorsableState
 	coinSchemaID := h.stateSchemas.CoinSchema.Id
 	for _, state := range req.OutputStates {
@@ -362,15 +394,15 @@ func (h *createLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransac
 		if coin.Locked {
 			lockedOutputStates = append(lockedOutputStates, state)
 		} else {
-			unlockedOutputStates = append(unlockedOutputStates, state)
+			remainderOutputStates = append(remainderOutputStates, state)
 		}
 	}
 
-	outputs, err := utxosFromOutputStates(ctx, unlockedOutputStates, inputSize)
+	remainderOutputs, err := utxosFromOutputStates(ctx, remainderOutputStates, inputSize)
 	if err != nil {
 		return nil, err
 	}
-	outputs = trimZeroUtxos(outputs)
+	remainderOutputs = trimZeroUtxos(remainderOutputs)
 
 	lockedOutputs, err := utxosFromOutputStates(ctx, lockedOutputStates, inputSize)
 	if err != nil {
@@ -400,7 +432,7 @@ func (h *createLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransac
 	createArgsWire := zetoCreateLockArgsWireJSON{
 		TxID:          txID32.HexString0xPrefix(),
 		Inputs:        inCol,
-		Outputs:       outputs,
+		Outputs:       remainderOutputs,
 		LockedOutputs: lockedOutputs,
 		Proof:         pldtypes.HexBytes(proofBytes).HexString0xPrefix(),
 	}

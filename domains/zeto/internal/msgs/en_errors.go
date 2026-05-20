@@ -176,7 +176,7 @@ var (
 	MsgZetoFactoryVersionConflict            = pde("PD210147", "factoryVersion in deploy params (%d) conflicts with domain factoryVersion (%d)")
 	MsgZetoLegacyDomainConfigDecode          = pde("PD210148", "Legacy Zeto domain config decode failed (expected v0 tuple or v1 prefix %s): %s")
 	MsgErrorLockInfoNotFound                 = pde("PD210149", "Persisted lock info not found for lockId=%s (complete createLock first, confirm state is available, or verify lockId matches the public createLock submitter)")
-	MsgErrorLockInfoEmptyLockedInputs        = pde("PD210150", "Persisted lock info for lockId=%s has empty spendLockedOutputs (createLock assembly may have failed to pin locked output commitments)")
+	MsgErrorLockInfoEmptyLockedInputs        = pde("PD210150", "Persisted lock info for lockId=%s has empty lockedOutputs (createLock assembly may have failed to pin locked output commitments)")
 	MsgErrorLockInfoMissingSpendData         = pde("PD210151", "Persisted lock info for lockId=%s has no spendData recipients (complete createLock with recipients first)")
 	MsgErrorLockInfoEmptySpendOutputs        = pde("PD210152", "Persisted lock info for lockId=%s has empty spendOutputs (createLock assembly must pin spend output state ids)")
 	MsgErrorSpendOutputIsLocked              = pde("PD210153", "Pinned spend output %s must be unlocked")
