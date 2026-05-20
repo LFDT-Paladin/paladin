@@ -49,9 +49,11 @@ func TestFungibleZetoV1Suite(t *testing.T) {
 			if !helpers.ZetoZKArtifactsRootPresent(root) {
 				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
 			}
-			contractsFile = "./zeto/config-for-deploy-fungible-v1.yaml"
 			suite.Run(t, &fungibleV1TestSuiteHelper{
-				zetoDomainTestSuite: zetoDomainTestSuite{zkpArtifactRoot: root},
+				zetoDomainTestSuite: zetoDomainTestSuite{
+					zkpArtifactRoot: root,
+					contractsFile:   "./zeto/config-for-deploy-fungible-v1.yaml",
+				},
 			})
 		})
 	}

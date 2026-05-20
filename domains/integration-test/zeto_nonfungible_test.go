@@ -18,7 +18,6 @@ import (
 )
 
 func TestNonFungibleZetoSuite(t *testing.T) {
-	contractsFile = "./zeto/config-for-deploy-non-fungible.yaml"
 	for _, root := range helpers.ZetoZKArtifactRootsForTestRun() {
 		root := root
 		t.Run(root, func(t *testing.T) {
@@ -26,7 +25,10 @@ func TestNonFungibleZetoSuite(t *testing.T) {
 				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
 			}
 			suite.Run(t, &nonFungibleTestSuiteHelper{
-				zetoDomainTestSuite: zetoDomainTestSuite{zkpArtifactRoot: root},
+				zetoDomainTestSuite: zetoDomainTestSuite{
+					zkpArtifactRoot: root,
+					contractsFile:   "./zeto/config-for-deploy-non-fungible.yaml",
+				},
 			})
 		})
 	}

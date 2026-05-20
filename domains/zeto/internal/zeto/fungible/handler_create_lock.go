@@ -47,33 +47,6 @@ type createLockHandler struct {
 	callbacks plugintk.DomainCallbacks
 }
 
-var createLockABI = &abi.Entry{
-	Type: abi.Function,
-	Name: types.METHOD_CREATE_LOCK,
-	Inputs: abi.ParameterArray{
-		{Name: "inputs", Type: "uint256[]"},
-		{Name: "outputs", Type: "uint256[]"},
-		{Name: "lockedOutputs", Type: "uint256[]"},
-		{Name: "proof", Type: "tuple", InternalType: "struct Commonlib.Proof", Components: common.ProofComponents},
-		{Name: "delegate", Type: "address"},
-		{Name: "data", Type: "bytes"},
-	},
-}
-
-var createLockABINullifiers = &abi.Entry{
-	Type: abi.Function,
-	Name: types.METHOD_CREATE_LOCK,
-	Inputs: abi.ParameterArray{
-		{Name: "nullifiers", Type: "uint256[]"},
-		{Name: "outputs", Type: "uint256[]"},
-		{Name: "lockedOutputs", Type: "uint256[]"},
-		{Name: "root", Type: "uint256"},
-		{Name: "proof", Type: "tuple", InternalType: "struct Commonlib.Proof", Components: common.ProofComponents},
-		{Name: "delegate", Type: "address"},
-		{Name: "data", Type: "bytes"},
-	},
-}
-
 // zetoCreateLockArgsTupleABI matches ethers AbiCoder.encode(["tuple(...)"], [args]) used in zeto_anon.ts encodeCreateArgs.
 // It must be a single wrapped tuple (not five top-level ABI params) so the payload starts with the 0x20 offset word
 // Solidity expects when abi.decode(createArgs, (ZetoCreateLockArgs)).

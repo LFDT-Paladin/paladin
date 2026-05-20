@@ -47,31 +47,6 @@ type spendLockHandler struct {
 	callbacks plugintk.DomainCallbacks
 }
 
-var spendLockABI = &abi.Entry{
-	Type: abi.Function,
-	Name: types.METHOD_SPEND_LOCK,
-	Inputs: abi.ParameterArray{
-		{Name: "lockId", Type: "bytes32"},
-		{Name: "inputs", Type: "uint256[]"},
-		{Name: "outputs", Type: "uint256[]"},
-		{Name: "proof", Type: "tuple", InternalType: "struct Commonlib.Proof", Components: common.ProofComponents},
-		{Name: "data", Type: "bytes"},
-	},
-}
-
-var spendLockABINullifiers = &abi.Entry{
-	Type: abi.Function,
-	Name: types.METHOD_SPEND_LOCK,
-	Inputs: abi.ParameterArray{
-		{Name: "lockId", Type: "bytes32"},
-		{Name: "nullifiers", Type: "uint256[]"},
-		{Name: "outputs", Type: "uint256[]"},
-		{Name: "root", Type: "uint256"},
-		{Name: "proof", Type: "tuple", InternalType: "struct Commonlib.Proof", Components: common.ProofComponents},
-		{Name: "data", Type: "bytes"},
-	},
-}
-
 // zetoSpendLockArgsTupleABI matches ethers AbiCoder.encode(["tuple(...)"], [args]) for spendArgs; it must be a
 // single wrapped tuple (not top-level ABI params) so the payload starts with the 0x20 offset word Solidity
 // expects when abi.decode(spendArgs, (IZetoLockableCapability.ZetoSpendLockArgs)) (see zetoCreateLockArgsTupleABI / zeto_anon.ts).
@@ -311,7 +286,7 @@ func (h *spendLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransact
 		return nil, i18n.NewError(ctx, msgs.MsgErrorEncodeTxData, err)
 	}
 	spendParams := tx.Params.(*types.SpendLockParams)
-	fnABI := getSpendLockABI(tx.DomainConfig.TokenName, tx.DomainConfig.ZetoVariant)
+	fnABI := types.LockableCapabilitySpendLockABI
 	var prepParams map[string]any
 	useNullifiers := common.IsNullifiersToken(tx.DomainConfig.TokenName)
 	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(tx.DomainConfig.ZetoVariant)) {
@@ -534,15 +509,4 @@ func spendRecipientsFromLockInfo(ctx context.Context, li *types.ZetoLockInfoStat
 		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoMissingSpendData, li.LockID.HexString0xPrefix())
 	}
 	return parsed, nil
-}
-
-func getSpendLockABI(tokenName string, zetoVariant pldtypes.HexUint64) *abi.Entry {
-	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(zetoVariant)) {
-		return types.LockableCapabilitySpendLockABI
-	}
-	fnABI := spendLockABI
-	if common.IsNullifiersToken(tokenName) {
-		fnABI = spendLockABINullifiers
-	}
-	return fnABI
 }

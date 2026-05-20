@@ -31,12 +31,9 @@ var (
 	controllerName = "controller"
 )
 
-// This is the path to the contracts file
-// it should be set by the test runner
-var contractsFile string
-
 type zetoDomainTestSuite struct {
 	suite.Suite
+	contractsFile     string
 	hdWalletSeed      *testbed.UTInitFunction
 	deployedContracts *helpers.ZetoDomainContracts
 	domainName        string
@@ -59,7 +56,7 @@ func (s *zetoDomainTestSuite) SetupSuite() {
 		zkpRoot = helpers.EffectiveZetoZKArtifactRoot()
 	}
 	log.L(ctx).Infof("Zeto ZKP artifact root = %s (%s)", zkpRoot, helpers.ZetoZKArtifactsDir(zkpRoot))
-	domainContracts := helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, contractsFile, controllerName, zkpRoot)
+	domainContracts := helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, s.contractsFile, controllerName, zkpRoot)
 	s.deployedContracts = domainContracts
 	config := helpers.PrepareZetoConfig(s.T(), s.deployedContracts, helpers.ZetoZKArtifactsDir(zkpRoot))
 	waitForZeto, zetoTestbed := newZetoDomain(s.T(), config, domainContracts.FactoryAddress)
