@@ -63,35 +63,35 @@ type fungibleV1TestSuiteHelper struct {
 	zetoDomainTestSuite
 }
 
-func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_Anon() {
+func (s *fungibleV1TestSuiteHelper) Test_ZetoV1_Anon() {
 	s.testZetoV1(s.T(), constants.TOKEN_ANON, false, false)
 }
 
-func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonBatch() {
+func (s *fungibleV1TestSuiteHelper) Test_ZetoV1_AnonBatch() {
 	s.testZetoV1(s.T(), constants.TOKEN_ANON, true, false)
 }
 
-func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonEnc() {
+func (s *fungibleV1TestSuiteHelper) Test_ZetoV1_AnonEnc() {
 	s.testZetoV1(s.T(), constants.TOKEN_ANON_ENC, false, false)
 }
 
-func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonEncBatch() {
+func (s *fungibleV1TestSuiteHelper) Test_ZetoV1_AnonEncBatch() {
 	s.testZetoV1(s.T(), constants.TOKEN_ANON_ENC, true, false)
 }
 
-func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonNullifier() {
+func (s *fungibleV1TestSuiteHelper) Test_ZetoV1_AnonNullifier() {
 	s.testZetoV1(s.T(), constants.TOKEN_ANON_NULLIFIER, false, true)
 }
 
-func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonNullifierBatch() {
+func (s *fungibleV1TestSuiteHelper) Test_ZetoV1_AnonNullifierBatch() {
 	s.testZetoV1(s.T(), constants.TOKEN_ANON_NULLIFIER, true, true)
 }
 
-func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonNullifierKyc() {
+func (s *fungibleV1TestSuiteHelper) Test_ZetoV1_AnonNullifierKyc() {
 	s.testZetoV1(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, false, true, true)
 }
 
-func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonNullifierKycBatch() {
+func (s *fungibleV1TestSuiteHelper) Test_ZetoV1_AnonNullifierKycBatch() {
 	s.testZetoV1(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, true, true, true)
 }
 

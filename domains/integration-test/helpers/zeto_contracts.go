@@ -184,7 +184,7 @@ func deployZetoContractsFromConfig(t *testing.T, hdWalletSeed *testbed.UTInitFun
 	}
 	rewriteZetoDeployAbiPaths(config, zkpRoot)
 
-	deployedContracts, err := deployDomainContracts(ctx, rpc, controller, config)
+	deployedContracts, err := deployDomainContracts(ctx, rpc, controller, config, zkpRoot)
 	require.NoError(t, err)
 
 	err = configureFactoryContract(ctx, tb, controller, deployedContracts)
@@ -229,7 +229,7 @@ func newZetoDomainContracts() *ZetoDomainContracts {
 	}
 }
 
-func deployDomainContracts(ctx context.Context, rpc rpcclient.Client, deployer string, config *ZetoDomainConfig) (*ZetoDomainContracts, error) {
+func deployDomainContracts(ctx context.Context, rpc rpcclient.Client, deployer string, config *ZetoDomainConfig, zkpRoot string) (*ZetoDomainContracts, error) {
 	if len(config.DomainContracts.Implementations) == 0 {
 		return nil, fmt.Errorf("no implementations specified for factory contract")
 	}
@@ -239,13 +239,13 @@ func deployDomainContracts(ctx context.Context, rpc rpcclient.Client, deployer s
 	cloneableContracts := findCloneableContracts(config)
 
 	// deploy the implementation contracts
-	deployedContracts, deployedContractAbis, err := deployImplementations(ctx, rpc, deployer, config.DomainContracts.Implementations)
+	deployedContracts, deployedContractAbis, err := deployImplementations(ctx, rpc, deployer, zkpRoot, config.DomainContracts.Implementations)
 	if err != nil {
 		return nil, err
 	}
 
-	// deploy the factory contract
-	factoryAddr, factoryABI, err := deployContract(ctx, rpc, deployer, &config.DomainContracts.Factory, deployedContracts)
+	// deploy the factory contract (V1 uses explicit ERC1967 proxy deploy — see deployZetoFactoryV1WithProxy)
+	factoryAddr, factoryABI, err := deployContract(ctx, rpc, deployer, zkpRoot, &config.DomainContracts.Factory, deployedContracts)
 	if err != nil {
 		return nil, err
 	}
@@ -281,11 +281,11 @@ func findCloneableContracts(config *ZetoDomainConfig) map[string]cloneableContra
 	return cloneableContracts
 }
 
-func deployImplementations(ctx context.Context, rpc rpcclient.Client, deployer string, contracts []zetoDomainContract) (map[string]*pldtypes.EthAddress, map[string]abi.ABI, error) {
+func deployImplementations(ctx context.Context, rpc rpcclient.Client, deployer, zkpRoot string, contracts []zetoDomainContract) (map[string]*pldtypes.EthAddress, map[string]abi.ABI, error) {
 	deployedContracts := make(map[string]*pldtypes.EthAddress)
 	deployedContractAbis := make(map[string]abi.ABI)
 	for _, contract := range contracts {
-		addr, abi, err := deployContract(ctx, rpc, deployer, &contract, deployedContracts)
+		addr, abi, err := deployContract(ctx, rpc, deployer, zkpRoot, &contract, deployedContracts)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -297,14 +297,16 @@ func deployImplementations(ctx context.Context, rpc rpcclient.Client, deployer s
 	return deployedContracts, deployedContractAbis, nil
 }
 
-func deployContract(ctx context.Context, rpc rpcclient.Client, deployer string, contract *zetoDomainContract, deployedContracts map[string]*pldtypes.EthAddress) (*pldtypes.EthAddress, abi.ABI, error) {
+func deployContract(ctx context.Context, rpc rpcclient.Client, deployer, zkpRoot string, contract *zetoDomainContract, deployedContracts map[string]*pldtypes.EthAddress) (*pldtypes.EthAddress, abi.ABI, error) {
 	if contract.AbiAndBytecode.Path == "" {
 		return nil, nil, fmt.Errorf("no path or JSON specified for the abi and bytecode for contract %s", contract.Name)
 	}
-	// deploy the contract
 	build, err := getContractSpec(contract, deployedContracts)
 	if err != nil {
 		return nil, nil, err
+	}
+	if isZetoFactoryV1Deploy(contract) {
+		return deployZetoFactoryV1WithProxy(ctx, rpc, deployer, build)
 	}
 	addr, err := deployBytecode(ctx, rpc, deployer, build)
 	if err != nil {
