@@ -211,6 +211,18 @@ task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", extractZe
     includeEmptyDirs = false
 }
 
+// Paladin ZetoFactory / ZetoFactoryV1 wrappers (go:embed factoryabis/*); not checked into git.
+task copyFactoryAbis(type: Copy, dependsOn: [":solidity:compile"]) {
+    inputs.files(configurations.contractCompile)
+    from fileTree(configurations.contractCompile.asPath) {
+        include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
+        include 'contracts/domains/zeto/ZetoFactoryV1.sol/ZetoFactoryV1.json'
+    }
+    into 'internal/zeto/factoryabis'
+    eachFile { path = name }
+    includeEmptyDirs = false
+}
+
 // ABI JSON from release layouts that differ from primary (e.g. LFDT v0.5.x): flattened JSON with outputSuffix for Go embeds.
 zetoVersions.findAll { it.copyRenamedAbiArtifacts }.each { variant ->
     task "copyZetoSolidityAbi_${variant.id}"(type: Copy, dependsOn: [protoc]) {
@@ -275,6 +287,7 @@ task unitTests(type: Exec, dependsOn: [
         ":core:go:makeMocks",
         extractZetoZkpVariants,
         copySolidity,
+        copyFactoryAbis,
         copyZetoSolidityAbis,
         copyPkgSolidity,
         ":domains:integration-test:copySolidity" // TODO: find a better way to share this
@@ -314,6 +327,7 @@ task test {
 task buildGo(type: GoLib, dependsOn: [
         ":toolkit:go:protoc",
         copySolidity,
+        copyFactoryAbis,
         copyZetoSolidityAbis,
         copyPkgSolidity,
         // copyZetoPkgSolidityAbis,
@@ -332,6 +346,7 @@ task build {
 task clean(type: Delete) {
     delete 'coverage'
     delete 'internal/zeto/abis'
+    delete 'internal/zeto/factoryabis'
     delete 'pkg/types/abis'
     delete zkpOut
     delete toolsOut
@@ -342,7 +357,7 @@ task assemble {
 }
 
 dependencies {
-    goSource files(goFiles, copySolidity, copyZetoSolidityAbis, copyPkgSolidity)
+    goSource files(goFiles, copySolidity, copyFactoryAbis, copyZetoSolidityAbis, copyPkgSolidity)
     zetoArtifacts files(zetoVersions.collect { tasks.getByName("extractZetoZkp_${it.id}") })
     poseidonArtifacts files(generatePoseidonArtifacts)
 }
