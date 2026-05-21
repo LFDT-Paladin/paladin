@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
@@ -249,6 +250,174 @@ func TestSpendRecipientsFromLockInfo(t *testing.T) {
 	_, err = spendRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "PD210151")
+}
+
+func TestSpendLockInitAndEndorse(t *testing.T) {
+	ctx := context.Background()
+	h := NewSpendLockHandler("zeto", nil, &prototk.StateSchema{Id: "coin"}, nil, nil, nil, nil)
+	tx := &types.ParsedTransaction{
+		Transaction: &prototk.TransactionSpecification{From: "alice@node"},
+		Params:      &types.SpendLockParams{From: "alice@node"},
+	}
+	res, err := h.Init(ctx, tx, &prototk.InitTransactionRequest{})
+	require.NoError(t, err)
+	require.Len(t, res.RequiredVerifiers, 1)
+	endorseRes, err := h.Endorse(ctx, tx, &prototk.EndorseTransactionRequest{})
+	require.NoError(t, err)
+	assert.Nil(t, endorseRes)
+}
+
+func TestSpendLockPrepare_V0UsesDiscreteProofParams(t *testing.T) {
+	ctx := context.Background()
+	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("55", 32))
+	spendData := pldtypes.HexBytes{0x01}
+	lockInfoJSON, err := json.Marshal(&types.ZetoLockInfoState{LockID: lockID, SpendData: spendData})
+	require.NoError(t, err)
+
+	h := spendLockHandler{
+		baseHandler: baseHandler{
+			name: "zeto",
+			stateSchemas: &common.StateSchemas{
+				CoinSchema:     &prototk.StateSchema{Id: "coin"},
+				LockInfoSchema: &prototk.StateSchema{Id: "lock_info"},
+			},
+		},
+		callbacks: mockLockInfoCallbacks(string(lockInfoJSON)),
+	}
+	proofReq := corepb.ProvingResponse{
+		Proof: &corepb.SnarkProof{
+			A: []string{"0x01", "0x02"},
+			B: []*corepb.B_Item{{Items: []string{"0x03", "0x04"}}, {Items: []string{"0x05", "0x06"}}},
+			C: []string{"0x07", "0x08"},
+		},
+		PublicInputs: map[string]string{"nullifiers": "0x09,0x0a", "root": "0x0b"},
+	}
+	payload, err := proto.Marshal(&proofReq)
+	require.NoError(t, err)
+
+	tx := &types.ParsedTransaction{
+		Transaction: &prototk.TransactionSpecification{From: "sender@node"},
+		DomainConfig: &types.DomainInstanceConfig{
+			TokenName:   constants.TOKEN_ANON,
+			ZetoVariant: types.ZetoFungibleV0ABI,
+		},
+		Params: &types.SpendLockParams{LockId: lockID, From: "sender@node"},
+	}
+	req := &prototk.PrepareTransactionRequest{
+		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("66", 32)},
+		InputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
+		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
+		AttestationResult: []*prototk.AttestationResult{{
+			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
+			PayloadType: strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK), Payload: payload,
+		}},
+	}
+	res, err := h.Prepare(ctx, tx, req)
+	require.NoError(t, err)
+	var params map[string]any
+	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
+	_, hasSpendArgs := params["spendArgs"]
+	assert.False(t, hasSpendArgs)
+	assert.NotNil(t, params["proof"])
+}
+
+func TestSpendLockPrepare_NullifierV0UsesPublicInputs(t *testing.T) {
+	ctx := context.Background()
+	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("66", 32))
+	lockInfoJSON, err := json.Marshal(&types.ZetoLockInfoState{LockID: lockID, SpendData: []byte{0x01}})
+	require.NoError(t, err)
+
+	h := spendLockHandler{
+		baseHandler: baseHandler{
+			name: "zeto",
+			stateSchemas: &common.StateSchemas{
+				CoinSchema:     &prototk.StateSchema{Id: "coin"},
+				LockInfoSchema: &prototk.StateSchema{Id: "lock_info"},
+			},
+		},
+		callbacks: mockLockInfoCallbacks(string(lockInfoJSON)),
+	}
+	proofReq := corepb.ProvingResponse{
+		Proof: &corepb.SnarkProof{
+			A: []string{"0x01", "0x02"},
+			B: []*corepb.B_Item{{Items: []string{"0x03", "0x04"}}, {Items: []string{"0x05", "0x06"}}},
+			C: []string{"0x07", "0x08"},
+		},
+		PublicInputs: map[string]string{"nullifiers": "0x09,0x0a", "root": "0x0b"},
+	}
+	payload, err := proto.Marshal(&proofReq)
+	require.NoError(t, err)
+
+	tx := &types.ParsedTransaction{
+		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: types.ZetoFungibleV0ABI},
+		Params:       &types.SpendLockParams{LockId: lockID, From: "sender@node"},
+	}
+	req := &prototk.PrepareTransactionRequest{
+		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("44", 32)},
+		InputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
+		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
+		AttestationResult: []*prototk.AttestationResult{{
+			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
+			PayloadType: strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK), Payload: payload,
+		}},
+	}
+	res, err := h.Prepare(ctx, tx, req)
+	require.NoError(t, err)
+	var params map[string]any
+	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
+	_, hasInputs := params["inputs"]
+	assert.False(t, hasInputs)
+	assert.NotNil(t, params["nullifiers"])
+}
+
+func TestSpendLockLoadLockInfoByLockID_NilSchema(t *testing.T) {
+	ctx := context.Background()
+	h := spendLockHandler{
+		baseHandler: baseHandler{
+			name: "zeto",
+			stateSchemas: &common.StateSchemas{CoinSchema: &prototk.StateSchema{Id: "coin"}},
+		},
+	}
+	got, err := h.loadLockInfoByLockID(ctx, pldtypes.RandBytes32(), "ctx")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+func TestSpendLockLoadLockInfoByLockID_NotFoundAndUnmarshal(t *testing.T) {
+	ctx := context.Background()
+	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("50", 32))
+	h := spendLockHandler{
+		baseHandler: baseHandler{
+			name:         "zeto",
+			stateSchemas: &common.StateSchemas{LockInfoSchema: &prototk.StateSchema{Id: "lock_info"}},
+		},
+		callbacks: &domain.MockDomainCallbacks{
+			MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+				return &prototk.FindAvailableStatesResponse{}, nil
+			},
+		},
+	}
+	got, err := h.loadLockInfoByLockID(ctx, lockID, "ctx")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+
+	h.callbacks = &domain.MockDomainCallbacks{
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{{DataJson: "not-json"}},
+			}, nil
+		},
+	}
+	_, err = h.loadLockInfoByLockID(ctx, lockID, "ctx")
+	require.Error(t, err)
+}
+
+func TestSpendLockValidateParams_Errors(t *testing.T) {
+	ctx := context.Background()
+	h := spendLockHandler{baseHandler: baseHandler{name: "zeto"}}
+	_, err := h.ValidateParams(ctx, &types.DomainInstanceConfig{}, `{"lockId":"0x`+strings.Repeat("00", 32)+`"}`)
+	require.Error(t, err)
 }
 
 type abiJSONFields struct {

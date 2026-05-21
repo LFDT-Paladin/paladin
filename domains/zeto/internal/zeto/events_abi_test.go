@@ -1,14 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- * specific language governing permissions and limitations under the License.
+ * Copyright © 2026 Kaleido, Inc.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -18,58 +9,52 @@ package zeto
 import (
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestGetAllZetoEventAbis(t *testing.T) {
-	events := getAllZetoEventAbis()
-	// V1 merges ILockableCapability (as IZetoLockableCapability_V1) which carries extra events vs legacy izeto_lockable IZetoLockable.
-	assert.Equal(t, 19, len(events))
+func TestZetoEventABISet_IncludesCoreAndLockableEvents(t *testing.T) {
+	for _, v := range []types.ZetoTargetContractABIVersion{types.ZetoTargetContractABI_V0, types.ZetoTargetContractABI_V1} {
+		events := zetoEventABISet(v)
+		require.NotEmpty(t, events)
+		names := make(map[string]struct{})
+		for _, e := range events {
+			require.Equal(t, abi.Event, e.Type)
+			names[e.Name] = struct{}{}
+		}
+		assert.Contains(t, names, "UTXOTransfer")
+		if v == types.ZetoTargetContractABI_V1 {
+			assert.Contains(t, names, "ZetoLockCreated")
+		}
+	}
 }
 
-func TestBuildEvents(t *testing.T) {
-	const testABI = `{ "abi": [
-    {
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256[]",
-          "name": "outputs",
-          "type": "uint256[]"
-        }
-      ],
-      "name": "UTXOMint",
-      "type": "event"
-    },
-    {
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256[]",
-          "name": "outputs",
-          "type": "uint256[]"
-        }
-      ],
-      "name": "UTXOTransfer",
-      "type": "event"
-    },
-    {
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256[]",
-          "name": "outputs",
-          "type": "uint256[]"
-        }
-      ],
-      "name": "UTXOMint",
-      "type": "event"
-    }
-]}`
+func TestGetAllZetoEventAbis_DedupesAcrossVersions(t *testing.T) {
+	all := getAllZetoEventAbis()
+	require.NotEmpty(t, all)
+	seen := make(map[string]int)
+	for _, e := range all {
+		seen[e.Name]++
+	}
+	for name, count := range seen {
+		assert.Equal(t, 1, count, "event %s should appear once after dedup", name)
+	}
+}
 
-	contract := solutils.MustLoadBuild([]byte(testABI))
-	events := appendEventsFromBuild(nil, contract)
-	events = dedupEvents(events)
-	assert.Equal(t, 2, len(events))
+func TestDedupEvents(t *testing.T) {
+	events := abi.ABI{
+		{Type: abi.Event, Name: "A"},
+		{Type: abi.Event, Name: "B"},
+		{Type: abi.Event, Name: "A"},
+	}
+	deduped := dedupEvents(events)
+	require.Len(t, deduped, 2)
+}
+
+func TestZetoCoreABIBytes_PanicsOnUnsupportedVersion(t *testing.T) {
+	assert.Panics(t, func() {
+		_ = zetoCoreABIBytes(99)
+	})
 }

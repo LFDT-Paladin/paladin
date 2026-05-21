@@ -275,6 +275,36 @@ func TestPrepareDeploy(t *testing.T) {
 	}
 }
 
+func TestPrepareDeploy_V1Schema(t *testing.T) {
+	testCallbacks := &domain.MockDomainCallbacks{}
+	circuits := &zetosignerapi.Circuits{
+		"deposit":        &zetosignerapi.Circuit{Name: "circuit-deposit"},
+		"withdraw":       &zetosignerapi.Circuit{Name: "circuit-withdraw"},
+		"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
+		"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
+	}
+	z := New(testCallbacks)
+	z.config = &types.DomainFactoryConfig{
+		FactoryVersion: int64(types.ZetoPaladinFactoryV1),
+		DomainContracts: types.DomainConfigContracts{
+			Implementations: []*types.DomainContract{{Name: constants.TOKEN_ANON, Circuits: circuits}},
+		},
+	}
+	req := &pb.PrepareDeployRequest{
+		Transaction: &pb.DeployTransactionSpecification{
+			TransactionId: "0x1234",
+			ConstructorParamsJson: fmt.Sprintf(
+				`{"tokenName":"%s","domainConfigSchema":"v1","zetoVariant":%d}`,
+				constants.TOKEN_ANON, types.ZetoFungibleV1ABI.Uint64(),
+			),
+		},
+		ResolvedVerifiers: []*pb.ResolvedVerifier{{Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019"}},
+	}
+	res, err := z.PrepareDeploy(context.Background(), req)
+	require.NoError(t, err)
+	assert.Contains(t, res.Transaction.ParamsJson, constants.TOKEN_ANON)
+}
+
 func TestPrepareDeployFactoryVersionErrors(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{}
 	circuits := &zetosignerapi.Circuits{
@@ -661,19 +691,79 @@ func TestHandleEventBatch(t *testing.T) {
 	_, err = z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 
+	lockData, _ := json.Marshal(map[string]any{
+		"data":          encodedData,
+		"inputs":        []string{"100"},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"lockedOutputs": []string{"200"},
+	})
+	req.Events[0].DataJson = string(lockData)
 	req.Events[0].SoliditySignature = z.events.lock
 	res5, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res5.TransactionsComplete, 1)
+	assert.NotEmpty(t, res5.NewStates)
 
 	req.ContractInfo.ContractConfigJson = pldtypes.JSONString(map[string]interface{}{
 		"circuitId": "anon_nullifier_kyc_transfer",
-		"tokenName": "Zeto_AnonNullifierKYC",
+		"tokenName": "Zeto_AnonNullifierKyc",
 	}).Pretty()
+	identityData, _ := json.Marshal(map[string]any{
+		"data":      encodedData,
+		"publicKey": []string{"7980718117603030807695495350922077879582656644717071592146865497574198464252", "7980718117603030807695495350922077879582656644717071592146865497574198464251"},
+	})
+	req.Events[0].DataJson = string(identityData)
 	req.Events[0].SoliditySignature = z.events.identityRegistered
 	res6, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res6.TransactionsComplete, 0)
+
+	z.lockInfoSchema = &pb.StateSchema{Id: "lock_info"}
+	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
+	lockCreated, _ := json.Marshal(map[string]any{
+		"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
+		"lockId":        lockID.HexString0xPrefix(),
+		"owner":         "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"inputs":        []string{"100"},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"lockedOutputs": []string{"200"},
+		"proof":         "0x",
+		"data":          encodedData,
+	})
+	req.Events = []*pb.OnChainEvent{{
+		DataJson: string(lockCreated), SoliditySignature: z.eventsV1.zetoLockCreated,
+	}}
+	res7, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res7.SpentStates, 1)
+	assert.Len(t, res7.ConfirmedStates, 3)
+
+	lockSpent, _ := json.Marshal(map[string]any{
+		"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
+		"lockId":        lockID.HexString0xPrefix(),
+		"spender":       "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"lockedInputs":  []string{"300"},
+		"lockedOutputs": []string{},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"proof":         "0x",
+		"data":          encodedData,
+	})
+	req.Events[0].DataJson = string(lockSpent)
+	req.Events[0].SoliditySignature = z.eventsV1.zetoLockSpent
+	res8, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res8.TransactionsComplete, 1)
+
+	req.Events[0].SoliditySignature = z.eventsV1.zetoLockCancelled
+	res9, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res9.TransactionsComplete, 1)
+
+	req.Events[0].DataJson = "not json"
+	req.Events[0].SoliditySignature = z.eventsV1.zetoLockCreated
+	res10, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Empty(t, res10.SpentStates)
 }
 
 func TestGetVerifier(t *testing.T) {

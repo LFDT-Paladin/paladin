@@ -28,3 +28,12 @@ func TestMakeNewLockInfoState_UsesLockIDAsStateID(t *testing.T) {
 	require.NotNil(t, ns.Id)
 	require.Equal(t, lockID.HexString0xPrefix(), *ns.Id)
 }
+
+func TestMakeNewLockInfoState_Errors(t *testing.T) {
+	ctx := context.Background()
+	schema := &prototk.StateSchema{Id: "lock_info"}
+	_, err := makeNewLockInfoState(ctx, schema, nil, nil)
+	require.Error(t, err)
+	_, err = makeNewLockInfoState(ctx, schema, &types.ZetoLockInfoState{}, nil)
+	require.Error(t, err)
+}

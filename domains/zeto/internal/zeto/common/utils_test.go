@@ -59,6 +59,25 @@ func TestCoinStateIDFromPersistedString(t *testing.T) {
 
 	_, err = CoinStateIDFromPersistedString(ctx, decimalID+"ff")
 	require.Error(t, err)
+
+	upper := "0X0d7b11e7bb9f808761aba8e35b8c57839d8c17b2479f7a89b88f5dfa58d0df13"
+	gotUpper, err := CoinStateIDFromPersistedString(ctx, upper)
+	require.NoError(t, err)
+	assert.Equal(t, hexID, gotUpper)
+
+	_, err = CoinStateIDFromPersistedString(ctx, "")
+	require.Error(t, err)
+
+	_, err = CoinStateIDFromPersistedString(ctx, "0x1234")
+	require.Error(t, err)
+
+	neg := new(big.Int).SetInt64(-1)
+	_, err = CoinStateIDFromPersistedString(ctx, neg.String())
+	require.Error(t, err)
+
+	tooLarge := new(big.Int).Exp(big.NewInt(2), big.NewInt(257), nil)
+	_, err = CoinStateIDFromPersistedString(ctx, tooLarge.String())
+	require.Error(t, err)
 }
 
 // IntTo32ByteHexString

@@ -352,14 +352,22 @@ func TestHandleLockedEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	data, _ := json.Marshal(map[string]any{
-		"data":      encodedData,
-		"outputs":   []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
-		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"data":          encodedData,
+		"inputs":        []string{"100"},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"lockedOutputs": []string{"200"},
+		"submitter":     "0x74e71b05854ee819cb9397be01c82570a178d019",
 	})
 	ev.DataJson = string(data)
 	err = z.handleLockedEvent(ctx, smtSpec1, smtSpec2, ev, "Zeto_AnonNullifier", res)
 	assert.NoError(t, err)
 	assert.Len(t, res.TransactionsComplete, 1)
+	unlockedNew, err := storage1.GetNewStates(ctx)
+	require.NoError(t, err)
+	assert.NotEmpty(t, unlockedNew)
+	lockedNew, err := storage2.GetNewStates(ctx)
+	require.NoError(t, err)
+	assert.NotEmpty(t, lockedNew)
 }
 
 func TestUpdateMerkleTree(t *testing.T) {
@@ -432,6 +440,24 @@ func TestHandleWithdrawEvent(t *testing.T) {
 	res = &prototk.HandleEventBatchResponse{}
 	err = z.handleWithdrawEvent(ctx, smtSpec, ev, "Zeto_AnonNullifier", res)
 	assert.ErrorContains(t, err, "PD210061: Failed to update merkle tree for the UTXOWithdraw event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+
+	storage2 := smt.NewStatesStorage(testCallbacks, "testToken2", "context2", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	tree2, err := zetosmt.NewSmt(ctx, storage2, zetosmt.SMT_HEIGHT_UTXO)
+	require.NoError(t, err)
+	smtSpec2 := &common.MerkleTreeSpec{MerkleTreeSpec: smt.MerkleTreeSpec{Tree: tree2, Storage: storage2}}
+	data, _ = json.Marshal(map[string]any{
+		"data":      encodedData,
+		"inputs":    []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"output":    "7980718117603030807695495350922077879582656644717071592146865497574198464253",
+		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
+	})
+	ev.DataJson = string(data)
+	res = &prototk.HandleEventBatchResponse{}
+	err = z.handleWithdrawEvent(ctx, smtSpec2, ev, "Zeto_AnonNullifier", res)
+	require.NoError(t, err)
+	newStates, err := storage2.GetNewStates(ctx)
+	require.NoError(t, err)
+	assert.NotEmpty(t, newStates)
 }
 
 func TestParseStatesFromEvent(t *testing.T) {
@@ -578,6 +604,34 @@ func TestHandleZetoLockCreatedEvent(t *testing.T) {
 	require.NotEmpty(t, newStates, "unlocked outputs must update nullifier SMT")
 }
 
+func TestHandleZetoLockCreatedEvent_SMTUpdateError(t *testing.T) {
+	ctx := context.Background()
+	z, testCallbacks := newTestZeto()
+	storage := smt.NewStatesStorage(testCallbacks, "t-lock-smt-err", "ctx", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	tree, err := zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
+	require.NoError(t, err)
+	smtSpec := &common.MerkleTreeSpec{MerkleTreeSpec: smt.MerkleTreeSpec{Tree: tree, Storage: storage}}
+	encodedData, err := common.EncodeTransactionData(ctx, &prototk.TransactionSpecification{
+		TransactionId: "0x30e43028afbb41d6887444f4c2b4ed6d00000000000000000000000000000000",
+	}, nil)
+	require.NoError(t, err)
+	data, _ := json.Marshal(map[string]any{
+		"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
+		"lockId":        "0xccdd000000000000000000000000000000000000000000000000000000000002",
+		"owner":         "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"inputs":        []string{"100"},
+		"outputs":       []string{"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+		"lockedOutputs": []string{"200"},
+		"proof":         "0x",
+		"data":          encodedData,
+	})
+	ev := &prototk.OnChainEvent{DataJson: string(data), SoliditySignature: z.eventsV1.zetoLockCreated}
+	res := &prototk.HandleEventBatchResponse{}
+	err = z.handleZetoLockCreatedEvent(ctx, "ctx", smtSpec, ev, "Zeto_AnonNullifier", res)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ZetoLockCreated")
+}
+
 func TestHandleZetoLockSpentLikeEvent(t *testing.T) {
 	ctx := context.Background()
 	z, testCallbacks := newTestZeto()
@@ -666,4 +720,162 @@ func TestHandleZetoLockSpentLikeEvent_EmptyOuterDataStillFinalizesSpend(t *testi
 	newStates, err := storage.GetNewStates(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, newStates, "unlocked outputs must still update nullifier SMT when outer data is empty")
+}
+
+func TestHandleZetoLockSpentLikeEvent_LoadLockInfoError(t *testing.T) {
+	ctx := context.Background()
+	z, cb := newTestZeto()
+	z.lockInfoSchema = &prototk.StateSchema{Id: "lock_info"}
+	cb.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		if req.SchemaId == "lock_info" {
+			return nil, errors.New("lock info query failed")
+		}
+		return &prototk.FindAvailableStatesResponse{}, nil
+	}
+	storage := smt.NewStatesStorage(cb, "t-err", "ctx", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	tree, err := zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
+	require.NoError(t, err)
+	smtSpec := &common.MerkleTreeSpec{MerkleTreeSpec: smt.MerkleTreeSpec{Tree: tree, Storage: storage}}
+	payload := map[string]any{
+		"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
+		"lockId":        "0xccdd000000000000000000000000000000000000000000000000000000000002",
+		"spender":       "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"lockedInputs":  []string{"300"},
+		"lockedOutputs": []string{},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"proof":         "0x",
+		"data":          "0x",
+	}
+	data, err := json.Marshal(payload)
+	require.NoError(t, err)
+	ev := &prototk.OnChainEvent{DataJson: string(data), SoliditySignature: z.eventsV1.zetoLockSpent}
+	res := &prototk.HandleEventBatchResponse{}
+	err = z.handleZetoLockSpentLikeEvent(ctx, "ctx", smtSpec, ev, "Zeto_AnonNullifier", res, "ZetoLockSpent")
+	require.Error(t, err)
+}
+
+func TestHandleZetoLockSpentLikeEvent_ZeroTxIDSkips(t *testing.T) {
+	ctx := context.Background()
+	z, _ := newTestZeto()
+	payload := map[string]any{
+		"txId":          "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"lockId":        "0xccdd000000000000000000000000000000000000000000000000000000000002",
+		"spender":       "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"lockedInputs":  []string{},
+		"lockedOutputs": []string{},
+		"outputs":       []string{},
+		"proof":         "0x",
+		"data":          "not-valid-tx-data",
+	}
+	data, err := json.Marshal(payload)
+	require.NoError(t, err)
+	ev := &prototk.OnChainEvent{DataJson: string(data), SoliditySignature: z.eventsV1.zetoLockSpent}
+	res := &prototk.HandleEventBatchResponse{}
+	err = z.handleZetoLockSpentLikeEvent(ctx, "ctx", nil, ev, "Zeto_Anon", res, "ZetoLockSpent")
+	require.NoError(t, err)
+	assert.Empty(t, res.TransactionsComplete)
+}
+
+func TestLoadLockInfoRowByLockID_NilSchema(t *testing.T) {
+	ctx := context.Background()
+	z, _ := newTestZeto()
+	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
+	row, err := z.loadLockInfoRowByLockID(ctx, "ctx", lockID)
+	require.NoError(t, err)
+	assert.Nil(t, row)
+}
+
+func TestLoadLockInfoRowByLockID(t *testing.T) {
+	ctx := context.Background()
+	z, cb := newTestZeto()
+	z.lockInfoSchema = &prototk.StateSchema{Id: "lock_info"}
+	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
+	li := &types.ZetoLockInfoState{LockID: lockID, SpendOutputs: []string{"0x" + string(make([]byte, 64))}}
+	raw, err := json.Marshal(li)
+	require.NoError(t, err)
+	cb.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		if req.SchemaId == "lock_info" {
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{{Id: lockID.HexString0xPrefix(), DataJson: string(raw)}},
+			}, nil
+		}
+		return &prototk.FindAvailableStatesResponse{}, nil
+	}
+	row, err := z.loadLockInfoRowByLockID(ctx, "ctx", lockID)
+	require.NoError(t, err)
+	require.NotNil(t, row)
+	assert.Equal(t, lockID, row.info.LockID)
+}
+
+func TestConfirmProposedSpendOutputsForLock(t *testing.T) {
+	ctx := context.Background()
+	z, cb := newTestZeto()
+	z.lockInfoSchema = &prototk.StateSchema{Id: "lock_info"}
+	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
+	spendOut := "0x0d7b11e7bb9f808761aba8e35b8c57839d8c17b2479f7a89b88f5dfa58d0df13"
+	li := &types.ZetoLockInfoState{LockID: lockID, SpendOutputs: []string{spendOut}}
+	raw, err := json.Marshal(li)
+	require.NoError(t, err)
+	cb.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		if req.SchemaId == "lock_info" {
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{{Id: lockID.HexString0xPrefix(), DataJson: string(raw)}},
+			}, nil
+		}
+		return &prototk.FindAvailableStatesResponse{}, nil
+	}
+	txID := pldtypes.RandBytes32()
+	res := &prototk.HandleEventBatchResponse{}
+	err = z.confirmProposedSpendOutputsForLock(ctx, "ctx", lockID, txID, res)
+	require.NoError(t, err)
+	require.Len(t, res.ConfirmedStates, 1)
+	assert.Equal(t, spendOut, res.ConfirmedStates[0].Id)
+}
+
+func TestConfirmProposedSpendOutputsForLock_InvalidOutputSkipped(t *testing.T) {
+	ctx := context.Background()
+	z, cb := newTestZeto()
+	z.lockInfoSchema = &prototk.StateSchema{Id: "lock_info"}
+	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
+	li := &types.ZetoLockInfoState{LockID: lockID, SpendOutputs: []string{"not-a-valid-id", "0x0d7b11e7bb9f808761aba8e35b8c57839d8c17b2479f7a89b88f5dfa58d0df13"}}
+	raw, err := json.Marshal(li)
+	require.NoError(t, err)
+	cb.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		if req.SchemaId == "lock_info" {
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{{Id: lockID.HexString0xPrefix(), DataJson: string(raw)}},
+			}, nil
+		}
+		return &prototk.FindAvailableStatesResponse{}, nil
+	}
+	txID := pldtypes.RandBytes32()
+	res := &prototk.HandleEventBatchResponse{}
+	err = z.confirmProposedSpendOutputsForLock(ctx, "ctx", lockID, txID, res)
+	require.NoError(t, err)
+	require.Len(t, res.ConfirmedStates, 1)
+}
+
+func TestSpendLockInfoStateForLock(t *testing.T) {
+	ctx := context.Background()
+	z, cb := newTestZeto()
+	z.lockInfoSchema = &prototk.StateSchema{Id: "lock_info"}
+	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
+	li := &types.ZetoLockInfoState{LockID: lockID}
+	raw, err := json.Marshal(li)
+	require.NoError(t, err)
+	stateID := lockID.HexString0xPrefix()
+	cb.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		if req.SchemaId == "lock_info" {
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{{Id: stateID, DataJson: string(raw)}},
+			}, nil
+		}
+		return &prototk.FindAvailableStatesResponse{}, nil
+	}
+	txID := pldtypes.RandBytes32()
+	res := &prototk.HandleEventBatchResponse{}
+	err = z.spendLockInfoStateForLock(ctx, "ctx", lockID, txID, res)
+	require.NoError(t, err)
+	require.Len(t, res.SpentStates, 1)
+	assert.Equal(t, stateID, res.SpentStates[0].Id)
 }

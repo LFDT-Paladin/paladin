@@ -26,6 +26,57 @@ func TestQualifyPartyLookup(t *testing.T) {
 	assert.Equal(t, "bob", qualifyPartyLookup("bob", "controller"))
 }
 
+func TestCancelRecipientsFromLockInfo(t *testing.T) {
+	ctx := context.Background()
+	lockID := pldtypes.RandBytes32()
+	_, err := cancelRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID})
+	require.Error(t, err)
+
+	raw, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(5))
+	require.NoError(t, err)
+	got, err := cancelRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID, CancelData: raw})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "controller@node", got[0].To)
+
+	_, err = cancelRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID, CancelData: []byte("not-json")})
+	require.Error(t, err)
+	_, err = cancelRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID, CancelData: []byte("[]")})
+	require.Error(t, err)
+}
+
+func TestRecipientsForLockInfoJSON_NilParams(t *testing.T) {
+	raw, err := recipientsForLockInfoJSON(nil, "alice@node")
+	require.NoError(t, err)
+	assert.Equal(t, "[]", string(raw))
+}
+
+func TestTrimZeroUtxos(t *testing.T) {
+	assert.Equal(t, []string{"0x01", "0x02"}, trimZeroUtxos([]string{"0", "0x01", "0", "0x02"}))
+	assert.Empty(t, trimZeroUtxos([]string{"0", "0"}))
+}
+
+func TestLockTransitionOutputCoinsForProof(t *testing.T) {
+	unlocked, _ := makeCoin(testCoinStateJSON(false))
+	locked, _ := makeCoin(testCoinStateJSON(true))
+	v1 := lockTransitionOutputCoinsForProof(types.ZetoFungibleV1ABI, []*types.ZetoCoin{unlocked}, []*types.ZetoCoin{locked})
+	require.Len(t, v1, 2)
+	assert.True(t, v1[0].Locked)
+	v0 := lockTransitionOutputCoinsForProof(types.ZetoFungibleV0ABI, []*types.ZetoCoin{unlocked}, []*types.ZetoCoin{locked})
+	require.Len(t, v0, 2)
+	assert.False(t, v0[0].Locked)
+}
+
+func TestUtxosFromCoins(t *testing.T) {
+	ctx := context.Background()
+	coin, err := makeCoin(testCoinStateJSON(false))
+	require.NoError(t, err)
+	outs, err := utxosFromCoins(ctx, []*types.ZetoCoin{coin}, 2)
+	require.NoError(t, err)
+	require.Len(t, outs, 2)
+	assert.NotEqual(t, "0", outs[0])
+}
+
 func TestCancelRecipientsForLockInfoJSON(t *testing.T) {
 	amt := pldtypes.Uint64ToUint256(100)
 	raw, err := cancelRecipientsForLockInfoJSON("controller", amt)
@@ -552,6 +603,60 @@ func TestMakeLeafIndexesFromCoinOwners(t *testing.T) {
 }
 
 // Padded anon transfer witnesses must match zeto-js inflateOwners (duplicate first output owner).
+func TestFormatTransferProvingRequest_KycWithoutNullifiersUsesPaddedDisabledMerkleProof(t *testing.T) {
+	ctx := context.Background()
+	inputCoins := []*types.ZetoCoin{
+		{
+			Salt:   pldtypes.MustParseHexUint256("0x042fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec"),
+			Owner:  pldtypes.MustParseHexBytes("0x7cdd539f3ed6c283494f47d8481f84308a6d7043087fb6711c9f1df04e2b8025"),
+			Amount: pldtypes.MustParseHexUint256("0x0f"),
+		},
+	}
+	outputCoins := []*types.ZetoCoin{
+		{
+			Salt:   pldtypes.MustParseHexUint256("0x142fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec"),
+			Owner:  pldtypes.MustParseHexBytes("0x8cdd539f3ed6c283494f47d8481f84308a6d7043087fb6711c9f1df04e2b8025"),
+			Amount: pldtypes.MustParseHexUint256("0x0f"),
+		},
+	}
+	circuit := &zetosignerapi.Circuit{UsesKyc: true, UsesNullifiers: false}
+	contractAddress, err := pldtypes.ParseEthAddress("0x1234567890123456789012345678901234567890")
+	require.NoError(t, err)
+
+	data0, _ := json.Marshal(map[string]string{"rootIndex": "0x1234567890123456789012345678901234567890123456789012345678901234"})
+	data1, _ := json.Marshal(map[string]string{
+		"index": "0x5f5d5e50a650a20986d496e6645ea31770758d924796f0dfc5ac2ad234b03e30",
+		"type":  "0x02",
+	})
+	kycCount := 0
+	cb := &domain.MockDomainCallbacks{
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+			switch kycCount {
+			case 0, 3:
+				kycCount++
+				return &prototk.FindAvailableStatesResponse{States: []*prototk.StoredState{{DataJson: string(data0)}}}, nil
+			case 1, 4:
+				kycCount++
+				return &prototk.FindAvailableStatesResponse{States: []*prototk.StoredState{{DataJson: string(data1)}}}, nil
+			default:
+				kycCount++
+				return &prototk.FindAvailableStatesResponse{}, nil
+			}
+		},
+	}
+	raw, err := formatTransferProvingRequest(
+		ctx, cb,
+		&prototk.StateSchema{Id: "merkle_tree_root"},
+		&prototk.StateSchema{Id: "merkle_tree_node"},
+		common.GetHasher(),
+		inputCoins, outputCoins, circuit,
+		constants.TOKEN_ANON_NULLIFIER_KYC,
+		"testContext", contractAddress, false,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, raw)
+}
+
 func TestFormatTransferProvingRequest_paddedOutputOwnersMirrorInflateOwners(t *testing.T) {
 	ctx := context.Background()
 	inputCoins := []*types.ZetoCoin{
