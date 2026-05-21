@@ -438,8 +438,8 @@ func TestParseStatesFromEvent(t *testing.T) {
 	txID := pldtypes.RandBytes32()
 	states := parseStatesFromEvent(txID, []pldtypes.HexUint256{*pldtypes.MustParseHexUint256("0x1234"), *pldtypes.MustParseHexUint256("0x0")})
 	assert.Len(t, states, 2)
-	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000001234", states[0].Id)
-	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000000000", states[1].Id)
+	assert.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000001234", states[0].Id)
+	assert.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", states[1].Id)
 }
 
 func TestHandleIdentityRegisteredEvent(t *testing.T) {

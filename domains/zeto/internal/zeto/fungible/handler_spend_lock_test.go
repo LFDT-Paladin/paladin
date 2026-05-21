@@ -18,6 +18,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,15 +56,33 @@ func TestSpendLockValidateParams_WireJSON(t *testing.T) {
 
 func TestSpendLockPrepare_V1EncodesZetoSpendLockArgs(t *testing.T) {
 	ctx := context.Background()
+	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("11", 32))
+	spendData := pldtypes.HexBytes{0xde, 0xad}
+	lockInfoJSON, err := json.Marshal(&types.ZetoLockInfoState{
+		LockID:    lockID,
+		SpendData: spendData,
+	})
+	require.NoError(t, err)
+
 	h := spendLockHandler{
 		baseHandler: baseHandler{
 			name: "zeto",
 			stateSchemas: &common.StateSchemas{
-				CoinSchema: &prototk.StateSchema{Id: "coin"},
+				CoinSchema:     &prototk.StateSchema{Id: "coin"},
+				LockInfoSchema: &prototk.StateSchema{Id: "lock_info"},
+			},
+		},
+		callbacks: &domain.MockDomainCallbacks{
+			MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+				if req.SchemaId == "lock_info" {
+					return &prototk.FindAvailableStatesResponse{
+						States: []*prototk.StoredState{{DataJson: string(lockInfoJSON)}},
+					}, nil
+				}
+				return &prototk.FindAvailableStatesResponse{}, nil
 			},
 		},
 	}
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("11", 32))
 
 	tx := &types.ParsedTransaction{
 		Transaction: &prototk.TransactionSpecification{
@@ -157,6 +176,7 @@ func TestSpendLockPrepare_V1EncodesZetoSpendLockArgs(t *testing.T) {
 	assert.Contains(t, js, `"outputs"`)
 	assert.Contains(t, js, `"proof"`)
 	assert.Contains(t, js, `"data"`)
+	assert.Contains(t, js, `"data":"dead"`)
 }
 
 func TestZetoSpendLockArgsTupleABI_RoundTrip(t *testing.T) {
