@@ -2434,3 +2434,77 @@ func TestHandleEndorsementResponse_EndorsementUnmarshalError(t *testing.T) {
 
 	mocks.coordinator.AssertExpectations(t)
 }
+
+func TestHandleAssembleRequest_Expired(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New()
+	requestID := uuid.New()
+	preAssembly := &components.TransactionPreAssembly{}
+	preAssemblyJSON, _ := json.Marshal(preAssembly)
+
+	// Build the inner proto message
+	assembleRequest := &engineProto.AssembleRequest{
+		TransactionId:     txID.String(),
+		AssembleRequestId: requestID.String(),
+		ContractAddress:   contractAddr.String(),
+		PreAssembly:       preAssemblyJSON,
+		StateLocks:        []byte("{}"),
+		BlockHeight:       100,
+	}
+	protoBytes, _ := proto.Marshal(assembleRequest)
+
+	// Wrap in a MessageEnvelope with an expiry 1 second in the past
+	expiredMs := time.Now().Add(-1 * time.Second).UnixMilli()
+	envelopeBytes, _ := json.Marshal(&transport.MessageEnvelope{ExpiryMs: expiredMs, Payload: protoBytes})
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_AssembleRequest,
+		Payload:     envelopeBytes,
+	}
+
+	// No originator mock expectations — the request should be silently dropped before LoadSequencer
+	sm.handleAssembleRequest(ctx, message)
+
+	// Assertions: no calls were made to the originator (mocks would fail if unexpected calls occurred)
+	mocks.originator.AssertExpectations(t)
+}
+
+func TestHandleEndorsementRequest_Expired(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+
+	// Build the inner proto message
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:   txID,
+		ContractAddress: contractAddr.String(),
+	}
+	protoBytes, _ := proto.Marshal(endorsementRequest)
+
+	// Wrap in a MessageEnvelope with an expiry 1 second in the past
+	expiredMs := time.Now().Add(-1 * time.Second).UnixMilli()
+	envelopeBytes, _ := json.Marshal(&transport.MessageEnvelope{ExpiryMs: expiredMs, Payload: protoBytes})
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     envelopeBytes,
+	}
+
+	// No mock expectations needed — the expiry check fires before DomainManager/GetSmartContractByAddress
+	sm.handleEndorsementRequest(ctx, message)
+
+	// Coordinator and domain manager should not have been touched
+	mocks.coordinator.AssertExpectations(t)
+	mocks.domainManager.AssertExpectations(t)
+}

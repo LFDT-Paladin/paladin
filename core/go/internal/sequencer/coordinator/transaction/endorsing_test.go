@@ -58,7 +58,7 @@ func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_Initialize
 		SendEndorsementRequest(
 			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
 			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		).Return(nil)
 
 	err := action_NudgeEndorsementRequests(ctx, txn, nil)
@@ -83,7 +83,7 @@ func Test_sendEndorsementRequests_SendEndorsementRequestReturnsError_LogsAndCont
 		SendEndorsementRequest(
 			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
 			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		).Return(sendErr)
 
 	err := txn.sendEndorsementRequests(ctx)
@@ -130,13 +130,13 @@ func Test_sendEndorsementRequests_TwoAttestationNames_CreatesMapPerName(t *testi
 		SendEndorsementRequest(
 			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
 			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		).Return(nil)
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
 			ctx, txn.pt.ID, mock.Anything, "party2", mock.Anything,
 			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		).Return(nil)
 
 	err := txn.sendEndorsementRequests(ctx)

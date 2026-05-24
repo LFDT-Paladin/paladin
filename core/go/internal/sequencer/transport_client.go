@@ -104,8 +104,27 @@ func (sMgr *sequencerManager) parseContractAddressString(ctx context.Context, co
 
 func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message *components.ReceivedMessage) {
 
+	// Unwrap the MessageEnvelope (added for expiry support) if present; fall back to
+	// treating the raw bytes as a proto payload for backwards-compatibility.
+	var expiryMs int64
+	protoPayload := message.Payload
+	var envelope transport.MessageEnvelope
+	if err := json.Unmarshal(message.Payload, &envelope); err == nil && envelope.Payload != nil {
+		expiryMs = envelope.ExpiryMs
+		protoPayload = envelope.Payload
+	}
+
+	// Drop the request if it has already expired — the coordinator is no longer waiting for the response.
+	if expiryMs > 0 && time.Now().UnixMilli() > expiryMs {
+		log.L(ctx).Warnf("dropping expired assemble request (expired at %s, now %s)",
+			time.UnixMilli(expiryMs).UTC().Format(time.RFC3339Nano),
+			time.Now().UTC().Format(time.RFC3339Nano),
+		)
+		return
+	}
+
 	assembleRequest := &engineProto.AssembleRequest{}
-	err := proto.Unmarshal(message.Payload, assembleRequest)
+	err := proto.Unmarshal(protoPayload, assembleRequest)
 	if err != nil {
 		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
 		return
@@ -461,9 +480,28 @@ func (sMgr *sequencerManager) handleDelegationRequestAcknowledgment(ctx context.
 }
 
 func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, message *components.ReceivedMessage) {
+	// Unwrap the MessageEnvelope (added for expiry support) if present; fall back to
+	// treating the raw bytes as a proto payload for backwards-compatibility.
+	var expiryMs int64
+	protoPayload := message.Payload
+	var envelope transport.MessageEnvelope
+	if err := json.Unmarshal(message.Payload, &envelope); err == nil && envelope.Payload != nil {
+		expiryMs = envelope.ExpiryMs
+		protoPayload = envelope.Payload
+	}
+
+	// Drop the request if it has already expired — the coordinator is no longer waiting for the response.
+	if expiryMs > 0 && time.Now().UnixMilli() > expiryMs {
+		log.L(ctx).Warnf("dropping expired endorsement request (expired at %s, now %s)",
+			time.UnixMilli(expiryMs).UTC().Format(time.RFC3339Nano),
+			time.Now().UTC().Format(time.RFC3339Nano),
+		)
+		return
+	}
+
 	endorsementRequest := &engineProto.EndorsementRequest{}
 
-	err := proto.Unmarshal(message.Payload, endorsementRequest)
+	err := proto.Unmarshal(protoPayload, endorsementRequest)
 	if err != nil {
 		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
 		return

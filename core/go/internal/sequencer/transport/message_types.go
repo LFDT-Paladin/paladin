@@ -25,6 +25,16 @@ import (
 	"github.com/google/uuid"
 )
 
+// MessageEnvelope wraps a serialised proto payload with optional metadata that cannot
+// be carried inside the proto message itself (e.g. because the proto rawDesc is
+// pre-compiled and cannot be easily extended at runtime).
+// Recipients that do not understand the envelope can fall back to treating the whole
+// byte slice as a raw proto payload (ExpiryMs == 0 ⇒ no expiry check).
+type MessageEnvelope struct {
+	ExpiryMs int64  `json:"expiryMs,omitempty"` // Unix milliseconds; 0 means no expiry
+	Payload  []byte `json:"payload"`            // Serialised proto bytes
+}
+
 const (
 	MessageType_AssembleRequest                  = "AssembleRequest"
 	MessageType_AssembleResponse                 = "AssembleResponse"

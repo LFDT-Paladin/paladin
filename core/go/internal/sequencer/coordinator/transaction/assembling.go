@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -126,7 +127,10 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 			return err
 		}
 
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStatesAndLocks, blockHeight)
+		// Set expiry to now + stateTimeout so the recipient can discard the request if the queue has backed up
+		// beyond the point where the coordinator would still be waiting for the response.
+		expiryMs := time.Now().Add(t.stateTimeout).UnixMilli()
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStatesAndLocks, blockHeight, expiryMs)
 	})
 
 	t.scheduleRequestTimeout(ctx)
