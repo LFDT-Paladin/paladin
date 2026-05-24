@@ -156,7 +156,7 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 			v.VerifierType,
 		)
 		if err != nil {
-			return nil, err
+			return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerResolveVerifierRemoteFailed, v.Lookup, v.Algorithm, err)
 		}
 		preAssembly.Verifiers = append(preAssembly.Verifiers, &prototk.ResolvedVerifier{
 			Lookup:       v.Lookup,
@@ -219,8 +219,7 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 	log.L(ctx).Debugf("Assembling transaction: %+v", transaction)
 	err = e.domainSmartContract.AssembleTransaction(domainContext, e.components.Persistence().NOTX(), transaction, localTx)
 	if err != nil {
-		log.L(ctx).Errorf("error assembling transaction: %s", err)
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerAssembleError, err)
 	}
 	if transaction.PostAssembly == nil {
 		// This is most likely a programming error in the domain
@@ -259,13 +258,13 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 					resolvedKey, err := keyMgr.ResolveKeyNewDatabaseTX(ctx, unqualifiedLookup, attRequest.Algorithm, attRequest.VerifierType)
 					if err != nil {
 						log.L(ctx).Errorf("failed to resolve local signer for %s (algorithm=%s): %s", unqualifiedLookup, attRequest.Algorithm, err)
-						return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerResolveError, unqualifiedLookup, attRequest.Algorithm)
+						return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerResolveError, unqualifiedLookup, attRequest.VerifierType, attRequest.Algorithm, err)
 					}
 
 					signaturePayload, err := keyMgr.Sign(ctx, resolvedKey, attRequest.PayloadType, attRequest.Payload)
 					if err != nil {
 						log.L(ctx).Errorf("failed to sign for party %s (verifier=%s,algorithm=%s): %s", unqualifiedLookup, resolvedKey.Verifier.Verifier, attRequest.Algorithm, err)
-						return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerSignError, unqualifiedLookup, resolvedKey.Verifier.Verifier, attRequest.Algorithm)
+						return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerSignError, unqualifiedLookup, resolvedKey.Verifier.Verifier, attRequest.Algorithm, err)
 					}
 					log.L(ctx).Debugf("payload: %x signed %x by %s (%s)", attRequest.Payload, signaturePayload, unqualifiedLookup, resolvedKey.Verifier.Verifier)
 

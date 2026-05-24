@@ -171,7 +171,7 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 			}
 
 			if domainAPI == nil {
-				err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "No domain provided to create sequencer for contract %s", contractAddr.String())
+				err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "No domain provided to create sequencer for contract "+contractAddr.String())
 				log.L(ctx).Error(err)
 				return nil, err
 			}
@@ -196,8 +196,7 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, engineIntegration, &contractAddr, sMgr.config, sMgr.metrics)
 			if err != nil {
 				cancelCtx()
-				log.L(ctx).Errorf("failed to create sequencer originator for contract %s: %s", contractAddr.String(), err)
-				return nil, err
+				return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerNewSequencerError)
 			}
 
 			// Start by populating the pool of originators with the endorsers of this transaction. At this point
@@ -243,8 +242,7 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 			)
 			if err != nil {
 				cancelCtx()
-				log.L(ctx).Errorf("failed to create sequencer coordinator for contract %s: %s", contractAddr.String(), err)
-				return nil, err
+				return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerNewSequencerError)
 			}
 
 			sequencer.originator = seqOriginator

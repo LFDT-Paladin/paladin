@@ -178,7 +178,7 @@ func action_CascadeChainedDependencyFailure(ctx context.Context, t *coordinatorT
 			FailedTxID: t.pt.ID,
 		})
 		if err != nil {
-			return err
+			return i18n.WrapError(ctx, err, msgs.MsgSequencerErrorNotifyingDependent, dependentId, t.pt.ID)
 		}
 	}
 	return nil
@@ -220,7 +220,7 @@ func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinator
 			EvictedTxID: t.pt.ID,
 		})
 		if err != nil {
-			return err
+			return i18n.WrapError(ctx, err, msgs.MsgSequencerErrorNotifyingDependent, dependentId, t.pt.ID)
 		}
 	}
 	return nil

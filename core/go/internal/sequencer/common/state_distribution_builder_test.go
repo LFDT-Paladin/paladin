@@ -49,7 +49,7 @@ func TestBuild_NilPostAssembly(t *testing.T) {
 
 	_, err := builder.Build(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012634")
+	assert.Contains(t, err.Error(), "PD012624")
 }
 
 func TestBuild_MismatchedOutputStates(t *testing.T) {
@@ -71,7 +71,7 @@ func TestBuild_MismatchedOutputStates(t *testing.T) {
 
 	_, err := builder.Build(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012634")
+	assert.Contains(t, err.Error(), "PD012624")
 }
 
 func TestBuild_MismatchedInfoStates(t *testing.T) {
@@ -93,7 +93,7 @@ func TestBuild_MismatchedInfoStates(t *testing.T) {
 
 	_, err := builder.Build(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012634")
+	assert.Contains(t, err.Error(), "PD012624")
 }
 
 func TestBuild_InvalidFromLocator(t *testing.T) {
@@ -115,7 +115,7 @@ func TestBuild_InvalidFromLocator(t *testing.T) {
 
 	_, err := builder.Build(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012633")
+	assert.Contains(t, err.Error(), "PD012623")
 }
 
 func TestBuild_LocalDistribution(t *testing.T) {
@@ -379,7 +379,7 @@ func TestBuild_NullifierSpecNotInDistributionList(t *testing.T) {
 
 	_, err := builder.Build(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012636")
+	assert.Contains(t, err.Error(), "PD012626")
 }
 
 func TestBuild_InvalidRecipientLocator(t *testing.T) {
@@ -416,7 +416,7 @@ func TestBuild_InvalidRecipientLocator(t *testing.T) {
 
 	_, err := builder.Build(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012635")
+	assert.Contains(t, err.Error(), "PD012625")
 }
 
 func TestBuild_InfoStates(t *testing.T) {
@@ -600,5 +600,5 @@ func TestBuild_InfoStateProcessError(t *testing.T) {
 
 	_, err := builder.Build(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012635")
+	assert.Contains(t, err.Error(), "PD012625")
 }

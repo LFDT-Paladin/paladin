@@ -23,6 +23,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -56,7 +57,8 @@ func (c *coordinator) selectActiveCoordinatorNode(ctx context.Context) (string, 
 
 		coordinator, err := pldtypes.PrivateIdentityLocator(c.domainAPI.ContractConfig().GetStaticCoordinator()).Node(ctx, false)
 		if err != nil {
-			log.L(ctx).Errorf("error getting static coordinator node id for %s: %s", c.domainAPI.ContractConfig().GetStaticCoordinator(), err)
+			err = i18n.WrapError(ctx, err, msgs.MsgSequencerInvalidStaticCoordinator, c.domainAPI.ContractConfig().GetStaticCoordinator())
+			log.L(ctx).Errorf("%s", err)
 			return "", err
 		}
 		coordinatorNode = coordinator
