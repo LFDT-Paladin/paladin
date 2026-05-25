@@ -703,7 +703,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmedSuccess(ctx context.Cont
 	return nil
 }
 
-func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation, nonce *pldtypes.HexUint64) error {
+func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation, nonce *pldtypes.HexUint64, observedRevertCount int) error {
 	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
 	if err != nil {
 		return err
@@ -723,10 +723,11 @@ func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx conte
 			},
 			TransactionID: txID,
 		},
-		Hash:         onChain.TransactionHash,
-		RevertReason: revertData,
-		OnChain:      onChain,
-		Nonce:        nonce,
+		Hash:                onChain.TransactionHash,
+		RevertReason:        revertData,
+		OnChain:             onChain,
+		Nonce:               nonce,
+		ObservedRevertCount: observedRevertCount,
 	})
 	return nil
 }
@@ -786,7 +787,6 @@ func (sMgr *sequencerManager) HandleChainedTransactionOutcome(ctx context.Contex
 func (sMgr *sequencerManager) HandleDirectTransactionRevert(ctx context.Context, dbTX persistence.DBTX, failures []*components.PublicTxMatch) error {
 	log.L(sMgr.ctx).Tracef("HandleDirectTransactionRevert %d", len(failures))
 	sMgr.metrics.IncRevertedTransactions()
-	_ = dbTX
 
 	for _, tx := range failures {
 		contractAddress := tx.To
@@ -802,12 +802,30 @@ func (sMgr *sequencerManager) HandleDirectTransactionRevert(ctx context.Context,
 			BlockNumber:      tx.BlockNumber,
 			TransactionIndex: tx.TransactionIndex,
 		}
-		err := sMgr.queueConfirmedRevertedEventToCoordinator(ctx, *contractAddress, tx.TransactionID, tx.RevertReason, onChain, &nonceVal)
+		observedRevertCount, err := sMgr.countPersistedBaseLedgerReverts(ctx, dbTX, tx.TransactionID)
+		if err != nil {
+			return err
+		}
+		err = sMgr.queueConfirmedRevertedEventToCoordinator(ctx, *contractAddress, tx.TransactionID, tx.RevertReason, onChain, &nonceVal, observedRevertCount)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (sMgr *sequencerManager) countPersistedBaseLedgerReverts(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (int, error) {
+	var count int64
+	err := dbTX.DB().
+		WithContext(ctx).
+		Table("public_completions").
+		Joins(`JOIN "public_txn_bindings" ON "public_txn_bindings"."pub_txn_id" = "public_completions"."pub_txn_id"`).
+		Where(`"public_txn_bindings"."transaction" = ?`, txID).
+		Where(`"public_txn_bindings"."tx_type" = ?`, pldapi.TransactionTypePrivate).
+		Where(`"public_completions"."success" = ?`, false).
+		Count(&count).
+		Error
+	return int(count), err
 }
 
 func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistributions []*components.StateDistributionWithData) (nullifiers []*components.NullifierUpsert, err error) {

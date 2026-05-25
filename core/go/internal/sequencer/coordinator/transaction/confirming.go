@@ -44,6 +44,9 @@ func action_RecordConfirmation(ctx context.Context, t *coordinatorTransaction, e
 		hash = e.Hash
 	case *ConfirmedRevertedEvent:
 		t.revertCount++
+		if e.ObservedRevertCount > t.revertCount {
+			t.revertCount = e.ObservedRevertCount
+		}
 		hash = e.Hash
 		t.revertReason = e.RevertReason
 		if len(e.RevertReason) == 0 {

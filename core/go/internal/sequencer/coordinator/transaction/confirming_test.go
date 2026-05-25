@@ -146,6 +146,27 @@ func Test_action_RecordConfirmation_RevertIncrementsRevertCount(t *testing.T) {
 	assert.Equal(t, 3, txn.revertCount)
 }
 
+func Test_action_RecordConfirmation_UsesObservedRevertCount(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
+		BaseLedgerRevertRetryThreshold(3).
+		Build()
+	revertReason := pldtypes.MustParseHexBytes("0xabcd")
+	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
+	event := &ConfirmedRevertedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+		RevertReason:        revertReason,
+		ObservedRevertCount: 4,
+	}
+
+	err := action_RecordConfirmation(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Equal(t, 4, txn.revertCount)
+	assert.False(t, txn.lastCanRetryRevert)
+}
+
 func Test_action_RecordConfirmation_SuccessNilHash(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
