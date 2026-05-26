@@ -117,7 +117,7 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	}
 
 	// Build the info for the initiating transaction
-	createDataInfo, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
+	createDataInfo, err := h.noto.prepareDataInfo(ctx, params.Data, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}

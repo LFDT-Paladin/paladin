@@ -40,6 +40,7 @@ func TestBurn(t *testing.T) {
 		Callbacks:      mockCallbacks,
 		coinSchema:     testSchema("coin"),
 		dataSchemaV1:   testSchema("data"),
+		dataSchemaV2:   testSchema("data_v2"),
 		manifestSchema: testSchema("manifest"),
 	}
 	ctx := t.Context()
@@ -140,7 +141,7 @@ func TestBurn(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      hashName("data"),
+			SchemaId:      hashName("data_v2"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
@@ -377,7 +378,7 @@ func TestBurn_V0(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      hashName("data"),
+			SchemaId:      hashName("data_v2"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},

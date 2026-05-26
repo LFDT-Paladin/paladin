@@ -44,6 +44,7 @@ func TestLock(t *testing.T) {
 		lockInfoSchemaV1: testSchema("lockInfo_v1"),
 		dataSchemaV0:     testSchema("data"),
 		dataSchemaV1:     testSchema("data_v1"),
+		dataSchemaV2:     testSchema("data_v2"),
 		manifestSchema:   testSchema("manifest"),
 	}
 	ctx := t.Context()
@@ -376,6 +377,7 @@ func TestLock(t *testing.T) {
 	require.Equal(t, lockInfo.LockID, receipt.LockInfo.LockID)
 	require.Empty(t, receipt.LockInfo.UnlockFunction) // not prepared
 	require.Nil(t, receipt.LockInfo.UnlockParams)     // not prepared
+	require.Equal(t, (*pldtypes.EthAddress)(&senderKey.Address), receipt.Sender)
 }
 
 func TestLock_V0(t *testing.T) {
@@ -630,6 +632,7 @@ func TestLockEmpty(t *testing.T) {
 		lockInfoSchemaV1: testSchema("lockInfo_v1"),
 		dataSchemaV0:     testSchema("data"),
 		dataSchemaV1:     testSchema("data_v1"),
+		dataSchemaV2:     testSchema("data_v2"),
 		manifestSchema:   testSchema("manifest"),
 	}
 	ctx := t.Context()

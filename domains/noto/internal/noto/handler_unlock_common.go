@@ -94,7 +94,7 @@ func (h *unlockCommon) init(ctx context.Context, tx *types.ParsedTransaction, pa
 func (h *unlockCommon) buildUnlockData(ctx context.Context, notaryID, senderID, fromID *identityPair, tx *types.ParsedTransaction, recipients []*types.UnlockRecipient, resolvedVerifiers []*prototk.ResolvedVerifier, stateQueryContext string, unlockData []byte) (encodedUnlockData []byte, infoStates []*prototk.NewState, infoDistribution identityList, err error) {
 	infoDistribution, err = h.getAllRecipientsDistribution(ctx, tx, notaryID, senderID, fromID, recipients, resolvedVerifiers)
 	if err == nil {
-		infoStates, err = h.noto.prepareDataInfo(unlockData, tx.DomainConfig.Variant, infoDistribution.identities())
+		infoStates, err = h.noto.prepareDataInfo(ctx, unlockData, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, resolvedVerifiers)
 	}
 	if err == nil {
 		// We need to know the IDs of the states at this point
