@@ -41,15 +41,6 @@ configurations {
     }
 }
 
-dependencies {
-    contractCompile project(path: ":solidity", configuration: "compiledContracts")
-    toolkitGo project(path: ':toolkit:go', configuration: 'goSource')
-    notoGo project(path: ":domains:noto", configuration: "goSource")
-    zetoGo project(path: ":domains:zeto", configuration: "goSource")
-    zetoArtifacts project(path: ":domains:zeto", configuration: "zetoArtifacts")
-    poseidonArtifacts project(path: ":domains:zeto", configuration: "poseidonArtifacts")
-}
-
 ext {
     clusterName = project.hasProperty('clusterName') ? project.clusterName : 'paladin' 
     namespace = project.hasProperty('namespace') ? project.namespace : 'default' // Default namespace is 'default'
@@ -64,6 +55,22 @@ ext {
     paladinImageTag = project.hasProperty('paladinImageTag') ? project.paladinImageTag : 'test'
 
     artifactDir = project.hasProperty('artifactDir') ? project.artifactDir : 'artifacts'
+
+    // Zeto contract ABI export from :domains:zeto (see zetoArtifactConfigurationName). Default: zetoPrimaryArtifacts.
+    // Override release: ./gradlew :operator:copyZetoSolidity -PzetoZkpRoot=v0.5.0  →  zetoArtifacts_v0_5_0
+    zetoZkpRoot = project.findProperty('zetoZkpRoot')
+    zetoArtifactsConfiguration = zetoZkpRoot
+        ? "zetoArtifacts_${zetoZkpRoot.toString().replace('.', '_')}"
+        : 'zetoPrimaryArtifacts'
+}
+
+dependencies {
+    contractCompile project(path: ":solidity", configuration: "compiledContracts")
+    toolkitGo project(path: ':toolkit:go', configuration: 'goSource')
+    notoGo project(path: ":domains:noto", configuration: "goSource")
+    zetoGo project(path: ":domains:zeto", configuration: "goSource")
+    zetoArtifacts project(path: ":domains:zeto", configuration: zetoArtifactsConfiguration)
+    poseidonArtifacts project(path: ":domains:zeto", configuration: "poseidonArtifacts")
 }
 
 def printClusterStatus(String namespace) {
@@ -283,6 +290,8 @@ task copyZetoSolidity(type: Copy) {
     inputs.files(configurations.zetoArtifacts)
     inputs.files(configurations.poseidonArtifacts)
     inputs.files(configurations.contractCompile)
+
+    // zetoArtifacts root is zkp/<release>/ from :domains:zeto (not zkp/ itself). Includes are relative to that root.
     from fileTree(configurations.zetoArtifacts.asPath) {
         include 'artifacts/contracts/**/*.json'
         include 'artifacts/@iden3/contracts/**/*.json'

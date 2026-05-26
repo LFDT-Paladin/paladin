@@ -74,6 +74,9 @@ ext {
     // Same as zetoPrimaryZkpRoot; kept for root build.gradle / examples that key paths by release tag.
     zetoVersion = zetoPrimaryZkpRoot // sync with domains/integration-test/helpers/zeto_zkp_versions.go ZetoZKArtifactRootLatest when running integration tests
     zkpVersionRoot = "${zkpOut}/${zetoPrimaryZkpRoot}"
+
+    // Consumable configuration name for a release tree under zkp/<zkpRoot>/ (e.g. zetoArtifacts_v0_2_2).
+    zetoArtifactConfigurationName = { String zkpRoot -> "zetoArtifacts_${zkpRoot.replace('.', '_')}" }
 }
 
 configurations {
@@ -97,6 +100,11 @@ configurations {
         canBeResolved = false
     }
     zetoArtifacts {
+        canBeConsumed = true
+        canBeResolved = false
+    }
+    // Primary release only (default for operator e2e ABI copy); same layout as zetoArtifacts_<tag>.
+    zetoPrimaryArtifacts {
         canBeConsumed = true
         canBeResolved = false
     }
@@ -157,6 +165,14 @@ task protoc(type: ProtoCompile, dependsOn: [
         go_grpc {
             out projectDir
         }
+    }
+}
+
+// Per-release exports for consumers that target one zkp/<tag>/ tree (operator, etc.).
+zetoVersions.each { variant ->
+    configurations.create(zetoArtifactConfigurationName(variant.zkpRoot)) {
+        canBeConsumed = true
+        canBeResolved = false
     }
 }
 
@@ -358,6 +374,12 @@ task assemble {
 
 dependencies {
     goSource files(goFiles, copySolidity, copyFactoryAbis, copyZetoSolidityAbis, copyPkgSolidity)
-    zetoArtifacts files(zetoVersions.collect { tasks.getByName("extractZetoZkp_${it.id}") })
+    // All release trees (e.g. sdk/typescript). Each root is zkp/<tag>/ — use includes like artifacts/contracts/**/*.json.
+    zetoArtifacts files(zetoVersions.collect { tasks.named("extractZetoZkp_${it.id}") })
+    // Primary release only.
+    zetoPrimaryArtifacts files(tasks.named("extractZetoZkp_${zetoPrimaryVersionId}"))
+    zetoVersions.each { variant ->
+        add(zetoArtifactConfigurationName(variant.zkpRoot), files(tasks.named("extractZetoZkp_${variant.id}")))
+    }
     poseidonArtifacts files(generatePoseidonArtifacts)
 }
