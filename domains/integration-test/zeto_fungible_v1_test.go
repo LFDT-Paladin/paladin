@@ -563,14 +563,31 @@ func (s *fungibleV1TestSuiteHelper) testZetoV1(t *testing.T, tokenName string, u
 			controllerAmountsAfterCancel = append(controllerAmountsAfterCancel, coin.Data.Amount.Int().Int64())
 			controllerLockedAfterCancel = append(controllerLockedAfterCancel, coin.Data.Locked)
 		}
-		return len(controllerAmountsAfterCancel) >= 1 || count >= 5
+		var controllerUnlockedTotal int64
+		for i, locked := range controllerLockedAfterCancel {
+			if locked {
+				continue
+			}
+			controllerUnlockedTotal += controllerAmountsAfterCancel[i]
+		}
+		// Wait until cancelLock lock3 is reflected (v0.5.0 indexing can lag; do not exit on len>=1 alone).
+		hasLocked := false
+		for _, locked := range controllerLockedAfterCancel {
+			if locked {
+				hasLocked = true
+				break
+			}
+		}
+		return (controllerUnlockedTotal == 3 && !hasLocked) || count >= 5
 	})
 	require.NotEmpty(t, coinsAfterCancelLock)
-	var controllerTotalAfterCancel int64
-	for _, a := range controllerAmountsAfterCancel {
-		controllerTotalAfterCancel += a
+	var controllerUnlockedTotalAfterCancel int64
+	for i, locked := range controllerLockedAfterCancel {
+		if !locked {
+			controllerUnlockedTotalAfterCancel += controllerAmountsAfterCancel[i]
+		}
 	}
-	assert.Equal(t, int64(3), controllerTotalAfterCancel, "controller unlocked total after cancelLock lock3")
+	assert.Equal(t, int64(3), controllerUnlockedTotalAfterCancel, "controller unlocked total after cancelLock lock3")
 	assert.NotContains(t, controllerLockedAfterCancel, true, "controller has no locked coins after cancelLock lock3")
 
 	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
