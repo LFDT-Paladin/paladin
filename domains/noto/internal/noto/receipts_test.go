@@ -40,6 +40,7 @@ func newNotoFullSchemaSet(t *testing.T) (context.Context, *domain.MockDomainCall
 		lockInfoSchemaV1: testSchema("lockInfo_v1"),
 		dataSchemaV0:     testSchema("data"),
 		dataSchemaV1:     testSchema("data_v1"),
+		dataSchemaV2:     testSchema("data_v2"),
 		manifestSchema:   testSchema("manifest"),
 	}
 	return t.Context(), mockCallbacks, n
@@ -227,6 +228,7 @@ func TestBuildReceiptBadCoinSchemaId(t *testing.T) {
 	n := Noto{
 		dataSchemaV0: testSchema("data"),
 		dataSchemaV1: testSchema("data_v1"),
+		dataSchemaV2: testSchema("data_v2"),
 		coinSchema:   &prototk.StateSchema{Id: "not_b32"},
 	}
 

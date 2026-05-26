@@ -92,7 +92,7 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 		return nil, err
 	}
 	infoDistribution := identityList{notaryID, senderID, fromID}
-	infoStates, err := h.noto.prepareDataInfo(data, tx.DomainConfig.Variant, infoDistribution.identities())
+	infoStates, err := h.noto.prepareDataInfo(ctx, data, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}

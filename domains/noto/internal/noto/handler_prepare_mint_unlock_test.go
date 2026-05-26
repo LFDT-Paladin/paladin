@@ -43,6 +43,7 @@ func TestPrepareMintUnlock(t *testing.T) {
 		lockInfoSchemaV1: testSchema("lockInfo_v1"),
 		dataSchemaV0:     testSchema("data"),
 		dataSchemaV1:     testSchema("data_v1"),
+		dataSchemaV2:     testSchema("data_v2"),
 		manifestSchema:   testSchema("manifest"),
 	}
 	ctx := t.Context()
@@ -180,7 +181,7 @@ func TestPrepareMintUnlock(t *testing.T) {
 
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      n.dataSchemaV1.Id,
+			SchemaId:      n.dataSchemaV2.Id,
 			Id:            *unlockDataState.Id,
 			StateDataJson: unlockDataState.StateDataJson,
 		},

@@ -122,6 +122,7 @@ var allSchemas = []*abi.Parameter{
 	types.NotoLockedCoinABI,
 	types.TransactionDataABI_V0,
 	types.TransactionDataABI_V1,
+	types.TransactionDataABI_V2,
 	types.NotoManifestABI,
 }
 
@@ -142,6 +143,7 @@ type Noto struct {
 	lockedCoinSchema     *prototk.StateSchema
 	dataSchemaV0         *prototk.StateSchema
 	dataSchemaV1         *prototk.StateSchema
+	dataSchemaV2         *prototk.StateSchema
 	lockInfoSchemaV0     *prototk.StateSchema
 	lockInfoSchemaV1     *prototk.StateSchema
 	manifestSchema       *prototk.StateSchema
@@ -475,7 +477,7 @@ func (n *Noto) LockInfoSchemaID() string {
 }
 
 func (n *Noto) DataSchemaID() string {
-	return n.dataSchemaV1.Id
+	return n.dataSchemaV2.Id
 }
 
 func (n *Noto) ManifestSchemaID() string {
@@ -513,6 +515,8 @@ func (n *Noto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (
 			n.dataSchemaV0 = req.AbiStateSchemas[i]
 		case types.TransactionDataABI_V1.Name:
 			n.dataSchemaV1 = req.AbiStateSchemas[i]
+		case types.TransactionDataABI_V2.Name:
+			n.dataSchemaV2 = req.AbiStateSchemas[i]
 		case types.NotoLockInfoABI_V0.Name:
 			n.lockInfoSchemaV0 = req.AbiStateSchemas[i]
 		case types.NotoLockInfoABI_V1.Name:

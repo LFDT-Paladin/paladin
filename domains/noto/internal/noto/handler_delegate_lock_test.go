@@ -42,6 +42,7 @@ func TestDelegateLock(t *testing.T) {
 		lockedCoinSchema: testSchema("lockedCoin"),
 		lockInfoSchemaV1: testSchema("lockInfo_v1"),
 		dataSchemaV1:     testSchema("data"),
+		dataSchemaV2:     testSchema("data_v2"),
 		manifestSchema:   testSchema("manifest"),
 	}
 	ctx := t.Context()
@@ -179,7 +180,7 @@ func TestDelegateLock(t *testing.T) {
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},
 		{
-			SchemaId:      hashName("data"),
+			SchemaId:      hashName("data_v2"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},

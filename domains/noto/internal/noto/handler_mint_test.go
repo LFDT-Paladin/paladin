@@ -40,6 +40,7 @@ func TestMint(t *testing.T) {
 		coinSchema:     testSchema("coin"),
 		dataSchemaV0:   testSchema("data"),
 		dataSchemaV1:   testSchema("data_v1"),
+		dataSchemaV2:   testSchema("data_v2"),
 		manifestSchema: testSchema("manifest"),
 	}
 	ctx := t.Context()
@@ -126,7 +127,7 @@ func TestMint(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      hashName("data"),
+			SchemaId:      hashName("data_v2"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
@@ -343,7 +344,7 @@ func TestMint_V0(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      hashName("data"),
+			SchemaId:      hashName("data_v2"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},

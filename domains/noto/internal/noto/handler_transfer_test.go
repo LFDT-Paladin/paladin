@@ -76,6 +76,7 @@ func TestTransfer(t *testing.T) {
 		coinSchema:     testSchema("coin"),
 		dataSchemaV0:   testSchema("data"),
 		dataSchemaV1:   testSchema("data_v1"),
+		dataSchemaV2:   testSchema("data_v2"),
 		manifestSchema: testSchema("manifest"),
 	}
 	ctx := t.Context()
@@ -216,7 +217,7 @@ func TestTransfer(t *testing.T) {
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},
 		{
-			SchemaId:      hashName("data"),
+			SchemaId:      hashName("data_v2"),
 			Id:            "0x0000000000000000000000000000000000000000000000000000000000000004",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
@@ -614,6 +615,7 @@ func TestTransferAssembleMissingFrom(t *testing.T) {
 		coinSchema:   testSchema("coin"),
 		dataSchemaV0: testSchema("data"),
 		dataSchemaV1: testSchema("data_v1"),
+		dataSchemaV2: testSchema("data_v2"),
 	}
 	handler := &transferHandler{
 		transferCommon: transferCommon{noto: n},
@@ -650,6 +652,7 @@ func TestTransferAssembleMissingTo(t *testing.T) {
 		coinSchema:   testSchema("coin"),
 		dataSchemaV0: testSchema("data"),
 		dataSchemaV1: testSchema("data_v1"),
+		dataSchemaV2: testSchema("data_v2"),
 	}
 	handler := &transferHandler{
 		transferCommon: transferCommon{noto: n},

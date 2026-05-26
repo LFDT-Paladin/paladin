@@ -138,7 +138,7 @@ func TestCreateMintLock(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      n.dataSchemaV1.Id,
+			SchemaId:      n.dataSchemaV2.Id,
 			Id:            *dataState.Id,
 			StateDataJson: dataState.StateDataJson,
 		},

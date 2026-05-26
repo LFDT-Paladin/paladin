@@ -32,6 +32,7 @@ func TestTransferFromBasicModeRestriction(t *testing.T) {
 		coinSchema:   testSchema("coin"),
 		dataSchemaV0: testSchema("data"),
 		dataSchemaV1: testSchema("data_v1"),
+		dataSchemaV2: testSchema("data_v2"),
 	}
 	ctx := t.Context()
 
@@ -77,6 +78,7 @@ func TestTransferFromHooksModeAllowed(t *testing.T) {
 		coinSchema:   testSchema("coin"),
 		dataSchemaV0: testSchema("data"),
 		dataSchemaV1: testSchema("data_v1"),
+		dataSchemaV2: testSchema("data_v2"),
 	}
 	ctx := t.Context()
 
