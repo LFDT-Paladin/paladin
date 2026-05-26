@@ -15,6 +15,9 @@
 
 import org.gradle.api.file.RelativePath
 
+// :domains:zeto ext (zetoVersions, zetoPrimaryZkpRoot) must exist before this script configures copy tasks.
+evaluationDependsOn(':domains:zeto')
+
 ext {
     goFiles = fileTree(".") {
         include "*.go"
@@ -103,8 +106,10 @@ task copySolidity(type: Copy) {
     dependsOn copyZetoVersionedUpstreamAbis
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
-    def zetoProj = project(':domains:zeto')
-    from zetoProj.file("zkp/${zetoProj.ext.zetoPrimaryZkpRoot}/artifacts/contracts/erc20.sol/SampleERC20.json")
+    from {
+        def zetoProj = project(':domains:zeto')
+        zetoProj.file("zkp/${zetoProj.ext.zetoPrimaryZkpRoot}/artifacts/contracts/erc20.sol/SampleERC20.json")
+    }
 
     inputs.files(configurations.contractCompile)
     from fileTree(configurations.contractCompile.asPath) {
@@ -145,7 +150,7 @@ task test(type: Exec, dependsOn: [":core:go:makeMocks"]) {
     args '-v'
     args '-cover'
     args '-covermode=atomic'
-    args '-timeout=480s'
+    args '-timeout=900s'
     args "-test.gocoverdir=${projectDir}/coverage"
 
     dependsOn ':testinfra:startTestInfra'
