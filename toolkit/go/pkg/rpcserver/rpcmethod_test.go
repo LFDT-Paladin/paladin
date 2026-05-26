@@ -332,10 +332,10 @@ func TestRCPMethodInvalidValue(t *testing.T) {
 		  "method": "stringy_method",
 		  "params": [ "not an array" ]
 		}`).
-		SetError(&errResponse).
+		SetResult(&errResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess()) // we return a 200 here b/c we are getting back a valid error body
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), errResponse.Error.Code)
 	assert.Regexp(t, "PD020704", errResponse.Error.Message)
 
@@ -359,10 +359,10 @@ func TestRCPMethodWrongParamCount(t *testing.T) {
 		  "method": "stringy_method",
 		  "params": [ "more", "than", "one" ]
 		}`).
-		SetError(&errResponse).
+		SetResult(&errResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), errResponse.Error.Code)
 	assert.Regexp(t, "PD020703", errResponse.Error.Message)
 
@@ -385,10 +385,10 @@ func TestRCPMethodBadResult(t *testing.T) {
 		  "method": "stringy_method",
 		  "params": [ ]
 		}`).
-		SetError(&errResponse).
+		SetResult(&errResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.Equal(t, int64(rpcclient.RPCCodeInternalError), errResponse.Error.Code)
 	assert.Regexp(t, "PD020705", errResponse.Error.Message)
 

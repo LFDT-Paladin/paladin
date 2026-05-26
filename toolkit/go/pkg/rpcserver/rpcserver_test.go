@@ -276,7 +276,7 @@ func TestHTTPHandler(t *testing.T) {
 	req := httptest.NewRequest("POST", "/", nil)
 	res := httptest.NewRecorder()
 	rpcServer.HTTPHandler(res, req)
-	assert.Equal(t, http.StatusInternalServerError, res.Code)
+	assert.Equal(t, http.StatusOK, res.Code)
 }
 
 func TestHTTPHandler_AuthenticationFailure(t *testing.T) {

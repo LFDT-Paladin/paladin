@@ -37,10 +37,10 @@ func TestRCPMissingID(t *testing.T) {
 	var errResponse rpcclient.RPCResponse
 	res, err := resty.New().R().
 		SetBody(`{}`).
-		SetError(&errResponse).
+		SetResult(&errResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), errResponse.Error.Code)
 	assert.Regexp(t, "PD020701", errResponse.Error.Message)
 
@@ -57,10 +57,10 @@ func TestRCPUnknownMethod(t *testing.T) {
 		  "id": 12345,
 		  "method": "wrong"
 		}`).
-		SetError(&errResponse).
+		SetResult(&errResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), errResponse.Error.Code)
 	assert.Regexp(t, "PD020702", errResponse.Error.Message)
 
@@ -478,9 +478,9 @@ func TestRPCProcessor_HTTP_NoStoredAuthenticationResults(t *testing.T) {
 	}
 
 	// Call processRPC directly with HTTP context (wsc == nil) that has no authentication results
-	response, isOK, _ := server.processRPC(ctx, rpcReq, nil /* HTTP request, no WebSocket connection */)
+	response, unauthorized, _ := server.processRPC(ctx, rpcReq, nil /* HTTP request, no WebSocket connection */)
+	assert.True(t, unauthorized)
 
-	assert.False(t, isOK)
 	assert.NotNil(t, response)
 	assert.NotNil(t, response.Error)
 	assert.Equal(t, int64(rpcclient.RPCCodeUnauthorized), response.Error.Code)
@@ -518,9 +518,9 @@ func TestRPCProcessor_WebSocket_NoStoredIdentities(t *testing.T) {
 	}
 
 	// Call processRPC directly with WebSocket connection that has no identities
-	response, isOK, _ := server.processRPC(ctx, rpcReq, wsc)
+	response, unauthorized, _ := server.processRPC(ctx, rpcReq, wsc)
+	assert.True(t, unauthorized)
 
-	assert.False(t, isOK)
 	assert.NotNil(t, response)
 	assert.NotNil(t, response.Error)
 	assert.Equal(t, int64(rpcclient.RPCCodeUnauthorized), response.Error.Code)
@@ -566,9 +566,9 @@ func TestRPCProcessor_AuthenticationResultMismatch(t *testing.T) {
 	}
 
 	// Call processRPC directly with WebSocket connection that has authentication result mismatch
-	response, isOK, _ := server.processRPC(ctx, rpcReq, wsc)
+	response, unauthorized, _ := server.processRPC(ctx, rpcReq, wsc)
+	assert.True(t, unauthorized)
 
-	assert.False(t, isOK)
 	assert.NotNil(t, response)
 	assert.NotNil(t, response.Error)
 	assert.Equal(t, int64(rpcclient.RPCCodeUnauthorized), response.Error.Code)
