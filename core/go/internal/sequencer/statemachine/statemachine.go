@@ -159,6 +159,7 @@ type TransitionCallback[S State, E any] func(ctx context.Context, entity E, from
 type StateMachine[S State, E Lockable] struct {
 	stateMu            sync.RWMutex
 	currentState       S
+	substate           any // informational substate; nil when none. Cleared automatically on every transition.
 	lastStateChange    time.Time
 	latestEvent        string
 	definitions        StateDefinitions[S, E]
@@ -305,6 +306,8 @@ func (sm *StateMachine[S, E]) evaluateTransitions(
 	for _, rule := range eventHandler.Transitions {
 		// Check if transition guard passes (or is nil)
 		if rule.If == nil || rule.If(ctx, entity) {
+			// Clear the informational substate before leaving the current state.
+			sm.substate = nil
 			previousState := sm.GetCurrentState()
 			sm.SetCurrentState(rule.To)
 			sm.latestEvent = event.TypeString()
@@ -360,6 +363,44 @@ func (sm *StateMachine[S, E]) SetCurrentState(state S) {
 	sm.stateMu.Lock()
 	sm.currentState = state
 	sm.stateMu.Unlock()
+}
+
+// GetCurrentSubstate returns the current informational substate, or nil if none is set.
+// Substates are purely informational labels within a state: they do not affect which events
+// are handled or which transitions are taken. They are cleared automatically whenever a
+// state transition occurs, so there is no risk of a stale substate leaking into a new state.
+func (sm *StateMachine[S, E]) GetCurrentSubstate() any {
+	sm.stateMu.RLock()
+	defer sm.stateMu.RUnlock()
+	return sm.substate
+}
+
+// SetSubstate sets the current informational substate.
+// Call this from within action rules (OnTransitionTo or event handler Actions) to record
+// fine-grained progress within the current state without creating a new routing state.
+// The substate is automatically cleared to nil on every outgoing transition.
+func (sm *StateMachine[S, E]) SetSubstate(s any) {
+	sm.stateMu.Lock()
+	sm.substate = s
+	sm.stateMu.Unlock()
+}
+
+// SubstateAction returns an Action that sets the given informational substate on this state machine.
+// Use it inside OnTransitionTo or event handler Actions to label fine-grained progress within a
+// state without adding a new top-level state or risking missed-notification bugs.
+//
+// Example:
+//
+//	State_Assembling: {
+//	    OnTransitionTo: []ActionRule[E]{{
+//	        Action: sm.SubstateAction(Substate_WaitingForResponse),
+//	    }},
+//	}
+func (sm *StateMachine[S, E]) SubstateAction(substate any) Action[E] {
+	return func(ctx context.Context, entity E, event common.Event) error {
+		sm.SetSubstate(substate)
+		return nil
+	}
 }
 
 // GetLastStateChange returns the time of the last state change.
@@ -606,4 +647,10 @@ func (sel *StateMachineEventLoop[S, E]) StateMachine() *StateMachine[S, E] {
 // GetCurrentState returns the current state of the state machine.
 func (sel *StateMachineEventLoop[S, E]) GetCurrentState() S {
 	return sel.stateMachine.GetCurrentState()
+}
+
+// GetCurrentSubstate returns the current informational substate of the underlying state machine.
+// Returns nil when no substate is set or after any state transition has cleared it.
+func (sel *StateMachineEventLoop[S, E]) GetCurrentSubstate() any {
+	return sel.stateMachine.GetCurrentSubstate()
 }
