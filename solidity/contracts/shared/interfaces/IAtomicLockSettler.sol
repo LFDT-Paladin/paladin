@@ -2,14 +2,14 @@
 pragma solidity ^0.8.20;
 
 /**
- * @title ILockSettler
+ * @title IAtomicLockSettler
  * @dev Interface for an atomic lock settler.
  *      An atomic lock settler is a contract that can spend or cancel a set
  *      of ILockableCapability locks atomically. All locks can be delegated
  *      to the atomic lock settler, which will then spend or cancel them
  *      together.
  */
-interface ILockSettler {
+interface IAtomicLockSettler {
     struct LockEntry {
         address contractAddress; // ILockableCapability implementation
         bytes32 lockId; // The lock to spend or cancel
@@ -29,15 +29,15 @@ interface ILockSettler {
         Cancelled
     }
 
-    event LockSettlerStatusChanged(Status status);
+    event SettlerStatusChanged(Status status);
 
-    error LockSettlerNotPending();
+    error SettlerNotPending();
 
     error SpendResult(CallResult[] result);
 
     /**
      * @dev Spend all locks atomically.
-     * Reverts if the LockSettler has already been spent or cancelled, or if any spendLock call fails.
+     * Reverts if the AtomicLockSettler has already been spent or cancelled, or if any spendLock call fails.
      */
     function spend() external;
 
@@ -57,17 +57,17 @@ interface ILockSettler {
     function simulate() external;
 
     /**
-     * @dev Get the number of locks in the LockSettler.
+     * @dev Get the number of locks in the AtomicLockSettler.
      */
     function getLockCount() external view returns (uint256);
 
     /**
-     * @dev Get all locks in the LockSettler.
+     * @dev Get all locks in the AtomicLockSettler.
      */
     function getLocks() external view returns (LockEntry[] memory);
 
     /**
-     * @dev Get a specific lock in the LockSettler.
+     * @dev Get a specific lock in the AtomicLockSettler.
      */
     function getLock(uint256 n) external view returns (LockEntry memory);
 }

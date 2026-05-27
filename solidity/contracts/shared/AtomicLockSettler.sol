@@ -3,17 +3,17 @@ pragma solidity ^0.8.20;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import {ILockSettler} from "./interfaces/ILockSettler.sol";
+import {IAtomicLockSettler} from "./interfaces/IAtomicLockSettler.sol";
 import {ILockableCapability} from "../domains/interfaces/ILockableCapability.sol";
 
 /**
- * @title LockSettler
+ * @title AtomicLockSettler
  * @dev Atomically spends or cancels a set of ILockableCapability locks.
  */
-contract LockSettler is
+contract AtomicLockSettler is
     Initializable,
     ReentrancyGuardUpgradeable,
-    ILockSettler
+    IAtomicLockSettler
 {
     Status public status;
     LockEntry[] private _locks;
@@ -24,7 +24,7 @@ contract LockSettler is
     }
 
     /**
-     * Initialize the LockSettler with a list of lock entries.
+     * Initialize the AtomicLockSettler with a list of lock entries.
      * @param locks The locks to spend or cancel atomically
      */
     function initialize(LockEntry[] memory locks) external initializer {
@@ -35,16 +35,16 @@ contract LockSettler is
             _locks.push(locks[i]);
         }
 
-        emit LockSettlerStatusChanged(status);
+        emit SettlerStatusChanged(status);
     }
 
     /**
      * @dev Spend all locks atomically.
-     * Reverts if the LockSettler has already been spent or cancelled, or if any spendLock call fails.
+     * Reverts if the AtomicLockSettler has already been spent or cancelled, or if any spendLock call fails.
      */
     function spend() external nonReentrant {
         if (status != Status.Pending) {
-            revert LockSettlerNotPending();
+            revert SettlerNotPending();
         }
 
         for (uint256 i = 0; i < _locks.length; i++) {
@@ -57,7 +57,7 @@ contract LockSettler is
         }
 
         status = Status.Spent;
-        emit LockSettlerStatusChanged(status);
+        emit SettlerStatusChanged(status);
     }
 
     /**
@@ -67,7 +67,7 @@ contract LockSettler is
      */
     function cancel() external nonReentrant {
         if (status == Status.Spent) {
-            revert LockSettlerNotPending();
+            revert SettlerNotPending();
         }
 
         for (uint256 i = 0; i < _locks.length; i++) {
@@ -85,7 +85,7 @@ contract LockSettler is
 
         if (status != Status.Cancelled) {
             status = Status.Cancelled;
-            emit LockSettlerStatusChanged(status);
+            emit SettlerStatusChanged(status);
         }
     }
 
@@ -97,7 +97,7 @@ contract LockSettler is
      */
     function simulate() external nonReentrant {
         if (status != Status.Pending) {
-            revert LockSettlerNotPending();
+            revert SettlerNotPending();
         }
 
         CallResult[] memory results = new CallResult[](_locks.length);

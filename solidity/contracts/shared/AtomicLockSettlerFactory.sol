@@ -5,11 +5,11 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {ILockSettlerFactory} from "./interfaces/ILockSettlerFactory.sol";
-import {LockSettler} from "./LockSettler.sol";
+import {IAtomicLockSettlerFactory} from "./interfaces/IAtomicLockSettlerFactory.sol";
+import {AtomicLockSettler} from "./AtomicLockSettler.sol";
 
-contract LockSettlerFactory is
-    ILockSettlerFactory,
+contract AtomicLockSettlerFactory is
+    IAtomicLockSettlerFactory,
     Initializable,
     UUPSUpgradeable,
     AccessControlUpgradeable
@@ -18,9 +18,9 @@ contract LockSettlerFactory is
 
     error InvalidZeroAddress();
 
-    event LockSettlerDeployed(address addr);
+    event SettlerDeployed(address addr);
 
-    event LockSettlerLogicSet(address newLogic);
+    event SettlerLogicSet(address newLogic);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -31,24 +31,24 @@ contract LockSettlerFactory is
         __UUPSUpgradeable_init();
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        logic = address(new LockSettler());
+        logic = address(new AtomicLockSettler());
     }
 
     /**
-     * @dev Create a new LockSettler instance by cloning the logic contract.
+     * @dev Create a new AtomicLockSettler instance by cloning the logic contract.
      * @param locks The locks to spend or cancel atomically.
      */
-    function create(LockSettler.LockEntry[] calldata locks) public {
+    function create(AtomicLockSettler.LockEntry[] calldata locks) public {
         address instance = Clones.clone(logic);
-        LockSettler(instance).initialize(locks);
-        emit LockSettlerDeployed(instance);
+        AtomicLockSettler(instance).initialize(locks);
+        emit SettlerDeployed(instance);
     }
 
     function setLogic(address newLogic) public onlyRole(DEFAULT_ADMIN_ROLE) {
         require(newLogic != address(0), InvalidZeroAddress());
         logic = newLogic;
 
-        emit LockSettlerLogicSet(newLogic);
+        emit SettlerLogicSet(newLogic);
     }
 
     function _authorizeUpgrade(

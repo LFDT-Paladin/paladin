@@ -1,22 +1,22 @@
 import { expect } from "chai";
 import type { Signer } from "ethers";
 import { ethers } from "hardhat";
-import type { LockSettler, LockSettlerFactory, ERC20Lockable } from "../../typechain-types";
+import type { AtomicLockSettler, AtomicLockSettlerFactory, ERC20Lockable } from "../../typechain-types";
 import { deployUpgradeableContract } from "../helpers/deploy-upgradeable";
 import { createTokenLock } from "../helpers/erc20-lockable";
 
-describe("LockSettler", function () {
-  let lockSettlerFactory: LockSettlerFactory;
+describe("AtomicLockSettler", function () {
+  let lockSettlerFactory: AtomicLockSettlerFactory;
 
   before(async function () {
     lockSettlerFactory = (await deployUpgradeableContract(
-      "LockSettlerFactory",
+      "AtomicLockSettlerFactory",
       "initialize",
       [],
-    )) as LockSettlerFactory;
+    )) as AtomicLockSettlerFactory;
   });
 
-  async function deployLockSettler(
+  async function deployAtomicLockSettler(
     entries: {
       contractAddress: string;
       lockId: string;
@@ -25,24 +25,24 @@ describe("LockSettler", function () {
       data: Uint8Array | string;
     }[],
     executor: Signer,
-  ): Promise<LockSettler> {
+  ): Promise<AtomicLockSettler> {
     const createTx = await lockSettlerFactory.connect(executor).create(entries);
     const receipt = await createTx.wait();
     const deployedEvent = receipt?.logs
       .filter((log) => {
         try {
           const parsed = lockSettlerFactory.interface.parseLog(log);
-          return parsed?.name === "LockSettlerDeployed";
+          return parsed?.name === "SettlerDeployed";
         } catch {
           return false;
         }
       })
       .map((log) => lockSettlerFactory.interface.parseLog(log))[0];
-    const lockSettlerAddress = deployedEvent?.args[0] as string;
+    const atomicLockSettlerAddress = deployedEvent?.args[0] as string;
     return (await ethers.getContractAt(
-      "LockSettler",
-      lockSettlerAddress,
-    )) as LockSettler;
+      "AtomicLockSettler",
+      atomicLockSettlerAddress,
+    )) as AtomicLockSettler;
   }
 
   it("atomically spends 2 token locks from different users", async function () {
@@ -78,7 +78,7 @@ describe("LockSettler", function () {
       daveAddress,
     );
 
-    const settler = await deployLockSettler(
+    const settler = await deployAtomicLockSettler(
       [
         {
           contractAddress: await token.getAddress(),
@@ -170,7 +170,7 @@ describe("LockSettler", function () {
     // Create a fake/invalid lock ID for Bob's entry to test atomicity
     const fakeLockId = ethers.keccak256(ethers.toUtf8Bytes("fake-lock"));
 
-    const settler = await deployLockSettler(
+    const settler = await deployAtomicLockSettler(
       [
         {
           contractAddress: await token.getAddress(),
@@ -246,7 +246,7 @@ describe("LockSettler", function () {
       daveAddress,
     );
 
-    const settler = await deployLockSettler(
+    const settler = await deployAtomicLockSettler(
       [
         {
           contractAddress: await token.getAddress(),
@@ -344,7 +344,7 @@ describe("LockSettler", function () {
       ethers.parseEther("200"),
     );
 
-    const settler = await deployLockSettler(
+    const settler = await deployAtomicLockSettler(
       [
         {
           contractAddress: await token.getAddress(),
@@ -416,7 +416,7 @@ describe("LockSettler", function () {
     const TokenFactory = await ethers.getContractFactory("ERC20Lockable");
     const token = await TokenFactory.deploy("TestToken", "TEST");
 
-    const settler = await deployLockSettler(
+    const settler = await deployAtomicLockSettler(
       [
         {
           contractAddress: await token.getAddress(),
@@ -434,7 +434,7 @@ describe("LockSettler", function () {
 
     await expect(
       settler.connect(owner1).spend(),
-    ).to.be.revertedWithCustomError(settler, "LockSettlerNotPending");
+    ).to.be.revertedWithCustomError(settler, "SettlerNotPending");
   });
 
   it("should not allow cancel after spend", async function () {
@@ -456,7 +456,7 @@ describe("LockSettler", function () {
       recipientAddress,
     );
 
-    const settler = await deployLockSettler(
+    const settler = await deployAtomicLockSettler(
       [
         {
           contractAddress: await token.getAddress(),
@@ -479,6 +479,6 @@ describe("LockSettler", function () {
 
     await expect(
       settler.connect(owner1).cancel(),
-    ).to.be.revertedWithCustomError(settler, "LockSettlerNotPending");
+    ).to.be.revertedWithCustomError(settler, "SettlerNotPending");
   });
 });
