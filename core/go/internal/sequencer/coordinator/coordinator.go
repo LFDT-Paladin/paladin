@@ -27,6 +27,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
@@ -76,7 +78,8 @@ type coordinator struct {
 	pooledTransactions                         []transaction.CoordinatorTransaction
 	currentBlockHeight                         uint64
 	activeCoordinatorsFlushPointsBySignerNonce map[string]*common.SnapshotFlushPoint
-	grapher                                    transaction.Grapher
+	dependencyTracker                          dependencytracker.DependencyTracker
+	grapher                                    grapher.Grapher
 	originatorNodePool                         []string // The (possibly changing) list of originator nodes
 
 	/* Config */
@@ -135,6 +138,7 @@ func NewCoordinator(
 	coordinatorIdle func(contractAddress *pldtypes.EthAddress),
 ) (*coordinator, error) {
 	coordCtx := log.WithLogField(ctx, "role", "coordinator")
+	dependencyTracker := dependencytracker.NewDependencyTracker()
 	c := &coordinator{
 		ctx:                                coordCtx,
 		heartbeatIntervalsSinceStateChange: 0,
@@ -146,7 +150,8 @@ func NewCoordinator(
 		newPrivateTransaction:              newPrivateTransaction,
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
-		grapher:                            transaction.NewGrapher(coordCtx),
+		dependencyTracker:                  dependencyTracker,
+		grapher:                            grapher.NewGrapher(dependencyTracker),
 		clock:                              clock,
 		engineIntegration:                  engineIntegration,
 		syncPoints:                         syncPoints,

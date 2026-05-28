@@ -26,6 +26,7 @@ import { TransactionLookupDialog } from "../dialogs/TransactionLookup";
 import { ApplicationContext } from "../contexts/ApplicationContext";
 import ViewArrayOutlinedIcon from '@mui/icons-material/ViewArrayOutlined';
 import { FromBlockDialog } from "../dialogs/FromBlock";
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 type Props = {
   refEntries: ITransactionPagingReference[]
@@ -134,14 +135,14 @@ export const Transactions: React.FC<Props> = ({
                 </Grid2>
                 <Grid2>
                   <Button
-                    color={fromBlock === undefined? 'secondary' : 'warning'}
+                    color={fromBlock === undefined ? 'secondary' : 'warning'}
                     size="large"
                     variant="outlined"
                     startIcon={<ViewArrayOutlinedIcon />}
                     sx={{ borderRadius: '20px', minWidth: '180px' }}
                     onClick={() => setFromBlockDialogOpen(true)}
                   >
-                    {t(fromBlock === undefined ? 'Latest block' : 'fromBlockN', { n: fromBlock?.toLocaleString()})}
+                    {t(fromBlock === undefined ? 'Latest block' : 'fromBlockN', { n: fromBlock?.toLocaleString() })}
                   </Button>
                 </Grid2>
               </Grid2>
@@ -158,29 +159,36 @@ export const Transactions: React.FC<Props> = ({
               />
             )}
           </Box>
-          <TablePagination
-            slotProps={{
-              actions: {
-                lastButton: {
-                  disabled: true
+          {enrichedTransactions !== undefined && enrichedTransactions.length > 0 &&
+            <TablePagination
+              slotProps={{
+                actions: {
+                  lastButton: {
+                    disabled: true
+                  }
                 }
-              }
-            }}
-
-            component="div"
-            showFirstButton
-            showLastButton
-            count={count}
-            page={page}
-            onPageChange={handleChangePage}
-            rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={handleChangeRowsPerPage}
-          />
+              }}
+              component="div"
+              showFirstButton
+              showLastButton
+              count={count}
+              page={page}
+              onPageChange={handleChangePage}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+            />}
+          {enrichedTransactions !== undefined && enrichedTransactions.length === 0 &&
+            <Box sx={{ marginTop: '60px', textAlign: 'center', color: theme => theme.palette.text.secondary }}>
+              <InfoOutlinedIcon sx={{ fontSize: '50px' }} />
+              <Typography>{t('transactionsEmptyState')}</Typography>
+            </Box>
+          }
         </Box>
       </Fade>
       <TransactionLookupDialog
         dialogOpen={lookupTransactionDialogOpen}
         setDialogOpen={setLookupTransactionDialogOpen}
+        label={t('blockchainTransactionHashOrPaladinTransactionId')}
       />
       <FromBlockDialog
         dialogOpen={fromBlockDialogOpen}

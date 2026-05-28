@@ -252,24 +252,31 @@ var stateDefinitionsMap = StateDefinitions{
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
 					{
-						Validator: validator_TransactionStateTransitionDispatchedToPooled,
-						If:        guard_HasTransactionAssembling,
-						Action:    action_cancelCurrentlyAssemblingTransaction, // This TX is being re-pooled, cancel the one we're already assembling
+						// This TX is leaving dispatched after being reverted on chain, cancel any transaction being assembled
+						// This could be more nuanced if we could capture the set of potential states that are being removed
+						// as part of unwinding the dependency chain, and only repool the transaction once assembly is complete if
+						// it is using one of these potential outputs as an input.
+						Validator: statemachine.ValidatorAnd(
+							validator_TransactionStateTransitionFrom(transaction.State_Dispatched),
+							validator_TransactionStateTransitionTo(transaction.State_Pooled, transaction.State_Reverted),
+						),
+						If:     guard_HasTransactionAssembling,
+						Action: action_cancelCurrentlyAssemblingTransaction,
 					},
 					{
-						Validator: validator_TransactionStateTransitionToPooled,
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
 						Action:    action_PoolTransaction,
 					},
 					{
-						Validator: validator_TransactionStateTransitionToReadyForDispatch,
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
 						Action:    action_QueueTransactionForDispatch,
 					},
 					{
-						Validator: validator_TransactionStateTransitionToFinal,
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Final),
 						Action:    action_CleanUpTransaction,
 					},
 					{
-						Validator: validator_TransactionStateTransitionToEvicted,
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Evicted),
 						Action:    action_CleanUpTransaction,
 					},
 					{
@@ -300,15 +307,15 @@ var stateDefinitionsMap = StateDefinitions{
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
 					{
-						Validator: validator_TransactionStateTransitionToPooled,
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
 						Action:    action_PoolTransaction,
 					},
 					{
-						Validator: validator_TransactionStateTransitionToReadyForDispatch,
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
 						Action:    action_QueueTransactionForDispatch,
 					},
 					{
-						Validator: validator_TransactionStateTransitionToFinal,
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Final),
 						Action:    action_CleanUpTransaction,
 					},
 				},
@@ -342,15 +349,15 @@ var stateDefinitionsMap = StateDefinitions{
 				// state machine definition and they need to be addressed together
 				Actions: []ActionRule{
 					{
-						Validator: validator_TransactionStateTransitionToPooled,
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
 						Action:    action_PoolTransaction,
 					},
 					{
-						Validator: validator_TransactionStateTransitionToReadyForDispatch,
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
 						Action:    action_QueueTransactionForDispatch,
 					},
 					{
-						Validator: validator_TransactionStateTransitionToFinal,
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Final),
 						Action:    action_CleanUpTransaction,
 					},
 				},

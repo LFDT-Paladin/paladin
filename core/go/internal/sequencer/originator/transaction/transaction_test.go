@@ -75,8 +75,7 @@ func TestTransaction_GetStatus_NilPostAssembly_ReturnsStatusWithNilEndorsements(
 	builder := NewTransactionBuilderForTesting(t, State_Initial)
 	txn, _ := builder.BuildWithMocks()
 	txn.pt.PostAssembly = nil
-	txn.stateMachine.CurrentState = State_Assembling
-	txn.stateMachine.LatestEvent = "evt"
+	txn.stateMachine.SetCurrentState(State_Assembling)
 	status := txn.GetStatus(ctx)
 	assert.Equal(t, txn.pt.ID.String(), status.TxID)
 	assert.Equal(t, "State_Assembling", status.Status)
@@ -95,12 +94,10 @@ func TestTransaction_GetStatus_ReturnsStatusWithEndorsements(t *testing.T) {
 			{Name: "att1", Verifier: &prototk.ResolvedVerifier{Lookup: "party1", VerifierType: "v1"}},
 		},
 	}
-	txn.stateMachine.CurrentState = State_Assembling
-	txn.stateMachine.LatestEvent = "evt"
+	txn.stateMachine.SetCurrentState(State_Assembling)
 	status := txn.GetStatus(ctx)
 	assert.Equal(t, txn.pt.ID.String(), status.TxID)
 	assert.Equal(t, "State_Assembling", status.Status)
-	assert.Equal(t, "evt", status.LatestEvent)
 	require.Len(t, status.Endorsements, 1)
 	assert.Equal(t, "party1", status.Endorsements[0].Party)
 	assert.True(t, status.Endorsements[0].EndorsementReceived)
@@ -178,9 +175,6 @@ func TestTransaction_Hash_ErrorWhenPrivateTransactionIsNil(t *testing.T) {
 	// Create a transaction with nil PrivateTransaction by manually constructing it
 	txn := &originatorTransaction{
 		pt: nil,
-		stateMachine: &StateMachine{
-			CurrentState: State_Initial,
-		},
 	}
 
 	hash, err := txn.GetHash(ctx)
@@ -238,27 +232,6 @@ func TestTransaction_GetCurrentState_ReturnsDifferentStates(t *testing.T) {
 			assert.Equal(t, tc.state, state, "GetCurrentState should return the expected state")
 		})
 	}
-}
-
-func TestTransaction_GetLatestEvent_ReturnsEmptyStringInitially(t *testing.T) {
-	// Test that GetLatestEvent returns an empty string for a newly created transaction
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	event := txn.GetLatestEvent()
-	assert.Equal(t, "", event, "GetLatestEvent should return an empty string for a newly created transaction")
-}
-
-func TestTransaction_GetLatestEvent_ReturnsSetEvent(t *testing.T) {
-	// Test that GetLatestEvent returns the event that was set on the state machine
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	expectedEvent := "test-event"
-	txn.stateMachine.LatestEvent = expectedEvent
-
-	event := txn.GetLatestEvent()
-	assert.Equal(t, expectedEvent, event, "GetLatestEvent should return the event that was set")
 }
 
 func TestTransaction_GetSignerAddress_ReturnsNilInitially(t *testing.T) {

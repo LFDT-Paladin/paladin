@@ -499,11 +499,11 @@ func (s *notoTestSuite) testNotoLock(version string) {
 	var notoBuild *solutils.SolidityBuild
 	if version == "v1" {
 		notoBuild = solutils.MustLoadBuild(helpers.NotoInterfaceJSON)
-		spendInputs, err := types.NotoUnlockOperationABI.DecodeABIData(pldtypes.MustParseHexBytes(prepareUnlockReceipt.LockInfo.UnlockParams["spendInputs"].(string)), 0)
+		spendArgs, err := types.NotoSpendLockArgsABI.DecodeABIData(pldtypes.MustParseHexBytes(prepareUnlockReceipt.LockInfo.UnlockParams["spendArgs"].(string)), 0)
 		require.NoError(t, err)
-		spendInputsJSON, err := spendInputs.Children[0].JSON()
+		spendArgsJSON, err := spendArgs.Children[0].JSON()
 		require.NoError(t, err)
-		log.L(ctx).Infof("Test unlocking %s with spendInputs: %s", prepareUnlockReceipt.LockInfo.LockID, spendInputsJSON)
+		log.L(ctx).Infof("Test unlocking %s with spendArgs: %s", prepareUnlockReceipt.LockInfo.LockID, spendArgsJSON)
 	} else {
 		notoBuild = solutils.MustLoadBuild(helpers.NotoV0InterfaceJSON)
 	}
@@ -905,11 +905,11 @@ func (s *notoTestSuite) TestNotoPrepareMintUnlock() {
 
 	log.L(ctx).Infof("Unlock from notary")
 	notoBuild := solutils.MustLoadBuild(helpers.NotoInterfaceJSON)
-	spendInputs, err := types.NotoUnlockOperationABI.DecodeABIData(pldtypes.MustParseHexBytes(prepareMintUnlockReceipt.LockInfo.UnlockParams["spendInputs"].(string)), 0)
+	spendArgs, err := types.NotoSpendLockArgsABI.DecodeABIData(pldtypes.MustParseHexBytes(prepareMintUnlockReceipt.LockInfo.UnlockParams["spendArgs"].(string)), 0)
 	require.NoError(t, err)
-	spendInputsJSON, err := spendInputs.Children[0].JSON()
+	spendArgsJSON, err := spendArgs.Children[0].JSON()
 	require.NoError(t, err)
-	log.L(ctx).Infof("Test unlocking %s with spendInputs: %s", prepareMintUnlockReceipt.LockInfo.LockID, spendInputsJSON)
+	log.L(ctx).Infof("Test unlocking %s with spendArgs: %s", prepareMintUnlockReceipt.LockInfo.LockID, spendArgsJSON)
 	tx := pld.ForABI(ctx, notoBuild.ABI).
 		Public().
 		From(recipient1Name).
@@ -1049,11 +1049,11 @@ func (s *notoTestSuite) TestNotoPrepareBurnUnlock() {
 
 	log.L(ctx).Infof("Unlock from recipient1")
 	notoBuild := solutils.MustLoadBuild(helpers.NotoInterfaceJSON)
-	spendInputs, err := types.NotoUnlockOperationABI.DecodeABIData(pldtypes.MustParseHexBytes(prepareBurnUnlockReceipt.LockInfo.UnlockParams["spendInputs"].(string)), 0)
+	spendArgs, err := types.NotoSpendLockArgsABI.DecodeABIData(pldtypes.MustParseHexBytes(prepareBurnUnlockReceipt.LockInfo.UnlockParams["spendArgs"].(string)), 0)
 	require.NoError(t, err)
-	spendInputsJSON, err := spendInputs.Children[0].JSON()
+	spendArgsJSON, err := spendArgs.Children[0].JSON()
 	require.NoError(t, err)
-	log.L(ctx).Infof("Test unlocking %s with spendInputs: %s", prepareBurnUnlockReceipt.LockInfo.LockID, spendInputsJSON)
+	log.L(ctx).Infof("Test unlocking %s with spendArgs: %s", prepareBurnUnlockReceipt.LockInfo.LockID, spendArgsJSON)
 	tx := pld.ForABI(ctx, notoBuild.ABI).
 		Public().
 		From(recipient1Name).

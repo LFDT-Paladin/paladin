@@ -69,6 +69,7 @@ package statemachine
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -156,9 +157,10 @@ type TransitionCallback[S State, E any] func(ctx context.Context, entity E, from
 // The entity type E must implement Lockable; the state machine holds the entity's lock
 // for the duration of each ProcessEvent call.
 type StateMachine[S State, E Lockable] struct {
-	CurrentState       S
-	LastStateChange    time.Time
-	LatestEvent        string
+	stateMu            sync.RWMutex
+	currentState       S
+	lastStateChange    time.Time
+	latestEvent        string
 	definitions        StateDefinitions[S, E]
 	transitionCallback TransitionCallback[S, E]
 	name               string // used in logging (e.g. transition logs)
@@ -183,8 +185,8 @@ func NewStateMachine[S State, E Lockable](
 	opts ...StateMachineOption[S, E],
 ) *StateMachine[S, E] {
 	sm := &StateMachine[S, E]{
-		CurrentState:    initialState,
-		LastStateChange: time.Now(),
+		currentState:    initialState,
+		lastStateChange: time.Now(),
 		definitions:     definitions,
 		name:            name,
 	}
@@ -211,7 +213,8 @@ func (sm *StateMachine[S, E]) ProcessEvent(
 	entity.Lock()
 	defer entity.Unlock()
 
-	log.L(ctx).Debugf("%s | %s | processing event %s", sm.name, sm.CurrentState.String(), event.TypeString())
+	currentState := sm.GetCurrentState()
+	log.L(ctx).Debugf("%s | %s | processing event %s", sm.name, currentState.String(), event.TypeString())
 
 	// Evaluate whether this event is relevant for the current state
 	eventHandler, err := sm.evaluateEvent(ctx, entity, event)
@@ -222,7 +225,7 @@ func (sm *StateMachine[S, E]) ProcessEvent(
 	// Execute Actions
 	err = sm.executeActionRules(ctx, entity, event, eventHandler.Actions)
 	if err != nil {
-		log.L(ctx).Errorf("%s | %s | %s | error applying action: %v", sm.name, sm.CurrentState.String(), event.TypeString(), err)
+		log.L(ctx).Errorf("%s | %s | %s | error applying action: %v", sm.name, sm.GetCurrentState().String(), event.TypeString(), err)
 		return err
 	}
 
@@ -238,7 +241,8 @@ func (sm *StateMachine[S, E]) evaluateEvent(
 	entity E,
 	event common.Event,
 ) (*EventHandler[S, E], error) {
-	stateDefinition, exists := sm.definitions[sm.CurrentState]
+	currentState := sm.GetCurrentState()
+	stateDefinition, exists := sm.definitions[currentState]
 	if !exists {
 		return nil, nil
 	}
@@ -252,11 +256,11 @@ func (sm *StateMachine[S, E]) evaluateEvent(
 	if eventHandler.Validator != nil {
 		valid, err := eventHandler.Validator(ctx, entity, event)
 		if err != nil {
-			log.L(ctx).Errorf("%s | %s | error validating event %s: %v", sm.name, sm.CurrentState.String(), event.TypeString(), err)
+			log.L(ctx).Errorf("%s | %s | error validating event %s: %v", sm.name, currentState.String(), event.TypeString(), err)
 			return nil, err
 		}
 		if !valid {
-			log.L(ctx).Warnf("%s | %s | event %s not valid for current state", sm.name, sm.CurrentState.String(), event.TypeString())
+			log.L(ctx).Warnf("%s | %s | event %s not valid for current state", sm.name, currentState.String(), event.TypeString())
 			return nil, nil
 		}
 	}
@@ -301,24 +305,25 @@ func (sm *StateMachine[S, E]) evaluateTransitions(
 	for _, rule := range eventHandler.Transitions {
 		// Check if transition guard passes (or is nil)
 		if rule.If == nil || rule.If(ctx, entity) {
-			previousState := sm.CurrentState
-			sm.CurrentState = rule.To
-			sm.LatestEvent = event.TypeString()
-			sm.LastStateChange = time.Now()
+			previousState := sm.GetCurrentState()
+			sm.SetCurrentState(rule.To)
+			sm.latestEvent = event.TypeString()
+			sm.lastStateChange = time.Now()
 
 			// Execute transition-specific actions first
 			err := sm.executeActionRules(ctx, entity, event, rule.Actions)
 			if err != nil {
-				log.L(ctx).Errorf("%s | %s | %s | error executing transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.CurrentState.String(), err)
+				log.L(ctx).Errorf("%s | %s | %s | error executing transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.GetCurrentState().String(), err)
 				return err
 			}
 
 			// Execute state entry actions
-			newStateDefinition, exists := sm.definitions[sm.CurrentState]
+			newState := sm.GetCurrentState()
+			newStateDefinition, exists := sm.definitions[newState]
 			if exists && len(newStateDefinition.OnTransitionTo) > 0 {
 				err := sm.executeActionRules(ctx, entity, event, newStateDefinition.OnTransitionTo)
 				if err != nil {
-					log.L(ctx).Errorf("%s | %s | %s | error executing state entry action for transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.CurrentState.String(), err)
+					log.L(ctx).Errorf("%s | %s | %s | error executing state entry action for transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), newState.String(), err)
 					return err
 				}
 			}
@@ -328,11 +333,11 @@ func (sm *StateMachine[S, E]) evaluateTransitions(
 				sm.name,
 				previousState.String(),
 				event.TypeString(),
-				sm.CurrentState.String())
+				newState.String())
 
 			// Invoke transition callback if set
 			if sm.transitionCallback != nil {
-				sm.transitionCallback(ctx, entity, previousState, sm.CurrentState, event)
+				sm.transitionCallback(ctx, entity, previousState, newState, event)
 			}
 
 			// Only take the first matching transition
@@ -344,17 +349,27 @@ func (sm *StateMachine[S, E]) evaluateTransitions(
 
 // GetCurrentState returns the current state of the state machine.
 func (sm *StateMachine[S, E]) GetCurrentState() S {
-	return sm.CurrentState
+	sm.stateMu.RLock()
+	defer sm.stateMu.RUnlock()
+	return sm.currentState
+}
+
+// SetCurrentState sets the state machine state.
+// Intended for test setup and controlled internal transitions.
+func (sm *StateMachine[S, E]) SetCurrentState(state S) {
+	sm.stateMu.Lock()
+	sm.currentState = state
+	sm.stateMu.Unlock()
 }
 
 // GetLastStateChange returns the time of the last state change.
 func (sm *StateMachine[S, E]) GetLastStateChange() time.Time {
-	return sm.LastStateChange
+	return sm.lastStateChange
 }
 
 // GetLatestEvent returns the type string of the last event that caused a transition.
 func (sm *StateMachine[S, E]) GetLatestEvent() string {
-	return sm.LatestEvent
+	return sm.latestEvent
 }
 
 // StateMachineEventLoop combines a StateMachine and an event loop into a single
@@ -451,7 +466,7 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 	defer close(sel.loopStopped)
 	sel.running = true
 
-	log.L(ctx).Debugf("%s | %s | event loop started", sel.name, sel.stateMachine.CurrentState.String())
+	log.L(ctx).Debugf("%s | %s | event loop started", sel.name, sel.stateMachine.GetCurrentState().String())
 
 	for {
 		// Drain the priority queue fully before taking work from the main queue
@@ -460,14 +475,14 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 			select {
 			case event := <-sel.eventsPriority:
 				if syncEv, ok := isSyncEvent(event); ok {
-					log.L(ctx).Debugf("%s | %s | sync event processed (priority)", sel.name, sel.stateMachine.CurrentState.String())
+					log.L(ctx).Debugf("%s | %s | sync event processed (priority)", sel.name, sel.stateMachine.GetCurrentState().String())
 					close(syncEv.Done)
 					continue
 				}
-				log.L(ctx).Debugf("%s | %s | %s | processing priority", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+				log.L(ctx).Debugf("%s | %s | %s | processing priority", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 				err := sel.processEvent(ctx, event)
 				if err != nil {
-					log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString(), err)
+					log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString(), err)
 				}
 			default:
 				break drainPriority
@@ -477,29 +492,29 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 		select {
 		case event := <-sel.eventsPriority:
 			if syncEv, ok := isSyncEvent(event); ok {
-				log.L(ctx).Debugf("%s | %s | sync event processed (priority)", sel.name, sel.stateMachine.CurrentState.String())
+				log.L(ctx).Debugf("%s | %s | sync event processed (priority)", sel.name, sel.stateMachine.GetCurrentState().String())
 				close(syncEv.Done)
 				continue
 			}
-			log.L(ctx).Debugf("%s | %s | %s | processing priority", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+			log.L(ctx).Debugf("%s | %s | %s | processing priority", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 			err := sel.processEvent(ctx, event)
 			if err != nil {
-				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString(), err)
+				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString(), err)
 			}
 		case event := <-sel.events:
 			if syncEv, ok := isSyncEvent(event); ok {
-				log.L(ctx).Debugf("%s | %s | sync event processed", sel.name, sel.stateMachine.CurrentState.String())
+				log.L(ctx).Debugf("%s | %s | sync event processed", sel.name, sel.stateMachine.GetCurrentState().String())
 				close(syncEv.Done)
 				continue
 			}
 
-			log.L(ctx).Debugf("%s | %s | %s | processing", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+			log.L(ctx).Debugf("%s | %s | %s | processing", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 			err := sel.processEvent(ctx, event)
 			if err != nil {
-				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString(), err)
+				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString(), err)
 			}
 		case <-ctx.Done():
-			log.L(ctx).Debugf("%s | %s | context cancelled, stopping", sel.name, sel.stateMachine.CurrentState.String())
+			log.L(ctx).Debugf("%s | %s | context cancelled, stopping", sel.name, sel.stateMachine.GetCurrentState().String())
 			sel.running = false
 			return
 		}
@@ -508,11 +523,11 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 
 // QueueEvent asynchronously queues an event for processing.
 func (sel *StateMachineEventLoop[S, E]) QueueEvent(ctx context.Context, event common.Event) {
-	log.L(ctx).Tracef("%s | %s | queueing event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+	log.L(ctx).Tracef("%s | %s | queueing event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	select {
 	case sel.events <- event:
 	case <-ctx.Done():
-		log.L(ctx).Warnf("%s | %s | context cancelled, dropping event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Warnf("%s | %s | context cancelled, dropping event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	}
 }
 
@@ -522,10 +537,10 @@ func (sel *StateMachineEventLoop[S, E]) QueueEvent(ctx context.Context, event co
 func (sel *StateMachineEventLoop[S, E]) TryQueueEvent(ctx context.Context, event common.Event) bool {
 	select {
 	case sel.events <- event:
-		log.L(ctx).Tracef("%s | %s | queued event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Tracef("%s | %s | queued event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 		return true
 	default:
-		log.L(ctx).Warnf("%s | %s | buffer full, dropping event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Warnf("%s | %s | buffer full, dropping event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 		return false
 	}
 }
@@ -533,11 +548,11 @@ func (sel *StateMachineEventLoop[S, E]) TryQueueEvent(ctx context.Context, event
 // QueuePriorityEvent asynchronously queues an event on the priority queue.
 // Priority events are always fully drained before the main queue is read.
 func (sel *StateMachineEventLoop[S, E]) QueuePriorityEvent(ctx context.Context, event common.Event) {
-	log.L(ctx).Tracef("%s | %s | queueing priority event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+	log.L(ctx).Tracef("%s | %s | queueing priority event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	select {
 	case sel.eventsPriority <- event:
 	case <-ctx.Done():
-		log.L(ctx).Warnf("%s | %s | context cancelled, dropping priority event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Warnf("%s | %s | context cancelled, dropping priority event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	}
 }
 
@@ -546,10 +561,10 @@ func (sel *StateMachineEventLoop[S, E]) QueuePriorityEvent(ctx context.Context, 
 func (sel *StateMachineEventLoop[S, E]) TryQueuePriorityEvent(ctx context.Context, event common.Event) bool {
 	select {
 	case sel.eventsPriority <- event:
-		log.L(ctx).Tracef("%s | %s | queued priority event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Tracef("%s | %s | queued priority event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 		return true
 	default:
-		log.L(ctx).Warnf("%s | %s | priority buffer full, dropping event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Warnf("%s | %s | priority buffer full, dropping event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 		return false
 	}
 }

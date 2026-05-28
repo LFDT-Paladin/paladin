@@ -26,6 +26,11 @@ export interface ITransactionPagingReference {
   transactionIndex: number;
 }
 
+export interface IPaladinTransactionPagingReference {
+  id: string;
+  created: string;
+}
+
 export interface ITransaction {
   hash: string;
   blockNumber: number;
@@ -39,9 +44,8 @@ export interface ITransaction {
 }
 
 export interface IEnrichedTransaction extends ITransaction {
-  receipts: ITransactionReceipt[];
-  paladinTransactions: IPaladinTransaction[];
   events: IEvent[];
+  receipts: ITransactionReceipt[];
 }
 
 export interface IEvent {
@@ -67,7 +71,7 @@ export interface IPaladinTransaction {
   id: string;
   created: string;
   type: string;
-  domain: string;
+  domain?: string;
   function: string;
   to?: string;
   from: string;
@@ -80,7 +84,7 @@ export interface IPaladinTransaction {
 
 export interface ITransactionReceipt {
   blockNumber: number;
-  domain: string;
+  domain?: string;
   id: string;
   success: boolean;
   transactionHash: string;

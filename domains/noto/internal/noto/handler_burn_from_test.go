@@ -32,6 +32,7 @@ func TestBurnFromBasicModeRestriction(t *testing.T) {
 		coinSchema:     testSchema("coin"),
 		dataSchemaV0:   testSchema("data"),
 		dataSchemaV1:   testSchema("data_v1"),
+		dataSchemaV2:   testSchema("data_v2"),
 		manifestSchema: testSchema("manifest"),
 	}
 	ctx := t.Context()
@@ -40,7 +41,7 @@ func TestBurnFromBasicModeRestriction(t *testing.T) {
 	basicConfig := &types.NotoParsedConfig{
 		NotaryMode:   types.NotaryModeBasic.Enum(),
 		NotaryLookup: "notary@node1",
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Basic: &types.NotoBasicOptions{
 				AllowBurn: &pTrue,
@@ -78,6 +79,7 @@ func TestBurnFromHooksModeAllowed(t *testing.T) {
 		coinSchema:   testSchema("coin"),
 		dataSchemaV0: testSchema("data"),
 		dataSchemaV1: testSchema("data_v1"),
+		dataSchemaV2: testSchema("data_v2"),
 	}
 	ctx := t.Context()
 
@@ -85,7 +87,7 @@ func TestBurnFromHooksModeAllowed(t *testing.T) {
 	hooksConfig := &types.NotoParsedConfig{
 		NotaryMode:   types.NotaryModeHooks.Enum(),
 		NotaryLookup: "notary@node1",
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress: &pldtypes.EthAddress{},

@@ -22,6 +22,7 @@ import {
   IEvent,
   IFilter,
   IPaladinTransaction,
+  IPaladinTransactionPagingReference,
   ITransaction,
   ITransactionInput,
   ITransactionPagingReference,
@@ -97,9 +98,6 @@ export const fetchIndexedTransactions = async (
   );
 
   const receiptsResult = await fetchTransactionReceipts(transactions);
-  const paladinTransactionsResult = await fetchPaladinTransactions(
-    receiptsResult
-  );
   const events = await fetchTransactionEvents(transactions);
 
   let enrichedTransactions: IEnrichedTransaction[] = [];
@@ -110,16 +108,6 @@ export const fetchIndexedTransactions = async (
       receipts: receiptsResult.filter(
         (receiptResult) => receiptResult.transactionHash === transaction.hash
       ),
-      paladinTransactions: paladinTransactionsResult.filter(
-        (paladinTransaction) =>
-          receiptsResult
-            ?.filter(
-              (transactionReceipt) =>
-                transactionReceipt.transactionHash === transaction.hash
-            )
-            .map((transactionReceipt) => transactionReceipt.id)
-            .includes(paladinTransaction.id)
-      ),
       events: events.filter(event => event.transactionHash === transaction.hash)
     });
   }
@@ -128,13 +116,13 @@ export const fetchIndexedTransactions = async (
 };
 
 export const fetchSubmissions = async (
-  type: 'all' | 'pending',
+  type: 'pending' | 'failed',
   filters: IFilter[],
-  pageParam?: IPaladinTransaction
+  pageParam?: IPaladinTransactionPagingReference
 ): Promise<IPaladinTransaction[]> => {
   let translatedFilters = translateFilters(filters);
 
-  let allParams: any = [
+  let params: any = [
     {
       ...translatedFilters,
       limit: constants.SUBMISSIONS_QUERY_LIMIT,
@@ -143,24 +131,37 @@ export const fetchSubmissions = async (
   ];
 
   if (pageParam !== undefined) {
-    if (allParams[0].lessThan === undefined) {
-      allParams[0].lessThan = [];
+    if (params[0].lessThan === undefined) {
+      params[0].lessThan = [];
     }
-    allParams[0].lessThan.push({
+    params[0].lessThan.push({
       field: 'created',
       value: pageParam.created,
     });
   }
 
-  const pendingParams = [...allParams, true];
+  if (type === 'failed') {
+    if (params[0].equal === undefined) {
+      params[0].equal = [];
+    }
+    params[0].equal.push(
+      {
+        field: 'success',
+        value: false
+      }
+    );
+  } else {
+    params = [...params, true];
+  }
+
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
     method:
-      type === 'all'
+      type === 'failed'
         ? RpcMethods.ptx_QueryTransactionsFull
         : RpcMethods.ptx_QueryPendingTransactions,
-    params: type === 'all' ? allParams : pendingParams,
+    params
   };
 
   return <Promise<IPaladinTransaction[]>>(
@@ -172,12 +173,30 @@ export const fetchSubmissions = async (
 };
 
 export const fetchTransactionReceipt = async (
-  transactionId: string
+  id: string
 ): Promise<ITransactionReceipt> => {
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
     method: RpcMethods.ptx_getTransactionReceipt,
+    params: [id],
+  };
+
+  return <Promise<ITransactionReceipt>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingTransactionReceipt')
+    )
+  );
+};
+
+export const fetchTransactionReceiptFull = async (
+  transactionId: string
+): Promise<ITransactionReceipt> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_getTransactionReceiptFull,
     params: [transactionId],
   };
 
@@ -198,7 +217,7 @@ export const fetchTransactionReceipts = async (
     method: RpcMethods.ptx_QueryTransactionReceipts,
     params: [
       {
-        limit: transactions.length * constants.RECEIPTS_PER_TRANSACTION_DEFAULT_LIMIT,
+        limit: (transactions.length + 1) * constants.RECEIPTS_PER_TRANSACTION_DEFAULT_LIMIT,
         in: [
           {
             field: 'transactionHash',
@@ -228,7 +247,7 @@ export const fetchPaladinTransactions = async (
     method: RpcMethods.ptx_QueryTransactionsFull,
     params: [
       {
-        limit: transactionReceipts.length,
+        limit: transactionReceipts.length + 1,
         in: [
           {
             field: 'id',
@@ -256,7 +275,7 @@ export const fetchTransactionEvents = async (
     method: RpcMethods.bidx_QueryIndexedEvents,
     params: [
       {
-        limit: transactions.length * constants.EVENTS_PER_TRANSACTION_DEFAULT_LIMIT,
+        limit: (transactions.length + 1) * constants.EVENTS_PER_TRANSACTION_DEFAULT_LIMIT,
         in: [
           {
             field: 'transactionHash',
@@ -296,7 +315,7 @@ export const sendTransaction = async (
   );
 };
 
-export const fetchTransaction = async (
+export const fetchEnrichedTransaction = async (
   hash: string
 ): Promise<IEnrichedTransaction | undefined> => {
   const payload = {
@@ -317,9 +336,6 @@ export const fetchTransaction = async (
 
   const block = await fetchBlockByNumber(transaction.blockNumber);
   const receiptsResult = await fetchTransactionReceipts([transaction]);
-  const paladinTransactionsResult = await fetchPaladinTransactions(
-    receiptsResult
-  );
   const events = await fetchTransactionEvents([transaction]);
 
   return {
@@ -327,16 +343,6 @@ export const fetchTransaction = async (
     block,
     receipts: receiptsResult.filter(
       (receiptResult) => receiptResult.transactionHash === transaction.hash
-    ),
-    paladinTransactions: paladinTransactionsResult.filter(
-      (paladinTransaction) =>
-        receiptsResult
-          ?.filter(
-            (transactionReceipt) =>
-              transactionReceipt.transactionHash === transaction.hash
-          )
-          .map((transactionReceipt) => transactionReceipt.id)
-          .includes(paladinTransaction.id)
     ),
     events: events.filter(event => event.transactionHash === transaction.hash)
   };
@@ -357,6 +363,40 @@ export const fetchBlockByNumber = async (
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
       i18next.t('errorFetchingBlock')
+    )
+  );
+};
+
+export const fetchPaladinTransaction = async (
+  id: string
+): Promise<IPaladinTransaction> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_getTransaction,
+    params: [id]
+  };
+  return <Promise<IPaladinTransaction>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingPaladinTransaction')
+    )
+  );
+};
+
+export const fetchPaladinTransactionFull = async (
+  id: string
+): Promise<IPaladinTransaction | null> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_getTransactionFull,
+    params: [id]
+  };
+  return <Promise<IPaladinTransaction>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingPaladinTransaction')
     )
   );
 };

@@ -15,7 +15,6 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -28,7 +27,7 @@ import (
 )
 
 func Test_action_NotifyCollected_SetsSignerAddress(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
 
 	signerAddr := pldtypes.RandAddress()
@@ -48,7 +47,7 @@ func Test_action_NotifyCollected_SetsSignerAddress(t *testing.T) {
 }
 
 func Test_action_NotifyNonceAllocated_SetsNonceAndSends(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		UseMockTransportWriter().
 		Build()
@@ -74,7 +73,7 @@ func Test_action_NotifyNonceAllocated_SetsNonceAndSends(t *testing.T) {
 }
 
 func Test_action_NotifyNonceAllocated_PropagatesSendError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		UseMockTransportWriter().
 		Build()
@@ -99,7 +98,7 @@ func Test_action_NotifyNonceAllocated_PropagatesSendError(t *testing.T) {
 }
 
 func Test_action_NotifySubmitted_SetsSubmissionHashAndSends(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		UseMockTransportWriter().
 		Build()
@@ -125,7 +124,7 @@ func Test_action_NotifySubmitted_SetsSubmissionHashAndSends(t *testing.T) {
 }
 
 func Test_action_NotifySubmitted_PropagatesSendError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		UseMockTransportWriter().
 		Build()
@@ -151,7 +150,7 @@ func Test_action_NotifySubmitted_PropagatesSendError(t *testing.T) {
 }
 
 func Test_action_ReleaseAssemblyPayload_NilsHeavyFields(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
 
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
@@ -184,7 +183,7 @@ func Test_action_ReleaseAssemblyPayload_NilsHeavyFields(t *testing.T) {
 }
 
 func Test_action_ReleaseAssemblyPayload_SafeWithNilFields(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
 
 	txn.pt.PostAssembly = nil
@@ -198,7 +197,7 @@ func Test_action_ReleaseAssemblyPayload_SafeWithNilFields(t *testing.T) {
 }
 
 func Test_action_NotifyDispatched_UsesTransactionSpec(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		UseMockTransportWriter().
 		Build()
@@ -213,7 +212,7 @@ func Test_action_NotifyDispatched_UsesTransactionSpec(t *testing.T) {
 }
 
 func Test_action_NotifyDispatched_AllowsNilTransactionSpec(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		UseMockTransportWriter().
 		Build()
@@ -228,7 +227,7 @@ func Test_action_NotifyDispatched_AllowsNilTransactionSpec(t *testing.T) {
 }
 
 func Test_action_NotifyDispatched_PropagatesSendError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		UseMockTransportWriter().
 		Build()

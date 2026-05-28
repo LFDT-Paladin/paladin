@@ -30,7 +30,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type createMintLockHandler struct {
@@ -118,7 +117,7 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	}
 
 	// Build the info for the initiating transaction
-	createDataInfo, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
+	createDataInfo, err := h.noto.prepareDataInfo(ctx, params.Data, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -261,12 +260,9 @@ func (h *createMintLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "sender")
 	}
 
-	var interfaceABI abi.ABI
-	var functionName string
-	var paramsJSON []byte
-
-	var lockParams *CreateLockParams
-	lockParams, err = h.buildCreateLockParams(ctx,
+	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
+	functionName := "createLock"
+	paramsJSON, err := h.buildCreateLockParams(ctx,
 		tx,
 		lockTransition,
 		sender.Payload,
@@ -277,12 +273,6 @@ func (h *createMintLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 		[]*prototk.EndorsableState{},
 		req.InfoStates,
 	)
-	if err == nil {
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
-		functionName = "createLock"
-		params := lockParams
-		paramsJSON, err = json.Marshal(params)
-	}
 	if err != nil {
 		return nil, err
 	}

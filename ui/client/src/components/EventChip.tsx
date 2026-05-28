@@ -35,7 +35,7 @@ export const EventChip: React.FC<Props> = ({ event }) => {
     <Button variant="contained" size="small" disableElevation
       sx={{
         paddingTop: 0, paddingBottom: 0, fontWeight: '400', whiteSpace: 'nowrap',
-        minWidth: '155px'
+        minWidth: '170px'
       }}
       onClick={() => setHashDialogOpen(true)}
     >
