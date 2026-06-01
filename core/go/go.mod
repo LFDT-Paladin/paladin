@@ -1,8 +1,8 @@
 module github.com/LFDT-Paladin/paladin/core
 
-go 1.24.0
+go 1.24.4
 
-toolchain go1.24.3
+toolchain go1.24.13
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
@@ -15,28 +15,28 @@ require (
 	github.com/go-resty/resty/v2 v2.14.0
 	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/google/uuid v1.6.0
-	github.com/hyperledger/firefly-signer v1.1.21
+	github.com/hyperledger/firefly-signer v1.1.22
 	github.com/jarcoal/httpmock v1.2.0
 	github.com/lib/pq v1.10.9
 	github.com/prometheus/client_golang v1.22.0
 	github.com/prometheus/client_model v0.6.1
-	github.com/sirupsen/logrus v1.9.3
-	github.com/stretchr/testify v1.10.0
+	github.com/sirupsen/logrus v1.9.4
+	github.com/stretchr/testify v1.11.1
 	github.com/tyler-smith/go-bip39 v1.1.0
-	golang.org/x/crypto v0.36.0
-	golang.org/x/text v0.23.0
-	google.golang.org/grpc v1.67.1
+	golang.org/x/crypto v0.47.0
+	golang.org/x/text v0.33.0
+	google.golang.org/grpc v1.72.1
 	google.golang.org/protobuf v1.36.8
 	gorm.io/driver/postgres v1.5.9
-	gorm.io/driver/sqlite v1.5.6
-	gorm.io/gorm v1.25.12
-	sigs.k8s.io/yaml v1.4.0
+	gorm.io/driver/sqlite v1.6.0
+	gorm.io/gorm v1.31.1
+	sigs.k8s.io/yaml v1.6.0
 
 )
 
 require (
 	github.com/aidarkhanov/nanoid v1.0.8 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/rs/cors v1.11.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
@@ -50,19 +50,19 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
-	github.com/hyperledger/firefly-common v1.5.6 // indirect
+	github.com/hyperledger/firefly-common v1.5.9 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
@@ -75,13 +75,14 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
-	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sync v0.12.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
-	golang.org/x/term v0.30.0 // indirect
-	golang.org/x/tools v0.24.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20241007155032-5fefd90f89a9 // indirect
+	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/term v0.39.0 // indirect
+	golang.org/x/tools v0.40.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 
