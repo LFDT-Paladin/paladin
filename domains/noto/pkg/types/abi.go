@@ -232,6 +232,7 @@ type NotoCreateLockArgs struct {
 // Encoded args for Noto implementation of ILockableCapability.updateLock()
 type NotoUpdateLockArgs struct {
 	TxId         string            `json:"txId"`
+	Contents     []string          `json:"contents"`
 	OldLockState pldtypes.Bytes32  `json:"oldLockState"`
 	NewLockState pldtypes.Bytes32  `json:"newLockState"`
 	Options      NotoLockOptions   `json:"options"`
@@ -312,6 +313,7 @@ var NotoUpdateLockArgsABI = abi.ParameterArray{
 		InternalType: "struct NotoUpdateLockArgs",
 		Components: abi.ParameterArray{
 			{Name: "txId", Type: "bytes32"},
+			{Name: "contents", Type: "bytes32[]"},
 			{Name: "oldLockState", Type: "bytes32"},
 			{Name: "newLockState", Type: "bytes32"},
 			{

@@ -121,6 +121,7 @@ describe("Atom", function () {
     const txId2 = randomBytes32();
     const updateParams = {
       txId: txId2,
+      contents: [f1txo1, f1txo2],
       oldLockState: lockStateId1,
       newLockState: lockStateId2,
       proof: "0x",

@@ -321,14 +321,14 @@ type NotoLockUpdated_Event struct {
 
 // INoto.NotoLockDelegated event JSON schema
 type NotoLockDelegated_Event struct {
-	TxId         pldtypes.Bytes32     `json:"txId"`
-	LockID       pldtypes.Bytes32     `json:"lockId"`
-	From         *pldtypes.EthAddress `json:"from"`
-	To           *pldtypes.EthAddress `json:"to"`
-	OldLockState pldtypes.Bytes32     `json:"oldLockState"`
-	NewLockState pldtypes.Bytes32     `json:"newLockState"`
-	Proof        pldtypes.HexBytes    `json:"proof"`
-	Data         pldtypes.HexBytes    `json:"data"`
+	TxId            pldtypes.Bytes32     `json:"txId"`
+	LockID          pldtypes.Bytes32     `json:"lockId"`
+	PreviousSpender *pldtypes.EthAddress `json:"previousSpender"`
+	NewSpender      *pldtypes.EthAddress `json:"newSpender"`
+	OldLockState    pldtypes.Bytes32     `json:"oldLockState"`
+	NewLockState    pldtypes.Bytes32     `json:"newLockState"`
+	Proof           pldtypes.HexBytes    `json:"proof"`
+	Data            pldtypes.HexBytes    `json:"data"`
 }
 
 type parsedCoins struct {
@@ -1426,4 +1426,3 @@ func (n *Noto) computeLockIDForLockTX(ctx context.Context, tx *types.ParsedTrans
 	}
 	return n.computeLockId(ctx, contractAddress, senderAddress, tx.Transaction.TransactionId)
 }
-

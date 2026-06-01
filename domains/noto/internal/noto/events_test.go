@@ -284,6 +284,116 @@ func TestHandleEventBatch_NotoLockBadTransactionData(t *testing.T) {
 	require.ErrorContains(t, err, "FF22045")
 }
 
+func TestHandleEventBatch_NotoLockUpdated_V2(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := t.Context()
+
+	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantV2}),
+	})
+	require.NoError(t, err)
+
+	txId := pldtypes.RandBytes32()
+	lockId := pldtypes.RandBytes32()
+	oldLockState := pldtypes.RandBytes32()
+	newLockState := pldtypes.RandBytes32()
+	owner := (*pldtypes.EthAddress)(pldtypes.RandAddress())
+	lockedContent := pldtypes.RandBytes32()
+	event := &NotoLockUpdated_Event{
+		TxId:         txId,
+		LockID:       lockId,
+		Owner:        owner,
+		Contents:     []pldtypes.Bytes32{lockedContent},
+		OldLockState: oldLockState,
+		NewLockState: newLockState,
+		Proof:        pldtypes.MustParseHexBytes("0x1234"),
+		Data:         sampleV1Data(t, n),
+	}
+	notoEventJson, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	req := &prototk.HandleEventBatchRequest{
+		Events: []*prototk.OnChainEvent{
+			{
+				SoliditySignature: eventSignatures[EventNotoLockUpdated],
+				DataJson:          string(notoEventJson),
+			},
+		},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
+				Variant: types.NotoVariantV2,
+			}),
+		},
+	}
+
+	res, err := n.HandleEventBatch(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, res.TransactionsComplete, 1)
+	require.Len(t, res.ReadStates, 1)
+	assert.Equal(t, lockedContent.String(), res.ReadStates[0].Id)
+	require.Len(t, res.SpentStates, 1)
+	assert.Equal(t, oldLockState.String(), res.SpentStates[0].Id)
+	require.Len(t, res.ConfirmedStates, 1)
+	assert.Equal(t, newLockState.String(), res.ConfirmedStates[0].Id)
+	require.Len(t, res.InfoStates, 1)
+}
+
+func TestHandleEventBatch_NotoLockUpdated_V1(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := t.Context()
+
+	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantV1}),
+	})
+	require.NoError(t, err)
+
+	txId := pldtypes.RandBytes32()
+	lockId := pldtypes.RandBytes32()
+	oldLockState := pldtypes.RandBytes32()
+	newLockState := pldtypes.RandBytes32()
+	owner := (*pldtypes.EthAddress)(pldtypes.RandAddress())
+	lockedContent := pldtypes.RandBytes32()
+	event := &NotoLockUpdated_Event{
+		TxId:         txId,
+		LockID:       lockId,
+		Owner:        owner,
+		Contents:     []pldtypes.Bytes32{lockedContent},
+		OldLockState: oldLockState,
+		NewLockState: newLockState,
+		Proof:        pldtypes.MustParseHexBytes("0x1234"),
+		Data:         sampleV1Data(t, n),
+	}
+	notoEventJson, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	req := &prototk.HandleEventBatchRequest{
+		Events: []*prototk.OnChainEvent{
+			{
+				SoliditySignature: eventSignatures[EventNotoLockUpdated],
+				DataJson:          string(notoEventJson),
+			},
+		},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
+				Variant: types.NotoVariantV1,
+			}),
+		},
+	}
+
+	res, err := n.HandleEventBatch(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, res.TransactionsComplete, 1)
+	require.Len(t, res.ReadStates, 1)
+	assert.Equal(t, lockedContent.String(), res.ReadStates[0].Id)
+	require.Len(t, res.SpentStates, 1)
+	assert.Equal(t, oldLockState.String(), res.SpentStates[0].Id)
+	require.Len(t, res.ConfirmedStates, 1)
+	assert.Equal(t, newLockState.String(), res.ConfirmedStates[0].Id)
+	require.Len(t, res.InfoStates, 1)
+}
+
 func TestHandleEventBatch_LockSpent(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}

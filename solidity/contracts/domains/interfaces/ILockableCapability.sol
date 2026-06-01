@@ -105,8 +105,8 @@ interface ILockableCapability {
      */
     event LockDelegated(
         bytes32 indexed lockId,
-        address indexed from,
-        address indexed to,
+        address indexed previousSpender,
+        address indexed newSpender,
         bytes data
     );
 
@@ -302,20 +302,4 @@ interface ILockableCapability {
      * @return active Whether the lock is currently active.
      */
     function isLockActive(bytes32 lockId) external view returns (bool active);
-
-    /**
-     * @dev Get implementation-specific lock content for an active lock.
-     *
-     *      This represents the data or operation that was locked, and is
-     *      immutable once the lock is created.
-     *
-     * Requirements:
-     *  - MUST revert with LockNotActive(lockId) if the lock is not active.
-     *
-     * @param lockId The unique identifier for the lock.
-     * @return content The implementation-specific lock content.
-     */
-    function getLockContent(
-        bytes32 lockId
-    ) external view returns (bytes memory content);
 }

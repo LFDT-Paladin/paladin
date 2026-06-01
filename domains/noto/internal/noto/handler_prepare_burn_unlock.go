@@ -265,7 +265,7 @@ func (h *prepareBurnUnlockHandler) Endorse(ctx context.Context, tx *types.Parsed
 		}
 
 		// In V1 onwards the lock itself needs to be checked
-		_, err = h.noto.validateV1LockTransition(ctx, LOCK_UPDATE, senderID, &params.LockID, req.Inputs, req.Outputs)
+		_, _, _, err = h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_UPDATE, senderID, &params.LockID, req.Inputs, req.Outputs, req.Info)
 		if err != nil {
 			return nil, err
 		}

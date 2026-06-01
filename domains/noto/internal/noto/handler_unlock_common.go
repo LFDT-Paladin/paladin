@@ -386,6 +386,7 @@ func (h *unlockCommon) buildPrepareUnlockParams(ctx context.Context, tx *types.P
 		} else {
 			updateLockArgs, err = h.noto.encodeNotoUpdateLockArgs(ctx, &types.NotoUpdateLockArgs{
 				TxId:         tx.Transaction.TransactionId,
+				Contents:     endorsableStateIDs(lockedInputs),
 				OldLockState: lt.prevLockStateID,
 				NewLockState: lt.newLockStateID,
 				Options:      options,
