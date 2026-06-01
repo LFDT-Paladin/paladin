@@ -41,8 +41,8 @@ func TestZetoDualVersionSuite(t *testing.T) {
 	if !helpers.ZetoZKArtifactsRootPresent(helpers.ZetoZKArtifactRootLatest) {
 		t.Skipf("ZKP artifacts missing for %s", helpers.ZetoZKArtifactRootLatest)
 	}
-	if !helpers.ZetoZKArtifactsRootPresent(helpers.ZetoZKArtifactRootV050) {
-		t.Skipf("ZKP artifacts missing for %s", helpers.ZetoZKArtifactRootV050)
+	if !helpers.ZetoZKArtifactsRootPresent(helpers.ZetoZKArtifactRootV051) {
+		t.Skipf("ZKP artifacts missing for %s", helpers.ZetoZKArtifactRootV051)
 	}
 	suite.Run(t, &zetoDualVersionTestSuite{})
 }
@@ -71,7 +71,7 @@ func (s *zetoDualVersionTestSuite) SetupSuite() {
 	ctx := context.Background()
 
 	s.v0.zkpRoot = helpers.ZetoZKArtifactRootLatest
-	s.v1.zkpRoot = helpers.ZetoZKArtifactRootV050
+	s.v1.zkpRoot = helpers.ZetoZKArtifactRootV051
 	s.v0.domainName = "zeto_v0_" + pldtypes.RandHex(8)
 	s.v1.domainName = "zeto_v1_" + pldtypes.RandHex(8)
 

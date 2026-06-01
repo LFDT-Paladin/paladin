@@ -41,8 +41,8 @@ import (
 // createLock instead of legacy lock). Locking runs for every fungible token implementation. The v0.2.2 suite keeps
 // transferLocked/delegateLock coverage on TOKEN_ANON only; V1 pools do not expose those legacy entrypoints on-chain.
 //
-// Subtest label "v0.5.0" matches TestFungibleZetoSuite: t.Run(zkpArtifactRoot) where root is domains/zeto/zkp/<tag>
-// (see helpers.ZetoZKArtifactRootV050 and ZetoFungibleV1ZKArtifactRootsForTestRun in helpers/zeto_zkp_versions.go).
+// Subtest label "v0.5.1" matches TestFungibleZetoSuite: t.Run(zkpArtifactRoot) where root is domains/zeto/zkp/<tag>
+// (see helpers.ZetoZKArtifactRootV051 and ZetoFungibleV1ZKArtifactRootsForTestRun in helpers/zeto_zkp_versions.go).
 func TestFungibleZetoV1Suite(t *testing.T) {
 	for _, root := range helpers.ZetoFungibleV1ZKArtifactRootsForTestRun() {
 		t.Run(root, func(t *testing.T) {
@@ -570,7 +570,7 @@ func (s *fungibleV1TestSuiteHelper) testZetoV1(t *testing.T, tokenName string, u
 			}
 			controllerUnlockedTotal += controllerAmountsAfterCancel[i]
 		}
-		// Wait until cancelLock lock3 is reflected (v0.5.0 indexing can lag; do not exit on len>=1 alone).
+		// Wait until cancelLock lock3 is reflected (v0.5.1 indexing can lag; do not exit on len>=1 alone).
 		hasLocked := false
 		for _, locked := range controllerLockedAfterCancel {
 			if locked {

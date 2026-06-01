@@ -57,7 +57,7 @@ ext {
     artifactDir = project.hasProperty('artifactDir') ? project.artifactDir : 'artifacts'
 
     // Zeto contract ABI export from :domains:zeto (see zetoArtifactConfigurationName). Default: zetoPrimaryArtifacts.
-    // Override release: ./gradlew :operator:copyZetoSolidity -PzetoZkpRoot=v0.5.0  →  zetoArtifacts_v0_5_0
+    // Override release: ./gradlew :operator:copyZetoSolidity -PzetoZkpRoot=v0.5.1  →  zetoArtifacts_v0_5_1
     zetoZkpRoot = project.findProperty('zetoZkpRoot')
     zetoArtifactsConfiguration = zetoZkpRoot
         ? "zetoArtifacts_${zetoZkpRoot.toString().replace('.', '_')}"

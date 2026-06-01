@@ -25,10 +25,10 @@ import (
 // ZKP artifact directory names under domains/zeto/zkp/ — keep aligned with domains/zeto/build.gradle zetoVersions[].zkpRoot.
 const (
 	ZetoZKArtifactRootLatest = "v0.2.2"
-	ZetoZKArtifactRootV050   = "v0.5.0"
+	ZetoZKArtifactRootV051   = "v0.5.1"
 )
 
-// EnvZetoZKPVersion selects a single zkp root (e.g. "v0.5.0"). Empty uses ZetoZKArtifactRootLatest.
+// EnvZetoZKPVersion selects a single zkp root (e.g. "v0.5.1"). Empty uses ZetoZKArtifactRootLatest.
 const EnvZetoZKPVersion = "PALADIN_ZETO_ZKP_VERSION"
 
 // EnvZetoZKPMatrix when set to "all" runs integration suites once per SupportedZetoZKArtifactRoots (skipping roots with missing artifacts).
@@ -36,7 +36,7 @@ const EnvZetoZKPMatrix = "PALADIN_ZETO_ZKP_MATRIX"
 
 // SupportedZetoZKArtifactRoots lists every zeto-contracts / wasm / proving-keys tree Gradle may extract.
 func SupportedZetoZKArtifactRoots() []string {
-	return []string{ZetoZKArtifactRootLatest, ZetoZKArtifactRootV050}
+	return []string{ZetoZKArtifactRootLatest, ZetoZKArtifactRootV051}
 }
 
 // EffectiveZetoZKArtifactRoot returns the zkp subdirectory name for a single-version test run.
@@ -62,9 +62,9 @@ func ZetoZKArtifactRootsForTestRun() []string {
 }
 
 // ZetoFungibleV1ZKArtifactRootsForTestRun returns the zkp root for TestFungibleZetoV1Suite subtests (t.Run(root, ...)).
-// Paladin fungible V1 (IZetoFungible_V1) uses upstream artifacts under ZetoZKArtifactRootV050 ("v0.5.0").
+// Paladin fungible V1 (IZetoFungible_V1) uses upstream artifacts under ZetoZKArtifactRootV051 ("v0.5.1").
 func ZetoFungibleV1ZKArtifactRootsForTestRun() []string {
-	return []string{ZetoZKArtifactRootV050}
+	return []string{ZetoZKArtifactRootV051}
 }
 
 func validateZetoZKArtifactRoot(v string) error {

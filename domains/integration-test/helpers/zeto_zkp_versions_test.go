@@ -27,7 +27,7 @@ import (
 func TestZetoZKArtifactsDir_latestAndEmpty(t *testing.T) {
 	assert.Contains(t, ZetoZKArtifactsDir("latest"), ZetoZKArtifactRootLatest)
 	assert.Contains(t, ZetoZKArtifactsDir(""), ZetoZKArtifactRootLatest)
-	assert.Contains(t, ZetoZKArtifactsDir("v0.5.0"), "v0.5.0")
+	assert.Contains(t, ZetoZKArtifactsDir("v0.5.1"), "v0.5.1")
 }
 
 func TestZetoZKArtifactRootsForTestRun_matrix(t *testing.T) {
@@ -49,8 +49,8 @@ func TestResolveZetoImplementationAbiPath_passThrough(t *testing.T) {
 }
 
 func TestResolveZetoImplementationAbiPath_alreadyVersioned(t *testing.T) {
-	p := "./helpers/abis/zkp/v0.5.0/Zeto_Anon.json"
-	assert.Equal(t, p, ResolveZetoImplementationAbiPath(p, "v0.5.0"))
+	p := "./helpers/abis/zkp/v0.5.1/Zeto_Anon.json"
+	assert.Equal(t, p, ResolveZetoImplementationAbiPath(p, "v0.5.1"))
 }
 
 func TestResolveZetoImplementationAbiPath_prefersZkpTreeWhenPresent(t *testing.T) {
