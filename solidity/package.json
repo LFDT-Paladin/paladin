@@ -13,8 +13,8 @@
     "@iden3/contracts": "^2.3.0",
     "@nomicfoundation/hardhat-network-helpers": "^1.0.10",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "@openzeppelin/contracts": "^5.1.0",
-    "@openzeppelin/contracts-upgradeable": "^5.1.0",
+    "@openzeppelin/contracts": "^5.4.0",
+    "@openzeppelin/contracts-upgradeable": "^5.4.0",
     "@openzeppelin/hardhat-upgrades": "^3.2.1",
     "@typechain/hardhat": "^9.1.0",
     "@types/chai": "^4.3.11",
@@ -24,6 +24,7 @@
     "ethers": "^6.13.1",
     "hardhat": "^2.19.4",
     "ts-node": "^10.9.2",
-    "@lfdecentralizedtrust/zeto-contracts": "v0.2.1"
+    "zeto-contracts-0.2.1": "npm:@lfdecentralizedtrust/zeto-contracts@0.2.1",
+    "zeto-contracts-0.5.1": "npm:@lfdecentralizedtrust/zeto-contracts@0.5.1"
   }
 }

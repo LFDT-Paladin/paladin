@@ -17,7 +17,6 @@ package integrationtest
 
 import (
 	"context"
-	_ "embed"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
@@ -28,19 +27,13 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-//go:embed helpers/abis/Zeto_Anon.json
-var zetoAnonAbi []byte
-
 var (
 	controllerName = "controller"
 )
 
-// This is the path to the contracts file
-// it should be set by the test runner
-var contractsFile string
-
 type zetoDomainTestSuite struct {
 	suite.Suite
+	contractsFile     string
 	hdWalletSeed      *testbed.UTInitFunction
 	deployedContracts *helpers.ZetoDomainContracts
 	domainName        string
@@ -48,17 +41,24 @@ type zetoDomainTestSuite struct {
 	rpc               rpcclient.Client
 	tb                testbed.Testbed
 	done              func()
+	// zkpArtifactRoot is domains/zeto/zkp/<tag> (e.g. v0.2.2). Empty uses helpers.EffectiveZetoZKArtifactRoot().
+	zkpArtifactRoot string
 }
 
 func (s *zetoDomainTestSuite) SetupSuite() {
 	log.SetLevel("debug")
 	s.hdWalletSeed = testbed.HDWalletSeedScopedToTest()
-	domainContracts := helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, contractsFile, controllerName)
-	s.deployedContracts = domainContracts
 	ctx := context.Background()
 	domainName := "zeto_" + pldtypes.RandHex(8)
 	log.L(ctx).Infof("Domain name = %s", domainName)
-	config := helpers.PrepareZetoConfig(s.T(), s.deployedContracts, "../zeto/zkp")
+	zkpRoot := s.zkpArtifactRoot
+	if zkpRoot == "" {
+		zkpRoot = helpers.EffectiveZetoZKArtifactRoot()
+	}
+	log.L(ctx).Infof("Zeto ZKP artifact root = %s (%s)", zkpRoot, helpers.ZetoZKArtifactsDir(zkpRoot))
+	domainContracts := helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, s.contractsFile, controllerName, zkpRoot)
+	s.deployedContracts = domainContracts
+	config := helpers.PrepareZetoConfig(s.T(), s.deployedContracts, helpers.ZetoZKArtifactsDir(zkpRoot))
 	waitForZeto, zetoTestbed := newZetoDomain(s.T(), config, domainContracts.FactoryAddress)
 	done, _, tb, rpc, _ := newTestbed(s.T(), s.hdWalletSeed, map[string]*testbed.TestbedDomain{
 		domainName: zetoTestbed,

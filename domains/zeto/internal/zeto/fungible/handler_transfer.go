@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
@@ -76,6 +77,19 @@ var transferABI_withEncryption = &abi.Entry{
 		{Name: "ecdhPublicKey", Type: "uint256[2]"},
 		{Name: "encryptedValues", Type: "uint256[]"},
 		{Name: "proof", Type: "tuple", InternalType: "struct Commonlib.Proof", Components: common.ProofComponents},
+		{Name: "data", Type: "bytes"},
+	},
+}
+
+// fungibleTransferOnchainPackedABI matches ZetoFungible.transfer packing Groth16 + public metadata into `bytes proof`
+// (see upstream zeto solidity lib/zeto_fungible.sol).
+var fungibleTransferOnchainPackedABI = &abi.Entry{
+	Type: abi.Function,
+	Name: types.METHOD_TRANSFER,
+	Inputs: abi.ParameterArray{
+		{Name: "inputs", Type: "uint256[]"},
+		{Name: "outputs", Type: "uint256[]"},
+		{Name: "proof", Type: "bytes"},
 		{Name: "data", Type: "bytes"},
 	},
 }
@@ -187,7 +201,7 @@ func (h *transferHandler) Assemble(ctx context.Context, tx *types.ParsedTransact
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorDecodeContractAddress, err)
 	}
-	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, inputStates.coins, outputCoins, (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER], tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress)
+	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, signercommon.GetHasher(), inputStates.coins, outputCoins, (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER], tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress, false)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorFormatProvingReq, err)
 	}
@@ -241,22 +255,40 @@ func (h *transferHandler) Prepare(ctx context.Context, tx *types.ParsedTransacti
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorEncodeTxData, err)
 	}
-	params := map[string]any{
-		"outputs": outputs,
-		"proof":   common.EncodeProof(proofRes.Proof),
-		"data":    data,
-	}
-	transferFunction := getTransferABI(tx.DomainConfig.TokenName)
-	if common.IsEncryptionToken(tx.DomainConfig.TokenName) {
-		params["ecdhPublicKey"] = strings.Split(proofRes.PublicInputs["ecdhPublicKey"], ",")
-		params["encryptionNonce"] = proofRes.PublicInputs["encryptionNonce"]
-		params["encryptedValues"] = strings.Split(proofRes.PublicInputs["encryptedValues"], ",")
-	}
-	if common.IsNullifiersToken(tx.DomainConfig.TokenName) {
-		params["nullifiers"] = strings.Split(proofRes.PublicInputs["nullifiers"], ",")
-		params["root"] = proofRes.PublicInputs["root"]
+	transferFunction := getTransferABI(tx.DomainConfig.TokenName, tx.DomainConfig.ZetoVariant)
+	var params map[string]any
+	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(tx.DomainConfig.ZetoVariant)) {
+		proofBytes, err := common.EncodeZetoOnchainTransferProofBytes(ctx, tx.DomainConfig.TokenName, proofRes.Proof, proofRes.PublicInputs, false)
+		if err != nil {
+			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorMarshalPrepedParams)
+		}
+		inCol := inputs
+		if common.IsNullifiersToken(tx.DomainConfig.TokenName) {
+			inCol = strings.Split(proofRes.PublicInputs["nullifiers"], ",")
+		}
+		params = map[string]any{
+			"inputs":  inCol,
+			"outputs": outputs,
+			"proof":   pldtypes.HexBytes(proofBytes).HexString0xPrefix(),
+			"data":    data,
+		}
 	} else {
-		params["inputs"] = inputs
+		params = map[string]any{
+			"outputs": outputs,
+			"proof":   common.EncodeProof(proofRes.Proof),
+			"data":    data,
+		}
+		if common.IsEncryptionToken(tx.DomainConfig.TokenName) {
+			params["ecdhPublicKey"] = strings.Split(proofRes.PublicInputs["ecdhPublicKey"], ",")
+			params["encryptionNonce"] = proofRes.PublicInputs["encryptionNonce"]
+			params["encryptedValues"] = strings.Split(proofRes.PublicInputs["encryptedValues"], ",")
+		}
+		if common.IsNullifiersToken(tx.DomainConfig.TokenName) {
+			params["nullifiers"] = strings.Split(proofRes.PublicInputs["nullifiers"], ",")
+			params["root"] = proofRes.PublicInputs["root"]
+		} else {
+			params["inputs"] = inputs
+		}
 	}
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
@@ -282,7 +314,10 @@ func (h *transferHandler) Prepare(ctx context.Context, tx *types.ParsedTransacti
 	}, nil
 }
 
-func getTransferABI(tokenName string) *abi.Entry {
+func getTransferABI(tokenName string, zetoVariant pldtypes.HexUint64) *abi.Entry {
+	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(zetoVariant)) {
+		return fungibleTransferOnchainPackedABI
+	}
 	transferFunction := transferABI
 	if common.IsEncryptionToken(tokenName) {
 		transferFunction = transferABI_withEncryption

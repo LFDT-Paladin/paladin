@@ -1,3 +1,5 @@
+# Upstream implementation + verifier ABI+bytecode: helpers/abis/zkp/v0.2.2/ (Gradle copyZetoUpstreamContractAbis_*).
+# Paladin factory ABI stays at helpers/abis/. Use with ZKP root v0.2.2 (helpers.ZetoZKArtifactRootLatest).
 contracts:
   factory:
     abiAndBytecode:
@@ -8,28 +10,28 @@ contracts:
     # for the deposit transaction
     - name: Groth16Verifier_Deposit
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_Deposit.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_Deposit.json
     # for the withdraw transaction
     - name: Groth16Verifier_Withdraw
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_Withdraw.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_Withdraw.json
     # for the withdraw transaction with batch inputs
     - name: Groth16Verifier_WithdrawBatch
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_WithdrawBatch.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_WithdrawBatch.json
     # for the Zeto_Anon token
     - name: Groth16Verifier_Anon
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_Anon.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_Anon.json
     - name: Groth16Verifier_AnonBatch
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonBatch.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonBatch.json
     - name: Groth16Verifier_Burn
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_Burn.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_Burn.json
     - name: Groth16Verifier_BurnBatch
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_BurnBatch.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_BurnBatch.json
     - name: Zeto_Anon
       verifier: Groth16Verifier_Anon
       batchVerifier: Groth16Verifier_AnonBatch
@@ -51,14 +53,14 @@ contracts:
           fungible: true
       cloneable: true
       abiAndBytecode:
-        path: ./helpers/abis/Zeto_Anon.json
+        path: ./helpers/abis/zkp/v0.2.2/Zeto_Anon.json
     # for the Zeto_AnonEnc token
     - name: Groth16Verifier_AnonEnc
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonEnc.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonEnc.json
     - name: Groth16Verifier_AnonEncBatch
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonEncBatch.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonEncBatch.json
     - name: Zeto_AnonEnc
       verifier: Groth16Verifier_AnonEnc
       batchVerifier: Groth16Verifier_AnonEncBatch
@@ -84,35 +86,35 @@ contracts:
           fungible: true
       cloneable: true
       abiAndBytecode:
-        path: ./helpers/abis/Zeto_AnonEnc.json
+        path: ./helpers/abis/zkp/v0.2.2/Zeto_AnonEnc.json
     # for the Zeto_AnonNullifier token
     - name: PoseidonUnit2L
       abiAndBytecode:
-        path: ./helpers/abis/Poseidon2.json
+        path: ./helpers/abis/zkp/v0.2.2/Poseidon2.json
     - name: PoseidonUnit3L
       abiAndBytecode:
-        path: ./helpers/abis/Poseidon3.json
+        path: ./helpers/abis/zkp/v0.2.2/Poseidon3.json
     - name: SmtLib
       abiAndBytecode:
-        path: ./helpers/abis/SmtLib.json
+        path: ./helpers/abis/zkp/v0.2.2/SmtLib.json
     - name: Groth16Verifier_WithdrawNullifier
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_WithdrawNullifier.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_WithdrawNullifier.json
     - name: Groth16Verifier_WithdrawNullifierBatch
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_WithdrawNullifierBatch.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_WithdrawNullifierBatch.json
     - name: Groth16Verifier_AnonNullifierTransfer
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonNullifierTransfer.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierTransfer.json
     - name: Groth16Verifier_AnonNullifierTransferBatch
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonNullifierTransferBatch.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierTransferBatch.json
     - name: Groth16Verifier_AnonNullifierTransferLocked
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonNullifierTransferLocked.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierTransferLocked.json
     - name: Groth16Verifier_AnonNullifierTransferLockedBatch
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonNullifierTransferLockedBatch.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierTransferLockedBatch.json
     - name: Zeto_AnonNullifier
       verifier: Groth16Verifier_AnonNullifierTransfer
       batchVerifier: Groth16Verifier_AnonNullifierTransferBatch
@@ -138,20 +140,20 @@ contracts:
           fungible: true
       cloneable: true
       abiAndBytecode:
-        path: ./helpers/abis/Zeto_AnonNullifier.json
+        path: ./helpers/abis/zkp/v0.2.2/Zeto_AnonNullifier.json
     # for the Zeto_AnonNullifierKyc token
     - name: Groth16Verifier_AnonNullifierKycTransfer
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonNullifierKycTransfer.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierKycTransfer.json
     - name: Groth16Verifier_AnonNullifierKycTransferBatch
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonNullifierKycTransferBatch.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierKycTransferBatch.json
     - name: Groth16Verifier_AnonNullifierKycTransferLocked
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonNullifierKycTransferLocked.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierKycTransferLocked.json
     - name: Groth16Verifier_AnonNullifierKycTransferLockedBatch
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_AnonNullifierKycTransferLockedBatch.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierKycTransferLockedBatch.json
     - name: Zeto_AnonNullifierKyc
       verifier: Groth16Verifier_AnonNullifierKycTransfer
       batchVerifier: Groth16Verifier_AnonNullifierKycTransferBatch
@@ -179,4 +181,4 @@ contracts:
           fungible: true
       cloneable: true
       abiAndBytecode:
-        path: ./helpers/abis/Zeto_AnonNullifierKyc.json
+        path: ./helpers/abis/zkp/v0.2.2/Zeto_AnonNullifierKyc.json

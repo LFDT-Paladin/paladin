@@ -24,7 +24,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
@@ -34,6 +35,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/crypto"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"google.golang.org/protobuf/proto"
@@ -67,6 +70,18 @@ var withdrawABI_nullifiers = &abi.Entry{
 		{Name: "output", Type: "uint256"},
 		{Name: "root", Type: "uint256"},
 		{Name: "proof", Type: "tuple", InternalType: "struct Commonlib.Proof", Components: common.ProofComponents},
+		{Name: "data", Type: "bytes"},
+	},
+}
+
+var withdrawOnchainPackedABI = &abi.Entry{
+	Type: abi.Function,
+	Name: types.METHOD_WITHDRAW,
+	Inputs: abi.ParameterArray{
+		{Name: "amount", Type: "uint256"},
+		{Name: "inputs", Type: "uint256[]"},
+		{Name: "output", Type: "uint256"},
+		{Name: "proof", Type: "bytes"},
 		{Name: "data", Type: "bytes"},
 	},
 }
@@ -215,19 +230,40 @@ func (h *withdrawHandler) Prepare(ctx context.Context, tx *types.ParsedTransacti
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorEncodeTxData, err)
 	}
-	params := map[string]any{
-		"amount": amount.Int().Text(10),
-		"inputs": inputs,
-		"output": output,
-		"proof":  common.EncodeProof(proofRes.Proof),
-		"data":   data,
+	var params map[string]any
+	var withdrawFunction *abi.Entry
+	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(tx.DomainConfig.ZetoVariant)) {
+		withdrawFunction = withdrawOnchainPackedABI
+		proofBytes, err := common.EncodeZetoOnchainWithdrawProofBytes(ctx, tx.DomainConfig.TokenName, proofRes.Proof, proofRes.PublicInputs)
+		if err != nil {
+			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorMarshalPrepedParams)
+		}
+		inCol := inputs
+		if common.IsNullifiersToken(tx.DomainConfig.TokenName) {
+			inCol = strings.Split(proofRes.PublicInputs["nullifiers"], ",")
+		}
+		params = map[string]any{
+			"amount": amount.Int().Text(10),
+			"inputs": inCol,
+			"output": output,
+			"proof":  pldtypes.HexBytes(proofBytes).HexString0xPrefix(),
+			"data":   data,
+		}
+	} else {
+		params = map[string]any{
+			"amount": amount.Int().Text(10),
+			"inputs": inputs,
+			"output": output,
+			"proof":  common.EncodeProof(proofRes.Proof),
+			"data":   data,
+		}
+		if common.IsNullifiersToken(tx.DomainConfig.TokenName) {
+			delete(params, "inputs")
+			params["nullifiers"] = strings.Split(proofRes.PublicInputs["nullifiers"], ",")
+			params["root"] = proofRes.PublicInputs["root"]
+		}
+		withdrawFunction = getWithdrawABI(tx.DomainConfig.TokenName)
 	}
-	if common.IsNullifiersToken(tx.DomainConfig.TokenName) {
-		delete(params, "inputs")
-		params["nullifiers"] = strings.Split(proofRes.PublicInputs["nullifiers"], ",")
-		params["root"] = proofRes.PublicInputs["root"]
-	}
-	withdrawFunction := getWithdrawABI(tx.DomainConfig.TokenName)
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorMarshalPrepedParams, err)
@@ -305,12 +341,12 @@ func (h *withdrawHandler) formatProvingRequest(ctx context.Context, inputCoins [
 
 	var extras []byte
 	if circuit.UsesNullifiers {
-		smtName := smt.MerkleTreeName(tokenName, contractAddress)
-		mt, err := common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, stateQueryContext)
+		smtName := zetosmt.MerkleTreeName(tokenName, contractAddress)
+		mt, err := common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, stateQueryContext)
 		if err != nil {
 			return nil, err
 		}
-		indexes, err := makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree)
+		indexes, err := makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree, signercommon.GetHasher())
 		if err != nil {
 			return nil, err
 		}

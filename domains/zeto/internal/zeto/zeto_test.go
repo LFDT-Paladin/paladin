@@ -109,7 +109,8 @@ func TestDecodeDomainConfig(t *testing.T) {
 			"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
 			"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
 		},
-		TokenName: "token-name",
+		TokenName:    "token-name",
+		ConfigSchema: types.DomainConfigSchemaV0,
 	}
 	configJSON, err := json.Marshal(config)
 	assert.NoError(t, err)
@@ -274,6 +275,83 @@ func TestPrepareDeploy(t *testing.T) {
 	}
 }
 
+func TestPrepareDeploy_V1Schema(t *testing.T) {
+	testCallbacks := &domain.MockDomainCallbacks{}
+	circuits := &zetosignerapi.Circuits{
+		"deposit":        &zetosignerapi.Circuit{Name: "circuit-deposit"},
+		"withdraw":       &zetosignerapi.Circuit{Name: "circuit-withdraw"},
+		"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
+		"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
+	}
+	z := New(testCallbacks)
+	z.config = &types.DomainFactoryConfig{
+		FactoryVersion: int64(types.ZetoPaladinFactoryV1),
+		DomainContracts: types.DomainConfigContracts{
+			Implementations: []*types.DomainContract{{Name: constants.TOKEN_ANON, Circuits: circuits}},
+		},
+	}
+	req := &pb.PrepareDeployRequest{
+		Transaction: &pb.DeployTransactionSpecification{
+			TransactionId: "0x1234",
+			ConstructorParamsJson: fmt.Sprintf(
+				`{"tokenName":"%s","domainConfigSchema":"v1","zetoVariant":%d}`,
+				constants.TOKEN_ANON, types.ZetoFungibleV1ABI.Uint64(),
+			),
+		},
+		ResolvedVerifiers: []*pb.ResolvedVerifier{{Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019"}},
+	}
+	res, err := z.PrepareDeploy(context.Background(), req)
+	require.NoError(t, err)
+	assert.Contains(t, res.Transaction.ParamsJson, constants.TOKEN_ANON)
+}
+
+func TestPrepareDeployFactoryVersionErrors(t *testing.T) {
+	testCallbacks := &domain.MockDomainCallbacks{}
+	circuits := &zetosignerapi.Circuits{
+		"deposit":        &zetosignerapi.Circuit{Name: "circuit-deposit"},
+		"withdraw":       &zetosignerapi.Circuit{Name: "circuit-withdraw"},
+		"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
+		"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
+	}
+	factoryCfg := func(factoryVersion int64) *types.DomainFactoryConfig {
+		return &types.DomainFactoryConfig{
+			FactoryVersion: factoryVersion,
+			DomainContracts: types.DomainConfigContracts{
+				Implementations: []*types.DomainContract{
+					{Name: constants.TOKEN_ANON, Circuits: circuits},
+				},
+			},
+		}
+	}
+	reqBase := &pb.PrepareDeployRequest{
+		Transaction: &pb.DeployTransactionSpecification{
+			TransactionId:         "0x1234",
+			ConstructorParamsJson: fmt.Sprintf(`{"tokenName":"%s"}`, constants.TOKEN_ANON),
+		},
+		ResolvedVerifiers: []*pb.ResolvedVerifier{{Verifier: "Alice"}},
+	}
+	ctx := context.Background()
+
+	t.Run("unsupported domain factoryVersion", func(t *testing.T) {
+		z := New(testCallbacks)
+		z.config = factoryCfg(99)
+		_, err := z.PrepareDeploy(ctx, reqBase)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "PD210146")
+	})
+
+	t.Run("factoryVersion conflict", func(t *testing.T) {
+		z := New(testCallbacks)
+		z.config = factoryCfg(1)
+		req := proto.Clone(reqBase).(*pb.PrepareDeployRequest)
+		req.Transaction.ConstructorParamsJson = fmt.Sprintf(
+			`{"tokenName":"%s","factoryVersion":2}`, constants.TOKEN_ANON)
+		_, err := z.PrepareDeploy(ctx, req)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "PD210147")
+	})
+}
+
 func TestInitContract(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{}
 	z := New(testCallbacks)
@@ -291,7 +369,8 @@ func TestInitContract(t *testing.T) {
 			"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
 			"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
 		},
-		TokenName: "testToken1",
+		TokenName:    "testToken1",
+		ConfigSchema: types.DomainConfigSchemaV0,
 	}
 	configJSON, _ := json.Marshal(conf)
 	encoded, err := types.DomainInstanceConfigABI.EncodeABIDataJSON(configJSON)
@@ -307,6 +386,7 @@ func TestInitContract(t *testing.T) {
 			"transfer": { "name": "circuit-transfer", "type": "", "usesEncryption": false, "usesKyc":false, "usesNullifiers": false },
 			"transferLocked": { "name": "circuit-transfer-locked", "type": "", "usesEncryption": false, "usesKyc":false, "usesNullifiers": false }
 		},
+		"configSchema": "v0",
 		"tokenName": "testToken1"
 	}`, res.ContractConfig.ContractConfigJson)
 }
@@ -521,13 +601,8 @@ func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	z.dataSchema = &pb.StateSchema{
 		Id: "data",
 	}
-	z.events.mint = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
-	z.events.burn = "event UTXOBurn(uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
-	z.events.transfer = "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)"
-	z.events.transferWithEnc = "event UTXOTransferWithEncryptedValues(uint256[] inputs, uint256[] outputs, uint256 encryptionNonce, uint256[2] ecdhPublicKey, uint256[] encryptedValues, address indexed submitter, bytes data)"
-	z.events.withdraw = "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
-	z.events.lock = "event UTXOsLocked(uint256[] inputs, uint256[] outputs, uint256[] lockedOutputs, address indexed delegate, address indexed submitter, bytes data)"
-	z.events.identityRegistered = "event IdentityRegistered(uint256[] publicKey, bytes data)"
+	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V0), &z.events)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V1), &z.eventsV1)
 	return z, testCallbacks
 }
 
@@ -541,7 +616,7 @@ func TestHandleEventBatch(t *testing.T) {
 		Events: []*pb.OnChainEvent{
 			{
 				DataJson:          "bad data",
-				SoliditySignature: "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)",
+				SoliditySignature: z.events.mint,
 			},
 		},
 		ContractInfo: &pb.ContractInfo{
@@ -561,7 +636,7 @@ func TestHandleEventBatch(t *testing.T) {
 
 	req.ContractInfo.ContractAddress = "0x1234567890123456789012345678901234567890"
 	_, err = z.HandleEventBatch(ctx, req)
-	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: PD210065: Failed to find available states for the merkle tree. find merkle tree root error")
+	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree spec for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: find merkle tree root error")
 
 	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 		return &pb.FindAvailableStatesResponse{}, nil
@@ -570,12 +645,12 @@ func TestHandleEventBatch(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, res1.TransactionsComplete, 0)
 
-	req.Events[0].SoliditySignature = "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.transfer
 	res2, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res2.TransactionsComplete, 0)
 
-	req.Events[0].SoliditySignature = "event UTXOTransferWithEncryptedValues(uint256[] inputs, uint256[] outputs, uint256 encryptionNonce, uint256[2] ecdhPublicKey, uint256[] encryptedValues, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.transferWithEnc
 	res3, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res3.TransactionsComplete, 0)
@@ -591,9 +666,9 @@ func TestHandleEventBatch(t *testing.T) {
 		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
 	})
 	req.Events[0].DataJson = string(data)
-	req.Events[0].SoliditySignature = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.mint
 	_, err = z.HandleEventBatch(ctx, req)
-	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD210056: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 
 	data, _ = json.Marshal(map[string]any{
 		"data":      encodedData,
@@ -612,23 +687,83 @@ func TestHandleEventBatch(t *testing.T) {
 		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
 	})
 	req.Events[0].DataJson = string(data)
-	req.Events[0].SoliditySignature = "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.withdraw
 	_, err = z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 
-	req.Events[0].SoliditySignature = "event UTXOsLocked(uint256[] inputs, uint256[] outputs, uint256[] lockedOutputs, address indexed delegate, address indexed submitter, bytes data)"
+	lockData, _ := json.Marshal(map[string]any{
+		"data":          encodedData,
+		"inputs":        []string{"100"},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"lockedOutputs": []string{"200"},
+	})
+	req.Events[0].DataJson = string(lockData)
+	req.Events[0].SoliditySignature = z.events.lock
 	res5, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res5.TransactionsComplete, 1)
+	assert.NotEmpty(t, res5.NewStates)
 
 	req.ContractInfo.ContractConfigJson = pldtypes.JSONString(map[string]interface{}{
 		"circuitId": "anon_nullifier_kyc_transfer",
-		"tokenName": "Zeto_AnonNullifierKYC",
+		"tokenName": "Zeto_AnonNullifierKyc",
 	}).Pretty()
-	req.Events[0].SoliditySignature = "event IdentityRegistered(uint256[] publicKey, bytes data)"
+	identityData, _ := json.Marshal(map[string]any{
+		"data":      encodedData,
+		"publicKey": []string{"7980718117603030807695495350922077879582656644717071592146865497574198464252", "7980718117603030807695495350922077879582656644717071592146865497574198464251"},
+	})
+	req.Events[0].DataJson = string(identityData)
+	req.Events[0].SoliditySignature = z.events.identityRegistered
 	res6, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res6.TransactionsComplete, 0)
+
+	z.lockInfoSchema = &pb.StateSchema{Id: "lock_info"}
+	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
+	lockCreated, _ := json.Marshal(map[string]any{
+		"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
+		"lockId":        lockID.HexString0xPrefix(),
+		"owner":         "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"inputs":        []string{"100"},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"lockedOutputs": []string{"200"},
+		"proof":         "0x",
+		"data":          encodedData,
+	})
+	req.Events = []*pb.OnChainEvent{{
+		DataJson: string(lockCreated), SoliditySignature: z.eventsV1.zetoLockCreated,
+	}}
+	res7, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res7.SpentStates, 1)
+	assert.Len(t, res7.ConfirmedStates, 3)
+
+	lockSpent, _ := json.Marshal(map[string]any{
+		"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
+		"lockId":        lockID.HexString0xPrefix(),
+		"spender":       "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"lockedInputs":  []string{"300"},
+		"lockedOutputs": []string{},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"proof":         "0x",
+		"data":          encodedData,
+	})
+	req.Events[0].DataJson = string(lockSpent)
+	req.Events[0].SoliditySignature = z.eventsV1.zetoLockSpent
+	res8, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res8.TransactionsComplete, 1)
+
+	req.Events[0].SoliditySignature = z.eventsV1.zetoLockCancelled
+	res9, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res9.TransactionsComplete, 1)
+
+	req.Events[0].DataJson = "not json"
+	req.Events[0].SoliditySignature = z.eventsV1.zetoLockCreated
+	res10, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Empty(t, res10.SpentStates)
 }
 
 func TestGetVerifier(t *testing.T) {
@@ -832,26 +967,35 @@ func TestGetHandler(t *testing.T) {
 		name        string
 		action      string
 		tokenName   string
+		variant     pldtypes.HexUint64
 		expectedNil bool
 	}{
 		// Tests for TOKEN_ANON
-		{"Valid mint handler for TOKEN_ANON", "mint", constants.TOKEN_ANON, false},
-		{"Valid transfer handler for TOKEN_ANON", "transfer", constants.TOKEN_ANON, false},
-		{"Valid transferLocked handler for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, false},
-		{"Valid lock handler for TOKEN_ANON", "lock", constants.TOKEN_ANON, false},
-		{"Valid deposit handler for TOKEN_ANON", "deposit", constants.TOKEN_ANON, false},
-		{"Valid withdraw handler for TOKEN_ANON", "withdraw", constants.TOKEN_ANON, false},
-		{"Invalid handler for TOKEN_ANON", "bad", constants.TOKEN_ANON, true},
+		{"Valid mint handler for TOKEN_ANON", "mint", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Valid transfer handler for TOKEN_ANON", "transfer", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Valid transferLocked handler for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Valid lock handler for TOKEN_ANON", "lock", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Valid deposit handler for TOKEN_ANON", "deposit", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Valid withdraw handler for TOKEN_ANON", "withdraw", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Invalid handler for TOKEN_ANON", "bad", constants.TOKEN_ANON, types.ZetoVariantV0, true},
+		{"V1 createLock handler for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
+		{"V1 spendLock handler for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
+		{"V1 cancelLock handler for TOKEN_ANON", types.METHOD_CANCEL_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
+		{"V0 createLock nil for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
+		{"V0 spendLock nil for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
+		{"V0 cancelLock nil for TOKEN_ANON", types.METHOD_CANCEL_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
+		{"V1 lock nil for TOKEN_ANON", "lock", constants.TOKEN_ANON, types.ZetoVariantV1, true},
+		{"V1 transferLocked nil for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, types.ZetoVariantV1, true},
 
 		// Tests for TOKEN_NF_ANON
-		{"Valid mint handler for TOKEN_NF_ANON", "mint", constants.TOKEN_NF_ANON, false},
-		{"Valid transfer handler for TOKEN_NF_ANON", "transfer", constants.TOKEN_NF_ANON, false},
-		{"Invalid handler for TOKEN_NF_ANON", "bad", constants.TOKEN_NF_ANON, true},
+		{"Valid mint handler for TOKEN_NF_ANON", "mint", constants.TOKEN_NF_ANON, types.ZetoVariantV0, false},
+		{"Valid transfer handler for TOKEN_NF_ANON", "transfer", constants.TOKEN_NF_ANON, types.ZetoVariantV0, false},
+		{"Invalid handler for TOKEN_NF_ANON", "bad", constants.TOKEN_NF_ANON, types.ZetoVariantV0, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := z.GetHandler(tt.action, tt.tokenName)
+			handler := z.GetHandler(tt.action, tt.tokenName, tt.variant)
 			if tt.expectedNil {
 				assert.Nil(t, handler)
 			} else {
@@ -912,5 +1056,5 @@ func TestUnimplementedMethods(t *testing.T) {
 func TestGetStateSchemas(t *testing.T) {
 	schemas, err := types.GetStateSchemas()
 	assert.NoError(t, err)
-	assert.Len(t, schemas, 5)
+	assert.Len(t, schemas, 6)
 }

@@ -22,19 +22,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/iden3/go-iden3-crypto/babyjub"
 )
 
@@ -44,55 +45,46 @@ type StateSchemas struct {
 	DataSchema           *prototk.StateSchema
 	MerkleTreeRootSchema *prototk.StateSchema
 	MerkleTreeNodeSchema *prototk.StateSchema
+	// LockInfoSchema is optional (nil on legacy 5-schema registrations). When set, createLock/spendLock may persist
+	// types.ZetoLockInfoState keyed by lockId (see domains/zeto/pkg/types/lock_info.go).
+	LockInfoSchema *prototk.StateSchema
 }
-
-type MerkleTreeType int
-
-const (
-	StatesTree MerkleTreeType = iota
-	LockedStatesTree
-	KycStatesTree
-)
 
 type MerkleTreeSpec struct {
-	Name       string
-	Levels     int
-	Type       MerkleTreeType
-	Storage    smt.StatesStorage
-	Tree       core.SparseMerkleTree
-	EmptyProof *proto.MerkleProof
+	smt.MerkleTreeSpec
+	// Precomputed empty proof for this tree type, used to fill
+	// in proof entries when there are empty inputs, because Zeto
+	// tokens require fixed sized inputs
+	EmptyProof *corepb.MerkleProof
 }
 
-func NewMerkleTreeSpec(ctx context.Context, name string, treeType MerkleTreeType, callbacks plugintk.DomainCallbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId string, stateQueryContext string) (*MerkleTreeSpec, error) {
-	var tree core.SparseMerkleTree
+func NewMerkleTreeSpec(ctx context.Context, name string, treeType smt.MerkleTreeType, callbacks plugintk.DomainCallbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId string, stateQueryContext string) (*MerkleTreeSpec, error) {
 	var levels int
 	switch treeType {
-	case StatesTree:
-		levels = smt.SMT_HEIGHT_UTXO
-	case LockedStatesTree:
-		levels = smt.SMT_HEIGHT_UTXO
-	case KycStatesTree:
-		levels = smt.SMT_HEIGHT_KYC
+	case smt.StatesTree:
+		levels = zetosmt.SMT_HEIGHT_UTXO
+	case smt.LockedStatesTree:
+		levels = zetosmt.SMT_HEIGHT_UTXO
+	case smt.KycStatesTree:
+		levels = zetosmt.SMT_HEIGHT_KYC
 	default:
 		return nil, i18n.NewError(ctx, msgs.MsgUnknownSmtType, treeType)
 	}
-	storage := smt.NewStatesStorage(callbacks, name, stateQueryContext, merkleTreeRootSchemaId, merkleTreeNodeSchemaId)
-	tree, err := smt.NewSmt(storage, levels)
+	hasher := common.GetHasher()
+	emptyProof := &zetosmt.Empty_Proof_Utxos
+	if treeType == smt.KycStatesTree {
+		emptyProof = &zetosmt.Empty_Proof_kyc
+	}
+	useEIP712 := false
+	mtSpec, err := smt.NewMerkleTreeSpec(ctx, name, treeType, levels, hasher, useEIP712, callbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, stateQueryContext)
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorNewSmt, name, err)
+		return nil, i18n.NewError(ctx, msgs.MsgErrorNewSmtSpec, name, err)
 	}
-	emptyProof := &smt.Empty_Proof_Utxos
-	if treeType == KycStatesTree {
-		emptyProof = &smt.Empty_Proof_kyc
+	spec := &MerkleTreeSpec{
+		MerkleTreeSpec: *mtSpec,
+		EmptyProof:     emptyProof,
 	}
-	return &MerkleTreeSpec{
-		Name:       name,
-		Levels:     levels,
-		Type:       treeType,
-		Storage:    storage,
-		Tree:       tree,
-		EmptyProof: emptyProof,
-	}, nil
+	return spec, nil
 }
 
 const modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
@@ -125,7 +117,7 @@ func GetInputSize(sizeOfEndorsableStates int) int {
 
 func HexUint256To32ByteHexString(v *pldtypes.HexUint256) string {
 	paddedBytes := IntTo32ByteSlice(v.Int())
-	return hex.EncodeToString(paddedBytes)
+	return "0x" + hex.EncodeToString(paddedBytes)
 }
 
 func IntTo32ByteSlice(bigInt *big.Int) (res []byte) {
@@ -134,7 +126,46 @@ func IntTo32ByteSlice(bigInt *big.Int) (res []byte) {
 
 func IntTo32ByteHexString(bigInt *big.Int) string {
 	paddedBytes := bigInt.FillBytes(make([]byte, 32))
-	return hex.EncodeToString(paddedBytes)
+	return "0x" + hex.EncodeToString(paddedBytes)
+}
+
+// CoinStateIDFromPersistedString normalizes a coin state .id from lock-info persistence.
+// lockedOutputs uses uint256[] in the AbiStateSchema; after storage round-trip values may be
+// 0x-prefixed hex (as written at createLock) or base-10 decimal strings. Decimal values must not
+// be parsed as hexadecimal (that inflates the integer and can panic in FillBytes).
+func CoinStateIDFromPersistedString(ctx context.Context, s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "empty coin state id")
+	}
+	if after, ok := strings.CutPrefix(s, "0x"); ok {
+		b, err := pldtypes.ParseHexBytes(ctx, "0x"+after)
+		if err != nil {
+			return "", i18n.WrapError(ctx, err, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+		}
+		if len(b) != 32 {
+			return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+		}
+		return b.String(), nil
+	}
+	if after, ok := strings.CutPrefix(s, "0X"); ok {
+		b, err := pldtypes.ParseHexBytes(ctx, "0x"+after)
+		if err != nil {
+			return "", i18n.WrapError(ctx, err, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+		}
+		if len(b) != 32 {
+			return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+		}
+		return b.String(), nil
+	}
+	bi, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+	}
+	if bi.Sign() < 0 || bi.BitLen() > 256 {
+		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+	}
+	return IntTo32ByteHexString(bi), nil
 }
 
 func LoadBabyJubKey(payload []byte) (*babyjub.PublicKey, error) {

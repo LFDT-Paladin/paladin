@@ -13,6 +13,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import org.gradle.api.file.RelativePath
+
+// :domains:zeto ext (zetoVersions, zetoPrimaryZkpRoot) must exist before this script configures copy tasks.
+evaluationDependsOn(':domains:zeto')
+
 ext {
     goFiles = fileTree(".") {
         include "*.go"
@@ -41,10 +46,6 @@ configurations {
         canBeConsumed = false
         canBeResolved = true
     }
-    zetoArtifacts {
-        canBeConsumed = false
-        canBeResolved = true
-    }
     poseidonArtifacts {
         canBeConsumed = false
         canBeResolved = true
@@ -57,13 +58,59 @@ dependencies {
     coreGo project(path: ":core:go", configuration: "goSource")
     notoGo project(path: ":domains:noto", configuration: "goSource")
     zetoGo project(path: ":domains:zeto", configuration: "goSource")
-    zetoArtifacts project(path: ":domains:zeto", configuration: "zetoArtifacts")
     poseidonArtifacts project(path: ":domains:zeto", configuration: "poseidonArtifacts")
 }
 
+// Upstream zeto implementation + verifier ABIs share filenames across releases; Gradle extracts each
+// zkpRoot to helpers/abis/zkp/<root>/ (deploy YAML uses those versioned paths; ResolveZetoImplementationAbiPath
+// still resolves legacy flat helpers/abis/<name>.json when present).
+// Poseidon library bytecode JSON uses the same names across releases; copy into each zkpRoot so deploy YAML paths resolve consistently.
+afterEvaluate {
+    def zetoProj = project(':domains:zeto')
+    zetoProj.ext.zetoVersions.each { variant ->
+        def root = variant.zkpRoot
+        def tid = variant.id
+        tasks.register("copyZetoUpstreamContractAbis_${tid}", Copy) {
+            dependsOn ':domains:zeto:extractZetoZkpVariants'
+            dependsOn ':domains:zeto:generatePoseidonArtifacts'
+            def zkpBase = zetoProj.file("zkp/${root}")
+            from zetoProj.fileTree(zkpBase) {
+                include 'artifacts/contracts/**/*.json'
+                include 'artifacts/@iden3/contracts/**/*.json'
+                exclude '**/*.dbg.json'
+            }
+            inputs.files(configurations.poseidonArtifacts)
+            from fileTree(configurations.poseidonArtifacts.asPath) {
+                include '**/Poseidon2.json'
+                include '**/Poseidon3.json'
+            }
+            into "helpers/abis/zkp/${root}"
+            duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+            eachFile { details ->
+                details.relativePath = new RelativePath(true, details.name)
+            }
+            includeEmptyDirs = false
+        }
+    }
+}
+
+task copyZetoVersionedUpstreamAbis {
+    dependsOn {
+        project(':domains:zeto').ext.zetoVersions.collect { variant ->
+            tasks.getByName("copyZetoUpstreamContractAbis_${variant.id}")
+        }
+    }
+}
+
 task copySolidity(type: Copy) {
+    dependsOn copyZetoVersionedUpstreamAbis
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    
+
+    from {
+        def zetoProj = project(':domains:zeto')
+        zetoProj.file("zkp/${zetoProj.ext.zetoPrimaryZkpRoot}/artifacts/contracts/erc20.sol/SampleERC20.json")
+    }
+
     inputs.files(configurations.contractCompile)
     from fileTree(configurations.contractCompile.asPath) {
         include 'contracts/domains/interfaces/INoto.sol/INoto.json'
@@ -71,23 +118,12 @@ task copySolidity(type: Copy) {
         include 'contracts/domains/noto/NotoFactory.sol/NotoFactory.json'
         include 'contracts/domains/noto/Noto_V0.sol/Noto_V0.json'
         include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
+        include 'contracts/domains/zeto/ZetoFactoryV1.sol/ZetoFactoryV1.json'
+        include '@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json'
         include 'contracts/shared/Atom.sol/Atom.json'
         include 'contracts/shared/AtomFactory.sol/AtomFactory.json'
         include 'contracts/private/Swap.sol/Swap.json'
         include 'contracts/testcontracts/NotoTrackerPublicERC20.sol/NotoTrackerPublicERC20.json'
-    }
-
-    inputs.files(configurations.zetoArtifacts)
-    from fileTree(configurations.zetoArtifacts.asPath) {
-        include 'artifacts/contracts/**/*.json'
-        include 'artifacts/@iden3/contracts/**/*.json'
-        exclude '**/*.dbg.json'
-    }
-
-    inputs.files(configurations.poseidonArtifacts)
-    from fileTree(configurations.poseidonArtifacts.asPath) {
-        include '**/Poseidon2.json'
-        include '**/Poseidon3.json'
     }
 
     into 'helpers/abis'
@@ -114,7 +150,7 @@ task test(type: Exec, dependsOn: [":core:go:makeMocks"]) {
     args '-v'
     args '-cover'
     args '-covermode=atomic'
-    args '-timeout=480s'
+    args '-timeout=900s'
     args "-test.gocoverdir=${projectDir}/coverage"
 
     dependsOn ':testinfra:startTestInfra'

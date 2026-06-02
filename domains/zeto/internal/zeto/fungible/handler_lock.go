@@ -19,12 +19,12 @@ import (
 	"context"
 	"encoding/json"
 	"math/big"
-	"slices"
 	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
@@ -160,15 +160,17 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxOutputs, err)
 	}
+	clearNullifierSpecs(lockedOutputStates)
 	outputStates = append(outputStates, lockedOutputStates...)
 
 	contractAddress, err := pldtypes.ParseEthAddress(req.Transaction.ContractInfo.ContractAddress)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorDecodeContractAddress, err)
 	}
-	allOutputCoins := slices.Concat(outputCoins, lockedOutputCoins)
-	circuit := (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER] // use the transfer circuit for locking proofs
-	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, inputStates.coins, allOutputCoins, circuit, tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress)
+	allOutputCoins := lockTransitionOutputCoinsForProof(tx.DomainConfig.ZetoVariant, outputCoins, lockedOutputCoins)
+	circuit := (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER]
+	// Nullifier transfer witness has no lockDelegate (same as zeto_anon_nullifier createLock prepareProof).
+	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, signercommon.GetHasher(), inputStates.coins, allOutputCoins, circuit, tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress, false)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorFormatProvingReq, err)
 	}
@@ -215,7 +217,11 @@ func (h *lockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction, 
 
 	var unlockedOutputStates []*pb.EndorsableState
 	var lockedOutputStates []*pb.EndorsableState
+	coinSchemaID := h.stateSchemas.CoinSchema.Id
 	for _, state := range req.OutputStates {
+		if sid := state.GetSchemaId(); sid != "" && sid != coinSchemaID {
+			continue
+		}
 		var coin types.ZetoCoin
 		if err := json.Unmarshal([]byte(state.StateDataJson), &coin); err != nil {
 			return nil, i18n.NewError(ctx, msgs.MsgErrorUnmarshalStateData, err)

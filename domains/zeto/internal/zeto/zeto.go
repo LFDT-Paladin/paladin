@@ -21,30 +21,58 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
+	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/fungible"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/nonfungible"
 	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
+	"github.com/LFDT-Paladin/smt/pkg/utxo/core"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/iden3/go-iden3-crypto/babyjub"
 )
 
 var _ plugintk.DomainAPI = &Zeto{}
+
+//go:embed factoryabis/ZetoFactory.json
+var zetoFactoryArtifactV0 []byte
+
+//go:embed factoryabis/ZetoFactoryV1.json
+var zetoFactoryArtifactV1 []byte
+
+var zetoFactoryBuildV0 = solutils.MustLoadBuild(zetoFactoryArtifactV0)
+var zetoFactoryBuildV1 = solutils.MustLoadBuild(zetoFactoryArtifactV1)
+
+type zetoEventSigs struct {
+	mint               string
+	burn               string
+	transfer           string
+	transferWithEnc    string
+	withdraw           string
+	lock               string
+	zetoLockCreated    string
+	zetoLockSpent      string
+	zetoLockCancelled  string
+	identityRegistered string
+}
 
 type Zeto struct {
 	Callbacks plugintk.DomainCallbacks
@@ -57,16 +85,11 @@ type Zeto struct {
 	merkleTreeRootSchema *prototk.StateSchema
 	merkleTreeNodeSchema *prototk.StateSchema
 	dataSchema           *prototk.StateSchema
+	lockInfoSchema       *prototk.StateSchema
 	snarkProver          signerapi.InMemorySigner
-	events               struct {
-		mint               string
-		burn               string
-		transfer           string
-		transferWithEnc    string
-		withdraw           string
-		lock               string
-		identityRegistered string
-	}
+	hasher               core.Hasher
+	events               zetoEventSigs
+	eventsV1             zetoEventSigs
 }
 
 type MintEvent struct {
@@ -109,23 +132,34 @@ type IdentityRegisteredEvent struct {
 	Data      pldtypes.HexBytes     `json:"data"`
 }
 
-var factoryDeployABI = &abi.Entry{
-	Type: abi.Function,
-	Name: "deploy",
-	Inputs: abi.ParameterArray{
-		{Name: "transactionId", Type: "bytes32"},
-		{Name: "tokenName", Type: "string"},
-		{Name: "name", Type: "string"},
-		{Name: "symbol", Type: "string"},
-		{Name: "initialOwner", Type: "address"},
-		{Name: "data", Type: "bytes"},
-		{Name: "isNonFungible", Type: "bool"},
-	},
+// ZetoLockCreatedEvent matches ILockableCapability v0.5 ZetoLockCreated. ConfirmedStates include coin commitments and the lock-info row (state id = chain lockId); locked coin outputs are not written to the nullifier SMT (unlike legacy UTXOsLocked).
+type ZetoLockCreatedEvent struct {
+	TxId          pldtypes.Bytes32      `json:"txId"`
+	LockId        pldtypes.Bytes32      `json:"lockId"`
+	Owner         pldtypes.EthAddress   `json:"owner"`
+	Inputs        []pldtypes.HexUint256 `json:"inputs"`
+	Outputs       []pldtypes.HexUint256 `json:"outputs"`
+	LockedOutputs []pldtypes.HexUint256 `json:"lockedOutputs"`
+	Proof         pldtypes.HexBytes     `json:"proof"`
+	Data          pldtypes.HexBytes     `json:"data"`
+}
+
+// ZetoLockSpentLikeEvent matches ZetoLockSpent and ZetoLockCancelled (same non-indexed payload shape).
+type ZetoLockSpentLikeEvent struct {
+	TxId          pldtypes.Bytes32      `json:"txId"`
+	LockId        pldtypes.Bytes32      `json:"lockId"`
+	Spender       pldtypes.EthAddress   `json:"spender"`
+	LockedInputs  []pldtypes.HexUint256 `json:"lockedInputs"`
+	LockedOutputs []pldtypes.HexUint256 `json:"lockedOutputs"`
+	Outputs       []pldtypes.HexUint256 `json:"outputs"`
+	Proof         pldtypes.HexBytes     `json:"proof"`
+	Data          pldtypes.HexBytes     `json:"data"`
 }
 
 func New(callbacks plugintk.DomainCallbacks) *Zeto {
 	return &Zeto{
 		Callbacks: callbacks,
+		hasher:    utxo.NewPoseidonHasher(),
 	}
 }
 
@@ -175,7 +209,8 @@ func (z *Zeto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 		return nil, i18n.NewError(ctx, msgs.MsgErrorMarshalZetoEventAbis, err)
 	}
 
-	z.registerEventSignatures(events)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V0), &z.events)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V1), &z.eventsV1)
 
 	var signingAlgos map[string]int32
 	if config.SnarkProver.CircuitsDir != "" {
@@ -205,6 +240,10 @@ func (z *Zeto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (
 	z.merkleTreeRootSchema = req.AbiStateSchemas[2]
 	z.merkleTreeNodeSchema = req.AbiStateSchemas[3]
 	z.dataSchema = req.AbiStateSchemas[4]
+	z.lockInfoSchema = nil
+	if len(req.AbiStateSchemas) > 5 {
+		z.lockInfoSchema = req.AbiStateSchemas[5]
+	}
 
 	return &prototk.InitDomainResponse{}, nil
 }
@@ -230,19 +269,53 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidatePrepDeployParams, err)
 	}
-	circuits, err := z.config.GetCircuits(ctx, initParams.TokenName)
+	useV1 := strings.EqualFold(initParams.DomainConfigSchema, types.DomainConfigSchemaV1)
+	if !useV1 && (initParams.CircuitBundleId != "" || initParams.ZetoVariant != 0) {
+		return nil, i18n.NewError(ctx, msgs.MsgZetoV1SchemaRequired)
+	}
+
+	effectiveFV := z.config.FactoryVersion
+	if initParams.FactoryVersion != 0 {
+		if z.config.FactoryVersion != 0 && initParams.FactoryVersion != z.config.FactoryVersion {
+			return nil, i18n.NewError(ctx, msgs.MsgZetoFactoryVersionConflict, initParams.FactoryVersion, z.config.FactoryVersion)
+		}
+		effectiveFV = initParams.FactoryVersion
+	}
+	var factoryABI abi.ABI
+	switch effectiveFV {
+	case int64(types.ZetoPaladinFactoryV0):
+		factoryABI = zetoFactoryBuildV0.ABI
+	case int64(types.ZetoPaladinFactoryV1):
+		factoryABI = zetoFactoryBuildV1.ABI
+	default:
+		return nil, i18n.NewError(ctx, msgs.MsgUnsupportedZetoFactoryVersion, effectiveFV)
+	}
+	deployFn, err := pickZetoFactoryDeploy7Arg(factoryABI)
+	if err != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorValidatePrepDeployParams, err.Error())
+	}
+
+	circuits, err := z.config.GetCircuitsForDeploy(ctx, initParams.TokenName, initParams.ZetoVariant, initParams.CircuitBundleId)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorFindCircuitId, err)
 	}
+
 	config := &types.DomainInstanceConfig{
-		Circuits:  circuits,
-		TokenName: initParams.TokenName,
+		Circuits:        circuits,
+		TokenName:       initParams.TokenName,
+		ZetoVariant:     pldtypes.HexUint64(initParams.ZetoVariant),
+		FactoryVersion:  effectiveFV,
+		CircuitBundleId: initParams.CircuitBundleId,
 	}
-	configJSON, err := json.Marshal(config)
-	if err != nil {
-		return nil, err
+
+	var encoded pldtypes.HexBytes
+	if useV1 {
+		config.ConfigSchema = types.DomainConfigSchemaV1
+		encoded, err = types.EncodeDomainInstanceConfigV1(ctx, config)
+	} else {
+		config.ConfigSchema = types.DomainConfigSchemaV0
+		encoded, err = types.EncodeDomainInstanceConfigV0(ctx, config)
 	}
-	encoded, err := types.DomainInstanceConfigABI.EncodeABIDataJSONCtx(ctx, configJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +333,7 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, err
 	}
-	functionJSON, err := json.Marshal(factoryDeployABI)
+	functionJSON, err := json.Marshal(deployFn)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +402,8 @@ func (z *Zeto) PrepareTransaction(ctx context.Context, req *prototk.PrepareTrans
 	return handler.Prepare(ctx, tx, req)
 }
 
-func (z *Zeto) GetHandler(method, tokenName string) types.DomainHandler {
+func (z *Zeto) GetHandler(method, tokenName string, zetoVariant pldtypes.HexUint64) types.DomainHandler {
+	fungibleV0 := zetoVariant == types.ZetoFungibleV0ABI
 	if common.IsNonFungibleToken(tokenName) {
 		switch method {
 		case types.METHOD_MINT:
@@ -346,9 +420,30 @@ func (z *Zeto) GetHandler(method, tokenName string) types.DomainHandler {
 	case types.METHOD_TRANSFER:
 		return fungible.NewTransferHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema)
 	case types.METHOD_TRANSFER_LOCKED:
+		if !fungibleV0 {
+			return nil
+		}
 		return fungible.NewTransferLockedHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema)
 	case types.METHOD_LOCK:
+		if !fungibleV0 {
+			return nil
+		}
 		return fungible.NewLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema)
+	case types.METHOD_CREATE_LOCK:
+		if fungibleV0 {
+			return nil
+		}
+		return fungible.NewCreateLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.lockInfoSchema)
+	case types.METHOD_SPEND_LOCK:
+		if fungibleV0 {
+			return nil
+		}
+		return fungible.NewSpendLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema, z.lockInfoSchema)
+	case types.METHOD_CANCEL_LOCK:
+		if fungibleV0 {
+			return nil
+		}
+		return fungible.NewCancelLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema, z.lockInfoSchema)
 	case types.METHOD_DEPOSIT:
 		return fungible.NewDepositHandler(z.name, z.coinSchema)
 	case types.METHOD_WITHDRAW:
@@ -368,17 +463,7 @@ func (z *Zeto) GetCallHandler(method, tokenName string) types.DomainCallHandler 
 }
 
 func (z *Zeto) decodeDomainConfig(ctx context.Context, domainConfig []byte) (*types.DomainInstanceConfig, error) {
-	configValues, err := types.DomainInstanceConfigABI.DecodeABIDataCtx(ctx, domainConfig, 0)
-	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorAbiDecodeDomainInstanceConfig, err)
-	}
-	configJSON, err := pldtypes.StandardABISerializer().SerializeJSON(configValues)
-	if err != nil {
-		return nil, err
-	}
-	var config types.DomainInstanceConfig
-	err = json.Unmarshal(configJSON, &config)
-	return &config, err
+	return types.DecodeDomainInstanceConfig(ctx, domainConfig)
 }
 
 func (z *Zeto) validateDeploy(tx *prototk.DeployTransactionSpecification) (*types.InitializerParams, error) {
@@ -401,7 +486,7 @@ func (z *Zeto) validateDeployAndGetLogContext(ctx context.Context, txSpec *proto
 func validateTransactionCommon[T any](
 	ctx context.Context,
 	tx *prototk.TransactionSpecification,
-	getHandler func(method, tokenName string) T,
+	getHandler func(method, tokenName string, zetoVariant pldtypes.HexUint64) T,
 ) (*types.ParsedTransaction, T, error) {
 	var functionABI abi.Entry
 	err := json.Unmarshal([]byte(tx.FunctionAbiJson), &functionABI)
@@ -417,16 +502,16 @@ func validateTransactionCommon[T any](
 		return nil, zero, err
 	}
 
-	var abi *abi.Entry
+	var fnEntry *abi.Entry
 	if common.IsNonFungibleToken(domainConfig.TokenName) {
-		abi = types.ZetoNonFungibleABI.Functions()[functionABI.Name]
+		fnEntry = types.ZetoNonFungibleABI.Functions()[functionABI.Name]
 	} else {
-		abi = types.ZetoFungibleABI.Functions()[functionABI.Name]
+		fnEntry = types.ZetoFungibleFunctionForVariant(domainConfig.ZetoVariant, functionABI.Name)
 	}
 
-	handler := getHandler(functionABI.Name, domainConfig.TokenName)
+	handler := getHandler(functionABI.Name, domainConfig.TokenName, domainConfig.ZetoVariant)
 	handlerValue := reflect.ValueOf(handler)
-	if abi == nil || handlerValue.IsNil() {
+	if fnEntry == nil || handlerValue.IsNil() {
 		var zero T
 		return nil, zero, i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)
 	}
@@ -445,7 +530,7 @@ func validateTransactionCommon[T any](
 		return nil, zero, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, err)
 	}
 
-	signature := abi.SolString()
+	signature := fnEntry.SolString()
 	if tx.FunctionSignature != signature {
 		var zero T
 		return nil, zero, i18n.NewError(ctx, msgs.MsgUnexpectedFuncSignature, functionABI.Name, signature, tx.FunctionSignature)
@@ -502,25 +587,38 @@ func (z *Zeto) validateCall(ctx context.Context, call *prototk.TransactionSpecif
 	return validateTransactionCommon(
 		ctx,
 		call,
-		z.GetCallHandler,
+		func(m, tn string, _ pldtypes.HexUint64) types.DomainCallHandler {
+			return z.GetCallHandler(m, tn)
+		},
 	)
 }
 
-func (z *Zeto) registerEventSignatures(eventAbis abi.ABI) {
-	for _, event := range eventAbis.Events() {
+func (z *Zeto) registerEventSignatures(source abi.ABI, dest *zetoEventSigs) {
+	for _, event := range source {
+		if event.Type != abi.Event {
+			continue
+		}
 		switch event.Name {
 		case "UTXOMint":
-			z.events.mint = event.SolString()
+			dest.mint = event.SolString()
+		case "UTXOBurn":
+			dest.burn = event.SolString()
 		case "UTXOTransfer":
-			z.events.transfer = event.SolString()
+			dest.transfer = event.SolString()
 		case "UTXOTransferWithEncryptedValues":
-			z.events.transferWithEnc = event.SolString()
+			dest.transferWithEnc = event.SolString()
 		case "UTXOWithdraw":
-			z.events.withdraw = event.SolString()
+			dest.withdraw = event.SolString()
 		case "UTXOsLocked":
-			z.events.lock = event.SolString()
+			dest.lock = event.SolString()
+		case "ZetoLockCreated":
+			dest.zetoLockCreated = event.SolString()
+		case "ZetoLockSpent":
+			dest.zetoLockSpent = event.SolString()
+		case "ZetoLockCancelled":
+			dest.zetoLockCancelled = event.SolString()
 		case "IdentityRegistered":
-			z.events.identityRegistered = event.SolString()
+			dest.identityRegistered = event.SolString()
 		}
 	}
 }
@@ -546,20 +644,20 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 	var smtForLockedStates *common.MerkleTreeSpec
 	var smtForKyc *common.MerkleTreeSpec
 	if common.IsNullifiersToken(domainConfig.TokenName) {
-		smtName := smt.MerkleTreeName(domainConfig.TokenName, contractAddress)
-		smtForStates, err = common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		smtName := zetosmt.MerkleTreeName(domainConfig.TokenName, contractAddress)
+		smtForStates, err = common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
-		smtName = smt.MerkleTreeNameForLockedStates(domainConfig.TokenName, contractAddress)
-		smtForLockedStates, err = common.NewMerkleTreeSpec(ctx, smtName, common.LockedStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		smtName = zetosmt.MerkleTreeNameForLockedStates(domainConfig.TokenName, contractAddress)
+		smtForLockedStates, err = common.NewMerkleTreeSpec(ctx, smtName, smt.LockedStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if common.IsKycToken(domainConfig.TokenName) {
-		smtName := smt.MerkleTreeNameForKycStates(domainConfig.TokenName, contractAddress)
-		smtForKyc, err = common.NewMerkleTreeSpec(ctx, smtName, common.KycStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		smtName := zetosmt.MerkleTreeNameForKycStates(domainConfig.TokenName, contractAddress)
+		smtForKyc, err = common.NewMerkleTreeSpec(ctx, smtName, smt.KycStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
@@ -567,50 +665,57 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 	for _, ev := range req.Events {
 		var err error
 		switch ev.SoliditySignature {
-		case z.events.mint:
+		case z.events.mint, z.eventsV1.mint:
 			err = z.handleMintEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res)
-		case z.events.transfer:
+		case z.events.transfer, z.eventsV1.transfer:
 			err = z.handleTransferEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res)
-		case z.events.transferWithEnc:
+		case z.events.transferWithEnc, z.eventsV1.transferWithEnc:
 			err = z.handleTransferWithEncryptionEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res)
-		case z.events.withdraw:
+		case z.events.withdraw, z.eventsV1.withdraw:
 			err = z.handleWithdrawEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res)
-		case z.events.lock:
+		case z.events.lock, z.eventsV1.lock:
 			err = z.handleLockedEvent(ctx, smtForStates, smtForLockedStates, ev, domainConfig.TokenName, &res)
-		case z.events.identityRegistered:
+		case z.eventsV1.zetoLockCreated:
+			err = z.handleZetoLockCreatedEvent(ctx, req.StateQueryContext, smtForStates, ev, domainConfig.TokenName, &res)
+		case z.eventsV1.zetoLockSpent:
+			err = z.handleZetoLockSpentLikeEvent(ctx, req.StateQueryContext, smtForStates, ev, domainConfig.TokenName, &res, "ZetoLockSpent")
+		case z.eventsV1.zetoLockCancelled:
+			err = z.handleZetoLockSpentLikeEvent(ctx, req.StateQueryContext, smtForStates, ev, domainConfig.TokenName, &res, "ZetoLockCancelled")
+		case z.events.identityRegistered, z.eventsV1.identityRegistered:
 			err = z.handleIdentityRegisteredEvent(ctx, smtForKyc, ev, domainConfig.TokenName, &res)
 		}
 		if err != nil {
 			errors = append(errors, err.Error())
 		}
+		if err == nil && common.IsNullifiersToken(domainConfig.TokenName) {
+			newStatesForSMT, smtErr := smtForStates.Storage.GetNewStates(ctx)
+			if smtErr != nil {
+				return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForStates.Name, smtErr)
+			}
+			if len(newStatesForSMT) > 0 {
+				res.NewStates = append(res.NewStates, newStatesForSMT...)
+			}
+			newStatesForSMTForLocked, smtErr := smtForLockedStates.Storage.GetNewStates(ctx)
+			if smtErr != nil {
+				return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForLockedStates.Name, smtErr)
+			}
+			if len(newStatesForSMTForLocked) > 0 {
+				res.NewStates = append(res.NewStates, newStatesForSMTForLocked...)
+			}
+			if common.IsKycToken(domainConfig.TokenName) {
+				newStatesForSMTForKyc, smtErr := smtForKyc.Storage.GetNewStates(ctx)
+				log.L(ctx).Debugf("New KYC states from SMT %s: %+v", smtForKyc.Name, newStatesForSMTForKyc)
+				if smtErr != nil {
+					return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForKyc.Name, smtErr)
+				}
+				if len(newStatesForSMTForKyc) > 0 {
+					res.NewStates = append(res.NewStates, newStatesForSMTForKyc...)
+				}
+			}
+		}
 	}
 	if len(errors) > 0 {
 		return &res, i18n.NewError(ctx, msgs.MsgErrorHandleEvents, formatErrors(errors))
-	}
-	if common.IsNullifiersToken(domainConfig.TokenName) {
-		newStatesForSMT, err := smtForStates.Storage.GetNewStates()
-		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorGetNewSmtStates, smtForStates.Name, err)
-		}
-		if len(newStatesForSMT) > 0 {
-			res.NewStates = append(res.NewStates, newStatesForSMT...)
-		}
-		newStatesForSMTForLocked, err := smtForLockedStates.Storage.GetNewStates()
-		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorGetNewSmtStates, smtForLockedStates.Name, err)
-		}
-		if len(newStatesForSMTForLocked) > 0 {
-			res.NewStates = append(res.NewStates, newStatesForSMTForLocked...)
-		}
-		if common.IsKycToken(domainConfig.TokenName) {
-			newStatesForSMTForKyc, err := smtForKyc.Storage.GetNewStates()
-			if err != nil {
-				return nil, i18n.NewError(ctx, msgs.MsgErrorGetNewSmtStates, smtForKyc.Name, err)
-			}
-			if len(newStatesForSMTForKyc) > 0 {
-				res.NewStates = append(res.NewStates, newStatesForSMTForKyc...)
-			}
-		}
 	}
 	return &res, nil
 }
@@ -743,7 +848,6 @@ func (z *Zeto) ExecCall(ctx context.Context, req *prototk.ExecCallRequest) (*pro
 }
 
 func (z *Zeto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error) {
-	// TODO: Event logs for transfers would be great for Noto
 	return nil, i18n.NewError(ctx, msgs.MsgNoDomainReceipt)
 }
 
