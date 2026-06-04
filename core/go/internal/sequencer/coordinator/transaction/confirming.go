@@ -31,54 +31,67 @@ func guard_CanRetryRevert(ctx context.Context, txn *coordinatorTransaction) bool
 	return txn.lastCanRetryRevert
 }
 
-func action_RecordConfirmation(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
-	var hash pldtypes.Bytes32
-	// reset what we may be storing about a previous confirmaton
+// action_RecordConfirmationSuccess resets revert state, records the confirmed hash, and
+// removes the transaction from the grapher's dependency tracking, converting its locks to
+// detached locks stamped with confirmedAtBlock.
+func action_RecordConfirmationSuccess(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ConfirmedSuccessEvent)
+	// reset what we may be storing about a previous confirmation
+	t.revertReason = nil
+	t.decodedRevertReason = ""
+	t.revertOnChain = nil
+	t.lastCanRetryRevert = false
+	checkConfirmedHash(ctx, t, e.Hash)
+	t.grapher.ForgetTransaction(ctx, t.pt.ID, uint64(e.OnChain.BlockNumber))
+	return nil
+}
+
+func action_RecordConfirmationRevert(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ConfirmedRevertedEvent)
+	// reset what we may be storing about a previous confirmation
 	t.revertReason = nil
 	t.decodedRevertReason = ""
 	t.revertOnChain = nil
 	t.lastCanRetryRevert = false
 
-	switch e := event.(type) {
-	case *ConfirmedSuccessEvent:
-		hash = e.Hash
-	case *ConfirmedRevertedEvent:
-		t.revertCount++
-		hash = e.Hash
-		t.revertReason = e.RevertReason
-		if len(e.RevertReason) == 0 {
-			t.decodedRevertReason = e.FailureMessage
-			// We will only see this revert reason if a chained dispatch has failed because its dependency failed.
-			// This means that we assembled this transaction on potential output states that we now
-			// know will not be confirmed on the base ledger.
-			// As a general rule we should not be making sequencer logic conditional on specific error codes; however,
-			// this is acceptable since this is an error code that can originate from within the sequencer.
-			t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256")
-		} else {
-			t.revertOnChain = &e.OnChain
-			retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)
-			if err != nil {
-				log.L(ctx).Errorf("error checking if revert is retryable for transaction %s, treating as non-retryable: %s", t.pt.ID.String(), err)
-				retryable = false
-			}
-			if decodedReason != "" {
-				// Keep coordinator-originated decode text aligned with tx manager failure formatting.
-				// This could be perceived as a misuse of another components error code, but the alternatives are
-				// - have a separate error code here- but why should the user care that we did the decoding in a different place
-				// - stop decoding the revert reason in the domain so we don't have two decode place- but this might result in us
-				//   decoding fewer reverts, since transaction manager doesn't necessarily have each domain's ABI
-				t.decodedRevertReason = i18n.NewError(ctx, msgs.MsgTxMgrRevertedDecodedData, decodedReason).Error()
-			} else if e.FailureMessage != "" {
-				// Chained transaction outcomes can carry a decoded failure string from the child domain.
-				// Use it when this coordinator cannot decode revert bytes.
-				t.decodedRevertReason = e.FailureMessage
-			}
-			t.lastCanRetryRevert = retryable && t.revertCount <= t.baseLedgerRevertRetryThreshold
-			log.L(ctx).Debugf("transaction %s base ledger reverted with \"%s\" (%s) (count=%d, retryable=%t, threshold=%d, canRetry=%t)",
-				t.pt.ID.String(), t.decodedRevertReason, t.revertReason.String(), t.revertCount, retryable, t.baseLedgerRevertRetryThreshold, t.lastCanRetryRevert)
+	t.revertCount++
+	t.revertReason = e.RevertReason
+	if len(e.RevertReason) == 0 {
+		t.decodedRevertReason = e.FailureMessage
+		// We will only see this revert reason if a chained dispatch has failed because its dependency failed.
+		// This means that we assembled this transaction on potential output states that we now
+		// know will not be confirmed on the base ledger.
+		// As a general rule we should not be making sequencer logic conditional on specific error codes; however,
+		// this is acceptable since this is an error code that can originate from within the sequencer.
+		t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256") && t.revertCount <= t.baseLedgerRevertRetryThreshold
+	} else {
+		t.revertOnChain = &e.OnChain
+		retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)
+		if err != nil {
+			log.L(ctx).Errorf("error checking if revert is retryable for transaction %s, treating as non-retryable: %s", t.pt.ID.String(), err)
+			retryable = false
 		}
+		if decodedReason != "" {
+			// Keep coordinator-originated decode text aligned with tx manager failure formatting.
+			// This could be perceived as a misuse of another components error code, but the alternatives are
+			// - have a separate error code here- but why should the user care that we did the decoding in a different place
+			// - stop decoding the revert reason in the domain so we don't have two decode place- but this might result in us
+			//   decoding fewer reverts, since transaction manager doesn't necessarily have each domain's ABI
+			t.decodedRevertReason = i18n.NewError(ctx, msgs.MsgTxMgrRevertedDecodedData, decodedReason).Error()
+		} else if e.FailureMessage != "" {
+			// Chained transaction outcomes can carry a decoded failure string from the child domain.
+			// Use it when this coordinator cannot decode revert bytes.
+			t.decodedRevertReason = e.FailureMessage
+		}
+		t.lastCanRetryRevert = retryable && t.revertCount <= t.baseLedgerRevertRetryThreshold
+		log.L(ctx).Debugf("transaction %s base ledger reverted with \"%s\" (%s) (count=%d, retryable=%t, threshold=%d, canRetry=%t)",
+			t.pt.ID.String(), t.decodedRevertReason, t.revertReason.String(), t.revertCount, retryable, t.baseLedgerRevertRetryThreshold, t.lastCanRetryRevert)
 	}
+	checkConfirmedHash(ctx, t, e.Hash)
+	return nil
+}
 
+func checkConfirmedHash(ctx context.Context, t *coordinatorTransaction, hash pldtypes.Bytes32) {
 	if t.latestSubmissionHash == nil {
 		// The transaction created a chained private transaction so there is no hash to compare
 		log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", t.pt.ID.String(), hash.String())
@@ -87,8 +100,6 @@ func action_RecordConfirmation(ctx context.Context, t *coordinatorTransaction, e
 		// It is interesting so we log it but either way, this must be the transaction that we are looking for because the block indexer correlates with transaction IDs
 		log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash %s, confirmed hash %s", t.pt.ID.String(), t.latestSubmissionHash, hash.String())
 	}
-
-	return nil
 }
 
 func action_NotifyOriginatorOfConfirmation(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
@@ -138,31 +149,24 @@ func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransa
 	return nil
 }
 
-func action_NotifyDependantsOfRevertedConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+func action_NotifyDependentsOfRevertedConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s", txn.pt.ID.String())
-	if err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil); err != nil {
-		return err
-	}
 	return txn.notifyDependentsOfRevertedConfirmation(ctx)
 }
 
 func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx context.Context) error {
 	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s (dependents will repool/move to preassembly blocked)", t.pt.ID.String())
-	for _, dependentId := range append(t.dependencies.PostAssemble.PrereqOf, t.dependencies.Chained.PrereqOf...) {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
-		} else {
-			err := dependent.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
-				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependent.GetPrivateTransaction().ID,
-				},
-				SourceTransactionID: t.pt.ID,
-			})
-			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of revert of transaction %s: %s", dependent.GetPrivateTransaction().ID, t.pt.ID, err)
-				return err
-			}
+	dependents := t.dependencyTracker.GetPostAssemblyDeps().GetDependents(ctx, t.pt.ID)
+	chainedDependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
+	for _, dependentId := range append(dependents, chainedDependents...) {
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyConfirmedRevertedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentId,
+			},
+			SourceTransactionID: t.pt.ID,
+		})
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -172,20 +176,16 @@ func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx cont
 // when a transaction reaches State_Reverted. Each dependent handles the event via its own
 // state machine, performing its own finalization (downward pruning of the dependency chain).
 func action_CascadeChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	for _, dependentId := range t.dependencies.Chained.PrereqOf {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
-		}
+	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
+	for _, dependentId := range dependents {
 		log.L(ctx).Infof("cascading dependency failure from TX %s to TX %s", t.pt.ID, dependentId)
-		err := dependent.HandleEvent(ctx, &ChainedDependencyFailedEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyFailedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
 			FailedTxID: t.pt.ID,
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error sending chained dependency failure event to TX %s: %s", dependentId, err)
 			return err
 		}
 	}
@@ -213,25 +213,28 @@ func action_FinalizeOnChainedDependencyFailure(ctx context.Context, t *coordinat
 	return nil
 }
 
+
+func action_RevertTransactionInGrapher(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	log.L(ctx).Debugf("releasing transaction locks for %s (revert/failure path)", t.pt.ID.String())
+	t.grapher.ForgetTransactionAndLocks(ctx, t.pt.ID)
+	return nil
+}
+
 // action_CascadeChainedDependencyEviction notifies all chained dependents when a transaction
 // is evicted (e.g. assembly failure threshold exceeded). Because the evicted transaction has
 // not yet been assembled, its dependents cannot have been either — so they must be in Pooled
 // or PreAssembly_Blocked.
 func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	for _, dependentId := range t.dependencies.Chained.PrereqOf {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
-		}
+	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
+	for _, dependentId := range dependents {
 		log.L(ctx).Infof("cascading dependency eviction from TX %s to TX %s", t.pt.ID, dependentId)
-		err := dependent.HandleEvent(ctx, &ChainedDependencyEvictedEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyEvictedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
 			EvictedTxID: t.pt.ID,
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error sending chained dependency eviction event to TX %s: %s", dependentId, err)
 			return err
 		}
 	}
@@ -242,18 +245,18 @@ func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinator
 // to the pre-assemble dependent (if any) when this transaction reaches a terminal state.
 // This severs the FIFO ordering link so the dependent is not stuck waiting forever.
 func action_NotifyPreAssembleDependentOfTermination(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	if t.dependencies.PreAssemble.PrereqOf == nil {
+	dependentID, hasDependent := t.dependencyTracker.GetPreassemblyDeps().GetDependent(ctx, t.pt.ID)
+	if !hasDependent {
 		return nil
 	}
-	dependentID := *t.dependencies.PreAssemble.PrereqOf
-	dependent := t.grapher.TransactionByID(ctx, dependentID)
-	if dependent == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentID)
-	}
 	log.L(ctx).Infof("notifying pre-assemble dependent TX %s that predecessor TX %s has reached a terminal state", dependentID, t.pt.ID)
-	return dependent.HandleEvent(ctx, &PreAssembleDependencyTerminatedEvent{
+	err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &PreAssembleDependencyTerminatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: dependentID,
 		},
 	})
+	if err != nil {
+		return err
+	}
+	return nil
 }

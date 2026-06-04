@@ -44,6 +44,7 @@ func TestUnlock(t *testing.T) {
 		lockInfoSchemaV1: testSchema("lockInfo_v1"),
 		dataSchemaV0:     testSchema("data"),
 		dataSchemaV1:     testSchema("data_v1"),
+		dataSchemaV2:     testSchema("data_v2"),
 		manifestSchema:   testSchema("manifest"),
 	}
 	ctx := t.Context()
@@ -103,7 +104,7 @@ func TestUnlock(t *testing.T) {
 			ContractAddress: contractAddress,
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
 				NotaryLookup: "notary@node1",
-				Variant:      types.NotoVariantDefault,
+				Variant:      types.NotoVariantV2,
 			}),
 		},
 		FunctionAbiJson:   mustParseJSON(fn),
@@ -158,7 +159,7 @@ func TestUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 2) // locked coin and lock info
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2) // manifest + output-info
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // both manifests + output-info
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.InputStates[0].Id)
 
 	outputCoinState := assembleRes.AssembledTransaction.OutputStates[0]
@@ -167,7 +168,7 @@ func TestUnlock(t *testing.T) {
 	assert.Equal(t, receiverAddress, outputCoin.Owner.String())
 	assert.Equal(t, "100", outputCoin.Amount.Int().String())
 
-	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	dataState := assembleRes.AssembledTransaction.InfoStates[2]
 	outputInfo, err := n.unmarshalInfo(dataState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
@@ -249,7 +250,7 @@ func TestUnlock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Decode the parameters
-	spendLockABI := interfaceV1Build.ABI.Functions()["spendLock"]
+	spendLockABI := interfaceV2Build.ABI.Functions()["spendLock"]
 	expectedFunction := mustParseJSON(spendLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
@@ -260,7 +261,7 @@ func TestUnlock(t *testing.T) {
 	require.Empty(t, params.Data /* outer data not used */)
 
 	// Validate the parameters
-	notoParams := decodeSingleABITuple[types.NotoUnlockOperation](t, types.NotoUnlockOperationABI, params.SpendInputs)
+	notoParams := decodeSingleABITuple[types.NotoSpendLockArgs](t, types.NotoSpendLockArgsABI, params.SpendArgs)
 	require.Equal(t, "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d", notoParams.TxId)
 	require.Equal(t, []string{inputCoin.ID.String(), inputLockInfo.Id}, notoParams.Inputs)
 	require.Equal(t, []string{*outputCoinState.Id}, notoParams.Outputs)
@@ -284,7 +285,7 @@ func TestUnlock(t *testing.T) {
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
 		NotaryLookup: "notary@node1",
 		NotaryMode:   types.NotaryModeHooks.Enum(),
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress:     pldtypes.MustEthAddress(hookAddress),
@@ -338,6 +339,7 @@ func TestUnlock(t *testing.T) {
 	assert.Equal(t, encodedCall, []byte(hookParams.Prepared.EncodedCall))
 
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	unlockManifestState := assembleRes.AssembledTransaction.InfoStates[1]
 	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
 	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
 	mt.withMissingStates( /* no missing states */ ).
@@ -345,6 +347,10 @@ func TestUnlock(t *testing.T) {
 		completeForIdentity(senderKey.Address.String()).
 		completeForIdentity(receiverAddress)
 	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(unlockManifestState, dataState).
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String()).
 		incompleteForIdentity(receiverAddress)

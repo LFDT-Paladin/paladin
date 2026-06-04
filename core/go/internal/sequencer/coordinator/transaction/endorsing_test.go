@@ -22,6 +22,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,7 @@ import (
 )
 
 func Test_action_NudgeEndorsementRequests_CallsSendEndorsementRequests(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PreAssembly(&components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}}}).
 		Build()
@@ -43,7 +44,7 @@ func Test_action_NudgeEndorsementRequests_CallsSendEndorsementRequests(t *testin
 }
 
 func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_InitializesPendingRequests(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
 			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
@@ -67,7 +68,7 @@ func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_Initialize
 }
 
 func Test_sendEndorsementRequests_SendEndorsementRequestReturnsError_LogsAndContinues(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	sendErr := errors.New("transport send failed")
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
@@ -91,7 +92,7 @@ func Test_sendEndorsementRequests_SendEndorsementRequestReturnsError_LogsAndCont
 }
 
 func Test_sendEndorsementRequests_WhenPendingNil_SchedulesTimerAndQueueEventOnFire(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var timeoutEventReceived bool
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		UseMockClock().
@@ -116,7 +117,7 @@ func Test_sendEndorsementRequests_WhenPendingNil_SchedulesTimerAndQueueEventOnFi
 }
 
 func Test_sendEndorsementRequests_TwoAttestationNames_CreatesMapPerName(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
 			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}, {Name: "att2", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party2"}}},
@@ -145,7 +146,7 @@ func Test_sendEndorsementRequests_TwoAttestationNames_CreatesMapPerName(t *testi
 }
 
 func Test_applyEndorsement_NoPendingRequestForAttestationName_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
 		Build()
@@ -162,7 +163,7 @@ func Test_applyEndorsement_NoPendingRequestForAttestationName_IgnoresAndReturnsN
 }
 
 func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
 		AddPendingEndorsementRequest(0).
@@ -184,7 +185,7 @@ func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testin
 // We use the same attestation name and party as the pending request so we find the request,
 // then pass a requestID that does not match the pending request's IdempotencyKey.
 func Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
 		AddPendingEndorsementRequest(0).
@@ -206,7 +207,7 @@ func Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty_IgnoresAndRe
 }
 
 func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
 		AddPendingEndorsementRequest(0).
@@ -224,7 +225,7 @@ func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *test
 }
 
 func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	cancelCalled := false
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		AddPendingEndorsementRequest(0).
@@ -238,7 +239,7 @@ func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testin
 }
 
 func Test_EndorsementCompletion_ResetsRequests_OnTransitionToConfirmingDispatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		AddPendingEndorsementRequest(2).
 		NumberOfRequiredEndorsers(3).
@@ -254,8 +255,8 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToConfirmingDispatch(
 }
 
 func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	ctx := t.Context()
+	grapher := graphermocks.NewGrapher(t)
 
 	blockingTXID := uuid.New()
 	_, _ = NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -268,13 +269,10 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
 		AddPendingEndorsementRequest(2).NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2).
-		Dependencies(&TransactionDependencies{
-			PostAssemble: PostAssembleDependencies{
-				DependsOn: []uuid.UUID{blockingTXID},
-			},
-		})
+		NumberOfEndorsements(2)
 	txn, _ := builder.Build()
+
+	grapher.EXPECT().GetDependencies(mock.Anything, txn.pt.ID).Return([]uuid.UUID{blockingTXID})
 
 	require.NotNil(t, txn.pendingEndorsementRequests)
 
@@ -283,3 +281,93 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.
 	require.Equal(t, State_Blocked, txn.stateMachine.GetCurrentState())
 	assert.Nil(t, txn.pendingEndorsementRequests)
 }
+
+// ── Endorsement Threshold Tests ───────────────────────────────────────────────
+
+// threshold=0 (unset): all parties must endorse — preserves existing behaviour.
+func Test_unfulfilledEndorsementRequirements_ThresholdUnset_AllPartiesRequired(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
+		AttestationPlan: []*prototk.AttestationRequest{{
+			Name:            "group-endorse",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			VerifierType:    "ETH_ADDRESS",
+			Parties:         []string{"p1@n1", "p2@n2", "p3@n3"},
+			// Threshold unset → nil → 0 → all parties required
+		}},
+		Endorsements: []*prototk.AttestationResult{
+			{
+				Name:            "group-endorse",
+				AttestationType: prototk.AttestationType_ENDORSE,
+				Verifier:        &prototk.ResolvedVerifier{Lookup: "p1@n1", VerifierType: "ETH_ADDRESS"},
+			},
+		},
+	}
+
+	unfulfilled := txn.unfulfilledEndorsementRequirements(ctx)
+
+	require.Len(t, unfulfilled, 2, "with threshold unset, all 3 parties are required; 2 are still pending")
+	parties := []string{unfulfilled[0].party, unfulfilled[1].party}
+	assert.Contains(t, parties, "p2@n2")
+	assert.Contains(t, parties, "p3@n3")
+}
+
+// threshold=1 of 3: one endorsement fulfils the requirement.
+func Test_unfulfilledEndorsementRequirements_Threshold1of3_FulfilledAfterOneEndorsement(t *testing.T) {
+	ctx := t.Context()
+	threshold := int32(1)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
+		AttestationPlan: []*prototk.AttestationRequest{{
+			Name:            "group-endorse",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			VerifierType:    "ETH_ADDRESS",
+			Parties:         []string{"p1@n1", "p2@n2", "p3@n3"},
+			Threshold:       &threshold,
+		}},
+		Endorsements: []*prototk.AttestationResult{
+			{
+				Name:            "group-endorse",
+				AttestationType: prototk.AttestationType_ENDORSE,
+				Verifier:        &prototk.ResolvedVerifier{Lookup: "p1@n1", VerifierType: "ETH_ADDRESS"},
+			},
+		},
+	}
+
+	unfulfilled := txn.unfulfilledEndorsementRequirements(ctx)
+
+	assert.Empty(t, unfulfilled, "threshold=1 met by one endorsement — plan is fulfilled")
+}
+
+// threshold=2 of 3: one endorsement is not enough; all remaining un-responded parties are nudged.
+func Test_unfulfilledEndorsementRequirements_Threshold2of3_NotFulfilledAfterOne(t *testing.T) {
+	ctx := t.Context()
+	threshold := int32(2)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
+		AttestationPlan: []*prototk.AttestationRequest{{
+			Name:            "group-endorse",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			VerifierType:    "ETH_ADDRESS",
+			Parties:         []string{"p1@n1", "p2@n2", "p3@n3"},
+			Threshold:       &threshold,
+		}},
+		Endorsements: []*prototk.AttestationResult{
+			{
+				Name:            "group-endorse",
+				AttestationType: prototk.AttestationType_ENDORSE,
+				Verifier:        &prototk.ResolvedVerifier{Lookup: "p1@n1", VerifierType: "ETH_ADDRESS"},
+			},
+		},
+	}
+
+	unfulfilled := txn.unfulfilledEndorsementRequirements(ctx)
+
+	// threshold=2, received=1 → not fulfilled; both remaining un-responded parties are nudged
+	require.Len(t, unfulfilled, 2, "all non-responded parties should be nudged until threshold is met")
+	parties := []string{unfulfilled[0].party, unfulfilled[1].party}
+	assert.Contains(t, parties, "p2@n2")
+	assert.Contains(t, parties, "p3@n3")
+}
+

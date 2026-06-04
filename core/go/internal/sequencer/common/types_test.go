@@ -17,51 +17,9 @@ package common
 import (
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestFlushPoint_GetSignerNonce_zeroAddressWithZeroNonce(t *testing.T) {
-	fp := &SnapshotFlushPoint{
-		From:  *pldtypes.MustEthAddress("0x0000000000000000000000000000000000000000"),
-		Nonce: 0,
-	}
-	result := fp.GetSignerNonce()
-	assert.Equal(t, "0x0000000000000000000000000000000000000000:0", result)
-}
-
-func TestFlushPoint_GetSignerNonce_validAddressWithNonce1(t *testing.T) {
-	fp := &SnapshotFlushPoint{
-		From:  *pldtypes.MustEthAddress("0xacA6D8Ba6BFf0fa5c8a06A58368CB6097285d5c5"),
-		Nonce: 1,
-	}
-	result := fp.GetSignerNonce()
-	assert.Equal(t, "0xaca6d8ba6bff0fa5c8a06a58368cb6097285d5c5:1", result)
-}
-
-func TestFlushPoint_GetSignerNonce_validAddressWithHighNonce(t *testing.T) {
-	fp := &SnapshotFlushPoint{
-		From:  *pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890"),
-		Nonce: 999999,
-	}
-	result := fp.GetSignerNonce()
-	assert.Equal(t, "0x1234567890123456789012345678901234567890:999999", result)
-}
-
-func TestFlushPoint_GetSignerNonce_randomAddressWithNonce(t *testing.T) {
-	fp := &SnapshotFlushPoint{
-		From:  *pldtypes.RandAddress(),
-		Nonce: 42,
-	}
-	result := fp.GetSignerNonce()
-	// For random addresses, verify the format: address:nonce
-	assert.Contains(t, result, ":")
-	// Verify it contains the nonce at the end
-	assert.Contains(t, result, ":42")
-	// Verify the address part is a valid hex address format
-	assert.Contains(t, result, "0x")
-}
 
 func TestTransaction_GetID_newRandomUUID(t *testing.T) {
 	id := uuid.New()

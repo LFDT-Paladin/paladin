@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -37,13 +38,14 @@ type TransportWriter interface {
 	StartLoopbackWriter()
 	WaitForDone(ctx context.Context)
 	SendDelegationRequest(ctx context.Context, coordinatorNode string, transactions []*components.PrivateTransaction, blockHeight uint64) error
-	SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64) error
+	SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64, blockHeight uint64) error
+	SendDelegationRequestRejection(ctx context.Context, delegatingNodeName string, delegationId string, blockHeight uint64, activeCoordinator string) error
+	SendHandoverRequest(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress) error
 	SendEndorsementRequest(ctx context.Context, txID uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState) error
 	SendEndorsementResponse(ctx context.Context, transactionId, idempotencyKey, contractAddress string, attResult *prototk.AttestationResult, endorsementResult *components.EndorsementResult, revertReason, endorsementName, party, node string) error
-	SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) error
+	SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64) error
 	SendAssembleResponse(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, postAssembly *components.TransactionPostAssembly, preAssembly *components.TransactionPreAssembly, recipient string) error
 	SendAssembleErrorResponse(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, recipient string) error
-	SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error
 	SendNonceAssigned(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce uint64) error
 	SendTransactionSubmitted(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, txHash *pldtypes.Bytes32) error
 	SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engineProto.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool) error
@@ -52,6 +54,7 @@ type TransportWriter interface {
 	SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error
 	SendDispatched(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error
 	SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error
+	SendNotActiveCoordinator(ctx context.Context, coordinatorNode string, txID uuid.UUID) error
 }
 
 func NewTransportWriter(ctx context.Context, contractAddress *pldtypes.EthAddress, nodeID string, transportManager components.TransportManager, loopbackHandler func(ctx context.Context, message *components.ReceivedMessage)) TransportWriter {
@@ -129,13 +132,16 @@ func (tw *transportWriter) SendDelegationRequestAcknowledgment(
 	delegationId string,
 	transactionIDs []string,
 	errors []int64,
+	blockHeight uint64,
 ) error {
-	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
+	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
 		DelegationId:    delegationId,
 		TransactionIds:  transactionIDs,
 		DelegateNodeId:  delegatingNodeName,
 		ContractAddress: tw.contractAddress.String(),
 		Errors:          errors,
+		Accepted:        true,
+		BlockHeight:     int64(blockHeight),
 	}
 	delegationRequestAcknowledgmentBytes, err := proto.Marshal(delegationRequestAcknowledgment)
 	if err != nil {
@@ -143,15 +149,62 @@ func (tw *transportWriter) SendDelegationRequestAcknowledgment(
 		return err
 	}
 
-	if err = tw.send(ctx, &components.FireAndForgetMessageSend{
-		MessageType: MessageType_DelegationRequestAcknowledgment,
+	return tw.send(ctx, &components.FireAndForgetMessageSend{
+		MessageType: MessageType_DelegationResponse,
 		Payload:     delegationRequestAcknowledgmentBytes,
 		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
 		Node:        delegatingNodeName,
-	}); err != nil {
+	})
+}
+
+func (tw *transportWriter) SendDelegationRequestRejection(
+	ctx context.Context,
+	delegatingNodeName string,
+	delegationId string,
+	blockHeight uint64,
+	activeCoordinator string,
+) error {
+	rejection := &engineProto.DelegationResponse{
+		DelegationId:      delegationId,
+		DelegateNodeId:    delegatingNodeName,
+		ContractAddress:   tw.contractAddress.String(),
+		Accepted:          false,
+		BlockHeight:       int64(blockHeight),
+		ActiveCoordinator: activeCoordinator,
+	}
+	rejectionBytes, err := proto.Marshal(rejection)
+	if err != nil {
+		log.L(ctx).Errorf("error marshalling delegation rejection message: %s", err)
 		return err
 	}
-	return nil
+
+	return tw.send(ctx, &components.FireAndForgetMessageSend{
+		MessageType: MessageType_DelegationResponse,
+		Payload:     rejectionBytes,
+		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
+		Node:        delegatingNodeName,
+	})
+}
+
+func (tw *transportWriter) SendHandoverRequest(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress) error {
+	log.L(ctx).Debugf("transport writer sending handover request to %s for contract %s", targetNode, contractAddress.String())
+
+	handoverRequest := &engineProto.CoordinatorHandoverRequest{
+		FromNode:        tw.nodeID,
+		ContractAddress: contractAddress.String(),
+	}
+	handoverRequestBytes, err := proto.Marshal(handoverRequest)
+	if err != nil {
+		log.L(ctx).Errorf("error marshalling handover request: %s", err)
+		return err
+	}
+
+	return tw.send(ctx, &components.FireAndForgetMessageSend{
+		MessageType: MessageType_HandoverRequest,
+		Payload:     handoverRequestBytes,
+		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
+		Node:        targetNode,
+	})
 }
 
 // TODO do we have duplication here?  contractAddress and transactionID are in the transactionSpecification
@@ -304,7 +357,7 @@ func (tw *transportWriter) SendEndorsementResponse(ctx context.Context, transact
 	return err
 }
 
-func (tw *transportWriter) SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) error {
+func (tw *transportWriter) SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64) error {
 
 	log.L(ctx).Tracef("transport writer attempting to send assemble request to assembling node %s", assemblingNode)
 
@@ -313,6 +366,12 @@ func (tw *transportWriter) SendAssembleRequest(ctx context.Context, assemblingNo
 		log.L(ctx).Error("error marshalling preassembly", err)
 		return err
 	}
+	stateLocksJSON, err := json.Marshal(stateLocks)
+	if err != nil {
+		log.L(ctx).Error("error marshalling state locks", err)
+		return err
+	}
+	log.L(ctx).Debugf("assemble request state locks for tx %s: %s", txID, string(stateLocksJSON))
 
 	assembleRequest := &engineProto.AssembleRequest{
 		TransactionId:     txID.String(),
@@ -404,34 +463,6 @@ func (tw *transportWriter) SendAssembleResponse(ctx context.Context, txID uuid.U
 	if err != nil {
 		// Log the error but continue sending to the other recipients
 		log.L(ctx).Errorf("error sending assemble response to %s: %s", recipient, err)
-	}
-
-	return err
-}
-
-func (tw *transportWriter) SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error {
-
-	log.L(ctx).Tracef("transport writer attempting to send handover request to node %s", activeCoordinator)
-
-	if contractAddress == nil {
-		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send handover request without specifying contract address")
-		return err
-	}
-	handoverRequest := &HandoverRequest{
-		ContractAddress: contractAddress,
-	}
-	handoverRequestBytes, err := json.Marshal(handoverRequest)
-	if err != nil {
-		log.L(ctx).Errorf("error marshalling handover request message: %s", err)
-	}
-
-	if err = tw.send(ctx, &components.FireAndForgetMessageSend{
-		MessageType: MessageType_HandoverRequest,
-		Payload:     handoverRequestBytes,
-		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
-		Node:        activeCoordinator,
-	}); err != nil {
-		log.L(ctx).Errorf("error sending handover request message: %s", err)
 	}
 
 	return err
@@ -686,6 +717,36 @@ func (tw *transportWriter) SendTransactionUnknown(ctx context.Context, coordinat
 		Node:        coordinatorNode,
 	}); err != nil {
 		log.L(ctx).Errorf("error sending transaction unknown message: %s", err)
+	}
+	return err
+}
+
+// SendNotActiveCoordinator is called by an originator when it receives an AssembleRequest or
+// PreDispatchRequest from a coordinator that is not this transaction's current active delegate.
+// The coordinator should evict the transaction rather than continuing to coordinate it.
+func (tw *transportWriter) SendNotActiveCoordinator(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
+	log.L(ctx).Debugf("transport writer sending not-active-coordinator message for tx %s to coordinator %s", txID, coordinatorNode)
+
+	if tw.contractAddress == nil {
+		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send not-active-coordinator without specifying contract address")
+	}
+
+	msgBytes, err := proto.Marshal(&engineProto.NotActiveCoordinatorNotification{
+		ContractAddress: tw.contractAddress.HexString(),
+		TransactionId:   txID.String(),
+	})
+	if err != nil {
+		log.L(ctx).Errorf("error marshalling not-active-coordinator message: %s", err)
+		return err
+	}
+
+	if err = tw.send(ctx, &components.FireAndForgetMessageSend{
+		MessageType: MessageType_NotActiveCoordinator,
+		Payload:     msgBytes,
+		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
+		Node:        coordinatorNode,
+	}); err != nil {
+		log.L(ctx).Errorf("error sending not-active-coordinator message: %s", err)
 	}
 	return err
 }

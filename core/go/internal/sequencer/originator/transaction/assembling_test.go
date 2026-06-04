@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -390,26 +389,21 @@ func Test_action_SendAssembleErrorResponse_Success(t *testing.T) {
 
 func Test_action_SendAssembleErrorResponse_TransportError(t *testing.T) {
 	ctx := context.Background()
-	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
-	txn, _ := builder.BuildWithMocks()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).WithMockTransportWriter()
+	txn, mocks := builder.BuildWithMocks()
 
 	coordinator := "coordinator@node1"
 	txn.currentDelegate = coordinator
 	requestID := uuid.New()
 	txn.latestFulfilledAssembleRequestID = requestID
 
-	mockTransport := transport.NewMockTransportWriter(t)
 	expectedError := errors.New("transport error")
-	mockTransport.EXPECT().SendAssembleErrorResponse(
+	mocks.TransportWriter.EXPECT().SendAssembleErrorResponse(
 		mock.Anything,
 		txn.GetID(),
 		requestID,
 		coordinator,
 	).Return(expectedError)
-
-	originalTransport := txn.transportWriter
-	txn.transportWriter = mockTransport
-	defer func() { txn.transportWriter = originalTransport }()
 
 	err := action_SendAssembleErrorResponse(ctx, txn, nil)
 	assert.Error(t, err)

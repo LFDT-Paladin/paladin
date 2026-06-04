@@ -44,8 +44,8 @@
 //	// Define state definitions
 //	definitions := statemachine.StateDefinitions[MyState, *MyEntity]{
 //	    State_Idle: {
-//	        Events: map[common.EventType]statemachine.EventHandler[MyState, *MyEntity]{
-//	            Event_Activate: {
+//	        Events: map[common.EventType]statemachine.EventHandlers[MyState, *MyEntity]{
+//	            Event_Activate: {Handlers: []statemachine.EventHandler[MyState, *MyEntity]{{
 //	                Actions: []statemachine.ActionRule[*MyEntity]{{
 //	                    Action: func(ctx context.Context, e *MyEntity, event common.Event) error {
 //	                        e.counter++
@@ -55,7 +55,7 @@
 //	                Transitions: []statemachine.Transition[MyState, *MyEntity]{{
 //	                    To: State_Active,
 //	                }},
-//	            },
+//	            }}},
 //	        },
 //	    },
 //	}
@@ -69,6 +69,7 @@ package statemachine
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -102,14 +103,26 @@ type Action[E any] func(ctx context.Context, entity E, event common.Event) error
 // or if an action should be executed.
 type Guard[E any] func(ctx context.Context, entity E) bool
 
+// MatchMode controls how handlers in an EventHandlers set are evaluated.
+type MatchMode int
+
+const (
+	// MatchFirst (zero value, default): the first handler whose Validator passes is
+	// executed exclusively. Subsequent handlers are not evaluated.
+	// A nil Validator always passes; if it is not the last handler, a startup warning
+	// is logged because subsequent handlers are unreachable.
+	MatchFirst MatchMode = iota
+	// MatchAll: every handler whose Validator passes is executed in order.
+	// Execution stops early if any handler causes a state transition.
+	MatchAll
+)
+
 // ActionRule pairs an action with an optional guard condition.
-// Validator is evaluated first for event-aware filtering.
 // If the guard (If) is nil, the action is always executed.
 // If the guard returns true, the action is executed.
 type ActionRule[E any] struct {
-	Action    Action[E]
-	Validator Validator[E]
-	If        Guard[E]
+	Action Action[E]
+	If     Guard[E]
 }
 
 // Transition defines a possible state transition.
@@ -137,12 +150,21 @@ type EventHandler[S State, E any] struct {
 	Transitions []Transition[S, E]
 }
 
+// EventHandlers groups the handlers for a single event type with their dispatch mode.
+// The zero value (Match=MatchFirst, empty Handlers) is valid but handles nothing.
+type EventHandlers[S State, E any] struct {
+	Match    MatchMode
+	Handlers []EventHandler[S, E]
+}
+
 // StateDefinition defines the behavior of a particular state.
 // OnTransitionTo: Action rules executed when entering this state (after transition-specific actions)
-// Events: Map of event types to their handlers in this state
+// OnTransitionFrom: Action rules executed when leaving this state (after transition-specific actions, before entry actions)
+// Events: Map of event types to their handler sets in this state
 type StateDefinition[S State, E any] struct {
-	OnTransitionTo []ActionRule[E]
-	Events         map[common.EventType]EventHandler[S, E]
+	OnTransitionTo   []ActionRule[E]
+	OnTransitionFrom []ActionRule[E]
+	Events           map[common.EventType]EventHandlers[S, E]
 }
 
 // StateDefinitions is a map from states to their definitions.
@@ -156,9 +178,10 @@ type TransitionCallback[S State, E any] func(ctx context.Context, entity E, from
 // The entity type E must implement Lockable; the state machine holds the entity's lock
 // for the duration of each ProcessEvent call.
 type StateMachine[S State, E Lockable] struct {
-	CurrentState       S
-	LastStateChange    time.Time
-	LatestEvent        string
+	stateMu            sync.RWMutex
+	currentState       S
+	lastStateChange    time.Time
+	latestEvent        string
 	definitions        StateDefinitions[S, E]
 	transitionCallback TransitionCallback[S, E]
 	name               string // used in logging (e.g. transition logs)
@@ -183,26 +206,44 @@ func NewStateMachine[S State, E Lockable](
 	opts ...StateMachineOption[S, E],
 ) *StateMachine[S, E] {
 	sm := &StateMachine[S, E]{
-		CurrentState:    initialState,
-		LastStateChange: time.Now(),
+		currentState:    initialState,
+		lastStateChange: time.Now(),
 		definitions:     definitions,
 		name:            name,
 	}
 	for _, opt := range opts {
 		opt(sm)
 	}
+	validateDefinitions(definitions, name)
 	return sm
+}
+
+// validateDefinitions warns when a MatchFirst handler set has a nil-Validator handler
+// that is not the last entry, because all subsequent handlers would be unreachable.
+func validateDefinitions[S State, E Lockable](definitions StateDefinitions[S, E], name string) {
+	for _, stateDef := range definitions {
+		for _, handlerSet := range stateDef.Events {
+			if handlerSet.Match == MatchAll {
+				continue
+			}
+			for i, h := range handlerSet.Handlers {
+				if h.Validator == nil && i < len(handlerSet.Handlers)-1 {
+					log.L(context.Background()).Warnf(
+						"%s: MatchFirst EventHandlers has a nil-Validator handler at index %d that is not the last — subsequent handlers are unreachable",
+						name, i)
+				}
+			}
+		}
+	}
 }
 
 // ProcessEvent handles an event for the given entity.
 // Returns nil if the event was processed successfully or was not applicable.
-// Returns an error if validation, application, or actions fail.
+// Returns an error if action or transition execution fails.
 //
-// Processing order:
-//  1. Evaluate if event is handled in current state
-//  2. Validate the event (if validator defined)
-//  3. Run Actions in order
-//  4. Evaluate and perform transitions
+// Dispatch depends on EventHandlers.Match:
+//   - MatchFirst (default): the first handler whose Validator passes is executed exclusively.
+//   - MatchAll: every handler whose Validator passes is executed; stops on first transition.
 func (sm *StateMachine[S, E]) ProcessEvent(
 	ctx context.Context,
 	entity E,
@@ -211,57 +252,97 @@ func (sm *StateMachine[S, E]) ProcessEvent(
 	entity.Lock()
 	defer entity.Unlock()
 
-	log.L(ctx).Debugf("%s | %s | processing event %s", sm.name, sm.CurrentState.String(), event.TypeString())
+	currentState := sm.GetCurrentState()
+	log.L(ctx).Debugf("%s | %s | processing event %s", sm.name, currentState.String(), event.TypeString())
 
-	// Evaluate whether this event is relevant for the current state
-	eventHandler, err := sm.evaluateEvent(ctx, entity, event)
-	if err != nil || eventHandler == nil {
-		return err
+	stateDefinition, exists := sm.definitions[currentState]
+	if !exists {
+		return nil
+	}
+	handlerSet, defined := stateDefinition.Events[event.Type()]
+	if !defined {
+		return nil
 	}
 
-	// Execute Actions
-	err = sm.executeActionRules(ctx, entity, event, eventHandler.Actions)
-	if err != nil {
-		log.L(ctx).Errorf("%s | %s | %s | error applying action: %v", sm.name, sm.CurrentState.String(), event.TypeString(), err)
-		return err
+	if handlerSet.Match == MatchAll {
+		return sm.processMatchAll(ctx, entity, event, handlerSet.Handlers)
 	}
-
-	// Evaluate and perform any triggered transitions
-	err = sm.evaluateTransitions(ctx, entity, event, *eventHandler)
-	return err
+	return sm.processMatchFirst(ctx, entity, event, handlerSet.Handlers)
 }
 
-// evaluateEvent determines if the event is relevant for the current state
-// and returns the event handler if applicable.
-func (sm *StateMachine[S, E]) evaluateEvent(
+// processMatchFirst executes the first handler whose Validator passes (MatchFirst mode).
+func (sm *StateMachine[S, E]) processMatchFirst(
 	ctx context.Context,
 	entity E,
 	event common.Event,
-) (*EventHandler[S, E], error) {
-	stateDefinition, exists := sm.definitions[sm.CurrentState]
-	if !exists {
-		return nil, nil
-	}
-
-	eventHandler, isHandlerDefined := stateDefinition.Events[event.Type()]
-	if !isHandlerDefined {
-		return nil, nil
-	}
-
-	// Validate the event if a validator is defined
-	if eventHandler.Validator != nil {
-		valid, err := eventHandler.Validator(ctx, entity, event)
+	handlers []EventHandler[S, E],
+) error {
+	for i := range handlers {
+		h := &handlers[i]
+		matched, err := sm.matchesHandler(ctx, entity, event, h, i)
 		if err != nil {
-			log.L(ctx).Errorf("%s | %s | error validating event %s: %v", sm.name, sm.CurrentState.String(), event.TypeString(), err)
-			return nil, err
+			return err
 		}
-		if !valid {
-			log.L(ctx).Warnf("%s | %s | event %s not valid for current state", sm.name, sm.CurrentState.String(), event.TypeString())
-			return nil, nil
+		if !matched {
+			continue
+		}
+		if err = sm.executeActionRules(ctx, entity, event, h.Actions); err != nil {
+			log.L(ctx).Errorf("%s | %s | %s | error applying action: %v", sm.name, sm.GetCurrentState().String(), event.TypeString(), err)
+			return err
+		}
+		_, err = sm.evaluateTransitions(ctx, entity, event, *h)
+		return err
+	}
+	return nil
+}
+
+// processMatchAll executes every handler whose Validator passes, stopping on the first transition (MatchAll mode).
+func (sm *StateMachine[S, E]) processMatchAll(
+	ctx context.Context,
+	entity E,
+	event common.Event,
+	handlers []EventHandler[S, E],
+) error {
+	for i := range handlers {
+		h := &handlers[i]
+		matched, err := sm.matchesHandler(ctx, entity, event, h, i)
+		if err != nil {
+			return err
+		}
+		if !matched {
+			continue
+		}
+		if err = sm.executeActionRules(ctx, entity, event, h.Actions); err != nil {
+			log.L(ctx).Errorf("%s | %s | %s | error applying action: %v", sm.name, sm.GetCurrentState().String(), event.TypeString(), err)
+			return err
+		}
+		transitioned, err := sm.evaluateTransitions(ctx, entity, event, *h)
+		if err != nil || transitioned {
+			return err
 		}
 	}
+	return nil
+}
 
-	return &eventHandler, nil
+// matchesHandler reports whether a handler's Validator passes for the given event.
+// A nil Validator always passes.
+func (sm *StateMachine[S, E]) matchesHandler(
+	ctx context.Context,
+	entity E,
+	event common.Event,
+	h *EventHandler[S, E],
+	index int,
+) (bool, error) {
+	if h.Validator == nil {
+		return true, nil
+	}
+	valid, err := h.Validator(ctx, entity, event)
+	if err != nil {
+		log.L(ctx).Errorf("%s | %s | error evaluating handler[%d] validator for event %s: %v",
+			sm.name, sm.GetCurrentState().String(), index, event.TypeString(), err)
+		return false, err
+	}
+	return valid, nil
 }
 
 // executeActionRules executes guarded action rules in order.
@@ -272,18 +353,8 @@ func (sm *StateMachine[S, E]) executeActionRules(
 	actionRules []ActionRule[E],
 ) error {
 	for _, rule := range actionRules {
-		if rule.Validator != nil {
-			valid, err := rule.Validator(ctx, entity, event)
-			if err != nil {
-				return err
-			}
-			if !valid {
-				continue
-			}
-		}
 		if rule.If == nil || rule.If(ctx, entity) {
-			err := rule.Action(ctx, entity, event)
-			if err != nil {
+			if err := rule.Action(ctx, entity, event); err != nil {
 				return err
 			}
 		}
@@ -291,70 +362,81 @@ func (sm *StateMachine[S, E]) executeActionRules(
 	return nil
 }
 
-// evaluateTransitions evaluates the transition rules and performs the first matching transition.
+// evaluateTransitions evaluates transition rules and performs the first matching transition.
+// Returns (true, nil) when a transition was taken, (false, nil) when none matched.
 func (sm *StateMachine[S, E]) evaluateTransitions(
 	ctx context.Context,
 	entity E,
 	event common.Event,
 	eventHandler EventHandler[S, E],
-) error {
+) (bool, error) {
 	for _, rule := range eventHandler.Transitions {
-		// Check if transition guard passes (or is nil)
-		if rule.If == nil || rule.If(ctx, entity) {
-			previousState := sm.CurrentState
-			sm.CurrentState = rule.To
-			sm.LatestEvent = event.TypeString()
-			sm.LastStateChange = time.Now()
-
-			// Execute transition-specific actions first
-			err := sm.executeActionRules(ctx, entity, event, rule.Actions)
-			if err != nil {
-				log.L(ctx).Errorf("%s | %s | %s | error executing transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.CurrentState.String(), err)
-				return err
-			}
-
-			// Execute state entry actions
-			newStateDefinition, exists := sm.definitions[sm.CurrentState]
-			if exists && len(newStateDefinition.OnTransitionTo) > 0 {
-				err := sm.executeActionRules(ctx, entity, event, newStateDefinition.OnTransitionTo)
-				if err != nil {
-					log.L(ctx).Errorf("%s | %s | %s | error executing state entry action for transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.CurrentState.String(), err)
-					return err
-				}
-			}
-
-			// Transition logging (state machine is sequencer-only; uses state category)
-			log.L(ctx).Debugf("%s | %s | %s | transition to state %s",
-				sm.name,
-				previousState.String(),
-				event.TypeString(),
-				sm.CurrentState.String())
-
-			// Invoke transition callback if set
-			if sm.transitionCallback != nil {
-				sm.transitionCallback(ctx, entity, previousState, sm.CurrentState, event)
-			}
-
-			// Only take the first matching transition
-			break
+		if rule.If != nil && !rule.If(ctx, entity) {
+			continue
 		}
+
+		previousState := sm.GetCurrentState()
+		sm.SetCurrentState(rule.To)
+		sm.latestEvent = event.TypeString()
+		sm.lastStateChange = time.Now()
+
+		if err := sm.executeActionRules(ctx, entity, event, rule.Actions); err != nil {
+			log.L(ctx).Errorf("%s | %s | %s | error executing transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.GetCurrentState().String(), err)
+			return true, err
+		}
+
+		previousStateDefinition, exists := sm.definitions[previousState]
+		if exists && len(previousStateDefinition.OnTransitionFrom) > 0 {
+			if err := sm.executeActionRules(ctx, entity, event, previousStateDefinition.OnTransitionFrom); err != nil {
+				log.L(ctx).Errorf("%s | %s | %s | error executing state exit action for transition from state %s : %v", sm.name, previousState.String(), event.TypeString(), previousState.String(), err)
+				return true, err
+			}
+		}
+
+		newState := sm.GetCurrentState()
+		newStateDefinition, exists := sm.definitions[newState]
+		if exists && len(newStateDefinition.OnTransitionTo) > 0 {
+			if err := sm.executeActionRules(ctx, entity, event, newStateDefinition.OnTransitionTo); err != nil {
+				log.L(ctx).Errorf("%s | %s | %s | error executing state entry action for transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), newState.String(), err)
+				return true, err
+			}
+		}
+
+		log.L(ctx).Debugf("%s | %s | %s | transition to state %s",
+			sm.name, previousState.String(), event.TypeString(), newState.String())
+
+		if sm.transitionCallback != nil {
+			sm.transitionCallback(ctx, entity, previousState, newState, event)
+		}
+
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 // GetCurrentState returns the current state of the state machine.
 func (sm *StateMachine[S, E]) GetCurrentState() S {
-	return sm.CurrentState
+	sm.stateMu.RLock()
+	defer sm.stateMu.RUnlock()
+	return sm.currentState
+}
+
+// SetCurrentState sets the state machine state.
+// Intended for test setup and controlled internal transitions.
+func (sm *StateMachine[S, E]) SetCurrentState(state S) {
+	sm.stateMu.Lock()
+	sm.currentState = state
+	sm.stateMu.Unlock()
 }
 
 // GetLastStateChange returns the time of the last state change.
 func (sm *StateMachine[S, E]) GetLastStateChange() time.Time {
-	return sm.LastStateChange
+	return sm.lastStateChange
 }
 
 // GetLatestEvent returns the type string of the last event that caused a transition.
 func (sm *StateMachine[S, E]) GetLatestEvent() string {
-	return sm.LatestEvent
+	return sm.latestEvent
 }
 
 // StateMachineEventLoop combines a StateMachine and an event loop into a single
@@ -451,7 +533,7 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 	defer close(sel.loopStopped)
 	sel.running = true
 
-	log.L(ctx).Debugf("%s | %s | event loop started", sel.name, sel.stateMachine.CurrentState.String())
+	log.L(ctx).Debugf("%s | %s | event loop started", sel.name, sel.stateMachine.GetCurrentState().String())
 
 	for {
 		// Drain the priority queue fully before taking work from the main queue
@@ -460,14 +542,14 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 			select {
 			case event := <-sel.eventsPriority:
 				if syncEv, ok := isSyncEvent(event); ok {
-					log.L(ctx).Debugf("%s | %s | sync event processed (priority)", sel.name, sel.stateMachine.CurrentState.String())
+					log.L(ctx).Debugf("%s | %s | sync event processed (priority)", sel.name, sel.stateMachine.GetCurrentState().String())
 					close(syncEv.Done)
 					continue
 				}
-				log.L(ctx).Debugf("%s | %s | %s | processing priority", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+				log.L(ctx).Debugf("%s | %s | %s | processing priority", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 				err := sel.processEvent(ctx, event)
 				if err != nil {
-					log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString(), err)
+					log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString(), err)
 				}
 			default:
 				break drainPriority
@@ -477,29 +559,29 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 		select {
 		case event := <-sel.eventsPriority:
 			if syncEv, ok := isSyncEvent(event); ok {
-				log.L(ctx).Debugf("%s | %s | sync event processed (priority)", sel.name, sel.stateMachine.CurrentState.String())
+				log.L(ctx).Debugf("%s | %s | sync event processed (priority)", sel.name, sel.stateMachine.GetCurrentState().String())
 				close(syncEv.Done)
 				continue
 			}
-			log.L(ctx).Debugf("%s | %s | %s | processing priority", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+			log.L(ctx).Debugf("%s | %s | %s | processing priority", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 			err := sel.processEvent(ctx, event)
 			if err != nil {
-				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString(), err)
+				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString(), err)
 			}
 		case event := <-sel.events:
 			if syncEv, ok := isSyncEvent(event); ok {
-				log.L(ctx).Debugf("%s | %s | sync event processed", sel.name, sel.stateMachine.CurrentState.String())
+				log.L(ctx).Debugf("%s | %s | sync event processed", sel.name, sel.stateMachine.GetCurrentState().String())
 				close(syncEv.Done)
 				continue
 			}
 
-			log.L(ctx).Debugf("%s | %s | %s | processing", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+			log.L(ctx).Debugf("%s | %s | %s | processing", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 			err := sel.processEvent(ctx, event)
 			if err != nil {
-				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString(), err)
+				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString(), err)
 			}
 		case <-ctx.Done():
-			log.L(ctx).Debugf("%s | %s | context cancelled, stopping", sel.name, sel.stateMachine.CurrentState.String())
+			log.L(ctx).Debugf("%s | %s | context cancelled, stopping", sel.name, sel.stateMachine.GetCurrentState().String())
 			sel.running = false
 			return
 		}
@@ -508,11 +590,11 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 
 // QueueEvent asynchronously queues an event for processing.
 func (sel *StateMachineEventLoop[S, E]) QueueEvent(ctx context.Context, event common.Event) {
-	log.L(ctx).Tracef("%s | %s | queueing event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+	log.L(ctx).Tracef("%s | %s | queueing event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	select {
 	case sel.events <- event:
 	case <-ctx.Done():
-		log.L(ctx).Warnf("%s | %s | context cancelled, dropping event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Warnf("%s | %s | context cancelled, dropping event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	}
 }
 
@@ -522,10 +604,10 @@ func (sel *StateMachineEventLoop[S, E]) QueueEvent(ctx context.Context, event co
 func (sel *StateMachineEventLoop[S, E]) TryQueueEvent(ctx context.Context, event common.Event) bool {
 	select {
 	case sel.events <- event:
-		log.L(ctx).Tracef("%s | %s | queued event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Tracef("%s | %s | queued event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 		return true
 	default:
-		log.L(ctx).Warnf("%s | %s | buffer full, dropping event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Warnf("%s | %s | buffer full, dropping event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 		return false
 	}
 }
@@ -533,11 +615,11 @@ func (sel *StateMachineEventLoop[S, E]) TryQueueEvent(ctx context.Context, event
 // QueuePriorityEvent asynchronously queues an event on the priority queue.
 // Priority events are always fully drained before the main queue is read.
 func (sel *StateMachineEventLoop[S, E]) QueuePriorityEvent(ctx context.Context, event common.Event) {
-	log.L(ctx).Tracef("%s | %s | queueing priority event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+	log.L(ctx).Tracef("%s | %s | queueing priority event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	select {
 	case sel.eventsPriority <- event:
 	case <-ctx.Done():
-		log.L(ctx).Warnf("%s | %s | context cancelled, dropping priority event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Warnf("%s | %s | context cancelled, dropping priority event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	}
 }
 
@@ -546,18 +628,52 @@ func (sel *StateMachineEventLoop[S, E]) QueuePriorityEvent(ctx context.Context, 
 func (sel *StateMachineEventLoop[S, E]) TryQueuePriorityEvent(ctx context.Context, event common.Event) bool {
 	select {
 	case sel.eventsPriority <- event:
-		log.L(ctx).Tracef("%s | %s | queued priority event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Tracef("%s | %s | queued priority event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 		return true
 	default:
-		log.L(ctx).Warnf("%s | %s | priority buffer full, dropping event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+		log.L(ctx).Warnf("%s | %s | priority buffer full, dropping event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 		return false
 	}
 }
 
-// ProcessEvent synchronously processes an event. This bypasses the event loop
-// and should only be used in tests or when you need synchronous processing.
+// ProcessEvent synchronously processes an event through the same pre-processing pipeline
+// used by the event loop goroutine. Use this in tests or other cases that need deterministic,
+// synchronous event processing without starting the goroutine-based event loop.
 func (sel *StateMachineEventLoop[S, E]) ProcessEvent(ctx context.Context, event common.Event) error {
-	return sel.stateMachine.ProcessEvent(ctx, sel.entity, event)
+	return sel.processEvent(ctx, event)
+}
+
+// DrainPendingEvents processes all events currently buffered in the priority and regular queues,
+// using the same pipeline as the event loop. It stops when both queues are empty.
+// Useful in tests to flush internally-queued follow-up events before making assertions.
+func (sel *StateMachineEventLoop[S, E]) DrainPendingEvents(ctx context.Context) error {
+	for {
+		processed := false
+		// Drain all priority events before touching the regular queue.
+		for draining := true; draining; {
+			select {
+			case event := <-sel.eventsPriority:
+				if err := sel.processEvent(ctx, event); err != nil {
+					return err
+				}
+				processed = true
+			default:
+				draining = false
+			}
+		}
+		// Process one regular event (priority events queued by it will be picked up next iteration).
+		select {
+		case event := <-sel.events:
+			if err := sel.processEvent(ctx, event); err != nil {
+				return err
+			}
+			processed = true
+		default:
+		}
+		if !processed {
+			return nil
+		}
+	}
 }
 
 // WaitForDone waits for the event loop to complete after context cancellation.

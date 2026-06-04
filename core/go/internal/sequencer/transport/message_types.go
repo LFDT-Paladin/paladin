@@ -15,15 +15,6 @@
 
 package transport
 
-import (
-	"encoding/json"
-
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/google/uuid"
-)
 
 const (
 	MessageType_AssembleRequest                  = "AssembleRequest"
@@ -31,12 +22,13 @@ const (
 	MessageType_AssembleError                    = "AssembleError"
 	MessageType_CoordinatorHeartbeatNotification = "CoordinatorHeartbeatNotification"
 	MessageType_DelegationRequest                = "DelegationRequest"
-	MessageType_DelegationRequestAcknowledgment  = "DelegationRequestAcknowledgment"
+	MessageType_DelegationResponse               = "DelegationResponse"
 	MessageType_Dispatched                       = "Dispatched"
 	MessageType_EndorsementRequest               = "EndorsementRequest"
 	MessageType_EndorsementResponse              = "EndorsementResponse"
 	MessageType_HandoverRequest                  = "HandoverRequest"
 	MessageType_NonceAssigned                    = "NonceAssigned"
+	MessageType_NotActiveCoordinator             = "NotActiveCoordinator"
 	MessageType_PreDispatchRequest               = "PreDispatchRequest"
 	MessageType_PreDispatchResponse              = "PreDispatchResponse"
 	MessageType_TransactionRequest               = "TransactionRequest"
@@ -45,64 +37,3 @@ const (
 	MessageType_TransactionUnknown               = "TransactionUnknown"
 )
 
-type CoordinatorHeartbeatNotification struct {
-	From            string               `json:"from"`
-	ContractAddress *pldtypes.EthAddress `json:"contractAddress"`
-	common.CoordinatorSnapshot
-}
-
-type EndorsementResponse struct {
-	TransactionID          uuid.UUID                  `json:"transactionId"`
-	IdempotencyKey         string                     `json:"idempotencyKey"`
-	ContractAddress        string                     `json:"contractAddress"`
-	Endorsement            *prototk.AttestationResult `json:"endorsement"`
-	RevertReason           *string                    `json:"revertReason"`
-	Party                  string                     `json:"party"`
-	AttestationRequestName string                     `json:"attestationRequestName"`
-}
-
-func ParseCoordinatorHeartbeatNotification(bytes []byte) (*CoordinatorHeartbeatNotification, error) {
-	chn := &CoordinatorHeartbeatNotification{}
-	err := json.Unmarshal(bytes, chn)
-	return chn, err
-}
-
-type TransactionRequest struct {
-	Sender          string                           `json:"sender"` //TODO this is duplicate of the ReplyTo field in the transport message.  Would it be more secure to assert that they are the same?
-	ContractAddress *pldtypes.EthAddress             `json:"contractAddress"`
-	Transactions    []*components.PrivateTransaction `json:"transactions"`
-}
-
-type HandoverRequest struct {
-	ContractAddress *pldtypes.EthAddress `json:"contractAddress"`
-}
-
-type DispatchConfirmationRequest struct {
-	ContractAddress *pldtypes.EthAddress `json:"contractAddress"`
-	Coordinator     string               `json:"coordinator"`
-	TransactionID   uuid.UUID            `json:"transactionID"`
-	TransactionHash []byte               `json:"transactionHash"`
-}
-
-type DispatchConfirmationResponse struct {
-	ContractAddress *pldtypes.EthAddress `json:"contractAddress"`
-	TransactionID   uuid.UUID            `json:"transactionID"`
-}
-
-func ParseTransactionRequest(bytes []byte) (*TransactionRequest, error) {
-	dr := &TransactionRequest{}
-	err := json.Unmarshal(bytes, dr)
-	return dr, err
-}
-
-func ParseDispatchConfirmationRequest(bytes []byte) (*DispatchConfirmationRequest, error) {
-	dcr := &DispatchConfirmationRequest{}
-	err := json.Unmarshal(bytes, dcr)
-	return dcr, err
-}
-
-func ParseDispatchConfirmationResponse(bytes []byte) (*DispatchConfirmationResponse, error) {
-	dcr := &DispatchConfirmationResponse{}
-	err := json.Unmarshal(bytes, dcr)
-	return dcr, err
-}

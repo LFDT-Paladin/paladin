@@ -26,68 +26,142 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 )
 
-func action_HeartbeatReceived(ctx context.Context, o *originator, event common.Event) error {
-	e := event.(*HeartbeatReceivedEvent)
-	return o.applyHeartbeatReceived(ctx, e)
+// action_ProcessConfirmedTransactions notifies originator transactions of any confirmations
+// included in the heartbeat snapshot. This runs unconditionally for every heartbeat regardless
+// of the sender's state or identity.
+func action_ProcessConfirmedTransactions(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*common.HeartbeatReceivedEvent)
+	return o.processConfirmedTransactions(ctx, e)
 }
 
-func (o *originator) applyHeartbeatReceived(ctx context.Context, event *HeartbeatReceivedEvent) error {
+// action_ProcessCurrentCoordinatorHeartbeat handles a live heartbeat from the currently tracked
+// coordinator. It resets the liveness timer and propagates dispatch state updates to local
+// transaction state machines. Dropped-transaction detection is handled separately in
+// the heartbeat action chain, so the two concerns remain independently observable.
+func action_ProcessCurrentCoordinatorHeartbeat(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*common.HeartbeatReceivedEvent)
 	o.heartbeatIntervalsSinceLastReceive = 0
-	o.activeCoordinatorNode = event.From
-	o.latestCoordinatorSnapshot = &event.CoordinatorSnapshot
-	for _, dispatchedTransaction := range event.DispatchedTransactions {
-		//if any of the dispatched transactions were sent by this originator, ensure that we have an up to date view of its state
-		if dispatchedTransaction.Originator == o.nodeName {
-			txn := o.transactionsByID[dispatchedTransaction.ID]
-			if txn == nil {
-				//unexpected situation to be in.  We trust our memory of transactions over the coordinator's, so we ignore this transaction
-				log.L(ctx).Warnf("received heartbeat from %s with dispatched transaction %s but no transaction found in memory", o.activeCoordinatorNode, dispatchedTransaction.ID)
-				continue
-			}
-			if dispatchedTransaction.LatestSubmissionHash != nil {
-				//if the dispatched transaction has a hash, then we can update our view of the transaction
-				txnSubmittedEvent := &transaction.SubmittedEvent{}
-				txnSubmittedEvent.TransactionID = dispatchedTransaction.ID
-				txnSubmittedEvent.SignerAddress = dispatchedTransaction.Signer
-				txnSubmittedEvent.LatestSubmissionHash = *dispatchedTransaction.LatestSubmissionHash
-				if dispatchedTransaction.Nonce != nil {
-					txnSubmittedEvent.Nonce = *dispatchedTransaction.Nonce
-				}
+	return o.processDispatchedTransactions(ctx, e)
+}
 
-				err := txn.HandleEvent(ctx, txnSubmittedEvent)
-				if err != nil {
-					msg := fmt.Errorf("error handling transaction submitted event for transaction %s: %v", txn.GetID(), err)
-					return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-				}
-			} else if dispatchedTransaction.Nonce != nil {
-				//if the dispatched transaction has a nonce but no hash, then it is sequenced
-				err := txn.HandleEvent(ctx, &transaction.NonceAssignedEvent{
-					BaseEvent: transaction.BaseEvent{
-						TransactionID: dispatchedTransaction.ID,
-					},
-					Nonce: *dispatchedTransaction.Nonce,
-				})
-
-				if err != nil {
-					msg := fmt.Errorf("error handling nonce assigned event for transaction %s: %v", txn.GetID(), err)
-					return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-				}
-			}
-		}
-	}
-
-	// TODO process other lists in the heartbeat event.
-	// Note: sending dropped transaction re-delegations (i.e. those we are tracking but which th heartbeat doesn't mention)
-	// is handled by state machine guards
-
+func action_SwitchActiveCoordinator(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*common.HeartbeatReceivedEvent)
+	log.L(ctx).Debugf("switching active coordinator from %s to %s", o.currentActiveCoordinator, e.FromNode)
+	o.currentActiveCoordinator = e.FromNode
+	o.resetFailoverIndex()
+	o.heartbeatIntervalsSinceLastReceive = 0
 	return nil
 }
 
-func guard_IdleThresholdExceeded(_ context.Context, o *originator) bool {
-	return o.heartbeatIntervalsSinceLastReceive >= o.idleThreshold
+// processDispatchedTransactions propagates dispatch state updates (submission hash, nonce)
+// from the active coordinator's heartbeat to our local transaction state machines.
+func (o *originator) processDispatchedTransactions(ctx context.Context, event *common.HeartbeatReceivedEvent) error {
+	for _, dispatchedTransaction := range event.CoordinatorSnapshot.DispatchedTransactions {
+		if dispatchedTransaction.Originator != o.nodeName {
+			continue
+		}
+		txn := o.transactionsByID[dispatchedTransaction.ID]
+		if txn == nil {
+			log.L(ctx).Warnf("received heartbeat from %s with dispatched transaction %s but no transaction found in memory",
+				o.currentActiveCoordinator, dispatchedTransaction.ID)
+			continue
+		}
+		if dispatchedTransaction.LatestSubmissionHash != nil {
+			txnSubmittedEvent := &transaction.SubmittedEvent{}
+			txnSubmittedEvent.TransactionID = dispatchedTransaction.ID
+			txnSubmittedEvent.SignerAddress = dispatchedTransaction.Signer
+			txnSubmittedEvent.LatestSubmissionHash = *dispatchedTransaction.LatestSubmissionHash
+			txnSubmittedEvent.Coordinator = event.FromNode
+			if dispatchedTransaction.Nonce != nil {
+				txnSubmittedEvent.Nonce = *dispatchedTransaction.Nonce
+			}
+			if err := txn.HandleEvent(ctx, txnSubmittedEvent); err != nil {
+				msg := fmt.Errorf("error handling transaction submitted event for transaction %s: %v", txn.GetID(), err)
+				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+			}
+		} else if dispatchedTransaction.Nonce != nil {
+			err := txn.HandleEvent(ctx, &transaction.NonceAssignedEvent{
+				BaseEvent:   transaction.BaseEvent{TransactionID: dispatchedTransaction.ID},
+				Nonce:       *dispatchedTransaction.Nonce,
+				Coordinator: event.FromNode,
+			})
+			if err != nil {
+				msg := fmt.Errorf("error handling nonce assigned event for transaction %s: %v", txn.GetID(), err)
+				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+			}
+		}
+	}
+	return nil
 }
 
-func action_IncrementHeartbeatIntervalsSinceLastReceive(_ context.Context, o *originator, _ common.Event) error {
+// processConfirmedTransactions notifies originator transactions of any confirmations
+// included in the heartbeat snapshot, regardless of sender or state.
+func (o *originator) processConfirmedTransactions(ctx context.Context, event *common.HeartbeatReceivedEvent) error {
+	for _, confirmedTransaction := range event.CoordinatorSnapshot.ConfirmedTransactions {
+		if confirmedTransaction.Originator != o.nodeName {
+			continue
+		}
+		txn := o.transactionsByID[confirmedTransaction.ID]
+		if txn == nil {
+			log.L(ctx).Debugf("received confirmed transaction %s in heartbeat from %s but no transaction found in memory",
+				confirmedTransaction.ID, event.FromNode)
+			continue
+		}
+		if len(confirmedTransaction.RevertReason) > 0 {
+			err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
+				BaseEvent:    transaction.BaseEvent{TransactionID: confirmedTransaction.ID},
+				RevertReason: confirmedTransaction.RevertReason,
+				WillRetry:    false,
+			})
+			if err != nil {
+				msg := fmt.Errorf("error handling confirmed reverted event for transaction %s: %v", txn.GetID(), err)
+				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+			}
+		} else {
+			err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
+				BaseEvent: transaction.BaseEvent{TransactionID: confirmedTransaction.ID},
+			})
+			if err != nil {
+				msg := fmt.Errorf("error handling confirmed success event for transaction %s: %v", txn.GetID(), err)
+				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+			}
+		}
+	}
+	return nil
+}
+
+// hasDroppedTransactions returns true if any non-final transaction is absent from the coordinator's
+// snapshot, implying the coordinator has dropped it and we need to redelegate everything.
+func (o *originator) hasDroppedTransactions(ctx context.Context, snapshot *common.CoordinatorSnapshot) bool {
+	for _, txn := range o.getTransactionsNotInStates([]transaction.State{transaction.State_Final, transaction.State_Confirmed, transaction.State_Reverted}) {
+		if !transactionFoundInSnapshot(snapshot, txn) {
+			log.L(ctx).Debugf("transaction %s not found in latest coordinator snapshot, assuming dropped", txn.GetID())
+			return true
+		}
+	}
+	return false
+}
+
+func transactionFoundInSnapshot(snapshot *common.CoordinatorSnapshot, txn transaction.OriginatorTransaction) bool {
+	for _, t := range snapshot.DispatchedTransactions {
+		if t.ID == txn.GetID() {
+			return true
+		}
+	}
+	for _, t := range snapshot.PooledTransactions {
+		if t.ID == txn.GetID() {
+			return true
+		}
+	}
+	for _, t := range snapshot.ConfirmedTransactions {
+		if t.ID == txn.GetID() {
+			return true
+		}
+	}
+	return false
+}
+
+func action_IncrementHeartbeatIntervalCounts(_ context.Context, o *originator, _ common.Event) error {
 	o.heartbeatIntervalsSinceLastReceive++
 	return nil
 }

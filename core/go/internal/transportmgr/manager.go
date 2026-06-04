@@ -154,6 +154,10 @@ func (tm *transportManager) Start() error {
 }
 
 func (tm *transportManager) Stop() {
+	// Cancel bgCtx first so any goroutines blocked on p.ctx (derived from bgCtx),
+	// such as startSender holding peersLock while waiting on GetNodeTransports or
+	// ActivatePeer, are unblocked before we attempt to acquire peersLock below.
+	tm.cancelCtx()
 
 	peers := tm.listActivePeers()
 	for _, p := range peers {
@@ -170,7 +174,6 @@ func (tm *transportManager) Stop() {
 		tm.cleanupTransport(t)
 	}
 
-	tm.cancelCtx()
 	if tm.peerReaperDone != nil {
 		<-tm.peerReaperDone
 	}

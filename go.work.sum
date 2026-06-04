@@ -1777,6 +1777,7 @@ k8s.io/apiserver v0.34.3/go.mod h1:QPnnahMO5C2m3lm6fPW3+JmyQbvHZQ8uudAu/493P2w=
 k8s.io/code-generator v0.29.2 h1:c9/iw2KnNpw2IRV+wwuG/Wns2TjPSgjWzbbjTevyiHI=
 k8s.io/code-generator v0.29.2/go.mod h1:FwFi3C9jCrmbPjekhaCYcYG1n07CYiW1+PAPCockaos=
 k8s.io/code-generator v0.34.3/go.mod h1:oW73UPYpGLsbRN8Ozkhd6ZzkF8hzFCiYmvEuWZDroI4=
+k8s.io/component-base v0.34.3 h1:zsEgw6ELqK0XncCQomgO9DpUIzlrYuZYA0Cgo+JWpVk=
 k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 h1:pWEwq4Asjm4vjW7vcsmijwBhOr1/shsbSYiWXmNGlks=
 k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01/go.mod h1:FiNAH4ZV3gBg2Kwh89tzAEV2be7d5xI0vBa/VySYy3E=
 k8s.io/gengo/v2 v2.0.0-20250604051438-85fd79dbfd9f/go.mod h1:EJykeLsmFC60UQbYJezXkEsG2FLrt0GPNkU5iK5GWxU=

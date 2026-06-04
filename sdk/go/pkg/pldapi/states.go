@@ -213,7 +213,7 @@ type StateSpendRecord struct {
 type StateReadRecord struct {
 	DomainName  string            `json:"-"                 gorm:"primaryKey"`
 	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
-	Transaction uuid.UUID         `docstruct:"StateRead" json:"transaction"`
+	Transaction uuid.UUID         `docstruct:"StateRead"    json:"transaction" gorm:"primaryKey"`
 }
 
 // Transactions can also refer to state that never exists before or after the transaction.
@@ -222,7 +222,7 @@ type StateReadRecord struct {
 type StateInfoRecord struct {
 	DomainName  string            `json:"-"                 gorm:"primaryKey"`
 	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
-	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction"`
+	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction" gorm:"primaryKey"`
 }
 
 type StateLockType string

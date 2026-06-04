@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/groupmgr/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
@@ -72,6 +73,7 @@ type groupManager struct {
 	messageListenersLoadPageSize int
 	messageListenerLock          sync.Mutex
 	messageListeners             map[string]*messageListener
+	metrics                      metrics.GroupManagerMetrics
 }
 
 type referencedReceipt struct {
@@ -124,6 +126,7 @@ func NewGroupManager(bgCtx context.Context, conf *pldconf.GroupManagerConfig) co
 }
 
 func (gm *groupManager) PreInit(pic components.PreInitComponents) (*components.ManagerInitResult, error) {
+	gm.metrics = metrics.InitMetrics(gm.bgCtx, pic.MetricsManager().Registry())
 	gm.initRPC()
 	return &components.ManagerInitResult{
 		RPCModules: []*rpcserver.RPCModule{gm.rpcModule},
@@ -502,20 +505,7 @@ func (gm *groupManager) prepareTransaction(ctx context.Context, dbTX persistence
 		return nil, i18n.NewError(ctx, msgs.MsgPGroupsNoGroupID)
 	}
 
-	// Fluff up the privacy group
-	pg, err := gm.GetGroupByID(ctx, dbTX, domain, groupID)
-	if err != nil {
-		return nil, err
-	}
-	if pg == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgPGroupsGroupNotFound, groupID)
-	}
-	if pg.ContractAddress == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgPGroupsNotReady, groupID, pg.GenesisTransaction)
-	}
-
-	// Get the domain smart contract object from domain mgr
-	psc, err := gm.domainManager.GetSmartContractByAddress(ctx, dbTX, *pg.ContractAddress)
+	pg, psc, err := gm.resolvePrivateContract(ctx, dbTX, domain, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -559,4 +549,35 @@ func (gm *groupManager) Call(ctx context.Context, dbTX persistence.DBTX, result 
 		DataFormat:        call.DataFormat,
 	})
 
+}
+
+func (gm *groupManager) resolvePrivateContract(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes) (*pldapi.PrivacyGroup, components.DomainSmartContract, error) {
+	pg, err := gm.GetGroupByID(ctx, dbTX, domainName, groupID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if pg == nil {
+		return nil, nil, i18n.NewError(ctx, msgs.MsgPGroupsGroupNotFound, groupID)
+	}
+	if pg.ContractAddress == nil {
+		return nil, nil, i18n.NewError(ctx, msgs.MsgPGroupsNotReady, groupID, pg.GenesisTransaction)
+	}
+	psc, err := gm.domainManager.GetSmartContractByAddress(ctx, dbTX, *pg.ContractAddress)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pg, psc, nil
+}
+
+func (gm *groupManager) invokeRPC(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes, stateQualifier pldapi.StateStatusQualifier, rpcCall pldapi.DomainInvokeRPC) (pldtypes.RawJSON, error) {
+	pg, psc, err := gm.resolvePrivateContract(ctx, dbTX, domainName, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if stateQualifier != "" && stateQualifier != pldapi.StateStatusAvailable {
+		return nil, i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
+	}
+	dCtx := gm.stateManager.NewDomainContext(ctx, psc.Domain(), *pg.ContractAddress)
+	defer dCtx.Close()
+	return psc.InvokeRPC(ctx, dCtx, dbTX, rpcCall)
 }

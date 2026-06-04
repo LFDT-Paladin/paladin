@@ -36,6 +36,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// TODO AM: lots of these functions load a sequencer even if they rely on the transaction existing in memory. They
+// should switch to using the get version instead
 func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *components.ReceivedMessage) {
 	//TODO this need to become an ultra low latency, non blocking, handover to the event loop thread.
 	// need some thought on how to handle errors, retries, buffering, swapping idle sequencers in and out of memory etc...
@@ -54,12 +56,10 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 		go sMgr.handleCoordinatorHeartbeatNotification(sMgr.ctx, message)
 	case transport.MessageType_DelegationRequest:
 		go sMgr.handleDelegationRequest(sMgr.ctx, message)
-	case transport.MessageType_DelegationRequestAcknowledgment:
-		go sMgr.handleDelegationRequestAcknowledgment(sMgr.ctx, message)
+	case transport.MessageType_DelegationResponse:
+		go sMgr.handleDelegationResponse(sMgr.ctx, message)
 	case transport.MessageType_Dispatched:
 		go sMgr.handleDispatchedEvent(sMgr.ctx, message)
-	case transport.MessageType_HandoverRequest:
-		go sMgr.handleHandoverRequest(sMgr.ctx, message)
 	case transport.MessageType_PreDispatchRequest:
 		go sMgr.handlePreDispatchRequest(sMgr.ctx, message)
 	case transport.MessageType_PreDispatchResponse:
@@ -76,6 +76,10 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 		go sMgr.handleTransactionConfirmed(sMgr.ctx, message)
 	case transport.MessageType_TransactionUnknown:
 		go sMgr.handleTransactionUnknown(sMgr.ctx, message)
+	case transport.MessageType_NotActiveCoordinator:
+		go sMgr.handleNotActiveCoordinator(sMgr.ctx, message)
+	case transport.MessageType_HandoverRequest:
+		go sMgr.handleHandoverRequest(sMgr.ctx, message)
 	default:
 		log.L(ctx).Errorf("Unknown message type: %s", message.MessageType)
 	}
@@ -124,9 +128,11 @@ func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message
 		return
 	}
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass assemble request event to %v:", err)
+	// Get rather than load the sequencer- it must already have the transaction in memory to process the assemble request
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: assemble request for transaction %s cannot be processed unless already in memory",
+			contractAddress, assembleRequest.TransactionId)
 		return
 	}
 
@@ -170,9 +176,11 @@ func (sMgr *sequencerManager) handleAssembleResponse(ctx context.Context, messag
 		return
 	}
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass assemble response event %v:", err)
+	// Get rather than load the sequencer- it must already have the transaction in memory to process the assembly response
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: assemble response for transaction %s cannot be processed unless already in memory",
+			contractAddress, assembleResponse.TransactionId)
 		return
 	}
 
@@ -218,9 +226,11 @@ func (sMgr *sequencerManager) handleAssembleError(ctx context.Context, message *
 	assembleErrorEvent.TransactionID = uuid.MustParse(assembleError.TransactionId)
 	assembleErrorEvent.EventTime = time.Now()
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass assemble error event %v:", err)
+	// Get rather than load the sequencer- it must already have the transaction in memory to process the assembly error
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: assemble error for transaction %s cannot be processed unless already in memory",
+			contractAddress, assembleError.TransactionId)
 		return
 	}
 
@@ -253,47 +263,19 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 		return
 	}
 
-	heartbeatEvent := &originator.HeartbeatReceivedEvent{}
-	heartbeatEvent.From = from
-	heartbeatEvent.ContractAddress = contractAddress
-	heartbeatEvent.CoordinatorSnapshot = *coordinatorSnapshot
-	heartbeatEvent.EventTime = time.Now()
-
-	// we only pass heartbeat notifications to sequencers that are already loaded in memory
-	seq, err := sMgr.GetSequencer(ctx, *contractAddress)
-	if seq == nil || err != nil {
-		log.L(ctx).Debugf("ignoring heartbeat for contract %s as sequencer is not loaded: %v", contractAddress, err)
-		return
-	}
-
-	seq.GetOriginator().QueueEvent(ctx, heartbeatEvent)
-}
-
-func (sMgr *sequencerManager) handleHandoverRequest(ctx context.Context, message *components.ReceivedMessage) {
-
-	handoverRequest := &engineProto.HandoverRequest{}
-	err := proto.Unmarshal(message.Payload, handoverRequest)
-	if err != nil {
-		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
-		return
-	}
-
-	contractAddress := sMgr.parseContractAddressString(ctx, handoverRequest.ContractAddress, message)
-	if contractAddress == nil {
-		return
-	}
-
 	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
 	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass handover request event to %v:", err)
+		log.L(ctx).Errorf("failed to obtain sequencer for contract %s to pass heartbeat event: %v", contractAddress, err)
 		return
 	}
 
-	handoverRequestEvent := &coordinator.HandoverRequestEvent{}
-	handoverRequestEvent.Requester = message.FromNode
-	handoverRequestEvent.EventTime = time.Now()
-
-	seq.GetCoordinator().QueueEvent(ctx, handoverRequestEvent)
+	heartbeatEvent := &common.HeartbeatReceivedEvent{}
+	heartbeatEvent.FromNode = from
+	heartbeatEvent.ContractAddress = contractAddress
+	heartbeatEvent.CoordinatorSnapshot = coordinatorSnapshot
+	heartbeatEvent.EventTime = time.Now()
+	seq.GetOriginator().QueueEvent(ctx, heartbeatEvent)
+	seq.GetCoordinator().QueueEvent(ctx, heartbeatEvent)
 }
 
 func (sMgr *sequencerManager) handlePreDispatchRequest(ctx context.Context, message *components.ReceivedMessage) {
@@ -310,9 +292,11 @@ func (sMgr *sequencerManager) handlePreDispatchRequest(ctx context.Context, mess
 		return
 	}
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass pre dispatch event to %v:", err)
+	// Get rather than load the sequencer- it must already have the transaction in memory to process the predispatch request
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: predispatch request for transaction %s cannot be processed unless already in memory",
+			contractAddress, preDispatchRequest.TransactionId)
 		return
 	}
 
@@ -347,13 +331,15 @@ func (sMgr *sequencerManager) handlePreDispatchResponse(ctx context.Context, mes
 		return
 	}
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass pre dispatch event to %v:", err)
+	// Get rather than load the sequencer- it must already have the transaction in memory to process the pre dispatch response
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: predispatch response for transaction %s cannot be processed unless already in memory",
+			contractAddress, preDispatchResponse.TransactionId)
 		return
 	}
 
-	// MRW TODO - we don't yet return anything other than approved.
+	// TODO - we don't yet return anything other than approved.
 
 	dispatchRequestApprovedEvent := &coordTransaction.DispatchRequestApprovedEvent{
 		RequestID: uuid.MustParse(preDispatchResponse.Id),
@@ -377,14 +363,17 @@ func (sMgr *sequencerManager) handleDispatchedEvent(ctx context.Context, message
 		return
 	}
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass dispatch confirmation event to %v:", err)
+	// Get rather than load the sequencer- it must already have the transaction in memory to process the dispatched event
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: dispatched event for transaction %s cannot be processed unless already in memory",
+			contractAddress, dispatchedEvent.TransactionId)
 		return
 	}
 
 	dispatchConfirmedEvent := &originatorTransaction.DispatchedEvent{}
 	dispatchConfirmedEvent.TransactionID = uuid.MustParse(dispatchedEvent.TransactionId[2:34])
+	dispatchConfirmedEvent.Coordinator = message.FromNode
 	dispatchConfirmedEvent.EventTime = time.Now()
 
 	seq.GetOriginator().QueueEvent(ctx, dispatchConfirmedEvent)
@@ -412,7 +401,7 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 
 	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
 	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass endorsement event %v:", err)
+		log.L(ctx).Errorf("failed to obtain sequencer to handle delegation request event %v:", err)
 		return
 	}
 
@@ -427,11 +416,30 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 	seq.GetCoordinator().QueueEvent(ctx, transactionDelegatedEvent)
 }
 
-func (sMgr *sequencerManager) handleDelegationRequestAcknowledgment(ctx context.Context, message *components.ReceivedMessage) {
-	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{}
+func (sMgr *sequencerManager) handleDelegationResponse(ctx context.Context, message *components.ReceivedMessage) {
+	delegationRequestAcknowledgment := &engineProto.DelegationResponse{}
 	err := proto.Unmarshal(message.Payload, delegationRequestAcknowledgment)
 	if err != nil {
 		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, delegationRequestAcknowledgment.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	if !delegationRequestAcknowledgment.Accepted {
+		// Get rather than load the sequencer- it must already have the transaction in memory to process the delegation rejection
+		seq := sMgr.GetSequencer(ctx, *contractAddress)
+		if seq == nil {
+			log.L(ctx).Warnf("sequencer for contract %s is not loaded: delegation rejection cannot be processed unless already in memory", contractAddress)
+			return
+		}
+		rejectedEvent := &originator.DelegationRejectedEvent{}
+		rejectedEvent.ActiveCoordinator = delegationRequestAcknowledgment.ActiveCoordinator
+		rejectedEvent.EventTime = time.Now()
+		seq.GetOriginator().QueueEvent(ctx, rejectedEvent)
 		return
 	}
 
@@ -460,6 +468,37 @@ func (sMgr *sequencerManager) handleDelegationRequestAcknowledgment(ctx context.
 	}
 }
 
+func (sMgr *sequencerManager) handleHandoverRequest(ctx context.Context, message *components.ReceivedMessage) {
+	handoverRequest := &engineProto.CoordinatorHandoverRequest{}
+	if err := proto.Unmarshal(message.Payload, handoverRequest); err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, handoverRequest.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	// Get rather than load the sequencer- it must already have the coordinator in memory to process the handover request
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: handover request cannot be processed unless already in memory", contractAddress)
+		return
+	}
+
+	handoverEvent := &coordinator.HandoverRequestEvent{}
+	handoverEvent.FromNode = handoverRequest.FromNode
+	handoverEvent.EventTime = time.Now()
+	seq.GetCoordinator().QueueEvent(ctx, handoverEvent)
+}
+
+// TODO AM: this is being handled outside the sequencer, although a sequencer is loaded at the end purely to send the response.
+// This means there is no access to the sequencer's knowledge of current block height, current active coordinator etc, and logs
+// will be missing key context fields.
+// It does mean that endorsement is not single threaded which is important.
+// This should probably be moved into the sequencer (coordinator or originator?) but preserving the concurrency handling the event
+// with a new goroutine.
 func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, message *components.ReceivedMessage) {
 	endorsementRequest := &engineProto.EndorsementRequest{}
 
@@ -649,12 +688,6 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 		return
 	}
 
-	// Take this opportunity to update the state machine that there is a currently active coordinator. Heartbeats serve the same
-	// purpose but are on a set interval, so updating whenever we are given transactions to endorse is a useful optimisation
-	seq.GetCoordinator().QueueEvent(ctx, &coordinator.EndorsementRequestedEvent{
-		From: message.FromNode,
-	})
-
 	sMgr.metrics.IncEndorsedTransactions()
 	err = seq.GetTransportWriter().SendEndorsementResponse(ctx, endorsementRequest.TransactionId, endorsementRequest.IdempotencyKey, contractAddress.String(), attResult, endorsementResult, revertReason, transactionEndorsement.Name, endorsementRequest.Party, message.FromNode)
 	if err != nil {
@@ -676,9 +709,11 @@ func (sMgr *sequencerManager) handleEndorsementResponse(ctx context.Context, mes
 		return
 	}
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("handleEndorsementRequest failed to obtain sequencer to pass endorsement event %v:", err)
+	// Get rather than load the sequencer- it must already have the transaction in memory to process the endorsement response
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: endorsement response for transaction %s cannot be processed unless already in memory",
+			contractAddress, endorsementResponse.TransactionId)
 		return
 	}
 
@@ -723,15 +758,18 @@ func (sMgr *sequencerManager) handleNonceAssigned(ctx context.Context, message *
 		return
 	}
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("handleNonceAssignedEvent failed to obtain sequencer to pass nonce assigned event %v:", err)
+	// Get rather than load the sequencer- it must already have the transaction in memory to process the nonce assigned event
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: nonce assigned event for transaction %s cannot be processed unless already in memory",
+			contractAddress, nonceAssigned.TransactionId)
 		return
 	}
 
 	nonceAssignedEvent := &originatorTransaction.NonceAssignedEvent{}
 	nonceAssignedEvent.TransactionID = uuid.MustParse(nonceAssigned.TransactionId)
 	nonceAssignedEvent.Nonce = uint64(nonceAssigned.Nonce)
+	nonceAssignedEvent.Coordinator = message.FromNode
 	nonceAssignedEvent.EventTime = time.Now()
 
 	seq.GetOriginator().QueueEvent(ctx, nonceAssignedEvent)
@@ -750,15 +788,18 @@ func (sMgr *sequencerManager) handleTransactionSubmitted(ctx context.Context, me
 		return
 	}
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("handleTransactionSubmitted failed to obtain sequencer to pass transaction submitted event %v:", err)
+	// Get rather than load the sequencer- it must already have the transaction in memory to process the transaction submitted event
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: transaction submitted event for transaction %s cannot be processed unless already in memory",
+			contractAddress, transactionSubmitted.TransactionId)
 		return
 	}
 
 	transactionSubmittedEvent := &originatorTransaction.SubmittedEvent{}
 	transactionSubmittedEvent.TransactionID = uuid.MustParse(transactionSubmitted.TransactionId)
 	transactionSubmittedEvent.LatestSubmissionHash = pldtypes.Bytes32(transactionSubmitted.Hash)
+	transactionSubmittedEvent.Coordinator = message.FromNode
 	transactionSubmittedEvent.EventTime = time.Now()
 
 	seq.GetOriginator().QueueEvent(ctx, transactionSubmittedEvent)
@@ -777,9 +818,11 @@ func (sMgr *sequencerManager) handleTransactionConfirmed(ctx context.Context, me
 		return
 	}
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("handleTransactionSubmitted failed to obtain sequencer to pass transaction submitted event %v:", err)
+	// Get rather than load the sequencer- it must already have the transaction in memory to process the transaction confirmed event
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: transaction confirmed event for transaction %s cannot be processed unless already in memory",
+			contractAddress, transactionConfirmed.TransactionId)
 		return
 	}
 
@@ -799,6 +842,44 @@ func (sMgr *sequencerManager) handleTransactionConfirmed(ctx context.Context, me
 	}
 }
 
+func (sMgr *sequencerManager) handleNotActiveCoordinator(ctx context.Context, message *components.ReceivedMessage) {
+	// Handle a response from an originator indicating that this node is not the active coordinator
+	// for the given transaction. The coordinator should evict the transaction.
+	notActiveMsg := &engineProto.NotActiveCoordinatorNotification{}
+	if err := proto.Unmarshal(message.Payload, notActiveMsg); err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, notActiveMsg.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	txID, err := uuid.Parse(notActiveMsg.TransactionId)
+	if err != nil {
+		log.L(ctx).Errorf("handleNotActiveCoordinator: invalid transaction ID %q: %v", notActiveMsg.TransactionId, err)
+		return
+	}
+
+	// Get rather than load the sequencer- it must already have the coordinator in memory to process the not active coordinator event
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: not active coordinator event for transaction %s cannot be processed unless already in memory",
+			contractAddress, notActiveMsg.TransactionId)
+		return
+	}
+
+	log.L(ctx).Debugf("received not-active-coordinator notification for tx %s from originator %s, queuing eviction event", txID, message.FromNode)
+
+	notActiveEvent := &coordTransaction.NotActiveCoordinatorEvent{
+		BaseCoordinatorEvent: coordTransaction.BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	seq.GetCoordinator().QueueEvent(ctx, notActiveEvent)
+}
+
 func (sMgr *sequencerManager) handleTransactionUnknown(ctx context.Context, message *components.ReceivedMessage) {
 	// Handle a response from an originator indicating that it doesn't recognize a transaction.
 	// The most likely cause is that the transaction reverted during assembly but the response was lost,
@@ -815,9 +896,11 @@ func (sMgr *sequencerManager) handleTransactionUnknown(ctx context.Context, mess
 		return
 	}
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("handleTransactionUnknown failed to obtain sequencer: %v", err)
+	// Get rather than load the sequencer- it must already have the coordinator in memory to process the transaction unknown event
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: transaction unknown event for transaction %s cannot be processed unless already in memory",
+			contractAddress, transactionUnknown.TransactionId)
 		return
 	}
 

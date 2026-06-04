@@ -60,6 +60,7 @@ var eventSolSig_PaladinRegisterSmartContract_V0 = mustParseEventSoliditySignatur
 var smartContractFilters = filters.FieldMap{
 	"domainAddress": filters.HexBytesField("domain_address"),
 	"address":       filters.HexBytesField("address"),
+	"created":       filters.TimestampField("created"),
 }
 
 func NewDomainManager(bgCtx context.Context, conf *pldconf.DomainManagerInlineConfig) components.DomainManager {
@@ -357,6 +358,7 @@ func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persisten
 				result = &pldapi.DomainSmartContract{
 					DomainAddress: &pt.RegistryAddress,
 					Address:       pt.Address,
+					Created:       pt.Created,
 				}
 				if dc != nil {
 					result.DomainName = dc.Domain().Name()

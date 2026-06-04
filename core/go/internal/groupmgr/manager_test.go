@@ -24,6 +24,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/statemgr"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
@@ -63,6 +64,7 @@ func newMockComponents(t *testing.T, realDB bool) *mockComponents {
 	mc.c.On("TransportManager").Return(mc.transportManager).Maybe()
 	mc.c.On("RegistryManager").Return(mc.registryManager).Maybe()
 	mc.c.On("TxManager").Return(mc.txManager).Maybe()
+	mc.c.On("MetricsManager").Return(metrics.NewMetricsManager(context.Background())).Maybe()
 
 	if realDB {
 		p, cleanup, err := persistence.NewUnitTestPersistence(context.Background(), "groupmgr")
@@ -694,6 +696,70 @@ func TestSendTransactionSendPreparedTx(t *testing.T) {
 	})
 	require.Regexp(t, "pop", err)
 
+}
+
+func mockGetPrivateSmartContract(t *testing.T, mc *mockComponents, schemaID pldtypes.Bytes32, groupID pldtypes.HexBytes, contractAddr *pldtypes.EthAddress) *componentsmocks.DomainSmartContract {
+	mockDBPrivacyGroup(mc, schemaID, groupID, contractAddr)
+	psc := componentsmocks.NewDomainSmartContract(t)
+	mc.domainManager.On("GetSmartContractByAddress", mock.Anything, mock.Anything, *contractAddr).Return(psc, nil)
+	psc.On("Domain").Return(mc.domain).Maybe()
+	mdc := componentsmocks.NewDomainContext(t)
+	mc.stateManager.On("NewDomainContext", mock.Anything, mc.domain, *contractAddr).Return(mdc)
+	mdc.On("Close").Return()
+	return psc
+}
+
+func TestInvokeRPCGroupNotFound(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", pldtypes.RandBytes(32), pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "PD012502", err)
+}
+
+func TestInvokeRPCGroupNotReady(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	mockDBPrivacyGroup(mc, schemaID, groupID, nil)
+
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "PD012503", err)
+}
+
+func TestInvokeRPCOK(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+
+	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)}).Return(pldtypes.RawJSON(`"0xdeadbeef"`), nil)
+
+	result, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	require.NoError(t, err)
+	assert.Equal(t, pldtypes.RawJSON(`"0xdeadbeef"`), result)
+}
+
+func TestInvokeRPCError(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+
+	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)}).Return(nil, fmt.Errorf("pop"))
+
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	require.Regexp(t, "pop", err)
 }
 
 func newValidPGState() *pldapi.State {

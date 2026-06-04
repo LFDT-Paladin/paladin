@@ -109,13 +109,15 @@ func TestCreateBurnLock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)  // the input coin
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 3) // lock + locked-coin + remainder-coin
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4) // manifest + unlock-data-info + data-info + cancel-coin
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 6) // outer-manifest + spend-manifest + cancel-manifest + unlock-data-info + data-info + cancel-coin
 
 	inputCoinState := assembleRes.AssembledTransaction.InputStates[0]
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
-	unlockDataState := assembleRes.AssembledTransaction.InfoStates[1]
-	dataState := assembleRes.AssembledTransaction.InfoStates[2]
-	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[3]
+	unlockManifestState := assembleRes.AssembledTransaction.InfoStates[1] // spend manifest
+	cancelManifestState := assembleRes.AssembledTransaction.InfoStates[2]
+	unlockDataState := assembleRes.AssembledTransaction.InfoStates[3]
+	dataState := assembleRes.AssembledTransaction.InfoStates[4]
+	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[5]
 	newLockInfoState := assembleRes.AssembledTransaction.OutputStates[0]
 	lockedCoinState := assembleRes.AssembledTransaction.OutputStates[1]
 	remainderCoinState := assembleRes.AssembledTransaction.OutputStates[2]
@@ -148,7 +150,8 @@ func TestCreateBurnLock(t *testing.T) {
 	require.Len(t, lockInfo.SpendOutputs, 0)
 	require.Len(t, lockInfo.CancelOutputs, 1)
 	require.NotEmpty(t, lockInfo.SpendData)
-	require.Equal(t, lockInfo.SpendData, lockInfo.CancelData) // same data for both currently
+	require.NotEmpty(t, lockInfo.CancelData)
+	require.NotEqual(t, lockInfo.SpendData, lockInfo.CancelData) // spend and cancel use distinct manifests
 
 	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{lockedCoin}, []*types.NotoLockedCoin{}, []*types.NotoCoin{})
 	require.NoError(t, err)
@@ -182,7 +185,7 @@ func TestCreateBurnLock(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      n.dataSchemaV1.Id,
+			SchemaId:      n.dataSchemaV2.Id,
 			Id:            *dataState.Id,
 			StateDataJson: dataState.StateDataJson,
 		},
@@ -238,7 +241,7 @@ func TestCreateBurnLock(t *testing.T) {
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 
 	// Extract the options from the response to get the generated SpendTxId
-	createLockABI := interfaceV1Build.ABI.Functions()["createLock"]
+	createLockABI := interfaceV2Build.ABI.Functions()["createLock"]
 	expectedFunction := mustParseJSON(createLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
@@ -255,33 +258,79 @@ func TestCreateBurnLock(t *testing.T) {
 	}, data)
 
 	// Decode the options we store into the lockInfo
-	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockDataState}))
+	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockManifestState, unlockDataState}))
 	require.NoError(t, err)
-	notoOptions := decodeSingleABITuple[types.NotoLockOptions](t, types.NotoLockOptionsABI, fnParams.Params.Options)
+	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
+	require.NoError(t, err)
+	notoParams := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
+	notoOptions := notoParams.Options
 	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), []string{}, unlockTxData)
 	require.NoError(t, err)
-	require.Equal(t, expectedSpendHash, fnParams.Params.SpendHash)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), unlockTxData)
+	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), cancelUnlockTxData)
 	require.NoError(t, err)
-	require.Equal(t, expectedCancelHash, fnParams.Params.CancelHash)
+	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
 
 	// Validate the encoded noto parameters passed in
-	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, fnParams.CreateInputs)
-	require.Equal(t, &types.NotoCreateLockOperation{
+	require.Equal(t, &types.NotoCreateLockArgs{
+		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		Inputs:       []string{inputCoinState.Id},
+		Outputs:      []string{*remainderCoinState.Id},
+		Contents:     []string{*lockedCoinState.Id},
+		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
+		Options:      notoParams.Options,
+		Proof:        signatureBytes,
+	}, notoParams)
+
+	// Prepare again with V1 variant to exercise compatibility parameter shape
+	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
+		NotaryLookup: "notary@node1",
+		NotaryMode:   types.NotaryModeBasic.Enum(),
+		Variant:      types.NotoVariantV1,
+	})
+	prepareResV1, err := n.PrepareTransaction(ctx, &prototk.PrepareTransactionRequest{
+		Transaction:       tx,
+		ResolvedVerifiers: verifiers,
+		ReadStates:        nil,
+		InfoStates:        infoStates,
+		InputStates:       inputStates,
+		OutputStates:      outputStates,
+		AttestationResult: []*prototk.AttestationResult{
+			{
+				Name:     "sender",
+				Verifier: &prototk.ResolvedVerifier{Verifier: senderKey.Address.String()},
+				Payload:  signatureBytes,
+			},
+			{
+				Name:     "notary",
+				Verifier: &prototk.ResolvedVerifier{Lookup: "notary@node1"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Decode the parameters for the V1 variant
+	createLockV1ABI := interfaceV1Build.ABI.Functions()["createLock"]
+	assert.JSONEq(t, mustParseJSON(createLockV1ABI), prepareResV1.Transaction.FunctionAbiJson)
+	paramsV1 := decodeFnParams[CreateLockParams_V1](t, createLockV1ABI, prepareResV1.Transaction.ParamsJson)
+
+	// Validate the encoded noto parameters passed in for the V1 variant
+	notoParamsV1 := decodeSingleABITuple[types.NotoCreateLockArgs_V1](t, types.NotoCreateLockArgsABI_V1, paramsV1.CreateArgs)
+	require.Equal(t, &types.NotoCreateLockArgs_V1{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:       []string{inputCoinState.Id},
 		Outputs:      []string{*remainderCoinState.Id},
 		Contents:     []string{*lockedCoinState.Id},
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
 		Proof:        signatureBytes,
-	}, notoParams)
+	}, notoParamsV1)
 
 	// Prepare again to test hook invoke
 	hookAddress := "0x515fba7fe1d8b9181be074bd4c7119544426837c"
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
 		NotaryLookup: "notary@node1",
 		NotaryMode:   types.NotaryModeHooks.Enum(),
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress:     pldtypes.MustEthAddress(hookAddress),
@@ -334,7 +383,10 @@ func TestCreateBurnLock(t *testing.T) {
 	mt.withMissingStates( /* no missing states */ ).
 		completeForIdentity(notaryAddress).
 		completeForIdentity(senderKey.Address.String())
-	mt.withMissingNewStates(manifestState, dataState).
+	mt.withMissingNewStates(manifestState, unlockDataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(unlockManifestState, unlockDataState).
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String())
 	mt.withMissingNewStates(unlockDataState).
@@ -419,4 +471,43 @@ func TestCreateBurnLockInsufficientFunds(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, prototk.AssembleTransactionResponse_REVERT, assembleRes.AssemblyResult)
+}
+
+func TestCreateBurnLockBasicModeRestriction(t *testing.T) {
+	ctx, _, n := newNotoFullSchemaSet(t)
+	fn := types.NotoABI.Functions()["createBurnLock"]
+
+	allowBurn := false
+	config := &types.NotoParsedConfig{
+		NotaryMode:   types.NotaryModeBasic.Enum(),
+		NotaryLookup: "notary@node1",
+		Variant:      types.NotoVariantV2,
+		Options: types.NotoOptions{
+			Basic: &types.NotoBasicOptions{
+				AllowBurn: &allowBurn,
+			},
+		},
+	}
+
+	tx := &prototk.TransactionSpecification{
+		TransactionId: "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		From:          "sender@node1",
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress:    "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3",
+			ContractConfigJson: mustParseJSON(config),
+		},
+		FunctionAbiJson:   mustParseJSON(fn),
+		FunctionSignature: fn.SolString(),
+		FunctionParamsJson: `{
+			"from": "sender@node1",
+			"amount": 100,
+			"data": "0x1234"
+		}`,
+	}
+
+	_, err := n.InitTransaction(ctx, &prototk.InitTransactionRequest{
+		Transaction: tx,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Burn is not enabled")
 }

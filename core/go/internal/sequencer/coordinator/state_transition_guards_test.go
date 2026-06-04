@@ -19,519 +19,240 @@ import (
 	"context"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGuard_Not(t *testing.T) {
+func TestGuard_HasUnconfirmedDispatchedTransactions_NoTransactions(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	// Create a guard that always returns true
-	alwaysTrue := func(ctx context.Context, c *coordinator) bool {
-		return true
-	}
-
-	// Create a guard that always returns false
-	alwaysFalse := func(ctx context.Context, c *coordinator) bool {
-		return false
-	}
-
-	// Test that guard_Not negates true to false
-	notTrue := guard_Not(alwaysTrue)
-	assert.False(t, notTrue(ctx, c))
-
-	// Test that guard_Not negates false to true
-	notFalse := guard_Not(alwaysFalse)
-	assert.True(t, notFalse(ctx, c))
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build()
+	result := guard_HasUnconfirmedDispatchedTransactions(ctx, c)
+	assert.False(t, result, "no transactions should return false")
 }
 
-func TestGuard_Behind_BehindByMoreThanTolerance(t *testing.T) {
+func TestGuard_HasUnconfirmedDispatchedTransactions_TransactionsInOtherStates(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
+	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx1.EXPECT().GetID().Return(uuid.New())
+	tx1.EXPECT().GetCurrentState().Return(transaction.State_Pooled)
 
-	// Set block height tolerance to 5
-	c.blockHeightTolerance = 5
-	c.currentBlockHeight = 10
-	c.activeCoordinatorBlockHeight = 20
-	result := guard_Behind(ctx, c)
-	assert.True(t, result, "10 < 20 - 5 = 15 should return true")
+	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx2.EXPECT().GetID().Return(uuid.New())
+	tx2.EXPECT().GetCurrentState().Return(transaction.State_Assembling)
+
+	tx3 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx3.EXPECT().GetID().Return(uuid.New())
+	tx3.EXPECT().GetCurrentState().Return(transaction.State_Confirmed)
+
+	tx4 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx4.EXPECT().GetID().Return(uuid.New())
+	tx4.EXPECT().GetCurrentState().Return(transaction.State_Ready_For_Dispatch)
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2, tx3, tx4).Build()
+	result := guard_HasUnconfirmedDispatchedTransactions(ctx, c)
+	assert.False(t, result, "transactions in other states should return false")
 }
 
-func TestGuard_Behind_BehindByExactlyTolerance(t *testing.T) {
+func TestGuard_HasUnconfirmedDispatchedTransactions_TransactionInDispatchedState(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx.EXPECT().GetID().Return(uuid.New())
+	tx.EXPECT().GetCurrentState().Return(transaction.State_Dispatched)
 
-	// Set block height tolerance to 5
-	c.blockHeightTolerance = 5
-	c.currentBlockHeight = 15
-	c.activeCoordinatorBlockHeight = 20
-	result := guard_Behind(ctx, c)
-	assert.False(t, result, "15 is not < 20 - 5 = 15 should return false")
-}
-
-func TestGuard_Behind_BehindByLessThanTolerance(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	// Set block height tolerance to 5
-	c.blockHeightTolerance = 5
-	c.currentBlockHeight = 16
-	c.activeCoordinatorBlockHeight = 20
-	result := guard_Behind(ctx, c)
-	assert.False(t, result, "16 is not < 20 - 5 = 15 should return false")
-}
-
-func TestGuard_Behind_AheadOfActiveCoordinator(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	// Set block height tolerance to 5
-	c.blockHeightTolerance = 5
-	c.currentBlockHeight = 25
-	c.activeCoordinatorBlockHeight = 20
-	result := guard_Behind(ctx, c)
-	assert.False(t, result, "25 is not < 20 - 5 = 15 should return false")
-}
-
-func TestGuard_Behind_EqualToActiveCoordinatorMinusTolerance(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	// Set block height tolerance to 5
-	c.blockHeightTolerance = 5
-	c.currentBlockHeight = 15
-	c.activeCoordinatorBlockHeight = 20
-	result := guard_Behind(ctx, c)
-	assert.False(t, result, "15 is not < 15 should return false")
-}
-
-func TestGuard_Behind_SameHeight(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	// Set block height tolerance to 5
-	c.blockHeightTolerance = 5
-	c.currentBlockHeight = 20
-	c.activeCoordinatorBlockHeight = 20
-	result := guard_Behind(ctx, c)
-	assert.False(t, result, "20 is not < 20 - 5 = 15 should return false")
-}
-
-func TestGuard_ActiveCoordinatorFlushComplete_EmptyFlushPointsMap(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Prepared)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.activeCoordinatorsFlushPointsBySignerNonce = make(map[string]*common.SnapshotFlushPoint)
-	result := guard_ActiveCoordinatorFlushComplete(ctx, c)
-	assert.True(t, result, "empty map should return true")
-}
-
-func TestGuard_ActiveCoordinatorFlushComplete_AllFlushPointsConfirmed(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Prepared)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	signer1 := pldtypes.RandAddress()
-	signer2 := pldtypes.RandAddress()
-	c.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.SnapshotFlushPoint{
-		"signer1:1": {
-			From:      *signer1,
-			Nonce:     1,
-			Confirmed: true,
-		},
-		"signer2:2": {
-			From:      *signer2,
-			Nonce:     2,
-			Confirmed: true,
-		},
-	}
-	result := guard_ActiveCoordinatorFlushComplete(ctx, c)
-	assert.True(t, result, "all confirmed should return true")
-}
-
-func TestGuard_ActiveCoordinatorFlushComplete_OneFlushPointNotConfirmed(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Prepared)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	signer1 := pldtypes.RandAddress()
-	signer2 := pldtypes.RandAddress()
-	c.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.SnapshotFlushPoint{
-		"signer1:1": {
-			From:      *signer1,
-			Nonce:     1,
-			Confirmed: true,
-		},
-		"signer2:2": {
-			From:      *signer2,
-			Nonce:     2,
-			Confirmed: false,
-		},
-	}
-	result := guard_ActiveCoordinatorFlushComplete(ctx, c)
-	assert.False(t, result, "one unconfirmed should return false")
-}
-
-func TestGuard_ActiveCoordinatorFlushComplete_AllFlushPointsNotConfirmed(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Prepared)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	signer1 := pldtypes.RandAddress()
-	c.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.SnapshotFlushPoint{
-		"signer1:1": {
-			From:      *signer1,
-			Nonce:     1,
-			Confirmed: false,
-		},
-	}
-	result := guard_ActiveCoordinatorFlushComplete(ctx, c)
-	assert.False(t, result, "all unconfirmed should return false")
-}
-
-func TestGuard_FlushComplete_NoTransactions(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.transactionsByID = make(map[uuid.UUID]transaction.CoordinatorTransaction)
-	result := guard_FlushComplete(ctx, c)
-	assert.True(t, result, "no transactions should return true")
-}
-
-func TestGuard_FlushComplete_TransactionsInOtherStates(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
-	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-	tx3, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx1.GetID(): tx1,
-		tx2.GetID(): tx2,
-		tx3.GetID(): tx3,
-	}
-	result := guard_FlushComplete(ctx, c)
-	assert.True(t, result, "transactions in other states should return true")
-}
-
-func TestGuard_FlushComplete_TransactionInReadyForDispatchState(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx.GetID(): tx,
-	}
-	result := guard_FlushComplete(ctx, c)
-	assert.False(t, result, "transaction in Ready_For_Dispatch should return false")
-}
-
-func TestGuard_FlushComplete_TransactionInDispatchedState(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx.GetID(): tx,
-	}
-	result := guard_FlushComplete(ctx, c)
-	assert.False(t, result, "transaction in Dispatched should return false")
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx).Build()
+	result := guard_HasUnconfirmedDispatchedTransactions(ctx, c)
+	assert.True(t, result, "transaction in Dispatched should return true")
 }
 
 func TestGuard_FlushComplete_TransactionInSubmittedState(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx.GetID(): tx,
-	}
-	result := guard_FlushComplete(ctx, c)
-	assert.False(t, result, "transaction in Submitted should return false")
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx.EXPECT().GetID().Return(uuid.New())
+	tx.EXPECT().GetCurrentState().Return(transaction.State_Dispatched)
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx).Build()
+	result := guard_HasUnconfirmedDispatchedTransactions(ctx, c)
+	assert.True(t, result, "transaction in Submitted should return true")
 }
 
-func TestGuard_FlushComplete_MultipleTransactionsInFlushStates(t *testing.T) {
+func TestGuard_HasUnconfirmedDispatchedTransactions_MultipleTransactionsInFlushStates(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	tx3, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx1.GetID(): tx1,
-		tx2.GetID(): tx2,
-		tx3.GetID(): tx3,
-	}
-	result := guard_FlushComplete(ctx, c)
-	assert.False(t, result, "transactions in flush states should return false")
+	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx1.EXPECT().GetID().Return(uuid.New())
+	tx1.EXPECT().GetCurrentState().Return(transaction.State_Dispatched)
+
+	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx2.EXPECT().GetID().Return(uuid.New())
+	tx2.EXPECT().GetCurrentState().Return(transaction.State_Dispatched)
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2).Build()
+	result := guard_HasUnconfirmedDispatchedTransactions(ctx, c)
+	assert.True(t, result, "transactions in flush states should return true")
 }
 
 func TestGuard_FlushComplete_MixOfFlushAndNonFlushStates(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx1.GetID(): tx1,
-		tx2.GetID(): tx2,
-	}
-	result := guard_FlushComplete(ctx, c)
-	assert.False(t, result, "mix with flush state should return false")
+	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx1.EXPECT().GetID().Return(uuid.New())
+	tx1.EXPECT().GetCurrentState().Return(transaction.State_Ready_For_Dispatch)
+
+	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx2.EXPECT().GetID().Return(uuid.New())
+	tx2.EXPECT().GetCurrentState().Return(transaction.State_Dispatched)
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2).Build()
+	result := guard_HasUnconfirmedDispatchedTransactions(ctx, c)
+	assert.True(t, result, "mix with flush state should return true")
 }
 
 func TestGuard_HasTransactionsInflight_NoTransactions(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.transactionsByID = make(map[uuid.UUID]transaction.CoordinatorTransaction)
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build()
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.False(t, result, "no transactions should return false")
 }
 
 func TestGuard_HasTransactionsInflight_OnlyConfirmedTransactions(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx1.GetID(): tx1,
-		tx2.GetID(): tx2,
-	}
+	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx1.EXPECT().GetID().Return(uuid.New())
+
+	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx2.EXPECT().GetID().Return(uuid.New())
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2).Build()
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "only confirmed should return true")
 }
 
 func TestGuard_HasTransactionsInflight_TransactionInPooledState(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx.GetID(): tx,
-	}
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx.EXPECT().GetID().Return(uuid.New())
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx).Build()
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "transaction in Pooled should return true")
 }
 
 func TestGuard_HasTransactionsInflight_TransactionInAssemblingState(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx.GetID(): tx,
-	}
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx.EXPECT().GetID().Return(uuid.New())
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx).Build()
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "transaction in Assembling should return true")
 }
 
 func TestGuard_HasTransactionsInflight_TransactionInReadyForDispatchState(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx.GetID(): tx,
-	}
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx.EXPECT().GetID().Return(uuid.New())
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx).Build()
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "transaction in Ready_For_Dispatch should return true")
 }
 
 func TestGuard_HasTransactionsInflight_TransactionInDispatchedState(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx.GetID(): tx,
-	}
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx.EXPECT().GetID().Return(uuid.New())
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx).Build()
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "transaction in Dispatched should return true")
 }
 
 func TestGuard_HasTransactionsInflight_TransactionInSubmittedState(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx.GetID(): tx,
-	}
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx.EXPECT().GetID().Return(uuid.New())
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx).Build()
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "transaction in Submitted should return true")
 }
 
 func TestGuard_HasTransactionsInflight_MixOfConfirmedAndInflight(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx1.GetID(): tx1,
-		tx2.GetID(): tx2,
-	}
+	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx1.EXPECT().GetID().Return(uuid.New())
+
+	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx2.EXPECT().GetID().Return(uuid.New())
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2).Build()
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "mix with inflight should return true")
 }
 
-func TestGuard_ClosingGracePeriodExpired_GracePeriodNotExpired(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Closing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.closingGracePeriod = 5
-	c.heartbeatIntervalsSinceStateChange = 3
-	result := guard_ClosingGracePeriodExpired(ctx, c)
-	assert.False(t, result, "3 < 5 should return false")
-}
-
-func TestGuard_ClosingGracePeriodExpired_GracePeriodExactlyExpired(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Closing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.closingGracePeriod = 5
-	c.heartbeatIntervalsSinceStateChange = 5
-	result := guard_ClosingGracePeriodExpired(ctx, c)
-	assert.True(t, result, "5 >= 5 should return true")
-}
-
-func TestGuard_ClosingGracePeriodExpired_GracePeriodExceeded(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Closing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.closingGracePeriod = 5
-	c.heartbeatIntervalsSinceStateChange = 10
-	result := guard_ClosingGracePeriodExpired(ctx, c)
-	assert.True(t, result, "10 >= 5 should return true")
-}
-
-func TestGuard_ClosingGracePeriodExpired_ZeroGracePeriod(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Closing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.closingGracePeriod = 0
-	c.heartbeatIntervalsSinceStateChange = 0
-	result := guard_ClosingGracePeriodExpired(ctx, c)
-	assert.True(t, result, "0 >= 0 should return true")
-}
-
-func TestGuard_ClosingGracePeriodExpired_ZeroGracePeriodWithIntervals(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Closing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.closingGracePeriod = 0
-	c.heartbeatIntervalsSinceStateChange = 1
-	result := guard_ClosingGracePeriodExpired(ctx, c)
-	assert.True(t, result, "1 >= 0 should return true")
-}
-
 func TestGuard_HasTransactionAssembling_NoTransactions(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.transactionsByID = make(map[uuid.UUID]transaction.CoordinatorTransaction)
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build()
 	result := guard_HasTransactionAssembling(ctx, c)
 	assert.False(t, result, "no transactions should return false")
 }
 
 func TestGuard_HasTransactionAssembling_TransactionInAssemblingState(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx.GetID(): tx,
-	}
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx.EXPECT().GetID().Return(uuid.New())
+	tx.EXPECT().GetCurrentState().Return(transaction.State_Assembling)
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx).Build()
 	result := guard_HasTransactionAssembling(ctx, c)
 	assert.True(t, result, "transaction in Assembling should return true")
 }
 
 func TestGuard_HasTransactionAssembling_MultipleTransactionsInAssemblingState(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx1.GetID(): tx1,
-		tx2.GetID(): tx2,
-	}
+	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx1.EXPECT().GetID().Return(uuid.New())
+	tx1.EXPECT().GetCurrentState().Return(transaction.State_Assembling)
+
+	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx2.EXPECT().GetID().Return(uuid.New())
+	tx2.EXPECT().GetCurrentState().Return(transaction.State_Assembling)
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2).Build()
 	result := guard_HasTransactionAssembling(ctx, c)
 	assert.True(t, result, "multiple transactions in Assembling should return true")
 }
 
 func TestGuard_HasTransactionAssembling_TransactionInOtherStates(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
-	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	tx3, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx1.GetID(): tx1,
-		tx2.GetID(): tx2,
-		tx3.GetID(): tx3,
-	}
+	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx1.EXPECT().GetID().Return(uuid.New())
+	tx1.EXPECT().GetCurrentState().Return(transaction.State_Pooled)
+
+	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx2.EXPECT().GetID().Return(uuid.New())
+	tx2.EXPECT().GetCurrentState().Return(transaction.State_Ready_For_Dispatch)
+
+	tx3 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx3.EXPECT().GetID().Return(uuid.New())
+	tx3.EXPECT().GetCurrentState().Return(transaction.State_Confirmed)
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2, tx3).Build()
 	result := guard_HasTransactionAssembling(ctx, c)
 	assert.False(t, result, "transactions in other states should return false")
 }
 
 func TestGuard_HasTransactionAssembling_MixOfAssemblingAndOtherStates(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
-	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
-		tx1.GetID(): tx1,
-		tx2.GetID(): tx2,
-	}
+	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx1.EXPECT().GetID().Return(uuid.New())
+	tx1.EXPECT().GetCurrentState().Return(transaction.State_Assembling)
+
+	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx2.EXPECT().GetID().Return(uuid.New())
+	tx2.EXPECT().GetCurrentState().Return(transaction.State_Pooled)
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2).Build()
 	result := guard_HasTransactionAssembling(ctx, c)
 	assert.True(t, result, "mix with Assembling should return true")
 }

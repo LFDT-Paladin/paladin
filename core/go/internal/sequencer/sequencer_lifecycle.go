@@ -59,10 +59,6 @@ func (seq *sequencer) shutdown(ctx context.Context) {
 	seq.cancelCtx()
 	seq.coordinator.WaitForDone(ctx)
 	seq.originator.WaitForDone(ctx)
-	if seq.delegateDomainContext != nil {
-		seq.delegateDomainContext.Close()
-		seq.delegateDomainContext = nil
-	}
 	if seq.domainContext != nil {
 		seq.domainContext.Close()
 		seq.domainContext = nil
@@ -78,8 +74,7 @@ type sequencer struct {
 	cancelCtx       context.CancelFunc
 
 	// Registered with StateManager; must Close after coordinator/originator stop (see statemgr.NewDomainContext).
-	domainContext         components.DomainContext
-	delegateDomainContext components.DomainContext
+	domainContext components.DomainContext
 
 	// Sequencer attributes
 	contractAddress string
@@ -111,17 +106,8 @@ func (seq *sequencer) heartbeatLoop(ctx context.Context, heartbeatInterval time.
 
 // Return the sequencer for the requested contract address, instantiating it first if this is its first use.
 func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistence.DBTX, contractAddr pldtypes.EthAddress, domainAPI components.DomainSmartContract, tx *components.PrivateTransaction) (Sequencer, error) {
-	return sMgr.loadSequencer(ctx, dbTX, contractAddr, domainAPI, tx, true)
-}
-
-// Return the sequencer only if it is already in memory. This never instantiates a new sequencer.
-func (sMgr *sequencerManager) GetSequencer(ctx context.Context, contractAddr pldtypes.EthAddress) (Sequencer, error) {
-	return sMgr.loadSequencer(ctx, nil, contractAddr, nil, nil, false)
-}
-
-func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistence.DBTX, contractAddr pldtypes.EthAddress, domainAPI components.DomainSmartContract, tx *components.PrivateTransaction, instantiate bool) (Sequencer, error) {
 	var err error
-	if instantiate && domainAPI == nil {
+	if domainAPI == nil {
 		// Does a domain exist at this address?
 		_, err = sMgr.components.DomainManager().GetSmartContractByAddress(ctx, dbTX, contractAddr)
 		if err != nil {
@@ -140,10 +126,6 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 	}()
 
 	if sMgr.sequencers[contractAddr.String()] == nil {
-		if !instantiate {
-			return nil, nil
-		}
-
 		//swap the read lock for a write lock
 		sMgr.sequencersLock.RUnlock()
 		readlock = false
@@ -184,40 +166,43 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 			// Create a new domain context for the sequencer. This will be re-used for the lifetime of the sequencer
 			dCtx := sMgr.components.StateManager().NewDomainContext(sMgr.ctx, domainAPI.Domain(), contractAddr)
 
-			// Create a 2nd domain context for assembling remote transactions
-			delegateDomainContext := sMgr.components.StateManager().NewDomainContext(sMgr.ctx, domainAPI.Domain(), contractAddr)
-
 			seqCtx, cancelCtx := context.WithCancel(log.WithComponent(sMgr.ctx, "sequencer"))
 			seqCtx = log.WithLogField(seqCtx, "contract", contractAddr.String())
 
 			// Create a transport writer for the sequencer to communicate with sequencers on other peers
 			transportWriter := transport.NewTransportWriter(seqCtx, &contractAddr, sMgr.nodeName, sMgr.components.TransportManager(), sMgr.HandlePaladinMsg)
 
-			sMgr.engineIntegration = common.NewEngineIntegration(seqCtx, sMgr.components, sMgr.nodeName, domainAPI, dCtx, delegateDomainContext, sMgr)
+			engineIntegration := common.NewEngineIntegration(seqCtx, sMgr.components, sMgr.nodeName, domainAPI, dCtx, sMgr)
 			sequencer := &sequencer{
-				contractAddress:       contractAddr.String(),
-				transportWriter:       transportWriter,
-				cancelCtx:             cancelCtx,
-				domainContext:         dCtx,
-				delegateDomainContext: delegateDomainContext,
+				contractAddress: contractAddr.String(),
+				transportWriter: transportWriter,
+				cancelCtx:       cancelCtx,
+				domainContext:   dCtx,
 			}
 
-			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, sMgr.engineIntegration, &contractAddr, sMgr.config, sMgr.metrics)
+			selectionConfig, err := common.ResolveCoordinatorSelectionConfig(seqCtx, sMgr.nodeName, &contractAddr, domainAPI.ContractConfig())
 			if err != nil {
 				cancelCtx()
-				log.L(ctx).Errorf("failed to create sequencer originator for contract %s: %s", contractAddr.String(), err)
+				log.L(ctx).Errorf("failed to resolve coordinator selection config for contract %s: %s", contractAddr.String(), err)
 				return nil, err
 			}
-
-			// Start by populating the pool of originators with the endorsers of this transaction. At this point
-			// we don't have anything else to use to determine who our candidate coordinators are.
-			initialOriginatorNodes, err := sMgr.getOriginatorNodesFromTx(seqCtx, tx)
-			if err != nil {
+			seqOriginator := originator.NewOriginator(
+				sMgr.nodeName,
+				transportWriter,
+				engineIntegration,
+				&contractAddr,
+				sMgr.config,
+				sMgr.metrics,
+				selectionConfig,
+			)
+			if err := seqOriginator.Start(seqCtx); err != nil {
 				cancelCtx()
+				log.L(ctx).Errorf("failed to start sequencer originator for contract %s: %s", contractAddr.String(), err)
 				return nil, err
 			}
+			sequencer.originator = seqOriginator
 
-			coordinator, err := coordinator.NewCoordinator(seqCtx,
+			seqCoordinator := coordinator.NewCoordinator(
 				&contractAddr,
 				domainAPI,
 				dCtx,
@@ -226,38 +211,23 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 				nil,
 				transportWriter,
 				common.RealClock(),
-				sMgr.engineIntegration,
+				engineIntegration,
 				sMgr.syncPoints,
-				initialOriginatorNodes,
 				sMgr.config,
 				sMgr.nodeName,
 				sMgr.metrics,
-				func(contractAddress *pldtypes.EthAddress, coordinatorNode string) {
-					// A new coordinator became active or was confirmed as active. It might be us or it might be another node.
-					// Update metrics and check if we need to stop one to stay within the configured max active coordinators
-					// TODO: renable this when we've worked out a locking model that doesn't result in a deadlock
-					// sMgr.updateActiveCoordinators(sMgr.ctx)
-
-					// The originator needs to know to delegate transactions to the active coordinator
-					seqOriginator.QueueEvent(sMgr.ctx, &originator.ActiveCoordinatorUpdatedEvent{
-						BaseEvent:   common.BaseEvent{EventTime: time.Now()},
-						Coordinator: coordinatorNode,
-					})
+				func(ctx context.Context, event common.Event) {
+					seqOriginator.QueueEvent(ctx, event)
 				},
-				func(contractAddress *pldtypes.EthAddress) {
-					// A new coordinator became idle, perform any lifecycle tidy up
-					// TODO: renable this when we've worked out a locking model that doesn't result in a deadlock
-					// sMgr.updateActiveCoordinators(sMgr.ctx)
-				},
+				selectionConfig,
 			)
-			if err != nil {
+			if err := seqCoordinator.Start(seqCtx); err != nil {
 				cancelCtx()
-				log.L(ctx).Errorf("failed to create sequencer coordinator for contract %s: %s", contractAddr.String(), err)
+				log.L(ctx).Errorf("failed to start sequencer coordinator for contract %s: %s", contractAddr.String(), err)
 				return nil, err
 			}
+			sequencer.coordinator = seqCoordinator
 
-			sequencer.originator = seqOriginator
-			sequencer.coordinator = coordinator
 			sMgr.sequencers[contractAddr.String()] = sequencer
 
 			go sequencer.heartbeatLoop(seqCtx, sMgr.heartbeatInterval)
@@ -268,22 +238,6 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 
 			log.L(ctx).Debugf("sqncr      | %s | started", contractAddr.String()[0:8])
 		}
-	} else {
-		seq := sMgr.sequencers[contractAddr.String()]
-		// When the sequencer already existed, it may have been created with tx=nil (e.g. on first
-		// AssembleRequest) and have an empty originator pool. Queue an event so the coordinator
-		// updates its pool with this transaction's endorsers and, if still in State_Initial, can
-		// select an active coordinator.
-		originatorNodes, err := sMgr.getOriginatorNodesFromTx(ctx, tx)
-		if err != nil {
-			return nil, err
-		}
-		if len(originatorNodes) > 0 {
-			seq.GetCoordinator().QueueEvent(ctx, &coordinator.OriginatorNodePoolUpdateRequestedEvent{
-				BaseEvent: common.BaseEvent{EventTime: time.Now()},
-				Nodes:     originatorNodes,
-			})
-		}
 	}
 
 	if tx != nil {
@@ -291,6 +245,17 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 	}
 
 	return sMgr.sequencers[contractAddr.String()], nil
+}
+
+// Return the sequencer only if it is already in memory. This never instantiates a new sequencer.
+func (sMgr *sequencerManager) GetSequencer(ctx context.Context, contractAddr pldtypes.EthAddress) Sequencer {
+	sMgr.sequencersLock.RLock()
+	defer sMgr.sequencersLock.RUnlock()
+	s := sMgr.sequencers[contractAddr.String()]
+	if s == nil {
+		return nil
+	}
+	return s
 }
 
 func (sMgr *sequencerManager) StopAllSequencers(ctx context.Context) {
@@ -301,22 +266,6 @@ func (sMgr *sequencerManager) StopAllSequencers(ctx context.Context) {
 	}
 }
 
-func (sMgr *sequencerManager) getOriginatorNodesFromTx(ctx context.Context, tx *components.PrivateTransaction) ([]string, error) {
-	if tx == nil || tx.PreAssembly == nil || tx.PreAssembly.RequiredVerifiers == nil {
-		return nil, nil
-	}
-	log.L(ctx).Debugf("setting initial coordinator, updating originator node pool to include required verifiers of transaction %s", tx.ID.String())
-	nodes := make([]string, 0, len(tx.PreAssembly.RequiredVerifiers))
-	for _, verifier := range tx.PreAssembly.RequiredVerifiers {
-		_, node, err := pldtypes.PrivateIdentityLocator(verifier.Lookup).Validate(ctx, sMgr.nodeName, false)
-		if err != nil {
-			return nil, err
-		}
-		nodes = append(nodes, node)
-	}
-	return nodes, nil
-}
-
 // Must be called within the sequencer's write lock
 func (sMgr *sequencerManager) stopLowestPrioritySequencer(ctx context.Context) {
 	log.L(ctx).Debugf("max concurrent sequencers reached, finding lowest priority sequencer to stop")
@@ -325,7 +274,7 @@ func (sMgr *sequencerManager) stopLowestPrioritySequencer(ctx context.Context) {
 		for _, sequencer := range sMgr.sequencers {
 			coordinatorState := sequencer.coordinator.GetCurrentState()
 			switch coordinatorState {
-			case coordinator.State_Flush, coordinator.State_Closing:
+			case coordinator.State_Closing_Flush, coordinator.State_Closing:
 				// To avoid blocking the start of new sequencer that has caused us to purge the lowest priority one,
 				// we don't wait for the closing ones to complete. The aim is to allow the node to remain stable while
 				// still being responsive to new contract activity so a closing sequencer is allowed to page out in its
@@ -396,51 +345,3 @@ func (sMgr *sequencerManager) removeIdleSequencers(ctx context.Context) {
 		seq.shutdown(ctx)
 	}
 }
-
-// func (sMgr *sequencerManager) updateActiveCoordinators(ctx context.Context) {
-// 	log.L(ctx).Debugf("checking if max concurrent coordinators limit reached")
-
-// 	readlock := true
-// 	sMgr.sequencersLock.RLock()
-// 	defer func() {
-// 		if readlock {
-// 			sMgr.sequencersLock.RUnlock()
-// 		}
-// 	}()
-
-// 	activeCoordinators := 0
-// 	// If any sequencers are already closing we can wait for them to close instead of stopping a different one
-// 	for _, sequencer := range sMgr.sequencers {
-// 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | %s", sequencer.contractAddress[0:8], sequencer.coordinator.GetCurrentState())
-// 		if sequencer.coordinator.GetCurrentState() == coordinator.State_Active {
-// 			activeCoordinators++
-// 		}
-// 	}
-
-// 	sMgr.metrics.SetActiveCoordinators(activeCoordinators)
-
-// 	if activeCoordinators >= sMgr.targetActiveCoordinatorsLimit {
-// 		log.L(ctx).Debugf("%d coordinators currently active, max concurrent coordinators reached, asking the lowest priority coordinator to hand over to another node", activeCoordinators)
-// 		// Order existing sequencers by LRU time
-// 		sequencers := make([]*sequencer, 0)
-// 		for _, sequencer := range sMgr.sequencers {
-// 			sequencers = append(sequencers, sequencer)
-// 		}
-// 		sort.Slice(sequencers, func(i, j int) bool {
-// 			return sequencers[i].lastTXTime.Before(sequencers[j].lastTXTime)
-// 		})
-
-// 		// swap the read lock for a write lock
-// 		sMgr.sequencersLock.RUnlock()
-// 		readlock = false
-// 		sMgr.sequencersLock.Lock()
-// 		defer sMgr.sequencersLock.Unlock()
-
-// 		// Stop the lowest priority coordinator by emitting an event asking it to handover to another coordinator
-// 		log.L(ctx).Debugf("stopping coordinator %s", sequencers[0].contractAddress)
-// 		sequencers[0].shutdown(ctx)
-// 		delete(sMgr.sequencers, sequencers[0].contractAddress)
-// 	} else {
-// 		log.L(ctx).Debugf("%d coordinators within max coordinator limit %d", activeCoordinators, sMgr.targetActiveCoordinatorsLimit)
-// 	}
-// }
