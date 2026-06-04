@@ -65,16 +65,17 @@ Specifically we support the subset that the [ERC-712](https://github.com/ethereu
 what is required for our UTXO states.
 
 When creating a schema using an ABI definition (JSON) we:
+
 - Require a single type definition of type `tuple` (not an array, or a function definition)
 - Require the `"internalType": "struct StructName` extension of ABI is used to define all `tuple` names
-- Use the `indexed` boolean parameter on the _top level_ type to specify the `labels` 
+- Use the `indexed` boolean parameter on the _top level_ type to specify the `labels`
 
 > The schema system is pluggable such that other schema types can be plugged in, for example if a domain
 > wished to use JSON Schema with special annotations to describe the data schema and a different hashing.
 
 ### Supported types
 
-The following types can be used in structures, and also as `indexed` fields that 
+The following types can be used in structures, and also as `indexed` fields that
 are available for **searching** and **sorting**.
 
 This includes supporting 256bit integers, as most coins are implemented using
@@ -85,7 +86,7 @@ with/without `0x` prefix etc.). These are transformed to a standard format for e
 indexed filtering/sorting in the backing SQL database as follows.
 
 | Type                  | Indexed in the database as                                 |
-|-----------------------|------------------------------------------------------------|
+| --------------------- | ---------------------------------------------------------- |
 | `string`              | Text                                                       |
 | `bytes1` to `bytes32` | Bytes (encoded as hex)                                     |
 | `bytes`               | Bytes (encoded as hex)                                     |
@@ -131,24 +132,30 @@ The query language is flexible, with access to the full power of the SQL query s
 
 ```json
 {
-  "gte": [{
-    "field": "amount",
-    "value": "12300000000000000000"
-  }],
-  "or": [
-    { "in": [
-      {
-        "field": "color",
-        "values": ["red","blue"]
-      }
-    ]},
-    { "eq": [
-      {
-        "field": "isSpecial",
-        "value": true
-      }
-    ]}
+  "gte": [
+    {
+      "field": "amount",
+      "value": "12300000000000000000"
+    }
   ],
-  "sort": [ "amount ASC", ".created DESC" ]
+  "or": [
+    {
+      "in": [
+        {
+          "field": "color",
+          "values": ["red", "blue"]
+        }
+      ]
+    },
+    {
+      "eq": [
+        {
+          "field": "isSpecial",
+          "value": true
+        }
+      ]
+    }
+  ],
+  "sort": ["amount ASC", ".created DESC"]
 }
 ```
