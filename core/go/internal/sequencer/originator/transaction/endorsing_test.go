@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -75,8 +74,8 @@ func TestAction_ResendAssembleSuccessResponse_Success(t *testing.T) {
 func TestAction_ResendAssembleSuccessResponse_TransportError(t *testing.T) {
 	// Test that action_ResendAssembleSuccessResponse returns error when transport fails
 	ctx := context.Background()
-	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
-	txn, _ := builder.BuildWithMocks()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).WithMockTransportWriter()
+	txn, mocks := builder.BuildWithMocks()
 
 	// Set up required fields
 	coordinator := "coordinator@node1"
@@ -92,10 +91,8 @@ func TestAction_ResendAssembleSuccessResponse_TransportError(t *testing.T) {
 	// Set up PreAssembly
 	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
-	// Create a mock transport writer that returns an error
-	mockTransport := transport.NewMockTransportWriter(t)
 	expectedError := errors.New("transport error")
-	mockTransport.EXPECT().SendAssembleResponse(
+	mocks.TransportWriter.EXPECT().SendAssembleResponse(
 		mock.Anything,
 		txn.GetID(),
 		requestID,
@@ -104,19 +101,12 @@ func TestAction_ResendAssembleSuccessResponse_TransportError(t *testing.T) {
 		coordinator,
 	).Return(expectedError)
 
-	// Replace transport writer with mock
-	originalTransport := txn.transportWriter
-	txn.transportWriter = mockTransport
-
 	// Execute the action
 	err := action_ResendAssembleSuccessResponse(ctx, txn, nil)
 
 	// Verify error is returned
 	assert.Error(t, err)
 	assert.Equal(t, expectedError, err)
-
-	// Restore original transport
-	txn.transportWriter = originalTransport
 }
 
 func TestAction_ResendAssembleRevertResponse_Success(t *testing.T) {
@@ -162,8 +152,8 @@ func TestAction_ResendAssembleRevertResponse_Success(t *testing.T) {
 func TestAction_ResendAssembleRevertResponse_TransportError(t *testing.T) {
 	// Test that action_ResendAssembleRevertResponse returns error when transport fails
 	ctx := context.Background()
-	builder := NewTransactionBuilderForTesting(t, State_Reverted)
-	txn, _ := builder.BuildWithMocks()
+	builder := NewTransactionBuilderForTesting(t, State_Reverted).WithMockTransportWriter()
+	txn, mocks := builder.BuildWithMocks()
 
 	// Set up required fields
 	coordinator := "coordinator@node1"
@@ -180,10 +170,8 @@ func TestAction_ResendAssembleRevertResponse_TransportError(t *testing.T) {
 	// Set up PreAssembly
 	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
-	// Create a mock transport writer that returns an error
-	mockTransport := transport.NewMockTransportWriter(t)
 	expectedError := errors.New("transport error")
-	mockTransport.EXPECT().SendAssembleResponse(
+	mocks.TransportWriter.EXPECT().SendAssembleResponse(
 		mock.Anything,
 		txn.GetID(),
 		requestID,
@@ -192,19 +180,12 @@ func TestAction_ResendAssembleRevertResponse_TransportError(t *testing.T) {
 		coordinator,
 	).Return(expectedError)
 
-	// Replace transport writer with mock
-	originalTransport := txn.transportWriter
-	txn.transportWriter = mockTransport
-
 	// Execute the action
 	err := action_ResendAssembleRevertResponse(ctx, txn, nil)
 
 	// Verify error is returned
 	assert.Error(t, err)
 	assert.Equal(t, expectedError, err)
-
-	// Restore original transport
-	txn.transportWriter = originalTransport
 }
 
 func TestAction_ResendAssembleParkResponse_Success(t *testing.T) {
@@ -249,8 +230,8 @@ func TestAction_ResendAssembleParkResponse_Success(t *testing.T) {
 func TestAction_ResendAssembleParkResponse_TransportError(t *testing.T) {
 	// Test that action_ResendAssembleParkResponse returns error when transport fails
 	ctx := context.Background()
-	builder := NewTransactionBuilderForTesting(t, State_Parked)
-	txn, _ := builder.BuildWithMocks()
+	builder := NewTransactionBuilderForTesting(t, State_Parked).WithMockTransportWriter()
+	txn, mocks := builder.BuildWithMocks()
 
 	// Set up required fields
 	coordinator := "coordinator@node1"
@@ -266,10 +247,8 @@ func TestAction_ResendAssembleParkResponse_TransportError(t *testing.T) {
 	// Set up PreAssembly
 	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
-	// Create a mock transport writer that returns an error
-	mockTransport := transport.NewMockTransportWriter(t)
 	expectedError := errors.New("transport error")
-	mockTransport.EXPECT().SendAssembleResponse(
+	mocks.TransportWriter.EXPECT().SendAssembleResponse(
 		mock.Anything,
 		txn.GetID(),
 		requestID,
@@ -278,19 +257,12 @@ func TestAction_ResendAssembleParkResponse_TransportError(t *testing.T) {
 		coordinator,
 	).Return(expectedError)
 
-	// Replace transport writer with mock
-	originalTransport := txn.transportWriter
-	txn.transportWriter = mockTransport
-
 	// Execute the action
 	err := action_ResendAssembleParkResponse(ctx, txn, nil)
 
 	// Verify error is returned
 	assert.Error(t, err)
 	assert.Equal(t, expectedError, err)
-
-	// Restore original transport
-	txn.transportWriter = originalTransport
 }
 
 func TestGuard_AssembleRequestMatchesPreviousResponse_Matches(t *testing.T) {
@@ -368,4 +340,3 @@ func TestGuard_AssembleRequestMatchesPreviousResponse_OneNilUUID(t *testing.T) {
 
 	assert.False(t, matches, "Should return false when one request ID is nil and the other is not")
 }
-

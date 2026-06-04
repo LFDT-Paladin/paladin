@@ -26,7 +26,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	mock "github.com/stretchr/testify/mock"
 )
 
 // This is the subset of the StateDistributer interface from "github.com/LFDT-Paladin/paladin/core/internal/statedistribution"
@@ -62,33 +61,6 @@ func NewEngineIntegration(ctx context.Context, allComponents components.AllCompo
 		nodeName:            nodeName,
 	}
 
-}
-
-// mockery doesn't really work well when used in code outside of _test.go files and we need these test utils to be usable by other packages so can't put them into _test.go files
-// so we have to define the mock manually
-type FakeEngineIntegrationForTesting struct {
-	mock.Mock
-}
-
-func (f *FakeEngineIntegrationForTesting) WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
-	return nil
-}
-
-func (f *FakeEngineIntegrationForTesting) MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
-	return nil, nil
-}
-
-func (f *FakeEngineIntegrationForTesting) GetBlockHeight(ctx context.Context) (int64, error) {
-	return 0, nil
-}
-
-func (f *FakeEngineIntegrationForTesting) AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) (*components.TransactionPostAssembly, error) {
-	ret := f.Called(ctx, transactionID, preAssembly, stateLocksJSON, blockHeight)
-	var r0 *components.TransactionPostAssembly
-	if ret.Get(0) != nil {
-		r0 = ret.Get(0).(*components.TransactionPostAssembly)
-	}
-	return r0, ret.Error(1)
 }
 
 type engineIntegration struct {

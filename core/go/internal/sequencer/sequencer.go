@@ -46,20 +46,19 @@ import (
 )
 
 type sequencerManager struct {
-	ctx                           context.Context
-	cancelCtx                     func()
-	config                        *pldconf.SequencerConfig
-	components                    components.AllComponents
-	nodeName                      string
-	sequencersLock                sync.RWMutex
-	syncPoints                    syncpoints.SyncPoints
-	metrics                       metrics.DistributedSequencerMetrics
-	sequencers                    map[string]*sequencer
-	blockHeight                   int64
-	blockHeightMutex              sync.RWMutex
-	heartbeatInterval             time.Duration
-	targetActiveCoordinatorsLimit int // Max number of contracts this node aims to concurrently act as coordinator for. It could still efficiently respond to dispatch requests from other coordinators because the originator will remain in memory.
-	targetActiveSequencersLimit   int // Max number of sequencers this node aims to retain in memory concurrently. Hitting this limit will cause an attempt to remove the lowest priority sequencer from memory, and hence require it to be recreated from persisted state if it is needed in the future
+	ctx                         context.Context
+	cancelCtx                   func()
+	config                      *pldconf.SequencerConfig
+	components                  components.AllComponents
+	nodeName                    string
+	sequencersLock              sync.RWMutex
+	syncPoints                  syncpoints.SyncPoints
+	metrics                     metrics.DistributedSequencerMetrics
+	sequencers                  map[string]*sequencer
+	blockHeight                 int64
+	blockHeightMutex            sync.RWMutex
+	heartbeatInterval           time.Duration
+	targetActiveSequencersLimit int // Max number of sequencers this node aims to retain in memory concurrently. Hitting this limit will cause an attempt to remove the lowest priority sequencer from memory, and hence require it to be recreated from persisted state if it is needed in the future
 }
 
 // Init implements Engine.
@@ -107,13 +106,12 @@ func NewDistributedSequencerManager(ctx context.Context, config *pldconf.Sequenc
 
 	dsmCtx, dsmCtxCancel := context.WithCancel(log.WithComponent(ctx, "sequencer_manager"))
 	sMgr := &sequencerManager{
-		ctx:                           dsmCtx,
-		cancelCtx:                     dsmCtxCancel,
-		config:                        config,
-		sequencers:                    make(map[string]*sequencer),
-		heartbeatInterval:             confutil.DurationMin(config.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
-		targetActiveCoordinatorsLimit: confutil.IntMin(config.TargetActiveCoordinators, pldconf.SequencerMinimum.TargetActiveCoordinators, *pldconf.SequencerDefaults.TargetActiveCoordinators),
-		targetActiveSequencersLimit:   confutil.IntMin(config.TargetActiveSequencers, pldconf.SequencerMinimum.TargetActiveSequencers, *pldconf.SequencerDefaults.TargetActiveSequencers),
+		ctx:                         dsmCtx,
+		cancelCtx:                   dsmCtxCancel,
+		config:                      config,
+		sequencers:                  make(map[string]*sequencer),
+		heartbeatInterval:           confutil.DurationMin(config.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
+		targetActiveSequencersLimit: confutil.IntMin(config.TargetActiveSequencers, pldconf.SequencerMinimum.TargetActiveSequencers, *pldconf.SequencerDefaults.TargetActiveSequencers),
 	}
 	return sMgr
 }
@@ -533,8 +531,25 @@ func (sMgr *sequencerManager) handleTx(ctx context.Context, dbTX persistence.DBT
 func (sMgr *sequencerManager) OnNewBlockHeight(ctx context.Context, blockHeight int64) {
 	log.L(ctx).Tracef("new block height %d", blockHeight)
 	sMgr.blockHeightMutex.Lock()
-	defer sMgr.blockHeightMutex.Unlock()
 	sMgr.blockHeight = blockHeight
+	sMgr.blockHeightMutex.Unlock()
+
+	go sMgr.notifySequencersNewBlock(ctx, blockHeight)
+}
+
+func (sMgr *sequencerManager) notifySequencersNewBlock(ctx context.Context, blockHeight int64) {
+	sMgr.sequencersLock.RLock()
+	defer sMgr.sequencersLock.RUnlock()
+	event := &common.NewBlockEvent{
+		BaseEvent: common.BaseEvent{
+			EventTime: time.Now(),
+		},
+		BlockHeight: uint64(blockHeight),
+	}
+	for _, seq := range sMgr.sequencers {
+		seq.coordinator.QueueEvent(ctx, event)
+		seq.originator.QueueEvent(ctx, event)
+	}
 }
 
 func (sMgr *sequencerManager) GetBlockHeight() int64 {
@@ -561,14 +576,9 @@ func (sMgr *sequencerManager) GetTxStatus(ctx context.Context, domainAddress str
 func (sMgr *sequencerManager) HandleTransactionCollected(ctx context.Context, signerAddress string, contractAddress string, txID uuid.UUID) error {
 	log.L(sMgr.ctx).Tracef("HandleTransactionCollected %s %s %s", signerAddress, contractAddress, txID.String())
 
-	// Get the sequencer for the signer address
-	sequencer, err := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(contractAddress))
-	if err != nil {
-		return err
-	}
-
 	// Public TX manager doesn't distinguish between new contracts (for which a sequencer doesn't yet exist) and a transaction,
 	// so accept the fact that there may not be a sequencer for this public TX submission
+	sequencer := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(contractAddress))
 	if sequencer != nil {
 		collectedEvent := &coordinatorTx.CollectedEvent{
 			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
@@ -590,14 +600,9 @@ func (sMgr *sequencerManager) HandleTransactionCollected(ctx context.Context, si
 func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uint64, contractAddress string, txID uuid.UUID) error {
 	log.L(sMgr.ctx).Tracef("HandleNonceAssigned %d %s %s", nonce, contractAddress, txID.String())
 
-	// Get the sequencer for the signer address
-	sequencer, err := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(contractAddress))
-	if err != nil {
-		return err
-	}
-
 	// Public TX manager doesn't distinguish between new contracts (for which a sequencer doesn't yet exist) and a transaction,
 	// so accept the fact that there may not be a sequencer for this public TX submission
+	sequencer := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(contractAddress))
 	if sequencer != nil {
 		coordinatorNonceAllocatedEvent := &coordinatorTx.NonceAllocatedEvent{
 			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
@@ -619,13 +624,9 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 
 	deploy := tx.To == nil
 	if !deploy {
-		sequencer, err := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(tx.TransactionContractAddress))
-		if err != nil {
-			return err
-		}
-
 		// Public TX manager doesn't distinguish between new contracts (for which a sequencer doesn't yet exist) and a transaction,
 		// so accept the fact that there may not be a sequencer for this public TX submission
+		sequencer := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(tx.TransactionContractAddress))
 		if sequencer != nil {
 			coordinatorSubmittedEvent := &coordinatorTx.SubmittedEvent{
 				BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
@@ -677,12 +678,8 @@ func (sMgr *sequencerManager) handleTransactionConfirmedSuccess(ctx context.Cont
 	// Invoke of an existing contract.
 	contractAddress := confirmedTxn.PSC.Address()
 
-	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
-	if err != nil {
-		return err
-	}
-
 	// If we don't have a loaded sequencer already then a newly loaded one will not know about this transaction.
+	sequencer := sMgr.GetSequencer(ctx, contractAddress)
 	if sequencer == nil {
 		return nil
 	}
@@ -697,18 +694,16 @@ func (sMgr *sequencerManager) handleTransactionConfirmedSuccess(ctx context.Cont
 			},
 			TransactionID: confirmedTxn.TransactionID,
 		},
-		Hash:  confirmedTxn.OnChain.TransactionHash,
-		Nonce: nonce,
+		Hash:    confirmedTxn.OnChain.TransactionHash,
+		Nonce:   nonce,
+		OnChain: confirmedTxn.OnChain,
 	})
 	return nil
 }
 
 func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation, nonce *pldtypes.HexUint64) error {
-	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
-	if err != nil {
-		return err
-	}
 	// If we don't have a loaded sequencer already then a newly loaded one will not know about this transaction
+	sequencer := sMgr.GetSequencer(ctx, contractAddress)
 	if sequencer == nil {
 		return nil
 	}
@@ -734,11 +729,7 @@ func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx conte
 func (sMgr *sequencerManager) HandleChainedTransactionOutcome(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, receiptType components.ReceiptType, failureMessage string, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation) {
 	log.L(ctx).Infof("HandleChainedTransactionOutcome txID=%s contract=%s receiptType=%d", txID, contractAddress, receiptType)
 
-	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
-	if err != nil {
-		log.L(ctx).Errorf("HandleChainedTransactionOutcome: error getting sequencer for %s: %s", contractAddress, err)
-		return
-	}
+	sequencer := sMgr.GetSequencer(ctx, contractAddress)
 	if sequencer == nil {
 		log.L(ctx).Warnf("HandleChainedTransactionOutcome: no loaded sequencer for contract %s txID=%s", contractAddress, txID)
 		return
@@ -754,6 +745,7 @@ func (sMgr *sequencerManager) HandleChainedTransactionOutcome(ctx context.Contex
 				},
 				TransactionID: txID,
 			},
+			OnChain: onChain,
 		})
 	case components.RT_FailedOnChainWithRevertData:
 		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedRevertedEvent (on-chain) for parent txID=%s on contract=%s hasRevertData=%t", txID, contractAddress, len(revertData) > 0)

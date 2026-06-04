@@ -89,16 +89,17 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 		return err
 	}
 
-	// Add a lock for every output we create
+	// Record private state visibility after AddMinter succeeds
+	t.stateVisibilityTracker.RecordAssemblyOutput(ctx, postAssembly.OutputStates, postAssembly.OutputStatesPotential)
+
+	// Add a lock for every output we create.
 	createLocks, err := t.engineIntegration.MapPotentialStates(ctx, postAssembly.OutputStatesPotential, t.pt)
 	if err != nil {
 		return err
 	}
-
-	// Add a lock for every output we create
 	t.grapher.LockMintsOnCreate(ctx, createLocks, postAssembly.OutputStates, t.pt.ID)
 
-	// Add a lock for every read state and spent state to prevent other transactions using them
+	// Add a lock for every read state and spent state to prevent other transactions using them.
 	t.grapher.LockMintsOnReadAndSpend(ctx, postAssembly.ReadStates, postAssembly.InputStates, t.pt.ID)
 
 	return nil
@@ -114,7 +115,7 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	// and nudge the request every requestTimeout event to implement the short retry.
 	// The state machine will deal with the longer state timeout via timeout guards.
 	t.pendingAssembleRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		grapherStatesAndLocks, err := t.grapher.ExportStatesAndLocks(ctx)
+		grapherStatesAndLocks, err := t.grapher.ExportStatesAndLocks(ctx, t.originatorNode)
 		if err != nil {
 			log.L(ctx).Errorf("failed to export grapher state locks: %s", err)
 			return err

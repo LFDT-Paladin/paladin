@@ -29,12 +29,14 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator"
 	coordTransaction "github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator"
 	originatorTransaction "github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatormocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/originatormocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencermetricsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -57,10 +59,10 @@ type transportClientTestMocks struct {
 	domainAPI       *componentsmocks.DomainSmartContract
 	domain          *componentsmocks.Domain
 	domainContext   *componentsmocks.DomainContext
-	transportWriter *transport.MockTransportWriter
-	originator      *originator.MockOriginator
-	coordinator     *coordinator.MockCoordinator
-	metrics         *metrics.MockDistributedSequencerMetrics
+	transportWriter *sequencertransportmocks.TransportWriter
+	originator      *originatormocks.Originator
+	coordinator     *coordinatormocks.Coordinator
+	metrics         *sequencermetricsmocks.DistributedSequencerMetrics
 }
 
 func newTransportClientTestMocks(t *testing.T) *transportClientTestMocks {
@@ -74,10 +76,10 @@ func newTransportClientTestMocks(t *testing.T) *transportClientTestMocks {
 		domainAPI:       componentsmocks.NewDomainSmartContract(t),
 		domain:          componentsmocks.NewDomain(t),
 		domainContext:   componentsmocks.NewDomainContext(t),
-		transportWriter: transport.NewMockTransportWriter(t),
-		originator:      originator.NewMockOriginator(t),
-		coordinator:     coordinator.NewMockCoordinator(t),
-		metrics:         metrics.NewMockDistributedSequencerMetrics(t),
+		transportWriter: sequencertransportmocks.NewTransportWriter(t),
+		originator:      originatormocks.NewOriginator(t),
+		coordinator:     coordinatormocks.NewCoordinator(t),
+		metrics:         sequencermetricsmocks.NewDistributedSequencerMetrics(t),
 	}
 }
 
@@ -86,15 +88,14 @@ func newSequencerManagerForTransportClientTesting(t *testing.T, mocks *transport
 	config := &pldconf.SequencerConfig{}
 
 	sm := &sequencerManager{
-		ctx:                           ctx,
-		config:                        config,
-		components:                    mocks.components,
-		nodeName:                      "test-node",
-		sequencersLock:                sync.RWMutex{},
-		sequencers:                    make(map[string]*sequencer),
-		metrics:                       mocks.metrics,
-		targetActiveCoordinatorsLimit: 2,
-		targetActiveSequencersLimit:   2,
+		ctx:                         ctx,
+		config:                      config,
+		components:                  mocks.components,
+		nodeName:                    "test-node",
+		sequencersLock:              sync.RWMutex{},
+		sequencers:                  make(map[string]*sequencer),
+		metrics:                     mocks.metrics,
+		targetActiveSequencersLimit: 2,
 	}
 
 	return sm
@@ -132,9 +133,8 @@ func TestHandlePaladinMsg_Routing(t *testing.T) {
 		{"AssembleError", transport.MessageType_AssembleError},
 		{"CoordinatorHeartbeatNotification", transport.MessageType_CoordinatorHeartbeatNotification},
 		{"DelegationRequest", transport.MessageType_DelegationRequest},
-		{"DelegationRequestAcknowledgment", transport.MessageType_DelegationRequestAcknowledgment},
+		{"DelegationResponse", transport.MessageType_DelegationResponse},
 		{"Dispatched", transport.MessageType_Dispatched},
-		{"HandoverRequest", transport.MessageType_HandoverRequest},
 		{"PreDispatchRequest", transport.MessageType_PreDispatchRequest},
 		{"PreDispatchResponse", transport.MessageType_PreDispatchResponse},
 		{"EndorsementRequest", transport.MessageType_EndorsementRequest},
@@ -198,12 +198,7 @@ func TestHandleAssembleRequest_Success(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -265,7 +260,7 @@ func TestHandleAssembleRequest_InvalidContractAddress(t *testing.T) {
 	sm.handleAssembleRequest(ctx, message)
 }
 
-func TestHandleAssembleRequest_LoadSequencerError(t *testing.T) {
+func TestHandleAssembleRequest_SequencerNotLoaded(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
@@ -293,13 +288,7 @@ func TestHandleAssembleRequest_LoadSequencerError(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will fail
-	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, errors.New("not found")).Once()
-
-	// Should not panic
+	// GetSequencer is used and returns nil since no sequencer is in memory - should not panic
 	sm.handleAssembleRequest(ctx, message)
 }
 
@@ -334,12 +323,7 @@ func TestHandleAssembleResponse_Success(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called, so we need to mock its dependencies
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -384,12 +368,7 @@ func TestHandleAssembleResponse_Revert(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -426,12 +405,7 @@ func TestHandleAssembleError_Success(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -497,43 +471,6 @@ func TestHandleDelegationRequest_Success(t *testing.T) {
 	mocks.coordinator.AssertExpectations(t)
 }
 
-func TestHandleHandoverRequest_Success(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-
-	handoverRequest := &engineProto.HandoverRequest{
-		ContractAddress: contractAddr.String(),
-	}
-	payload, _ := proto.Marshal(handoverRequest)
-
-	message := &components.ReceivedMessage{
-		FromNode:    "test-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_HandoverRequest,
-		Payload:     payload,
-	}
-
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
-	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
-	sm.sequencers[contractAddr.String()] = seq
-
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
-		event, ok := e.(*coordinator.HandoverRequestEvent)
-		return ok && event.Requester == "test-node"
-	})).Once()
-
-	sm.handleHandoverRequest(ctx, message)
-
-	mocks.coordinator.AssertExpectations(t)
-}
-
 func TestHandleNonceAssigned_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -555,12 +492,7 @@ func TestHandleNonceAssigned_Success(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -596,12 +528,7 @@ func TestHandleTransactionSubmitted_Success(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -636,12 +563,7 @@ func TestHandleTransactionConfirmed_Success(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -681,12 +603,7 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -722,11 +639,7 @@ func TestHandleTransactionConfirmed_RevertedWhenWillRetryTrueAndNoRevertReason(t
 		Payload:     payload,
 	}
 
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -764,12 +677,7 @@ func TestHandleDispatchedEvent_Success(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -861,6 +769,12 @@ func TestHandleCoordinatorHeartbeatNotification_SequencerNotLoaded(t *testing.T)
 		Payload:     payload,
 	}
 
+	// LoadSequencer is called; returning an error causes it to return (nil, nil)
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, errors.New("not found")).Once()
+
 	sm.handleCoordinatorHeartbeatNotification(ctx, message)
 	assert.Empty(t, sm.sequencers)
 }
@@ -893,12 +807,7 @@ func TestHandlePreDispatchRequest_Success(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -938,12 +847,7 @@ func TestHandlePreDispatchResponse_Success(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -957,13 +861,13 @@ func TestHandlePreDispatchResponse_Success(t *testing.T) {
 	mocks.coordinator.AssertExpectations(t)
 }
 
-func TestHandleDelegationRequestAcknowledgment_Success(t *testing.T) {
+func TestHandleDelegationResponse_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 
 	txID := uuid.New()
-	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
+	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
 		TransactionIds: []string{txID.String()},
 	}
 	payload, _ := proto.Marshal(delegationRequestAcknowledgment)
@@ -971,15 +875,15 @@ func TestHandleDelegationRequestAcknowledgment_Success(t *testing.T) {
 	message := &components.ReceivedMessage{
 		FromNode:    "test-node",
 		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationRequestAcknowledgment,
+		MessageType: transport.MessageType_DelegationResponse,
 		Payload:     payload,
 	}
 
 	// Should not panic - this handler just logs
-	sm.handleDelegationRequestAcknowledgment(ctx, message)
+	sm.handleDelegationResponse(ctx, message)
 }
 
-func TestHandleDelegationRequestAcknowledgment_UnmarshalError(t *testing.T) {
+func TestHandleDelegationResponse_UnmarshalError(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
@@ -987,22 +891,22 @@ func TestHandleDelegationRequestAcknowledgment_UnmarshalError(t *testing.T) {
 	message := &components.ReceivedMessage{
 		FromNode:    "test-node",
 		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationRequestAcknowledgment,
+		MessageType: transport.MessageType_DelegationResponse,
 		Payload:     []byte("invalid-proto"),
 	}
 
 	// Should not panic
-	sm.handleDelegationRequestAcknowledgment(ctx, message)
+	sm.handleDelegationResponse(ctx, message)
 }
 
-func TestHandleDelegationRequestAcknowledgment_MaxInFlightRejection(t *testing.T) {
+func TestHandleDelegationResponse_MaxInFlightRejection(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 
 	txID1 := uuid.New().String()
 	txID2 := uuid.New().String()
-	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
+	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
 		TransactionIds: []string{txID1, txID2},
 		Errors: []int64{
 			int64(coordinator.DelegationAcknowledgementError_MaxInflightTransactions),
@@ -1015,22 +919,22 @@ func TestHandleDelegationRequestAcknowledgment_MaxInFlightRejection(t *testing.T
 	message := &components.ReceivedMessage{
 		FromNode:    "test-node",
 		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationRequestAcknowledgment,
+		MessageType: transport.MessageType_DelegationResponse,
 		Payload:     payload,
 	}
 
 	// Should not panic; handler logs max in flight rejections
-	sm.handleDelegationRequestAcknowledgment(ctx, message)
+	sm.handleDelegationResponse(ctx, message)
 }
 
-func TestHandleDelegationRequestAcknowledgment_UnknownError(t *testing.T) {
+func TestHandleDelegationResponse_UnknownError(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 
 	txID := uuid.New().String()
 	unknownErrorCode := int64(99)
-	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
+	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
 		TransactionIds: []string{txID},
 		Errors:         []int64{unknownErrorCode},
 	}
@@ -1040,14 +944,14 @@ func TestHandleDelegationRequestAcknowledgment_UnknownError(t *testing.T) {
 	message := &components.ReceivedMessage{
 		FromNode:    "test-node",
 		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationRequestAcknowledgment,
+		MessageType: transport.MessageType_DelegationResponse,
 		Payload:     payload,
 	}
 
-	sm.handleDelegationRequestAcknowledgment(ctx, message)
+	sm.handleDelegationResponse(ctx, message)
 }
 
-func TestHandleDelegationRequestAcknowledgment_MixedErrors(t *testing.T) {
+func TestHandleDelegationResponse_MixedErrors(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
@@ -1055,7 +959,7 @@ func TestHandleDelegationRequestAcknowledgment_MixedErrors(t *testing.T) {
 	txIDAccepted := uuid.New().String()
 	txIDMaxInFlight := uuid.New().String()
 	txIDUnknown := uuid.New().String()
-	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
+	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
 		TransactionIds: []string{txIDAccepted, txIDMaxInFlight, txIDUnknown},
 		Errors: []int64{
 			int64(coordinator.DelegationAcknowledgementError_None),
@@ -1069,19 +973,19 @@ func TestHandleDelegationRequestAcknowledgment_MixedErrors(t *testing.T) {
 	message := &components.ReceivedMessage{
 		FromNode:    "test-node",
 		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationRequestAcknowledgment,
+		MessageType: transport.MessageType_DelegationResponse,
 		Payload:     payload,
 	}
 
-	sm.handleDelegationRequestAcknowledgment(ctx, message)
+	sm.handleDelegationResponse(ctx, message)
 }
 
-func TestHandleDelegationRequestAcknowledgment_Empty(t *testing.T) {
+func TestHandleDelegationResponse_Empty(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 
-	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
+	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
 		TransactionIds: []string{},
 		Errors:         []int64{},
 	}
@@ -1091,11 +995,11 @@ func TestHandleDelegationRequestAcknowledgment_Empty(t *testing.T) {
 	message := &components.ReceivedMessage{
 		FromNode:    "test-node",
 		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationRequestAcknowledgment,
+		MessageType: transport.MessageType_DelegationResponse,
 		Payload:     payload,
 	}
 
-	sm.handleDelegationRequestAcknowledgment(ctx, message)
+	sm.handleDelegationResponse(ctx, message)
 }
 
 func TestHandleEndorsementRequest_Success_Sign(t *testing.T) {
@@ -1204,11 +1108,6 @@ func TestHandleEndorsementRequest_Success_Sign(t *testing.T) {
 
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
-
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
-		event, ok := e.(*coordinator.EndorsementRequestedEvent)
-		return ok && event.From == "coordinator-node"
-	})).Once()
 
 	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
 	mocks.transportWriter.EXPECT().SendEndorsementResponse(ctx, txID, idempotencyKey, contractAddr.String(), mock.Anything, endorsementResult, "", "endorsement1", party, "coordinator-node").Return(nil).Once()
@@ -1326,8 +1225,6 @@ func TestHandleEndorsementRequest_Success_Revert(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
-
 	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
 	mocks.transportWriter.EXPECT().SendEndorsementResponse(ctx, txID, idempotencyKey, contractAddr.String(), mock.Anything, endorsementResult, revertReason, "endorsement1", party, "coordinator-node").Return(nil).Once()
 
@@ -1441,8 +1338,6 @@ func TestHandleEndorsementRequest_Success_EndorserSubmit(t *testing.T) {
 
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
-
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
 
 	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
 	mocks.transportWriter.EXPECT().SendEndorsementResponse(ctx, txID, idempotencyKey, contractAddr.String(), mock.MatchedBy(func(att *prototk.AttestationResult) bool {
@@ -2103,8 +1998,6 @@ func TestHandleEndorsementRequest_SendEndorsementResponseError(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
-
 	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
 	mocks.transportWriter.EXPECT().SendEndorsementResponse(ctx, txID, idempotencyKey, contractAddr.String(), mock.Anything, endorsementResult, "", "endorsement1", party, "coordinator-node").Return(errors.New("send failed")).Once()
 
@@ -2252,12 +2145,7 @@ func TestHandleEndorsementResponse_Success(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -2298,12 +2186,7 @@ func TestHandleEndorsementResponse_Revert(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
@@ -2359,7 +2242,7 @@ func TestHandleEndorsementResponse_InvalidContractAddress(t *testing.T) {
 	sm.handleEndorsementResponse(ctx, message)
 }
 
-func TestHandleEndorsementResponse_LoadSequencerError(t *testing.T) {
+func TestHandleEndorsementResponse_SequencerNotLoaded(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
@@ -2382,13 +2265,7 @@ func TestHandleEndorsementResponse_LoadSequencerError(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will fail
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
-	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, errors.New("not found")).Once()
-
-	// Should not panic
+	// GetSequencer is used and returns nil since no sequencer is in memory - should not panic
 	sm.handleEndorsementResponse(ctx, message)
 }
 
@@ -2420,12 +2297,7 @@ func TestHandleEndorsementResponse_EndorsementUnmarshalError(t *testing.T) {
 		Payload:     payload,
 	}
 
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
+	// GetSequencer is used - sequencer must already be in memory
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 

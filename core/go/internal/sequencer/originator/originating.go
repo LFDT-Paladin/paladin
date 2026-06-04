@@ -61,21 +61,7 @@ func (o *originator) addToTransactions(
 }
 
 func sendDelegationRequest(ctx context.Context, o *originator) error {
-	if o.activeCoordinatorNode == "" {
-		// the delegation timeout loop ensures that this request will be retried when we have an active coordinator
-		log.L(ctx).Debugf("no active coordinator set yet; deferring delegation for contract %s", o.contractAddress.String())
-		return nil
-	}
-
-	// Re-delegate all transactions. Every delegation request must include all transaction, sent in the order they were created
-	// on the originating node.
-
-	// Note: we could track assemble errors here (not reverts, but domain bugs that prevent successful assembly) and penalise
-	// transactions who assemble at error time by putting them to the back of the list. The coordinator already gives a limited
-	// number of retries in such scenarios so the current worst case is a slightly delay before we give up on the failing TX anyway
-	// so for now we just re-delegate all transactions in their original order.
-
-	// Update internal TX state machines before sending delegation requests to avoid race condition
+	// Re-delegate all transactions in the order they were created on the originating node.
 	transactionsToDelegate := make([]*components.PrivateTransaction, 0)
 	for _, txn := range o.transactionsOrdered {
 		transactionsToDelegate = append(transactionsToDelegate, txn.GetPrivateTransaction())
@@ -83,7 +69,7 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 			BaseEvent: transaction.BaseEvent{
 				TransactionID: txn.GetID(),
 			},
-			Coordinator: o.activeCoordinatorNode,
+			Coordinator: o.currentActiveCoordinator,
 		})
 		if err != nil {
 			msg := fmt.Errorf("error handling delegated event for transaction %s: %v", txn.GetID(), err)
@@ -93,45 +79,95 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 
 	log.L(ctx).Debugf("sending delegation request for %d transactions", len(o.transactionsOrdered))
 
-	// Don't send delegation request before internal TX state machine has been updated
-	return o.transportWriter.SendDelegationRequest(ctx, o.activeCoordinatorNode, transactionsToDelegate, o.currentBlockHeight)
+	return o.transportWriter.SendDelegationRequest(ctx, o.currentActiveCoordinator, transactionsToDelegate, o.currentBlockHeight)
 }
 
 func action_SendDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
 	return sendDelegationRequest(ctx, o)
 }
 
-func guard_HasDroppedTransactions(ctx context.Context, o *originator) bool {
-	// Are there any transactions that the current active coordinator seems to have dropped (as per its latest heartbeat)?
-	// NOTE: "dropped" is not a state in the transaction state machine, but rather a description of the originator's view of the world
-	// based on the heartbeats it receives from coordinators.
-	for _, txn := range o.getTransactionsNotInStates([]transaction.State{transaction.State_Final, transaction.State_Confirmed, transaction.State_Reverted}) {
-		// If any one of the transactions has been dropped, re-delegate everything
-		if !transactionFoundInHeartbeat(o, txn) {
-			log.L(ctx).Debugf("transaction %s is in Delegated state but not found in latest coordinator snapshot, assuming dropped", txn.GetID())
-			return true
-		}
+// resetFailoverIndex sets failoverIndex so the next failover walk step targets the
+// highest-priority candidate that is not the current active coordinator. Called whenever
+// currentActiveCoordinator changes via an external signal (heartbeat switch, rejection redirect,
+// priority recalculation). Must NOT be called from action_FailoverToNextCoordinator.
+//
+// No-op unless the priority list has more than one entry (STATIC/SENDER modes and single-node
+// ENDORSER pools cannot failover to a different coordinator).
+func (o *originator) resetFailoverIndex() {
+	if len(o.coordinatorPriorityList) <= 1 {
+		return
 	}
-	return false
+	if o.currentActiveCoordinator == o.coordinatorPriorityList[0] {
+		o.failoverIndex = 1
+	} else {
+		o.failoverIndex = 0
+	}
 }
 
-func transactionFoundInHeartbeat(o *originator, txn transaction.OriginatorTransaction) bool {
-	for _, dispatchedTransaction := range o.latestCoordinatorSnapshot.DispatchedTransactions {
-		if dispatchedTransaction.ID == txn.GetID() {
-			return true
-		}
+// action_FailoverToNextCoordinator advances currentActiveCoordinator to the next candidate in
+// the priority list, increments failoverIndex (wrapping), resets the liveness counter, then
+// delegates. If there is no alternative coordinator to failover to (single endorser or STATE/SENDER mode)
+// this becomes the equivalent of a redelegate.
+func action_FailoverToNextCoordinator(ctx context.Context, o *originator, _ common.Event) error {
+	if len(o.coordinatorPriorityList) > 1 {
+		prev := o.currentActiveCoordinator
+		o.currentActiveCoordinator = o.coordinatorPriorityList[o.failoverIndex]
+		o.failoverIndex = (o.failoverIndex + 1) % len(o.coordinatorPriorityList)
+		o.heartbeatIntervalsSinceLastReceive = 0
+		log.L(ctx).Debugf("originator failing over from %s to %s (failoverIndex now %d)",
+			prev, o.currentActiveCoordinator, o.failoverIndex)
 	}
-	for _, dispatchedTransaction := range o.latestCoordinatorSnapshot.PooledTransactions {
-		if dispatchedTransaction.ID == txn.GetID() {
-			return true
-		}
+	return sendDelegationRequest(ctx, o)
+}
+
+// action_ResetToTopPriorityCoordinator sets currentActiveCoordinator to the highest-priority
+// candidate and recalibrates failoverIndex. Used when entering Idle and on epoch boundaries
+// while Idle to ensure the next Sending entry starts from a fresh, highest-priority delegation
+// target rather than a potentially stale one.
+//
+// No-op unless the priority list has more than one entry.
+func action_ResetToTopPriorityCoordinator(ctx context.Context, o *originator, _ common.Event) error {
+	if len(o.coordinatorPriorityList) <= 1 {
+		return nil
 	}
-	for _, dispatchedTransaction := range o.latestCoordinatorSnapshot.ConfirmedTransactions {
-		if dispatchedTransaction.ID == txn.GetID() {
-			return true
-		}
+	prev := o.currentActiveCoordinator
+	o.currentActiveCoordinator = o.coordinatorPriorityList[0]
+	o.failoverIndex = 1
+	if prev != o.currentActiveCoordinator {
+		log.L(ctx).Debugf("originator reset active coordinator from %s to top priority %s",
+			prev, o.currentActiveCoordinator)
 	}
-	return false
+	return nil
+}
+
+func guard_InactiveGracePeriodExceeded(_ context.Context, o *originator) bool {
+	return o.heartbeatIntervalsSinceLastReceive >= o.inactiveGracePeriod
+}
+
+// validator_IsFromCurrentCoordinator returns true when the heartbeat sender is the currently
+// tracked active coordinator. Does not check liveness; used where identity alone is sufficient.
+func validator_IsFromCurrentCoordinator(_ context.Context, o *originator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	return e.FromNode == o.currentActiveCoordinator, nil
+}
+
+// validator_IsSenderHigherPriorityThanCurrentCoordinator returns true when the heartbeat sender
+// has a lower priority index (higher priority) than the currently tracked active coordinator.
+func validator_IsSenderHigherPriorityThanCurrentCoordinator(_ context.Context, o *originator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	return common.IsHigherPriority(o.coordinatorPriorityList, e.FromNode, o.currentActiveCoordinator), nil
+}
+
+// validator_HasDroppedTransactions returns true when the heartbeat snapshot is missing at least one
+// transaction that we believe is still in-flight, indicating the coordinator has dropped it.
+func validator_HasDroppedTransactions(ctx context.Context, o *originator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	return o.hasDroppedTransactions(ctx, e.CoordinatorSnapshot), nil
+}
+
+func action_ResetHeartbeatIntervalsSinceLastReceive(_ context.Context, o *originator, _ common.Event) error {
+	o.heartbeatIntervalsSinceLastReceive = 0
+	return nil
 }
 
 // Validate that the transaction doesn't already exist. When we resume transactions from the DB, e.g. after a restart or a timeout, we may already be processing
@@ -156,7 +192,7 @@ func validator_TransactionDoesNotExist(ctx context.Context, o *originator, event
 
 func validator_OriginatorTransactionStateTransitionToFinal(ctx context.Context, _ *originator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Final, nil
+	return e.ToState == transaction.State_Final, nil
 }
 
 func action_CleanUpTransaction(ctx context.Context, o *originator, event common.Event) error {
@@ -167,12 +203,12 @@ func action_CleanUpTransaction(ctx context.Context, o *originator, event common.
 
 func validator_OriginatorTransactionStateTransitionToConfirmed(ctx context.Context, _ *originator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Confirmed, nil
+	return e.ToState == transaction.State_Confirmed, nil
 }
 
 func validator_OriginatorTransactionStateTransitionToReverted(ctx context.Context, _ *originator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Reverted, nil
+	return e.ToState == transaction.State_Reverted, nil
 }
 
 func action_FinalizeTransaction(ctx context.Context, o *originator, event common.Event) error {
@@ -199,16 +235,80 @@ func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
 	}
 }
 
-func action_ActiveCoordinatorUpdated(ctx context.Context, o *originator, event common.Event) error {
-	e := event.(*ActiveCoordinatorUpdatedEvent)
-	if e.Coordinator == "" {
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot set active coordinator to an empty string")
-	}
-	o.activeCoordinatorNode = e.Coordinator
-	log.L(ctx).Debugf("active coordinator updated to %s", e.Coordinator)
+func action_UpdateBlockHeight(_ context.Context, o *originator, event common.Event) error {
+	o.currentBlockHeight, o.onEpochBoundary = common.DecodeNewBlockHeight(o.currentBlockHeight, o.blockRange, event)
 	return nil
 }
 
-func guard_RedelegateThresholdExceeded(_ context.Context, o *originator) bool {
-	return o.heartbeatIntervalsSinceLastReceive >= o.redelegateThreshold
+func guard_IsOnEpochBoundary(_ context.Context, o *originator) bool {
+	return o.onEpochBoundary
+}
+
+// action_CalculateCoordinatorPriorities recomputes coordinatorPriorityList from the current
+// endorserCandidates and block height. No-op when endorserCandidates is empty (STATIC/SENDER modes).
+func action_CalculateCoordinatorPriorities(ctx context.Context, o *originator, _ common.Event) error {
+	if len(o.endorserCandidates) == 0 {
+		return nil
+	}
+	o.coordinatorPriorityList = common.ComputeCoordinatorPriorityList(
+		ctx,
+		o.endorserCandidates,
+		o.currentBlockHeight,
+		o.blockRange,
+	)
+	if o.currentActiveCoordinator == "" {
+		// this should really only run on start up - after that we never unset the current active coordinator
+		o.currentActiveCoordinator = o.coordinatorPriorityList[0]
+	}
+	// whenever we have a new coordinator priority list we want to make sure that a failover walk through the
+	// list, if required, starts from the beginning
+	o.resetFailoverIndex()
+	return nil
+}
+
+// action_UpdateEndorserCandidates replaces the endorser candidates with the full sorted+deduped
+// list sent by the coordinator. The coordinator copies the slice before sending so the originator
+// can assign it directly without aliasing the coordinator's internal state.
+func action_UpdateEndorserCandidates(_ context.Context, o *originator, event common.Event) error {
+	e := event.(*common.EndorserNodesDiscoveredEvent)
+	o.endorserCandidates = e.Nodes
+	return nil
+}
+
+// action_UpdateActiveCoordinatorFromHeartbeat records the heartbeat sender as the current active
+// coordinator. Called only when the sender is in Active or Elect state.
+func action_UpdateActiveCoordinatorFromHeartbeat(_ context.Context, o *originator, event common.Event) error {
+	e := event.(*common.HeartbeatReceivedEvent)
+	o.currentActiveCoordinator = e.FromNode
+	o.resetFailoverIndex()
+	return nil
+}
+
+// action_HandleDelegationRejected processes a rejection from a coordinator. If the rejection names
+// a coordinator that has higher priority than our current one, we redirect to it
+func action_HandleDelegationRejected(_ context.Context, o *originator, event common.Event) error {
+	e := event.(*DelegationRejectedEvent)
+	if e.ActiveCoordinator == "" {
+		return nil
+	}
+	if common.IsHigherPriority(o.coordinatorPriorityList, e.ActiveCoordinator, o.currentActiveCoordinator) {
+		o.currentActiveCoordinator = e.ActiveCoordinator
+		o.resetFailoverIndex()
+	}
+	return nil
+}
+
+// validator_IsHeartbeatSenderLive returns true when the heartbeat sender reports being in one of
+// the liveness-proving states: Elect, Prepared, Active, or Active_Flush.
+func validator_IsHeartbeatSenderLive(_ context.Context, _ *originator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	s := e.CoordinatorSnapshot.CoordinatorState
+	return s == common.CoordinatorState_Elect ||
+		s == common.CoordinatorState_Prepared ||
+		s == common.CoordinatorState_Active ||
+		s == common.CoordinatorState_Active_Flush, nil
+}
+
+func guard_HasTransactions(ctx context.Context, o *originator) bool {
+	return len(o.transactionsByID) > 0
 }

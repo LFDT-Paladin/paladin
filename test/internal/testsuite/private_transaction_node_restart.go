@@ -46,7 +46,6 @@ type privateTransactionNodeRestartSuite struct {
 	sub             rpcclient.Subscription
 }
 
-const privateTxPostRunPageSize = 500
 const privateTxRetryAttempts = 5
 const txMgrIdempotencyKeyClashErrorCode = "PD012220"
 
@@ -236,72 +235,6 @@ func (s *privateTransactionNodeRestartSuite) NewWorker(startTime int64, workerID
 }
 
 func (s *privateTransactionNodeRestartSuite) PostRun() error {
-	if s.contractAddress == nil {
-		return fmt.Errorf("contract address not set for post-run analysis")
-	}
-	nodes := s.runner.GetNodes()
-	if len(nodes) == 0 {
-		return fmt.Errorf("no nodes configured")
-	}
-
-	log.Infof("Running post-run private transaction analysis for contract %s", *s.contractAddress)
-
-	var createdCursor pldtypes.Timestamp
-	totalTransactions := 0
-	multiPublicTransactions := 0
-	multiPublicTransactionIDs := make([]string, 0)
-	pageCount := 0
-
-	for {
-		qb := query.NewQueryBuilder().
-			Equal("domain", "pente").
-			Equal("to", *s.contractAddress).
-			Sort("-created").
-			Limit(privateTxPostRunPageSize)
-		if createdCursor != 0 {
-			qb = qb.LessThan("created", createdCursor)
-		}
-
-		txs, err := nodes[0].HTTPClient.PTX().QueryTransactionsFull(s.ctx, qb.Query())
-		if err != nil {
-			return fmt.Errorf("post-run queryTransactionsFull failed for contract %s with created cursor %s: %w", *s.contractAddress, createdCursor.String(), err)
-		}
-		if len(txs) == 0 {
-			break
-		}
-
-		pageCount++
-		totalTransactions += len(txs)
-
-		for _, tx := range txs {
-			if tx != nil && len(tx.Public) > 1 {
-				multiPublicTransactions++
-				if tx.ID != nil {
-					multiPublicTransactionIDs = append(multiPublicTransactionIDs, tx.ID.String())
-				}
-			}
-		}
-
-		createdCursor = txs[len(txs)-1].Created
-		if len(txs) < privateTxPostRunPageSize {
-			break
-		}
-	}
-
-	log.Infof(
-		"Private transaction post-run analysis complete for contract %s: scanned %d transactions across %d pages; %d had more than one public transaction",
-		*s.contractAddress,
-		totalTransactions,
-		pageCount,
-		multiPublicTransactions,
-	)
-	if len(multiPublicTransactionIDs) > 0 {
-		log.Infof(
-			"Transaction IDs with more than one public submission (%d): %v",
-			len(multiPublicTransactionIDs),
-			multiPublicTransactionIDs,
-		)
-	}
 	return nil
 }
 

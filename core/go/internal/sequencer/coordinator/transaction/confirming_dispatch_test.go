@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -131,12 +131,12 @@ func Test_action_DispatchRequestRejected_ClearsPendingRequestAndTimers(t *testin
 
 func Test_ConfirmingDispatch_Timeout_TransitionsToPooled_AndClearsPendingRequest(t *testing.T) {
 	ctx := t.Context()
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	builder := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		AddPendingPreDispatchRequest().Grapher(mockGrapher)
 	txn, _ := builder.Build()
 	require.NotNil(t, txn.pendingPreDispatchRequest)
-	mockGrapher.EXPECT().Forget(mock.Anything, txn.pt.ID)
+	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &StateTimeoutIntervalEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -189,4 +189,27 @@ func Test_sendPreDispatchRequest_RequestTimeoutSchedulesTimer_QueueEventCalled(t
 	require.NoError(t, err)
 
 	assert.True(t, timeoutEventReceived, "queueEventForCoordinator should have been called with RequestTimeoutIntervalEvent")
+}
+
+func Test_hash_NilPostAssembly_ReturnsError(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Build()
+	txn.pt.PostAssembly = nil
+
+	hash, err := txn.hash(ctx)
+
+	require.Error(t, err)
+	assert.Nil(t, hash)
+	assert.Contains(t, err.Error(), "Cannot hash transaction without PostAssembly")
+}
+
+func Test_sendPreDispatchRequest_HashError_WhenPostAssemblyNil(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Build()
+	txn.pt.PostAssembly = nil
+
+	err := txn.sendPreDispatchRequest(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Cannot hash transaction without PostAssembly")
 }

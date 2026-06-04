@@ -183,7 +183,7 @@ func (n *Noto) makeNewInfoState(info *types.TransactionData, variant pldtypes.He
 	if err != nil {
 		return nil, err
 	}
-	if variant == types.NotoVariantLegacy {
+	if variant == types.NotoVariantV0 {
 		return &prototk.NewState{
 			SchemaId:         n.dataSchemaV0.Id,
 			StateDataJson:    string(infoJSON),
@@ -191,7 +191,7 @@ func (n *Noto) makeNewInfoState(info *types.TransactionData, variant pldtypes.He
 		}, nil
 	}
 	return &prototk.NewState{
-		SchemaId:         n.dataSchemaV1.Id,
+		SchemaId:         n.dataSchemaV2.Id,
 		StateDataJson:    string(infoJSON),
 		DistributionList: distributionList,
 	}, nil
@@ -451,11 +451,15 @@ func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, owner *identityPair, am
 	}, err
 }
 
-func (n *Noto) prepareDataInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) ([]*prototk.NewState, error) {
+func (n *Noto) prepareDataInfo(ctx context.Context, data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string, transaction *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier) ([]*prototk.NewState, error) {
 	newData := &types.TransactionData{
 		Salt:    pldtypes.RandBytes32(),
 		Data:    data,
 		Variant: variant,
+	}
+	fromAddr, err := n.findEthAddressVerifier(ctx, "from", transaction.From, verifiers)
+	if err == nil && fromAddr != nil {
+		newData.From = fromAddr.address
 	}
 	newState, err := n.makeNewInfoState(newData, variant, distributionList)
 	return []*prototk.NewState{newState}, err

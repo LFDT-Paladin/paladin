@@ -23,10 +23,12 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -38,7 +40,7 @@ import (
 
 func newTestGrapher() (grapher.Grapher, dependencytracker.DependencyTracker) {
 	dt := dependencytracker.NewDependencyTracker()
-	return grapher.NewGrapher(dt), dt
+	return grapher.NewGrapher(dt, statevisibilitytracker.NewStore(), 5), dt
 }
 
 func TestTransaction_HasDependenciesNotReady_FalseIfNoDependencies(t *testing.T) {
@@ -240,7 +242,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 	allComponents := componentsmocks.NewAllComponents(t)
 	domainAPI := componentsmocks.NewDomainSmartContract(t)
 	domain := componentsmocks.NewDomain(t)
-	clock := common.NewMockClock(t)
+	clock := sequencercommonmocks.NewClock(t)
 
 	domainAPI.EXPECT().Domain().Return(domain)
 	domain.EXPECT().FixedSigningIdentity().Return("domain-signer")
@@ -256,14 +258,15 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		"originator-node",
 		"node1",
 		pt,
-		"coordinator-signer",
-		transport.NewMockTransportWriter(t),
+		func() string { return "coordinator-signer" },
+		sequencertransportmocks.NewTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
 		nil,
 		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
-		common.NewMockEngineIntegration(t),
-		&syncpoints.MockSyncPoints{},
+		func(context.Context, ...string) {}, // notifyEndorserCandidates
+		sequencercommonmocks.NewEngineIntegration(t),
+		&syncpointsmocks.SyncPoints{},
 		allComponents,
 		domainAPI,
 		nil,
@@ -272,8 +275,8 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		5,
 		0,
 		3,
-		3,
 		nil,
+		statevisibilitytracker.NewStore(),
 		nil,
 		metrics.InitMetrics(ctx, reg),
 	)
@@ -288,7 +291,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 	allComponents := componentsmocks.NewAllComponents(t)
 	domainAPI := componentsmocks.NewDomainSmartContract(t)
 	domain := componentsmocks.NewDomain(t)
-	clock := common.NewMockClock(t)
+	clock := sequencercommonmocks.NewClock(t)
 
 	domainAPI.EXPECT().Domain().Return(domain)
 	domain.EXPECT().FixedSigningIdentity().Return("domain-signer")
@@ -304,14 +307,15 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		"originator-node",
 		"node1",
 		pt,
-		"coordinator-signer",
-		transport.NewMockTransportWriter(t),
+		func() string { return "coordinator-signer" },
+		sequencertransportmocks.NewTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
 		nil,
 		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
-		common.NewMockEngineIntegration(t),
-		&syncpoints.MockSyncPoints{},
+		func(context.Context, ...string) {}, // notifyEndorserCandidates
+		sequencercommonmocks.NewEngineIntegration(t),
+		&syncpointsmocks.SyncPoints{},
 		allComponents,
 		domainAPI,
 		nil,
@@ -320,8 +324,8 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		5,
 		0,
 		3,
-		3,
 		nil,
+		statevisibilitytracker.NewStore(),
 		nil,
 		metrics.InitMetrics(ctx, reg),
 	)
@@ -341,12 +345,6 @@ func TestTransaction_GetCurrentState_ReturnsState(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	assert.Equal(t, State_Initial, txn.GetCurrentState())
-}
-
-func TestTransaction_GetPrivateTransaction_ReturnsPt(t *testing.T) {
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
-	pt := txn.pt
-	assert.Same(t, pt, txn.GetPrivateTransaction())
 }
 
 func TestTransaction_HasDispatchedPublicTransaction_TrueWhenSetAndIntentIsSend(t *testing.T) {
@@ -399,7 +397,7 @@ func TestDependsOn_InitializedFromPrivateTransaction(t *testing.T) {
 		ChainedDependencies(depID).
 		Grapher(grapher).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -432,7 +430,7 @@ func TestNewTransaction_ChainedDependsOn_AddsPrereqAndUnassembledWhenDependencyN
 		Grapher(grapher).
 		ChainedDependencies(depID).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -457,11 +455,18 @@ func TestNewTransaction_ChainedDependsOn_AddsPrereqOnlyWhenDependencyPastUnassem
 		Grapher(grapher).
 		ChainedDependencies(depID).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
 	ch := txn.dependencyTracker.GetChainedDeps()
 	assert.Equal(t, []uuid.UUID{depID}, ch.GetPrerequisites(ctx, txn.pt.ID))
 	assert.Nil(t, ch.GetUnassembledDependencies(ctx, txn.pt.ID))
+}
+
+func TestTransaction_GetOriginatorNode_ReturnsOriginatorNode(t *testing.T) {
+	// The builder defaults originatorNode to "node1". This test exercises the
+	// GetOriginatorNode() getter (previously 0% coverage).
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
+	assert.Equal(t, "node1", txn.GetOriginatorNode())
 }

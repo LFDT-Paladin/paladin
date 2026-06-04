@@ -1,3 +1,5 @@
+//go:build !generate_mocks
+
 /*
  * Copyright © 2025 Kaleido, Inc.
  *
@@ -22,10 +24,11 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
-	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -33,149 +36,16 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-type SentMessageRecorder struct {
-	hasSentConfirmationResponse    bool
-	hasSentAssembleSuccessResponse bool
-	hasSentAssembleRevertResponse  bool
-	hasSentAssembleParkResponse    bool
-	hasSentAssembleErrorResponse   bool
-	hasSentTransactionUnknown      bool
-	transactionUnknownTxID         uuid.UUID
-	transactionUnknownCoordinator  string
-}
-
-func NewSentMessageRecorder() *SentMessageRecorder {
-	return &SentMessageRecorder{}
-}
-
-func (r *SentMessageRecorder) StartLoopbackWriter() {
-}
-
-func (r *SentMessageRecorder) WaitForDone(ctx context.Context) {
-}
-
-func (r *SentMessageRecorder) SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
-	r.hasSentConfirmationResponse = true
-	return nil
-}
-
-func (r *SentMessageRecorder) HasSentPreDispatchResponse() bool {
-	return r.hasSentConfirmationResponse
-}
-
-func (r *SentMessageRecorder) HasSentAssembleSuccessResponse() bool {
-	return r.hasSentAssembleSuccessResponse
-}
-
-func (r *SentMessageRecorder) HasSentAssembleRevertResponse() bool {
-	return r.hasSentAssembleRevertResponse
-}
-
-func (r *SentMessageRecorder) HasSentAssembleParkResponse() bool {
-	return r.hasSentAssembleParkResponse
-}
-
-func (r *SentMessageRecorder) HasSentAssembleErrorResponse() bool {
-	return r.hasSentAssembleErrorResponse
-}
-
-func (r *SentMessageRecorder) SendAssembleRequest(ctx context.Context, assemblingNode string, transactionID uuid.UUID, idempotencyID uuid.UUID, transactionPreassembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, originatorsBlockHeight uint64) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendEndorsementRequest(ctx context.Context, transactionId uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendEndorsementResponse(ctx context.Context, transactionId, idempotencyKey, contractAddress string, attResult *prototk.AttestationResult, endorsementResult *components.EndorsementResult, revertReason, endorsementName, party, node string) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendPreDispatchRequest(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification, hash *pldtypes.Bytes32) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendDispatched(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendNonceAssigned(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce uint64) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendTransactionSubmitted(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, txHash *pldtypes.Bytes32) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engine.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
-	r.hasSentTransactionUnknown = true
-	r.transactionUnknownTxID = txID
-	r.transactionUnknownCoordinator = coordinatorNode
-	return nil
-}
-
-func (r *SentMessageRecorder) HasSentTransactionUnknown() bool {
-	return r.hasSentTransactionUnknown
-}
-
-func (r *SentMessageRecorder) GetTransactionUnknownDetails() (txID uuid.UUID, coordinator string) {
-	return r.transactionUnknownTxID, r.transactionUnknownCoordinator
-}
-
-func (r *SentMessageRecorder) SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendHeartbeat(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress, coordinatorSnapshot *common.CoordinatorSnapshot) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendAssembleResponse(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, postAssembly *components.TransactionPostAssembly, preAssembly *components.TransactionPreAssembly, recipient string) error {
-	switch postAssembly.AssemblyResult {
-	case prototk.AssembleTransactionResponse_OK:
-		r.hasSentAssembleSuccessResponse = true
-	case prototk.AssembleTransactionResponse_REVERT:
-		r.hasSentAssembleRevertResponse = true
-	case prototk.AssembleTransactionResponse_PARK:
-		r.hasSentAssembleParkResponse = true
-	}
-	return nil
-}
-
-func (r *SentMessageRecorder) SendAssembleErrorResponse(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, recipient string) error {
-	r.hasSentAssembleErrorResponse = true
-	return nil
-}
-func (r *SentMessageRecorder) Reset(_ context.Context) {
-	r.hasSentConfirmationResponse = false
-	r.hasSentAssembleSuccessResponse = false
-	r.hasSentAssembleRevertResponse = false
-	r.hasSentAssembleParkResponse = false
-	r.hasSentAssembleErrorResponse = false
-	r.hasSentTransactionUnknown = false
-	r.transactionUnknownTxID = uuid.UUID{}
-	r.transactionUnknownCoordinator = ""
-}
-
 type TransactionBuilderForTesting struct {
+	t                         *testing.T
 	privateTransactionBuilder *testutil.PrivateTransactionBuilderForTesting
 	state                     State
 	currentDelegate           string
 	txn                       *originatorTransaction
-	sentMessageRecorder       *SentMessageRecorder
-	fakeEngineIntegration     *common.FakeEngineIntegrationForTesting
+	sentMessageRecorder       *testutil.SentMessageRecorder
+	useMockTransportWriter    bool
+	mockTransportWriter       *sequencertransportmocks.TransportWriter
+	fakeEngineIntegration     *sequencercommonmocks.EngineIntegration
 	queueEventForOriginator   func(ctx context.Context, event common.Event)
 
 	/* Assembling State*/
@@ -195,11 +65,12 @@ type TransactionBuilderForTesting struct {
 // Use the builder methods to set specific values for fields before calling Build to create a new Transaction
 func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuilderForTesting {
 	builder := &TransactionBuilderForTesting{
+		t:                         t,
 		state:                     state,
 		currentDelegate:           uuid.New().String(),
 		privateTransactionBuilder: testutil.NewPrivateTransactionBuilderForTesting(),
-		fakeEngineIntegration:     &common.FakeEngineIntegrationForTesting{},
-		sentMessageRecorder:       NewSentMessageRecorder(),
+		fakeEngineIntegration:     sequencercommonmocks.NewEngineIntegration(t),
+		sentMessageRecorder:       testutil.NewSentMessageRecorder(),
 		metrics:                   metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
 	}
 
@@ -248,9 +119,15 @@ func (b *TransactionBuilderForTesting) GetBuiltTransaction() *originatorTransact
 	return b.txn
 }
 
+func (b *TransactionBuilderForTesting) WithMockTransportWriter() *TransactionBuilderForTesting {
+	b.useMockTransportWriter = true
+	return b
+}
+
 type TransactionDependencyFakes struct {
-	SentMessageRecorder *SentMessageRecorder
-	EngineIntegration   *common.FakeEngineIntegrationForTesting
+	SentMessageRecorder *testutil.SentMessageRecorder
+	TransportWriter     *sequencertransportmocks.TransportWriter
+	EngineIntegration   *sequencercommonmocks.EngineIntegration
 	transactionBuilder  *TransactionBuilderForTesting
 	emittedEvents       []common.Event
 }
@@ -264,20 +141,28 @@ func (b *TransactionBuilderForTesting) BuildWithMocks() (*originatorTransaction,
 	b.queueEventForOriginator = func(ctx context.Context, event common.Event) {
 		mocks.emittedEvents = append(mocks.emittedEvents, event)
 	}
+	if b.useMockTransportWriter {
+		b.mockTransportWriter = sequencertransportmocks.NewTransportWriter(b.t)
+		mocks.TransportWriter = b.mockTransportWriter
+	}
 	return b.Build(), mocks
 }
 
 func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
-	ctx := context.Background()
 
 	privateTransaction := b.privateTransactionBuilder.Build()
 	if b.queueEventForOriginator == nil {
 		b.queueEventForOriginator = func(ctx context.Context, event common.Event) {}
 	}
-	txn := newTransaction(ctx,
-		privateTransaction,
+
+	var transportWriter transport.TransportWriter = b.sentMessageRecorder
+	if b.mockTransportWriter != nil {
+		transportWriter = b.mockTransportWriter
+	}
+
+	txn := newTransaction(privateTransaction,
 		b.fakeEngineIntegration,
-		b.sentMessageRecorder,
+		transportWriter,
 		b.queueEventForOriginator,
 		b.metrics)
 

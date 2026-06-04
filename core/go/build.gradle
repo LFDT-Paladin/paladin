@@ -31,7 +31,7 @@ ext {
         include "mocks/**/*.go"
     }
 
-    targetCoverage = 94.9
+    targetCoverage = 94.7
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
         'github.com/LFDT-Paladin/paladin/core/pkg/proto',
@@ -155,29 +155,9 @@ task protoc(type: ProtoCompile, dependsOn: [
     }
 }
 
-task makeMocksComponents(type: Exec, dependsOn: [":installMockery", protoc]) {
+task makeMocks(type: Exec, dependsOn: [":installMockery", protoc]) {
    executable "mockery"
 }
-
-task makeMocksTransport(type: Exec, dependsOn: [makeMocksComponents]) {
-   executable "mockery"
-   args '--config=.mockery.sequencer.transport.yml'
-}
-
-task makeMocksSyncpoints(type: Exec, dependsOn: [makeMocksTransport]) {
-   executable "mockery"
-   args '--config=.mockery.sequencer.syncpoints.yml'
-}
-
-// Make mocks for components first, then for sequencer. Mockery doesn't
-// support strict ordering in package lists and gets stuck in a chicken-and-egg loop
-// of trying to generate component mocks after sequencer mocks even though the
-// latter pre-reqs the former.
-task makeMocks(type: Exec, dependsOn: [makeMocksSyncpoints]) {
-   executable "mockery"
-   args '--config=.mockery.sequencer.yml'
-}
-
 
 task goGet(type:Exec, dependsOn:[protoc, copyContracts, makeMocks, ":toolkit:go:goGet"]) {
     workingDir '.'

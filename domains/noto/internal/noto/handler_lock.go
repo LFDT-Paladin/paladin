@@ -24,12 +24,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type lockHandler struct {
@@ -73,27 +69,16 @@ func (h *lockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req
 
 func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.LockParams)
-	notary := tx.DomainConfig.NotaryLookup
 
-	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	ids, err := resolveIdentities(ctx, h.noto, tx, req, "", "")
 	if err != nil {
 		return nil, err
 	}
-	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, err
-	}
+	notaryID, senderID := ids.notary, ids.sender
 
 	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, params.Amount)
-	if err != nil {
-		if revert {
-			message := err.Error()
-			return &prototk.AssembleTransactionResponse{
-				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-				RevertReason:   &message,
-			}, nil
-		}
-		return nil, err
+	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
+		return res, err
 	}
 
 	// Pre-compute the lockId as it will be generated on the smart contract
@@ -120,7 +105,7 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	}
 
 	infoDistribution := identityList{notaryID, senderID}
-	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
+	infoStates, err := h.noto.prepareDataInfo(ctx, params.Data, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -172,27 +157,6 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	}
 
-	attestation := []*prototk.AttestationRequest{
-		// Sender confirms the initial request with a signature
-		{
-			Name:            "sender",
-			AttestationType: prototk.AttestationType_SIGN,
-			Algorithm:       algorithms.ECDSA_SECP256K1,
-			VerifierType:    verifiers.ETH_ADDRESS,
-			Payload:         encodedLock,
-			PayloadType:     signpayloads.OPAQUE_TO_RSV,
-			Parties:         []string{req.Transaction.From},
-		},
-		// Notary will endorse the assembled transaction (by submitting to the ledger)
-		{
-			Name:            "notary",
-			AttestationType: prototk.AttestationType_ENDORSE,
-			Algorithm:       algorithms.ECDSA_SECP256K1,
-			VerifierType:    verifiers.ETH_ADDRESS,
-			Parties:         []string{notary},
-		},
-	}
-
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
@@ -200,7 +164,7 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 			OutputStates: outputStates,
 			InfoStates:   infoStates,
 		},
-		AttestationPlan: attestation,
+		AttestationPlan: buildEndorsePlan(tx.DomainConfig.NotaryLookup, req.Transaction.From, encodedLock),
 	}, nil
 }
 
@@ -292,14 +256,24 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		}
 	}
 
-	var interfaceABI abi.ABI
+	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
 	var functionName string
 	var paramsJSON []byte
 
-	switch tx.DomainConfig.Variant {
-	case types.NotoVariantDefault:
-		var notoLockOpEncoded []byte
-		notoLockOpEncoded, err = h.noto.encodeNotoCreateLockOperation(ctx, &types.NotoCreateLockOperation{
+	if tx.DomainConfig.IsV0() {
+		functionName = "lock"
+		paramsJSON, err = json.Marshal(&NotoLock_V0_Params{
+			TxId:          req.Transaction.TransactionId,
+			Inputs:        endorsableStateIDs(inputs),
+			Outputs:       endorsableStateIDs(outputs),
+			LockedOutputs: endorsableStateIDs(lockedOutputs),
+			Signature:     lockSignature.Payload,
+			Data:          data,
+		})
+	} else if tx.DomainConfig.IsV1() {
+		functionName = "createLock"
+		var createLockArgs []byte
+		createLockArgs, err = h.noto.encodeNotoCreateLockArgsV1(ctx, &types.NotoCreateLockArgs_V1{
 			TxId:         req.Transaction.TransactionId,
 			Inputs:       endorsableStateIDs(inputs),
 			Outputs:      endorsableStateIDs(outputs),
@@ -307,28 +281,48 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 			NewLockState: lt.newLockStateID,
 			Proof:        lockSignature.Payload,
 		})
+
 		if err == nil {
-			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
-			functionName = "createLock"
-			params := &CreateLockParams{
-				CreateInputs: notoLockOpEncoded,
-				Params:       LockParams{},
-				Data:         data,
+			var optionsEncoded pldtypes.HexBytes
+			optionsEncoded, err = h.noto.encodeNotoLockOptions(ctx, &types.NotoLockOptions{
+				SpendTxId: lt.newLockInfo.SpendTxId,
+			})
+			if err != nil {
+				return nil, err
 			}
-			paramsJSON, err = json.Marshal(params)
+
+			paramsJSON, err = json.Marshal(&CreateLockParams_V1{
+				CreateArgs: createLockArgs,
+				Params: LockParams_V1{
+					SpendHash:  pldtypes.Bytes32{},
+					CancelHash: pldtypes.Bytes32{},
+					Options:    optionsEncoded,
+				},
+				Data: data,
+			})
 		}
-	default:
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
-		functionName = "lock"
-		params := &NotoLock_V0_Params{
-			TxId:          req.Transaction.TransactionId,
-			Inputs:        endorsableStateIDs(inputs),
-			Outputs:       endorsableStateIDs(outputs),
-			LockedOutputs: endorsableStateIDs(lockedOutputs),
-			Signature:     lockSignature.Payload,
-			Data:          data,
+	} else {
+		functionName = "createLock"
+		var createLockArgs []byte
+		createLockArgs, err = h.noto.encodeNotoCreateLockArgs(ctx, &types.NotoCreateLockArgs{
+			TxId:         req.Transaction.TransactionId,
+			Inputs:       endorsableStateIDs(inputs),
+			Outputs:      endorsableStateIDs(outputs),
+			Contents:     endorsableStateIDs(lockedOutputs),
+			NewLockState: lt.newLockStateID,
+			Options: &types.NotoLockOptions{
+				SpendTxId: lt.newLockInfo.SpendTxId,
+			},
+			Proof: lockSignature.Payload,
+		})
+		if err == nil {
+			paramsJSON, err = json.Marshal(&CreateLockParams{
+				CreateArgs:       createLockArgs,
+				SpendCommitment:  pldtypes.Bytes32{},
+				CancelCommitment: pldtypes.Bytes32{},
+				Data:             data,
+			})
 		}
-		paramsJSON, err = json.Marshal(params)
 	}
 	if err != nil {
 		return nil, err

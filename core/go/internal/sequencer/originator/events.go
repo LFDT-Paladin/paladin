@@ -18,24 +18,10 @@ package originator
 import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 )
 
 type Event interface {
 	common.Event
-}
-
-type HeartbeatReceivedEvent struct {
-	common.BaseEvent
-	transport.CoordinatorHeartbeatNotification
-}
-
-func (*HeartbeatReceivedEvent) Type() EventType {
-	return Event_HeartbeatReceived
-}
-
-func (*HeartbeatReceivedEvent) TypeString() string {
-	return "Event_HeartbeatReceived"
 }
 
 type TransactionCreatedEvent struct {
@@ -51,15 +37,29 @@ func (*TransactionCreatedEvent) TypeString() string {
 	return "Event_TransactionCreated"
 }
 
-type ActiveCoordinatorUpdatedEvent struct {
+type OriginatorCreatedEvent struct {
 	common.BaseEvent
-	Coordinator string
 }
 
-func (*ActiveCoordinatorUpdatedEvent) Type() EventType {
-	return Event_ActiveCoordinatorUpdated
+func (*OriginatorCreatedEvent) Type() EventType {
+	return Event_OriginatorCreated
 }
 
-func (*ActiveCoordinatorUpdatedEvent) TypeString() string {
-	return "Event_ActiveCoordinatorUpdated"
+func (*OriginatorCreatedEvent) TypeString() string {
+	return "Event_OriginatorCreated"
+}
+
+// DelegationRejectedEvent carries the name of the coordinator that the rejecting node believes
+// is currently active so the originator can fast-redirect to a higher-priority coordinator.
+type DelegationRejectedEvent struct {
+	common.BaseEvent
+	ActiveCoordinator string
+}
+
+func (*DelegationRejectedEvent) Type() EventType {
+	return Event_DelegationRejected
+}
+
+func (*DelegationRejectedEvent) TypeString() string {
+	return "Event_DelegationRejected"
 }

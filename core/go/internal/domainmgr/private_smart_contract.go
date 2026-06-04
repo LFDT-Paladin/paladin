@@ -40,6 +40,7 @@ type PrivateSmartContract struct {
 	RegistryAddress pldtypes.EthAddress `json:"domainAddress"       gorm:"column:domain_address"`
 	Address         pldtypes.EthAddress `json:"address"             gorm:"column:address"`
 	ConfigBytes     pldtypes.HexBytes   `json:"configBytes"         gorm:"column:config_bytes"`
+	Created         pldtypes.Timestamp  `json:"created"             gorm:"column:created;autoCreateTime:nano"`
 }
 
 type domainContract struct {

@@ -199,7 +199,7 @@ func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 		Grapher(grapher).DependencyTracker(depTracker).
 		PreAssembly(&components.TransactionPreAssembly{}).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			dependentTxn.GetPrivateTransaction().ID: dependentTxn,
+			dependentTxn.pt.ID: dependentTxn,
 		}).
 		Build()
 
@@ -221,7 +221,7 @@ func Test_action_NotifyDependentsOfReset_InitialTransitionHasNoDependents(t *tes
 	require.NoError(t, err)
 }
 
-func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T) {
+func Test_notifyDependentsOfRepool_WithChainedDependency(t *testing.T) {
 	ctx := t.Context()
 	grapher, depTracker := newTestGrapher()
 	dependentID := uuid.New()
@@ -234,11 +234,11 @@ func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T)
 		Grapher(grapher).DependencyTracker(depTracker).
 		PreAssembly(&components.TransactionPreAssembly{}).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			dependentTxn.GetPrivateTransaction().ID: dependentTxn,
+			dependentTxn.pt.ID: dependentTxn,
 		}).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, dependentTxn.pt.ID, txn.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, dependentTxn.pt.ID, txn.pt.ID)
 
 	txn.notifyDependentsOfReset(ctx)
 	assert.Equal(t, State_PreAssembly_Blocked, dependentTxn.GetCurrentState())
@@ -369,7 +369,7 @@ func TestDependsOn_SurviveRepool_InitializeForNewAssembly(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -393,7 +393,7 @@ func TestDependsOn_SurviveRepool_ActionNotifyDependentsOfReset(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -447,7 +447,7 @@ func Test_ChainedDep_DelegatedGoesToPreAssemblyBlocked(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -472,7 +472,7 @@ func Test_ChainedDep_SelectionEventUnblocksPreAssemblyBlocked(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -501,8 +501,8 @@ func Test_ChainedDep_SelectionEventStaysBlockedIfOtherDepsNotSelected(t *testing
 	txn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTxSelected.GetPrivateTransaction().ID:    depTxSelected,
-			depTxNotSelected.GetPrivateTransaction().ID: depTxNotSelected,
+			depTxSelected.pt.ID:    depTxSelected,
+			depTxNotSelected.pt.ID: depTxNotSelected,
 		}).
 		Build()
 
@@ -529,7 +529,7 @@ func Test_Pooled_DependencyResetBlocksIfChainedDepUnassembled(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -554,7 +554,7 @@ func Test_DependencyResetToPreAssemblyBlocked_ForgetsMints(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		AddPendingAssembleRequest().
 		Build()
@@ -581,7 +581,7 @@ func Test_Pooled_DependencyResetFromChainedDepAlwaysBlocks(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -607,7 +607,7 @@ func Test_Pooled_DependencyResetFromNonChainedDepStaysPooled(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -632,7 +632,7 @@ func Test_Pooled_DependencyConfirmedRevertedBlocksIfChainedDepUnassembled(t *tes
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -657,7 +657,7 @@ func Test_Pooled_DependencyConfirmedRevertedFromChainedDepBlocks(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -683,7 +683,7 @@ func Test_Pooled_DependencyConfirmedRevertedFromNonChainedDepStaysPooled(t *test
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -708,7 +708,7 @@ func Test_ChainedDep_RepoolGoesToPreAssemblyBlockedIfChainedDepUnassembled(t *te
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -733,7 +733,7 @@ func Test_ChainedDep_RepoolGoesToPreAssemblyBlockedIfChainedDepResets(t *testing
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -759,7 +759,7 @@ func Test_ChainedDep_RepoolGoesToPooledIfNonChainedDepResets(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -784,7 +784,7 @@ func Test_guard_HasRevertedChainedDependency_True(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -804,7 +804,7 @@ func Test_guard_HasRevertedChainedDependency_False(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -838,7 +838,7 @@ func Test_guard_HasEvictedChainedDependency_True(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -858,7 +858,7 @@ func Test_guard_HasEvictedChainedDependency_False(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -886,7 +886,7 @@ func Test_action_FinalizeOnRevertedChainedDependencyAtCreation(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -920,7 +920,7 @@ func Test_action_FinalizeOnRevertedChainedDependencyAtCreation_NoRevertedDepende
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -963,7 +963,7 @@ func Test_ChainedDep_DelegatedGoesToRevertedIfDepReverted(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -991,7 +991,7 @@ func Test_ChainedDep_DelegatedGoesToEvictedIfDepEvicted(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -1016,7 +1016,7 @@ func Test_RemoveFromDependencyPrereqOf_CleansReverseLinks(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -1040,7 +1040,7 @@ func Test_RemoveFromDependencyPrereqOf_PreservesOtherPrereqs(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -1075,7 +1075,7 @@ func Test_PreAssembleDependencyFinalized_UnblocksPreAssemblyBlocked(t *testing.T
 	txn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			prereqTx.GetPrivateTransaction().ID: prereqTx,
+			prereqTx.pt.ID: prereqTx,
 		}).
 		Build()
 
@@ -1105,8 +1105,8 @@ func Test_PreAssembleDependencyFinalized_StaysBlockedWithChainedDeps(t *testing.
 	txn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			prereqTx.GetPrivateTransaction().ID:     prereqTx,
-			chainedDepTx.GetPrivateTransaction().ID: chainedDepTx,
+			prereqTx.pt.ID:     prereqTx,
+			chainedDepTx.pt.ID: chainedDepTx,
 		}).
 		Build()
 

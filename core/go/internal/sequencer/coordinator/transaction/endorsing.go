@@ -20,6 +20,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
@@ -71,10 +72,31 @@ func (t *coordinatorTransaction) unfulfilledEndorsementRequirements(ctx context.
 	}
 	for _, attRequest := range t.pt.PostAssembly.AttestationPlan {
 		if attRequest.AttestationType == prototk.AttestationType_ENDORSE {
+			// When threshold is unset (0) every party must endorse, which is equivalent to a
+			// threshold equal to the total party count.
+			effectiveThreshold := int(attRequest.GetThreshold())
+			if effectiveThreshold == 0 {
+				effectiveThreshold = len(attRequest.Parties)
+			}
+
+			receivedCount := 0
+			for _, endorsement := range t.pt.PostAssembly.Endorsements {
+				if endorsement.Name == attRequest.Name &&
+					attRequest.VerifierType == endorsement.Verifier.VerifierType {
+					receivedCount++
+				}
+			}
+			shortfall := effectiveThreshold - receivedCount
+			if shortfall <= 0 {
+				log.L(ctx).Debugf("endorsement request %s: threshold %d met (received %d)", attRequest.Name, effectiveThreshold, receivedCount)
+				continue
+			}
+
 			for _, party := range attRequest.Parties {
-				log.L(ctx).Debugf("party %s must endorse this request. Checking for endorsement", party)
+				log.L(ctx).Debugf("party %s may endorse this request. Checking for endorsement", party)
 				found := false
 				for _, endorsement := range t.pt.PostAssembly.Endorsements {
+					log.L(ctx).Debugf("existing endorsement from party %s", endorsement.Verifier.Lookup)
 					log.L(ctx).Debugf("existing endorsement from party %s", endorsement.Verifier.Lookup)
 					found = endorsement.Name == attRequest.Name &&
 						party == endorsement.Verifier.Lookup &&
@@ -90,7 +112,8 @@ func (t *coordinatorTransaction) unfulfilledEndorsementRequirements(ctx context.
 					}
 				}
 				if !found {
-					log.L(ctx).Debugf("no endorsement exists from party %s for transaction %s", party, t.pt.ID)
+					log.L(ctx).Debugf("no endorsement exists from party %s for transaction %s (need %d of %d)",
+						party, t.pt.ID, effectiveThreshold, len(attRequest.Parties))
 					unfulfilledEndorsementRequirements = append(unfulfilledEndorsementRequirements, &endorsementRequirement{party: party, attRequest: attRequest})
 				}
 			}
@@ -115,6 +138,9 @@ func (t *coordinatorTransaction) sendEndorsementRequests(ctx context.Context) er
 		//this is done by emitting events rather so that this behavior is obvious from the state machine definition
 		t.scheduleRequestTimeout(ctx)
 		t.pendingEndorsementRequests = make(map[string]map[string]*common.IdempotentRequest)
+		// Notify the coordinator about endorser nodes discovered from the attestation plan so it can
+		// grow the endorser candidate pool even when no candidates were pre-configured.
+		t.notifyEndorserCandidates(ctx, t.extractEndorserNodes(ctx)...)
 	}
 
 	for _, endorsementRequirement := range t.unfulfilledEndorsementRequirements(ctx) {
@@ -140,6 +166,32 @@ func (t *coordinatorTransaction) sendEndorsementRequests(ctx context.Context) er
 	}
 
 	return nil
+}
+
+// extractEndorserNodes returns deduplicated node names from all ENDORSE-type attestation parties.
+func (t *coordinatorTransaction) extractEndorserNodes(ctx context.Context) []string {
+	seen := make(map[string]struct{})
+	nodes := make([]string, 0)
+	if t.pt.PostAssembly == nil {
+		return nodes
+	}
+	for _, attRequest := range t.pt.PostAssembly.AttestationPlan {
+		if attRequest.AttestationType != prototk.AttestationType_ENDORSE {
+			continue
+		}
+		for _, party := range attRequest.Parties {
+			node, err := pldtypes.PrivateIdentityLocator(party).Node(ctx, false)
+			if err != nil {
+				log.L(ctx).Warnf("could not extract node from endorser party %q: %v", party, err)
+				continue
+			}
+			if _, exists := seen[node]; !exists {
+				seen[node] = struct{}{}
+				nodes = append(nodes, node)
+			}
+		}
+	}
+	return nodes
 }
 
 func (t *coordinatorTransaction) resetEndorsementRequests(ctx context.Context) {

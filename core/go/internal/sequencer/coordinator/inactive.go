@@ -21,43 +21,51 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func action_NewBlock(ctx context.Context, c *coordinator, event common.Event) error {
-	e := event.(*NewBlockEvent)
-	c.currentBlockHeight = e.BlockHeight
+// validator_IsHeartbeatSenderLive returns true when the heartbeat sender reports being in one of
+// the liveness-proving states: Elect, Prepared, Active, or Active_Flush.
+func validator_IsHeartbeatSenderLive(_ context.Context, _ *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	state := e.CoordinatorSnapshot.CoordinatorState
+	return state == common.CoordinatorState_Elect ||
+		state == common.CoordinatorState_Prepared ||
+		state == common.CoordinatorState_Active ||
+		state == common.CoordinatorState_Active_Flush, nil
+}
+
+// validator_IsHeartbeatFromHigherPriorityCoordinator returns true when a heartbeat is froma node that is higher-priority than this node
+func validator_IsHeartbeatFromHigherPriorityCoordinator(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	return common.IsHigherPriority(c.coordinatorPriorityList, e.FromNode, c.currentActiveCoordinator), nil
+
+}
+
+// validator_IsHandoverRequestFromHigherPriorityCoordinator returns true when a HandoverRequest is from
+// a node that has strictly higher priority (lower index) than this node.
+func validator_IsHandoverRequestFromHigherPriorityCoordinator(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+	e := event.(*HandoverRequestEvent)
+	return common.IsHigherPriority(c.coordinatorPriorityList, e.FromNode, c.nodeName), nil
+}
+
+func action_RejectDelegationRequest(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*TransactionsDelegatedEvent)
+	c.recordOriginatorActivity(e.FromNode)
+	return c.transportWriter.SendDelegationRequestRejection(ctx, e.FromNode, e.DelegationID, c.currentBlockHeight, c.currentActiveCoordinator)
+}
+
+func action_SetSelfAsActiveCoordinator(_ context.Context, c *coordinator, _ common.Event) error {
+	c.currentActiveCoordinator = c.nodeName
 	return nil
 }
 
-func action_EndorsementRequested(_ context.Context, c *coordinator, event common.Event) error {
-	e := event.(*EndorsementRequestedEvent)
-	if c.activeCoordinatorNode != e.From {
-		c.activeCoordinatorNode = e.From
-		c.coordinatorActive(c.contractAddress, e.From)
-		c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+// action_UpdateActiveCoordinator updates the current active coordinator from either a received
+// heartbeat or a handover request. Both events carry the sender identity in different fields.
+func action_UpdateActiveCoordinator(_ context.Context, c *coordinator, event common.Event) error {
+	switch e := event.(type) {
+	case *common.HeartbeatReceivedEvent:
+		c.currentActiveCoordinator = e.FromNode
+	case *HandoverRequestEvent:
+		c.currentActiveCoordinator = e.FromNode
 	}
-	return nil
-}
-
-func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Event) error {
-	e := event.(*HeartbeatReceivedEvent)
-	if c.activeCoordinatorNode != e.From {
-		c.activeCoordinatorNode = e.From
-		c.coordinatorActive(c.contractAddress, e.From)
-		c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
-	}
-	c.activeCoordinatorBlockHeight = e.BlockHeight
-	for _, flushPoint := range e.FlushPoints {
-		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
-	}
-	return nil
-}
-
-func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Event) error {
-	c.sendHandoverRequest(ctx)
-	return nil
-}
-
-func action_Idle(_ context.Context, c *coordinator, _ common.Event) error {
-	c.coordinatorIdle(c.contractAddress)
 	return nil
 }
 
@@ -66,11 +74,15 @@ func action_ResetHeartbeatIntervalsSinceLastReceive(_ context.Context, c *coordi
 	return nil
 }
 
-func action_IncrementHeartbeatIntervalsSinceLastReceive(_ context.Context, c *coordinator, _ common.Event) error {
+func action_IncrementHeartbeatIntervalCounts(_ context.Context, c *coordinator, _ common.Event) error {
 	c.heartbeatIntervalsSinceLastReceive++
+	c.heartbeatIntervalsSinceStateChange++
 	return nil
 }
 
-func guard_ObservingIdleThresholdExceeded(_ context.Context, c *coordinator) bool {
-	return c.heartbeatIntervalsSinceLastReceive >= c.inactiveToIdleGracePeriod
+// validator_IsHeartbeatFromCurrentActiveCoordinator checks that the heartbeat is from the node
+// we believe is the current active coordinator
+func validator_IsHeartbeatFromCurrentActiveCoordinator(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	return c.currentActiveCoordinator == e.FromNode, nil
 }

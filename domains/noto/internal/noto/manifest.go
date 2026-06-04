@@ -39,6 +39,9 @@ func (n *Noto) newManifestBuilder() *manifestBuilder {
 }
 
 func (mb *manifestBuilder) addOutputs(po *preparedOutputs) *manifestBuilder {
+	if po == nil {
+		return mb
+	}
 	mb.outputs.distributions = append(mb.outputs.distributions, po.distributions...)
 	mb.outputs.coins = append(mb.outputs.coins, po.coins...)
 	mb.outputs.states = append(mb.outputs.states, po.states...)
@@ -46,6 +49,9 @@ func (mb *manifestBuilder) addOutputs(po *preparedOutputs) *manifestBuilder {
 }
 
 func (mb *manifestBuilder) addLockedOutputs(po *preparedLockedOutputs) *manifestBuilder {
+	if po == nil {
+		return mb
+	}
 	mb.lockedOutputs.distributions = append(mb.lockedOutputs.distributions, po.distributions...)
 	mb.lockedOutputs.coins = append(mb.lockedOutputs.coins, po.coins...)
 	mb.lockedOutputs.states = append(mb.lockedOutputs.states, po.states...)

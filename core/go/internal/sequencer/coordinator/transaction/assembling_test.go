@@ -27,6 +27,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/statevisibilitytrackermocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -164,10 +166,14 @@ func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
 func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
 	ctx := t.Context()
 	stateID := pldtypes.HexBytes(uuid.New().String())
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
+	mockVisibility := statevisibilitytrackermocks.NewStateVisibilityStore(t)
 	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(errors.New("add minter error"))
 
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Grapher(mockGrapher).Build()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(mockGrapher).
+		StateVisibility(mockVisibility).
+		Build()
 	postAssembly := &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		OutputStates: []*components.FullState{
@@ -180,11 +186,12 @@ func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
 
 	err := txn.applyPostAssembly(ctx, postAssembly, uuid.New())
 	assert.Error(t, err)
+	// No RecordAssemblyOutput expectation registered — the mock will fail the test if it is called.
 }
 
 func Test_applyPostAssembly_Success_MapPotentialStatesError(t *testing.T) {
 	ctx := t.Context()
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -205,16 +212,18 @@ func Test_applyPostAssembly_Success_MapPotentialStatesError(t *testing.T) {
 
 func Test_applyPostAssembly_Success_Complete(t *testing.T) {
 	ctx := t.Context()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-
-	// Mock engine integration to succeed
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
-	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, txn.pt).Return(nil, nil)
+	mockVisibility := statevisibilitytrackermocks.NewStateVisibilityStore(t)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).StateVisibility(mockVisibility).Build()
 
 	postAssembly := &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		OutputStates:   []*components.FullState{},
 	}
+
+	// Mock engine integration to succeed
+	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, txn.pt).Return(nil, nil)
+	mockVisibility.EXPECT().RecordAssemblyOutput(mock.Anything, postAssembly.OutputStates, postAssembly.OutputStatesPotential).Once()
 
 	err := txn.applyPostAssembly(ctx, postAssembly, uuid.New())
 	require.NoError(t, err)
@@ -254,8 +263,8 @@ func Test_sendAssembleRequest_GetBlockHeightError(t *testing.T) {
 
 func Test_sendAssembleRequest_ExportStatesAndLocksError(t *testing.T) {
 	ctx := t.Context()
-	mockGrapher := grapher.NewMockGrapher(t)
-	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything).Return(grapher.ExportableStates{}, errors.New("export states and locks failed"))
+	mockGrapher := graphermocks.NewGrapher(t)
+	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything, mock.Anything).Return(grapher.ExportableStates{}, errors.New("export states and locks failed"))
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(mockGrapher).
@@ -708,7 +717,7 @@ func Test_notifyDependentsOfSelection_PreAssembleDependent(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(g).DependencyTracker(dt).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			dependentTxn.GetPrivateTransaction().ID: dependentTxn,
+			dependentTxn.pt.ID: dependentTxn,
 		}).
 		Build()
 
@@ -729,7 +738,7 @@ func Test_notifyDependentsOfSelection_ChainedDependent(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(g).DependencyTracker(dt).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			depTx.GetPrivateTransaction().ID: depTx,
+			depTx.pt.ID: depTx,
 		}).
 		Build()
 
@@ -875,7 +884,7 @@ func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(g).DependencyTracker(dt).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
-			dependentTxn.GetPrivateTransaction().ID: dependentTxn,
+			dependentTxn.pt.ID: dependentTxn,
 		}).
 		Build()
 

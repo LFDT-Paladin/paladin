@@ -21,8 +21,8 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
@@ -44,10 +44,8 @@ type ChainedDependenciesSuite struct {
 	ctx        context.Context
 	c          *coordinator
 	mocks      *CoordinatorDependencyMocks
-	syncPoints *syncpoints.MockSyncPoints
 	builder    *CoordinatorBuilderForTesting
 	originator string
-	done       func()
 
 	txBuilders map[uuid.UUID]*testutil.PrivateTransactionBuilderForTesting
 	txns       map[uuid.UUID]*components.PrivateTransaction
@@ -73,18 +71,19 @@ func (s *ChainedDependenciesSuite) SetupTest() {
 	config := s.builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1)
 	s.builder.OverrideSequencerConfig(config)
-	s.c, s.mocks, s.done = s.builder.Build(s.ctx)
-
-	s.syncPoints = s.mocks.SyncPoints.(*syncpoints.MockSyncPoints)
-	s.syncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	s.syncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+	s.builder.CurrentActiveCoordinator("node1")
 
 	s.txBuilders = make(map[uuid.UUID]*testutil.PrivateTransactionBuilderForTesting)
 	s.txns = make(map[uuid.UUID]*components.PrivateTransaction)
 }
 
-func (s *ChainedDependenciesSuite) TearDownTest() {
-	s.done()
+func (s *ChainedDependenciesSuite) buildCoordinator() {
+	s.c, s.mocks = s.builder.Build()
+	s.mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(0), nil).Maybe()
+	s.mocks.EngineIntegration.On("WriteStatesForTransaction", mock.Anything, mock.Anything).Return(nil).Maybe()
+	s.mocks.EngineIntegration.On("MapPotentialStates", mock.Anything, mock.Anything, mock.Anything).Return(([]*components.StateUpsert)(nil), nil).Maybe()
+	s.mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	s.mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 }
 
 // ---------- helpers ----------
@@ -113,25 +112,33 @@ func (s *ChainedDependenciesSuite) newTx(chainedDeps ...uuid.UUID) uuid.UUID {
 	return txn.ID
 }
 
+func (s *ChainedDependenciesSuite) handleEvent(event common.Event) {
+	s.T().Helper()
+	err := s.c.stateMachineEventLoop.ProcessEvent(s.ctx, event)
+	if err == nil {
+		err = s.c.stateMachineEventLoop.DrainPendingEvents(s.ctx)
+	}
+	s.Require().NoError(err)
+}
+
 func (s *ChainedDependenciesSuite) delegate(txIDs ...uuid.UUID) {
 	s.T().Helper()
 	pts := make([]*components.PrivateTransaction, len(txIDs))
 	for i, id := range txIDs {
 		pts[i] = s.txns[id]
 	}
-	s.c.QueueEvent(s.ctx, &TransactionsDelegatedEvent{
+	s.handleEvent(&TransactionsDelegatedEvent{
 		FromNode: "testNode", Originator: s.originator, Transactions: pts,
 	})
 }
 
 func (s *ChainedDependenciesSuite) progressToReadyForDispatch(txIDs ...uuid.UUID) {
 	s.T().Helper()
-	rec := &s.mocks.SentMessageRecorder.SentMessageRecorder
+	rec := s.mocks.SentMessageRecorder
 	for _, id := range txIDs {
 		b := s.txBuilders[id]
 
-		s.sync()
-		s.c.QueueEvent(s.ctx, &transaction.AssembleSuccessEvent{
+		s.handleEvent(&transaction.AssembleSuccessEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: id},
 			RequestID:            rec.AssembleKeyForTx(id),
 			PostAssembly:         b.BuildPostAssembly(),
@@ -139,15 +146,13 @@ func (s *ChainedDependenciesSuite) progressToReadyForDispatch(txIDs ...uuid.UUID
 		})
 
 		endorser := b.GetEndorserIdentityLocator(0)
-		s.sync()
-		s.c.QueueEvent(s.ctx, &transaction.EndorsedEvent{
+		s.handleEvent(&transaction.EndorsedEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: id},
 			RequestID:            rec.EndorseKeyForTxAndParty(id, endorser),
 			Endorsement:          b.BuildEndorsement(0),
 		})
 
-		s.sync()
-		s.c.QueueEvent(s.ctx, &transaction.DispatchRequestApprovedEvent{
+		s.handleEvent(&transaction.DispatchRequestApprovedEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: id},
 			RequestID:            rec.DispatchConfirmKeyForTx(id),
 		})
@@ -159,11 +164,10 @@ func (s *ChainedDependenciesSuite) progressToReadyForDispatch(txIDs ...uuid.UUID
 func (s *ChainedDependenciesSuite) dispatch(txIDs ...uuid.UUID) {
 	s.T().Helper()
 	for _, id := range txIDs {
-		s.c.QueueEvent(s.ctx, &transaction.DispatchedEvent{
+		s.handleEvent(&transaction.DispatchedEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: id},
 		})
 	}
-	s.sync()
 	dispatched := s.c.getTransactionsInStates(s.ctx, []transaction.State{transaction.State_Dispatched})
 	s.Require().GreaterOrEqual(len(dispatched), len(txIDs), "all dispatched")
 }
@@ -179,7 +183,7 @@ func (s *ChainedDependenciesSuite) injectRevert(txID uuid.UUID, retriable bool) 
 		Return(retriable, msg, nil).Maybe()
 
 	nonce := pldtypes.HexUint64(42)
-	s.c.QueueEvent(s.ctx, &transaction.ConfirmedRevertedEvent{
+	s.handleEvent(&transaction.ConfirmedRevertedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: txID},
 		Nonce:                &nonce,
 		Hash:                 pldtypes.Bytes32(pldtypes.RandBytes(32)),
@@ -190,7 +194,6 @@ func (s *ChainedDependenciesSuite) injectRevert(txID uuid.UUID, retriable bool) 
 
 func (s *ChainedDependenciesSuite) assertInState(state transaction.State, txIDs ...uuid.UUID) {
 	s.T().Helper()
-	s.sync()
 	for _, id := range txIDs {
 		found := false
 		for _, tx := range s.c.getTransactionsInStates(s.ctx, []transaction.State{state}) {
@@ -203,15 +206,8 @@ func (s *ChainedDependenciesSuite) assertInState(state transaction.State, txIDs 
 	}
 }
 
-func (s *ChainedDependenciesSuite) sync() {
-	ev := statemachine.NewSyncEvent()
-	s.c.QueueEvent(s.ctx, ev)
-	<-ev.Done
-}
-
 func (s *ChainedDependenciesSuite) assertEvicted(txIDs ...uuid.UUID) {
 	s.T().Helper()
-	s.sync()
 	for _, id := range txIDs {
 		s.Require().Nil(s.c.transactionsByID[id], "expected %s to be evicted and cleaned up", id)
 	}
@@ -219,7 +215,7 @@ func (s *ChainedDependenciesSuite) assertEvicted(txIDs ...uuid.UUID) {
 
 func (s *ChainedDependenciesSuite) getFinalizeRequestForTx(txID uuid.UUID) *syncpoints.TransactionFinalizeRequest {
 	s.T().Helper()
-	for _, call := range s.syncPoints.Calls {
+	for _, call := range s.mocks.SyncPoints.Calls {
 		if call.Method == "QueueTransactionFinalize" {
 			req := call.Arguments.Get(1).(*syncpoints.TransactionFinalizeRequest)
 			if req.TransactionID == txID {
@@ -234,6 +230,7 @@ func (s *ChainedDependenciesSuite) getFinalizeRequestForTx(txID uuid.UUID) *sync
 // non-retriable revert cascades A→B→C: A fails with its revert reason from on chain, B and C fail
 // with a message that their chained dependency has failed
 func (s *ChainedDependenciesSuite) TestNonRetriableRevertCascade() {
+	s.buildCoordinator()
 	a := s.newTx()
 	b := s.newTx(a)
 	c := s.newTx(b)
@@ -245,7 +242,7 @@ func (s *ChainedDependenciesSuite) TestNonRetriableRevertCascade() {
 	s.injectRevert(a, false)
 
 	s.assertInState(transaction.State_Reverted, a, b, c)
-	s.syncPoints.AssertNumberOfCalls(s.T(), "QueueTransactionFinalize", 3)
+	s.mocks.SyncPoints.AssertNumberOfCalls(s.T(), "QueueTransactionFinalize", 3)
 
 	reqA := s.getFinalizeRequestForTx(a)
 	s.Require().Contains(reqA.FailureMessage, "non-retriable")
@@ -262,6 +259,7 @@ func (s *ChainedDependenciesSuite) TestNonRetriableRevertCascade() {
 
 // mid-chain retriable revert re-pools B, C stays dispatched, A unaffected
 func (s *ChainedDependenciesSuite) TestMidChainRetriableRevert() {
+	s.buildCoordinator()
 	a := s.newTx()
 	b := s.newTx(a)
 	c := s.newTx(b)
@@ -279,6 +277,7 @@ func (s *ChainedDependenciesSuite) TestMidChainRetriableRevert() {
 
 // head-of-chain retriable revert re-pools A. B and C stay dispatched
 func (s *ChainedDependenciesSuite) TestHeadRetriableRevertCascadesReset() {
+	s.buildCoordinator()
 	a := s.newTx()
 	b := s.newTx(a)
 	c := s.newTx(b)
@@ -295,17 +294,17 @@ func (s *ChainedDependenciesSuite) TestHeadRetriableRevertCascadesReset() {
 
 // eviction cascades A→B
 func (s *ChainedDependenciesSuite) TestEvictionCascade() {
-	s.c.assembleErrorRetryThreshhold = 0
-
+	s.builder.AssembleErrorRetryThreshold(0)
+	s.buildCoordinator()
 	a := s.newTx()
 	b := s.newTx(a)
 
 	s.delegate(a, b)
 	s.assertInState(transaction.State_Assembling, a)
 
-	s.c.QueueEvent(s.ctx, &transaction.AssembleErrorResponseEvent{
+	s.handleEvent(&transaction.AssembleErrorResponseEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: a},
-		RequestID:            s.mocks.SentMessageRecorder.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
+		RequestID:            s.mocks.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
 	})
 
 	s.assertEvicted(a, b)
@@ -313,6 +312,7 @@ func (s *ChainedDependenciesSuite) TestEvictionCascade() {
 
 // late-arriving dependent finds reverted dep → immediate revert
 func (s *ChainedDependenciesSuite) TestLateArrivalFindsRevertedDep() {
+	s.buildCoordinator()
 	a := s.newTx()
 	s.delegate(a)
 	s.progressToReadyForDispatch(a)
@@ -332,15 +332,15 @@ func (s *ChainedDependenciesSuite) TestLateArrivalFindsRevertedDep() {
 // A has been evicted and cleaned up, A is no longer in the grapher so B proceeds
 // normally (the dependency is treated as finalized). This test documents that behaviour.
 func (s *ChainedDependenciesSuite) TestLateArrivalAfterEvictedDepCleanedUp() {
-	s.c.assembleErrorRetryThreshhold = 0
-
+	s.builder.AssembleErrorRetryThreshold(0)
+	s.buildCoordinator()
 	a := s.newTx()
 	s.delegate(a)
 	s.assertInState(transaction.State_Assembling, a)
 
-	s.c.QueueEvent(s.ctx, &transaction.AssembleErrorResponseEvent{
+	s.handleEvent(&transaction.AssembleErrorResponseEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: a},
-		RequestID:            s.mocks.SentMessageRecorder.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
+		RequestID:            s.mocks.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
 	})
 	s.assertEvicted(a)
 

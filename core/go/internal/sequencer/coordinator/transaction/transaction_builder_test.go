@@ -1,3 +1,5 @@
+//go:build !generate_mocks
+
 /*
  * Copyright © 2025 Kaleido, Inc.
  *
@@ -29,13 +31,15 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
-	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -49,216 +53,6 @@ type pendingEndorsementRequestAddition struct {
 	attName string
 	party   string
 	sendFn  func(context.Context, uuid.UUID) error
-}
-
-type SentMessageRecorder struct {
-	hasSentAssembleRequest                        bool
-	sentAssembleRequestIdempotencyKey             uuid.UUID
-	numberOfSentAssembleRequests                  int
-	hasSentDispatchConfirmationRequest            bool
-	numberOfSentEndorsementRequests               int
-	sentEndorsementRequestsForPartyIdempotencyKey map[string]uuid.UUID
-	numberOfEndorsementRequestsForParty           map[string]int
-	sentDispatchConfirmationRequestIdempotencyKey uuid.UUID
-	numberOfSentDispatchConfirmationRequests      int
-
-	assembleKeyByTxID        map[uuid.UUID]uuid.UUID
-	endorseKeyByTxIDAndParty map[uuid.UUID]map[string]uuid.UUID
-	dispatchConfirmKeyByTxID map[uuid.UUID]uuid.UUID
-}
-
-func (r *SentMessageRecorder) Reset(ctx context.Context) {
-	r.hasSentAssembleRequest = false
-	r.sentAssembleRequestIdempotencyKey = uuid.UUID{}
-	r.numberOfSentAssembleRequests = 0
-	r.hasSentDispatchConfirmationRequest = false
-	r.numberOfSentEndorsementRequests = 0
-	r.sentEndorsementRequestsForPartyIdempotencyKey = make(map[string]uuid.UUID)
-	r.numberOfEndorsementRequestsForParty = make(map[string]int)
-	r.sentDispatchConfirmationRequestIdempotencyKey = uuid.UUID{}
-	r.numberOfSentDispatchConfirmationRequests = 0
-	// per-tx maps are NOT reset — they accumulate across the full test
-}
-
-func (r *SentMessageRecorder) StartLoopbackWriter() {
-}
-
-func (r *SentMessageRecorder) WaitForDone(ctx context.Context) {
-}
-
-func (r *SentMessageRecorder) HasSentAssembleRequest() bool {
-	return r.hasSentAssembleRequest
-}
-
-func (r *SentMessageRecorder) HasSentDispatchConfirmationRequest() bool {
-	return r.hasSentDispatchConfirmationRequest
-}
-
-func (r *SentMessageRecorder) NumberOfSentAssembleRequests() int {
-	return r.numberOfSentAssembleRequests
-}
-
-func (r *SentMessageRecorder) NumberOfSentEndorsementRequests() int {
-	return r.numberOfSentEndorsementRequests
-}
-
-func (r *SentMessageRecorder) SentEndorsementRequestsForPartyIdempotencyKey(party string) uuid.UUID {
-	return r.sentEndorsementRequestsForPartyIdempotencyKey[party]
-}
-
-func (r *SentMessageRecorder) NumberOfEndorsementRequestsForParty(party string) int {
-	return r.numberOfEndorsementRequestsForParty[party]
-}
-
-func (r *SentMessageRecorder) NumberOfSentDispatchConfirmationRequests() int {
-	return r.numberOfSentDispatchConfirmationRequests
-}
-
-func (r *SentMessageRecorder) SentAssembleRequestIdempotencyKey() uuid.UUID {
-	return r.sentAssembleRequestIdempotencyKey
-}
-
-func (r *SentMessageRecorder) SentDispatchConfirmationRequestIdempotencyKey() uuid.UUID {
-	return r.sentDispatchConfirmationRequestIdempotencyKey
-}
-
-func (r *SentMessageRecorder) SendAssembleRequest(
-	ctx context.Context,
-	assemblingNode string,
-	transactionID uuid.UUID,
-	idempotencyKey uuid.UUID,
-	transactionPreassembly *components.TransactionPreAssembly,
-	stateLocks grapher.ExportableStates,
-	blockHeight int64,
-) error {
-	r.hasSentAssembleRequest = true
-	r.sentAssembleRequestIdempotencyKey = idempotencyKey
-	r.numberOfSentAssembleRequests++
-	r.assembleKeyByTxID[transactionID] = idempotencyKey
-	return nil
-}
-
-func (r *SentMessageRecorder) SendEndorsementRequest(
-	ctx context.Context,
-	txID uuid.UUID,
-	idempotencyKey uuid.UUID,
-	party string,
-	attRequest *prototk.AttestationRequest,
-	transactionSpecification *prototk.TransactionSpecification,
-	verifiers []*prototk.ResolvedVerifier,
-	signatures []*prototk.AttestationResult,
-	inputStates []*prototk.EndorsableState,
-	readStates []*prototk.EndorsableState,
-	outputStates []*prototk.EndorsableState,
-	infoStates []*prototk.EndorsableState,
-) error {
-	r.numberOfSentEndorsementRequests++
-	if _, ok := r.numberOfEndorsementRequestsForParty[party]; ok {
-		r.numberOfEndorsementRequestsForParty[party]++
-	} else {
-		r.numberOfEndorsementRequestsForParty[party] = 1
-		r.sentEndorsementRequestsForPartyIdempotencyKey[party] = idempotencyKey
-	}
-	if r.endorseKeyByTxIDAndParty[txID] == nil {
-		r.endorseKeyByTxIDAndParty[txID] = make(map[string]uuid.UUID)
-	}
-	r.endorseKeyByTxIDAndParty[txID][party] = idempotencyKey
-	return nil
-}
-
-func (r *SentMessageRecorder) SendPreDispatchRequest(
-	ctx context.Context,
-	transactionOriginator string,
-	idempotencyKey uuid.UUID,
-	transactionSpecification *prototk.TransactionSpecification,
-	hash *pldtypes.Bytes32,
-) error {
-	r.hasSentDispatchConfirmationRequest = true
-	r.sentDispatchConfirmationRequestIdempotencyKey = idempotencyKey
-	r.numberOfSentDispatchConfirmationRequests++
-	if transactionSpecification != nil {
-		if txID, err := uuid.Parse(transactionSpecification.TransactionId); err == nil {
-			r.dispatchConfirmKeyByTxID[txID] = idempotencyKey
-		}
-	}
-	return nil
-}
-
-func (r *SentMessageRecorder) SendAssembleResponse(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, postAssembly *components.TransactionPostAssembly, preAssembly *components.TransactionPreAssembly, recipient string) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendAssembleErrorResponse(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, recipient string) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendNonceAssigned(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce uint64) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendTransactionSubmitted(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, txHash *pldtypes.Bytes32) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engine.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, blockHeight uint64) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendHeartbeat(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress, coordinatorSnapshot *common.CoordinatorSnapshot) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendDispatched(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) SendEndorsementResponse(ctx context.Context, transactionId, idempotencyKey, contractAddress string, attResult *prototk.AttestationResult, endorsementResult *components.EndorsementResult, revertReason, endorsementName, party, node string) error {
-	return nil
-}
-
-func (r *SentMessageRecorder) AssembleKeyForTx(txID uuid.UUID) uuid.UUID {
-	return r.assembleKeyByTxID[txID]
-}
-
-func (r *SentMessageRecorder) EndorseKeyForTxAndParty(txID uuid.UUID, party string) uuid.UUID {
-	if m, ok := r.endorseKeyByTxIDAndParty[txID]; ok {
-		return m[party]
-	}
-	return uuid.UUID{}
-}
-
-func (r *SentMessageRecorder) DispatchConfirmKeyForTx(txID uuid.UUID) uuid.UUID {
-	return r.dispatchConfirmKeyByTxID[txID]
-}
-
-func NewSentMessageRecorder() *SentMessageRecorder {
-	return &SentMessageRecorder{
-		sentEndorsementRequestsForPartyIdempotencyKey: make(map[string]uuid.UUID),
-		numberOfEndorsementRequestsForParty:           make(map[string]int),
-		assembleKeyByTxID:                             make(map[uuid.UUID]uuid.UUID),
-		endorseKeyByTxIDAndParty:                      make(map[uuid.UUID]map[string]uuid.UUID),
-		dispatchConfirmKeyByTxID:                      make(map[uuid.UUID]uuid.UUID),
-	}
 }
 
 type TransactionBuilderForTesting struct {
@@ -279,19 +73,18 @@ type TransactionBuilderForTesting struct {
 	useMockTransportWriter             bool
 	useMockClock                       bool
 	grapher                            grapher.Grapher
+	stateVisibilityTracker             statevisibilitytracker.StateVisibilityStore
 	dependencyTracker                  dependencytracker.DependencyTracker
 	txn                                *coordinatorTransaction
 	requestTimeout                     int
 	stateTimeout                       int
 	finalizingGracePeriod              int
-	confirmedLockRetentionGracePeriod  int
 	heartbeatIntervalsSinceStateChange int
 	cancelRequestTimeoutSchedule       func()
 	cancelStateTimeoutSchedule         func()
 	pendingAssembleRequestSend         func(context.Context, uuid.UUID) error // if set, builder builds IdempotentRequest from clock/requestTimeout
 	pendingEndorsementRequestAdditions []pendingEndorsementRequestAddition
 	pendingPreDispatchRequestSend      func(context.Context, uuid.UUID) error // if set, builder builds IdempotentRequest from clock/requestTimeout
-	confirmedLocksReleased             bool
 	submitterSelection                 prototk.ContractConfig_SubmitterSelection
 	nodeName                           string
 	baseLedgerRevertRetryThreshold     int
@@ -304,20 +97,19 @@ type TransactionBuilderForTesting struct {
 // use the builder methods to set specific values for fields before calling Build to create a new Transaction
 func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuilderForTesting {
 	builder := &TransactionBuilderForTesting{
-		t:                                 t,
-		originator:                        "sender@node1",
-		originatorNode:                    "node1",
-		queueEventForCoordinator:          func(context.Context, common.Event) {},
-		signerAddress:                     nil,
-		latestSubmissionHash:              nil,
-		state:                             state,
-		stateTimeout:                      5000,
-		requestTimeout:                    1000,
-		finalizingGracePeriod:             5,
-		confirmedLockRetentionGracePeriod: 1,
-		privateTransactionBuilder:         testutil.NewPrivateTransactionBuilderForTesting(),
-		submitterSelection:                prototk.ContractConfig_SUBMITTER_COORDINATOR,
-		nodeName:                          "node1",
+		t:                         t,
+		originator:                "sender@node1",
+		originatorNode:            "node1",
+		queueEventForCoordinator:  func(context.Context, common.Event) {},
+		signerAddress:             nil,
+		latestSubmissionHash:      nil,
+		state:                     state,
+		stateTimeout:              5000,
+		requestTimeout:            1000,
+		finalizingGracePeriod:     5,
+		privateTransactionBuilder: testutil.NewPrivateTransactionBuilderForTesting(),
+		submitterSelection:        prototk.ContractConfig_SUBMITTER_COORDINATOR,
+		nodeName:                  "node1",
 	}
 
 	switch state {
@@ -424,6 +216,11 @@ func (b *TransactionBuilderForTesting) DependencyTracker(dependencyTracker depen
 	return b
 }
 
+func (b *TransactionBuilderForTesting) StateVisibility(stateVisibilityTracker statevisibilitytracker.StateVisibilityStore) *TransactionBuilderForTesting {
+	b.stateVisibilityTracker = stateVisibilityTracker
+	return b
+}
+
 func (b *TransactionBuilderForTesting) Originator(originator string) *TransactionBuilderForTesting {
 	b.originator = originator
 	return b
@@ -466,11 +263,6 @@ func (b *TransactionBuilderForTesting) StateTimeout(stateTimeout int) *Transacti
 
 func (b *TransactionBuilderForTesting) FinalizingGracePeriod(finalizingGracePeriod int) *TransactionBuilderForTesting {
 	b.finalizingGracePeriod = finalizingGracePeriod
-	return b
-}
-
-func (b *TransactionBuilderForTesting) ConfirmedLockRetentionGracePeriod(gracePeriod int) *TransactionBuilderForTesting {
-	b.confirmedLockRetentionGracePeriod = gracePeriod
 	return b
 }
 
@@ -559,11 +351,6 @@ func (b *TransactionBuilderForTesting) CancelStateTimeoutSchedule(cancel func())
 	return b
 }
 
-func (b *TransactionBuilderForTesting) ConfirmedLocksReleased(released bool) *TransactionBuilderForTesting {
-	b.confirmedLocksReleased = released
-	return b
-}
-
 func (b *TransactionBuilderForTesting) BaseLedgerRevertRetryThreshold(threshold int) *TransactionBuilderForTesting {
 	b.baseLedgerRevertRetryThreshold = threshold
 	return b
@@ -646,11 +433,11 @@ func (b *TransactionBuilderForTesting) GetEndorsers() []string {
 }
 
 type transactionDependencyMocks struct {
-	TransportWriter     *transport.MockTransportWriter
-	Clock               *common.MockClock
-	EngineIntegration   *common.MockEngineIntegration
-	SentMessageRecorder *SentMessageRecorder
-	SyncPoints          *syncpoints.MockSyncPoints
+	TransportWriter     *sequencertransportmocks.TransportWriter
+	Clock               *sequencercommonmocks.Clock
+	EngineIntegration   *sequencercommonmocks.EngineIntegration
+	SentMessageRecorder *testutil.SentMessageRecorder
+	SyncPoints          *syncpointsmocks.SyncPoints
 	AllComponents       *componentsmocks.AllComponents
 	DomainAPI           *componentsmocks.DomainSmartContract
 	Domain              *componentsmocks.Domain
@@ -667,19 +454,22 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	if b.dependencyTracker == nil {
 		b.dependencyTracker = dependencytracker.NewDependencyTracker()
 	}
+	if b.stateVisibilityTracker == nil {
+		b.stateVisibilityTracker = statevisibilitytracker.NewStore()
+	}
 	if b.grapher == nil {
-		b.grapher = grapher.NewGrapher(b.dependencyTracker)
+		b.grapher = grapher.NewGrapher(b.dependencyTracker, b.stateVisibilityTracker, 5)
 	}
 
 	mp, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(b.t, err)
 
 	mocks := &transactionDependencyMocks{
-		TransportWriter:     transport.NewMockTransportWriter(b.t),
-		Clock:               common.NewMockClock(b.t),
-		EngineIntegration:   common.NewMockEngineIntegration(b.t),
-		SentMessageRecorder: NewSentMessageRecorder(),
-		SyncPoints:          syncpoints.NewMockSyncPoints(b.t),
+		TransportWriter:     sequencertransportmocks.NewTransportWriter(b.t),
+		Clock:               sequencercommonmocks.NewClock(b.t),
+		EngineIntegration:   sequencercommonmocks.NewEngineIntegration(b.t),
+		SentMessageRecorder: testutil.NewSentMessageRecorder(),
+		SyncPoints:          syncpointsmocks.NewSyncPoints(b.t),
 		AllComponents:       componentsmocks.NewAllComponents(b.t),
 		KeyManager:          componentsmocks.NewKeyManager(b.t),
 		PublicTxManager:     componentsmocks.NewPublicTxManager(b.t),
@@ -730,12 +520,13 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.originatorNode,
 		b.nodeName,
 		privateTransaction,
-		b.coordinatorSigningIdentity,
+		func() string { return b.coordinatorSigningIdentity },
 		transportWriter,
 		clock,
 		b.queueEventForCoordinator,
 		coordinatorTransactionHandleEvent(b.coordinatorTransactions),
 		coordinatorTransactionStateLookup(b.coordinatorTransactions),
+		func(context.Context, ...string) {}, // notifyEndorserCandidates
 		mocks.EngineIntegration,
 		mocks.SyncPoints,
 		mocks.AllComponents,
@@ -744,10 +535,10 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		time.Duration(b.requestTimeout),
 		time.Duration(b.stateTimeout),
 		b.finalizingGracePeriod,
-		b.confirmedLockRetentionGracePeriod,
 		b.baseLedgerRevertRetryThreshold,
 		b.assembleErrorRetryThreshhold,
 		b.grapher,
+		b.stateVisibilityTracker,
 		b.dependencyTracker,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
@@ -760,7 +551,6 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.heartbeatIntervalsSinceStateChange = b.heartbeatIntervalsSinceStateChange
 	txn.cancelRequestTimeoutSchedule = b.cancelRequestTimeoutSchedule
 	txn.cancelStateTimeoutSchedule = b.cancelStateTimeoutSchedule
-	txn.confirmedLocksReleased = b.confirmedLocksReleased
 	txn.stateMachine.SetCurrentState(b.state)
 	txn.revertReason = b.revertReason
 	txn.revertCount = b.revertCount

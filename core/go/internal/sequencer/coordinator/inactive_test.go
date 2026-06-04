@@ -17,155 +17,144 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_action_NewBlock_SetsCurrentBlockHeight(t *testing.T) {
+func Test_action_SetSelfAsActiveCoordinator_SetsNodeNameAsActiveCoordinator(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Standby)
-	c, _, done := builder.Build(ctx)
-	defer done()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		NodeName("myNode").
+		CurrentActiveCoordinator("someOtherNode").
+		Build()
 
-	err := action_NewBlock(ctx, c, &NewBlockEvent{BlockHeight: 1000})
+	err := action_SetSelfAsActiveCoordinator(ctx, c, nil)
 	require.NoError(t, err)
-	assert.Equal(t, uint64(1000), c.currentBlockHeight)
+	assert.Equal(t, "myNode", c.currentActiveCoordinator)
 }
 
-func Test_action_EndorsementRequested_SetsActiveCoordinatorAndUpdatesPool(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	err := action_EndorsementRequested(ctx, c, &EndorsementRequestedEvent{From: "node1"})
-	require.NoError(t, err)
-	assert.Equal(t, "node1", c.activeCoordinatorNode)
-	assert.Contains(t, c.originatorNodePool, "node1")
-}
-
-func Test_action_HeartbeatReceived_SetsActiveCoordinatorBlockHeightAndUpdatesPool(t *testing.T) {
-	ctx := context.Background()
-	addr := pldtypes.RandAddress()
-	builder := NewCoordinatorBuilderForTesting(t, State_Initial).ContractAddress(addr)
-	contractAddress := builder.GetContractAddress()
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	event := &HeartbeatReceivedEvent{}
-	event.From = "node1"
-	event.ContractAddress = &contractAddress
-	event.BlockHeight = 2000
-
-	err := action_HeartbeatReceived(ctx, c, event)
-	require.NoError(t, err)
-	assert.Equal(t, "node1", c.activeCoordinatorNode)
-	assert.Equal(t, uint64(2000), c.activeCoordinatorBlockHeight)
-	assert.Contains(t, c.originatorNodePool, "node1")
-}
-
-func Test_action_HeartbeatReceived_StoresFlushPoints(t *testing.T) {
-	ctx := context.Background()
-	addr := pldtypes.RandAddress()
-	builder := NewCoordinatorBuilderForTesting(t, State_Initial).ContractAddress(addr)
-	contractAddress := builder.GetContractAddress()
-	c, _, done := builder.Build(ctx)
-	defer done()
-	event := &HeartbeatReceivedEvent{}
-	event.From = "node1"
-	event.ContractAddress = &contractAddress
-	event.BlockHeight = 2000
-	signerAddr := pldtypes.RandAddress()
-	event.FlushPoints = []*common.SnapshotFlushPoint{
-		{From: *signerAddr, Nonce: 42, Hash: pldtypes.Bytes32{}},
-	}
-
-	err := action_HeartbeatReceived(ctx, c, event)
-	require.NoError(t, err)
-	key := event.FlushPoints[0].GetSignerNonce()
-	assert.NotEmpty(t, key)
-	assert.Equal(t, event.FlushPoints[0], c.activeCoordinatorsFlushPointsBySignerNonce[key])
-}
-
-func Test_action_SendHandoverRequest_CallsSendHandoverRequest(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Elect)
-	c, mocks, done := builder.Build(ctx)
-	defer done()
-	c.activeCoordinatorNode = "otherNode"
-
-	err := action_SendHandoverRequest(ctx, c, nil)
-	require.NoError(t, err)
-	assert.True(t, mocks.SentMessageRecorder.HasSentHandoverRequest(), "SendHandoverRequest should be called")
-}
-
-func Test_action_Idle_CallsCoordinatorIdle(t *testing.T) {
+func Test_action_HeartbeatReceived_SetsActiveCoordinatorState(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	err := action_Idle(ctx, c, nil)
+	c, _ := builder.Build()
+	event := &common.HeartbeatReceivedEvent{}
+	event.FromNode = "node1"
+	event.CoordinatorSnapshot = &common.CoordinatorSnapshot{
+		CoordinatorState: State_Active,
+	}
+
+	err := action_UpdateActiveCoordinator(ctx, c, event)
 	require.NoError(t, err)
+	assert.Equal(t, "node1", c.currentActiveCoordinator)
 }
 
 func Test_action_ResetHeartbeatIntervalsSinceLastReceive(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.heartbeatIntervalsSinceLastReceive = 7
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).HeartbeatIntervalsSinceLastReceive(7).Build()
 
 	err := action_ResetHeartbeatIntervalsSinceLastReceive(ctx, c, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, c.heartbeatIntervalsSinceLastReceive)
 }
 
-func Test_action_IncrementHeartbeatIntervalsSinceLastReceive(t *testing.T) {
+func Test_action_IncrementHeartbeatIntervalCounts(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.heartbeatIntervalsSinceLastReceive = 3
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).
+		HeartbeatIntervalsSinceLastReceive(3).
+		HeartbeatIntervalsSinceStateChange(2).
+		Build()
 
-	err := action_IncrementHeartbeatIntervalsSinceLastReceive(ctx, c, nil)
+	err := action_IncrementHeartbeatIntervalCounts(ctx, c, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 4, c.heartbeatIntervalsSinceLastReceive)
+	assert.Equal(t, 3, c.heartbeatIntervalsSinceStateChange)
 }
 
-func Test_guard_ObservingIdleThresholdExceeded_NotExceeded(t *testing.T) {
+func Test_guard_InactiveGracePeriodExceeded_NotExceeded(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.inactiveToIdleGracePeriod = 10
-	c.heartbeatIntervalsSinceLastReceive = 5
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).
+		InactiveGracePeriod(10).HeartbeatIntervalsSinceLastReceive(5).Build()
 
-	assert.False(t, guard_ObservingIdleThresholdExceeded(ctx, c))
+	assert.False(t, guard_InactiveGracePeriodExceeded(ctx, c))
 }
 
-func Test_guard_ObservingIdleThresholdExceeded_ExactlyMet(t *testing.T) {
+func Test_guard_InactiveGracePeriodExceeded_ExactlyMet(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.inactiveToIdleGracePeriod = 10
-	c.heartbeatIntervalsSinceLastReceive = 10
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).
+		InactiveGracePeriod(10).HeartbeatIntervalsSinceLastReceive(10).Build()
 
-	assert.True(t, guard_ObservingIdleThresholdExceeded(ctx, c))
+	assert.True(t, guard_InactiveGracePeriodExceeded(ctx, c))
 }
 
-func Test_guard_ObservingIdleThresholdExceeded_Exceeded(t *testing.T) {
+func Test_guard_InactiveGracePeriodExceeded_Exceeded(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.inactiveToIdleGracePeriod = 10
-	c.heartbeatIntervalsSinceLastReceive = 15
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).
+		InactiveGracePeriod(10).HeartbeatIntervalsSinceLastReceive(15).Build()
 
-	assert.True(t, guard_ObservingIdleThresholdExceeded(ctx, c))
+	assert.True(t, guard_InactiveGracePeriodExceeded(ctx, c))
 }
 
+func Test_action_RejectDelegationRequest_Success(t *testing.T) {
+	ctx := context.Background()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).WithMockTransportWriter().Build()
+
+	delegationID := "del-123"
+	fromNode := "remoteNode"
+	mocks.TransportWriter.EXPECT().SendDelegationRequestRejection(ctx, fromNode, delegationID, c.currentBlockHeight, c.currentActiveCoordinator).Return(nil)
+
+	event := &TransactionsDelegatedEvent{
+		FromNode:     fromNode,
+		DelegationID: delegationID,
+	}
+	err := action_RejectDelegationRequest(ctx, c, event)
+	require.NoError(t, err)
+}
+
+func Test_action_RejectDelegationRequest_PropagatesError(t *testing.T) {
+	ctx := context.Background()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).WithMockTransportWriter().Build()
+
+	delegationID := "del-456"
+	fromNode := "remoteNode"
+	expectedErr := fmt.Errorf("transport error")
+	mocks.TransportWriter.EXPECT().SendDelegationRequestRejection(ctx, fromNode, delegationID, c.currentBlockHeight, c.currentActiveCoordinator).Return(expectedErr)
+
+	event := &TransactionsDelegatedEvent{
+		FromNode:     fromNode,
+		DelegationID: delegationID,
+	}
+	err := action_RejectDelegationRequest(ctx, c, event)
+	require.ErrorIs(t, err, expectedErr)
+}
+
+func Test_validator_IsHeartbeatFromCurrentActiveCoordinator_FromCurrentNode_ReturnsTrue(t *testing.T) {
+	ctx := context.Background()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).
+		CurrentActiveCoordinator("nodeC").
+		Build()
+
+	event := &common.HeartbeatReceivedEvent{}
+	event.FromNode = "nodeC"
+
+	result, err := validator_IsHeartbeatFromCurrentActiveCoordinator(ctx, c, event)
+	require.NoError(t, err)
+	assert.True(t, result)
+}
+
+func Test_validator_IsHeartbeatFromCurrentActiveCoordinator_FromNonCurrentNode_ReturnsFalse(t *testing.T) {
+	ctx := context.Background()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).
+		CurrentActiveCoordinator("nodeC").
+		Build()
+
+	event := &common.HeartbeatReceivedEvent{}
+	event.FromNode = "nodeOther"
+
+	result, err := validator_IsHeartbeatFromCurrentActiveCoordinator(ctx, c, event)
+	require.NoError(t, err)
+	assert.False(t, result)
+}

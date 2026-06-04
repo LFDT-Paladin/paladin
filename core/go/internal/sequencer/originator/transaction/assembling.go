@@ -36,7 +36,7 @@ func action_AssembleRequestReceived(ctx context.Context, t *originatorTransactio
 	return nil
 }
 
-func action_AssembleAndSignSuccess(ctx context.Context, t *originatorTransaction, event common.Event) error {
+func action_AssembleAndSignSuccess(_ context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*AssembleAndSignSuccessEvent)
 	t.pt.PostAssembly = e.PostAssembly
 	t.latestFulfilledAssembleRequestID = e.RequestID

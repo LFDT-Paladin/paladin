@@ -66,11 +66,6 @@ const (
 )
 
 const (
-	ONE_TIME_USE_KEYS   = "ONE_TIME_USE_KEYS"
-	ENDORSER_SUBMISSION = "ENDORSER_SUBMISSION"
-)
-
-const (
 	// SelfEndorsement is kinda like zeto
 	//  There is a single endorser which is the same as the sender.
 	//Unlike zeto, this does *not* imply a domain provided signer algo.
@@ -322,6 +317,10 @@ const simpleTokenPrivacyGroupEndorsementConstructorABI = `{
       {
         "name": "amountVisible",
         "type": "bool"
+      },
+      {
+        "name": "endorsementThreshold",
+        "type": "uint32"
       }
 	],
 	"outputs": null
@@ -344,14 +343,15 @@ func SimpleTokenConstructorABI(endorsementMode string) *abi.ABI {
 // Go struct used in test (test + domain) to work with JSON structure passed into the paladin transaction for the constructor
 // This is a union of the 3 ABI above
 type ConstructorParameters struct {
-	Notary          string   `json:"notary"`         // empty string if  endorsementMode is PrivacyGroupEndorsement
-	EndorsementSet  []string `json:"endorsementSet"` // empty array if endorsementMode is not PrivacyGroupEndorsement
-	From            string   `json:"from"`           // empty string if endorsementMode is not SelfEndorsement
-	Name            string   `json:"name"`
-	Symbol          string   `json:"symbol"`
-	EndorsementMode string   `json:"endorsementMode"`
-	HookAddress     string   `json:"hookAddress"`
-	AmountVisible   bool     `json:"amountVisible"`
+	Notary               string             `json:"notary"`         // empty string if  endorsementMode is PrivacyGroupEndorsement
+	EndorsementSet       []string           `json:"endorsementSet"` // empty array if endorsementMode is not PrivacyGroupEndorsement
+	From                 string             `json:"from"`           // empty string if endorsementMode is not SelfEndorsement
+	Name                 string             `json:"name"`
+	Symbol               string             `json:"symbol"`
+	EndorsementMode      string             `json:"endorsementMode"`
+	HookAddress          string             `json:"hookAddress"`
+	AmountVisible        bool               `json:"amountVisible"`
+	EndorsementThreshold pldtypes.HexUint64 `json:"endorsementThreshold"` // 0 means all parties must endorse (default); ABI serializer emits integers as decimal strings
 }
 
 // Go struct used in test (test + domain) to work with JSON structure for `params` on the base ledger factory function
@@ -363,6 +363,7 @@ type FactoryParameters struct {
 	EndorsementSetLocators []string `json:"endorsementSetLocators"`
 	HookAddress            string   `json:"hookAddress"`
 	AmountVisible          bool     `json:"amountVisible"`
+	EndorsementThreshold   int      `json:"endorsementThreshold"` // 0 means all parties must endorse (default)
 }
 
 // JSON structure passed into the paladin transaction for the transfer
@@ -380,12 +381,9 @@ type simpleTokenParser struct {
 	Amount *ethtypes.HexInteger  `json:"amount"`
 }
 
-type SimpleDomainConfig struct {
-	SubmitMode string `json:"submitMode"`
-}
+type SimpleDomainConfig struct{}
 
 type SimpleDomainPairConfig struct {
-	SubmitMode             string
 	Domain1RegistryAddress string
 	Domain2RegistryAddress string
 }
@@ -398,17 +396,19 @@ var contractDataABI = &abi.ParameterArray{
 	{Name: "endorsementSetLocators", Type: "string[]"},
 	{Name: "hookAddress", Type: "string"},
 	{Name: "amountVisible", Type: "bool"},
+	{Name: "endorsementThreshold", Type: "uint32"},
 }
 
 // golang struct to parse and serialize the data received from the block indexer when the base ledger factor contract
 // emits a PaladinRegisterSmartContract_V0 event
 // this must match the ABI above
 type simpleTokenConfigParser struct {
-	EndorsementMode string   `json:"endorsementMode"`
-	NotaryLocator   string   `json:"notaryLocator"`
-	EndorsementSet  []string `json:"endorsementSetLocators"`
-	HookAddress     string   `json:"hookAddress"`
-	AmountVisible   bool     `json:"amountVisible"`
+	EndorsementMode      string             `json:"endorsementMode"`
+	NotaryLocator        string             `json:"notaryLocator"`
+	EndorsementSet       []string           `json:"endorsementSetLocators"`
+	HookAddress          string             `json:"hookAddress"`
+	AmountVisible        bool               `json:"amountVisible"`
+	EndorsementThreshold pldtypes.HexUint64 `json:"endorsementThreshold"` // ABI serializer emits integers as decimal strings; HexUint64 handles both "0" and "0x0"
 }
 
 func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
@@ -724,6 +724,7 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					NotaryLocator:          constructorParameters.Notary,
 					HookAddress:            constructorParameters.HookAddress,
 					AmountVisible:          constructorParameters.AmountVisible,
+					EndorsementThreshold:   int(constructorParameters.EndorsementThreshold),
 				}
 				return &prototk.PrepareDeployResponse{
 					Signer: confutil.P(fmt.Sprintf("domain1.transactions.%s", req.Transaction.TransactionId)),
@@ -762,6 +763,7 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					//This combination is less common on a token based domain but may use it in some tests
 					contractConfig.CoordinatorSelection = prototk.ContractConfig_COORDINATOR_ENDORSER
 					contractConfig.SubmitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
+					contractConfig.CoordinatorEndorserCandidates = constructorParameters.EndorsementSet
 				default:
 					return nil, fmt.Errorf("unknown endorsement mode %s", constructorParameters.EndorsementMode)
 				}
@@ -1003,15 +1005,22 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 									req.Transaction.From,
 								},
 							},
-							{
-								Name:            "privacyGroup",
-								AttestationType: prototk.AttestationType_ENDORSE,
-								// we expect an endorsement is of the form ENDORSER_SUBMIT - so we need an eth signing key to exist
-								Algorithm:    algorithms.ECDSA_SECP256K1,
-								VerifierType: verifiers.ETH_ADDRESS,
-								PayloadType:  signpayloads.OPAQUE_TO_RSV,
-								Parties:      config.EndorsementSet,
-							},
+							func() *prototk.AttestationRequest {
+								ar := &prototk.AttestationRequest{
+									Name:            "privacyGroup",
+									AttestationType: prototk.AttestationType_ENDORSE,
+									// we expect an endorsement is of the form ENDORSER_SUBMIT - so we need an eth signing key to exist
+									Algorithm:    algorithms.ECDSA_SECP256K1,
+									VerifierType: verifiers.ETH_ADDRESS,
+									PayloadType:  signpayloads.OPAQUE_TO_RSV,
+									Parties:      config.EndorsementSet,
+								}
+								if config.EndorsementThreshold > 0 {
+									threshold := int32(config.EndorsementThreshold)
+									ar.Threshold = &threshold
+								}
+								return ar
+							}(),
 						},
 					}, nil
 				default:

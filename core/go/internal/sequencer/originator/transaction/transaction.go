@@ -82,7 +82,6 @@ func NewTransaction(
 	}
 
 	return newTransaction(
-		ctx,
 		pt,
 		engineIntegration,
 		transportWriter,
@@ -92,7 +91,6 @@ func NewTransaction(
 }
 
 func newTransaction(
-	ctx context.Context,
 	pt *components.PrivateTransaction,
 	engineIntegration common.EngineIntegration,
 	transportWriter transport.TransportWriter,
@@ -207,6 +205,7 @@ func (t *originatorTransaction) GetCurrentState() State {
 	defer t.RUnlock()
 	return t.stateMachine.GetCurrentState()
 }
+
 
 func (t *originatorTransaction) GetSignerAddress() *pldtypes.EthAddress {
 	t.RLock()

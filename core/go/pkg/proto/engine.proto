@@ -120,12 +120,20 @@ message DelegationRequest {
     //repeated google.protobuf.Any verifiers = 7; // serialized io.kaleido.paladin.toolkit.ResolvedVerifier
 }
 
-message DelegationRequestAcknowledgment {
+message DelegationResponse {
     repeated string transaction_ids = 1;
     repeated int64 errors = 2; // Every delegate could have a different result. Allow optional enum error per transaction
     string delegate_node_id = 3;
-    string delegation_id = 4;//this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
+    string delegation_id = 4; // this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
     string contract_address = 5;
+    bool accepted = 6; // A delegation request is accepted if a node believes it is the active coordinator. A request being accepted does not indicate an absence of errors 
+    int64 block_height = 7;
+    string active_coordinator = 8; // On rejection, the rejecting coordinator's belief of who is currently active, so the originator can fast-redirect
+}
+
+message CoordinatorHandoverRequest {
+    string from_node = 1;
+    string contract_address = 2;
 }
 
 message StateAcknowledgedEvent {
@@ -136,23 +144,6 @@ message StateAcknowledgedEvent {
 	string contract_address = 5;
 	string schema_id = 6 ;
     string distribution_id = 7; //this is used to correlate the acknowledgement back to the distribution. unlike the transport message id / correlation id, this is not unique across retries
-}
-
-message PreparedTransactionMessage {
-    string prepared_txn_id = 1;
-    bytes  prepared_transaction_json = 2;
-    string party = 3;
-    string domain_name = 4;
-	string contract_address = 5;
-    string distribution_id = 6; //this is used to correlate the acknowledgement back to the distribution. unlike the transport message id / correlation id, this is not unique across retries
-}
-
-message PreparedTransactionAcknowledgedMessage {
-    string prepared_txn_id = 1;
-    string party = 2;
-    string domain_name = 3;
-	string contract_address = 4;
-    string distribution_id = 5; //this is used to correlate the acknowledgement back to the distribution. unlike the transport message id / correlation id, this is not unique across retries
 }
 
 message AssembleRequest {
@@ -185,8 +176,12 @@ message CoordinatorHeartbeatNotification {
     bytes coordinator_snapshot = 3;
 }
 
-message HandoverRequest {
-    string contract_address = 1; // Represent as hex address?
+// Sent by an originator to the coordinator when it receives a request (assemble or pre-dispatch) from a
+// node that is not its current active coordinator. The coordinator should evict the transaction
+// rather than continuing to coordinate it.
+message NotActiveCoordinatorNotification {
+    string contract_address = 1;
+    string transaction_id = 2;
 }
 
 // Sent by an originator when it receives a message for a transaction it doesn't recognize.

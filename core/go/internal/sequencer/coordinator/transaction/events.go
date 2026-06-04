@@ -228,8 +228,9 @@ func (*SubmittedEvent) TypeString() string {
 
 type ConfirmedSuccessEvent struct {
 	BaseCoordinatorEvent
-	Nonce *pldtypes.HexUint64
-	Hash  pldtypes.Bytes32
+	Nonce   *pldtypes.HexUint64
+	Hash    pldtypes.Bytes32
+	OnChain pldtypes.OnChainLocation
 }
 
 func (*ConfirmedSuccessEvent) Type() EventType {
@@ -399,4 +400,20 @@ func (*PreAssembleDependencyTerminatedEvent) Type() EventType {
 
 func (*PreAssembleDependencyTerminatedEvent) TypeString() string {
 	return "Event_PreAssembleDependencyTerminated"
+}
+
+// NotActiveCoordinatorEvent is received by the coordinator when the originator informs it
+// that this node is not the expected active coordinator for the given transaction. The coordinator
+// should evict the transaction on receipt of this event. The originator has already redelegated the
+// transaction to the new active coordinator.
+type NotActiveCoordinatorEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*NotActiveCoordinatorEvent) Type() EventType {
+	return Event_NotActiveCoordinator
+}
+
+func (*NotActiveCoordinatorEvent) TypeString() string {
+	return "Event_NotActiveCoordinator"
 }

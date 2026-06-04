@@ -112,12 +112,13 @@ func TestEventIndexingWithDB(t *testing.T) {
 	psc, err := dm.GetSmartContractByAddress(ctx, td.c.dbTX, contractAddr)
 	require.NoError(t, err)
 	dc := psc.(*domainContract)
-	assert.Equal(t, &PrivateSmartContract{
-		DeployTX:        deployTX,
-		RegistryAddress: *tp.d.RegistryAddress(),
-		Address:         contractAddr,
-		ConfigBytes:     []byte{0xfe, 0xed, 0xbe, 0xef},
-	}, dc.info)
+
+	assert.Equal(t, deployTX, dc.info.DeployTX)
+	assert.Equal(t, *tp.d.RegistryAddress(), dc.info.RegistryAddress)
+	assert.Equal(t, contractAddr, dc.info.Address)
+	assert.Equal(t, pldtypes.HexBytes{0xfe, 0xed, 0xbe, 0xef}, dc.info.ConfigBytes)
+	assert.NotEqual(t, pldtypes.Timestamp(0), dc.info.Created) // Ensure Created field is populated
+
 	assert.Equal(t, contractAddr, psc.Address())
 	assert.Equal(t, "test1", psc.Domain().Name())
 	assert.Equal(t, "0xfeedbeef", psc.(*domainContract).info.ConfigBytes.String())
