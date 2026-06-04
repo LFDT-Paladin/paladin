@@ -6232,25 +6232,19 @@
 </tr>
 <tr>
 <td>blockHeightTolerance</td>
-<td>Tolerance for block height differences</td>
+<td>Tolerance for block height differences. Must be the same for all nodes participating in a domain instance.</td>
 <td><code>uint64</code></td>
 <td><code>5</code></td>
 </tr>
 <tr>
 <td>blockRange</td>
-<td>Block range size for sequencer operations</td>
+<td>Block range size for sequencer operations. Must be the same for all nodes participating in a domain instance.</td>
 <td><code>uint64</code></td>
 <td><code>100</code></td>
 </tr>
 <tr>
 <td>closingGracePeriod</td>
 <td>Grace period for closing operations</td>
-<td><code>int</code></td>
-<td><code>2</code></td>
-</tr>
-<tr>
-<td>confirmedLockRetentionGracePeriod</td>
-<td>Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots</td>
 <td><code>int</code></td>
 <td><code>2</code></td>
 </tr>
@@ -6279,10 +6273,10 @@
 <td><code>"1m"</code></td>
 </tr>
 <tr>
-<td>inactiveToIdleGracePeriod</td>
-<td>Number of heartbeat intervals without activity before a coordinator or originator transitions from inactive to idle</td>
+<td>inactiveGracePeriod</td>
+<td>Number of heartbeat intervals without activity before a node is considered inactive</td>
 <td><code>int</code></td>
-<td><code>10</code></td>
+<td><code>2</code></td>
 </tr>
 <tr>
 <td>maxDispatchAhead</td>
@@ -6309,12 +6303,6 @@
 <td><code>500</code></td>
 </tr>
 <tr>
-<td>redelegateGracePeriod</td>
-<td>Number of heartbeat intervals without receiving a heartbeast, before re-delegating pending transactions</td>
-<td><code>int</code></td>
-<td><code>2</code></td>
-</tr>
-<tr>
 <td>requestTimeout</td>
 <td>Timeout for sequencer requests</td>
 <td><code>string</code></td>
@@ -6325,12 +6313,6 @@
 <td>Timeout for request-driven transaction states before repooling</td>
 <td><code>string</code></td>
 <td><code>"10s"</code></td>
-</tr>
-<tr>
-<td>targetActiveCoordinators</td>
-<td>Target number of active coordinators</td>
-<td><code>int</code></td>
-<td><code>50</code></td>
 </tr>
 <tr>
 <td>targetActiveSequencers</td>
