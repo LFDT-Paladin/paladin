@@ -39,7 +39,7 @@ There are strong reasons why both of these approaches exist - some related to ef
 
 The two approaches **can be combined** within a single smart contract, for example where simple transfers are allowed to be performed via ZKP alone, whereas onboarding/freezing trading identities, or minting, might require pre-verification.
 
-Learn more in the [Privacy](./privacy.md) section.
+Learn more in the [Full Enterprise Privacy Stack](../concepts/full_stack.md) section.
 
 ### Base Ledger EVM development
 
@@ -104,9 +104,9 @@ Paladin provides a modular system for plugging in the off-chain half of your pri
 
 For more information see the following architecture pages:
 
-- [UTXO State Store](./uxto_state_store.md)
+- [UTXO State Store](./state_store.md)
 - [Distributed Transaction Manager](./transaction_manager.md)
-- [Runtime Architecture](./runtime_architecture.md)
+- [Cloud Native Runtime](../concepts/cloud_native.md)
 
 ## Layer C: Ecosystem programmability (Private EVM)
 

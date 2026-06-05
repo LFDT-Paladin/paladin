@@ -4,7 +4,15 @@ Paladin transactions can produce new states (e.g. minting new tokens), consume e
 
 The states created and consumed by a transaction are determined when the originator node assembles the transaction. The originator will create and select states based on its assembly implementation.
 
-It is common for multiple Paladin transactions to be related to each other in terms of their state changes. An example would be that TX1 creates a state by minting a new token and TX2 consumes that state by transfering the token to another identity. Paladin tracks transaction state changes through its use of a `grapher` component. If a transaction creates a state that another transaction consumes, it is said to be a `pre-req` of that transaction. The `grapher` component maintains `pre-req` links between transaction based on the output of the assembly phase and makes certain decisions based on the `grapher`.
+It is common for multiple Paladin transactions to be related to each other in terms of their state changes. An example would be that TX1 creates a state by minting a new token and TX2 consumes that state by transfering the token to another identity. 
+
+Paladin tracks transaction state changes through its use of a `Grapher` component. The `Grapher` is responsible for:
+- **Transaction ID Resolution**: Mapping a transaction ID specified in a pre-assembly spec to the in-memory state machine for that transaction.
+- **State ID Resolution**: Identifying the transaction that "minted" a specific state ID, allowing dependent transactions to link to their prerequisites.
+- **Dependency Management**: Maintaining `DependsOn` and `PrereqOf` links between transactions.
+- **Stale Link Pruning**: Automatically removing dependency links when a transaction is "forgotten" or finished, preventing memory leaks and stale references.
+
+If a transaction creates a state that another transaction consumes, it is said to be a `pre-req` of that transaction. The `Grapher` maintains these links based on the output of the assembly phase and the Coordinator uses this information to control dispatch and handle reverts.
 
 There are 2 key aspects of Paladin's behaviour that depend on the grapher's knowledge or transaction relationships.
 
