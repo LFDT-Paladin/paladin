@@ -163,13 +163,19 @@ func (c *coordinator) recordOriginatorActivity(node string) {
 	c.originatorActivity[node] = 0
 }
 
+// guard_IsCoordinatorEndorserSelectionMode returns true when the coordinator is
+// configured for COORDINATOR_ENDORSER mode, where all endorsers are also coordinator candidates.
+func guard_IsCoordinatorEndorserSelectionMode(_ context.Context, c *coordinator) bool {
+	return c.coordinatorSelection == prototk.ContractConfig_COORDINATOR_ENDORSER
+}
+
 // updateEndorserCandidates adds newly-discovered endorser nodes to the candidate pool.
 // Only operates in ENDORSER mode; no-op in STATIC/SENDER. When new nodes are actually added
 // both the coordinator's own priority list is recomputed and the co-located originator is
 // notified with the updated candidates so it can recompute its own list independently.
-func (c *coordinator) updateEndorserCandidates(ctx context.Context, nodes ...string) {
+func (c *coordinator) updateEndorserCandidates(ctx context.Context, nodes ...string) bool {
 	if c.coordinatorSelection != prototk.ContractConfig_COORDINATOR_ENDORSER {
-		return
+		return false
 	}
 	before := len(c.endorserCandidates)
 	for _, node := range nodes {
@@ -192,7 +198,9 @@ func (c *coordinator) updateEndorserCandidates(ctx context.Context, nodes ...str
 			// Put a copy of the candidates in the event so the originator can't modify the coordinator's internal state.
 			Nodes: slices.Clone(c.endorserCandidates),
 		})
+		return true
 	}
+	return false
 }
 
 func (c *coordinator) coordinatorTransactionHandleEvent(ctx context.Context, txID uuid.UUID, event common.Event) error {
@@ -216,6 +224,10 @@ func (c *coordinator) getCoordinatorSigningIdentity() string {
 	return c.signingIdentity.value
 }
 
+func (c *coordinator) getCurrentBlockHeight() int64 {
+	return int64(c.currentBlockHeight)
+}
+
 func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction) transaction.CoordinatorTransaction {
 	return transaction.NewTransaction(
 		ctx,
@@ -229,8 +241,10 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.queueEventInternal,
 		c.coordinatorTransactionHandleEvent,
 		c.getCoordinatorTransactionState,
-		c.updateEndorserCandidates,
+		func(ctx context.Context, nodes ...string) { c.updateEndorserCandidates(ctx, nodes...) },
 		c.engineIntegration,
+		c.getCurrentBlockHeight,
+		c.blockHeightTolerance,
 		c.syncPoints,
 		c.components,
 		c.domainAPI,
@@ -360,7 +374,7 @@ func (c *coordinator) addToDelegatedTransactions(
 	}
 
 	// Acknowledge the delegate request. Optionally errors can be returned which the originator may use to base re-delegate decisions on
-	err = c.transportWriter.SendDelegationRequestAcknowledgment(ctx, originatorNode, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementErrors, c.currentBlockHeight)
+	err = c.transportWriter.SendDelegationResponse(ctx, originatorNode, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementErrors, c.currentBlockHeight)
 	if err != nil {
 		return err
 	}
@@ -554,4 +568,11 @@ func validator_HeartBeatState(state ...common.CoordinatorState) statemachine.Val
 		}
 		return false, nil
 	}
+}
+
+// validator_IsHeartbeatFromHigherPriorityCoordinator returns true when a heartbeat is from a node
+// that is higher-priority than this node in the coordinator priority list.
+func validator_IsHeartbeatFromHigherPriorityCoordinator(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	return common.IsHigherPriority(c.coordinatorPriorityList, e.FromNode, c.nodeName), nil
 }

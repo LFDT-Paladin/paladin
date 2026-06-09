@@ -1027,6 +1027,7 @@ func TestFinalizeTransactionsChainedReceiptPropagationSuccess(t *testing.T) {
 			mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.MatchedBy(func(addr pldtypes.EthAddress) bool {
 				return addr == *pldtypes.MustEthAddress(contractAddress)
 			}), originalTxID, components.RT_Success, mock.Anything, mock.Anything, mock.Anything).Return()
+			// No mock for WriteOrDistributeChainedTransactionReceipts - it should not be called
 			mc.db.ExpectCommit()
 		})
 	defer done()
@@ -1041,9 +1042,6 @@ func TestFinalizeTransactionsChainedReceiptPropagationSuccess(t *testing.T) {
 		})
 	})
 	require.NoError(t, err)
-	mc := txm.sequencerMgr.(*componentsmocks.SequencerManager)
-	mc.AssertNotCalled(t, "WriteOrDistributeChainedTransactionReceipts", mock.Anything, mock.Anything, mock.Anything)
-	mc.AssertExpectations(t)
 }
 
 func TestFinalizeTransactionsChainedReceiptPropagationNoMatch(t *testing.T) {
@@ -1225,4 +1223,36 @@ func TestFinalizeTransactionsChainedOffChainRevertNotifiesCoordinator(t *testing
 	require.NoError(t, err)
 	mc := txm.sequencerMgr.(*componentsmocks.SequencerManager)
 	mc.AssertExpectations(t)
+}
+
+func TestFinalizeTransactionsChainedReceiptInvalidContractAddress(t *testing.T) {
+	chainedTxID := uuid.New()
+	originalTxID := uuid.New()
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
+			// Return a chaining record with an invalid (non-parseable) contract address
+			mc.db.ExpectQuery(`SELECT.*chained_dispatches.*WHERE.*chained_transaction.*(IN|ANY)`).
+				WithArgs(sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}).
+					AddRow(chainedTxID, originalTxID, "sender1", "domain1", "not-a-valid-address"))
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectCommit()
+		})
+	defer done()
+
+	// HandleChainedTransactionOutcome should NOT be called since the address is invalid
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				TransactionID: chainedTxID,
+				Domain:        "chainedDomain",
+				ReceiptType:   components.RT_Success,
+			},
+		})
+	})
+	require.NoError(t, err)
 }

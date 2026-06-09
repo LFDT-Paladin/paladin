@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 
@@ -173,24 +174,19 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 	// Transaction not known to this originator.
 	// The most likely cause is that the transaction reached a terminal state (e.g., reverted during assembly)
 	// and has since been removed from memory after cleanup. We need to tell the coordinator so they can clean up.
-	log.L(ctx).Debugf("transaction not known to this originator %s", event.GetTransactionID().String())
-
-	// Extract coordinator from events that require a response
-	var coordinator string
+	log.L(ctx).Warnf("received %s for unknown transaction %s", event.TypeString(), event.GetTransactionID())
 
 	switch e := event.(type) {
 	case *transaction.AssembleRequestReceivedEvent:
-		coordinator = e.Coordinator
+		return o.transportWriter.SendAssembleRejection(ctx, e.GetTransactionID(), e.RequestID, e.Coordinator,
+			engineProto.RejectionReason_TRANSACTION_UNKNOWN, 0, 0)
 	case *transaction.PreDispatchRequestReceivedEvent:
-		coordinator = e.Coordinator
+		return o.transportWriter.SendPreDispatchRejection(ctx, e.GetTransactionID(), e.RequestID, e.Coordinator,
+			engineProto.RejectionReason_TRANSACTION_UNKNOWN)
 	default:
 		// Other events can be safely ignored
 		return nil
 	}
-
-	log.L(ctx).Warnf("received %s for unknown transaction %s, notifying coordinator %s",
-		event.TypeString(), event.GetTransactionID(), coordinator)
-	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID())
 }
 
 // getTransactionsInStates returns transactions in any of the given states.

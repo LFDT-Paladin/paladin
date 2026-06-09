@@ -66,6 +66,7 @@ type CoordinatorBuilderForTesting struct {
 	useMockClock                             bool
 	grapher                                  grapher.Grapher
 	signingIdentityUsed                      *bool
+	keyManagerResolveErr                     error
 }
 
 type CoordinatorDependencyMocks struct {
@@ -74,6 +75,8 @@ type CoordinatorDependencyMocks struct {
 	SyncPoints          *syncpointsmocks.SyncPoints
 	TransportWriter     *sequencertransportmocks.TransportWriter
 	Clock               *sequencercommonmocks.Clock
+	AllComponents       *componentsmocks.AllComponents
+	DomainAPI           *componentsmocks.DomainSmartContract
 }
 
 // copySequencerDefaultsForTest returns a deep copy of SequencerDefaults so tests that mutate
@@ -268,6 +271,14 @@ func (b *CoordinatorBuilderForTesting) HeartbeatIntervalsSinceStateChange(n int)
 	return b
 }
 
+// WithKeyManagerError configures the AllComponents KeyManager mock so that
+// ResolveKeyNewDatabaseTX returns the given error.  Use this when testing paths that
+// should abandon work when key resolution fails (e.g. an already-expired deadline).
+func (b *CoordinatorBuilderForTesting) WithKeyManagerError(err error) *CoordinatorBuilderForTesting {
+	b.keyManagerResolveErr = err
+	return b
+}
+
 func (b *CoordinatorBuilderForTesting) WithMockTransportWriter() *CoordinatorBuilderForTesting {
 	b.useMockTransportWriter = true
 	return b
@@ -275,6 +286,11 @@ func (b *CoordinatorBuilderForTesting) WithMockTransportWriter() *CoordinatorBui
 
 func (b *CoordinatorBuilderForTesting) AssembleErrorRetryThreshold(n int) *CoordinatorBuilderForTesting {
 	b.sequencerConfig.AssembleErrorRetryThreshold = confutil.P(n)
+	return b
+}
+
+func (b *CoordinatorBuilderForTesting) BlockHeightTolerance(n uint64) *CoordinatorBuilderForTesting {
+	b.sequencerConfig.BlockHeightTolerance = confutil.P(n)
 	return b
 }
 
@@ -307,6 +323,8 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 		EngineIntegration:   sequencercommonmocks.NewEngineIntegration(b.t),
 		SyncPoints:          syncpointsmocks.NewSyncPoints(b.t),
 		Clock:               sequencercommonmocks.NewClock(b.t),
+		AllComponents:       componentsmocks.NewAllComponents(b.t),
+		DomainAPI:           b.domainAPI,
 	}
 
 	if b.useMockTransportWriter {
@@ -317,7 +335,6 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 		mocks.TransportWriter = mockTransportWriter
 	}
 
-	allComponents := componentsmocks.NewAllComponents(b.t)
 	mp, err := mockpersistence.NewSQLMockProvider()
 	if err != nil {
 		panic(err)
@@ -330,10 +347,15 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 
 	transportManager := componentsmocks.NewTransportManager(b.t)
 	transportManager.On("LocalNodeName").Return(localNode).Maybe()
-	allComponents.On("TransportManager").Return(transportManager).Maybe()
-	allComponents.On("TxManager").Return(b.txManager).Maybe()
-	allComponents.On("SequencerManager").Return(b.sequencerManager).Maybe()
-	allComponents.On("Persistence").Return(mp.P).Maybe()
+	mocks.AllComponents.On("SequencerManager").Return(b.sequencerManager).Maybe()
+	mocks.AllComponents.On("Persistence").Return(mp.P).Maybe()
+
+	if b.keyManagerResolveErr != nil {
+		mockKeyManager := componentsmocks.NewKeyManager(b.t)
+		mockKeyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(nil, b.keyManagerResolveErr).Maybe()
+		mocks.AllComponents.On("KeyManager").Return(mockKeyManager).Maybe()
+	}
 
 	var transportWriter transport.TransportWriter = mocks.SentMessageRecorder
 	if mocks.TransportWriter != nil {
@@ -351,7 +373,7 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 		b.contractAddress,
 		b.domainAPI,
 		nil,
-		allComponents,
+		mocks.AllComponents,
 		nil,
 		nil,
 		transportWriter,

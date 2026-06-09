@@ -14,7 +14,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { NavigateOptions, To } from 'react-router-dom';
+import React from 'react';
 import { IFilter } from './interfaces';
+
+export const CONSTANTS = {
+  NAVIGATION_DRAWER_WIDTH: 240
+}
 
 export const formatJSONWhenApplicable = (value: any) => {
   if (typeof value === 'object') {
@@ -70,6 +76,10 @@ export const translateFilters = (filters: IFilter[]) => {
         break;
     }
 
+    if(filter.field.type === 'boolean') {
+      entry.value = Boolean(entry.value);
+    }
+
     let group = result[operator] ?? [];
     group.push(entry);
     result[operator] = group;
@@ -118,3 +128,21 @@ export const getShortId = (hash: string) => {
 };
 
 export const isValidTransactionHash = (value: string) => /^(0x)?[a-fA-F0-9]{64}$/i.test(value);
+
+export const capitalize = (value: string): string =>
+  value.charAt(0).toUpperCase() + value.slice(1);
+
+export const isValidAddress = (value: string) => /^0x[a-fA-F0-9]{40}$/.test(value);
+
+export const isValidPrivacyGroupId = (value: string) => /^0x[a-fA-F0-9]{64}$/.test(value);
+
+export const customNavigate = (destination: string, mouseEvent: React.MouseEvent<HTMLElement>, navigate: (to: To, options?: NavigateOptions) => void) => {
+  if (mouseEvent.metaKey || mouseEvent.ctrlKey || mouseEvent.button === 1) {
+    const newTab = window.open(destination, '_blank');
+    if (newTab) {
+      newTab.focus();
+    }
+  } else {
+    navigate(destination);
+  }
+};

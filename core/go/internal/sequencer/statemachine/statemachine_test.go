@@ -693,6 +693,42 @@ func TestTransitionCallback(t *testing.T) {
 	assert.Equal(t, State_Active, callbackTo)
 }
 
+func TestTransitionCallback_FiredBeforeOnTransitionTo(t *testing.T) {
+	var steps []string
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandlers[TestState, *TestEntity]{
+				Event_Start: {Handlers: []EventHandler[TestState, *TestEntity]{{
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				}}},
+			},
+		},
+		State_Active: {
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+					steps = append(steps, "entry")
+					return nil
+				},
+			}},
+		},
+	}
+
+	callback := func(ctx context.Context, e *TestEntity, from, to TestState, event common.Event) {
+		steps = append(steps, "callback")
+	}
+
+	entity := newTestEntity(definitions, "test-entity", WithTransitionCallback(callback))
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+	assert.Equal(t, []string{"callback", "entry"}, steps)
+}
+
 func TestWithName(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {

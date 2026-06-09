@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 func Test_HandleEvent_ProcessesEvent(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Pending)
@@ -41,7 +40,7 @@ func Test_HandleEvent_ProcessesEvent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, coordinator, txn.currentDelegate)
 	// Transition callback should have been invoked
-	require.Len(t, mocks.GetEmittedEvents(), 1)
+	<-mocks.Events
 }
 
 func Test_initializeStateMachine_InvokesTransitionCallback(t *testing.T) {
@@ -55,9 +54,7 @@ func Test_initializeStateMachine_InvokesTransitionCallback(t *testing.T) {
 	err := txn.HandleEvent(ctx, event)
 	require.NoError(t, err)
 	// Should have emitted a state transition event
-	events := mocks.GetEmittedEvents()
-	require.Len(t, events, 1)
-	_, ok := events[0].(*common.TransactionStateTransitionEvent[State])
+	_, ok := (<-mocks.Events).(*common.TransactionStateTransitionEvent[State])
 	require.True(t, ok)
 }
 
@@ -185,11 +182,12 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 		Coordinator: builder.GetCoordinator(),
 	})
 	assert.NoError(t, err)
-	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 2)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, mocks.GetEmittedEvents()[0])
-	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, mocks.GetEmittedEvents()[1])
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
+	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
 
 	//We haven't fed that event back into the state machine yet, so the state should still be Assembling
 	currentState := txn.GetCurrentState()
@@ -212,11 +210,12 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 		Coordinator: builder.GetCoordinator(),
 	})
 	assert.NoError(t, err)
-	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 2)
-	require.IsType(t, &AssembleRevertEvent{}, mocks.GetEmittedEvents()[0])
-	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, mocks.GetEmittedEvents()[1])
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
+	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleRevertEvent{}, e1)
 
 	//We haven't fed that event back into the state machine yet, so the state should still be Assembling
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
@@ -238,14 +237,72 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 		Coordinator: builder.GetCoordinator(),
 	})
 	assert.NoError(t, err)
-	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 2)
-	require.IsType(t, &AssembleParkEvent{}, mocks.GetEmittedEvents()[0])
-	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, mocks.GetEmittedEvents()[1])
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
+	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleParkEvent{}, e1)
 
 	//We haven't fed that event back into the state machine yet, so the state should still be Assembling
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Delegated_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded(t *testing.T) {
+	// When the coordinator's block height differs from the originator's by more than the configured
+	// tolerance, the originator sends an AssembleRejection and stays in State_Delegated.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated).
+		CurrentBlockHeight(50).
+		BlockHeightTolerance(0) // zero tolerance: any difference triggers rejection
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.GetID()},
+		RequestID:               uuid.New(),
+		Coordinator:             builder.GetCoordinator(),
+		CoordinatorsBlockHeight: 100, // diff=50 > tolerance=0
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Delegated, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Delegated_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded_OriginatorAhead(t *testing.T) {
+	// Covers the branch in validator_AssembleBlockHeightToleranceExceeded where the originator's
+	// block height is higher than the coordinator's (receiverBlockHeight > senderBH).
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated).
+		CurrentBlockHeight(100).
+		BlockHeightTolerance(0) // zero tolerance: any difference triggers rejection
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.GetID()},
+		RequestID:               uuid.New(),
+		Coordinator:             builder.GetCoordinator(),
+		CoordinatorsBlockHeight: 50, // originator(100) > coordinator(50), diff=50 > tolerance=0
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Delegated, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Delegated_StaysInState_OnAssembleRequestReceived_NotCurrentDelegate(t *testing.T) {
+	// An assemble request from a node other than the current delegate is rejected immediately;
+	// the originator sends an AssembleRejection and stays in State_Delegated.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: uuid.New().String(), // different from builder.GetCoordinator()
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Delegated, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestOriginatorTransaction_Assembling_ToDelegated_OnDelegated_IfDifferentCoordinator(t *testing.T) {
@@ -321,7 +378,7 @@ func TestOriginatorTransaction_Assembling_ToParked_OnAssemblePark(t *testing.T) 
 }
 
 func TestOriginatorTransaction_Assembling_ToDelegated_OnAssembleError(t *testing.T) {
-	// action_AssembleError stores the error; action_SendAssembleErrorResponse sends it back to the
+	// action_AssembleError stores the error; action_SendAssembleError sends it back to the
 	// coordinator; the transaction returns to State_Delegated for a future retry.
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
@@ -331,8 +388,45 @@ func TestOriginatorTransaction_Assembling_ToDelegated_OnAssembleError(t *testing
 		BaseEvent: BaseEvent{TransactionID: txn.GetID()},
 	})
 	assert.NoError(t, err)
-	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleErrorResponse(), "assemble error response was not sent back to coordinator")
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleError(), "assemble error response was not sent back to coordinator")
 	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+}
+
+func TestOriginatorTransaction_Assembling_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded(t *testing.T) {
+	// When the coordinator's block height differs from the originator's by more than the configured
+	// tolerance, the originator sends an AssembleRejection and stays in State_Assembling.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling).
+		CurrentBlockHeight(50).
+		BlockHeightTolerance(0) // zero tolerance: any difference triggers rejection
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.GetID()},
+		RequestID:               uuid.New(),
+		Coordinator:             builder.GetCoordinator(),
+		CoordinatorsBlockHeight: 100, // diff=50 > tolerance=0
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Assembling_StaysInState_OnAssembleRequestReceived_NotCurrentDelegate(t *testing.T) {
+	// An assemble request from a node other than the current delegate is rejected immediately;
+	// the originator sends an AssembleRejection and stays in State_Assembling.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: uuid.New().String(), // different from builder.GetCoordinator()
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestOriginatorTransaction_Delegated_ToReverted_OnAssembleRequestReceived_AfterAssembleCompletesRevert(t *testing.T) {
@@ -349,12 +443,13 @@ func TestOriginatorTransaction_Delegated_ToReverted_OnAssembleRequestReceived_Af
 		Coordinator: builder.GetCoordinator(),
 	})
 	assert.NoError(t, err)
-	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 2)
-	require.IsType(t, &AssembleRevertEvent{}, mocks.GetEmittedEvents()[0])
-	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, mocks.GetEmittedEvents()[1])
-	err = txn.HandleEvent(ctx, mocks.GetEmittedEvents()[0])
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
+	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleRevertEvent{}, e1)
+	err = txn.HandleEvent(ctx, e1)
 	assert.NoError(t, err)
 
 	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRevertResponse(), "assemble revert response was not sent back to coordinator")
@@ -376,12 +471,13 @@ func TestOriginatorTransaction_Delegated_ToParked_OnAssembleRequestReceived_Afte
 		Coordinator: builder.GetCoordinator(),
 	})
 	assert.NoError(t, err)
-	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 2)
-	require.IsType(t, &AssembleParkEvent{}, mocks.GetEmittedEvents()[0])
-	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, mocks.GetEmittedEvents()[1])
-	err = txn.HandleEvent(ctx, mocks.GetEmittedEvents()[0])
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
+	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleParkEvent{}, e1)
+	err = txn.HandleEvent(ctx, e1)
 	assert.NoError(t, err)
 
 	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleParkResponse(), "assemble park response was not sent back to coordinator")
@@ -395,9 +491,9 @@ func TestOriginatorTransaction_Delegated_ToDispatched_OnDispatched_IfCurrentDele
 	txn := builder.Build()
 
 	err := txn.HandleEvent(ctx, &DispatchedEvent{
-		BaseEvent:    BaseEvent{TransactionID: txn.GetID()},
+		BaseEvent:     BaseEvent{TransactionID: txn.GetID()},
 		SignerAddress: pldtypes.EthAddress(pldtypes.RandBytes(20)),
-		Coordinator:  builder.GetCoordinator(), // must match currentDelegate for validator to pass
+		Coordinator:   builder.GetCoordinator(), // must match currentDelegate for validator to pass
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, State_Dispatched, txn.GetCurrentState())
@@ -481,6 +577,43 @@ func TestOriginatorTransaction_Reverted_Ignore_OnAssembleRequest_IfNotMatchesPre
 	assert.Equal(t, State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
+func TestOriginatorTransaction_Reverted_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded(t *testing.T) {
+	// When the coordinator's block height differs from the originator's by more than the configured
+	// tolerance, the originator sends an AssembleRejection and stays in State_Reverted.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Reverted).
+		CurrentBlockHeight(50).
+		BlockHeightTolerance(0) // zero tolerance: any difference triggers rejection
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.GetID()},
+		RequestID:               uuid.New(),
+		Coordinator:             builder.GetCoordinator(),
+		CoordinatorsBlockHeight: 100, // diff=50 > tolerance=0
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Reverted_StaysInState_OnAssembleRequestReceived_NotCurrentDelegate(t *testing.T) {
+	// An assemble request from a node other than the current delegate is rejected immediately;
+	// the originator sends an AssembleRejection and stays in State_Reverted.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Reverted)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: uuid.New().String(), // different from builder.GetCoordinator()
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
 func TestOriginatorTransaction_Parked_ToDelegated_OnDelegated_IfDifferentCoordinator(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Parked)
@@ -532,6 +665,43 @@ func TestOriginatorTransaction_Parked_Ignore_OnAssembleRequest_IfNotMatchesPrevi
 	assert.Equal(t, State_Parked, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
+func TestOriginatorTransaction_Parked_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded(t *testing.T) {
+	// When the coordinator's block height differs from the originator's by more than the configured
+	// tolerance, the originator sends an AssembleRejection and stays in State_Parked.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Parked).
+		CurrentBlockHeight(50).
+		BlockHeightTolerance(0) // zero tolerance: any difference triggers rejection
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.GetID()},
+		RequestID:               uuid.New(),
+		Coordinator:             builder.GetCoordinator(),
+		CoordinatorsBlockHeight: 100, // diff=50 > tolerance=0
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Parked, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Parked_StaysInState_OnAssembleRequestReceived_NotCurrentDelegate(t *testing.T) {
+	// An assemble request from a node other than the current delegate is rejected immediately;
+	// the originator sends an AssembleRejection and stays in State_Parked.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Parked)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: uuid.New().String(), // different from builder.GetCoordinator()
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Parked, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
 func TestOriginatorTransaction_Endorsement_Gathering_ToAssembling_OnAssembleRequest_IfNotMatchesPreviousRequest(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
@@ -548,14 +718,51 @@ func TestOriginatorTransaction_Endorsement_Gathering_ToAssembling_OnAssembleRequ
 	})
 	assert.NoError(t, err)
 
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
-
-	require.Len(t, mocks.GetEmittedEvents(), 2)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, mocks.GetEmittedEvents()[0])
-	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, mocks.GetEmittedEvents()[1])
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
 
 	//We haven't fed that event back into the state machine yet, so the state should still be Assembling
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Endorsement_Gathering_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded(t *testing.T) {
+	// When the coordinator's block height differs from the originator's by more than the configured
+	// tolerance, the originator sends an AssembleRejection and stays in State_Endorsement_Gathering.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		CurrentBlockHeight(50).
+		BlockHeightTolerance(0) // zero tolerance: any difference triggers rejection
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.GetID()},
+		RequestID:               uuid.New(),
+		Coordinator:             builder.GetCoordinator(),
+		CoordinatorsBlockHeight: 100, // diff=50 > tolerance=0
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Endorsement_Gathering_StaysInState_OnAssembleRequestReceived_NotCurrentDelegate(t *testing.T) {
+	// An assemble request from a node other than the current delegate is rejected immediately;
+	// the originator sends an AssembleRejection and stays in State_Endorsement_Gathering.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: uuid.New().String(), // different from builder.GetCoordinator()
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestOriginatorTransaction_Endorsement_Gathering_ToPrepared_OnDispatchConfirmationRequestReceivedIfMatches(t *testing.T) {
@@ -667,11 +874,49 @@ func TestOriginatorTransaction_Prepared_ToAssembling_OnAssembleRequest_IfNotMatc
 	})
 	assert.NoError(t, err)
 
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
-	require.Len(t, mocks.GetEmittedEvents(), 2)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, mocks.GetEmittedEvents()[0])
-	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, mocks.GetEmittedEvents()[1])
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Prepared_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded(t *testing.T) {
+	// When the coordinator's block height differs from the originator's by more than the configured
+	// tolerance, the originator sends an AssembleRejection and stays in State_Prepared.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Prepared).
+		CurrentBlockHeight(50).
+		BlockHeightTolerance(0) // zero tolerance: any difference triggers rejection
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.GetID()},
+		RequestID:               uuid.New(),
+		Coordinator:             builder.GetCoordinator(),
+		CoordinatorsBlockHeight: 100, // diff=50 > tolerance=0
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Prepared, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Prepared_StaysInState_OnAssembleRequestReceived_NotCurrentDelegate(t *testing.T) {
+	// An assemble request from a node other than the current delegate is rejected immediately;
+	// the originator sends an AssembleRejection and stays in State_Prepared.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Prepared)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: uuid.New().String(), // different from builder.GetCoordinator()
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Prepared, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestOriginatorTransaction_Prepared_ToDispatched_OnDispatched(t *testing.T) {
@@ -784,11 +1029,49 @@ func TestOriginatorTransaction_Dispatched_ToAssembling_OnAssembleRequest(t *test
 	})
 	assert.NoError(t, err)
 
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
-	require.Len(t, mocks.GetEmittedEvents(), 2)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, mocks.GetEmittedEvents()[0])
-	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, mocks.GetEmittedEvents()[1])
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Dispatched_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded(t *testing.T) {
+	// When the coordinator's block height differs from the originator's by more than the configured
+	// tolerance, the originator sends an AssembleRejection and stays in State_Dispatched.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Dispatched).
+		CurrentBlockHeight(50).
+		BlockHeightTolerance(0) // zero tolerance: any difference triggers rejection
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.GetID()},
+		RequestID:               uuid.New(),
+		Coordinator:             builder.GetCoordinator(),
+		CoordinatorsBlockHeight: 100, // diff=50 > tolerance=0
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Dispatched_StaysInState_OnAssembleRequestReceived_NotCurrentDelegate(t *testing.T) {
+	// An assemble request from a node other than the current delegate is rejected immediately;
+	// the originator sends an AssembleRejection and stays in State_Dispatched.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Dispatched)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: uuid.New().String(), // different from builder.GetCoordinator()
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestOriginatorTransaction_Dispatched_ToSequenced_OnNonceAssigned(t *testing.T) {
@@ -885,11 +1168,49 @@ func TestOriginatorTransaction_Sequenced_ToAssembling_OnAssembleRequest(t *testi
 	})
 	assert.NoError(t, err)
 
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
-	require.Len(t, mocks.GetEmittedEvents(), 2)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, mocks.GetEmittedEvents()[0])
-	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, mocks.GetEmittedEvents()[1])
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Sequenced_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded(t *testing.T) {
+	// When the coordinator's block height differs from the originator's by more than the configured
+	// tolerance, the originator sends an AssembleRejection and stays in State_Sequenced.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Sequenced).
+		CurrentBlockHeight(50).
+		BlockHeightTolerance(0) // zero tolerance: any difference triggers rejection
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.GetID()},
+		RequestID:               uuid.New(),
+		Coordinator:             builder.GetCoordinator(),
+		CoordinatorsBlockHeight: 100, // diff=50 > tolerance=0
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Sequenced, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Sequenced_StaysInState_OnAssembleRequestReceived_NotCurrentDelegate(t *testing.T) {
+	// An assemble request from a node other than the current delegate is rejected immediately;
+	// the originator sends an AssembleRejection and stays in State_Sequenced.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Sequenced)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: uuid.New().String(), // different from builder.GetCoordinator()
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Sequenced, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestOriginatorTransaction_Sequenced_ToSubmitted_OnSubmitted(t *testing.T) {
@@ -996,6 +1317,66 @@ func TestOriginatorTransaction_Submitted_ToDelegated_OnDelegated_IfDifferentCoor
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+}
+
+func TestOriginatorTransaction_Submitted_ToAssembling_OnAssembleRequest(t *testing.T) {
+	// After submission there's a race where the coordinator re-assembles; the originator
+	// transitions to State_Assembling to process the new request.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Submitted)
+	txn, mocks := builder.BuildWithMocks()
+	mocks.MockForAssembleAndSignRequestOK().Once()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: builder.GetCoordinator(),
+	})
+	assert.NoError(t, err)
+
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
+	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
+	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Submitted_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded(t *testing.T) {
+	// When the coordinator's block height differs from the originator's by more than the configured
+	// tolerance, the originator sends an AssembleRejection and stays in State_Submitted.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Submitted).
+		CurrentBlockHeight(50).
+		BlockHeightTolerance(0) // zero tolerance: any difference triggers rejection
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.GetID()},
+		RequestID:               uuid.New(),
+		Coordinator:             builder.GetCoordinator(),
+		CoordinatorsBlockHeight: 100, // diff=50 > tolerance=0
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Submitted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Submitted_StaysInState_OnAssembleRequestReceived_NotCurrentDelegate(t *testing.T) {
+	// An assemble request from a node other than the current delegate is rejected immediately;
+	// the originator sends an AssembleRejection and stays in State_Submitted.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Submitted)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: uuid.New().String(), // different from builder.GetCoordinator()
+	})
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
+	assert.Equal(t, State_Submitted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestOriginatorTransaction_Parked_ToPending_OnResumed(t *testing.T) {

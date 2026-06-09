@@ -394,19 +394,20 @@ func (sm *StateMachine[S, E]) evaluateTransitions(
 		}
 
 		newState := sm.GetCurrentState()
-		newStateDefinition, exists := sm.definitions[newState]
-		if exists && len(newStateDefinition.OnTransitionTo) > 0 {
-			if err := sm.executeActionRules(ctx, entity, event, newStateDefinition.OnTransitionTo); err != nil {
-				log.L(ctx).Errorf("%s | %s | %s | error executing state entry action for transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), newState.String(), err)
-				return true, err
-			}
-		}
 
 		log.L(ctx).Debugf("%s | %s | %s | transition to state %s",
 			sm.name, previousState.String(), event.TypeString(), newState.String())
 
 		if sm.transitionCallback != nil {
 			sm.transitionCallback(ctx, entity, previousState, newState, event)
+		}
+
+		newStateDefinition, exists := sm.definitions[newState]
+		if exists && len(newStateDefinition.OnTransitionTo) > 0 {
+			if err := sm.executeActionRules(ctx, entity, event, newStateDefinition.OnTransitionTo); err != nil {
+				log.L(ctx).Errorf("%s | %s | %s | error executing state entry action for transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), newState.String(), err)
+				return true, err
+			}
 		}
 
 		return true, nil

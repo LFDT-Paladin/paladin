@@ -1817,3 +1817,58 @@ func TestOnNewBlockHeight_DispatchesNewBlockToAllSequencers(t *testing.T) {
 
 	assert.Equal(t, expectedHeight, sm.GetBlockHeight())
 }
+
+func TestNotifySequencersNewBlock_NewBlockCancelsPrevious(t *testing.T) {
+	ctx := context.Background()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+	addr := pldtypes.RandAddress()
+
+	block1CoordCalled := make(chan struct{})
+	block2CoordDone := make(chan struct{})
+	block2OrigDone := make(chan struct{})
+
+	// Block 1 coordinator: block inside Run until context is cancelled, simulating a full event channel.
+	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		ev, ok := e.(*common.NewBlockEvent)
+		return ok && ev.BlockHeight == 1
+	})).Run(func(ctx context.Context, _ common.Event) {
+		close(block1CoordCalled)
+		<-ctx.Done()
+	}).Return().Once()
+
+	// Block 1 originator: may be called with an already-cancelled context after coordinator unblocks.
+	mocks.originator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		ev, ok := e.(*common.NewBlockEvent)
+		return ok && ev.BlockHeight == 1
+	})).Return().Maybe()
+
+	// Block 2: both coordinator and originator must receive the event.
+	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		ev, ok := e.(*common.NewBlockEvent)
+		return ok && ev.BlockHeight == 2
+	})).Run(func(_ context.Context, _ common.Event) {
+		close(block2CoordDone)
+	}).Return().Once()
+
+	mocks.originator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		ev, ok := e.(*common.NewBlockEvent)
+		return ok && ev.BlockHeight == 2
+	})).Run(func(_ context.Context, _ common.Event) {
+		close(block2OrigDone)
+	}).Return().Once()
+
+	sm.sequencers[addr.String()] = newSequencerForTesting(addr, mocks)
+
+	sm.OnNewBlockHeight(ctx, 1)
+
+	// Wait until block 1's goroutine is blocking inside coordinator.QueueEvent.
+	<-block1CoordCalled
+
+	// Arrival of block 2 must cancel block 1's context and then deliver itself.
+	sm.OnNewBlockHeight(ctx, 2)
+
+	<-block2CoordDone
+	<-block2OrigDone
+	assert.Equal(t, int64(2), sm.GetBlockHeight())
+}

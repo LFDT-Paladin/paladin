@@ -762,6 +762,21 @@ func TestInvokeRPCError(t *testing.T) {
 	require.Regexp(t, "pop", err)
 }
 
+func TestInvokeRPCUnsupportedQualifier(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	mockDBPrivacyGroup(mc, schemaID, groupID, contractAddr)
+	psc := componentsmocks.NewDomainSmartContract(t)
+	mc.domainManager.On("GetSmartContractByAddress", mock.Anything, mock.Anything, *contractAddr).Return(psc, nil)
+
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, "pending", pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "PD011667", err)
+}
+
 func newValidPGState() *pldapi.State {
 	return &pldapi.State{
 		StateBase: pldapi.StateBase{

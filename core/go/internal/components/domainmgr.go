@@ -82,7 +82,7 @@ type DomainSmartContract interface {
 	ContractConfig() *prototk.ContractConfig
 
 	InitTransaction(ctx context.Context, ptx *PrivateTransaction, localTx *ResolvedTransaction) error
-	AssembleTransaction(dCtx DomainContext, readTX persistence.DBTX, ptx *PrivateTransaction, localTx *ResolvedTransaction) error
+	AssembleTransaction(dCtx DomainContext, readTX persistence.DBTX, ptx *PrivateTransaction, localTx *ResolvedTransaction, resolvedVerifiers []*prototk.ResolvedVerifier) error
 	WritePotentialStates(dCtx DomainContext, readTX persistence.DBTX, tx *PrivateTransaction) error
 	LockStates(dCtx DomainContext, readTX persistence.DBTX, tx *PrivateTransaction) error
 	MapPotentialStates(dCtx DomainContext, potentialStates []*prototk.NewState, isOutput bool, createdByTX *PrivateTransaction) (stateUpserts []*StateUpsert, err error)

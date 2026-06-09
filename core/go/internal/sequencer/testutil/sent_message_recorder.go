@@ -17,6 +17,7 @@ package testutil
 
 import (
 	"context"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
@@ -54,11 +55,10 @@ type SentMessageRecorder struct {
 	hasSentAssembleSuccessResponse bool
 	hasSentAssembleRevertResponse  bool
 	hasSentAssembleParkResponse    bool
-	hasSentAssembleErrorResponse   bool
-	hasSentTransactionUnknown      bool
-	transactionUnknownTxID         uuid.UUID
-	transactionUnknownCoordinator  string
-	hasSentNotActiveCoordinator    bool
+	hasSentAssembleError           bool
+	hasSentAssembleRejection       bool
+	hasSentPreDispatchRejection    bool
+	preDispatchRejectionReason     engineProto.RejectionReason
 	hasSentDelegationRequest       bool
 	delegatedTransactions          []*components.PrivateTransaction
 }
@@ -89,11 +89,10 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.hasSentAssembleSuccessResponse = false
 	r.hasSentAssembleRevertResponse = false
 	r.hasSentAssembleParkResponse = false
-	r.hasSentAssembleErrorResponse = false
-	r.hasSentTransactionUnknown = false
-	r.transactionUnknownTxID = uuid.UUID{}
-	r.transactionUnknownCoordinator = ""
-	r.hasSentNotActiveCoordinator = false
+	r.hasSentAssembleError = false
+	r.hasSentAssembleRejection = false
+	r.hasSentPreDispatchRejection = false
+	r.preDispatchRejectionReason = 0
 	r.hasSentDelegationRequest = false
 	r.delegatedTransactions = nil
 	// per-tx maps are NOT reset — they accumulate across the full test
@@ -170,7 +169,9 @@ func (r *SentMessageRecorder) SendAssembleRequest(
 	idempotencyKey uuid.UUID,
 	transactionPreassembly *components.TransactionPreAssembly,
 	stateLocks grapher.ExportableStates,
-	blockHeight int64,
+	coordinatorBlockHeight int64,
+	expiryTime time.Time,
+	blockHeightTolerance int64,
 ) error {
 	r.hasSentAssembleRequest = true
 	r.sentAssembleRequestIdempotencyKey = idempotencyKey
@@ -192,6 +193,9 @@ func (r *SentMessageRecorder) SendEndorsementRequest(
 	readStates []*prototk.EndorsableState,
 	outputStates []*prototk.EndorsableState,
 	infoStates []*prototk.EndorsableState,
+	expiryTime time.Time,
+	coordinatorBlockHeight int64,
+	blockHeightTolerance int64,
 ) error {
 	r.numberOfSentEndorsementRequests++
 	if _, ok := r.numberOfEndorsementRequestsForParty[party]; ok {
@@ -254,13 +258,36 @@ func (r *SentMessageRecorder) HasSentAssembleParkResponse() bool {
 	return r.hasSentAssembleParkResponse
 }
 
-func (r *SentMessageRecorder) SendAssembleErrorResponse(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, recipient string) error {
-	r.hasSentAssembleErrorResponse = true
+func (r *SentMessageRecorder) SendAssembleError(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, recipient string) error {
+	r.hasSentAssembleError = true
 	return nil
 }
 
-func (r *SentMessageRecorder) HasSentAssembleErrorResponse() bool {
-	return r.hasSentAssembleErrorResponse
+func (r *SentMessageRecorder) SendAssembleRejection(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, recipient string, reason engineProto.RejectionReason, coordinatorBlockHeight, assemblerBlockHeight int64) error {
+	r.hasSentAssembleRejection = true
+	return nil
+}
+
+func (r *SentMessageRecorder) SendPreDispatchRejection(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, coordinatorNode string, reason engineProto.RejectionReason) error {
+	r.hasSentPreDispatchRejection = true
+	r.preDispatchRejectionReason = reason
+	return nil
+}
+
+func (r *SentMessageRecorder) HasSentPreDispatchRejection() bool {
+	return r.hasSentPreDispatchRejection
+}
+
+func (r *SentMessageRecorder) PreDispatchRejectionReason() engineProto.RejectionReason {
+	return r.preDispatchRejectionReason
+}
+
+func (r *SentMessageRecorder) HasSentAssembleRejection() bool {
+	return r.hasSentAssembleRejection
+}
+
+func (r *SentMessageRecorder) HasSentAssembleError() bool {
+	return r.hasSentAssembleError
 }
 
 func (r *SentMessageRecorder) SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
@@ -282,30 +309,6 @@ func (r *SentMessageRecorder) SendTransactionSubmitted(ctx context.Context, txID
 
 func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engineProto.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool) error {
 	return nil
-}
-
-func (r *SentMessageRecorder) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
-	r.hasSentTransactionUnknown = true
-	r.transactionUnknownTxID = txID
-	r.transactionUnknownCoordinator = coordinatorNode
-	return nil
-}
-
-func (r *SentMessageRecorder) HasSentTransactionUnknown() bool {
-	return r.hasSentTransactionUnknown
-}
-
-func (r *SentMessageRecorder) GetTransactionUnknownDetails() (txID uuid.UUID, coordinator string) {
-	return r.transactionUnknownTxID, r.transactionUnknownCoordinator
-}
-
-func (r *SentMessageRecorder) SendNotActiveCoordinator(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
-	r.hasSentNotActiveCoordinator = true
-	return nil
-}
-
-func (r *SentMessageRecorder) HasSentNotActiveCoordinator() bool {
-	return r.hasSentNotActiveCoordinator
 }
 
 func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, blockHeight uint64) error {
@@ -331,11 +334,11 @@ func (r *SentMessageRecorder) GetDelegatedTransactions() []*components.PrivateTr
 	return r.delegatedTransactions
 }
 
-func (r *SentMessageRecorder) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64, blockHeight uint64) error {
+func (r *SentMessageRecorder) SendDelegationResponse(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64, blockHeight uint64) error {
 	return nil
 }
 
-func (r *SentMessageRecorder) SendDelegationRequestRejection(ctx context.Context, delegatingNodeName string, delegationId string, blockHeight uint64, activeCoordinator string) error {
+func (r *SentMessageRecorder) SendDelegationRejection(ctx context.Context, delegatingNodeName string, delegationId string, rejectionReason engineProto.RejectionReason, activeCoordinator string, originatorBlockHeight, coordinatorBlockHeight, blockHeightTolerance int64) error {
 	return nil
 }
 
@@ -353,5 +356,13 @@ func (r *SentMessageRecorder) SendDispatched(ctx context.Context, transactionOri
 }
 
 func (r *SentMessageRecorder) SendEndorsementResponse(ctx context.Context, transactionId, idempotencyKey, contractAddress string, attResult *prototk.AttestationResult, endorsementResult *components.EndorsementResult, revertReason, endorsementName, party, node string) error {
+	return nil
+}
+
+func (r *SentMessageRecorder) SendEndorsementError(ctx context.Context, transactionId, idempotencyKey, contractAddress, errorMessage, party, attestationRequestName, node string) error {
+	return nil
+}
+
+func (r *SentMessageRecorder) SendEndorsementRejection(ctx context.Context, transactionId, idempotencyKey, contractAddress, endorsementName, party, node string, reason engineProto.RejectionReason, coordinatorBlockHeight, endorserBlockHeight, blockHeightTolerance int64) error {
 	return nil
 }

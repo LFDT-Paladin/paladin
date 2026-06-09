@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -104,7 +106,7 @@ func Test_action_RejectDelegationRequest_Success(t *testing.T) {
 
 	delegationID := "del-123"
 	fromNode := "remoteNode"
-	mocks.TransportWriter.EXPECT().SendDelegationRequestRejection(ctx, fromNode, delegationID, c.currentBlockHeight, c.currentActiveCoordinator).Return(nil)
+	mocks.TransportWriter.EXPECT().SendDelegationRejection(ctx, fromNode, delegationID, engineProto.RejectionReason_NOT_CURRENT_DELEGATE, c.currentActiveCoordinator, int64(0), int64(c.currentBlockHeight), int64(0)).Return(nil)
 
 	event := &TransactionsDelegatedEvent{
 		FromNode:     fromNode,
@@ -121,7 +123,7 @@ func Test_action_RejectDelegationRequest_PropagatesError(t *testing.T) {
 	delegationID := "del-456"
 	fromNode := "remoteNode"
 	expectedErr := fmt.Errorf("transport error")
-	mocks.TransportWriter.EXPECT().SendDelegationRequestRejection(ctx, fromNode, delegationID, c.currentBlockHeight, c.currentActiveCoordinator).Return(expectedErr)
+	mocks.TransportWriter.EXPECT().SendDelegationRejection(ctx, fromNode, delegationID, engineProto.RejectionReason_NOT_CURRENT_DELEGATE, c.currentActiveCoordinator, int64(0), int64(c.currentBlockHeight), int64(0)).Return(expectedErr)
 
 	event := &TransactionsDelegatedEvent{
 		FromNode:     fromNode,
@@ -129,6 +131,28 @@ func Test_action_RejectDelegationRequest_PropagatesError(t *testing.T) {
 	}
 	err := action_RejectDelegationRequest(ctx, c, event)
 	require.ErrorIs(t, err, expectedErr)
+}
+
+func Test_action_AddEndorsersFromSnapshot_MergesSnapshotCandidates(t *testing.T) {
+	ctx := context.Background()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).
+		NodeName("node1").
+		EndorserCandidates("node1").
+		CoordinatorPriorityList("node1").
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Build()
+
+	event := &common.HeartbeatReceivedEvent{}
+	event.FromNode = "node2"
+	event.CoordinatorSnapshot = &common.CoordinatorSnapshot{
+		CoordinatorState:   State_Active,
+		EndorserCandidates: []string{"node1", "node2", "node3"},
+	}
+
+	require.NoError(t, action_AddEndorsersFromSnapshot(ctx, c, event))
+
+	assert.ElementsMatch(t, []string{"node1", "node2", "node3"}, c.endorserCandidates)
+	assert.Len(t, c.coordinatorPriorityList, 3)
 }
 
 func Test_validator_IsHeartbeatFromCurrentActiveCoordinator_FromCurrentNode_ReturnsTrue(t *testing.T) {

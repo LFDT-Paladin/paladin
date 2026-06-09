@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -29,7 +29,8 @@ import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TransactionType } from '../../../interfaces';
 import { sendTransaction } from '../../../queries/transactions';
-import { encodeHex } from '../../../utils';
+import { customNavigate, encodeHex } from '../../../utils';
+import { useNavigate } from 'react-router-dom';
 
 type Props = {
   contractAddress: string;
@@ -72,18 +73,18 @@ export const NotoMintDialog: React.FC<Props> = ({
   const [amount, setAmount] = useState('');
   const [data, setData] = useState('');
   const [errorMessage, setErrorMessage] = useState<string>();
+  const navigate = useNavigate();
 
   useEffect(() => {
-    if (!dialogOpen) {
-      setTimeout(() => {
+    if (dialogOpen) {
         setRecipient('');
+        setSender('');
         setAmount('');
         setData('');
-      }, 200);
     }
   }, [dialogOpen]);
 
-  const { mutate, error } = useMutation({
+  const { mutate, error, data: transactionId } = useMutation({
     mutationFn: () =>
       sendTransaction({
         type: TransactionType.PRIVATE,
@@ -95,9 +96,8 @@ export const NotoMintDialog: React.FC<Props> = ({
           to: recipient,
           amount,
           data: encodeHex(data),
-        },
-      }),
-    onSuccess: () => setDialogOpen(false),
+        }
+      })
   });
 
   useEffect(() => {
@@ -133,6 +133,16 @@ export const NotoMintDialog: React.FC<Props> = ({
           </Box>
         </DialogTitle>
         <DialogContent>
+                    {transactionId !== undefined &&
+            <Alert variant="filled" severity="success" sx={{ marginBottom: '20px' }}
+              action={
+                <Button variant="outlined" color="inherit" size="small"
+                  onClick={event => customNavigate(`/ui/transactions/${transactionId}?back=domains`, event, navigate)}
+                >{t('view')}</Button>
+              }
+            >
+              {t('transactionValue', { value: transactionId })}
+            </Alert>}
           <Box sx={{ marginTop: '5px' }}>
             <TextField
               fullWidth
@@ -172,7 +182,7 @@ export const NotoMintDialog: React.FC<Props> = ({
           <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
-              label={t('data')}
+              label={t('dataOptional')}
               autoComplete="off"
               value={data}
               onChange={(event) => setData(event.target.value)}

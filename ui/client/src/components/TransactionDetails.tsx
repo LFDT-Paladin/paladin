@@ -28,7 +28,6 @@ import { fetchStateReceipt } from '../queries/states';
 import { EVMPrivateDetails } from './EVMPrivateDetails';
 import { JSONBox } from './JSONBox';
 import { fetchPaladinTransactionFull } from '../queries/transactions';
-import { useEffect, useState } from 'react';
 
 type Props = {
   receipt: ITransactionReceipt
@@ -38,10 +37,9 @@ export const PaladinTransactionsDetails: React.FC<Props> = ({
   receipt
 }) => {
 
-  const [receiptExpanded, setReceiptExpanded] = useState(false);
   const { t } = useTranslation();
 
-  const { data: paladinTransaction, isFetched: paladinTransactionFetched } = useQuery({
+  const { data: paladinTransaction } = useQuery({
     queryKey: ['paladin-transaction-full', receipt.id],
     queryFn: () => fetchPaladinTransactionFull(receipt.id),
     retry: false
@@ -60,13 +58,8 @@ export const PaladinTransactionsDetails: React.FC<Props> = ({
     retry: false
   });
 
-  useEffect(() => {
-    if(paladinTransaction !== null ){
-      setReceiptExpanded(true);
-    }
-  }, [paladinTransaction]);
 
-  if (!paladinTransactionFetched) {
+  if (paladinTransaction === undefined) {
     return <></>;
   }
 
@@ -82,7 +75,7 @@ export const PaladinTransactionsDetails: React.FC<Props> = ({
           </AccordionDetails>
         </Accordion>}
 
-      <Accordion elevation={0} disableGutters defaultExpanded={receiptExpanded}>
+      <Accordion elevation={0} disableGutters defaultExpanded={paladinTransaction === null}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           {t('receipt')}
         </AccordionSummary>

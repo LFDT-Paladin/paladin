@@ -430,6 +430,43 @@ func TestDeactivateFail(t *testing.T) {
 
 }
 
+func TestReapPeerDeactivateErrorWhileSenderStarted(t *testing.T) {
+
+	ctx, tm, tp, done := newTestTransport(t, false)
+	defer done()
+
+	tp.Functions.DeactivatePeer = func(ctx context.Context, dnr *prototk.DeactivatePeerRequest) (*prototk.DeactivatePeerResponse, error) {
+		return nil, fmt.Errorf("deactivate error")
+	}
+
+	// Simulate the race window in reapPeer where senderDone has been closed (first defer)
+	// but senderStarted has not yet been set to false (second defer runs after).
+	// We achieve this deterministically by pre-closing senderDone while keeping senderStarted=true.
+	senderDone := make(chan struct{})
+	close(senderDone)
+
+	pCtx, pCancelCtx := context.WithCancel(ctx)
+	p := &peer{
+		ctx:                    pCtx,
+		cancelCtx:              pCancelCtx,
+		tm:                     tm,
+		transport:              tp.t,
+		senderDone:             senderDone,
+		persistedMsgsAvailable: make(chan struct{}, 1),
+		sendQueue:              make(chan *msgWithErrChan, 1),
+		PeerInfo:               pldapi.PeerInfo{Name: "node2"},
+	}
+	p.senderStarted.Store(true)
+
+	tm.peersLock.Lock()
+	tm.peers["node2"] = p
+	tm.peersLock.Unlock()
+
+	// reapPeer must enter the senderStarted branch and log the DeactivatePeer error
+	tm.reapPeer(p)
+
+}
+
 func TestGetReliableMessageByIDFail(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {

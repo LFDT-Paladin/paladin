@@ -31,7 +31,7 @@ ext {
         include "mocks/**/*.go"
     }
 
-    targetCoverage = 94.7
+    targetCoverage = 96.0
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
         'github.com/LFDT-Paladin/paladin/core/pkg/proto',
@@ -142,15 +142,26 @@ task protoc(type: ProtoCompile, dependsOn: [
     ]) {
     protocPath "bin"
     protoPath projectDir
+    protoPath configurations.toolkitProtoDefinitions.asPath
     protoFiles fileTree("pkg/proto") {
         include "**/*.proto"
     }
     plugins {
         go {
             out projectDir
+            fileTree(configurations.toolkitProtoDefinitions.asPath) {
+                include "*.proto"
+            }.each { File file ->
+                opt "M${file.name}=github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+            }
         }
         go_grpc {
             out projectDir
+            fileTree(configurations.toolkitProtoDefinitions.asPath) {
+                include "*.proto"
+            }.each { File file ->
+                opt "M${file.name}=github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+            }
         }
     }
 }

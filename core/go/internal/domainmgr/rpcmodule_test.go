@@ -18,10 +18,13 @@ package domainmgr
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
@@ -846,4 +849,203 @@ func TestRPCGetSmartContractByAddress_InvalidParamCount(t *testing.T) {
 	resp := handler.Handle(ctx, req)
 	require.NotNil(t, resp)
 	assert.NotNil(t, resp.Error, "Expected error for invalid param count")
+}
+
+func setupInvokeRPCDomain(t *testing.T) (context.Context, *domainManager, *mockComponents, *testPlugin, func()) {
+	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"test1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+
+	tp := newTestPlugin(nil)
+	tp.Functions = &plugintk.DomainAPIFunctions{
+		ConfigureDomain: func(ctx context.Context, cdr *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
+			return &prototk.ConfigureDomainResponse{DomainConfig: goodDomainConf()}, nil
+		},
+		InitDomain: func(ctx context.Context, idr *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
+			return &prototk.InitDomainResponse{}, nil
+		},
+		InitContract: func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+			return &prototk.InitContractResponse{
+				Valid: true,
+				ContractConfig: &prototk.ContractConfig{
+					ContractConfigJson:   `{}`,
+					CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
+					SubmitterSelection:   prototk.ContractConfig_SUBMITTER_SENDER,
+				},
+			}, nil
+		},
+	}
+	mc.stateStore.On("EnsureABISchemas", mock.Anything, mock.Anything, "test1", mock.Anything).Return(nil, nil)
+	mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	mc.db.ExpectBegin()
+	mc.db.ExpectCommit()
+	registerTestDomain(t, dm, tp)
+
+	return ctx, dm, mc, tp, done
+}
+
+func TestRPCInvokeRPC_InvalidParamCount(t *testing.T) {
+	ctx, dm, _, _, done := setupInvokeRPCDomain(t)
+	defer done()
+
+	handler := dm.rpcInvokeRPC()
+	req := &rpcclient.RPCRequest{
+		JSONRpc: "2.0",
+		ID:      pldtypes.RawJSON(`"1"`),
+		Method:  "domain_invokeRPC",
+		Params:  []pldtypes.RawJSON{},
+	}
+
+	resp := handler.Handle(ctx, req)
+	require.NotNil(t, resp)
+	assert.NotNil(t, resp.Error, "Expected error for invalid param count")
+}
+
+func TestRPCInvokeRPC_Success(t *testing.T) {
+	ctx, dm, mc, tp, done := setupInvokeRPCDomain(t)
+	defer done()
+
+	tp.Functions.InvokeRPC = func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+		return &prototk.InvokeRPCResponse{ResultJson: `"ok"`}, nil
+	}
+
+	mdc := componentsmocks.NewDomainContext(t)
+	mdc.On("Close").Return()
+	mdc.On("Ctx").Return(ctx).Maybe()
+	mdc.On("Info").Return(components.DomainContextInfo{ID: uuid.New()}).Maybe()
+	mc.stateStore.On("NewDomainContext", mock.Anything, mock.Anything, mock.Anything).Return(mdc)
+
+	contractAddr := pldtypes.RandAddress()
+	domainAddr := *tp.d.RegistryAddress()
+
+	mc.db.ExpectBegin()
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
+		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
+			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{}),
+	)
+	mc.db.ExpectCommit()
+
+	handler := dm.rpcInvokeRPC()
+	req := &rpcclient.RPCRequest{
+		JSONRpc: "2.0",
+		ID:      pldtypes.RawJSON(`"1"`),
+		Method:  "domain_invokeRPC",
+		Params: []pldtypes.RawJSON{
+			pldtypes.JSONString(contractAddr.String()),
+			pldtypes.JSONString(string(pldapi.StateStatusAvailable)),
+			pldtypes.JSONString(pldapi.DomainInvokeRPC{Method: "someMethod", Params: pldtypes.RawJSON(`[]`)}),
+		},
+	}
+
+	resp := handler.Handle(ctx, req)
+	require.NotNil(t, resp)
+	assert.Nil(t, resp.Error, "Expected no error")
+}
+
+func TestRPCInvokeRPC_UnsupportedStateQualifier(t *testing.T) {
+	ctx, dm, mc, tp, done := setupInvokeRPCDomain(t)
+	defer done()
+
+	contractAddr := pldtypes.RandAddress()
+	domainAddr := *tp.d.RegistryAddress()
+
+	mc.db.ExpectBegin()
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
+		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
+			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{}),
+	)
+	mc.db.ExpectRollback()
+
+	handler := dm.rpcInvokeRPC()
+	req := &rpcclient.RPCRequest{
+		JSONRpc: "2.0",
+		ID:      pldtypes.RawJSON(`"2"`),
+		Method:  "domain_invokeRPC",
+		Params: []pldtypes.RawJSON{
+			pldtypes.JSONString(contractAddr.String()),
+			pldtypes.JSONString(string(pldapi.StateStatusSpent)),
+			pldtypes.JSONString(pldapi.DomainInvokeRPC{Method: "someMethod", Params: pldtypes.RawJSON(`[]`)}),
+		},
+	}
+
+	resp := handler.Handle(ctx, req)
+	require.NotNil(t, resp)
+	assert.NotNil(t, resp.Error, "Expected error for unsupported state qualifier")
+	assert.Regexp(t, "PD011667", resp.Error.Message)
+}
+
+func TestRPCInvokeRPC_ContractNotFound(t *testing.T) {
+	ctx, dm, mc, _, done := setupInvokeRPCDomain(t)
+	defer done()
+
+	contractAddr := pldtypes.RandAddress()
+
+	mc.db.ExpectBegin()
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
+		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}),
+	)
+	mc.db.ExpectRollback()
+
+	handler := dm.rpcInvokeRPC()
+	req := &rpcclient.RPCRequest{
+		JSONRpc: "2.0",
+		ID:      pldtypes.RawJSON(`"3"`),
+		Method:  "domain_invokeRPC",
+		Params: []pldtypes.RawJSON{
+			pldtypes.JSONString(contractAddr.String()),
+			pldtypes.JSONString(string(pldapi.StateStatusAvailable)),
+			pldtypes.JSONString(pldapi.DomainInvokeRPC{Method: "someMethod", Params: pldtypes.RawJSON(`[]`)}),
+		},
+	}
+
+	resp := handler.Handle(ctx, req)
+	require.NotNil(t, resp)
+	assert.NotNil(t, resp.Error, "Expected error for contract not found")
+	assert.Regexp(t, "PD011609", resp.Error.Message)
+}
+
+func TestRPCInvokeRPC_InvokeError(t *testing.T) {
+	ctx, dm, mc, tp, done := setupInvokeRPCDomain(t)
+	defer done()
+
+	tp.Functions.InvokeRPC = func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+		return nil, fmt.Errorf("invoke failed")
+	}
+
+	mdc := componentsmocks.NewDomainContext(t)
+	mdc.On("Close").Return()
+	mdc.On("Ctx").Return(ctx).Maybe()
+	mdc.On("Info").Return(components.DomainContextInfo{ID: uuid.New()}).Maybe()
+	mc.stateStore.On("NewDomainContext", mock.Anything, mock.Anything, mock.Anything).Return(mdc)
+
+	contractAddr := pldtypes.RandAddress()
+	domainAddr := *tp.d.RegistryAddress()
+
+	mc.db.ExpectBegin()
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
+		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
+			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{}),
+	)
+	mc.db.ExpectRollback()
+
+	handler := dm.rpcInvokeRPC()
+	req := &rpcclient.RPCRequest{
+		JSONRpc: "2.0",
+		ID:      pldtypes.RawJSON(`"4"`),
+		Method:  "domain_invokeRPC",
+		Params: []pldtypes.RawJSON{
+			pldtypes.JSONString(contractAddr.String()),
+			pldtypes.JSONString(string(pldapi.StateStatusAvailable)),
+			pldtypes.JSONString(pldapi.DomainInvokeRPC{Method: "someMethod", Params: pldtypes.RawJSON(`[]`)}),
+		},
+	}
+
+	resp := handler.Handle(ctx, req)
+	require.NotNil(t, resp)
+	assert.NotNil(t, resp.Error, "Expected error from InvokeRPC")
+	assert.Regexp(t, "invoke failed", resp.Error.Message)
 }

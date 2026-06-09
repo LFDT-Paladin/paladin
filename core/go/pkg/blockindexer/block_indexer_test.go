@@ -1934,3 +1934,20 @@ func TestBlockIndexerManyTXsWaitForTransactionSuccess(t *testing.T) {
 	assert.Equal(t, ethtypes.HexUint64(tx.BlockNumber), blocks[0].Number)
 	assert.Equal(t, txHash, tx.Hash)
 }
+
+func TestGetLatestConfirmedBlockMetadata(t *testing.T) {
+	ctx, bi, _, blDone := newTestBlockIndexer(t)
+	defer blDone()
+
+	// Error case: no blocks indexed yet (Number == -1)
+	_, err := bi.GetLatestConfirmedBlockMetadata(ctx)
+	assert.Regexp(t, "PD011308", err)
+
+	// Success case: store a confirmed block and retrieve it
+	expected := &ConfirmedBlockMetadata{Number: 42, Timestamp: 1234567890}
+	bi.highestConfirmedBlock.Store(expected)
+
+	block, err := bi.GetLatestConfirmedBlockMetadata(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, expected, block)
+}

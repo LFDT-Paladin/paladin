@@ -103,11 +103,8 @@ func (e *engineIntegration) GetBlockHeight(ctx context.Context) (int64, error) {
 func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) (*components.TransactionPostAssembly, error) {
 
 	log.L(ctx).Debugf("Assembling transaction %s. Resetting domain context with state locks from the coordinator which assumes a block height of %d compared with local blockHeight of %d", transactionID, blockHeight, e.environment.GetBlockHeight())
-	//If our block height is behind the coordinator, there are some states that would otherwise be available to us but we wont see
-	// if our block height is ahead of the coordinator, there is a small chance that we we assemble a transaction that the coordinator will not be able to
-	// endorse yet but it is better to wait around on the endorsement flow than to wait around on the assemble flow which is single threaded per domain
 
-	// Create a throwaway domain context for this call
+	// Create a domain context just for this call that the snapshot can be loaded into.
 	dCtx := e.components.StateManager().NewDomainContext(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address())
 	defer dCtx.Close()
 
@@ -116,9 +113,7 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 		return nil, err
 	}
 
-	// Reset to an empty list in case we've already assembled before
-	preAssembly.Verifiers = make([]*prototk.ResolvedVerifier, 0)
-
+	resolvedVerifiers := make([]*prototk.ResolvedVerifier, 0, len(preAssembly.RequiredVerifiers))
 	for _, v := range preAssembly.RequiredVerifiers {
 		log.L(ctx).Debugf("resolving required verifier %s", v.Lookup)
 		verifier, err := e.components.IdentityResolver().ResolveVerifier(
@@ -130,7 +125,7 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 		if err != nil {
 			return nil, err
 		}
-		preAssembly.Verifiers = append(preAssembly.Verifiers, &prototk.ResolvedVerifier{
+		resolvedVerifiers = append(resolvedVerifiers, &prototk.ResolvedVerifier{
 			Lookup:       v.Lookup,
 			Algorithm:    v.Algorithm,
 			VerifierType: v.VerifierType,
@@ -138,13 +133,8 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 		})
 	}
 
-	postAssembly, err := e.assembleAndSign(ctx, transactionID, preAssembly, dCtx)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return postAssembly, nil
+	// TODO AM: could assembly and sign not do this resolution
+	return e.assembleAndSign(ctx, transactionID, preAssembly, resolvedVerifiers, dCtx)
 }
 
 func (e *engineIntegration) resolveLocalTransaction(ctx context.Context, transactionID uuid.UUID) (*components.ResolvedTransaction, error) {
@@ -155,20 +145,7 @@ func (e *engineIntegration) resolveLocalTransaction(ctx context.Context, transac
 	return locallyResolvedTx, err
 }
 
-func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, domainContext components.DomainContext) (*components.TransactionPostAssembly, error) {
-	//Assembles the transaction and synchronously fulfills any local signature attestation requests
-	// Given that the coordinator is single threading calls to assemble, there may be benefits to performance if we were to fulfill the signature request async
-	// but that would introduce levels of complexity that may not be justified so this is open as a potential for future optimization where we would need to think about
-	// whether a lost/late signature would trigger a re-assembly of the transaction ( and any transaction that come after it in the sequencer) or whether we could safely ask the assembly
-	// to post hoc sign an assembly
-
-	// The transaction input data that is the sender's intent to perform the transaction for this ID,
-	// MUST be retrieved from the local database. We cannot process it from the data that is received
-	// over the wire from another node (otherwise that node could "tell us" to do something that no
-	// application locally instructed us to do).
-	// TODO is this still necessary? We are not receiving the PreAssembly from the coordinator. We only get it from the originator's state machine which was initialized from reading the DB
-	// there may be some weird cases where we get a assemble request and we have somehow swapped out the memory record of the preassembly since delegating but that is an edge case and not what we should optimize for
-
+func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, domainContext components.DomainContext) (*components.TransactionPostAssembly, error) {
 	localTx, err := e.resolveLocalTransaction(ctx, transactionID)
 	if err != nil || localTx.Transaction.Domain != e.domainSmartContract.Domain().Name() || localTx.Transaction.To == nil || *localTx.Transaction.To != e.domainSmartContract.Address() {
 		if err == nil {
@@ -189,7 +166,7 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 	 * Assemble
 	 */
 	log.L(ctx).Debugf("Assembling transaction: %+v", transaction)
-	err = e.domainSmartContract.AssembleTransaction(domainContext, e.components.Persistence().NOTX(), transaction, localTx)
+	err = e.domainSmartContract.AssembleTransaction(domainContext, e.components.Persistence().NOTX(), transaction, localTx, resolvedVerifiers)
 	if err != nil {
 		log.L(ctx).Errorf("error assembling transaction: %s", err)
 		return nil, err
@@ -261,6 +238,8 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 			log.L(ctx).Debugf("ignoring attestationType %s for fulfillment later", attRequest.AttestationType)
 		}
 	}
+
+	transaction.PostAssembly.ResolvedVerifiers = resolvedVerifiers
 
 	if log.IsDebugEnabled() {
 		stateIDs := ""

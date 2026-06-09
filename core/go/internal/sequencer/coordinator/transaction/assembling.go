@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -69,7 +70,7 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 	if err != nil {
 		// Internal error. Only option is to revert the transaction
 		revertReason := i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err)
-		seqRevertEvent := &AssembleRevertResponseEvent{
+		seqRevertEvent := &AssembleRevertEvent{
 			PostAssembly: &components.TransactionPostAssembly{
 				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 				RevertReason:   &revertReason,
@@ -121,13 +122,7 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 			return err
 		}
 
-		blockHeight, err := t.engineIntegration.GetBlockHeight(ctx)
-		if err != nil {
-			log.L(ctx).Errorf("failed to get engine block height: %s", err)
-			return err
-		}
-
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStatesAndLocks, blockHeight)
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStatesAndLocks, t.getCurrentBlockHeight(), t.clock.Now().Add(t.stateTimeout), int64(t.blockHeightTolerance))
 	})
 
 	t.scheduleRequestTimeout(ctx)
@@ -184,9 +179,9 @@ func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinat
 	switch event := event.(type) {
 	case *AssembleSuccessEvent:
 		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
-	case *AssembleRevertResponseEvent:
+	case *AssembleRevertEvent:
 		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
-	case *AssembleErrorResponseEvent:
+	case *AssembleErrorEvent:
 		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
 	}
 	return false, nil
@@ -194,16 +189,11 @@ func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinat
 
 func action_AssembleSuccess(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*AssembleSuccessEvent)
-	err := t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID)
-	if err == nil {
-		// Assembling resolves the required verifiers which will need passing on for the endorse step
-		t.pt.PreAssembly.Verifiers = e.PreAssembly.Verifiers
-	}
-	return err
+	return t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID)
 }
 
 func action_AssembleRevertResponse(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
-	e := event.(*AssembleRevertResponseEvent)
+	e := event.(*AssembleRevertEvent)
 	return t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID)
 }
 
@@ -223,4 +213,22 @@ func action_SendAssembleRequest(ctx context.Context, txn *coordinatorTransaction
 func action_NudgeAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("Nudging assemble request for transaction %s", txn.pt.ID.String())
 	return txn.nudgeAssembleRequest(ctx)
+}
+
+func action_HandleAssembleBlockHeightRejection(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
+	e := event.(*AssembleRequestRejectedEvent)
+	log.L(ctx).Warnf("assemble request rejected due to block height tolerance: coordinator block height=%d, assembler block height=%d, tolerance=%d", e.CoordinatorBlockHeight, e.AssemblerBlockHeight, txn.blockHeightTolerance)
+	return nil
+}
+
+func validator_IsAssembleBlockHeightRejection(_ context.Context, _ *coordinatorTransaction, event common.Event) (bool, error) {
+	return event.(*AssembleRequestRejectedEvent).RejectionReason == engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, nil
+}
+
+func validator_IsAssembleNotCurrentDelegateRejection(_ context.Context, _ *coordinatorTransaction, event common.Event) (bool, error) {
+	return event.(*AssembleRequestRejectedEvent).RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE, nil
+}
+
+func validator_IsAssembleTransactionUnknownRejection(_ context.Context, _ *coordinatorTransaction, event common.Event) (bool, error) {
+	return event.(*AssembleRequestRejectedEvent).RejectionReason == engineProto.RejectionReason_TRANSACTION_UNKNOWN, nil
 }

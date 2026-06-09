@@ -18,6 +18,7 @@ package transaction
 import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -69,11 +70,11 @@ type AssembleCancelledEvent struct {
 }
 
 func (*AssembleCancelledEvent) Type() EventType {
-	return Event_Assemble_Cancelled
+	return Event_AssembleCancelled
 }
 
 func (*AssembleCancelledEvent) TypeString() string {
-	return "Event_Assemble_Cancelled"
+	return "Event_AssembleCancelled"
 }
 
 type AssembleRequestSentEvent struct {
@@ -91,43 +92,42 @@ func (*AssembleRequestSentEvent) TypeString() string {
 type AssembleSuccessEvent struct {
 	BaseCoordinatorEvent
 	PostAssembly *components.TransactionPostAssembly
-	PreAssembly  *components.TransactionPreAssembly
 	RequestID    uuid.UUID
 }
 
 func (*AssembleSuccessEvent) Type() EventType {
-	return Event_Assemble_Success
+	return Event_AssembleSuccess
 }
 
 func (*AssembleSuccessEvent) TypeString() string {
-	return "Event_Assemble_Success"
+	return "Event_AssembleSuccess"
 }
 
-type AssembleRevertResponseEvent struct {
+type AssembleRevertEvent struct {
 	BaseCoordinatorEvent
 	PostAssembly *components.TransactionPostAssembly
 	RequestID    uuid.UUID
 }
 
-func (*AssembleRevertResponseEvent) Type() EventType {
-	return Event_Assemble_Revert_Response
+func (*AssembleRevertEvent) Type() EventType {
+	return Event_AssembleRevert
 }
 
-func (*AssembleRevertResponseEvent) TypeString() string {
-	return "Event_Assemble_Revert_Response"
+func (*AssembleRevertEvent) TypeString() string {
+	return "Event_AssembleRevert"
 }
 
-type AssembleErrorResponseEvent struct {
+type AssembleErrorEvent struct {
 	BaseCoordinatorEvent
 	RequestID uuid.UUID
 }
 
-func (*AssembleErrorResponseEvent) Type() EventType {
-	return Event_Assemble_Error_Response
+func (*AssembleErrorEvent) Type() EventType {
+	return Event_AssembleError
 }
 
-func (*AssembleErrorResponseEvent) TypeString() string {
-	return "Event_Assemble_Error_Response"
+func (*AssembleErrorEvent) TypeString() string {
+	return "Event_AssembleError"
 }
 
 type EndorsedEvent struct {
@@ -144,20 +144,75 @@ func (*EndorsedEvent) TypeString() string {
 	return "Event_Endorsed"
 }
 
-type EndorsedRejectedEvent struct {
+type EndorseRevertEvent struct {
 	BaseCoordinatorEvent
-	RevertReason           string
 	Party                  string
+	RevertReason           string
 	AttestationRequestName string
 	RequestID              uuid.UUID
 }
 
-func (*EndorsedRejectedEvent) Type() EventType {
-	return Event_EndorsedRejected
+func (*EndorseRevertEvent) Type() EventType {
+	return Event_EndorseRevert
 }
 
-func (*EndorsedRejectedEvent) TypeString() string {
-	return "Event_EndorsedRejected"
+func (*EndorseRevertEvent) TypeString() string {
+	return "Event_EndorseRevert"
+}
+
+// EndorseErrorEvent is queued when an endorser encountered an unexpected error processing the
+// request (domain error, key resolution failure, etc.).
+type EndorseErrorEvent struct {
+	BaseCoordinatorEvent
+	RequestID              uuid.UUID
+	Party                  string
+	AttestationRequestName string
+}
+
+func (*EndorseErrorEvent) Type() EventType {
+	return Event_EndorseError
+}
+
+func (*EndorseErrorEvent) TypeString() string {
+	return "Event_EndorseError"
+}
+
+// EndorseRequestRejectedEvent is queued when an endorser rejected the request before even attempting
+// it — currently only block height tolerance.
+type EndorseRequestRejectedEvent struct {
+	BaseCoordinatorEvent
+	Party                  string
+	AttestationRequestName string
+	RequestID              uuid.UUID
+	RejectionReason        engineProto.RejectionReason
+	CoordinatorBlockHeight int64
+	EndorserBlockHeight    int64
+	BlockHeightTolerance   int64
+}
+
+func (*EndorseRequestRejectedEvent) Type() EventType {
+	return Event_EndorseRequestRejected
+}
+
+func (*EndorseRequestRejectedEvent) TypeString() string {
+	return "Event_EndorseRequestRejected"
+}
+
+type AssembleRequestRejectedEvent struct {
+	BaseCoordinatorEvent
+	RequestID              uuid.UUID
+	RejectionReason        engineProto.RejectionReason
+	CoordinatorBlockHeight int64
+	AssemblerBlockHeight   int64
+	BlockHeightTolerance   int64
+}
+
+func (*AssembleRequestRejectedEvent) Type() EventType {
+	return Event_AssembleRequestRejected
+}
+
+func (*AssembleRequestRejectedEvent) TypeString() string {
+	return "Event_AssembleRequestRejected"
 }
 
 type DispatchRequestApprovedEvent struct {
@@ -348,20 +403,18 @@ func (*StateTransitionEvent) TypeString() string {
 	return "Event_StateTransition"
 }
 
-// TransactionUnknownByOriginatorEvent is sent by an originator when it receives a message
-// for a transaction it doesn't recognize. The most likely cause is that the transaction reached
-// a terminal state (e.g. reverted during assembly) but the response was lost, and the transaction
-// has since been removed from memory on the originator after cleanup.
-type TransactionUnknownByOriginatorEvent struct {
+type PreDispatchRequestRejectedEvent struct {
 	BaseCoordinatorEvent
+	RequestID       uuid.UUID
+	RejectionReason engineProto.RejectionReason
 }
 
-func (*TransactionUnknownByOriginatorEvent) Type() EventType {
-	return Event_TransactionUnknownByOriginator
+func (*PreDispatchRequestRejectedEvent) Type() EventType {
+	return Event_PreDispatchRequestRejected
 }
 
-func (*TransactionUnknownByOriginatorEvent) TypeString() string {
-	return "Event_TransactionUnknownByOriginator"
+func (*PreDispatchRequestRejectedEvent) TypeString() string {
+	return "Event_PreDispatchRequestRejected"
 }
 
 type ChainedDependencyFailedEvent struct {
@@ -400,20 +453,4 @@ func (*PreAssembleDependencyTerminatedEvent) Type() EventType {
 
 func (*PreAssembleDependencyTerminatedEvent) TypeString() string {
 	return "Event_PreAssembleDependencyTerminated"
-}
-
-// NotActiveCoordinatorEvent is received by the coordinator when the originator informs it
-// that this node is not the expected active coordinator for the given transaction. The coordinator
-// should evict the transaction on receipt of this event. The originator has already redelegated the
-// transaction to the new active coordinator.
-type NotActiveCoordinatorEvent struct {
-	BaseCoordinatorEvent
-}
-
-func (*NotActiveCoordinatorEvent) Type() EventType {
-	return Event_NotActiveCoordinator
-}
-
-func (*NotActiveCoordinatorEvent) TypeString() string {
-	return "Event_NotActiveCoordinator"
 }

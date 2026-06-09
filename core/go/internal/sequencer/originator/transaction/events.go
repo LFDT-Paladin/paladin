@@ -16,6 +16,8 @@
 package transaction
 
 import (
+	"time"
+
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -98,8 +100,10 @@ type AssembleRequestReceivedEvent struct {
 	RequestID               uuid.UUID
 	Coordinator             string
 	CoordinatorsBlockHeight int64
+	BlockHeightTolerance    int64
 	StateLocksJSON          []byte
 	PreAssembly             []byte
+	Expiry                  time.Time
 }
 
 func (*AssembleRequestReceivedEvent) Type() EventType {

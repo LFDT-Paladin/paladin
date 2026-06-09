@@ -567,3 +567,58 @@ func TestHandleLifecycleNoBlockNack(t *testing.T) {
 	require.Empty(t, es.subs)
 
 }
+
+func TestWaitForAckContextCanceled(t *testing.T) {
+	_, _, txm, done := newTestTransactionManagerWithWebSocketRPC(t)
+	defer done()
+
+	es := txm.rpcEventStreams
+	sub := &listenerSubscription{
+		es:        es,
+		ctrl:      &mockRPCAsyncControl{},
+		acksNacks: make(chan *rpcAckNack),
+		closed:    make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	err := sub.WaitForAck(ctx, "batch1")
+	require.ErrorContains(t, err, "PD010301") // MsgContextCanceled
+}
+
+func TestWaitForAckSubscriptionClosed(t *testing.T) {
+	_, _, txm, done := newTestTransactionManagerWithWebSocketRPC(t)
+	defer done()
+
+	es := txm.rpcEventStreams
+	closed := make(chan struct{})
+	sub := &listenerSubscription{
+		es:        es,
+		ctrl:      &mockRPCAsyncControl{},
+		acksNacks: make(chan *rpcAckNack),
+		closed:    closed,
+	}
+
+	close(closed) // close the subscription channel immediately
+
+	err := sub.WaitForAck(context.Background(), "batch1")
+	require.ErrorContains(t, err, "PD012242") // MsgTxMgrJSONRPCSubscriptionClosed
+}
+
+func TestStopWithActiveSubs(t *testing.T) {
+	_, _, txm, done := newTestTransactionManagerWithWebSocketRPC(t)
+	defer done()
+
+	es := txm.rpcEventStreams
+	es.subs["sub1"] = &listenerSubscription{
+		es:        es,
+		ctrl:      &mockRPCAsyncControl{},
+		acksNacks: make(chan *rpcAckNack, 1),
+		closed:    make(chan struct{}),
+	}
+
+	require.Len(t, es.subs, 1)
+	es.stop()
+	require.Empty(t, es.subs)
+}

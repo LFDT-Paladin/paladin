@@ -48,4 +48,13 @@ export const RpcMethods = {
   transport_peers: 'transport_peers',
   keymgr_queryKeys: 'keymgr_queryKeys',
   keymgr_reverseKeyLookup: 'keymgr_reverseKeyLookup',
+  ptx_call: 'ptx_call',
+  domain_getSmartContractByAddress: 'domain_getSmartContractByAddress',
+  pgroup_queryGroups: 'pgroup_queryGroups',
+  pgroup_getGroupById: 'pgroup_getGroupById',
+  pgroup_getGroupByAddress: 'pgroup_getGroupByAddress',
+  pstate_listSchemas: 'pstate_listSchemas',
+  pstate_queryStates: 'pstate_queryStates',
+  transport_queryReliableMessages: 'transport_queryReliableMessages',
+  pstate_transferState: 'pstate_transferState'
 };

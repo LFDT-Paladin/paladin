@@ -114,7 +114,6 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		},
 		RequestID:    mocks.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
 		PostAssembly: transactionBuilder.BuildPostAssembly(),
-		PreAssembly:  transactionBuilder.BuildPreAssembly(),
 	})
 
 	// Assert that the coordinator has sent an endorsement request to the endorser

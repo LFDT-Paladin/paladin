@@ -20,6 +20,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -131,7 +132,7 @@ func (t *coordinatorTransaction) unfulfilledEndorsementRequirements(ctx context.
 // it is safe to call this function multiple times and on a frequent basis (e.g. every heartbeat interval while in the endorsement gathering state) as it will not send duplicate requests unless they have timedout
 func (t *coordinatorTransaction) sendEndorsementRequests(ctx context.Context) error {
 
-	log.L(ctx).Debugf("sendEndorsementRequests: number of verifiers %d", len(t.pt.PreAssembly.Verifiers))
+	log.L(ctx).Debugf("sendEndorsementRequests: number of verifiers %d", len(t.pt.PostAssembly.ResolvedVerifiers))
 
 	if t.pendingEndorsementRequests == nil {
 		//we are starting a new round of endorsement requests so set an interval to remind us to resend any requests that have not been fulfilled on a periodic basis
@@ -144,13 +145,16 @@ func (t *coordinatorTransaction) sendEndorsementRequests(ctx context.Context) er
 	}
 
 	for _, endorsementRequirement := range t.unfulfilledEndorsementRequirements(ctx) {
-
 		pendingRequestsForAttRequest, ok := t.pendingEndorsementRequests[endorsementRequirement.attRequest.Name]
 		if !ok {
 			pendingRequestsForAttRequest = make(map[string]*common.IdempotentRequest)
 			t.pendingEndorsementRequests[endorsementRequirement.attRequest.Name] = pendingRequestsForAttRequest
 		}
 		pendingRequest, ok := pendingRequestsForAttRequest[endorsementRequirement.party]
+		if ok && pendingRequest == nil {
+			// Party was marked as permanently failed this round — do not re-send.
+			continue
+		}
 		if !ok {
 			pendingRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
 				return t.requestEndorsement(ctx, idempotencyKey, endorsementRequirement.party, endorsementRequirement.attRequest)
@@ -162,7 +166,6 @@ func (t *coordinatorTransaction) sendEndorsementRequests(ctx context.Context) er
 		if err != nil {
 			log.L(ctx).Errorf("failed to nudge endorsement request for party %s: %s", endorsementRequirement.party, err)
 		}
-
 	}
 
 	return nil
@@ -198,9 +201,12 @@ func (t *coordinatorTransaction) resetEndorsementRequests(ctx context.Context) {
 	log.L(ctx).Trace("resetting endorsement requests")
 	t.clearTimeoutSchedules()
 	t.pendingEndorsementRequests = nil
+	t.endorseFailureCountByRequirement = nil
+	t.endorseToleranceByRequirement = nil
 }
 
 func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest) error {
+	blockHeight := t.getCurrentBlockHeight()
 	err := t.transportWriter.SendEndorsementRequest(
 		ctx,
 		t.pt.ID,
@@ -208,12 +214,15 @@ func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempot
 		party,
 		attRequest,
 		t.pt.PreAssembly.TransactionSpecification,
-		t.pt.PreAssembly.Verifiers,
+		t.pt.PostAssembly.ResolvedVerifiers,
 		t.pt.PostAssembly.Signatures,
 		toEndorsableList(t.pt.PostAssembly.InputStates),
 		toEndorsableList(t.pt.PostAssembly.ReadStates),
 		toEndorsableList(t.pt.PostAssembly.OutputStates),
 		toEndorsableList(t.pt.PostAssembly.InfoStates),
+		t.clock.Now().Add(t.stateTimeout),
+		blockHeight,
+		int64(t.blockHeightTolerance),
 	)
 	if err != nil {
 		log.L(ctx).Errorf("failed to send endorsement request to party %s: %s", party, err)
@@ -254,4 +263,77 @@ func action_ResetEndorsementRequests(ctx context.Context, txn *coordinatorTransa
 // endorsed by all required endorsers
 func guard_AttestationPlanFulfilled(ctx context.Context, txn *coordinatorTransaction) bool {
 	return !txn.hasUnfulfilledEndorsementRequirements(ctx)
+}
+
+// guard_EndorseFailureExceedsTolerance returns true if the failure count for any single
+// attestation requirement now exceeds its pre-computed tolerance, meaning the plan can no
+// longer be fulfilled. action_RecordEndorseFailure increments the count before this guard runs.
+func guard_EndorseFailureExceedsTolerance(_ context.Context, txn *coordinatorTransaction) bool {
+	for reqName, tolerance := range txn.endorseToleranceByRequirement {
+		if txn.endorseFailureCountByRequirement[reqName] > tolerance {
+			return true
+		}
+	}
+	return false
+}
+
+// action_RecordEndorseFailure records the failing party for the given attestation requirement,
+// removing them from the pending requests map so they are not nudged again this round.
+func action_RecordEndorseFailure(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	var reqName, party string
+	switch e := event.(type) {
+	case *EndorseErrorEvent:
+		reqName = e.AttestationRequestName
+		party = e.Party
+		log.L(ctx).Warnf("endorsement error by %s (%s)", party, reqName)
+	case *EndorseRequestRejectedEvent:
+		reqName = e.AttestationRequestName
+		party = e.Party
+		switch e.RejectionReason {
+		case engineProto.RejectionReason_ENDORSER_IS_ACTIVE_COORDINATOR:
+			log.L(ctx).Warnf("endorsement request rejected by %s (%s): endorser is the active coordinator", party, reqName)
+		case engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE:
+			log.L(ctx).Warnf("endorsement request rejected by %s (%s) due to block height tolerance: coordinator block height=%d, endorser block height=%d, endorser tolerance=%d",
+				party, reqName, e.CoordinatorBlockHeight, e.EndorserBlockHeight, e.BlockHeightTolerance)
+		}
+	case *EndorseRevertEvent:
+		reqName = e.AttestationRequestName
+		party = e.Party
+		log.L(ctx).Warnf("endorsement reverted by %s (%s): %s", party, reqName, e.RevertReason)
+	}
+	if party == "" {
+		log.L(ctx).Warnf("action_RecordEndorseFailure: missing party on event %T", event)
+		return nil
+	}
+	// Mark the party as permanently failed this round using a nil sentinel in the pending map,
+	// so sendEndorsementRequests will not re-send to them.
+	t.pendingEndorsementRequests[reqName][party] = nil
+	// Increment the per-requirement failure count. Handler actions run before transition guards,
+	// so guard_EndorseFailureExceedsTolerance sees the post-increment value.
+	if t.endorseFailureCountByRequirement == nil {
+		t.endorseFailureCountByRequirement = make(map[string]int)
+	}
+	t.endorseFailureCountByRequirement[reqName]++
+	return nil
+}
+
+// action_ComputeEndorseTolerances pre-computes the per-requirement failure tolerance from the
+// current attestation plan: how many parties can fail without making a requirement impossible to
+// fulfill (tolerance = len(parties) - effectiveThreshold). Must run before sendEndorsementRequests.
+func action_ComputeEndorseTolerances(_ context.Context, t *coordinatorTransaction, _ common.Event) error {
+	tolerances := make(map[string]int)
+	if t.pt.PostAssembly != nil {
+		for _, attRequest := range t.pt.PostAssembly.AttestationPlan {
+			if attRequest.AttestationType != prototk.AttestationType_ENDORSE {
+				continue
+			}
+			threshold := int(attRequest.GetThreshold())
+			if threshold == 0 {
+				threshold = len(attRequest.Parties)
+			}
+			tolerances[attRequest.Name] = len(attRequest.Parties) - threshold
+		}
+	}
+	t.endorseToleranceByRequirement = tolerances
+	return nil
 }

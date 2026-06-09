@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Breadcrumbs, Button, Fade, Grid2, IconButton, Link, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useTheme } from "@mui/material";
+import { Alert, Box, Breadcrumbs, Button, Fade, Grid2, IconButton, Link, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { fetchKeys } from "../queries/keys";
@@ -33,7 +33,6 @@ import { useTranslation } from "react-i18next";
 import { Filters } from "../components/Filters";
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import ViewListIcon from '@mui/icons-material/ViewList';
-import { getAltModeScrollBarStyle } from "../themes/default";
 
 export const Keys: React.FC = () => {
 
@@ -85,7 +84,6 @@ export const Keys: React.FC = () => {
   const [filters, setFilters] = useState<IFilter[]>(getFiltersFromStorage());
   const [mode, setMode] = useState<'explorer' | 'list'>(getDefaultMode());
   const { t } = useTranslation();
-  const theme = useTheme();
 
   useEffect(() => {
     setParent(searchParams.get('path') ?? '');
@@ -273,7 +271,7 @@ export const Keys: React.FC = () => {
         <Box
           sx={{
             padding: "20px",
-            maxWidth: "1300px",
+            maxWidth: "1500px",
             marginLeft: "auto",
             marginRight: "auto",
           }}
@@ -337,7 +335,14 @@ export const Keys: React.FC = () => {
             setFilters={setFilters}
           />
           <Box sx={{ display: 'flex', marginBottom: '15px', alignItems: 'center' }}>
-            <ToggleButtonGroup exclusive onChange={(_event, value) => setMode(value)} value={mode}>
+            <ToggleButtonGroup exclusive
+              onChange={(_event, value) => {
+                if (value !== null) {
+                  setMode(value);
+                }
+              }
+              }
+              value={mode}>
               <Tooltip arrow title={t('listView')}>
                 <ToggleButton color="primary" value="list">
                   <ViewListIcon fontSize="small" />
@@ -361,7 +366,7 @@ export const Keys: React.FC = () => {
                 {breadcrumbContent}
               </Breadcrumbs>}
           </Box>
-          <TableContainer component={Paper} sx={{ height: 'calc(100vh - 320px)', ...getAltModeScrollBarStyle(theme.palette.mode) }}>
+          <TableContainer component={Paper}>
             <Table stickyHeader>
               <TableHead>
                 <TableRow>

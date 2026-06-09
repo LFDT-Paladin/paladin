@@ -50,12 +50,15 @@ const (
 	Event_DependencySelectedForAssemble                                                         // the transaction delegated immediately before the transaction from the same originator has been selected for assembly
 	Event_Selected                                                                              // selected from the pool as the next transaction to be assembled
 	Event_AssembleRequestSent                                                                   // assemble request sent to the assembler
-	Event_Assemble_Success                                                                      // assemble response received from the originator
-	Event_Assemble_Revert_Response                                                              // assemble response received from the originator with a revert reason
-	Event_Assemble_Error_Response                                                               // assemble response received from the originator with an error
-	Event_Assemble_Cancelled                                                                    // the assemble attempt has been cancelled
+	Event_AssembleSuccess                                                                       // assembler returned a successful assembly
+	Event_AssembleRevert                                                                        // assembler returned a revert (domain said assembly is invalid)
+	Event_AssembleError                                                                         // assembler returned an unexpected error
+	Event_AssembleRequestRejected                                                               // originator rejected the assemble request (e.g. block height tolerance exceeded)
+	Event_AssembleCancelled                                                                     // the assemble attempt has been cancelled
 	Event_Endorsed                                                                              // endorsement received from one endorser
-	Event_EndorsedRejected                                                                      // endorsement received from one endorser with a revert reason
+	Event_EndorseRevert                                                                         // endorser responded that the assembly is invalid (domain REVERT)
+	Event_EndorseError                                                                          // endorser encountered an unexpected error processing the request
+	Event_EndorseRequestRejected                                                                // endorser rejected the request before processing (e.g. block height tolerance)
 	Event_DependencyReady                                                                       // another transaction, for which this transaction has a dependency on, has become ready for dispatch
 	Event_DependencyReset                                                                       // another transaction, for which this transaction has a dependency on, has been reset
 	Event_DependencyConfirmedReverted                                                           // another transaction, for which this transaction has a dependency on, has been confirmed as reverted
@@ -70,11 +73,10 @@ const (
 	Event_RequestTimeoutInterval                                                                // event emitted by the state machine on a regular period while we have pending requests
 	Event_StateTimeoutInterval                                                                  // event emitted when a state has exceeded its maximum allowed duration
 	Event_StateTransition                                                                       // event emitted by the state machine when a state transition occurs.  TODO should this be a separate enum?
-	Event_TransactionUnknownByOriginator                                                        // originator has reported that it doesn't recognize this transaction
+	Event_PreDispatchRequestRejected                                                            // originator has rejected the pre-dispatch request (NOT_CURRENT_DELEGATE or TRANSACTION_UNKNOWN)
 	Event_ChainedDependencyFailed                                                               // a chained (same-coordinator) dependency has been permanently finalized as failed
 	Event_ChainedDependencyEvicted                                                              // a chained (same-coordinator) dependency has been evicted (e.g. assembly failure threshold exceeded)
 	Event_PreAssembleDependencyTerminated                                                       // the pre-assemble (FIFO ordering) predecessor has reached a terminal state
-	Event_NotActiveCoordinator                                                                  // originator has reported that this node is not the active coordinator for the transaction
 )
 
 // Type aliases for the generic statemachine types, specialized for Transaction
@@ -97,27 +99,30 @@ var stateDefinitionsMap = StateDefinitions{
 			// State_Initial only needs to handle Event_Delegated. The transaction is created and
 			// immediately delegated on the coordinator event loop, so no other events can arrive
 			// before Event_Delegated is processed.
-			Event_Delegated: {Handlers: []EventHandler{{
-				Transitions: []Transition{
-					{
-						To:      State_Reverted,
-						If:      guard_HasRevertedChainedDependency,
-						Actions: []ActionRule{{Action: action_FinalizeOnRevertedChainedDependencyAtCreation}},
+			Event_Delegated: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{
+						{
+							To:      State_Reverted,
+							If:      guard_HasRevertedChainedDependency,
+							Actions: []ActionRule{{Action: action_FinalizeOnRevertedChainedDependencyAtCreation}},
+						},
+						{
+							To: State_Evicted,
+							If: guard_HasEvictedChainedDependency,
+						},
+						{
+							To: State_PreAssembly_Blocked,
+							If: guard_HasUnassembledDependencies,
+						},
+						{
+							To: State_Pooled,
+							If: statemachine.GuardNot(guard_HasUnassembledDependencies), // No-op check (opposite of guard_HasUnassembledDependencies above) but including to be explicit when we should go to pooled
+						},
 					},
-					{
-						To: State_Evicted,
-						If: guard_HasEvictedChainedDependency,
-					},
-					{
-						To: State_PreAssembly_Blocked,
-						If: guard_HasUnassembledDependencies,
-					},
-					{
-						To: State_Pooled,
-						If: statemachine.GuardNot(guard_HasUnassembledDependencies), // No-op check (opposite of guard_HasUnassembledDependencies above) but including to be explicit when we should go to pooled
-					},
-				},
-			}}},
+				}},
+			},
 		},
 	},
 	State_PreAssembly_Blocked: {
@@ -147,28 +152,38 @@ var stateDefinitionsMap = StateDefinitions{
 							If: statemachine.GuardNot(guard_HasUnassembledDependencies),
 						},
 					},
-				}}},
+				}},
+			},
 			// The pre-assemble predecessor reached a terminal state — sever the FIFO link
 			// so this transaction is not stuck waiting forever
-			Event_PreAssembleDependencyTerminated: {Handlers: []EventHandler{{
-				Actions: []ActionRule{{Action: action_RemovePreAssembleDependency}},
-				Transitions: []Transition{
-					{
-						To: State_Pooled,
-						If: statemachine.GuardNot(guard_HasUnassembledDependencies),
+			Event_PreAssembleDependencyTerminated: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_RemovePreAssembleDependency}},
+					Transitions: []Transition{
+						{
+							To: State_Pooled,
+							If: statemachine.GuardNot(guard_HasUnassembledDependencies),
+						},
 					},
-				},
-			}}},
-			Event_ChainedDependencyFailed: {Handlers: []EventHandler{{
-				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
-				Transitions: []Transition{{To: State_Reverted}},
-			}}},
+				}},
+			},
+			Event_ChainedDependencyFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+					Transitions: []Transition{{To: State_Reverted}},
+				}},
+			},
 			// Event_ChainedDependencyEvicted is only handled in pre-assembly states (Initial,
 			// PreAssembly_Blocked, Pooled) because eviction only happens as a result of errored
 			// assembly. Once past assembly, only ChainedDependencyFailed (terminal revert) is relevant.
-			Event_ChainedDependencyEvicted: {Handlers: []EventHandler{{
-				Transitions: []Transition{{To: State_Evicted}},
-			}}},
+			Event_ChainedDependencyEvicted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{{To: State_Evicted}},
+				}},
+			},
 		},
 	},
 	State_Pooled: {
@@ -176,48 +191,63 @@ var stateDefinitionsMap = StateDefinitions{
 			{Action: action_InitializeForNewAssembly},
 		},
 		Events: map[EventType]EventHandlers{
-			Event_Selected: {Handlers: []EventHandler{{
-				Actions: []ActionRule{
-					// We notify dependents at the point of selection, since the outcome of assembly is irrelevant
-					// to ensuring ordering for first assembly. It is relevant for chained dependencies but the
-					{Action: action_NotifyDependentsOfSelection},
-					{Action: action_RemovePreAssemblePrereqOf},
-				},
-				Transitions: []Transition{
-					{
-						To: State_Assembling,
-					}},
-			}}},
+			Event_Selected: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{
+						// We notify dependents at the point of selection, since the outcome of assembly is irrelevant
+						// to ensuring ordering for first assembly. It is relevant for chained dependencies but the
+						{Action: action_NotifyDependentsOfSelection},
+						{Action: action_RemovePreAssemblePrereqOf},
+					},
+					Transitions: []Transition{
+						{
+							To: State_Assembling,
+						}},
+				}},
+			},
 			// Dependency reset and revert events when we're in pooled state are always from chained dependencies.
 			// Preassembly dependencies have been cleared by the time we get to pooled state.
 			// Postassembly are not established until after we've assembled.
-			Event_DependencyReset: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
+			Event_DependencyReset: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{
+						{
+							To: State_PreAssembly_Blocked,
+						},
+					},
 				}},
-				Transitions: []Transition{
-					{
-						To: State_PreAssembly_Blocked,
+			},
+			Event_DependencyConfirmedReverted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions:   []ActionRule{{Action: action_MarkChainedDependencyUnassembled}},
+					Transitions: []Transition{
+						{
+							To: State_PreAssembly_Blocked,
+						},
 					},
-				},
-			}}},
-			Event_DependencyConfirmedReverted: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions:   []ActionRule{{Action: action_MarkChainedDependencyUnassembled}},
-				Transitions: []Transition{
-					{
-						To: State_PreAssembly_Blocked,
-					},
-				},
-			}}},
-			Event_ChainedDependencyFailed: {Handlers: []EventHandler{{
-				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
-				Transitions: []Transition{{To: State_Reverted}},
-			}}},
-			Event_ChainedDependencyEvicted: {Handlers: []EventHandler{{
-				Transitions: []Transition{{To: State_Evicted}},
-			}}},
+				}},
+			},
+			Event_ChainedDependencyFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+					Transitions: []Transition{{To: State_Reverted}},
+				}},
+			},
+			Event_ChainedDependencyEvicted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{{To: State_Evicted}},
+				}},
+			},
 		},
 	},
 	State_Assembling: {
@@ -226,273 +256,384 @@ var stateDefinitionsMap = StateDefinitions{
 			{Action: action_SendAssembleRequest},
 		},
 		Events: map[EventType]EventHandlers{
-			Event_Assemble_Success: {Handlers: []EventHandler{{
-				Validator: validator_MatchesPendingAssembleRequest,
-				Actions: []ActionRule{
-					{
-						Action: action_AssembleSuccess,
+			Event_AssembleSuccess: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_MatchesPendingAssembleRequest,
+					Actions: []ActionRule{
+						{
+							Action: action_AssembleSuccess,
+						},
+						{
+							Action: action_UpdateSigningIdentity,
+							If:     statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasSigner)),
+						},
 					},
-					{
-						Action: action_UpdateSigningIdentity,
-						If:     statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasSigner)),
+					Transitions: []Transition{
+						{
+							To: State_Endorsement_Gathering,
+							If: statemachine.GuardNot(guard_AttestationPlanFulfilled),
+						},
+						{
+							To: State_Confirming_Dispatchable,
+							If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasDependenciesNotReady)),
+						},
+						{
+							To: State_Blocked,
+							If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, guard_HasDependenciesNotReady),
+						},
 					},
-				},
-				Transitions: []Transition{
-					{
-						To: State_Endorsement_Gathering,
-						If: statemachine.GuardNot(guard_AttestationPlanFulfilled),
-					},
-					{
-						To: State_Confirming_Dispatchable,
-						If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasDependenciesNotReady)),
-					},
-					{
-						To: State_Blocked,
-						If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, guard_HasDependenciesNotReady),
-					},
-				},
-			}}},
-			Event_RequestTimeoutInterval: {Handlers: []EventHandler{{
-				Actions: []ActionRule{{
-					Action: action_NudgeAssembleRequest,
 				}},
-			}}},
-			Event_StateTimeoutInterval: {Handlers: []EventHandler{{
-				Transitions: []Transition{
-					{
+			},
+			Event_RequestTimeoutInterval: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{
+						Action: action_NudgeAssembleRequest,
+					}},
+				}},
+			},
+			Event_StateTimeoutInterval: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{
+						{
+							To:      State_Pooled,
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+						},
+					},
+				}},
+			},
+			Event_AssembleCancelled: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{
+						{
+							To:      State_Pooled,
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+						},
+					},
+				}},
+			},
+			Event_AssembleRevert: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_MatchesPendingAssembleRequest,
+					Actions:   []ActionRule{{Action: action_AssembleRevertResponse}},
+					Transitions: []Transition{{
+						To: State_Reverted,
+					}},
+				}},
+			},
+			Event_AssembleError: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_MatchesPendingAssembleRequest,
+					Actions:   []ActionRule{{Action: action_AssembleError}},
+					Transitions: []Transition{
+						{
+							If:      guard_CanRetryErroredAssemble,
+							To:      State_Pooled,
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+						},
+						{
+							If: statemachine.GuardNot(guard_CanRetryErroredAssemble),
+							To: State_Evicted,
+						},
+					},
+				}},
+			},
+			Event_AssembleRequestRejected: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsAssembleBlockHeightRejection,
+					Actions:   []ActionRule{{Action: action_HandleAssembleBlockHeightRejection}},
+					Transitions: []Transition{{
 						To:      State_Pooled,
 						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-					},
-				},
-			}}},
-			Event_Assemble_Cancelled: {Handlers: []EventHandler{{
-				Transitions: []Transition{
-					{
-						To:      State_Pooled,
-						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-					},
-				},
-			}}},
-			// Originator has informed us that no longer thinks we are the active coordinator for this transaction.
-			// Evict the transaction so it is cleaned up; State_Evicted.OnTransitionTo handles
-			// cascading eviction of dependents via action_CascadeChainedDependencyEviction.
-			Event_NotActiveCoordinator: {Handlers: []EventHandler{{
-				Transitions: []Transition{{
-					To: State_Evicted,
-				}},
-			}}},
-			Event_Assemble_Revert_Response: {Handlers: []EventHandler{{
-				Validator: validator_MatchesPendingAssembleRequest,
-				Actions:   []ActionRule{{Action: action_AssembleRevertResponse}},
-				Transitions: []Transition{{
-					To: State_Reverted,
-				}},
-			}}},
-			Event_Assemble_Error_Response: {Handlers: []EventHandler{{
-				Validator: validator_MatchesPendingAssembleRequest,
-				Actions:   []ActionRule{{Action: action_AssembleError}},
-				Transitions: []Transition{
-					{
-						If:      guard_CanRetryErroredAssemble,
-						To:      State_Pooled,
-						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-					},
-					{
-						If: statemachine.GuardNot(guard_CanRetryErroredAssemble),
+					}},
+				}, {
+					// Originator does not recognise this node as the active coordinator; evict.
+					Validator: validator_IsAssembleNotCurrentDelegateRejection,
+					Transitions: []Transition{{
 						To: State_Evicted,
-					},
-				},
-			}}},
-			// Handle response from originator indicating it doesn't recognize this transaction.
-			// The most likely cause is that the transaction reached a terminal state (e.g., reverted
-			// during assembly) but the response was lost, and the transaction has since been removed
-			// from memory on the originator after cleanup. The coordinator should clean up this transaction.
-			Event_TransactionUnknownByOriginator: {Handlers: []EventHandler{{
-				Transitions: []Transition{{
-					To:      State_Final,
-					Actions: []ActionRule{{Action: action_FinalizeAsUnknownByOriginator}},
+					}},
+				}, {
+					// Originator no longer holds this transaction in memory; finalize.
+					Validator: validator_IsAssembleTransactionUnknownRejection,
+					Transitions: []Transition{{
+						To:      State_Final,
+						Actions: []ActionRule{{Action: action_FinalizeAsUnknownByOriginator}},
+					}},
 				}},
-			}}},
+			},
 			// A dependency resetting or reverting while we are assembling must be a chained dependency
 			// (post-assembly dependencies don't exist yet).
 			// The dependency is now unassembled, so we always go to PreAssembly_Blocked.
-			Event_DependencyReset: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
+			Event_DependencyReset: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{{
+						To:      State_PreAssembly_Blocked,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
 				}},
-				Transitions: []Transition{{
-					To:      State_PreAssembly_Blocked,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			Event_DependencyConfirmedReverted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{{
+						To:      State_PreAssembly_Blocked,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
 				}},
-			}}},
-			Event_DependencyConfirmedReverted: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
+			},
+			Event_ChainedDependencyFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+					Transitions: []Transition{{To: State_Reverted}},
 				}},
-				Transitions: []Transition{{
-					To:      State_PreAssembly_Blocked,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			Event_ChainedDependencyEvicted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{{To: State_Evicted}},
 				}},
-			}}},
-			Event_ChainedDependencyFailed: {Handlers: []EventHandler{{
-				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
-				Transitions: []Transition{{To: State_Reverted}},
-			}}},
-			Event_ChainedDependencyEvicted: {Handlers: []EventHandler{{
-				Transitions: []Transition{{To: State_Evicted}},
-			}}},
+			},
 		},
 	},
 	State_Endorsement_Gathering: {
 		OnTransitionTo: []ActionRule{
 			{Action: action_ScheduleStateTimeout},
+			{Action: action_ComputeEndorseTolerances},
 			{Action: action_SendEndorsementRequests},
 		},
 		Events: map[EventType]EventHandlers{
-			Event_Endorsed: {Handlers: []EventHandler{{
-				Actions: []ActionRule{
-					{
-						Action: action_Endorsed,
+			Event_Endorsed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{
+						{
+							Action: action_Endorsed,
+						},
+						{
+							Action: action_ResetEndorsementRequests,
+							If:     guard_AttestationPlanFulfilled,
+						},
+						{
+							Action: action_UpdateSigningIdentity,
+							If:     statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasSigner)),
+						}},
+					Transitions: []Transition{
+						{
+							To: State_Confirming_Dispatchable,
+							If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasDependenciesNotReady)),
+						},
+						{
+							To: State_Blocked,
+							If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, guard_HasDependenciesNotReady),
+						},
 					},
-					{
-						Action: action_ResetEndorsementRequests,
-						If:     guard_AttestationPlanFulfilled,
-					},
-					{
-						Action: action_UpdateSigningIdentity,
-						If:     statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasSigner)),
-					}},
-				Transitions: []Transition{
-					{
-						To: State_Confirming_Dispatchable,
-						If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasDependenciesNotReady)),
-					},
-					{
-						To: State_Blocked,
-						If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, guard_HasDependenciesNotReady),
-					},
-				},
-			}}},
-			Event_EndorsedRejected: {Handlers: []EventHandler{{
-				Transitions: []Transition{
-					{
-						To:      State_Pooled,
-						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-					},
-				},
-			}}},
-			Event_RequestTimeoutInterval: {Handlers: []EventHandler{{
-				Actions: []ActionRule{{
-					Action: action_NudgeEndorsementRequests,
 				}},
-			}}},
-			Event_StateTimeoutInterval: {Handlers: []EventHandler{{
-				Transitions: []Transition{
-					{
-						To:      State_Pooled,
-						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			// Domain returned REVERT: endorser rejected the assembly as invalid. Record the
+			// failed party (stops nudging them) and check whether remaining non-failed parties
+			// can still fulfill the plan. If tolerance exceeded → repool with full request reset;
+			// otherwise stay put — the remaining parties may still provide enough endorsements.
+			Event_EndorseRevert: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_RecordEndorseFailure}},
+					Transitions: []Transition{{
+						If: guard_EndorseFailureExceedsTolerance,
+						To: State_Pooled,
+						Actions: []ActionRule{
+							{Action: action_NotifyDependentsOfReset},
+							{Action: action_ResetEndorsementRequests},
+						},
+					}},
+				}},
+			},
+			// Unexpected endorser error. Record the failed party (stops nudging them),
+			// then check whether remaining non-failed parties can still fulfill the plan.
+			// If tolerance exceeded → repool with full request reset; otherwise stay put
+			// and let the retry/nudge mechanism continue with the remaining parties.
+			Event_EndorseError: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_RecordEndorseFailure}},
+					Transitions: []Transition{{
+						If: guard_EndorseFailureExceedsTolerance,
+						To: State_Pooled,
+						Actions: []ActionRule{
+							{Action: action_NotifyDependentsOfReset},
+							{Action: action_ResetEndorsementRequests},
+						},
+					}},
+				}},
+			},
+			// Service-level rejection (block height tolerance). Same as EndorseError:
+			// record the failed party, check tolerance, repool+reset only if tolerance exceeded.
+			Event_EndorseRequestRejected: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_RecordEndorseFailure}},
+					Transitions: []Transition{{
+						If: guard_EndorseFailureExceedsTolerance,
+						To: State_Pooled,
+						Actions: []ActionRule{
+							{Action: action_NotifyDependentsOfReset},
+							{Action: action_ResetEndorsementRequests},
+						},
+					}},
+				}},
+			},
+			Event_RequestTimeoutInterval: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{
+						Action: action_NudgeEndorsementRequests,
+					}},
+				}},
+			},
+			Event_StateTimeoutInterval: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{
+						{
+							To:      State_Pooled,
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+						},
 					},
-				},
-			}}},
+				}},
+			},
 			// When we see a dependency reset or revert while in Endorsement_Gathering:
 			// - A transaction with a chained dependency will always go to PreAssembly_Blocked as its
 			// chained dependency is now unassembled.
 			// - A trasanction without a chained dependency will always go to Pooled as its post assembly
 			// dependencies are now cleared, and it too far along to have preassembly dependencies.
-			Event_DependencyReset: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
+			Event_DependencyReset: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{{
+						To:      State_PreAssembly_Blocked,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
+				}, {
+					Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
+					Transitions: []Transition{{
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
 				}},
-				Transitions: []Transition{{
-					To:      State_PreAssembly_Blocked,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			Event_DependencyConfirmedReverted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{{
+						To:      State_PreAssembly_Blocked,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
+				}, {
+					Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
+					Transitions: []Transition{{
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
 				}},
-			}, {
-				Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
-				Transitions: []Transition{{
-					To:      State_Pooled,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			Event_ChainedDependencyFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+					Transitions: []Transition{{To: State_Reverted}},
 				}},
-			}}},
-			Event_DependencyConfirmedReverted: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
-				}},
-				Transitions: []Transition{{
-					To:      State_PreAssembly_Blocked,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-				}},
-			}, {
-				Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
-				Transitions: []Transition{{
-					To:      State_Pooled,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-				}},
-			}}},
-			Event_ChainedDependencyFailed: {Handlers: []EventHandler{{
-				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
-				Transitions: []Transition{{To: State_Reverted}},
-			}}},
+			},
 		},
 	},
 	State_Blocked: {
 		Events: map[EventType]EventHandlers{
-			Event_DependencyReady: {Handlers: []EventHandler{{
-				Actions: []ActionRule{
-					{
-						Action: action_UpdateSigningIdentity,
-						If:     statemachine.GuardNot(guard_HasSigner),
+			Event_DependencyReady: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{
+						{
+							Action: action_UpdateSigningIdentity,
+							If:     statemachine.GuardNot(guard_HasSigner),
+						}},
+					Transitions: []Transition{{
+						To: State_Confirming_Dispatchable,
+						If: statemachine.GuardNot(guard_HasDependenciesNotReady),
 					}},
-				Transitions: []Transition{{
-					To: State_Confirming_Dispatchable,
-					If: statemachine.GuardNot(guard_HasDependenciesNotReady),
 				}},
-			}}},
+			},
 			// When we see a dependency reset or revert while in Blocked:
 			// - A transaction with a chained dependency will always go to PreAssembly_Blocked as its
 			// chained dependency is now unassembled.
 			// - A trasanction without a chained dependency will always go to Pooled as its post assembly
 			// dependencies are now cleared, and it too far along to have preassembly dependencies.
-			Event_DependencyReset: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
+			Event_DependencyReset: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{{
+						To:      State_PreAssembly_Blocked,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
+				}, {
+					Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
+					Transitions: []Transition{{
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
 				}},
-				Transitions: []Transition{{
-					To:      State_PreAssembly_Blocked,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			Event_DependencyConfirmedReverted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{{
+						To:      State_PreAssembly_Blocked,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
+				}, {
+					Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
+					Transitions: []Transition{{
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
 				}},
-			}, {
-				Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
-				Transitions: []Transition{{
-					To:      State_Pooled,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			Event_ChainedDependencyFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+					Transitions: []Transition{{To: State_Reverted}},
 				}},
-			}}},
-			Event_DependencyConfirmedReverted: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
-				}},
-				Transitions: []Transition{{
-					To:      State_PreAssembly_Blocked,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-				}},
-			}, {
-				Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
-				Transitions: []Transition{{
-					To:      State_Pooled,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-				}},
-			}}},
-			Event_ChainedDependencyFailed: {Handlers: []EventHandler{{
-				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
-				Transitions: []Transition{{To: State_Reverted}},
-			}}},
+			},
 		},
 	},
 	State_Confirming_Dispatchable: {
@@ -501,89 +642,120 @@ var stateDefinitionsMap = StateDefinitions{
 			{Action: action_SendPreDispatchRequest},
 		},
 		Events: map[EventType]EventHandlers{
-			Event_DispatchRequestApproved: {Handlers: []EventHandler{{
-				Validator: validator_MatchesPendingPreDispatchRequest,
-				Actions:   []ActionRule{{Action: action_DispatchRequestApproved}},
-				Transitions: []Transition{
-					{
-						To: State_Ready_For_Dispatch,
-					}},
-			}}},
-			Event_DispatchRequestRejected: {Handlers: []EventHandler{{
-				Validator: validator_MatchesPendingPreDispatchRequest,
-				Actions:   []ActionRule{{Action: action_DispatchRequestRejected}},
-				Transitions: []Transition{
-					{
-						To:      State_Pooled,
-						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-					},
-				},
-			}}},
-			// Originator has informed us that no longer thinks we are the active coordinator for this transaction.
-			// Evict the transaction so it is cleaned up; State_Evicted.OnTransitionTo handles
-			// cascading eviction of dependents via action_CascadeChainedDependencyEviction.
-			Event_NotActiveCoordinator: {Handlers: []EventHandler{{
-				Transitions: []Transition{{
-					To: State_Evicted,
+			Event_DispatchRequestApproved: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_MatchesPendingPreDispatchRequest,
+					Actions:   []ActionRule{{Action: action_DispatchRequestApproved}},
+					Transitions: []Transition{
+						{
+							To: State_Ready_For_Dispatch,
+						}},
 				}},
-			}}},
-			Event_RequestTimeoutInterval: {Handlers: []EventHandler{{
-				Actions: []ActionRule{{
-					Action: action_NudgePreDispatchRequest,
-				}},
-			}}},
-			Event_StateTimeoutInterval: {Handlers: []EventHandler{{
-				Transitions: []Transition{
-					{
-						To: State_Pooled,
-						Actions: []ActionRule{
-							{Action: action_DispatchRequestRejected},
-							{Action: action_NotifyDependentsOfReset},
+			},
+			Event_DispatchRequestRejected: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_MatchesPendingPreDispatchRequest,
+					Actions:   []ActionRule{{Action: action_DispatchRequestRejected}},
+					Transitions: []Transition{
+						{
+							To:      State_Pooled,
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
 						},
 					},
-				},
-			}}},
+				}},
+			},
+			// Originator has rejected the pre-dispatch request.
+			// NOT_CURRENT_DELEGATE: originator no longer tracks us as coordinator; evict.
+			// TRANSACTION_UNKNOWN:  originator has cleaned up the transaction; finalize.
+			Event_PreDispatchRequestRejected: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsPreDispatchNotCurrentDelegateRejection,
+					Transitions: []Transition{{
+						To: State_Evicted,
+					}},
+				}, {
+					Validator: validator_IsPreDispatchTransactionUnknownRejection,
+					Transitions: []Transition{{
+						To:      State_Final,
+						Actions: []ActionRule{{Action: action_FinalizeAsUnknownByOriginator}},
+					}},
+				}},
+			},
+			Event_RequestTimeoutInterval: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{
+						Action: action_NudgePreDispatchRequest,
+					}},
+				}},
+			},
+			Event_StateTimeoutInterval: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{
+						{
+							To: State_Pooled,
+							Actions: []ActionRule{
+								{Action: action_DispatchRequestRejected},
+								{Action: action_NotifyDependentsOfReset},
+							},
+						},
+					},
+				}},
+			},
 			// When we see a dependency reset or revert while in Confirming_Dispatchable:
 			// - A transaction with a chained dependency will always go to PreAssembly_Blocked as its
 			// chained dependency is now unassembled.
 			// - A trasanction without a chained dependency will always go to Pooled as its post assembly
 			// dependencies are now cleared, and it too far along to have preassembly dependencies.
-			Event_DependencyReset: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
+			Event_DependencyReset: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{{
+						To:      State_PreAssembly_Blocked,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
+				}, {
+					Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
+					Transitions: []Transition{{
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
 				}},
-				Transitions: []Transition{{
-					To:      State_PreAssembly_Blocked,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			Event_DependencyConfirmedReverted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{{
+						To:      State_PreAssembly_Blocked,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
+				}, {
+					Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
+					Transitions: []Transition{{
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
 				}},
-			}, {
-				Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
-				Transitions: []Transition{{
-					To:      State_Pooled,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			Event_ChainedDependencyFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+					Transitions: []Transition{{To: State_Reverted}},
 				}},
-			}}},
-			Event_DependencyConfirmedReverted: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
-				}},
-				Transitions: []Transition{{
-					To:      State_PreAssembly_Blocked,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-				}},
-			}, {
-				Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
-				Transitions: []Transition{{
-					To:      State_Pooled,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-				}},
-			}}},
-			Event_ChainedDependencyFailed: {Handlers: []EventHandler{{
-				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
-				Transitions: []Transition{{To: State_Reverted}},
-			}}},
+			},
 		},
 	},
 	State_Ready_For_Dispatch: {
@@ -591,58 +763,70 @@ var stateDefinitionsMap = StateDefinitions{
 			{Action: action_NotifyDependentsOfReadiness},
 		},
 		Events: map[EventType]EventHandlers{
-			Event_Dispatched: {Handlers: []EventHandler{{
-				Actions: []ActionRule{
-					{Action: action_AllocateSigningIdentity},
-					{Action: action_Dispatch},
-				},
-				Transitions: []Transition{
-					{
-						To: State_Dispatched,
+			Event_Dispatched: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{
+						{Action: action_AllocateSigningIdentity},
+						{Action: action_Dispatch},
 					},
-				},
-			}}},
+					Transitions: []Transition{
+						{
+							To: State_Dispatched,
+						},
+					},
+				}},
+			},
 			// When we see a dependency reset or revert while in Ready_For_Dispatch:
 			// - A transaction with a chained dependency will always go to PreAssembly_Blocked as its
 			// chained dependency is now unassembled.
 			// - A trasanction without a chained dependency will always go to Pooled as its post assembly
 			// dependencies are now cleared, and it too far along to have preassembly dependencies.
-			Event_DependencyReset: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
+			Event_DependencyReset: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{{
+						To:      State_PreAssembly_Blocked,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
+				}, {
+					Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
+					Transitions: []Transition{{
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
 				}},
-				Transitions: []Transition{{
-					To:      State_PreAssembly_Blocked,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			Event_DependencyConfirmedReverted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions: []ActionRule{{
+						Action: action_MarkChainedDependencyUnassembled,
+					}},
+					Transitions: []Transition{{
+						To:      State_PreAssembly_Blocked,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
+				}, {
+					Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
+					Transitions: []Transition{{
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					}},
 				}},
-			}, {
-				Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
-				Transitions: []Transition{{
-					To:      State_Pooled,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+			},
+			Event_ChainedDependencyFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+					Transitions: []Transition{{To: State_Reverted}},
 				}},
-			}}},
-			Event_DependencyConfirmedReverted: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions: []ActionRule{{
-					Action: action_MarkChainedDependencyUnassembled,
-				}},
-				Transitions: []Transition{{
-					To:      State_PreAssembly_Blocked,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-				}},
-			}, {
-				Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
-				Transitions: []Transition{{
-					To:      State_Pooled,
-					Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
-				}},
-			}}},
-			Event_ChainedDependencyFailed: {Handlers: []EventHandler{{
-				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
-				Transitions: []Transition{{To: State_Reverted}},
-			}}},
+			},
 		},
 	},
 	State_Dispatched: {
@@ -651,57 +835,72 @@ var stateDefinitionsMap = StateDefinitions{
 			{Action: action_CleanUpAssemblyPayload},
 		},
 		Events: map[EventType]EventHandlers{
-			Event_Collected: {Handlers: []EventHandler{{
-				Actions: []ActionRule{{Action: action_NotifyCollected}},
-			}}},
-			Event_NonceAllocated: {Handlers: []EventHandler{{
-				Actions: []ActionRule{{Action: action_NotifyNonceAllocated}},
-			}}},
-			Event_Submitted: {Handlers: []EventHandler{{
-				Actions: []ActionRule{{Action: action_NotifySubmitted}},
-			}}},
-			Event_ConfirmedSuccess: {Handlers: []EventHandler{{
-				Actions: []ActionRule{
-					{Action: action_RecordConfirmationSuccess},
-					{Action: action_NotifyOriginatorOfConfirmation},
-				},
-				Transitions: []Transition{{To: State_Confirmed}},
-			}}},
-			Event_ConfirmedReverted: {Handlers: []EventHandler{{
-				Actions: []ActionRule{
-					{
-						Action: action_RecordConfirmationRevert,
+			Event_Collected: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_NotifyCollected}},
+				}},
+			},
+			Event_NonceAllocated: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_NotifyNonceAllocated}},
+				}},
+			},
+			Event_Submitted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_NotifySubmitted}},
+				}},
+			},
+			Event_ConfirmedSuccess: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{
+						{Action: action_RecordConfirmationSuccess},
+						{Action: action_NotifyOriginatorOfConfirmation},
 					},
-				},
-				Transitions: []Transition{
-					{
-						If: statemachine.GuardAnd(guard_CanRetryRevert, guard_HasUnassembledDependencies),
-						To: State_PreAssembly_Blocked,
-						Actions: []ActionRule{
-							{Action: action_NotifyOriginatorOfRetryableRevert},
-							{Action: action_NotifyDependentsOfReset},
+					Transitions: []Transition{{To: State_Confirmed}},
+				}},
+			},
+			Event_ConfirmedReverted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{
+						{
+							Action: action_RecordConfirmationRevert,
 						},
 					},
-					{
-						If: statemachine.GuardAnd(guard_CanRetryRevert, statemachine.GuardNot(guard_HasUnassembledDependencies)),
-						To: State_Pooled,
-						Actions: []ActionRule{
-							{Action: action_NotifyOriginatorOfRetryableRevert},
-							{Action: action_NotifyDependentsOfReset},
+					Transitions: []Transition{
+						{
+							If: statemachine.GuardAnd(guard_CanRetryRevert, guard_HasUnassembledDependencies),
+							To: State_PreAssembly_Blocked,
+							Actions: []ActionRule{
+								{Action: action_NotifyOriginatorOfRetryableRevert},
+								{Action: action_NotifyDependentsOfReset},
+							},
+						},
+						{
+							If: statemachine.GuardAnd(guard_CanRetryRevert, statemachine.GuardNot(guard_HasUnassembledDependencies)),
+							To: State_Pooled,
+							Actions: []ActionRule{
+								{Action: action_NotifyOriginatorOfRetryableRevert},
+								{Action: action_NotifyDependentsOfReset},
+							},
+						},
+						{
+							If: statemachine.GuardNot(guard_CanRetryRevert),
+							To: State_Reverted,
+							Actions: []ActionRule{
+								{Action: action_RevertTransactionInGrapher},
+								{Action: action_NotifyOriginatorOfNonRetryableRevert},
+								{Action: action_NotifyDependentsOfRevertedConfirmation},
+								{Action: action_FinalizeNonRetryableRevert},
+							},
 						},
 					},
-					{
-						If: statemachine.GuardNot(guard_CanRetryRevert),
-						To: State_Reverted,
-						Actions: []ActionRule{
-							{Action: action_RevertTransactionInGrapher},
-							{Action: action_NotifyOriginatorOfNonRetryableRevert},
-							{Action: action_NotifyDependentsOfRevertedConfirmation},
-							{Action: action_FinalizeNonRetryableRevert},
-						},
-					},
-				},
-			}}},
+				}},
+			},
 			Event_DependencyReset: {
 				Match: statemachine.MatchAll,
 				Handlers: []EventHandler{{
@@ -716,10 +915,13 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			// This event will be received if a chained dependency has reverted, we are still waiting for
 			// our revert event, and the chained dependency is reassembled in that time.
-			Event_DependencySelectedForAssemble: {Handlers: []EventHandler{{
-				Validator: validator_IsChainedDependency,
-				Actions:   []ActionRule{{Action: action_MarkChainedDependencyAssembled}},
-			}}},
+			Event_DependencySelectedForAssemble: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_IsChainedDependency,
+					Actions:   []ActionRule{{Action: action_MarkChainedDependencyAssembled}},
+				}},
+			},
 			Event_DependencyConfirmedReverted: {
 				Match: statemachine.MatchAll,
 				Handlers: []EventHandler{{
@@ -732,10 +934,13 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				}},
 			},
-			Event_ChainedDependencyFailed: {Handlers: []EventHandler{{
-				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
-				Transitions: []Transition{{To: State_Reverted}},
-			}}},
+			Event_ChainedDependencyFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+					Transitions: []Transition{{To: State_Reverted}},
+				}},
+			},
 		},
 	},
 	State_Reverted: {
@@ -745,30 +950,36 @@ var stateDefinitionsMap = StateDefinitions{
 			{Action: action_NotifyPreAssembleDependentOfTermination},
 		},
 		Events: map[EventType]EventHandlers{
-			common.Event_HeartbeatInterval: {Handlers: []EventHandler{{
-				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},
-				Transitions: []Transition{
-					{
-						If: guard_HasFinalizingGracePeriodPassedSinceStateChange,
-						To: State_Final,
-					}},
-			}}},
+			common.Event_HeartbeatInterval: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},
+					Transitions: []Transition{
+						{
+							If: guard_HasFinalizingGracePeriodPassedSinceStateChange,
+							To: State_Final,
+						}},
+				}},
+			},
 		},
 	},
 	State_Confirmed: {
 		Events: map[EventType]EventHandlers{
-			common.Event_HeartbeatInterval: {Handlers: []EventHandler{{
-				Actions: []ActionRule{
-					{
-						Action: action_IncrementHeartbeatIntervalsSinceStateChange,
+			common.Event_HeartbeatInterval: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{
+						{
+							Action: action_IncrementHeartbeatIntervalsSinceStateChange,
+						},
 					},
-				},
-				Transitions: []Transition{
-					{
-						If: guard_HasFinalizingGracePeriodPassedSinceStateChange,
-						To: State_Final,
-					}},
-			}}},
+					Transitions: []Transition{
+						{
+							If: guard_HasFinalizingGracePeriodPassedSinceStateChange,
+							To: State_Final,
+						}},
+				}},
+			},
 		},
 	},
 	State_Final: {

@@ -569,7 +569,7 @@ func Test_addToDelegatedTransactions_HandleEventError_ContinuesAndReturnsNoError
 	require.Len(t, c.transactionsByID, 1)
 }
 
-func Test_addToDelegatedTransactions_SendDelegationRequestAcknowledgmentError_ReturnsError(t *testing.T) {
+func Test_addToDelegatedTransactions_SendDelegationResponseError_ReturnsError(t *testing.T) {
 	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
@@ -583,7 +583,7 @@ func Test_addToDelegatedTransactions_SendDelegationRequestAcknowledgmentError_Re
 	config.MaxDispatchAhead = confutil.P(-1)
 	builder.OverrideSequencerConfig(config)
 	c, mocks := builder.WithMockTransportWriter().Build()
-	mocks.TransportWriter.On("SendDelegationRequestAcknowledgment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("send ack failed"))
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("send ack failed"))
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 
@@ -785,7 +785,7 @@ func Test_addToDelegatedTransactions_SubsequentTransactionGetsPreviousTransactio
 
 	var capturedErrors []int64
 	c, mocks := builder.WithMockTransportWriter().Build()
-	mocks.TransportWriter.On("SendDelegationRequestAcknowledgment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(errors []int64) bool {
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(errors []int64) bool {
 		capturedErrors = errors
 		return true
 	}), mock.Anything).Return(nil)
@@ -820,7 +820,7 @@ func Test_addToDelegatedTransactions_ErrorStopsSubsequentTransactionsBeingAccept
 
 	fifthErr := fmt.Errorf("fifth transaction HandleEvent failed")
 	c, mocks := builder.WithMockTransportWriter().Build()
-	mocks.TransportWriter.On("SendDelegationRequestAcknowledgment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	// Delegate 10 transactions. TX 5 fails at HandleEvent time. 5-10 should not be in the TX list for the coordinator
 	txns := make([]*components.PrivateTransaction, 10)
@@ -886,7 +886,7 @@ func Test_addToDelegatedTransactions_FifthFailsThenFullRetry_PreservesFirstFourA
 	fifthErr := fmt.Errorf("fifth transaction HandleEvent failed")
 
 	c, mocks := builder.WithMockTransportWriter().Build()
-	mocks.TransportWriter.On("SendDelegationRequestAcknowledgment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Twice()
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Twice()
 
 	txns := make([]*components.PrivateTransaction, 10)
 	for i := range txns {

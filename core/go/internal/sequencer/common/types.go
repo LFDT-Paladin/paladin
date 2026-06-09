@@ -27,13 +27,14 @@ type CoordinatorSnapshot struct {
 	ConfirmedTransactions  []*SnapshotConfirmedTransaction  `json:"confirmedTransactions"`
 	CoordinatorState       CoordinatorState                 `json:"coordinatorState"`
 	BlockHeight            uint64                           `json:"blockHeight"`
+	EndorserCandidates     []string                         `json:"endorserCandidates,omitempty"` // (COORDINATOR_ENDORSER selection mode only)
 	// Locks and OutputStates are only populated in Flush and Closing heartbeats, for coordinator handover.
 	// Locks contain only on-chain metadata (state IDs, types, block numbers) — no privacy protection needed,
 	// as this data ends up on the base ledger. All locks are sent to every recipient node.
 	// OutputStates carry private state data and are filtered per node: each recipient only receives
 	// the OutputStates where it appears in AllowedNodes. A receiving coordinator can cross-reference the
 	// create locks against its OutputStates to validate it has all the private data it needs.
-	Locks        []*grapher.StateLock          `json:"locks,omitempty"`
+	Locks        []*grapher.StateLock                  `json:"locks,omitempty"`
 	OutputStates []*statevisibilitytracker.OutputState `json:"outputStates,omitempty"`
 }
 

@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -17,6 +17,7 @@
 import i18next from 'i18next';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
+import { IDomainContract } from '../interfaces';
 
 export const listDomains = async (): Promise<string[]> => {
   const payload = {
@@ -25,12 +26,13 @@ export const listDomains = async (): Promise<string[]> => {
     method: RpcMethods.domain_listDomains,
     params: [],
   };
-  return <Promise<string[]>>(
+  const result = await <Promise<string[]>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
       i18next.t('errorFetchingDomains')
     )
   );
+  return result.sort();
 };
 
 export const getDomainByName = async (name: string): Promise<any> => {
@@ -50,16 +52,32 @@ export const getDomainByName = async (name: string): Promise<any> => {
 };
 
 export const querySmartContractsByDomain = async (
-  domainAddress: string
-): Promise<any> => {
+  domainAddress: string,
+  sortAscending: boolean,
+  rowsPerPage: number,
+  refTimestamp?: string
+): Promise<IDomainContract[]> => {
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
     method: RpcMethods.domain_querySmartContracts,
     params: [
       {
-        limit: 100, // TODO: pagination
+        limit: rowsPerPage,
         equal: [{ field: 'domainAddress', value: domainAddress }],
+        sort: [`created ${sortAscending ? 'ASC' : 'DESC'}`],
+        greaterThan: refTimestamp !== undefined && sortAscending ? [
+          {
+            field: 'created',
+            value: refTimestamp
+          }
+        ] : undefined,
+        lessThan: refTimestamp !== undefined && !sortAscending ? [
+          {
+            field: 'created',
+            value: refTimestamp
+          }
+        ] : undefined
       },
     ],
   };
@@ -89,3 +107,22 @@ export const fetchDomainReceipt = async (
     )
   );
 };
+
+export const getDomainContractByAddress = async (
+  address: string,
+): Promise<IDomainContract> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.domain_getSmartContractByAddress,
+    params: [address],
+  };
+
+  return <Promise<IDomainContract>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingDomainContract')
+    )
+  );
+};
+

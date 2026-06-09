@@ -90,7 +90,10 @@ type TransactionBuilderForTesting struct {
 	baseLedgerRevertRetryThreshold     int
 	assembleErrorCount                 int
 	assembleErrorRetryThreshhold       int
+	endorseToleranceByRequirement      map[string]int
 	revertCount                        int
+	currentBlockHeight                 int64
+	blockHeightTolerance               uint64
 }
 
 // Function NewTransactionBuilderForTesting creates a TransactionBuilderForTesting with random values for all fields
@@ -131,6 +134,11 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 
 func (b *TransactionBuilderForTesting) UseMockTransportWriter() *TransactionBuilderForTesting {
 	b.useMockTransportWriter = true
+	return b
+}
+
+func (b *TransactionBuilderForTesting) WithCurrentBlockHeight(blockHeight int64) *TransactionBuilderForTesting {
+	b.currentBlockHeight = blockHeight
 	return b
 }
 
@@ -315,8 +323,8 @@ func (b *TransactionBuilderForTesting) AddPendingAssembleRequestWithCallback(sen
 	return b
 }
 
-func (b *TransactionBuilderForTesting) AddPendingEndorsementRequest(index int) *TransactionBuilderForTesting {
-	return b.AddPendingEndorsementRequestWithCallback(index, func(ctx context.Context, idempotencyKey uuid.UUID) error { return nil })
+func (b *TransactionBuilderForTesting) AddPendingEndorsementRequest() *TransactionBuilderForTesting {
+	return b.AddPendingEndorsementRequestWithCallback(0, func(ctx context.Context, idempotencyKey uuid.UUID) error { return nil })
 }
 
 // AddPendingEndorsementRequestWithCallback adds one pending endorsement request; the builder will create the IdempotentRequest
@@ -363,6 +371,11 @@ func (b *TransactionBuilderForTesting) AssembleErrorCount(count int) *Transactio
 
 func (b *TransactionBuilderForTesting) AssembleErrorRetryThreshold(threshold int) *TransactionBuilderForTesting {
 	b.assembleErrorRetryThreshhold = threshold
+	return b
+}
+
+func (b *TransactionBuilderForTesting) EndorseTolerance(tolerance int) *TransactionBuilderForTesting {
+	b.endorseToleranceByRequirement = map[string]int{"endorse-0": tolerance}
 	return b
 }
 
@@ -528,6 +541,8 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		coordinatorTransactionStateLookup(b.coordinatorTransactions),
 		func(context.Context, ...string) {}, // notifyEndorserCandidates
 		mocks.EngineIntegration,
+		func() int64 { return b.currentBlockHeight },
+		b.blockHeightTolerance,
 		mocks.SyncPoints,
 		mocks.AllComponents,
 		mocks.DomainAPI,
@@ -555,6 +570,9 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.revertReason = b.revertReason
 	txn.revertCount = b.revertCount
 	txn.assembleErrorCount = b.assembleErrorCount
+	if b.endorseToleranceByRequirement != nil {
+		txn.endorseToleranceByRequirement = b.endorseToleranceByRequirement
+	}
 
 	if b.pendingAssembleRequestSend != nil {
 		txn.pendingAssembleRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, b.pendingAssembleRequestSend)
@@ -593,13 +611,12 @@ func (b *TransactionBuilderForTesting) BuildAssembleSuccessEvent() *AssembleSucc
 			TransactionID: b.txn.pt.ID,
 		},
 		PostAssembly: b.BuildPostAssembly(),
-		PreAssembly:  b.BuildPreAssembly(),
 		RequestID:    b.txn.pendingAssembleRequest.IdempotencyKey(),
 	}
 }
 
-func (b *TransactionBuilderForTesting) BuildAssembleRevertEvent() *AssembleRevertResponseEvent {
-	return &AssembleRevertResponseEvent{
+func (b *TransactionBuilderForTesting) BuildAssembleRevertEvent() *AssembleRevertEvent {
+	return &AssembleRevertEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: b.txn.pt.ID,
 		},
@@ -620,19 +637,37 @@ func (b *TransactionBuilderForTesting) BuildEndorsedEvent(endorserIndex int) *En
 
 }
 
-func (b *TransactionBuilderForTesting) BuildEndorseRejectedEvent(endorserIndex int) *EndorsedRejectedEvent {
-
-	attReqName := fmt.Sprintf("endorse-%d", endorserIndex)
-	return &EndorsedRejectedEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.pt.ID,
-		},
-		RevertReason:           "some reason for rejection",
-		AttestationRequestName: attReqName,
-		RequestID:              b.txn.pendingEndorsementRequests[attReqName][b.privateTransactionBuilder.GetEndorserIdentityLocator(endorserIndex)].IdempotencyKey(),
-		Party:                  b.privateTransactionBuilder.GetEndorserIdentityLocator(endorserIndex),
+func (b *TransactionBuilderForTesting) BuildEndorseRevertEvent() *EndorseRevertEvent {
+	party := b.privateTransactionBuilder.GetEndorserIdentityLocator(0)
+	return &EndorseRevertEvent{
+		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: b.txn.pt.ID},
+		Party:                  party,
+		RevertReason:           "some reason for revert",
+		AttestationRequestName: "endorse-0",
+		RequestID:              b.txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey(),
 	}
+}
 
+func (b *TransactionBuilderForTesting) BuildEndorseRequestRejectedEvent() *EndorseRequestRejectedEvent {
+	party := b.privateTransactionBuilder.GetEndorserIdentityLocator(0)
+	return &EndorseRequestRejectedEvent{
+		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: b.txn.pt.ID},
+		Party:                  party,
+		AttestationRequestName: "endorse-0",
+		RequestID:              b.txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey(),
+		CoordinatorBlockHeight: 100,
+		EndorserBlockHeight:    200,
+	}
+}
+
+func (b *TransactionBuilderForTesting) BuildEndorseErrorEvent() *EndorseErrorEvent {
+	party := b.privateTransactionBuilder.GetEndorserIdentityLocator(0)
+	return &EndorseErrorEvent{
+		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: b.txn.pt.ID},
+		Party:                  party,
+		AttestationRequestName: "endorse-0",
+		RequestID:              b.txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey(),
+	}
 }
 
 func (b *TransactionBuilderForTesting) BuildDispatchRequestApprovedEvent() *DispatchRequestApprovedEvent {

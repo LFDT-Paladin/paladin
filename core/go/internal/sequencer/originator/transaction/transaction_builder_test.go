@@ -58,7 +58,9 @@ type TransactionBuilderForTesting struct {
 	signerAddress        *pldtypes.EthAddress
 	nonce                *uint64
 
-	metrics metrics.DistributedSequencerMetrics
+	metrics              metrics.DistributedSequencerMetrics
+	blockHeightTolerance uint64
+	currentBlockHeight   int64
 }
 
 // Function NewTransactionBuilderForTesting creates a TransactionBuilderForTesting with random values for all fields.
@@ -124,12 +126,22 @@ func (b *TransactionBuilderForTesting) WithMockTransportWriter() *TransactionBui
 	return b
 }
 
+func (b *TransactionBuilderForTesting) BlockHeightTolerance(tolerance uint64) *TransactionBuilderForTesting {
+	b.blockHeightTolerance = tolerance
+	return b
+}
+
+func (b *TransactionBuilderForTesting) CurrentBlockHeight(blockHeight int64) *TransactionBuilderForTesting {
+	b.currentBlockHeight = blockHeight
+	return b
+}
+
 type TransactionDependencyFakes struct {
 	SentMessageRecorder *testutil.SentMessageRecorder
 	TransportWriter     *sequencertransportmocks.TransportWriter
 	EngineIntegration   *sequencercommonmocks.EngineIntegration
 	transactionBuilder  *TransactionBuilderForTesting
-	emittedEvents       []common.Event
+	Events              chan common.Event
 }
 
 func (b *TransactionBuilderForTesting) BuildWithMocks() (*originatorTransaction, *TransactionDependencyFakes) {
@@ -137,9 +149,10 @@ func (b *TransactionBuilderForTesting) BuildWithMocks() (*originatorTransaction,
 		SentMessageRecorder: b.sentMessageRecorder,
 		EngineIntegration:   b.fakeEngineIntegration,
 		transactionBuilder:  b,
+		Events:              make(chan common.Event, 16),
 	}
 	b.queueEventForOriginator = func(ctx context.Context, event common.Event) {
-		mocks.emittedEvents = append(mocks.emittedEvents, event)
+		mocks.Events <- event
 	}
 	if b.useMockTransportWriter {
 		b.mockTransportWriter = sequencertransportmocks.NewTransportWriter(b.t)
@@ -164,7 +177,8 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		b.fakeEngineIntegration,
 		transportWriter,
 		b.queueEventForOriginator,
-		b.metrics)
+		b.metrics,
+		func() int64 { return b.currentBlockHeight })
 
 	txn.stateMachine.SetCurrentState(b.state)
 
@@ -186,6 +200,7 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		b.latestFulfilledAssembleRequestID = uuid.New()
 		txn.latestFulfilledAssembleRequestID = b.latestFulfilledAssembleRequestID
 	case State_Reverted:
+		txn.currentDelegate = b.currentDelegate
 		b.latestFulfilledAssembleRequestID = uuid.New()
 		txn.latestFulfilledAssembleRequestID = b.latestFulfilledAssembleRequestID
 
@@ -194,6 +209,7 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 			RevertReason:   ptrTo("test revert reason"),
 		}
 	case State_Parked:
+		txn.currentDelegate = b.currentDelegate
 		b.latestFulfilledAssembleRequestID = uuid.New()
 		txn.latestFulfilledAssembleRequestID = b.latestFulfilledAssembleRequestID
 
@@ -264,8 +280,4 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestPark() *mock.C
 		AssemblyResult: prototk.AssembleTransactionResponse_PARK,
 		RevertReason:   ptrTo("test revert reason"),
 	}, nil)
-}
-
-func (m *TransactionDependencyFakes) GetEmittedEvents() []common.Event {
-	return m.emittedEvents
 }

@@ -25,16 +25,45 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/google/uuid"
+	"slices"
 )
+
+func validator_IsDelegationBlockHeightRejection(_ context.Context, _ *originator, event common.Event) (bool, error) {
+	return event.(*DelegationRequestRejectedEvent).RejectionReason == engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, nil
+}
+
+func validator_IsDelegationNotActiveCoordinatorRejection(_ context.Context, _ *originator, event common.Event) (bool, error) {
+	return event.(*DelegationRequestRejectedEvent).RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE, nil
+}
+
+func action_LogDelegationBlockHeightRejection(ctx context.Context, _ *originator, event common.Event) error {
+	e := event.(*DelegationRequestRejectedEvent)
+	log.L(ctx).Warnf("delegation rejected due to block height tolerance exceeded: originator block height=%d, coordinator block height=%d, coordinator tolerance=%d",
+		e.OriginatorBlockHeight, e.CoordinatorBlockHeight, e.BlockHeightTolerance)
+	return nil
+}
 
 func action_TransactionCreated(ctx context.Context, o *originator, event common.Event) error {
 	e := event.(*TransactionCreatedEvent)
 	return o.addToTransactions(ctx, e.Transaction, o.newOriginatorTransaction)
 }
 
+func (o *originator) getCurrentBlockHeight() int64 {
+	return int64(o.currentBlockHeight)
+}
+
 func (o *originator) newOriginatorTransaction(ctx context.Context, pt *components.PrivateTransaction) (transaction.OriginatorTransaction, error) {
-	return transaction.NewTransaction(ctx, pt, o.transportWriter, o.queueEventInternal, o.engineIntegration, o.metrics)
+	return transaction.NewTransaction(
+		ctx,
+		pt,
+		o.transportWriter,
+		o.queueEventInternal,
+		o.engineIntegration,
+		o.metrics,
+		o.getCurrentBlockHeight,
+	)
 }
 
 func (o *originator) addToTransactions(
@@ -275,6 +304,42 @@ func action_UpdateEndorserCandidates(_ context.Context, o *originator, event com
 	return nil
 }
 
+// action_UpdateEndorserCandidatesFromHeartbeat merges the heartbeat sender's known endorser pool
+// into the local candidate pool, then recomputes the priority list. This runs as handler 0 for
+// all HeartbeatReceived events so that subsequent handlers (e.g.
+// validator_IsSenderHigherPriorityThanCurrentCoordinator) see an up-to-date list — important
+// because the heartbeat is queued to the originator before the coordinator's
+// EndorserNodesDiscoveredEvent notification arrives.
+func action_UpdateEndorserCandidatesFromHeartbeat(ctx context.Context, o *originator, event common.Event) error {
+	if len(o.endorserCandidates) == 0 {
+		return nil // STATIC/SENDER mode: endorserCandidates is empty
+	}
+	e := event.(*common.HeartbeatReceivedEvent)
+	candidates := []string{e.FromNode}
+	if e.CoordinatorSnapshot != nil && len(e.CoordinatorSnapshot.EndorserCandidates) > 0 {
+		candidates = e.CoordinatorSnapshot.EndorserCandidates
+	}
+	changed := false
+	for _, node := range candidates {
+		if !slices.Contains(o.endorserCandidates, node) {
+			o.endorserCandidates = append(o.endorserCandidates, node)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	slices.Sort(o.endorserCandidates)
+	o.coordinatorPriorityList = common.ComputeCoordinatorPriorityList(
+		ctx,
+		o.endorserCandidates,
+		o.currentBlockHeight,
+		o.blockRange,
+	)
+	o.resetFailoverIndex()
+	return nil
+}
+
 // action_UpdateActiveCoordinatorFromHeartbeat records the heartbeat sender as the current active
 // coordinator. Called only when the sender is in Active or Elect state.
 func action_UpdateActiveCoordinatorFromHeartbeat(_ context.Context, o *originator, event common.Event) error {
@@ -287,7 +352,7 @@ func action_UpdateActiveCoordinatorFromHeartbeat(_ context.Context, o *originato
 // action_HandleDelegationRejected processes a rejection from a coordinator. If the rejection names
 // a coordinator that has higher priority than our current one, we redirect to it
 func action_HandleDelegationRejected(_ context.Context, o *originator, event common.Event) error {
-	e := event.(*DelegationRejectedEvent)
+	e := event.(*DelegationRequestRejectedEvent)
 	if e.ActiveCoordinator == "" {
 		return nil
 	}

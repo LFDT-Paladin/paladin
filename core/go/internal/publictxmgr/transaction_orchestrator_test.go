@@ -214,3 +214,210 @@ func TestOrchestratorWaitingForBalance(t *testing.T) {
 	o.Stop()
 	<-oDone
 }
+
+func TestAllocateNoncesGetTransactionCountError(t *testing.T) {
+	ctx, o, m, done := newTestOrchestrator(t)
+	defer done()
+
+	// nextNonce is nil so allocateNonces will call GetTransactionCount
+	txn := &DBPublicTxn{PublicTxnID: 1, From: o.signingAddress}
+	m.ethClient.On("GetTransactionCount", mock.Anything, o.signingAddress).
+		Return(nil, fmt.Errorf("rpc error")).Once()
+
+	err := o.allocateNonces(ctx, []*DBPublicTxn{txn})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "rpc error")
+}
+
+func TestAllocateNoncesNonceCacheAheadOfMempool(t *testing.T) {
+	ctx, o, m, done := newTestOrchestrator(t)
+	defer done()
+
+	// Set nextNonce ahead of what the mempool reports
+	ahead := uint64(5)
+	o.nextNonce = &ahead
+	// lastNonceAlloc is zero time so cache is always expired and GetTransactionCount is called
+
+	// Mempool reports nonce 4 (lower than our cached 5) - so we keep our cached nonce
+	m.ethClient.On("GetTransactionCount", mock.Anything, o.signingAddress).
+		Return(confutil.P(pldtypes.HexUint64(4)), nil).Once()
+
+	// DB transaction to record the nonce assignment must succeed
+	m.db.ExpectBegin()
+	m.db.ExpectExec("WITH nonce_updates").WillReturnResult(sqlmock.NewResult(1, 1))
+	m.db.ExpectCommit()
+
+	txn := &DBPublicTxn{PublicTxnID: 1, From: o.signingAddress}
+	err := o.allocateNonces(ctx, []*DBPublicTxn{txn})
+	assert.NoError(t, err)
+	// nextNonce should have advanced by 1 (we allocated nonce 5)
+	assert.Equal(t, uint64(6), *o.nextNonce)
+}
+
+func TestAllocateNoncesDBTransactionError(t *testing.T) {
+	ctx, o, m, done := newTestOrchestrator(t)
+	defer done()
+
+	// nextNonce is nil so GetTransactionCount is called
+	m.ethClient.On("GetTransactionCount", mock.Anything, o.signingAddress).
+		Return(confutil.P(pldtypes.HexUint64(10)), nil).Once()
+
+	// DB transaction fails
+	m.db.ExpectBegin()
+	m.db.ExpectExec("WITH nonce_updates").WillReturnError(fmt.Errorf("db transaction error"))
+	m.db.ExpectRollback()
+
+	txn := &DBPublicTxn{PublicTxnID: 1, From: o.signingAddress}
+	err := o.allocateNonces(ctx, []*DBPublicTxn{txn})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "db transaction error")
+}
+
+func TestPollAndProcessHandleTransactionCollectedAndNonceAssignedErrors(t *testing.T) {
+	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Orchestrator.MaxInFlight = confutil.P(5)
+	})
+	defer done()
+	o.testOnlyNoActionMode = true
+
+	txID := uuid.New()
+	nonce := uint64(7)
+	contractAddr := "0x1234567890123456789012345678901234567890"
+
+	// Poll returns a tx with nonce already set and a ContractAddress in the binding
+	m.db.ExpectQuery("SELECT.*public_txns").WillReturnRows(
+		sqlmock.NewRows([]string{"pub_txn_id", "from", "nonce", "Binding__pub_txn_id", "Binding__transaction", "Binding__contract_address"}).
+			AddRow(1, o.signingAddress, nonce, 1, txID.String(), contractAddr),
+	)
+	m.db.ExpectQuery("SELECT.*public_submissions").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	// HandleTransactionCollected returns an error (logged as warning, processing continues)
+	m.sequencerManager.On("HandleTransactionCollected", mock.Anything, o.signingAddress.String(), contractAddr, txID).
+		Return(fmt.Errorf("collected error")).Once()
+
+	// HandleNonceAssigned is called after allocateNonces (nonce already set so it's a no-op alloc)
+	m.sequencerManager.On("HandleNonceAssigned", mock.Anything, nonce, contractAddr, txID).
+		Return(fmt.Errorf("nonce assigned error")).Once()
+
+	polled, _ := o.pollAndProcess(ctx)
+	assert.Equal(t, 1, polled)
+}
+
+func TestPollAndProcessAllocateNoncesError(t *testing.T) {
+	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Orchestrator.MaxInFlight = confutil.P(5)
+	})
+	defer done()
+
+	o.retry.UTSetMaxAttempts(1)
+
+	// Poll returns a tx with Nonce=nil (allocateNonces will be needed)
+	m.db.ExpectQuery("SELECT.*public_txns").WillReturnRows(
+		sqlmock.NewRows([]string{"pub_txn_id", "from", "Binding__pub_txn_id", "Binding__transaction"}).
+			AddRow(1, o.signingAddress, 1, uuid.New().String()),
+	)
+	m.db.ExpectQuery("SELECT.*public_submissions").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	// allocateNonces fails: GetTransactionCount returns error
+	m.ethClient.On("GetTransactionCount", mock.Anything, o.signingAddress).
+		Return(nil, fmt.Errorf("nonce rpc error")).Once()
+
+	polled, _ := o.pollAndProcess(ctx)
+	// Polling succeeded but allocateNonces failed -> early return with polled=0
+	assert.Equal(t, 0, polled)
+	assert.Empty(t, o.inFlightTxs)
+}
+
+func TestPollAndProcessNilBinding(t *testing.T) {
+	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Orchestrator.MaxInFlight = confutil.P(5)
+	})
+	defer done()
+
+	nonce := uint64(3)
+
+	// Poll returns a tx WITHOUT binding columns - GORM leaves Binding as nil
+	m.db.ExpectQuery("SELECT.*public_txns").WillReturnRows(
+		sqlmock.NewRows([]string{"pub_txn_id", "from", "nonce"}).
+			AddRow(1, o.signingAddress, nonce),
+	)
+	m.db.ExpectQuery("SELECT.*public_submissions").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	polled, _ := o.pollAndProcess(ctx)
+	// Tx with nil binding is skipped (not added to inFlightTxs)
+	assert.Equal(t, 0, polled)
+	assert.Empty(t, o.inFlightTxs)
+}
+
+func TestProcessInFlightTransactionsBalanceUnavailableWait(t *testing.T) {
+	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Orchestrator.MaxInFlight = confutil.P(1)
+		// Non-zero gas price so balance check is NOT skipped
+		maxFeePerGasStr := pldtypes.Uint64ToUint256(1).HexString0xPrefix()
+		maxPriorityFeePerGasStr := pldtypes.Uint64ToUint256(1).HexString0xPrefix()
+		conf.GasPrice.FixedGasPrice = &pldconf.FixedGasPricing{
+			MaxFeePerGas:         &maxFeePerGasStr,
+			MaxPriorityFeePerGas: &maxPriorityFeePerGasStr,
+		}
+		s := string(OrchestratorBalanceCheckUnavailableBalanceHandlingStrategyWait)
+		conf.Orchestrator.UnavailableBalanceHandler = &s
+	})
+	defer done()
+
+	mockIT, _ := newInflightTransaction(o, 1)
+	// GetBalance returns error so GetAddressBalance fails
+	m.ethClient.On("GetBalance", mock.Anything, o.signingAddress, "latest").Return(nil, fmt.Errorf("balance error")).Once()
+
+	waitingForBalance, err := o.ProcessInFlightTransactions(ctx, []*inFlightTransactionStageController{mockIT})
+	require.NoError(t, err)
+	assert.True(t, waitingForBalance)
+}
+
+func TestProcessInFlightTransactionsBalanceUnavailableStop(t *testing.T) {
+	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Orchestrator.MaxInFlight = confutil.P(1)
+		maxFeePerGasStr := pldtypes.Uint64ToUint256(1).HexString0xPrefix()
+		maxPriorityFeePerGasStr := pldtypes.Uint64ToUint256(1).HexString0xPrefix()
+		conf.GasPrice.FixedGasPrice = &pldconf.FixedGasPricing{
+			MaxFeePerGas:         &maxFeePerGasStr,
+			MaxPriorityFeePerGas: &maxPriorityFeePerGasStr,
+		}
+		s := string(OrchestratorBalanceCheckUnavailableBalanceHandlingStrategyStop)
+		conf.Orchestrator.UnavailableBalanceHandler = &s
+	})
+	defer done()
+
+	mockIT, _ := newInflightTransaction(o, 1)
+	m.ethClient.On("GetBalance", mock.Anything, o.signingAddress, "latest").Return(nil, fmt.Errorf("balance error")).Once()
+
+	waitingForBalance, err := o.ProcessInFlightTransactions(ctx, []*inFlightTransactionStageController{mockIT})
+	require.NoError(t, err)
+	assert.True(t, waitingForBalance)
+}
+
+func TestProcessInFlightTransactionsBalanceUnavailableContinue(t *testing.T) {
+	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Orchestrator.MaxInFlight = confutil.P(1)
+		maxFeePerGasStr := pldtypes.Uint64ToUint256(1).HexString0xPrefix()
+		maxPriorityFeePerGasStr := pldtypes.Uint64ToUint256(1).HexString0xPrefix()
+		conf.GasPrice.FixedGasPrice = &pldconf.FixedGasPricing{
+			MaxFeePerGas:         &maxFeePerGasStr,
+			MaxPriorityFeePerGas: &maxPriorityFeePerGasStr,
+		}
+		// Any other strategy (like "continue") triggers the default case
+		s := string(OrchestratorBalanceCheckUnavailableBalanceHandlingStrategyContinue)
+		conf.Orchestrator.UnavailableBalanceHandler = &s
+	})
+	defer done()
+
+	mockIT, _ := newInflightTransaction(o, 1)
+	// Suppress async stage actions: with "continue" the function falls through to ProduceLatestInFlightStageContext,
+	// which would spawn a goroutine via executeAsync without this flag.
+	mockIT.testOnlyNoActionMode = true
+	m.ethClient.On("GetBalance", mock.Anything, o.signingAddress, "latest").Return(nil, fmt.Errorf("balance error")).Once()
+
+	waitingForBalance, err := o.ProcessInFlightTransactions(ctx, []*inFlightTransactionStageController{mockIT})
+	require.NoError(t, err)
+	// With "continue" strategy, processing continues without balance check - waitingForBalance stays false
+	assert.False(t, waitingForBalance)
+}

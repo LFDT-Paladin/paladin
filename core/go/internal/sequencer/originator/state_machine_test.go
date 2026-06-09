@@ -21,6 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/originatortransactionmocks"
 	"github.com/google/uuid"
@@ -170,6 +171,25 @@ func TestStateMachine_Idle_HeartbeatReceived_NonLiveState_StaysIdle(t *testing.T
 
 	assert.Equal(t, State_Idle, o.GetCurrentState())
 	assert.Equal(t, "existing-coordinator", o.currentActiveCoordinator, "coordinator must not change on non-live heartbeat in Idle")
+}
+
+// HeartbeatReceived in Idle from a new node → endorser pool grows and priority list is recomputed.
+func TestStateMachine_Idle_HeartbeatReceived_NewSender_UpdatesEndorserCandidates(t *testing.T) {
+	ctx := context.Background()
+	o, _ := NewOriginatorBuilderForTesting(t, State_Idle).
+		NodeName("node1").
+		WithEndorserCandidates("node1").
+		CoordinatorPriorityList("node1").
+		Build()
+
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatReceivedEvent{
+		FromNode:            "node2",
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{CoordinatorState: common.CoordinatorState_Idle},
+	}))
+
+	assert.Equal(t, State_Idle, o.GetCurrentState())
+	assert.Contains(t, o.endorserCandidates, "node2")
+	assert.Len(t, o.coordinatorPriorityList, 2)
 }
 
 // TransactionCreated in Idle → Sending; delegation request sent.
@@ -381,6 +401,25 @@ func TestStateMachine_Observing_HeartbeatReceived_ClosingState_NoTimerResetAndNo
 	assert.Equal(t, State_Observing, o.GetCurrentState())
 	assert.Equal(t, "existing-coordinator", o.currentActiveCoordinator, "Closing heartbeat must not update coordinator")
 	assert.Equal(t, 3, o.heartbeatIntervalsSinceLastReceive, "timer must not be reset for Closing heartbeat")
+}
+
+// HeartbeatReceived in Observing from a new node → endorser pool grows.
+func TestStateMachine_Observing_HeartbeatReceived_NewSender_UpdatesEndorserCandidates(t *testing.T) {
+	ctx := context.Background()
+	o, _ := NewOriginatorBuilderForTesting(t, State_Observing).
+		NodeName("node1").
+		WithEndorserCandidates("node1").
+		CoordinatorPriorityList("node1").
+		Build()
+
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatReceivedEvent{
+		FromNode:            "node2",
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{CoordinatorState: common.CoordinatorState_Idle},
+	}))
+
+	assert.Equal(t, State_Observing, o.GetCurrentState())
+	assert.Contains(t, o.endorserCandidates, "node2")
+	assert.Len(t, o.coordinatorPriorityList, 2)
 }
 
 // HeartbeatInterval in Observing within grace period → increments counter; stays Observing.
@@ -765,7 +804,8 @@ func TestStateMachine_Sending_DelegationRejected_HigherPriority_RedirectsAndRede
 		SendDelegationRequest(mock.Anything, "node1", mock.Anything, mock.Anything).
 		Return(nil).Once()
 
-	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &DelegationRejectedEvent{
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &DelegationRequestRejectedEvent{
+		RejectionReason:   engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
 		ActiveCoordinator: "node1",
 	}))
 
@@ -783,12 +823,32 @@ func TestStateMachine_Sending_DelegationRejected_LowerPriority_NoChange(t *testi
 		CoordinatorPriorityList("node1", "node2", "node3").
 		Build()
 
-	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &DelegationRejectedEvent{
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &DelegationRequestRejectedEvent{
+		RejectionReason:   engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
 		ActiveCoordinator: "node3",
 	}))
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Equal(t, "node1", o.currentActiveCoordinator, "lower-priority coordinator must be ignored")
+}
+
+// DelegationRejected in Sending due to block height tolerance → logs warning, stays Sending, no redirect.
+func TestStateMachine_Sending_DelegationRejected_BlockHeightTolerance_StaysSending(t *testing.T) {
+	ctx := context.Background()
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("node1").
+		CoordinatorPriorityList("node1", "node2", "node3").
+		Build()
+
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &DelegationRequestRejectedEvent{
+		RejectionReason:       engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
+		OriginatorBlockHeight: 50,
+		CoordinatorBlockHeight: 100,
+		BlockHeightTolerance:   10,
+	}))
+
+	assert.Equal(t, State_Sending, o.GetCurrentState())
+	assert.Equal(t, "node1", o.currentActiveCoordinator, "block height rejection must not change active coordinator")
 }
 
 // TransactionStateTransition to Final in Sending removes transaction; transitions to Observing
@@ -868,6 +928,26 @@ func TestStateMachine_Sending_NewBlock_UpdatesBlockHeight_StaysSending(t *testin
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Equal(t, uint64(100), o.currentBlockHeight)
+}
+
+// HeartbeatReceived in Sending from a new node → endorser pool grows and priority list is recomputed.
+func TestStateMachine_Sending_HeartbeatReceived_NewSender_UpdatesEndorserCandidates(t *testing.T) {
+	ctx := context.Background()
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		NodeName("node1").
+		WithEndorserCandidates("node1").
+		CoordinatorPriorityList("node1").
+		CurrentActiveCoordinator("node1").
+		Build()
+
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatReceivedEvent{
+		FromNode:            "node2",
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{CoordinatorState: common.CoordinatorState_Idle},
+	}))
+
+	assert.Equal(t, State_Sending, o.GetCurrentState())
+	assert.Contains(t, o.endorserCandidates, "node2")
+	assert.Len(t, o.coordinatorPriorityList, 2)
 }
 
 // HeartbeatReceived in Sending from a live non-current node when the inactive grace period has NOT

@@ -590,3 +590,28 @@ func TestHandleEventBatch(t *testing.T) {
 	<-gotError
 
 }
+
+func TestBlockchainEventListenerSetActiveAlreadyActive(t *testing.T) {
+	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		definition: &blockindexer.EventStream{
+			Name: "test-listener",
+		},
+		newReceivers: make(chan bool, 1),
+	}
+
+	r := &testBlockchainEventReceiver{index: 0}
+	registered := el.addReceiver(r)
+
+	// First SetActive should move from pending to active
+	registered.SetActive()
+	assert.Len(t, el.receivers, 1)
+	assert.Len(t, el.pendingReceivers, 0)
+
+	// Second SetActive with the same receiver should be a no-op (already active)
+	registered.SetActive()
+	assert.Len(t, el.receivers, 1)
+	assert.Len(t, el.pendingReceivers, 0)
+}

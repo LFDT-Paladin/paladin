@@ -21,6 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/google/uuid"
 )
 
@@ -66,7 +67,7 @@ func action_SendPreDispatchResponse(ctx context.Context, txn *originatorTransact
 	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, txn.latestPreDispatchRequestID, txn.pt.PreAssembly.TransactionSpecification)
 }
 
-func validator_AssembleRequestMatches(ctx context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
+func validator_AssembleRequestFromCurrentDelegate(ctx context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
 	assembleRequestEvent, ok := event.(*AssembleRequestReceivedEvent)
 	if !ok {
 		log.L(ctx).Errorf("expected event type *AssembleRequestReceivedEvent, got %T", event)
@@ -79,17 +80,7 @@ func validator_AssembleRequestMatches(ctx context.Context, txn *originatorTransa
 	return true, nil
 }
 
-// action_SendNotActiveCoordinatorForAssembleRequest proactively notifies a non-active coordinator
-// that it should evict this transaction rather than waiting indefinitely for a response.
-func action_SendNotActiveCoordinatorForAssembleRequest(ctx context.Context, txn *originatorTransaction, event common.Event) error {
-	assembleRequestEvent := event.(*AssembleRequestReceivedEvent)
-	if err := txn.transportWriter.SendNotActiveCoordinator(ctx, assembleRequestEvent.Coordinator, txn.pt.ID); err != nil {
-		log.L(ctx).Warnf("failed to send not-active-coordinator rejection to %s: %s", assembleRequestEvent.Coordinator, err)
-	}
-	return nil
-}
-
-func validator_PreDispatchRequestMatchesAssembledDelegation(ctx context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
+func validator_PreDispatchRequestFromCurrentDelegate(ctx context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
 	preDispatchRequestEvent, ok := event.(*PreDispatchRequestReceivedEvent)
 	if !ok {
 		log.L(ctx).Errorf("expected event type *PreDispatchRequestReceivedEvent, got %T", event)
@@ -97,9 +88,6 @@ func validator_PreDispatchRequestMatchesAssembledDelegation(ctx context.Context,
 	}
 	if preDispatchRequestEvent.Coordinator != txn.currentDelegate {
 		log.L(ctx).Debugf("DispatchConfirmationRequest invalid for transaction %s. Expected coordinator %s, got %s", txn.pt.ID.String(), txn.currentDelegate, preDispatchRequestEvent.Coordinator)
-		if err := txn.transportWriter.SendNotActiveCoordinator(ctx, preDispatchRequestEvent.Coordinator, txn.pt.ID); err != nil {
-			log.L(ctx).Warnf("failed to send not-active-coordinator rejection to %s: %s", preDispatchRequestEvent.Coordinator, err)
-		}
 		return false, nil
 	}
 	txnHash, err := txn.hashInternal(ctx)
@@ -113,4 +101,15 @@ func validator_PreDispatchRequestMatchesAssembledDelegation(ctx context.Context,
 		return false, nil
 	}
 	return true, nil
+}
+
+// action_SendPreDispatchRejectionNotCurrentDelegate notifies a non-active coordinator that
+// the originator does not recognise it as the current delegate for this transaction.
+func action_SendPreDispatchRejectionNotCurrentDelegate(ctx context.Context, txn *originatorTransaction, event common.Event) error {
+	e := event.(*PreDispatchRequestReceivedEvent)
+	log.L(ctx).Debugf("rejecting pre-dispatch request from %s: not current delegate (current=%s)", e.Coordinator, txn.currentDelegate)
+	if err := txn.transportWriter.SendPreDispatchRejection(ctx, txn.pt.ID, e.RequestID, e.Coordinator, engineProto.RejectionReason_NOT_CURRENT_DELEGATE); err != nil {
+		log.L(ctx).Warnf("failed to send pre-dispatch rejection to %s: %s", e.Coordinator, err)
+	}
+	return nil
 }

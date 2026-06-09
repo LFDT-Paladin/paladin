@@ -163,4 +163,5 @@ var (
 	MsgWSClientClosing             = pde("PD021102", "Websocket closing")
 	MsgWSClientConnectFailed       = pde("PD021103", "Websocket connect failed")
 	MsgWSClientHeartbeatTimeout    = pde("PD021104", "Websocket heartbeat timed out after %.2fms", 500)
+	MsgWSClientSendLoopExited      = pde("PD021105", "Websocket send loop exited")
 )

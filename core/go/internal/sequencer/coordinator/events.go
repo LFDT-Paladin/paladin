@@ -16,8 +16,11 @@
 package coordinator
 
 import (
+	"time"
+
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 type Event interface {
@@ -98,4 +101,25 @@ type RestartDispatchLoopEvent struct {
 func (*RestartDispatchLoopEvent) Type() EventType { return Event_RestartDispatchLoop }
 func (*RestartDispatchLoopEvent) TypeString() string {
 	return "Event_RestartDispatchLoop"
+}
+
+type EndorsementRequestReceivedEvent struct {
+	common.BaseEvent
+	FromNode                  string
+	TransactionId             string
+	IdempotencyKey            string
+	Party                     string
+	PrivateEndorsementRequest *components.PrivateTransactionEndorseRequest
+	AttestationRequest        *prototk.AttestationRequest
+	Expiry                    time.Time
+	CoordinatorBlockHeight    int64
+	BlockHeightTolerance      int64
+}
+
+func (*EndorsementRequestReceivedEvent) Type() EventType {
+	return Event_EndorsementRequestReceived
+}
+
+func (*EndorsementRequestReceivedEvent) TypeString() string {
+	return "Event_EndorsementRequestReceived"
 }

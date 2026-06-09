@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -29,6 +29,8 @@ import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TransactionType } from '../../../interfaces';
 import { sendTransaction } from '../../../queries/transactions';
+import { useNavigate } from 'react-router-dom';
+import { customNavigate } from '../../../utils';
 
 const notoConstructorABI = {
   type: 'constructor',
@@ -61,17 +63,17 @@ export const NotoDeployDialog: React.FC<Props> = ({
     notaryMode: 'basic',
   });
   const [errorMessage, setErrorMessage] = useState<string>();
+  const navigate = useNavigate();
 
-  const { mutate, error } = useMutation({
+  const { mutate, error, data: transactionId } = useMutation({
     mutationFn: () =>
       sendTransaction({
         type: TransactionType.PRIVATE,
         from: sender,
         domain,
         abi: [notoConstructorABI],
-        data: form,
-      }),
-    onSuccess: () => setDialogOpen(false),
+        data: form
+      })
   });
 
   useEffect(() => {
@@ -106,6 +108,16 @@ export const NotoDeployDialog: React.FC<Props> = ({
           </Box>
         </DialogTitle>
         <DialogContent>
+          {transactionId !== undefined &&
+            <Alert variant="filled" severity="success" sx={{ marginBottom: '20px' }}
+              action={
+                <Button variant="outlined" color="inherit" size="small"
+                  onClick={event => customNavigate(`/ui/transactions/${transactionId}?back=domains`, event, navigate)}
+                >{t('view')}</Button>
+              }
+            >
+              {t('transactionValue', { value: transactionId })}
+            </Alert>}
           <Box sx={{ marginTop: '5px' }}>
             <TextField
               fullWidth

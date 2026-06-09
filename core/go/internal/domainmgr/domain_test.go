@@ -1819,3 +1819,23 @@ func TestDomainFixedSigningIdentity(t *testing.T) {
 	registerTestDomain(t, dm2, tp2)
 	assert.Equal(t, "", tp2.d.FixedSigningIdentity())
 }
+
+func TestEnqueueCompletionsContextDone(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+
+	d := td.d
+
+	// Cancel the domain's context and wait for the completion loop goroutine to exit,
+	// so there is no race when we fill the queue below.
+	d.cancelCtx()
+	d.completionWG.Wait()
+
+	// Fill the completion queue to capacity so any subsequent send would block
+	for i := 0; i < 100; i++ {
+		d.completionQueue <- []*components.TxCompletion{}
+	}
+
+	// This should take the ctx.Done() path and log a warning instead of blocking
+	d.enqueueCompletions([]*components.TxCompletion{{}})
+}

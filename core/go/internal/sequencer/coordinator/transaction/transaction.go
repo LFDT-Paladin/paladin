@@ -69,6 +69,8 @@ type coordinatorTransaction struct {
 	revertCount                        int
 	lastCanRetryRevert                 bool
 	assembleErrorCount                 int
+	endorseToleranceByRequirement      map[string]int
+	endorseFailureCountByRequirement   map[string]int
 	heartbeatIntervalsSinceStateChange int
 	stateEntryTime                     time.Time
 
@@ -92,6 +94,8 @@ type coordinatorTransaction struct {
 	stateVisibilityTracker            statevisibilitytracker.StateVisibilityStore
 	dependencyTracker                 dependencytracker.DependencyTracker
 	engineIntegration                 common.EngineIntegration
+	getCurrentBlockHeight             func() int64 // returns the coordinator's tracked block height
+	blockHeightTolerance              uint64
 	syncPoints                        syncpoints.SyncPoints
 	components                        components.AllComponents
 	domainAPI                         components.DomainSmartContract
@@ -116,6 +120,8 @@ func NewTransaction(ctx context.Context,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	notifyEndorserCandidates func(context.Context, ...string),
 	engineIntegration common.EngineIntegration,
+	getCurrentBlockHeight func() int64,
+	blockHeightTolerance uint64,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
 	domainAPI components.DomainSmartContract,
@@ -144,6 +150,8 @@ func NewTransaction(ctx context.Context,
 		getCoordinatorTransactionState,
 		notifyEndorserCandidates,
 		engineIntegration,
+		getCurrentBlockHeight,
+		blockHeightTolerance,
 		syncPoints,
 		allComponents,
 		domainAPI,
@@ -174,6 +182,8 @@ func newTransaction(
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	notifyEndorserCandidates func(context.Context, ...string),
 	engineIntegration common.EngineIntegration,
+	getCurrentBlockHeight func() int64,
+	blockHeightTolerance uint64,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
 	domainAPI components.DomainSmartContract,
@@ -202,6 +212,8 @@ func newTransaction(
 		getCoordinatorTransactionState:    getCoordinatorTransactionState,
 		notifyEndorserCandidates:          notifyEndorserCandidates,
 		engineIntegration:                 engineIntegration,
+		getCurrentBlockHeight:             getCurrentBlockHeight,
+		blockHeightTolerance:              blockHeightTolerance,
 		syncPoints:                        syncPoints,
 		components:                        allComponents,
 		domainAPI:                         domainAPI,

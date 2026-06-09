@@ -955,6 +955,92 @@ func TestQueryKeysFindError(t *testing.T) {
 	assert.Regexp(t, "database error", err)
 }
 
+func TestStop(t *testing.T) {
+	_, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{}, nil)
+	defer done()
+	km.Stop()
+}
+
+func TestTakeAllocationLockWaitsForRelease(t *testing.T) {
+	ctx, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{}, nil)
+	defer done()
+
+	holderDone := make(chan struct{})
+	fakeHolder := &keyResolver{km: km, id: "fake-holder", done: holderDone}
+	km.allocLock.Lock()
+	km.allocLockHolder = fakeHolder
+	km.allocLock.Unlock()
+
+	// The hook fires in the waiter goroutine at the exact moment takeAllocationLock
+	// has found the holder and is about to enter the select. That guarantees the
+	// main goroutine releases the lock only after case <-lockingKRC.done is reachable.
+	aboutToWait := make(chan struct{})
+	km.testHookBeforeAllocationWait = func() { close(aboutToWait) }
+
+	errCh := make(chan error, 1)
+	kr := &keyResolver{km: km, id: "waiter", done: make(chan struct{})}
+	go func() {
+		errCh <- km.takeAllocationLock(ctx, kr)
+	}()
+
+	<-aboutToWait
+	km.allocLock.Lock()
+	km.allocLockHolder = nil
+	km.allocLock.Unlock()
+	close(holderDone)
+
+	err := <-errCh
+	assert.NoError(t, err)
+
+	// kr now holds the lock; clean up properly
+	km.unlockAllocation(ctx, kr)
+	close(kr.done)
+}
+
+func TestTakeAllocationLockContextCancelled(t *testing.T) {
+	ctx, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{}, nil)
+	defer done()
+
+	// Pre-cancel the context. lockAllocationOrGetOwner will still return the
+	// fake holder (since km.allocLockHolder is non-nil), but once the select is
+	// entered ctx.Done() fires immediately — no sleep required.
+	fakeHolder := &keyResolver{km: km, id: "fake-holder", done: make(chan struct{})}
+	km.allocLock.Lock()
+	km.allocLockHolder = fakeHolder
+	km.allocLock.Unlock()
+	defer close(fakeHolder.done)
+
+	cancelCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	kr := &keyResolver{km: km, id: "waiter", done: make(chan struct{})}
+	err := km.takeAllocationLock(cancelCtx, kr)
+	assert.Regexp(t, "PD010301", err)
+}
+
+func TestUnlockAllocationWrongHolder(t *testing.T) {
+	ctx, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{}, nil)
+	defer done()
+
+	kr1 := &keyResolver{km: km, id: "holder"}
+	kr2 := &keyResolver{km: km, id: "not-holder"}
+
+	// Case 1: nobody holds the lock; kr2 tries to unlock (else branch, nil allocLockHolder)
+	km.unlockAllocation(ctx, kr2)
+
+	// Case 2: kr1 holds the lock; kr2 tries to unlock (else branch, non-nil allocLockHolder)
+	km.allocLock.Lock()
+	km.allocLockHolder = kr1
+	km.allocLock.Unlock()
+	km.unlockAllocation(ctx, kr2)
+
+	// Verify kr1 still holds the lock, then clean up
+	km.allocLock.Lock()
+	assert.Same(t, kr1, km.allocLockHolder)
+	km.allocLockHolder = nil
+	km.allocLock.Unlock()
+}
+
 func TestQueryKeysScanVerifiersError(t *testing.T) {
 	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},

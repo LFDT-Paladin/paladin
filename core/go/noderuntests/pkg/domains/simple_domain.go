@@ -1077,7 +1077,7 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 						break
 					}
 				}
-				assert.NotNil(t, signerVerification)
+				require.NotNil(t, signerVerification, "expected 'sender' SIGN attestation in endorsement request signatures")
 				sig, err := secp256k1.DecodeCompactRSV(context.Background(), signerVerification.Payload)
 				require.NoError(t, err)
 				signerAddr, err := sig.RecoverDirect(signaturePayload, chainID)

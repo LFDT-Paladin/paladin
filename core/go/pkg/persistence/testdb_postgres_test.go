@@ -22,6 +22,7 @@ package persistence
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -53,5 +54,42 @@ func TestRequireNoError(t *testing.T) {
 	// Test case where error is not nil
 	assert.Panics(t, func() {
 		requireNoError(fmt.Errorf("this is an error"))
+	})
+}
+
+func TestBuildReversedTableListInvalidFile(t *testing.T) {
+	// A file that is neither .up.sql nor .down.sql should panic
+	dir := t.TempDir()
+	err := os.WriteFile(dir+"/000001_foo.sql", []byte("CREATE TABLE foo (id INT);"), 0644)
+	require.NoError(t, err)
+
+	assert.Panics(t, func() {
+		buildReversedTableListFromDir(dir)
+	})
+}
+
+func TestBuildReversedTableListMissingDownMigration(t *testing.T) {
+	// A table created in .up.sql with no matching DROP in any .down.sql should panic
+	dir := t.TempDir()
+	err := os.WriteFile(dir+"/000001_foo.up.sql", []byte("CREATE TABLE foo (id INT);"), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(dir+"/000001_foo.down.sql", []byte("DROP TABLE bar;"), 0644)
+	require.NoError(t, err)
+
+	assert.Panics(t, func() {
+		buildReversedTableListFromDir(dir)
+	})
+}
+
+func TestNewUnitTestPersistencePanicRecovery(t *testing.T) {
+	ctx := context.Background()
+	_, done, err := NewUnitTestPersistence(ctx, "persistence")
+	require.NoError(t, err)
+
+	// done() contains a recover() that catches panics, logs them, and re-panics.
+	// Verify the re-panic propagates correctly.
+	assert.Panics(t, func() {
+		defer done()
+		panic("test panic to exercise cleanup recovery path")
 	})
 }
