@@ -5,27 +5,25 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1" name="viewport"/>
-<link href="../transaction/" rel="prev"/>
-<link href="../transactionfull/" rel="next"/>
-<link href="../../../assets/paladin-icon-light.png" rel="icon"/>
+<link href="../../assets/paladin-icon-light.png" rel="icon"/>
 <meta content="mkdocs-1.6.1, mkdocs-material-9.5.44" name="generator"/>
-<title>TransactionCall - Paladin</title>
-<link href="../../../assets/stylesheets/main.0253249f.min.css" rel="stylesheet"/>
-<link href="../../../assets/stylesheets/palette.06af60db.min.css" rel="stylesheet"/>
+<title>State machine transition detail - Paladin</title>
+<link href="../../assets/stylesheets/main.0253249f.min.css" rel="stylesheet"/>
+<link href="../../assets/stylesheets/palette.06af60db.min.css" rel="stylesheet"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback" rel="stylesheet"/>
 <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
-<link href="../../../stylesheets/paladin.css" rel="stylesheet"/>
-<script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+<link href="../../stylesheets/paladin.css" rel="stylesheet"/>
+<script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
 <label class="md-overlay" for="__drawer"></label>
 <div data-md-component="skip">
-<a class="md-skip" href="#example">
+<a class="md-skip" href="#state-machine-transition-detail">
           Skip to content
         </a>
 </div>
@@ -36,7 +34,7 @@
 <div class="md-banner__inner md-grid md-typeset">
               
   You're not viewing the latest version.
-  <a href="../../../..">
+  <a href="../../..">
 <strong>Click here to go to latest.</strong>
 </a>
 </div>
@@ -69,7 +67,7 @@
 <header class="md-header md-header--lifted" data-md-component="header">
 <nav aria-label="header.title" class="md-header__inner md-grid">
 <!-- Link to home -->
-<a aria-label="Paladin" class="md-header__button md-logo" data-md-component="logo" href="../../.." title="Paladin">
+<a aria-label="Paladin" class="md-header__button md-logo" data-md-component="logo" href="../.." title="Paladin">
 <!--
   Copyright (c) 2016-2024 Martin Donath <martin.donath@squidfunk.com>
 
@@ -92,8 +90,8 @@
   IN THE SOFTWARE.
 -->
 <!-- Logo -->
-<img alt="Paladin" src="../../../assets/paladin-logo-dark.svg#only-dark"/>
-<img alt="Paladin" src="../../../assets/paladin-logo-light.svg#only-light"/>
+<img alt="Paladin" src="../../assets/paladin-logo-dark.svg#only-dark"/>
+<img alt="Paladin" src="../../assets/paladin-logo-light.svg#only-light"/>
 </a>
 <!-- Button to open drawer -->
 <label class="md-header__button md-icon" for="__drawer">
@@ -110,7 +108,7 @@
 <div class="md-header__topic" data-md-component="header-topic">
 <span class="md-ellipsis">
             
-              TransactionCall
+              State machine transition detail
             
           </span>
 </div>
@@ -146,7 +144,7 @@
 <div class="md-grid">
 <ul class="md-tabs__list">
 <li class="md-tabs__item">
-<a class="md-tabs__link" href="../../..">
+<a class="md-tabs__link" href="../..">
           
   
     
@@ -156,7 +154,7 @@
         </a>
 </li>
 <li class="md-tabs__item">
-<a class="md-tabs__link" href="../../../architecture/overview/">
+<a class="md-tabs__link" href="../overview/">
           
   
     
@@ -166,7 +164,7 @@
         </a>
 </li>
 <li class="md-tabs__item">
-<a class="md-tabs__link" href="../../../getting-started/installation/">
+<a class="md-tabs__link" href="../../getting-started/installation/">
           
   
     
@@ -176,7 +174,7 @@
         </a>
 </li>
 <li class="md-tabs__item">
-<a class="md-tabs__link" href="../../../tutorials/">
+<a class="md-tabs__link" href="../../tutorials/">
           
   
     
@@ -186,7 +184,7 @@
         </a>
 </li>
 <li class="md-tabs__item">
-<a class="md-tabs__link" href="../../../administration/administering_peers/">
+<a class="md-tabs__link" href="../../administration/administering_peers/">
           
   
     
@@ -195,8 +193,8 @@
 
         </a>
 </li>
-<li class="md-tabs__item md-tabs__item--active">
-<a class="md-tabs__link" href="../../apis/bidx/">
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../reference/apis/bidx/">
           
   
     
@@ -206,7 +204,7 @@
         </a>
 </li>
 <li class="md-tabs__item">
-<a class="md-tabs__link" href="../../../contributing/how-to-contribute/">
+<a class="md-tabs__link" href="../../contributing/how-to-contribute/">
           
   
     
@@ -216,7 +214,7 @@
         </a>
 </li>
 <li class="md-tabs__item">
-<a class="md-tabs__link" href="../../../faqs/">
+<a class="md-tabs__link" href="../../faqs/">
         
   
     
@@ -226,7 +224,7 @@
       </a>
 </li>
 <li class="md-tabs__item">
-<a class="md-tabs__link" href="../../../glossary/">
+<a class="md-tabs__link" href="../../glossary/">
         
   
     
@@ -247,7 +245,7 @@
 <div class="md-sidebar__inner">
 <nav aria-label="Navigation" class="md-nav md-nav--primary md-nav--lifted" data-md-level="0">
 <label class="md-nav__title" for="__drawer">
-<a aria-label="Paladin" class="md-header__button md-logo" data-md-component="logo" href="../../.." title="Paladin">
+<a aria-label="Paladin" class="md-header__button md-logo" data-md-component="logo" href="../.." title="Paladin">
 <!--
   Copyright (c) 2016-2024 Martin Donath <martin.donath@squidfunk.com>
 
@@ -270,8 +268,8 @@
   IN THE SOFTWARE.
 -->
 <!-- Logo -->
-<img alt="Paladin" src="../../../assets/paladin-logo-dark.svg#only-dark"/>
-<img alt="Paladin" src="../../../assets/paladin-logo-light.svg#only-light"/>
+<img alt="Paladin" src="../../assets/paladin-logo-dark.svg#only-dark"/>
+<img alt="Paladin" src="../../assets/paladin-logo-light.svg#only-light"/>
 </a>
     Paladin
   </label>
@@ -289,7 +287,7 @@
 <li class="md-nav__item md-nav__item--nested">
 <input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_1" type="checkbox"/>
 <div class="md-nav__link md-nav__container">
-<a class="md-nav__link" href="../../..">
+<a class="md-nav__link" href="../..">
 <span class="md-ellipsis">
     Introduction
   </span>
@@ -305,42 +303,42 @@
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../concepts/tokens/">
+<a class="md-nav__link" href="../../concepts/tokens/">
 <span class="md-ellipsis">
     Privacy Preserving Tokens
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../concepts/private_evm/">
+<a class="md-nav__link" href="../../concepts/private_evm/">
 <span class="md-ellipsis">
     Private EVM Smart Contracts
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../concepts/advanced_crypto/">
+<a class="md-nav__link" href="../../concepts/advanced_crypto/">
 <span class="md-ellipsis">
     Advanced Cryptography
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../concepts/atomic_programmability/">
+<a class="md-nav__link" href="../../concepts/atomic_programmability/">
 <span class="md-ellipsis">
     Atomic EVM Programmability
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../concepts/full_stack/">
+<a class="md-nav__link" href="../../concepts/full_stack/">
 <span class="md-ellipsis">
     Full Enterprise Privacy Stack
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../concepts/cloud_native/">
+<a class="md-nav__link" href="../../concepts/cloud_native/">
 <span class="md-ellipsis">
     Cloud Native Runtime
   </span>
@@ -364,77 +362,77 @@
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/overview/">
+<a class="md-nav__link" href="../overview/">
 <span class="md-ellipsis">
     Overview
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/programming_model/">
+<a class="md-nav__link" href="../programming_model/">
 <span class="md-ellipsis">
     Programming model
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/domains/">
+<a class="md-nav__link" href="../domains/">
 <span class="md-ellipsis">
     Domains
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/zeto/">
+<a class="md-nav__link" href="../zeto/">
 <span class="md-ellipsis">
     Zeto - ZKP Tokens
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/noto/">
+<a class="md-nav__link" href="../noto/">
 <span class="md-ellipsis">
     Noto - Notarized Tokens
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/pente/">
+<a class="md-nav__link" href="../pente/">
 <span class="md-ellipsis">
     Pente - EVM Privacy Groups
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/key_management/">
+<a class="md-nav__link" href="../key_management/">
 <span class="md-ellipsis">
     Key management
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/state_store/">
+<a class="md-nav__link" href="../state_store/">
 <span class="md-ellipsis">
     State store
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/atomic_interop/">
+<a class="md-nav__link" href="../atomic_interop/">
 <span class="md-ellipsis">
     Atomic interop
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/data_and_registry/">
+<a class="md-nav__link" href="../data_and_registry/">
 <span class="md-ellipsis">
     Data Transports &amp; Registry
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/ledger_layers/">
+<a class="md-nav__link" href="../ledger_layers/">
 <span class="md-ellipsis">
     Ledger Layers
   </span>
@@ -455,49 +453,49 @@
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/distributed_sequencer_overview/">
+<a class="md-nav__link" href="../distributed_sequencer_overview/">
 <span class="md-ellipsis">
     Overview
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/distributed_sequencer_architecture/">
+<a class="md-nav__link" href="../distributed_sequencer_architecture/">
 <span class="md-ellipsis">
     Architecture
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/distributed_sequencer_components/">
+<a class="md-nav__link" href="../distributed_sequencer_components/">
 <span class="md-ellipsis">
     Components
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/distributed_sequencer_state_machine/">
+<a class="md-nav__link" href="../distributed_sequencer_state_machine/">
 <span class="md-ellipsis">
     State Machine
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/distributed_sequencer_data_flows/">
+<a class="md-nav__link" href="../distributed_sequencer_data_flows/">
 <span class="md-ellipsis">
     Data Flows
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/distributed_sequencer_dependency_handling/">
+<a class="md-nav__link" href="../distributed_sequencer_dependency_handling/">
 <span class="md-ellipsis">
     Dependency Handling
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../architecture/distributed_sequencer_protocol/">
+<a class="md-nav__link" href="../distributed_sequencer_protocol/">
 <span class="md-ellipsis">
     Protocol
   </span>
@@ -538,21 +536,21 @@
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../getting-started/installation/">
+<a class="md-nav__link" href="../../getting-started/installation/">
 <span class="md-ellipsis">
     Default Installation
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../getting-started/installation-advanced/">
+<a class="md-nav__link" href="../../getting-started/installation-advanced/">
 <span class="md-ellipsis">
     Advanced Installation
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../getting-started/installation-manual/">
+<a class="md-nav__link" href="../../getting-started/installation-manual/">
 <span class="md-ellipsis">
     Manual Installation
   </span>
@@ -562,14 +560,14 @@
 </nav>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../getting-started/user-interface/">
+<a class="md-nav__link" href="../../getting-started/user-interface/">
 <span class="md-ellipsis">
     User Interface
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../getting-started/troubleshooting/">
+<a class="md-nav__link" href="../../getting-started/troubleshooting/">
 <span class="md-ellipsis">
     Troubleshooting
   </span>
@@ -581,7 +579,7 @@
 <li class="md-nav__item md-nav__item--nested">
 <input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_4" type="checkbox"/>
 <div class="md-nav__link md-nav__container">
-<a class="md-nav__link" href="../../../tutorials/">
+<a class="md-nav__link" href="../../tutorials/">
 <span class="md-ellipsis">
     Tutorials
   </span>
@@ -597,56 +595,56 @@
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../tutorials/hello-world/">
+<a class="md-nav__link" href="../../tutorials/hello-world/">
 <span class="md-ellipsis">
     Hello World
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../tutorials/public-storage/">
+<a class="md-nav__link" href="../../tutorials/public-storage/">
 <span class="md-ellipsis">
     Public Smart Contract
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../tutorials/private-storage/">
+<a class="md-nav__link" href="../../tutorials/private-storage/">
 <span class="md-ellipsis">
     Private Smart Contract
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../tutorials/notarized-tokens/">
+<a class="md-nav__link" href="../../tutorials/notarized-tokens/">
 <span class="md-ellipsis">
     Notarized Tokens
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../tutorials/zkp-cbdc/">
+<a class="md-nav__link" href="../../tutorials/zkp-cbdc/">
 <span class="md-ellipsis">
     Wholesale CBDC
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../tutorials/private-stablecoin/">
+<a class="md-nav__link" href="../../tutorials/private-stablecoin/">
 <span class="md-ellipsis">
     Private Stablecoin with KYC
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../tutorials/atomic-swap/">
+<a class="md-nav__link" href="../../tutorials/atomic-swap/">
 <span class="md-ellipsis">
     Atomic Swap
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../tutorials/bond-issuance/">
+<a class="md-nav__link" href="../../tutorials/bond-issuance/">
 <span class="md-ellipsis">
     Bond Issuance
   </span>
@@ -670,42 +668,42 @@
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../administration/administering_peers/">
+<a class="md-nav__link" href="../../administration/administering_peers/">
 <span class="md-ellipsis">
     Administering Peers
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../administration/auth/">
+<a class="md-nav__link" href="../../administration/auth/">
 <span class="md-ellipsis">
     Authentication and Authorization
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../administration/certificate_management/">
+<a class="md-nav__link" href="../../administration/certificate_management/">
 <span class="md-ellipsis">
     Certificate Management
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../administration/configuration/">
+<a class="md-nav__link" href="../../administration/configuration/">
 <span class="md-ellipsis">
     Configuration
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../administration/l1-and-l2-chains/">
+<a class="md-nav__link" href="../../administration/l1-and-l2-chains/">
 <span class="md-ellipsis">
     L1 and L2 Chains
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../administration/logging/">
+<a class="md-nav__link" href="../../administration/logging/">
 <span class="md-ellipsis">
     Logging
   </span>
@@ -714,15 +712,15 @@
 </ul>
 </nav>
 </li>
-<li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-<input checked="" class="md-nav__toggle md-toggle" id="__nav_6" type="checkbox"/>
-<label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6" type="checkbox"/>
+<label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
 <span class="md-ellipsis">
     Reference
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
-<nav aria-expanded="true" aria-labelledby="__nav_6_label" class="md-nav" data-md-level="1">
+<nav aria-expanded="false" aria-labelledby="__nav_6_label" class="md-nav" data-md-level="1">
 <label class="md-nav__title" for="__nav_6">
 <span class="md-nav__icon md-icon"></span>
             Reference
@@ -743,49 +741,49 @@
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../apis/bidx/">
+<a class="md-nav__link" href="../../reference/apis/bidx/">
 <span class="md-ellipsis">
     bidx_*
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../apis/keymgr/">
+<a class="md-nav__link" href="../../reference/apis/keymgr/">
 <span class="md-ellipsis">
     keymgr_*
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../apis/pgroup/">
+<a class="md-nav__link" href="../../reference/apis/pgroup/">
 <span class="md-ellipsis">
     pgroup_*
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../apis/pstate/">
+<a class="md-nav__link" href="../../reference/apis/pstate/">
 <span class="md-ellipsis">
     pstate_*
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../apis/ptx/">
+<a class="md-nav__link" href="../../reference/apis/ptx/">
 <span class="md-ellipsis">
     ptx_*
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../apis/reg/">
+<a class="md-nav__link" href="../../reference/apis/reg/">
 <span class="md-ellipsis">
     reg_*
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../apis/transport/">
+<a class="md-nav__link" href="../../reference/apis/transport/">
 <span class="md-ellipsis">
     transport_*
   </span>
@@ -794,422 +792,393 @@
 </ul>
 </nav>
 </li>
-<li class="md-nav__item md-nav__item--active md-nav__item--nested">
-<input checked="" class="md-nav__toggle md-toggle" id="__nav_6_2" type="checkbox"/>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6_2" type="checkbox"/>
 <label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
 <span class="md-ellipsis">
     Types
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
-<nav aria-expanded="true" aria-labelledby="__nav_6_2_label" class="md-nav" data-md-level="2">
+<nav aria-expanded="false" aria-labelledby="__nav_6_2_label" class="md-nav" data-md-level="2">
 <label class="md-nav__title" for="__nav_6_2">
 <span class="md-nav__icon md-icon"></span>
             Types
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="../abidecodeddata/">
+<a class="md-nav__link" href="../../reference/types/abidecodeddata/">
 <span class="md-ellipsis">
     ABIDecodedData
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../blockchaineventlistener/">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistener/">
 <span class="md-ellipsis">
     BlockchainEventListener
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../blockchaineventlistenercheckpoint/">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistenercheckpoint/">
 <span class="md-ellipsis">
     BlockchainEventListenerCheckpoint
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../blockchaineventlisteneroptions/">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlisteneroptions/">
 <span class="md-ellipsis">
     BlockchainEventListenerOptions
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../blockchaineventlistenersource/">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistenersource/">
 <span class="md-ellipsis">
     BlockchainEventListenerSource
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../blockchaineventlistenerstatus/">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistenerstatus/">
 <span class="md-ellipsis">
     BlockchainEventListenerStatus
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../chaineddispatch/">
+<a class="md-nav__link" href="../../reference/types/chaineddispatch/">
 <span class="md-ellipsis">
     ChainedDispatch
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../dispatch/">
+<a class="md-nav__link" href="../../reference/types/dispatch/">
 <span class="md-ellipsis">
     Dispatch
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../eventwithdata/">
+<a class="md-nav__link" href="../../reference/types/eventwithdata/">
 <span class="md-ellipsis">
     EventWithData
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../indexedblock/">
+<a class="md-nav__link" href="../../reference/types/indexedblock/">
 <span class="md-ellipsis">
     IndexedBlock
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../indexedevent/">
+<a class="md-nav__link" href="../../reference/types/indexedevent/">
 <span class="md-ellipsis">
     IndexedEvent
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../indexedtransaction/">
+<a class="md-nav__link" href="../../reference/types/indexedtransaction/">
 <span class="md-ellipsis">
     IndexedTransaction
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../jsonformatoptions/">
+<a class="md-nav__link" href="../../reference/types/jsonformatoptions/">
 <span class="md-ellipsis">
     JSONFormatOptions
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../keymappingandverifier/">
+<a class="md-nav__link" href="../../reference/types/keymappingandverifier/">
 <span class="md-ellipsis">
     KeyMappingAndVerifier
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../keyqueryentry/">
+<a class="md-nav__link" href="../../reference/types/keyqueryentry/">
 <span class="md-ellipsis">
     KeyQueryEntry
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../onchainlocation/">
+<a class="md-nav__link" href="../../reference/types/onchainlocation/">
 <span class="md-ellipsis">
     OnChainLocation
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../peerinfo/">
+<a class="md-nav__link" href="../../reference/types/peerinfo/">
 <span class="md-ellipsis">
     PeerInfo
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../preparedtransaction/">
+<a class="md-nav__link" href="../../reference/types/preparedtransaction/">
 <span class="md-ellipsis">
     PreparedTransaction
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../privacygroup/">
+<a class="md-nav__link" href="../../reference/types/privacygroup/">
 <span class="md-ellipsis">
     PrivacyGroup
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../privacygroupevmcall/">
+<a class="md-nav__link" href="../../reference/types/privacygroupevmcall/">
 <span class="md-ellipsis">
     PrivacyGroupEVMCall
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../privacygroupevmtxinput/">
+<a class="md-nav__link" href="../../reference/types/privacygroupevmtxinput/">
 <span class="md-ellipsis">
     PrivacyGroupEVMTXInput
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../privacygroupinput/">
+<a class="md-nav__link" href="../../reference/types/privacygroupinput/">
 <span class="md-ellipsis">
     PrivacyGroupInput
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../privacygroupmessage/">
+<a class="md-nav__link" href="../../reference/types/privacygroupmessage/">
 <span class="md-ellipsis">
     PrivacyGroupMessage
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../privacygroupmessageinput/">
+<a class="md-nav__link" href="../../reference/types/privacygroupmessageinput/">
 <span class="md-ellipsis">
     PrivacyGroupMessageInput
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../privacygroupmessagelistener/">
+<a class="md-nav__link" href="../../reference/types/privacygroupmessagelistener/">
 <span class="md-ellipsis">
     PrivacyGroupMessageListener
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../privacygroupwithabi/">
+<a class="md-nav__link" href="../../reference/types/privacygroupwithabi/">
 <span class="md-ellipsis">
     PrivacyGroupWithABI
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../publictx/">
+<a class="md-nav__link" href="../../reference/types/publictx/">
 <span class="md-ellipsis">
     PublicTx
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../publictxwithbinding/">
+<a class="md-nav__link" href="../../reference/types/publictxwithbinding/">
 <span class="md-ellipsis">
     PublicTxWithBinding
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../queryjson/">
+<a class="md-nav__link" href="../../reference/types/queryjson/">
 <span class="md-ellipsis">
     QueryJSON
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../registryentry/">
+<a class="md-nav__link" href="../../reference/types/registryentry/">
 <span class="md-ellipsis">
     RegistryEntry
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../registryentrywithproperties/">
+<a class="md-nav__link" href="../../reference/types/registryentrywithproperties/">
 <span class="md-ellipsis">
     RegistryEntryWithProperties
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../registryproperty/">
+<a class="md-nav__link" href="../../reference/types/registryproperty/">
 <span class="md-ellipsis">
     RegistryProperty
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../reliablemessage/">
+<a class="md-nav__link" href="../../reference/types/reliablemessage/">
 <span class="md-ellipsis">
     ReliableMessage
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../reliablemessageack/">
+<a class="md-nav__link" href="../../reference/types/reliablemessageack/">
 <span class="md-ellipsis">
     ReliableMessageAck
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../schema/">
+<a class="md-nav__link" href="../../reference/types/schema/">
 <span class="md-ellipsis">
     Schema
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../simpletypes/">
+<a class="md-nav__link" href="../../reference/types/simpletypes/">
 <span class="md-ellipsis">
     Simple Types
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../state/">
+<a class="md-nav__link" href="../../reference/types/state/">
 <span class="md-ellipsis">
     State
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../stateconfirm/">
+<a class="md-nav__link" href="../../reference/types/stateconfirm/">
 <span class="md-ellipsis">
     StateConfirm
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../stateconfirmrecord/">
+<a class="md-nav__link" href="../../reference/types/stateconfirmrecord/">
 <span class="md-ellipsis">
     StateConfirmRecord
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../statelock/">
+<a class="md-nav__link" href="../../reference/types/statelock/">
 <span class="md-ellipsis">
     StateLock
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../statespend/">
+<a class="md-nav__link" href="../../reference/types/statespend/">
 <span class="md-ellipsis">
     StateSpend
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../statespendrecord/">
+<a class="md-nav__link" href="../../reference/types/statespendrecord/">
 <span class="md-ellipsis">
     StateSpendRecord
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../statestatusqualifier/">
+<a class="md-nav__link" href="../../reference/types/statestatusqualifier/">
 <span class="md-ellipsis">
     StateStatusQualifier
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../storedabi/">
+<a class="md-nav__link" href="../../reference/types/storedabi/">
 <span class="md-ellipsis">
     StoredABI
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../transaction/">
+<a class="md-nav__link" href="../../reference/types/transaction/">
 <span class="md-ellipsis">
     Transaction
   </span>
 </a>
 </li>
-<li class="md-nav__item md-nav__item--active">
-<input class="md-nav__toggle md-toggle" id="__toc" type="checkbox"/>
-<label class="md-nav__link md-nav__link--active" for="__toc">
-<span class="md-ellipsis">
-    TransactionCall
-  </span>
-<span class="md-nav__icon md-icon"></span>
-</label>
-<a class="md-nav__link md-nav__link--active" href="./">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactioncall/">
 <span class="md-ellipsis">
     TransactionCall
   </span>
 </a>
-<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
-<label class="md-nav__title" for="__toc">
-<span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
-<li class="md-nav__item">
-<a class="md-nav__link" href="#example">
-<span class="md-ellipsis">
-      Example
-    </span>
-</a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="#field-descriptions">
-<span class="md-ellipsis">
-      Field Descriptions
-    </span>
-</a>
-</li>
-</ul>
-</nav>
-</li>
-<li class="md-nav__item">
-<a class="md-nav__link" href="../transactionfull/">
+<a class="md-nav__link" href="../../reference/types/transactionfull/">
 <span class="md-ellipsis">
     TransactionFull
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../transactioninput/">
+<a class="md-nav__link" href="../../reference/types/transactioninput/">
 <span class="md-ellipsis">
     TransactionInput
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../transactionreceipt/">
+<a class="md-nav__link" href="../../reference/types/transactionreceipt/">
 <span class="md-ellipsis">
     TransactionReceipt
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../transactionreceiptfilters/">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptfilters/">
 <span class="md-ellipsis">
     TransactionReceiptFilters
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../transactionreceiptfull/">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptfull/">
 <span class="md-ellipsis">
     TransactionReceiptFull
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../transactionreceiptlistener/">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptlistener/">
 <span class="md-ellipsis">
     TransactionReceiptListener
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../transactionreceiptlisteneroptions/">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptlisteneroptions/">
 <span class="md-ellipsis">
     TransactionReceiptListenerOptions
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../transactionstates/">
+<a class="md-nav__link" href="../../reference/types/transactionstates/">
 <span class="md-ellipsis">
     TransactionStates
   </span>
@@ -1233,7 +1202,7 @@
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../crds/core.paladin.io/">
+<a class="md-nav__link" href="../../reference/crds/core.paladin.io/">
 <span class="md-ellipsis">
     core.paladin.io
   </span>
@@ -1243,21 +1212,21 @@
 </nav>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../architecture/">
+<a class="md-nav__link" href="../../reference/architecture/">
 <span class="md-ellipsis">
     Architecture
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../commands/">
+<a class="md-nav__link" href="../../reference/commands/">
 <span class="md-ellipsis">
     Commands
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../roadmap/">
+<a class="md-nav__link" href="../../reference/roadmap/">
 <span class="md-ellipsis">
     Roadmap
   </span>
@@ -1281,28 +1250,28 @@
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../contributing/how-to-contribute/">
+<a class="md-nav__link" href="../../contributing/how-to-contribute/">
 <span class="md-ellipsis">
     How to Contribute
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../contributing/reporting-a-bug/">
+<a class="md-nav__link" href="../../contributing/reporting-a-bug/">
 <span class="md-ellipsis">
     Reporting a Bug
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../contributing/requesting-a-change/">
+<a class="md-nav__link" href="../../contributing/requesting-a-change/">
 <span class="md-ellipsis">
     Requesting a Change
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../contributing/asking-a-question/">
+<a class="md-nav__link" href="../../contributing/asking-a-question/">
 <span class="md-ellipsis">
     Asking a Question
   </span>
@@ -1312,14 +1281,14 @@
 </nav>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../faqs/">
+<a class="md-nav__link" href="../../faqs/">
 <span class="md-ellipsis">
     FAQs
   </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../../glossary/">
+<a class="md-nav__link" href="../../glossary/">
 <span class="md-ellipsis">
     Glossary
   </span>
@@ -1340,18 +1309,76 @@
     </label>
 <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="#example">
+<a class="md-nav__link" href="#coordinator-state-machine">
 <span class="md-ellipsis">
-      Example
+      Coordinator State Machine
+    </span>
+</a>
+<nav aria-label="Coordinator State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#transition-events">
+<span class="md-ellipsis">
+      Transition Events
     </span>
 </a>
 </li>
+</ul>
+</nav>
+</li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="#field-descriptions">
+<a class="md-nav__link" href="#coordinator-transaction-state-machine">
 <span class="md-ellipsis">
-      Field Descriptions
+      Coordinator Transaction State Machine
     </span>
 </a>
+<nav aria-label="Coordinator Transaction State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#transition-events_1">
+<span class="md-ellipsis">
+      Transition Events
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#originator-state-machine">
+<span class="md-ellipsis">
+      Originator State Machine
+    </span>
+</a>
+<nav aria-label="Originator State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#transition-events_2">
+<span class="md-ellipsis">
+      Transition Events
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#originator-transaction-state-machine">
+<span class="md-ellipsis">
+      Originator Transaction State Machine
+    </span>
+</a>
+<nav aria-label="Originator Transaction State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#transition-events_3">
+<span class="md-ellipsis">
+      Transition Events
+    </span>
+</a>
+</li>
+</ul>
+</nav>
 </li>
 </ul>
 </nav>
@@ -1360,106 +1387,85 @@
 </div>
 <div class="md-content" data-md-component="content">
 <article class="md-content__inner md-typeset">
-<h1>TransactionCall</h1>
-<h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">¶</a></h3>
-<div class="highlight"><pre><span></span><code><a href="#__codelineno-0-1" id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="p">{</span>
-<a href="#__codelineno-0-2" id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">    </span><span class="nt">"dataFormat"</span><span class="p">:</span><span class="w"> </span><span class="s2">""</span>
-<a href="#__codelineno-0-3" id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="p">}</span>
-</code></pre></div>
-<h3 id="field-descriptions">Field Descriptions<a class="headerlink" href="#field-descriptions" title="Permanent link">¶</a></h3>
+<h1 id="state-machine-transition-detail">State machine transition detail<a class="headerlink" href="#state-machine-transition-detail" title="Permanent link">¶</a></h1>
+<p>Detailed state diagrams showing every transition event and guard condition for each of the four distributed sequencer state machines.</p>
+<p><em>Auto-generated from source</em></p>
+<h2 id="coordinator-state-machine">Coordinator State Machine<a class="headerlink" href="#coordinator-state-machine" title="Permanent link">¶</a></h2>
+<div class="panzoom-box" data-key="alt" id="panzoom0" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'themeVariables': {'background': 'transparent'}}}%%
+stateDiagram-v2
+    direction LR</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<h3 id="transition-events">Transition Events<a class="headerlink" href="#transition-events" title="Permanent link">¶</a></h3>
 <table>
 <thead>
 <tr>
-<th>Field Name</th>
+<th>Event</th>
 <th>Description</th>
-<th>Type</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>idempotencyKey</code></td>
-<td>Externally supplied unique identifier for this transaction. 409 Conflict will be returned on attempt to re-submit</td>
-<td><code>string</code></td>
+<td></td>
+<td></td>
 </tr>
+</tbody>
+</table>
+<hr/>
+<h2 id="coordinator-transaction-state-machine">Coordinator Transaction State Machine<a class="headerlink" href="#coordinator-transaction-state-machine" title="Permanent link">¶</a></h2>
+<div class="panzoom-box" data-key="alt" id="panzoom1" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'themeVariables': {'background': 'transparent'}}}%%
+stateDiagram-v2
+    direction LR</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<h3 id="transition-events_1">Transition Events<a class="headerlink" href="#transition-events_1" title="Permanent link">¶</a></h3>
+<table>
+<thead>
 <tr>
-<td><code>type</code></td>
-<td>Type of transaction (public or private)</td>
-<td><code>"private", "public"</code></td>
+<th>Event</th>
+<th>Description</th>
 </tr>
+</thead>
+<tbody>
 <tr>
-<td><code>domain</code></td>
-<td>Name of a domain - only required on input for private deploy transactions</td>
-<td><code>string</code></td>
+<td></td>
+<td></td>
 </tr>
+</tbody>
+</table>
+<hr/>
+<h2 id="originator-state-machine">Originator State Machine<a class="headerlink" href="#originator-state-machine" title="Permanent link">¶</a></h2>
+<div class="panzoom-box" data-key="alt" id="panzoom2" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'themeVariables': {'background': 'transparent'}}}%%
+stateDiagram-v2
+    direction LR</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<h3 id="transition-events_2">Transition Events<a class="headerlink" href="#transition-events_2" title="Permanent link">¶</a></h3>
+<table>
+<thead>
 <tr>
-<td><code>function</code></td>
-<td>Function signature - inferred from definition if not supplied</td>
-<td><code>string</code></td>
+<th>Event</th>
+<th>Description</th>
 </tr>
+</thead>
+<tbody>
 <tr>
-<td><code>abiReference</code></td>
-<td>Calculated ABI reference - required with ABI on input if not constructor</td>
-<td><a href="../simpletypes/#bytes32"><code>Bytes32</code></a></td>
+<td></td>
+<td></td>
 </tr>
+</tbody>
+</table>
+<hr/>
+<h2 id="originator-transaction-state-machine">Originator Transaction State Machine<a class="headerlink" href="#originator-transaction-state-machine" title="Permanent link">¶</a></h2>
+<div class="panzoom-box" data-key="alt" id="panzoom3" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'themeVariables': {'background': 'transparent'}}}%%
+stateDiagram-v2
+    direction LR</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<h3 id="transition-events_3">Transition Events<a class="headerlink" href="#transition-events_3" title="Permanent link">¶</a></h3>
+<table>
+<thead>
 <tr>
-<td><code>from</code></td>
-<td>Locator for a local signing identity to use for submission of this transaction. May be a key identifier, or an eth address prefixed with 'eth_address:'.</td>
-<td><code>string</code></td>
+<th>Event</th>
+<th>Description</th>
 </tr>
+</thead>
+<tbody>
 <tr>
-<td><code>to</code></td>
-<td>Target contract address, or null for a deploy</td>
-<td><a href="../simpletypes/#ethaddress"><code>EthAddress</code></a></td>
-</tr>
-<tr>
-<td><code>data</code></td>
-<td>Pre-encoded array with/without function selector, array, or object input</td>
-<td><a href="../simpletypes/#rawjson"><code>RawJSON</code></a></td>
-</tr>
-<tr>
-<td><code>gas</code></td>
-<td>The gas limit for the transaction (optional)</td>
-<td><a href="../simpletypes/#hexuint64"><code>HexUint64</code></a></td>
-</tr>
-<tr>
-<td><code>value</code></td>
-<td>The value transferred in the transaction (optional)</td>
-<td><a href="../simpletypes/#hexuint256"><code>HexUint256</code></a></td>
-</tr>
-<tr>
-<td><code>maxPriorityFeePerGas</code></td>
-<td>The maximum priority fee per gas (optional)</td>
-<td><a href="../simpletypes/#hexuint256"><code>HexUint256</code></a></td>
-</tr>
-<tr>
-<td><code>maxFeePerGas</code></td>
-<td>The maximum fee per gas (optional)</td>
-<td><a href="../simpletypes/#hexuint256"><code>HexUint256</code></a></td>
-</tr>
-<tr>
-<td><code>dependsOn</code></td>
-<td>Transactions that must be mined on the blockchain successfully before this transaction submits</td>
-<td><a href="../simpletypes/#uuid"><code>UUID[]</code></a></td>
-</tr>
-<tr>
-<td><code>abi</code></td>
-<td>Application Binary Interface (ABI) definition - required if abiReference not supplied</td>
-<td><a href="../transactioninput/#entry"><code>Entry[]</code></a></td>
-</tr>
-<tr>
-<td><code>bytecode</code></td>
-<td>Bytecode prepended to encoded data inputs for deploy transactions</td>
-<td><a href="../simpletypes/#hexbytes"><code>HexBytes</code></a></td>
-</tr>
-<tr>
-<td><code>block</code></td>
-<td>The block number or 'latest' when calling a public smart contract (optional)</td>
-<td><a href="../simpletypes/#hexuint64orstring"><code>HexUint64OrString</code></a></td>
-</tr>
-<tr>
-<td><code>dataFormat</code></td>
-<td>How call data should be serialized into JSON once decoded using the ABI function definition</td>
-<td><a href="../jsonformatoptions/#jsonformatoptions"><code>JSONFormatOptions</code></a></td>
+<td></td>
+<td></td>
 </tr>
 </tbody>
 </table>
@@ -1469,34 +1475,6 @@
 </div>
 </main>
 <footer class="md-footer">
-<nav aria-label="Footer" class="md-footer__inner md-grid">
-<a aria-label="Previous: Transaction" class="md-footer__link md-footer__link--prev" href="../transaction/">
-<div class="md-footer__button md-icon">
-<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
-</div>
-<div class="md-footer__title">
-<span class="md-footer__direction">
-                Previous
-              </span>
-<div class="md-ellipsis">
-                Transaction
-              </div>
-</div>
-</a>
-<a aria-label="Next: TransactionFull" class="md-footer__link md-footer__link--next" href="../transactionfull/">
-<div class="md-footer__title">
-<span class="md-footer__direction">
-                Next
-              </span>
-<div class="md-ellipsis">
-                TransactionFull
-              </div>
-</div>
-<div class="md-footer__button md-icon">
-<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"></path></svg>
-</div>
-</a>
-</nav>
 <div class="md-footer-meta md-typeset">
 <div class="md-footer-meta__inner md-grid">
 <div class="md-copyright">
@@ -1508,7 +1486,7 @@
 <div class="md-dialog" data-md-component="dialog">
 <div class="md-dialog__inner md-typeset"></div>
 </div>
-<script id="__config" type="application/json">{"base": "../../..", "features": ["content.code.copy", "navigation.expand", "navigation.footer", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.sidebar", "navigation.tracking", "navigation.path", "navigation.indexes"], "search": "../../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
-<script src="../../../assets/javascripts/bundle.83f73b43.min.js"></script>
-<script src="../../../assets/javascripts/panzoom.min.js"></script><script src="../../../assets/javascripts/zoompan.js"></script></body>
+<script id="__config" type="application/json">{"base": "../..", "features": ["content.code.copy", "navigation.expand", "navigation.footer", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.sidebar", "navigation.tracking", "navigation.path", "navigation.indexes"], "search": "../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+<script src="../../assets/javascripts/bundle.83f73b43.min.js"></script>
+<script src="../../assets/javascripts/panzoom.min.js"></script><script src="../../assets/javascripts/zoompan.js"></script></body>
 </html>

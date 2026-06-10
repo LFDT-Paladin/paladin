@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".zoomable-image", ".d2"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -118,15 +118,15 @@
 </div>
 <!-- Color palette -->
 <form class="md-header__option" data-md-component="palette">
-<input aria-label="Switch to dark mode" class="md-option" data-md-color-accent="" data-md-color-media="(prefers-color-scheme: light)" data-md-color-primary="" data-md-color-scheme="paladin" id="__palette_1" name="__palette" type="radio">
+<input aria-label="Switch to dark mode" class="md-option" data-md-color-accent="" data-md-color-media="(prefers-color-scheme: light)" data-md-color-primary="" data-md-color-scheme="paladin" id="__palette_1" name="__palette" type="radio"/>
 <label class="md-header__button md-icon" for="__palette_2" hidden="" title="Switch to dark mode">
 <svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
 </label>
-<input aria-label="Switch to light mode" class="md-option" data-md-color-accent="" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-primary="" data-md-color-scheme="paladin-dark" id="__palette_2" name="__palette" type="radio">
+<input aria-label="Switch to light mode" class="md-option" data-md-color-accent="" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-primary="" data-md-color-scheme="paladin-dark" id="__palette_2" name="__palette" type="radio"/>
 <label class="md-header__button md-icon" for="__palette_1" hidden="" title="Switch to light mode">
 <svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
 </label>
-</input></input></form>
+</form>
 <!-- Site language selector -->
 <!-- Button to open search modal -->
 <!-- Repository information -->
@@ -477,11 +477,97 @@
 </li>
 <li class="md-nav__item md-nav__item--active">
 <input class="md-nav__toggle md-toggle" id="__toc" type="checkbox"/>
+<label class="md-nav__link md-nav__link--active" for="__toc">
+<span class="md-ellipsis">
+    State Machine
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
 <a class="md-nav__link md-nav__link--active" href="./">
 <span class="md-ellipsis">
     State Machine
   </span>
 </a>
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#coordinator-state-machine">
+<span class="md-ellipsis">
+      Coordinator State Machine
+    </span>
+</a>
+<nav aria-label="Coordinator State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#states">
+<span class="md-ellipsis">
+      States
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#coordinator-transaction-state-machine">
+<span class="md-ellipsis">
+      Coordinator Transaction State Machine
+    </span>
+</a>
+<nav aria-label="Coordinator Transaction State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#states_1">
+<span class="md-ellipsis">
+      States
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#originator-state-machine">
+<span class="md-ellipsis">
+      Originator State Machine
+    </span>
+</a>
+<nav aria-label="Originator State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#states_2">
+<span class="md-ellipsis">
+      States
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#originator-transaction-state-machine">
+<span class="md-ellipsis">
+      Originator Transaction State Machine
+    </span>
+</a>
+<nav aria-label="Originator Transaction State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#states_3">
+<span class="md-ellipsis">
+      States
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+</ul>
+</nav>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../distributed_sequencer_data_flows/">
@@ -1306,6 +1392,84 @@
 <div class="md-sidebar__scrollwrap">
 <div class="md-sidebar__inner">
 <nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#coordinator-state-machine">
+<span class="md-ellipsis">
+      Coordinator State Machine
+    </span>
+</a>
+<nav aria-label="Coordinator State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#states">
+<span class="md-ellipsis">
+      States
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#coordinator-transaction-state-machine">
+<span class="md-ellipsis">
+      Coordinator Transaction State Machine
+    </span>
+</a>
+<nav aria-label="Coordinator Transaction State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#states_1">
+<span class="md-ellipsis">
+      States
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#originator-state-machine">
+<span class="md-ellipsis">
+      Originator State Machine
+    </span>
+</a>
+<nav aria-label="Originator State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#states_2">
+<span class="md-ellipsis">
+      States
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#originator-transaction-state-machine">
+<span class="md-ellipsis">
+      Originator Transaction State Machine
+    </span>
+</a>
+<nav aria-label="Originator Transaction State Machine" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#states_3">
+<span class="md-ellipsis">
+      States
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+</ul>
 </nav>
 </div>
 </div>
@@ -1314,8 +1478,86 @@
 <article class="md-content__inner md-typeset">
 <h1 id="sequencer-and-transaction-state-machines">Sequencer and transaction state machines<a class="headerlink" href="#sequencer-and-transaction-state-machines" title="Permanent link">¶</a></h1>
 <p>The distributed sequencer is designed as a set of state machines, each of which manages the state of the sequencer components (originator and coordinator) and of sequencer transactions (at the originator and at the coordinator).</p>
-<p><strong>TBC</strong></p>
-<p>The state machine details for the four state machines (their states and events that cause a state transition) will be documented here to aid with problem diagnosis of transaction coordination.</p>
+<p><em>Auto-generated from source</em></p>
+<h2 id="coordinator-state-machine">Coordinator State Machine<a class="headerlink" href="#coordinator-state-machine" title="Permanent link">¶</a></h2>
+<div class="panzoom-box" data-key="alt" id="panzoom0" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'themeVariables': {'background': 'transparent'}}}%%
+stateDiagram-v2
+    direction LR</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<h3 id="states">States<a class="headerlink" href="#states" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2 id="coordinator-transaction-state-machine">Coordinator Transaction State Machine<a class="headerlink" href="#coordinator-transaction-state-machine" title="Permanent link">¶</a></h2>
+<div class="panzoom-box" data-key="alt" id="panzoom1" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'themeVariables': {'background': 'transparent'}}}%%
+stateDiagram-v2
+    direction LR</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<h3 id="states_1">States<a class="headerlink" href="#states_1" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2 id="originator-state-machine">Originator State Machine<a class="headerlink" href="#originator-state-machine" title="Permanent link">¶</a></h2>
+<div class="panzoom-box" data-key="alt" id="panzoom2" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'themeVariables': {'background': 'transparent'}}}%%
+stateDiagram-v2
+    direction LR</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<h3 id="states_2">States<a class="headerlink" href="#states_2" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2 id="originator-transaction-state-machine">Originator Transaction State Machine<a class="headerlink" href="#originator-transaction-state-machine" title="Permanent link">¶</a></h2>
+<div class="panzoom-box" data-key="alt" id="panzoom3" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'themeVariables': {'background': 'transparent'}}}%%
+stateDiagram-v2
+    direction LR</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<h3 id="states_3">States<a class="headerlink" href="#states_3" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
 </article>
 </div>
 <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
