@@ -77,6 +77,10 @@ func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testi
 
 	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
+
+	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
 	assert.Equal(t, State_Final, txn.stateMachine.GetCurrentState())
 }
 

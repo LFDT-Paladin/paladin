@@ -84,10 +84,18 @@ func Test_guard_InactiveGracePeriodExceeded_NotExceeded(t *testing.T) {
 	assert.False(t, guard_InactiveGracePeriodExceeded(ctx, c))
 }
 
-func Test_guard_InactiveGracePeriodExceeded_ExactlyMet(t *testing.T) {
+func Test_guard_InactiveGracePeriodExceeded_AtThreshold_DoesNotFire(t *testing.T) {
 	ctx := context.Background()
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).
 		InactiveGracePeriod(10).HeartbeatIntervalsSinceLastReceive(10).Build()
+
+	assert.False(t, guard_InactiveGracePeriodExceeded(ctx, c))
+}
+
+func Test_guard_InactiveGracePeriodExceeded_MinimumExceeded(t *testing.T) {
+	ctx := context.Background()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).
+		InactiveGracePeriod(10).HeartbeatIntervalsSinceLastReceive(11).Build()
 
 	assert.True(t, guard_InactiveGracePeriodExceeded(ctx, c))
 }

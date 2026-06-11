@@ -39,7 +39,9 @@ func guard_HasTransactionsInflight(_ context.Context, c *coordinator) bool {
 }
 
 func guard_ClosingGracePeriodExpired(_ context.Context, c *coordinator) bool {
-	return c.heartbeatIntervalsSinceStateChange >= c.closingGracePeriod
+	// measure number of complete heartbeat interval periods - e.g. count of 2 means
+	// 1 full heartbeat interval has elapsed, hence use of > not >=
+	return c.heartbeatIntervalsSinceStateChange > c.closingGracePeriod
 }
 
 func guard_HasTransactionAssembling(ctx context.Context, c *coordinator) bool {
@@ -54,7 +56,9 @@ func guard_HasTransactionAssembling(ctx context.Context, c *coordinator) bool {
 // guard_InactiveGracePeriodExceeded returns true when no heartbeat has been received for at least
 // inactiveGracePeriod heartbeat intervals.
 func guard_InactiveGracePeriodExceeded(_ context.Context, c *coordinator) bool {
-	return c.heartbeatIntervalsSinceLastReceive >= c.inactiveGracePeriod
+	// measure number of complete heartbeat interval periods - e.g. count of 2 means
+	// 1 full heartbeat interval has elapsed, hence use of > not >=
+	return c.heartbeatIntervalsSinceLastReceive > c.inactiveGracePeriod
 }
 
 // guard_IsHigherPriorityThanCurrentActive returns true when this node has a strictly higher

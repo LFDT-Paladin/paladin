@@ -99,7 +99,9 @@ func (c *coordinator) updateOriginatorActivity(ctx context.Context) {
 	}
 
 	for node, count := range c.originatorActivity {
-		if count >= c.inactiveGracePeriod {
+		// measure number of complete heartbeat interval periods - e.g. count of 2 means
+		// 1 full heartbeat interval has elapsed, hence use of > not >=
+		if count > c.inactiveGracePeriod {
 			log.L(ctx).Debugf("pruning originator %s from activity map after %d heartbeat intervals of inactivity", node, count)
 			delete(c.originatorActivity, node)
 		}

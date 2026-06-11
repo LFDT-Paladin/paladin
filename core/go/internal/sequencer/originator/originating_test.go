@@ -378,7 +378,7 @@ func Test_validator_OriginatorTransactionStateTransitionToReverted(t *testing.T)
 func Test_guard_InactiveGracePeriodExceeded_WhileSending_TrueWhenCounterExceedsThreshold(t *testing.T) {
 	ctx := context.Background()
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
-		HeartbeatIntervalsSinceLastReceive(2).
+		HeartbeatIntervalsSinceLastReceive(3).
 		InactiveGracePeriod(2).
 		Build()
 	assert.True(t, guard_InactiveGracePeriodExceeded(ctx, o))

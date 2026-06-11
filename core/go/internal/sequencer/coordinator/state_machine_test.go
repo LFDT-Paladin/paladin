@@ -297,10 +297,10 @@ func TestCoordinator_WhenObserving_TransitionsToIdle_OnHeartbeatIntervalInactive
 	ctx := t.Context()
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Observing).
 		InactiveGracePeriod(3).
-		HeartbeatIntervalsSinceLastReceive(2).
+		HeartbeatIntervalsSinceLastReceive(3).
 		Build()
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
-	// action_IncrementHeartbeatIntervalCounts bumps counter to 3; guard_InactiveGracePeriodExceeded = true
+	// action_IncrementHeartbeatIntervalCounts bumps counter to 4; guard_InactiveGracePeriodExceeded = (4 > 3) = true
 	assert.Equal(t, State_Idle, c.GetCurrentState())
 	assert.Equal(t, 3, c.heartbeatIntervalsSinceLastReceive, "counter must be at grace-period threshold after increment")
 }
@@ -312,7 +312,7 @@ func TestCoordinator_WhenObserving_HeartbeatInterval_WithinGrace_IncrementsCount
 		InactiveGracePeriod(3).
 		Build()
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
-	// Counter bumps to 2; guard_InactiveGracePeriodExceeded = (2 >= 3) = false → stays Observing.
+	// Counter bumps to 2; guard_InactiveGracePeriodExceeded = (2 > 3) = false → stays Observing.
 	assert.Equal(t, State_Observing, c.GetCurrentState())
 	assert.Equal(t, 2, c.heartbeatIntervalsSinceLastReceive, "counter must be incremented")
 }
@@ -1010,8 +1010,8 @@ func TestCoordinator_WhenPrepared_HeartbeatInterval_GraceExceeded_TransitionsToA
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Prepared).
 		NodeName("node1").
 		CurrentActiveCoordinator("node2").
-		HeartbeatIntervalsSinceLastReceive(2).
-		InactiveGracePeriod(3). // after increment: 3 >= 3 → Active
+		HeartbeatIntervalsSinceLastReceive(3).
+		InactiveGracePeriod(3). // after increment: 4 > 3 → Active
 		Build()
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
 	// guard_InactiveGracePeriodExceeded = true → transitions to Active
@@ -2722,13 +2722,13 @@ func TestCoordinator_WhenClosingGraceExpires_WithNewActiveHeartbeatSeen_Transiti
 	ctx := t.Context()
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Closing).
 		ClosingGracePeriod(1).
-		HeartbeatIntervalsSinceStateChange(0).
+		HeartbeatIntervalsSinceStateChange(1).
 		HeartbeatIntervalsSinceLastReceive(0). // recent heartbeat seen
 		InactiveGracePeriod(5).
 		Build()
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
-	// heartbeatIntervalsSinceStateChange → 1; closingGracePeriodExpired = 1>=1 true
-	// heartbeatIntervalsSinceLastReceive = 0; inactiveGracePeriodExceeded = 0>=5 false
+	// heartbeatIntervalsSinceStateChange → 2; closingGracePeriodExpired = 2>1 true
+	// heartbeatIntervalsSinceLastReceive = 0; inactiveGracePeriodExceeded = 0>5 false
 	assert.Equal(t, State_Observing, c.GetCurrentState())
 }
 
@@ -2736,13 +2736,13 @@ func TestCoordinator_WhenClosingGraceExpires_WithoutNewActiveHeartbeat_Transitio
 	ctx := t.Context()
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Closing).
 		ClosingGracePeriod(1).
-		HeartbeatIntervalsSinceStateChange(0).
-		HeartbeatIntervalsSinceLastReceive(5). // no heartbeat seen; counter already at grace
+		HeartbeatIntervalsSinceStateChange(1).
+		HeartbeatIntervalsSinceLastReceive(6). // no heartbeat seen; counter already past grace
 		InactiveGracePeriod(5).
 		Build()
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
-	// heartbeatIntervalsSinceStateChange → 1; closingGracePeriodExpired = 1>=1 true
-	// heartbeatIntervalsSinceLastReceive = 5 (not incremented by this action); inactiveGracePeriodExceeded = 5>=5 true
+	// heartbeatIntervalsSinceStateChange → 2; closingGracePeriodExpired = 2>1 true
+	// heartbeatIntervalsSinceLastReceive = 6 (not incremented by this action); inactiveGracePeriodExceeded = 6>5 true
 	assert.Equal(t, State_Idle, c.GetCurrentState())
 }
 
@@ -2814,8 +2814,8 @@ func TestCoordinator_WhenClosing_DelegatedTransactions_LowerPriority_ActiveCoord
 		NodeName("node3").
 		CurrentActiveCoordinator("node1").
 		CoordinatorPriorityList("node1", "node2", "node3").
-		HeartbeatIntervalsSinceLastReceive(5).
-		InactiveGracePeriod(5). // 5 >= 5 → exceeded
+		HeartbeatIntervalsSinceLastReceive(6).
+		InactiveGracePeriod(5). // 6 > 5 → exceeded
 		Build()
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &TransactionsDelegatedEvent{

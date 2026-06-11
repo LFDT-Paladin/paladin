@@ -187,7 +187,9 @@ func action_ResetToTopPriorityCoordinator(ctx context.Context, o *originator, _ 
 }
 
 func guard_InactiveGracePeriodExceeded(_ context.Context, o *originator) bool {
-	return o.heartbeatIntervalsSinceLastReceive >= o.inactiveGracePeriod
+	// measure number of complete heartbeat interval periods - e.g. count of 2 means
+	// 1 full heartbeat interval has elapsed, hence use of > not >=
+	return o.heartbeatIntervalsSinceLastReceive > o.inactiveGracePeriod
 }
 
 // validator_IsFromCurrentCoordinator returns true when the heartbeat sender is the currently

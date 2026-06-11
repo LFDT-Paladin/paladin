@@ -140,7 +140,7 @@ func Test_validator_HasDroppedTransactions_FalseWhenNoInFlightTransactions(t *te
 func Test_guard_InactiveGracePeriodExceeded_WhileObserving_TrueWhenCounterExceedsThreshold(t *testing.T) {
 	ctx := context.Background()
 	o, _ := NewOriginatorBuilderForTesting(t, State_Observing).
-		HeartbeatIntervalsSinceLastReceive(10).
+		HeartbeatIntervalsSinceLastReceive(11).
 		InactiveGracePeriod(10).
 		Build()
 	assert.True(t, guard_InactiveGracePeriodExceeded(ctx, o))

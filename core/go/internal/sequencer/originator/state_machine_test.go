@@ -438,14 +438,14 @@ func TestStateMachine_Observing_HeartbeatInterval_WithinGrace_StaysObserving(t *
 func TestStateMachine_Observing_HeartbeatInterval_GraceExceeded_TransitionsToIdle(t *testing.T) {
 	ctx := context.Background()
 	o, _ := NewOriginatorBuilderForTesting(t, State_Observing).
-		HeartbeatIntervalsSinceLastReceive(1).
+		HeartbeatIntervalsSinceLastReceive(2).
 		InactiveGracePeriod(2).
 		Build()
 
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
 
 	assert.Equal(t, State_Idle, o.GetCurrentState())
-	assert.Equal(t, 2, o.heartbeatIntervalsSinceLastReceive, "counter must be incremented before transition check")
+	assert.Equal(t, 3, o.heartbeatIntervalsSinceLastReceive, "counter must be incremented before transition check")
 }
 
 // EndorserNodesDiscovered in Observing updates endorserCandidates and recomputes the priority list.
@@ -696,7 +696,7 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_NoEndorserMode_Red
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
 		CurrentActiveCoordinator("coordinator@node1").
-		HeartbeatIntervalsSinceLastReceive(1).
+		HeartbeatIntervalsSinceLastReceive(2).
 		InactiveGracePeriod(2).
 		WithMockTransportWriter(t).
 		Transactions(mockTxn)
@@ -711,7 +711,7 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_NoEndorserMode_Red
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	// Counter is incremented by action_IncrementHeartbeatIntervalCounts but NOT reset (no priority list).
-	assert.Equal(t, 2, o.heartbeatIntervalsSinceLastReceive)
+	assert.Equal(t, 3, o.heartbeatIntervalsSinceLastReceive)
 }
 
 // HeartbeatInterval in Sending exceeding grace → ENDORSER mode: failover to next-priority
@@ -727,7 +727,7 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_EndorserMode_Failo
 		CurrentActiveCoordinator("A").
 		CoordinatorPriorityList("A", "B", "C").
 		FailoverIndex(1). // A is at index 0 → next failover target is index 1 = "B"
-		HeartbeatIntervalsSinceLastReceive(1).
+		HeartbeatIntervalsSinceLastReceive(2).
 		InactiveGracePeriod(2).
 		WithMockTransportWriter(t).
 		Transactions(mockTxn)
@@ -759,7 +759,7 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_EndorserMode_WrapA
 		CurrentActiveCoordinator("B").
 		CoordinatorPriorityList("A", "B", "C").
 		FailoverIndex(2). // pointing to last slot "C"
-		HeartbeatIntervalsSinceLastReceive(1).
+		HeartbeatIntervalsSinceLastReceive(2).
 		InactiveGracePeriod(2).
 		WithMockTransportWriter(t).
 		Transactions(mockTxn)
@@ -971,8 +971,8 @@ func TestStateMachine_Sending_HeartbeatReceived_Step3_GraceExceeded_SwitchesCoor
 		CurrentActiveCoordinator("node1").
 		CoordinatorPriorityList("node1", "node2", "node3").
 		FailoverIndex(1). // will be recalibrated to 0 after switch to node3 (index 2, not top)
-		HeartbeatIntervalsSinceLastReceive(2).
-		InactiveGracePeriod(2). // 2 >= 2 → exceeded
+		HeartbeatIntervalsSinceLastReceive(3).
+		InactiveGracePeriod(2). // 3 > 2 → exceeded
 		WithMockTransportWriter(t).
 		Transactions(mockTxn)
 	o, mocks := builder.Build()

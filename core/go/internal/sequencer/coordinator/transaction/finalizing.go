@@ -24,7 +24,9 @@ import (
 func guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx context.Context, txn *coordinatorTransaction) bool {
 	// Has this transaction been in the same state for longer than the finalizing grace period?
 	// most useful to know this once we have reached one of the terminal states - Reverted or Committed
-	return txn.heartbeatIntervalsSinceStateChange >= txn.finalizingGracePeriod
+	// measure number of complete heartbeat interval periods - e.g. count of 2 means
+	// 1 full heartbeat interval has elapsed, hence use of > not >=
+	return txn.heartbeatIntervalsSinceStateChange > txn.finalizingGracePeriod
 }
 
 // action_FinalizeAsUnknownByOriginator is called when the originator reports that it doesn't recognize
