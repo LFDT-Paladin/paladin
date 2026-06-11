@@ -488,7 +488,6 @@ func TestGetReliableMessageScanNoAction(t *testing.T) {
 
 	p := &peer{
 		tm:           tm,
-		lastDrainHWM: confutil.P(uint64(100)),
 		lastFullScan: time.Now(),
 	}
 
@@ -496,24 +495,24 @@ func TestGetReliableMessageScanNoAction(t *testing.T) {
 
 }
 
-func TestProcessReliableMsgPageIgnoreBeforeHWM(t *testing.T) {
+func TestProcessReliableMsgPageFullScanIgnoreRecent(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false)
 	defer done()
 
 	p := &peer{
-		ctx:          ctx,
-		tm:           tm,
-		lastDrainHWM: confutil.P(uint64(100)),
+		ctx: ctx,
+		tm:  tm,
 	}
 
+	// A full scan (isTriggeredScan=false) should skip messages created less than reliableMessageResend ago.
 	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{
 		{
 			ID:       uuid.New(),
 			Sequence: 50,
 			Created:  pldtypes.TimestampNow(),
 		},
-	})
+	}, false)
 	require.NoError(t, err)
 
 }
@@ -537,7 +536,7 @@ func TestProcessReliableMsgPageIgnoreUnsupported(t *testing.T) {
 			Created:     pldtypes.TimestampNow(),
 			MessageType: pldtypes.Enum[pldapi.ReliableMessageType]("wrong"),
 		},
-	})
+	}, true)
 	require.Regexp(t, "pop", err)
 
 }
@@ -573,7 +572,7 @@ func TestProcessReliableMsgPageInsertFail(t *testing.T) {
 		Created:     pldtypes.TimestampNow(),
 	}
 
-	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm}, true)
 	require.Regexp(t, "PD020302", err)
 
 }
@@ -622,7 +621,7 @@ func TestProcessReliableMsgPagePrivacyGroup(t *testing.T) {
 		return nil, nil
 	}
 
-	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm}, true)
 	require.NoError(t, err)
 
 	sentMsg := <-sentMessages
@@ -688,7 +687,7 @@ func TestProcessReliableMsgPagePrivacyGroupMessage(t *testing.T) {
 		return nil, nil
 	}
 
-	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm}, true)
 	require.NoError(t, err)
 
 	sentMsg := <-sentMessages
@@ -740,7 +739,7 @@ func TestProcessReliableMsgPageReceipt(t *testing.T) {
 		return nil, nil
 	}
 
-	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm}, true)
 	require.NoError(t, err)
 
 	sentMsg := <-sentMessages
@@ -965,7 +964,7 @@ func TestProcessReliableMsgPagePublicTransactionSubmission(t *testing.T) {
 		return nil, nil
 	}
 
-	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm}, true)
 	require.NoError(t, err)
 
 	sentMsg := <-sentMessages
@@ -1025,7 +1024,7 @@ func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
 		return nil, nil
 	}
 
-	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm}, true)
 	require.NoError(t, err)
 
 	sentMsg := <-sentMessages

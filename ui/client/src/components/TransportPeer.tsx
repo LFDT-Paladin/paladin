@@ -70,11 +70,6 @@ export const TransportPeer: React.FC<Props> = ({ transportPeer }) => {
             <Typography align="center" variant="h6" color="textPrimary">{transportPeer.stats.reliableHighestSent.toLocaleString()}</Typography>
             <Typography align="center" variant="body2" color="textSecondary">{t('reliableHighestSent')}</Typography>
           </Grid2>
-
-          <Grid2>
-            <Typography align="center" variant="h6" color="textPrimary">{transportPeer.stats.reliableAckBase.toLocaleString()}</Typography>
-            <Typography align="center" variant="body2" color="textSecondary">{t('reliableHighestAck')}</Typography>
-          </Grid2>
         </Grid2>
       </Box>
       <Box sx={{ padding: '10px' }}>

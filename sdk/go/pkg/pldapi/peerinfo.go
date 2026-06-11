@@ -36,5 +36,4 @@ type PeerStats struct {
 	LastSend            *pldtypes.Timestamp `docstruct:"PeerStats" json:"lastSend"`
 	LastReceive         *pldtypes.Timestamp `docstruct:"PeerStats" json:"lastReceive"`
 	ReliableHighestSent uint64              `docstruct:"PeerStats" json:"reliableHighestSent"`
-	ReliableAckBase     uint64              `docstruct:"PeerStats" json:"reliableAckBase"`
 }
