@@ -1,0 +1,4 @@
+// Mock client, WireMock stubs, and Testcontainers support
+dependencies {
+    implementation project(':sdk:java:client')
+}

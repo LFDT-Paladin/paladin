@@ -1,0 +1,4 @@
+// Domain helpers for Noto, Pente, and Zeto protocols
+dependencies {
+    implementation project(':sdk:java:client')
+}

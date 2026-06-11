@@ -1,0 +1,4 @@
+// Core data models and primitives — mirrors sdk/go/pkg/pldtypes and pldapi
+dependencies {
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.6'
+}

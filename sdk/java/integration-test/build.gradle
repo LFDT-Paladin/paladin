@@ -1,0 +1,5 @@
+// End-to-end integration tests against a real Paladin node
+dependencies {
+    testImplementation project(':sdk:java:client')
+    testImplementation project(':sdk:java:domains')
+}
