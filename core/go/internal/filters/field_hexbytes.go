@@ -35,7 +35,7 @@ func (sf HexBytesField) SQLColumn() string {
 }
 
 func (sf HexBytesField) SupportsLIKE() bool {
-	return false
+	return true
 }
 
 func (sf HexBytesField) SQLValue(ctx context.Context, jsonValue pldtypes.RawJSON) (driver.Value, error) {

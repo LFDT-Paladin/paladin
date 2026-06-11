@@ -47,6 +47,10 @@ func TestHexBytesField(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, nv)
 
-	assert.False(t, HexBytesField("test").SupportsLIKE())
+	assert.True(t, HexBytesField("test").SupportsLIKE())
+
+	v, err = resolveLikeValue(ctx, "test", (pldtypes.RawJSON)(`"a%"`))
+	require.NoError(t, err)
+	assert.Equal(t, "a%", v)
 
 }

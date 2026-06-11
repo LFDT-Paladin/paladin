@@ -164,8 +164,7 @@ export const Submissions: React.FC<Props> = ({
                 {
                   label: t('to'),
                   name: 'to',
-                  type: 'string',
-                  isHexValue: true
+                  type: 'string'
                 },
                 {
                   label: t('type'),

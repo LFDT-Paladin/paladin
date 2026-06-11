@@ -19,6 +19,7 @@ package filters
 import (
 	"context"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -146,6 +147,21 @@ func resolveValue(ctx context.Context, fieldName string, field FieldResolver, js
 	return value, nil
 }
 
+func resolveLikeValue(ctx context.Context, fieldName string, jsonValue pldtypes.RawJSON) (driver.Value, error) {
+	if len(jsonValue) == 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgFiltersValueMissing, fieldName)
+	}
+	var untyped interface{}
+	if err := json.Unmarshal(jsonValue, &untyped); err != nil {
+		return nil, err
+	}
+	s, ok := untyped.(string)
+	if !ok {
+		return nil, i18n.NewError(ctx, msgs.MsgFiltersValueInvalidForString, string(jsonValue))
+	}
+	return s, nil
+}
+
 func resolveFieldAndValue(ctx context.Context, fieldSet FieldSet, fieldName string, jsonValue pldtypes.RawJSON) (FieldResolver, driver.Value, error) {
 	field, err := resolveField(ctx, fieldSet, fieldName)
 	if err != nil {
@@ -181,12 +197,16 @@ func (qt *queryTraverser[T]) addSimpleFilters(t Traverser[T], jf *query.Statemen
 		t = t.IsEqual(e, e.Field, field, testValue)
 	}
 	for _, e := range jf.Like {
-		field, testValue, err := resolveFieldAndValue(qt.ctx, qt.fieldSet, e.Field, e.Value)
+		field, err := resolveField(qt.ctx, qt.fieldSet, e.Field)
 		if err != nil {
 			return t.WithError(err)
 		}
 		if !field.SupportsLIKE() {
 			return t.WithError(i18n.NewError(qt.ctx, msgs.MsgFiltersFieldTypeDoesNotSupportLike, field))
+		}
+		testValue, err := resolveLikeValue(qt.ctx, e.Field, e.Value)
+		if err != nil {
+			return t.WithError(err)
 		}
 		t = t.IsLike(e, e.Field, field, testValue)
 	}

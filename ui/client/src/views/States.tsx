@@ -44,6 +44,8 @@ type Props = {
   setSelectedDomain: Dispatch<SetStateAction<string | undefined>>
   selectedSchemaId: string | undefined
   setSelectedSchemaId: Dispatch<SetStateAction<string | undefined>>
+  filters: IFilter[]
+  setFilters: Dispatch<SetStateAction<IFilter[]>>
 };
 
 export const States: React.FC<Props> = ({
@@ -58,11 +60,11 @@ export const States: React.FC<Props> = ({
   selectedDomain,
   setSelectedDomain,
   selectedSchemaId,
-  setSelectedSchemaId
+  setSelectedSchemaId,
+  filters,
+  setFilters
 }) => {
 
-
-  const [filters, setFilters] = useState<IFilter[]>([]);
   const [count, setCount] = useState(-1);
   const [sortBy, setSortBy] = useState('.created');
   const navigate = useNavigate();
@@ -147,21 +149,18 @@ export const States: React.FC<Props> = ({
     {
       label: t('id'),
       name: '.id',
-      type: 'string',
-      isHexValue: true
+      type: 'string'
     },
     {
       label: t('contractAddress'),
       name: 'contractAddress',
-      type: 'string',
-      isHexValue: true
+      type: 'string'
     }
   ];
 
   indexedFields.map(indexedField => filterFields.push({
     label: `[ ${indexedField.name} ]`,
     name: indexedField.name,
-    isHexValue: ['bytes32', 'address'].includes(indexedField.type),
     type: indexedField.type === 'bool' ? 'boolean' : 'string'
   }));
 

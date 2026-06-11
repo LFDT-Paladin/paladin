@@ -35,7 +35,7 @@ import { Keys } from "./views/Keys";
 import { Registries } from "./views/Registries";
 import { Transactions } from "./views/Transactions";
 import { TransactionDetails } from "./views/TransactionDetails";
-import { IPaladinTransactionPagingReference, ITransactionPagingReference } from "./interfaces";
+import { IFilter, IPaladinTransactionPagingReference, ITransactionPagingReference } from "./interfaces";
 import { Submissions } from "./views/Submissions";
 import { DomainContract } from "./views/DomainContract";
 import { PrivacyGroups } from "./views/PrivacyGroups";
@@ -78,6 +78,7 @@ function App() {
   const [stateRowsPerPage, setStateRowsPerPage] = useState(10);
   const [stateRefTimestamps, setStateRefTimestamps] = useState<string[]>([]);
   const [stateSortAscending, setStateSortAscending] = useState(false);
+  const [stateFilters, setStateFilters] = useState<IFilter[]>([]);
   const [messagesPage, setMessagesPage] = useState(0);
   const [messagesRowsPerPage, setMessagesRowsPerPage] = useState(10);
   const [messagesRefTimestamps, setMessagesRefTimestamps] = useState<string[]>([]);
@@ -217,6 +218,8 @@ function App() {
                       setPage={setStatePage}
                       rowsPerPage={stateRowsPerPage}
                       setRowsPerPage={setStateRowsPerPage}
+                      filters={stateFilters}
+                      setFilters={setStateFilters}
                     />} />
                     <Route path={AppRoutes.State} element={<State />} />
                     <Route path={AppRoutes.Messages} element={<Messages
