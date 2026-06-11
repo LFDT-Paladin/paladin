@@ -60,7 +60,6 @@ func Test_addToDelegatedTransactions_NewTransactionError_ReturnsError(t *testing
 	assert.Equal(t, 0, len(c.transactionsByID), "transaction should not be added when NewTransaction fails")
 }
 
-
 func Test_addToDelegatedTransactions_AddsTransactionInPreDispatchFlowState(t *testing.T) {
 	ctx := t.Context()
 	originator := "sender@senderNode"

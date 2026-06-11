@@ -782,10 +782,6 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
 					Actions:   []ActionRule{{Action: action_PoolTransaction}},
 				}, {
-					// TODO: could we trigger this instead when we see a transaction transition from assembling
-					// It's slightly different semantics - if we've cancelled the currently assembling transaction above
-					// we would do this selection on handling the queued transition event from the cancelling transaction
-					// rather than as part of handling this event
 					Actions: []ActionRule{{If: statemachine.GuardNot(guard_HasTransactionAssembling), Action: action_SelectTransaction}},
 				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
@@ -973,8 +969,7 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
 					Actions:   []ActionRule{{Action: action_PoolTransaction}},
 				}, {
-					Validator: validator_TransactionStateTransitionFrom(transaction.State_Assembling),
-					Actions:   []ActionRule{{Action: action_SelectTransaction}},
+					Actions: []ActionRule{{If: statemachine.GuardNot(guard_HasTransactionAssembling), Action: action_SelectTransaction}},
 				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
 					Actions:   []ActionRule{{Action: action_QueueTransactionForDispatch}},
