@@ -36,7 +36,7 @@
 	"block": "Block",
 	"blockchainTransaction": "Blockchain Transaction",
 	"blockchainTransactionHash": "Blockchain Transaction Hash",
-	"blockchainTransactionHashOrPaladinTransactionId": "Blockchain Transaction Hash or Paladin Transaction ID",
+	"blockchainTransactionHashOrPaladinTransactionId": "Blockchain Transaction Hash, Paladin Transaction or Receipt ID",
 	"blockNumber": "Block Number",
 	"burn": "Burn",
 	"cancel": "Cancel",

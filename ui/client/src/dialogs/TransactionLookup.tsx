@@ -27,7 +27,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { fetchPaladinTransaction, fetchEnrichedTransaction } from '../queries/transactions';
+import { fetchEnrichedTransaction, fetchTransactionReceipt } from '../queries/transactions';
 import { isValidTransactionHash, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
 
@@ -62,9 +62,9 @@ export const TransactionLookupDialog: React.FC<Props> = ({
     retry: false
   });
 
-  const { refetch: paladinTransactionById } = useQuery({
+  const { refetch: paladinReceiptById } = useQuery({
     queryKey: ["paladinTransactionById", hashOrId],
-    queryFn: () => fetchPaladinTransaction(hashOrId),
+    queryFn: () => fetchTransactionReceipt(hashOrId),
     enabled: isValidUUID(hashOrId),
     refetchOnMount: false,
     retry: false
@@ -81,7 +81,7 @@ export const TransactionLookupDialog: React.FC<Props> = ({
         }
       });
     } else if (isValidUUID(hashOrId)) {
-      paladinTransactionById().then(result => {
+      paladinReceiptById().then(result => {
         if (result.isSuccess && result.data !== null) {
           navigate(`/ui/transactions/${hashOrId}`);
         } else {
