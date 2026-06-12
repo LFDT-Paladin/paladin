@@ -582,9 +582,10 @@ var (
 	RPCServerConfigWSWriteBufferSize = pdm("RPCServerConfigWS.writeBufferSize", "Write buffer size for WebSocket connections")
 
 	// RPCServerConfig field descriptions
-	RPCServerConfigHTTPField   = pdm("RPCServerConfig.http", "HTTP server configuration")
-	RPCServerConfigWSField     = pdm("RPCServerConfig.ws", "WebSocket server configuration")
-	RPCServerConfigAuthorizers = pdm("RPCServerConfig.authorizers", "Ordered array of authorizer plugin names to use")
+	RPCServerConfigHTTPField         = pdm("RPCServerConfig.http", "HTTP server configuration")
+	RPCServerConfigWSField           = pdm("RPCServerConfig.ws", "WebSocket server configuration")
+	RPCServerConfigAuthorizers       = pdm("RPCServerConfig.authorizers", "Ordered array of authorizer plugin names to use")
+	RPCServerConfigLegacyReturnCodes = pdm("RPCServerConfig.legacyReturnCodes", "Use legacy HTTP status codes for JSON/RPC responses")
 
 	// RPCAuthManagerConfig field descriptions
 	RPCAuthManagerConfigRPCAuthorizers = pdm("RPCAuthManagerConfig.rpcAuthorizers", "Map of RPC authorizer configurations")

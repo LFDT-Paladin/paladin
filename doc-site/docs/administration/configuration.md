@@ -673,6 +673,7 @@
 |-----|-------------|------|---------|
 | authorizers | Ordered array of authorizer plugin names to use | `[string]` | - |
 | http | HTTP server configuration | [`RPCServerConfigHTTP`](#rpcserverhttp) | - |
+| legacyReturnCodes | Use legacy HTTP status codes for JSON/RPC responses | `bool` | `false` |
 | ws | WebSocket server configuration | [`RPCServerConfigWS`](#rpcserverws) | - |
 
 ## rpcServer.http

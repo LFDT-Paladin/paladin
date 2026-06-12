@@ -84,6 +84,18 @@ func RPCMethod1[R any, P0 any](impl func(ctx context.Context, param0 P0) (R, err
 	})
 }
 
+func RPCMethod1WithRPCCode[R any, P0 any](impl func(ctx context.Context, param0 P0) (R, rpcclient.RPCCode, error)) RPCHandler {
+	return HandlerFunc(func(ctx context.Context, req *rpcclient.RPCRequest) *rpcclient.RPCResponse {
+		var result R
+		param0 := new(P0)
+		code, err := parseParams(ctx, req, param0)
+		if err == nil {
+			result, code, err = impl(ctx, *param0)
+		}
+		return mapResponse(ctx, req, result, code, err)
+	})
+}
+
 func RPCMethod2[R any, P0 any, P1 any](impl func(ctx context.Context, param0 P0, param1 P1) (R, error)) RPCHandler {
 	return HandlerFunc(func(ctx context.Context, req *rpcclient.RPCRequest) *rpcclient.RPCResponse {
 		var result R

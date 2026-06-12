@@ -17,12 +17,15 @@ package txmgr
 
 import (
 	"context"
+	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
@@ -86,22 +89,30 @@ func (tm *txManager) buildRPCModule() {
 }
 
 func (tm *txManager) rpcSendTransaction() rpcserver.RPCHandler {
-	return rpcserver.RPCMethod1(func(ctx context.Context,
+	return rpcserver.RPCMethod1WithRPCCode(func(ctx context.Context,
 		tx pldapi.TransactionInput,
-	) (*uuid.UUID, error) {
+	) (*uuid.UUID, rpcclient.RPCCode, error) {
 		ctx = log.WithComponent(ctx, "txmanager")
 		tm.metrics.IncRpc("sendTransaction")
-		return tm.sendTransactionNewDBTX(ctx, &tx)
+		txID, err := tm.sendTransactionNewDBTX(ctx, &tx)
+		if err != nil && strings.Contains(err.Error(), "PD012220") {
+			return txID, pldclient.RPCCodeConflict, err
+		}
+		return txID, 0, err
 	})
 }
 
 func (tm *txManager) rpcSendTransactions() rpcserver.RPCHandler {
-	return rpcserver.RPCMethod1(func(ctx context.Context,
+	return rpcserver.RPCMethod1WithRPCCode(func(ctx context.Context,
 		txs []*pldapi.TransactionInput,
-	) ([]uuid.UUID, error) {
+	) ([]uuid.UUID, rpcclient.RPCCode, error) {
 		ctx = log.WithComponent(ctx, "txmanager")
 		tm.metrics.IncRpc("sendTransactions")
-		return tm.sendTransactionsNewDBTX(ctx, txs)
+		txIDs, err := tm.sendTransactionsNewDBTX(ctx, txs)
+		if err != nil && strings.Contains(err.Error(), "PD012220") {
+			return txIDs, pldclient.RPCCodeConflict, err
+		}
+		return txIDs, 0, err
 	})
 }
 

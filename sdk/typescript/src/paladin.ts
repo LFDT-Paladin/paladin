@@ -96,13 +96,31 @@ export default class PaladinClient {
     return `${err}`;
   }
 
-  private post<T>(method: string, params: any[], config?: AxiosRequestConfig) {
-    const res = this.http.post<T>(
-      "/",
-      { ...this.defaultPayload(), method, params },
-      { ...config, headers: this.defaultHeaders() }
-    );
-    res.catch((err: AxiosError) => this.onError(method, err));
+  private async post<T>(method: string, params: any[], config?: AxiosRequestConfig) {
+    let res;
+    try {
+      res = await this.http.post<T>(
+        "/",
+        { ...this.defaultPayload(), method, params },
+        { ...config, headers: this.defaultHeaders() }
+      );
+    } catch (err) {
+      this.onError(method, err as AxiosError);
+      throw err;
+    }
+    // JSON/RPC errors are returned with HTTP 200; detect and surface them
+    const data = res.data as any;
+    if (data?.error) {
+      const rpcErr = new AxiosError(
+        data.error.message || JSON.stringify(data.error),
+        String(data.error.code),
+        res.config,
+        undefined,
+        res as any
+      );
+      this.onError(method, rpcErr);
+      throw rpcErr;
+    }
     return res;
   }
 

@@ -19,6 +19,7 @@ package rpcserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -26,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/httpserver"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/router"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/staticserver"
@@ -52,9 +54,10 @@ type RPCServer interface {
 
 func NewRPCServer(ctx context.Context, conf *pldconf.RPCServerConfig) (_ *rpcServer, err error) {
 	s := &rpcServer{
-		bgCtx:         ctx,
-		wsConnections: make(map[string]*webSocketConnection),
-		rpcModules:    make(map[string]*RPCModule),
+		bgCtx:             ctx,
+		wsConnections:     make(map[string]*webSocketConnection),
+		rpcModules:        make(map[string]*RPCModule),
+		legacyReturnCodes: conf.LegacyReturnCodes,
 	}
 
 	// Add the HTTP server
@@ -98,14 +101,15 @@ func NewRPCServer(ctx context.Context, conf *pldconf.RPCServerConfig) (_ *rpcSer
 var _ RPCServer = &rpcServer{}
 
 type rpcServer struct {
-	bgCtx         context.Context
-	httpServer    httpserver.Server
-	wsServer      httpserver.Server
-	wsMux         sync.Mutex
-	wsUpgrader    *websocket.Upgrader
-	wsConnections map[string]*webSocketConnection
-	rpcModules    map[string]*RPCModule
-	authorizers   []Authorizer
+	bgCtx             context.Context
+	httpServer        httpserver.Server
+	wsServer          httpserver.Server
+	wsMux             sync.Mutex
+	wsUpgrader        *websocket.Upgrader
+	wsConnections     map[string]*webSocketConnection
+	rpcModules        map[string]*RPCModule
+	authorizers       []Authorizer
+	legacyReturnCodes bool
 }
 
 type Authorizer interface {
@@ -147,6 +151,7 @@ func (s *rpcServer) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 func (s *rpcServer) httpHandler(res http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		res.WriteHeader(http.StatusMethodNotAllowed)
+		return
 	}
 
 	ctx := req.Context()
@@ -162,15 +167,55 @@ func (s *rpcServer) httpHandler(res http.ResponseWriter, req *http.Request) {
 		ctx = context.WithValue(ctx, authResultKey, authenticationResults)
 	}
 
-	r := s.rpcHandler(ctx, req.Body, nil /* not websockets */)
+	var r handlerResult
+	func() {
+		defer func() {
+			if rc := recover(); rc != nil {
+				log.L(ctx).Errorf("Panic in RPC handler: %v", rc)
+				r = handlerResult{httpStatus: http.StatusInternalServerError, sendRes: true,
+					res: rpcclient.NewRPCErrorResponse(fmt.Errorf("%v", rc), nil, rpcclient.RPCCodeInternalError)}
+			}
+		}()
+		r = s.rpcHandler(ctx, req.Body, nil /* not websockets */)
+	}()
 
 	res.Header().Set("Content-Type", "application/json; charset=utf-8")
-	status := http.StatusOK
-	if !r.isOK {
-		status = http.StatusInternalServerError
+	status := r.httpStatus
+	if s.legacyReturnCodes {
+		// Legacy mode: run with the pre-v1 behaviour where any JSON/RPC error (including
+		// authorization failures) returned HTTP 500. This is a temporary config option while
+		// we ensure that the new default behaviour hasn't affected user applications.
+		if (status == 0 || status == http.StatusForbidden) && rpcResponseHasError(r.res) {
+			status = http.StatusInternalServerError
+		} else if status == 0 {
+			status = http.StatusOK
+		}
+	} else if status == 0 {
+		status = http.StatusOK
 	}
 	res.WriteHeader(status)
 	_ = json.NewEncoder(res).Encode(r.res)
+}
+
+// Reports whether the response value contains a JSON/RPC error.
+// For batch responses it returns true only when every entry has an error (matching the
+// pre-v1 batch behaviour: 200 if at least one request succeeded).
+func rpcResponseHasError(res any) bool {
+	switch v := res.(type) {
+	case *rpcclient.RPCResponse:
+		return v != nil && v.Error != nil
+	case []*rpcclient.RPCResponse:
+		if len(v) == 0 {
+			return false
+		}
+		for _, r := range v {
+			if r == nil || r.Error == nil {
+				return false // at least one success → not a full failure
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func (s *rpcServer) wsHandler(res http.ResponseWriter, req *http.Request) {
