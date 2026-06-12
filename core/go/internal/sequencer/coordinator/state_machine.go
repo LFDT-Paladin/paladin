@@ -31,10 +31,7 @@ type State = common.CoordinatorState
 // EventType is an alias for common.EventType
 type EventType = common.EventType
 
-// Note: inline comments on State_* constants are used in auto-generated documentation.
-// Keep them accurate and human-readable - see scripts/generate_state_machine_docs.py
 const (
-
 	State_Initial       = common.CoordinatorState_Initial       // Coordinator state machine created
 	State_Idle          = common.CoordinatorState_Idle          // Not actively coordinating and not aware of any other active coordinators
 	State_Observing     = common.CoordinatorState_Observing     // Not actively coordinating but aware of another node actively coordinating

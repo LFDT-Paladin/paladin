@@ -27,8 +27,6 @@ import (
 
 type State = common.OriginatorTransactionState
 
-// Note: inline comments on State_* constants are used in auto-generated documentation.
-// Keep them accurate and human-readable - see scripts/generate_state_machine_docs.py
 const (
 	State_Initial               = common.OriginatorTransactionState_Initial               // Transaction state machine created
 	State_Pending               = common.OriginatorTransactionState_Pending               // The transaction has not yet been delegated to a coordinator

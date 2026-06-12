@@ -23,6 +23,8 @@ stateDiagram-v2
     Elect --> Observing : HeartbeatReceived [!HasTransactionsInflight]
     Elect --> Closing_Flush : HeartbeatReceived [HasTransactionsInflight && HasUnconfirmedDispatchedTransactions]
     Elect --> Closing : HeartbeatReceived [HasTransactionsInflight && !HasUnconfirmedDispatchedTransactions]
+    Elect --> Prepared : HeartbeatReceived
+    Elect --> Active : HeartbeatReceived
     Elect --> Closing_Flush : HandoverRequest [HasUnconfirmedDispatchedTransactions]
     Elect --> Closing : HandoverRequest [!HasUnconfirmedDispatchedTransactions]
     Elect --> Observing : EndorsementRequestReceived [!HasTransactionsInflight]
@@ -30,6 +32,9 @@ stateDiagram-v2
     Elect --> Closing : EndorsementRequestReceived [HasTransactionsInflight && !HasUnconfirmedDispatchedTransactions]
     Prepared --> Active : HeartbeatInterval [InactiveGracePeriodExceeded]
     Prepared --> Active : HeartbeatReceived
+    Prepared --> Observing : HeartbeatReceived [!HasTransactionsInflight]
+    Prepared --> Closing_Flush : HeartbeatReceived [HasTransactionsInflight && HasUnconfirmedDispatchedTransactions]
+    Prepared --> Closing : HeartbeatReceived [HasTransactionsInflight && !HasUnconfirmedDispatchedTransactions]
     Prepared --> Closing_Flush : HandoverRequest [HasUnconfirmedDispatchedTransactions]
     Prepared --> Closing : HandoverRequest [!HasUnconfirmedDispatchedTransactions]
     Prepared --> Observing : EndorsementRequestReceived [!HasTransactionsInflight]
@@ -50,39 +55,25 @@ stateDiagram-v2
     Active_Flush --> Active : TransactionStateTransition [!HasUnconfirmedDispatchedTransactions]
     Closing_Flush --> Elect : TransactionsDelegated [IsHigherPriorityThanCurrentActive]
     Closing_Flush --> Closing : TransactionStateTransition [!HasUnconfirmedDispatchedTransactions]
-    Closing --> Idle : HeartbeatInterval [statemachine.GuardAnd(
-								statemachine.GuardNot(guard_HasTransactionsInflight),
-								guard_ClosingGracePeriodExpired,
-								guard_InactiveGracePeriodExceeded,
-							)]
-    Closing --> Observing : HeartbeatInterval [statemachine.GuardAnd(
-								statemachine.GuardNot(guard_HasTransactionsInflight),
-								guard_ClosingGracePeriodExpired,
-								statemachine.GuardNot(guard_InactiveGracePeriodExceeded),
-							)]
-    Closing --> Elect : TransactionsDelegated [statemachine.GuardAnd(
-								guard_IsHigherPriorityThanCurrentActive,
-								statemachine.GuardNot(guard_InactiveGracePeriodExceeded),
-							)]
-    Closing --> Active : TransactionsDelegated [statemachine.GuardAnd(
-								statemachine.GuardNot(guard_IsHigherPriorityThanCurrentActive),
-								guard_InactiveGracePeriodExceeded,
-							)]
+    Closing --> Idle : HeartbeatInterval [!HasTransactionsInflight && ClosingGracePeriodExpired && InactiveGracePeriodExceeded]
+    Closing --> Observing : HeartbeatInterval [!HasTransactionsInflight && ClosingGracePeriodExpired && !InactiveGracePeriodExceeded]
+    Closing --> Elect : TransactionsDelegated [IsHigherPriorityThanCurrentActive && !InactiveGracePeriodExceeded]
+    Closing --> Active : TransactionsDelegated [!IsHigherPriorityThanCurrentActive && InactiveGracePeriodExceeded]
 ```
 
 ### Transition Events
 
 | Event | Description |
 | --- | --- |
-| **CoordinatorCreated** |  |
-| **TransactionsDelegated** |  |
-| **StateTimeoutInterval** |  |
-| **HandoverRequest** | pushed by transport_client when a CoordinatorHandoverRequest message is received from a higher-priority node |
-| **EndorsementRequestReceived** | pushed by transport_client when an EndorsementRequest message arrives for this coordinator |
-| **EpochBoundaryReached** | queued internally by getAndRefreshBlockHeight when the effective block height advances to a new epoch |
-| **HeartbeatInterval** | (shared event from sequencer common package) |
-| **HeartbeatReceived** | (shared event from sequencer common package) |
-| **TransactionStateTransition** | (shared event from sequencer common package) |
+| **CoordinatorCreated** | |
+| **EndorsementRequestReceived** | |
+| **EpochBoundaryReached** | |
+| **HandoverRequest** | |
+| **HeartbeatInterval** | |
+| **HeartbeatReceived** | |
+| **StateTimeoutInterval** | |
+| **TransactionStateTransition** | |
+| **TransactionsDelegated** | |
 
 ---
 
@@ -119,6 +110,8 @@ stateDiagram-v2
     Assembling --> Pooled : AssembleError [CanRetryErroredAssemble]
     Assembling --> Evicted : AssembleError [!CanRetryErroredAssemble]
     Assembling --> Pooled : AssembleRequestRejected
+    Assembling --> Evicted : AssembleRequestRejected
+    Assembling --> Final : AssembleRequestRejected
     Assembling --> PreAssembly_Blocked : DependencyReset
     Assembling --> PreAssembly_Blocked : DependencyConfirmedReverted
     Assembling --> Reverted : ChainedDependencyFailed
@@ -130,22 +123,31 @@ stateDiagram-v2
     Endorsement_Gathering --> Pooled : EndorseRequestRejected [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --> Pooled : StateTimeoutInterval
     Endorsement_Gathering --> PreAssembly_Blocked : DependencyReset
+    Endorsement_Gathering --> Pooled : DependencyReset
     Endorsement_Gathering --> PreAssembly_Blocked : DependencyConfirmedReverted
+    Endorsement_Gathering --> Pooled : DependencyConfirmedReverted
     Endorsement_Gathering --> Reverted : ChainedDependencyFailed
     Blocked --> Confirming_Dispatchable : DependencyReady [!HasDependenciesNotReady]
     Blocked --> PreAssembly_Blocked : DependencyReset
+    Blocked --> Pooled : DependencyReset
     Blocked --> PreAssembly_Blocked : DependencyConfirmedReverted
+    Blocked --> Pooled : DependencyConfirmedReverted
     Blocked --> Reverted : ChainedDependencyFailed
     Confirming_Dispatchable --> Ready_For_Dispatch : DispatchRequestApproved
     Confirming_Dispatchable --> Pooled : DispatchRequestRejected
     Confirming_Dispatchable --> Evicted : PreDispatchRequestRejected
+    Confirming_Dispatchable --> Final : PreDispatchRequestRejected
     Confirming_Dispatchable --> Pooled : StateTimeoutInterval
     Confirming_Dispatchable --> PreAssembly_Blocked : DependencyReset
+    Confirming_Dispatchable --> Pooled : DependencyReset
     Confirming_Dispatchable --> PreAssembly_Blocked : DependencyConfirmedReverted
+    Confirming_Dispatchable --> Pooled : DependencyConfirmedReverted
     Confirming_Dispatchable --> Reverted : ChainedDependencyFailed
     Ready_For_Dispatch --> Dispatched : Dispatched
     Ready_For_Dispatch --> PreAssembly_Blocked : DependencyReset
+    Ready_For_Dispatch --> Pooled : DependencyReset
     Ready_For_Dispatch --> PreAssembly_Blocked : DependencyConfirmedReverted
+    Ready_For_Dispatch --> Pooled : DependencyConfirmedReverted
     Ready_For_Dispatch --> Reverted : ChainedDependencyFailed
     Dispatched --> Confirmed : ConfirmedSuccess
     Dispatched --> PreAssembly_Blocked : ConfirmedReverted [CanRetryRevert && HasUnassembledDependencies]
@@ -162,32 +164,32 @@ stateDiagram-v2
 
 | Event | Description |
 | --- | --- |
-| **Delegated** | Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions |
-| **DependencySelectedForAssemble** | the transaction delegated immediately before the transaction from the same originator has been selected for assembly |
-| **Selected** | selected from the pool as the next transaction to be assembled |
-| **AssembleSuccess** | assembler returned a successful assembly |
-| **AssembleRevert** | assembler returned a revert (domain said assembly is invalid) |
-| **AssembleError** | assembler returned an unexpected error |
-| **AssembleRequestRejected** | originator rejected the assemble request (e.g. block height tolerance exceeded) |
-| **AssembleCancelled** | the assemble attempt has been cancelled |
-| **Endorsed** | endorsement received from one endorser |
-| **EndorseRevert** | endorser responded that the assembly is invalid (domain REVERT) |
-| **EndorseError** | endorser encountered an unexpected error processing the request |
-| **EndorseRequestRejected** | endorser rejected the request before processing (e.g. block height tolerance) |
-| **DependencyReady** | another transaction, for which this transaction has a dependency on, has become ready for dispatch |
-| **DependencyReset** | another transaction, for which this transaction has a dependency on, has been reset |
-| **DependencyConfirmedReverted** | another transaction, for which this transaction has a dependency on, has been confirmed as reverted |
-| **DispatchRequestApproved** | dispatch confirmation received from the originator |
-| **DispatchRequestRejected** | dispatch confirmation response received from the originator with a rejection |
-| **Dispatched** | dispatched to the public TX manager |
-| **ConfirmedSuccess** | confirmation received from the blockchain of a successful transaction |
-| **ConfirmedReverted** | confirmation received from the blockchain of a reverted transaction |
-| **StateTimeoutInterval** | event emitted when a state has exceeded its maximum allowed duration |
-| **PreDispatchRequestRejected** | originator has rejected the pre-dispatch request (NOT_CURRENT_DELEGATE or TRANSACTION_UNKNOWN) |
-| **ChainedDependencyFailed** | a chained (same-coordinator) dependency has been permanently finalized as failed |
-| **ChainedDependencyEvicted** | a chained (same-coordinator) dependency has been evicted (e.g. assembly failure threshold exceeded) |
-| **PreAssembleDependencyTerminated** | the pre-assemble (FIFO ordering) predecessor has reached a terminal state |
-| **HeartbeatInterval** | (shared event from sequencer common package) |
+| **AssembleCancelled** | |
+| **AssembleError** | |
+| **AssembleRequestRejected** | |
+| **AssembleRevert** | |
+| **AssembleSuccess** | |
+| **ChainedDependencyEvicted** | |
+| **ChainedDependencyFailed** | |
+| **ConfirmedReverted** | |
+| **ConfirmedSuccess** | |
+| **Delegated** | |
+| **DependencyConfirmedReverted** | |
+| **DependencyReady** | |
+| **DependencyReset** | |
+| **DependencySelectedForAssemble** | |
+| **DispatchRequestApproved** | |
+| **DispatchRequestRejected** | |
+| **Dispatched** | |
+| **EndorseError** | |
+| **EndorseRequestRejected** | |
+| **EndorseRevert** | |
+| **Endorsed** | |
+| **HeartbeatInterval** | |
+| **PreAssembleDependencyTerminated** | |
+| **PreDispatchRequestRejected** | |
+| **Selected** | |
+| **StateTimeoutInterval** | |
 
 ---
 
@@ -210,11 +212,11 @@ stateDiagram-v2
 
 | Event | Description |
 | --- | --- |
-| **OriginatorCreated** | fired once by Start to drive the initial coordinator selection |
-| **TransactionCreated** | a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created? |
-| **HeartbeatInterval** | (shared event from sequencer common package) |
-| **HeartbeatReceived** | (shared event from sequencer common package) |
-| **TransactionStateTransition** | (shared event from sequencer common package) |
+| **HeartbeatInterval** | |
+| **HeartbeatReceived** | |
+| **OriginatorCreated** | |
+| **TransactionCreated** | |
+| **TransactionStateTransition** | |
 
 ---
 
@@ -277,18 +279,18 @@ stateDiagram-v2
 
 | Event | Description |
 | --- | --- |
-| **Created** | Transaction initially received by the originator or has been loaded from the database after a restart / swap-in |
-| **ConfirmedSuccess** | confirmation received from the blockchain of base ledge transaction successful completion |
-| **ConfirmedReverted** | confirmation received from the blockchain of base ledge transaction failure |
-| **Delegated** | transaction has been delegated to a coordinator |
-| **AssembleRequestReceived** | coordinator has requested that we assemble the transaction |
-| **AssembleAndSignSuccess** | we have successfully assembled the transaction and signing module has signed the assembled transaction |
-| **AssembleRevert** | we have failed to assemble the transaction |
-| **AssemblePark** | we have parked the transaction |
-| **AssembleError** | an unexpected error occurred while trying to assemble the transaction |
-| **Dispatched** | coordinator has dispatched the transaction to a public transaction manager |
-| **PreDispatchRequestReceived** | coordinator has requested confirmation that the transaction is OK to be dispatched |
-| **Resumed** | Received an RPC call to resume a parked transaction |
-| **NonceAssigned** | the public transaction manager has assigned a nonce to the transaction |
-| **Submitted** | the transaction has been submitted to the blockchain |
-| **Finalize** | internal event to trigger transition from terminal states (Confirmed/Reverted) to State_Final for cleanup |
+| **AssembleAndSignSuccess** | |
+| **AssembleError** | |
+| **AssemblePark** | |
+| **AssembleRequestReceived** | |
+| **AssembleRevert** | |
+| **ConfirmedReverted** | |
+| **ConfirmedSuccess** | |
+| **Created** | |
+| **Delegated** | |
+| **Dispatched** | |
+| **Finalize** | |
+| **NonceAssigned** | |
+| **PreDispatchRequestReceived** | |
+| **Resumed** | |
+| **Submitted** | |

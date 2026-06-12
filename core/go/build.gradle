@@ -487,7 +487,7 @@ task testcov(type: Exec, dependsOn: [test, aggregateCoverage]) {
 
 task generateStateMachineDocs(type: Exec) {
     description = 'Regenerates distributed sequencer state machine documentation from source'
-    commandLine 'python3', 'scripts/generate_state_machine_docs.py'
+    commandLine 'go', 'run', './scripts/gendocs'
     workingDir rootDir
 }
 
@@ -505,7 +505,7 @@ task checkStateMachineDocs {
 
         try {
             exec {
-                commandLine 'python3', 'scripts/generate_state_machine_docs.py'
+                commandLine 'go', 'run', './scripts/gendocs'
                 workingDir rootDir
             }
             docFiles.each { f -> new File(tmpDir, f.name).text = f.text }

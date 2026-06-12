@@ -22,10 +22,11 @@ stateDiagram-v2
     Elect --> Observing
     Elect --> Closing_Flush
     Elect --> Closing
+    Elect --> Prepared
     Prepared --> Active
+    Prepared --> Observing
     Prepared --> Closing_Flush
     Prepared --> Closing
-    Prepared --> Observing
     Active --> Idle
     Active --> Closing_Flush
     Active --> Closing
@@ -85,6 +86,7 @@ stateDiagram-v2
     Assembling --> Pooled
     Assembling --> Reverted
     Assembling --> Evicted
+    Assembling --> Final
     Assembling --> PreAssembly_Blocked
     Endorsement_Gathering --> Confirming_Dispatchable
     Endorsement_Gathering --> Blocked
@@ -93,14 +95,17 @@ stateDiagram-v2
     Endorsement_Gathering --> Reverted
     Blocked --> Confirming_Dispatchable
     Blocked --> PreAssembly_Blocked
+    Blocked --> Pooled
     Blocked --> Reverted
     Confirming_Dispatchable --> Ready_For_Dispatch
     Confirming_Dispatchable --> Pooled
     Confirming_Dispatchable --> Evicted
+    Confirming_Dispatchable --> Final
     Confirming_Dispatchable --> PreAssembly_Blocked
     Confirming_Dispatchable --> Reverted
     Ready_For_Dispatch --> Dispatched
     Ready_For_Dispatch --> PreAssembly_Blocked
+    Ready_For_Dispatch --> Pooled
     Ready_For_Dispatch --> Reverted
     Dispatched --> Confirmed
     Dispatched --> PreAssembly_Blocked

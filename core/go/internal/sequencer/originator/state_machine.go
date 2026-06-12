@@ -30,8 +30,6 @@ import (
 type State = common.OriginatorState
 type EventType = common.EventType
 
-// Note: inline comments on State_* constants are used in auto-generated documentation.
-// Keep them accurate and human-readable - see scripts/generate_state_machine_docs.py
 const (
 	State_Initial   = common.OriginatorState_Initial   // Waiting for initial coordinator selection
 	State_Idle      = common.OriginatorState_Idle      // Not acting as an originator and not aware of any active coordinators
@@ -251,17 +249,17 @@ var stateDefinitionsMap = StateDefinitions{
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
 					Actions: []ActionRule{
-					{Action: action_IncrementHeartbeatIntervalCounts},
-					// When the active coordinator has been silent too long, failover to the next
-					// highest-priority candidate if one is available. Otherwise redelegate to the same node.
-					{
-						If:     guard_InactiveGracePeriodExceeded,
-						Action: action_RefreshBlockHeight,
-					},
-					{
-						If:     guard_InactiveGracePeriodExceeded,
-						Action: action_FailoverToNextCoordinator,
-					},
+						{Action: action_IncrementHeartbeatIntervalCounts},
+						// When the active coordinator has been silent too long, failover to the next
+						// highest-priority candidate if one is available. Otherwise redelegate to the same node.
+						{
+							If:     guard_InactiveGracePeriodExceeded,
+							Action: action_RefreshBlockHeight,
+						},
+						{
+							If:     guard_InactiveGracePeriodExceeded,
+							Action: action_FailoverToNextCoordinator,
+						},
 					},
 				}},
 			},
