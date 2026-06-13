@@ -228,9 +228,9 @@ func (n *Noto) receiptLockInfoV0(ctx context.Context, req *prototk.BuildReceiptR
 			lockInfo.UnlockFunction = "unlock"
 			lockInfo.UnlockParams = map[string]any{
 				"txId":          pldtypes.Bytes32UUIDFirst16(uuid.New()).String(), // In V0 we generated a new UUID each time you request a receipt
-				"lockedInputs":  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
-				"lockedOutputs": endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
-				"outputs":       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
+				"lockedInputs":  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id}), false),
+				"lockedOutputs": endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id}), false),
+				"outputs":       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id}), false),
 				"signature":     pldtypes.HexBytes{},
 				"data":          receiptData, // for V0 we chose to pass the original "data" sent to "prepareUnlock", and decoded here from the info states
 			}
@@ -266,10 +266,10 @@ func (n *Noto) receiptLockInfoV1V2(ctx context.Context, req *prototk.BuildReceip
 		var lockedInputIDs []string
 		if lt.prevLockState == nil {
 			// create lock: locked coins are in OutputStates (they were just created)
-			lockedInputIDs = endorsableStateIDs(n.filterSchema(req.OutputStates, []string{n.lockedCoinSchema.Id}))
+			lockedInputIDs = endorsableStateIDs(n.filterSchema(req.OutputStates, []string{n.lockedCoinSchema.Id}), false)
 		} else {
 			// prepare unlock: locked coins are in ReadStates (they were created by a prior lock transaction)
-			lockedInputIDs = endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id}))
+			lockedInputIDs = endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id}), false)
 		}
 
 		// Encode the operation to spend the lock

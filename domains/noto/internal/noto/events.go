@@ -21,11 +21,17 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	notosmt "github.com/LFDT-Paladin/paladin/domains/noto/internal/noto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/node"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
 )
 
 func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error) {
@@ -46,7 +52,7 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 				return nil, err
 			}
 		} else {
-			if err := n.handleV1Event(ctx, ev, &res, req); err != nil {
+			if err := n.handleV1Event(ctx, ev, &res, req, variant == types.NotoVariantV2Nullifiers); err != nil {
 				log.L(ctx).Warnf("Error handling V1 event: %s", err)
 				return nil, err
 			}
@@ -55,7 +61,18 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 	return &res, nil
 }
 
-func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res *prototk.HandleEventBatchResponse, req *prototk.HandleEventBatchRequest) error {
+func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res *prototk.HandleEventBatchResponse, req *prototk.HandleEventBatchRequest, useNullifier bool) error {
+	var smtForStates *smt.MerkleTreeSpec
+	var err error
+	if useNullifier {
+		smtName := notosmt.MerkleTreeName(req.ContractInfo.ContractAddress)
+		hasher := utxo.NewKeccak256Hasher()
+		smtForStates, err = smt.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, notosmt.SMT_HEIGHT_UTXO, hasher, true, n.Callbacks, n.merkleTreeRootSchema.Id, n.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		if err != nil {
+			return err
+		}
+	}
+
 	switch ev.SoliditySignature {
 	case eventSignatures[EventTransfer]:
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
@@ -68,6 +85,11 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			n.recordTransactionInfo(ev, transfer.TxId, txData.InfoStates, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(transfer.TxId, transfer.Inputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(transfer.TxId, transfer.Outputs)...)
+			if useNullifier {
+				if err := n.updateMerkleTree(ctx, smtForStates.Tree, smtForStates.Storage, transfer.TxId, convertToUint256(transfer.Outputs)); err != nil {
+					return err
+				}
+			}
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed Transfer event in batch %s: %s", req.BatchId, err)
 		}
@@ -155,6 +177,19 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 	default:
 		log.L(ctx).Infof("Skipping '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 	}
+
+	// Handle new states representing new SMT nodes
+	if useNullifier {
+		newStatesForSMT, err := smtForStates.Storage.GetNewStates(ctx)
+		if err != nil {
+			log.L(ctx).Errorf("Failed to get new SMT states for tree %s: %s", smtForStates.Name, err)
+			return nil
+		}
+		if len(newStatesForSMT) > 0 {
+			res.NewStates = append(res.NewStates, newStatesForSMT...)
+		}
+	}
+
 	return nil
 }
 
@@ -262,4 +297,43 @@ func (n *Noto) recordTransactionInfo(ev *prototk.OnChainEvent, txID pldtypes.Byt
 			TransactionId: txID.String(),
 		})
 	}
+}
+
+func (n *Noto) updateMerkleTree(ctx context.Context, tree core.SparseMerkleTree, storage smt.StatesStorage, txID pldtypes.Bytes32, outputs []pldtypes.HexUint256) error {
+	storage.SetTransactionId(txID.HexString0xPrefix())
+	for _, out := range outputs {
+		if out.NilOrZero() {
+			continue
+		}
+		err := n.addOutputToMerkleTree(ctx, tree, out)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (n *Noto) addOutputToMerkleTree(ctx context.Context, tree core.SparseMerkleTree, output pldtypes.HexUint256) error {
+	idx, err := node.NewNodeIndexFromBigInt(output.Int(), notosmt.GetHasher())
+	if err != nil {
+		return i18n.NewError(ctx, pldmsgs.MsgErrorNewNodeIndex, output.String(), err)
+	}
+	nidx := node.NewIndexOnly(idx)
+	leaf, err := node.NewLeafNode(nidx, nil)
+	if err != nil {
+		return i18n.NewError(ctx, pldmsgs.MsgErrorNewLeafNode, err)
+	}
+	err = tree.AddLeaf(ctx, leaf)
+	if err != nil {
+		return i18n.NewError(ctx, pldmsgs.MsgErrorAddLeafNode, err)
+	}
+	return nil
+}
+
+func convertToUint256(in []pldtypes.Bytes32) []pldtypes.HexUint256 {
+	out := make([]pldtypes.HexUint256, len(in))
+	for i, v := range in {
+		out[i] = *pldtypes.MustParseHexUint256(v.String())
+	}
+	return out
 }

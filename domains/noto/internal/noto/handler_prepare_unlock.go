@@ -272,8 +272,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 
 	if tx.DomainConfig.IsV0() {
 		var unlockHash ethtypes.HexBytes0xPrefix
-		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, endorsableStateIDs(lockedInputs), endorsableStateIDs(lockedOutputs), endorsableStateIDs(spendOutputs),
-			inParams.Data /* we do not have unlockData in V0 inputs */)
+		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, endorsableStateIDs(lockedInputs, false), endorsableStateIDs(lockedOutputs, false), endorsableStateIDs(spendOutputs, false), inParams.Data)
 		if err != nil {
 			return nil, err
 		}
@@ -284,7 +283,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		if err == nil {
 			functionName = "prepareUnlock"
 			paramsJSON, err = json.Marshal(&NotoPrepareUnlock_V0_Params{
-				LockedInputs: endorsableStateIDs(lockedInputs),
+				LockedInputs: endorsableStateIDs(lockedInputs, false),
 				UnlockHash:   unlockHash.String(),
 				Signature:    sender.Payload,
 				Data:         txData,

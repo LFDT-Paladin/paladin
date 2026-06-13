@@ -258,29 +258,31 @@ func TestCreateBurnLock(t *testing.T) {
 	}, data)
 
 	// Decode the options we store into the lockInfo
-	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockManifestState, unlockDataState}))
+	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockManifestState, unlockDataState}), false)
 	require.NoError(t, err)
-	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
+	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}), false)
 	require.NoError(t, err)
-	notoParams := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
-	notoOptions := notoParams.Options
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), []string{}, unlockTxData)
+	createLockArgs := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2], false), []string{}, unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), cancelUnlockTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2], false), endorsableStateIDs(infoStates[1:2], false), cancelUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
+
+	expectedInputs := endorsableStateIDs(inputStates, false)
+	require.NotNil(t, expectedInputs)
 
 	// Validate the encoded noto parameters passed in
 	require.Equal(t, &types.NotoCreateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Inputs:       []string{inputCoinState.Id},
+		Inputs:       expectedInputs,
 		Outputs:      []string{*remainderCoinState.Id},
 		Contents:     []string{*lockedCoinState.Id},
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
-		Options:      notoParams.Options,
+		Options:      &types.NotoLockOptions{SpendTxId: lockInfo.SpendTxId},
 		Proof:        signatureBytes,
-	}, notoParams)
+	}, createLockArgs)
 
 	// Prepare again with V1 variant to exercise compatibility parameter shape
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{

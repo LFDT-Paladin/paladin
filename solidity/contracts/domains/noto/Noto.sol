@@ -51,15 +51,15 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             "Unlock(bytes32 txId,bytes32[] lockedInputs,bytes32[] outputs,bytes data)"
         );
 
-    string private _name;
-    string private _symbol;
+    string internal _name;
+    string internal _symbol;
     address public notary;
 
     mapping(bytes32 => bool) private _unspent;
     mapping(bytes32 => bytes32) private _locked; // state ID => lock ID
     mapping(bytes32 => NotoLockInfo) private _locks; // lock ID => lock details
     mapping(bytes32 => bool) private _txIds; // track used transaction IDs
-    mapping(bytes32 => bytes32) private _lockStates; // track the current lockState ID for any active lock
+    mapping(bytes32 => bytes32) internal _lockStates; // track the current lockState ID for any active lock
     mapping(bytes32 => bytes32) private _lockTxIds; // tx ID => lock ID (for prepared transactions)
 
     function requireNotary(address addr) internal view {
@@ -136,7 +136,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
 
     function buildConfig(
         bytes calldata data
-    ) external view returns (bytes memory) {
+    ) external view virtual returns (bytes memory) {
         return
             _encodeConfig(
                 NotoConfig_V1({
@@ -169,14 +169,14 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     /**
      * @dev Returns the name of the token.
      */
-    function name() external view returns (string memory) {
+    function name() public view returns (string memory) {
         return _name;
     }
 
     /**
      * @dev Returns the symbol of the token.
      */
-    function symbol() external view returns (string memory) {
+    function symbol() public view returns (string memory) {
         return _symbol;
     }
 
@@ -325,7 +325,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     /**
      * @dev Check that the input is unspent, and remove it.
      */
-    function _processInput(bytes32 input) internal {
+    function _processInput(bytes32 input) internal virtual {
         if (!isUnspent(input)) {
             revert NotoInvalidInput(input);
         }
@@ -344,7 +344,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     /**
      * @dev Check that an individual output is new, and mark it as unspent.
      */
-    function _processOutput(bytes32 output) internal {
+    function _processOutput(bytes32 output) internal virtual {
         if (isUnspent(output) || getLockId(output) != 0) {
             revert NotoInvalidOutput(output);
         }
@@ -737,12 +737,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             delegateOp.newLockState
         );
 
-        emit LockDelegated(
-            lockId,
-            previousSpender,
-            newSpender,
-            data
-        );
+        emit LockDelegated(lockId, previousSpender, newSpender, data);
 
         emit NotoLockDelegated(
             delegateOp.txId,
@@ -763,7 +758,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         bytes32 lockId,
         bytes32 oldLockState,
         bytes32 newLockState
-    ) internal {
+    ) internal virtual {
         bytes32 currentLockState = _lockStates[lockId];
         if (currentLockState != oldLockState) {
             revert NotoInvalidLockState(lockId, oldLockState, currentLockState);
@@ -822,5 +817,14 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             }
             _locked[outputs[i]] = lockId;
         }
+    }
+
+    /**
+     * @dev Set the lock state for a lock.
+     * @param lockId The identifier of the lock.
+     * @param lockState The new lock state.
+     */
+    function _setLockState(bytes32 lockId, bytes32 lockState) internal {
+        _lockStates[lockId] = lockState;
     }
 }

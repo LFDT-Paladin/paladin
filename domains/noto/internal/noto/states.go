@@ -17,6 +17,7 @@ package noto
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"slices"
@@ -24,11 +25,15 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	notosmt "github.com/LFDT-Paladin/paladin/domains/noto/internal/noto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/eip712"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 )
@@ -301,7 +306,7 @@ skipDuplicate:
 	return al
 }
 
-func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *identityPair, amount *pldtypes.HexUint256) (inputs *preparedInputs, revert bool, err error) {
+func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *identityPair, amount *pldtypes.HexUint256, useNullifiers bool) (inputs *preparedInputs, revert bool, err error) {
 	var lastStateTimestamp int64
 	total := big.NewInt(0)
 	stateRefs := []*prototk.StateRef{}
@@ -319,7 +324,7 @@ func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owne
 		}
 
 		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
-		states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String())
+		states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String(), useNullifiers)
 		if err != nil {
 			return nil, false, err
 		}
@@ -370,7 +375,7 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 		}
 
 		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
-		states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockedCoinSchema.Id, queryBuilder.Query().String())
+		states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockedCoinSchema.Id, queryBuilder.Query().String(), false)
 		if err != nil {
 			return nil, false, err
 		}
@@ -524,11 +529,12 @@ func (n *Noto) getStates(ctx context.Context, stateQueryContext, schemaId string
 	return res.States, nil
 }
 
-func (n *Noto) findAvailableStates(ctx context.Context, stateQueryContext, schemaId, query string) ([]*prototk.StoredState, error) {
+func (n *Noto) findAvailableStates(ctx context.Context, stateQueryContext, schemaId, query string, useNullifiers bool) ([]*prototk.StoredState, error) {
 	req := &prototk.FindAvailableStatesRequest{
 		StateQueryContext: stateQueryContext,
 		SchemaId:          schemaId,
 		QueryJson:         query,
+		UseNullifiers:     &useNullifiers,
 	}
 	res, err := n.Callbacks.FindAvailableStates(ctx, req)
 	if err != nil {
@@ -579,10 +585,24 @@ func encodedStateIDs(states []*pldapi.StateEncoded) []string {
 	return inputs
 }
 
-func endorsableStateIDs(states []*prototk.EndorsableState) []string {
+func endorsableStateIDs(states []*prototk.EndorsableState, useNullifier bool) []string {
 	inputs := make([]string, len(states))
 	for i, state := range states {
-		inputs[i] = state.Id
+		if !useNullifier {
+			inputs[i] = state.Id
+		} else {
+			// Use the nullifier as the ID
+			var coin types.NotoCoin
+			var hashBytes *pldtypes.Bytes32
+			err := json.Unmarshal([]byte(state.StateDataJson), &coin)
+			if err == nil {
+				hashBytes, err = calculateNullifier(&coin)
+			}
+			if err != nil {
+				return nil
+			}
+			inputs[i] = hashBytes.HexString()
+		}
 	}
 	return inputs
 }
@@ -711,14 +731,14 @@ func (n *Noto) encodeDelegateLock(ctx context.Context, contract *ethtypes.Addres
 	})
 }
 
-func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress) (totalStates int, totalBalance *big.Int, overflow, revert bool, err error) {
+func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress, useNullifiers bool) (totalStates int, totalBalance *big.Int, overflow, revert bool, err error) {
 	totalBalance = big.NewInt(0)
 	queryBuilder := query.NewQueryBuilder().
 		Limit(1000).
 		Equal("owner", owner.String())
 
 	log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
-	states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String())
+	states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String(), useNullifiers)
 	if err != nil {
 		return 0, nil, false, false, err
 	}
@@ -735,6 +755,67 @@ func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, 
 	}
 
 	return len(states), totalBalance, false, false, nil
+}
+
+func (n *Noto) encodeRootAndSignature(ctx context.Context, txContractAddress, stateQueryContext string, payload []byte) ([]byte, error) {
+	// for nullifier variants, the "signature" parameter includes both the signature and the root
+	smtName := notosmt.MerkleTreeName(txContractAddress)
+	smtType := smt.StatesTree
+	hasher := utxo.NewKeccak256Hasher()
+	mt, err := smt.NewMerkleTreeSpec(ctx, smtName, smtType, notosmt.SMT_HEIGHT_UTXO, hasher, true, n.Callbacks, n.merkleTreeRootSchema.Id, n.merkleTreeNodeSchema.Id, stateQueryContext)
+	if err != nil {
+		return nil, err
+	}
+	root := mt.Tree.Root()
+	jsonObj := map[string]interface{}{
+		"root":      "0x" + root.BigInt().Text(16),
+		"signature": "0x" + hex.EncodeToString(payload),
+	}
+	jsonBytes, err := json.Marshal(jsonObj)
+	if err != nil {
+		return nil, err
+	}
+	args := abi.ParameterArray{
+		{Name: "root", Type: "uint256"},
+		{Name: "signature", Type: "bytes"},
+	}
+	encoded, err := args.EncodeABIDataJSON(jsonBytes)
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}
+
+func calculateNullifier(coin *types.NotoCoin) (*pldtypes.Bytes32, error) {
+	// the nullifier is keccak256(salt, amount)
+	// first abi encode the salt and amount
+	paramTypes := abi.ParameterArray{
+		&abi.Parameter{
+			Type: "uint256",
+			Name: "amount",
+		},
+		&abi.Parameter{
+			Type: "bytes32",
+			Name: "salt",
+		},
+	}
+	paramValues := map[string]any{
+		"amount": coin.Amount.Int(),
+		"salt":   coin.Salt,
+	}
+
+	jsonData, err := json.Marshal(paramValues)
+	if err != nil {
+		return nil, err
+	}
+
+	encoded, err := paramTypes.EncodeABIDataJSON(jsonData)
+	if err != nil {
+		return nil, err
+	}
+	// then keccak256 the result
+	ret := pldtypes.Bytes32Keccak(encoded)
+	return &ret, nil
 }
 
 func (n *Noto) allocateStateIDs(ctx context.Context, stateQueryContext string, stateLists ...[]*prototk.NewState) error {

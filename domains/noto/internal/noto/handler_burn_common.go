@@ -66,8 +66,9 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 		return nil, err
 	}
 	notaryID, senderID, fromID := ids.notary, ids.sender, ids.from
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount)
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
 	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
 		return res, err
 	}
@@ -83,6 +84,19 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 		outputs, err = h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(remainder), identityList{notaryID, senderID, fromID})
 		if err != nil {
 			return nil, err
+		}
+		if useNullifiers {
+			// add nullifier spec to each returned state (they are new states)
+			for _, newState := range outputs.states {
+				newState.NullifierSpecs = []*prototk.NullifierSpec{
+					{
+						Party:        from,
+						Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+						VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+						PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+					},
+				}
+			}
 		}
 	}
 
@@ -148,7 +162,7 @@ func (h *burnCommon) endorseBurn(ctx context.Context, tx *types.ParsedTransactio
 	}, nil
 }
 
-func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, useNullifier bool) (*TransactionWrapper, error) {
 	// Include the signature from the sender/notary
 	// This is not verified on the base ledger, but can be verified by anyone with the unmasked state data
 	sender := domain.FindAttestation("sender", req.AttestationResult)
@@ -165,20 +179,29 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 	functionName := "transfer"
 	var paramsJSON []byte
 
+	payload := sender.Payload
+	if useNullifier {
+		encoded, encErr := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
+		if encErr != nil {
+			return nil, encErr
+		}
+		payload = encoded
+	}
+
 	if tx.DomainConfig.IsV0() {
 		paramsJSON, err = json.Marshal(&NotoTransfer_V0_Params{
 			TxId:      req.Transaction.TransactionId,
-			Inputs:    endorsableStateIDs(req.InputStates),
-			Outputs:   endorsableStateIDs(req.OutputStates),
+			Inputs:    endorsableStateIDs(req.InputStates, false),
+			Outputs:   endorsableStateIDs(req.OutputStates, false),
 			Signature: sender.Payload,
 			Data:      data,
 		})
 	} else {
 		paramsJSON, err = json.Marshal(&NotoTransferParams{
 			TxId:    req.Transaction.TransactionId,
-			Inputs:  endorsableStateIDs(req.InputStates),
-			Outputs: endorsableStateIDs(req.OutputStates),
-			Proof:   sender.Payload,
+			Inputs:  endorsableStateIDs(req.InputStates, tx.DomainConfig.UsesNullifiers()),
+			Outputs: endorsableStateIDs(req.OutputStates, false),
+			Proof:   payload,
 			Data:    data,
 		})
 	}
@@ -240,7 +263,8 @@ func (h *burnCommon) prepareBurn(ctx context.Context, tx *types.ParsedTransactio
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "notary")
 	}
 
-	baseTransaction, err := h.baseLedgerInvokeBurn(ctx, tx, req)
+	useNullifier := tx.DomainConfig.IsNullifierVariant()
+	baseTransaction, err := h.baseLedgerInvokeBurn(ctx, tx, req, useNullifier)
 	if err != nil {
 		return nil, err
 	}

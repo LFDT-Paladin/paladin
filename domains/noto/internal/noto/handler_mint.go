@@ -72,6 +72,7 @@ func (h *mintHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req
 
 func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.MintParams)
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
 	ids, err := resolveIdentities(ctx, h.noto, tx, req, "", params.To)
 	if err != nil {
@@ -82,6 +83,30 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	outputStates, err := h.noto.prepareOutputs(toID, params.Amount, identityList{notaryID, toID})
 	if err != nil {
 		return nil, err
+	}
+	if useNullifiers {
+		// for our own states, while we create them, we add the corresponding nullifier to the new state,
+		// which will be persisted in the state DB. This allows us to track which states have been spent,
+		// because the spending transactions will include the nullifier IDs, rather than the state IDs, in
+		// the receipt
+		for _, newState := range outputStates.states {
+			newState.NullifierSpecs = []*prototk.NullifierSpec{
+				{
+					Party:        notaryID.identifier,
+					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+				},
+			}
+			if toID.identifier != notaryID.identifier {
+				newState.NullifierSpecs = append(newState.NullifierSpecs, &prototk.NullifierSpec{
+					Party:        toID.identifier,
+					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+				})
+			}
+		}
 	}
 	infoDistribution := identityList{notaryID, senderID, toID}
 	infoStates, err := h.noto.prepareDataInfo(ctx, params.Data, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, req.ResolvedVerifiers)
@@ -161,6 +186,15 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		return nil, err
 	}
 
+	payload := sender.Payload
+	if tx.DomainConfig.UsesNullifiers() {
+		encoded, encErr := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
+		if encErr != nil {
+			return nil, encErr
+		}
+		payload = encoded
+	}
+
 	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
 	functionName := "mint"
 	var paramsJSON []byte
@@ -168,15 +202,15 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 	if tx.DomainConfig.IsV0() {
 		paramsJSON, err = json.Marshal(&NotoMint_V0_Params{
 			TxId:      req.Transaction.TransactionId,
-			Outputs:   endorsableStateIDs(req.OutputStates),
+			Outputs:   endorsableStateIDs(req.OutputStates, false),
 			Signature: sender.Payload,
 			Data:      data,
 		})
 	} else {
 		paramsJSON, err = json.Marshal(&NotoMintParams{
 			TxId:    req.Transaction.TransactionId,
-			Outputs: endorsableStateIDs(req.OutputStates),
-			Proof:   sender.Payload,
+			Outputs: endorsableStateIDs(req.OutputStates, false),
+			Proof:   payload,
 			Data:    data,
 		})
 	}

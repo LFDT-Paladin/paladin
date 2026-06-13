@@ -78,5 +78,7 @@ var (
 	MsgTransferFromNotAllowed             = pde("PD200038", "TransferFrom is not enabled")
 	MsgInvalidLockStateLockID             = pde("PD200039", "Invalid lockId in state %s expected=%s found=%s")
 	MsgInvalidLockState                   = pde("PD200040", "Invalid lock state %s")
-	MsgInvalidLockTransition              = pde("PD200042", "Invalid lock transition")
+	MsgInvalidLockTransition              = pde("PD200041", "Invalid lock transition")
+	MsgUnknownSignPayload                 = pde("PD200042", "Sign payload type '%s' not recognized")
+	MsgNullifierGenerationFailed          = pde("PD200043", "Failed to generate nullifier for coin")
 )

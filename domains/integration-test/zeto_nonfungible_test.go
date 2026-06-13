@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func TestNonFungibleZetoDomainTestSuite(t *testing.T) {
+func TestZetoNonFungibleSuite(t *testing.T) {
 	contractsFile = "./zeto/config-for-deploy-non-fungible.yaml"
 	suite.Run(t, new(nonFungibleTestSuiteHelper))
 }

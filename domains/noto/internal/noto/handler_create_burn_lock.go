@@ -75,6 +75,7 @@ func (h *createBurnLockHandler) checkAllowed(ctx context.Context, tx *types.Pars
 func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.CreateBurnLockParams)
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
 	ids, err := resolveIdentities(ctx, h.noto, tx, req, params.From, "")
 	if err != nil {
@@ -83,7 +84,7 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	notaryID, senderID, fromID := ids.notary, ids.sender, ids.from
 
 	// Prepare the input coins
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(params.Amount))
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(params.Amount), useNullifiers)
 	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
 		return res, err
 	}

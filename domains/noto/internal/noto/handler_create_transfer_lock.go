@@ -73,6 +73,7 @@ func (h *createTransferLockHandler) Init(ctx context.Context, tx *types.ParsedTr
 
 func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.CreateTransferLockParams)
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
 
 	ids, err := resolveIdentities(ctx, h.noto, tx, req, params.From, "")
@@ -88,7 +89,7 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 	}
 
 	// Prepare the input coins
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(requiredTotal))
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(requiredTotal), useNullifiers)
 	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
 		return res, err
 	}

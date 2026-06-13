@@ -106,7 +106,7 @@ func (r *stateStore) QueryNullifiers(ctx context.Context, domain string, schemaR
 }
 
 func (r *stateStore) QueryContractNullifiers(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, schemaRef pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (states []*pldapi.State, err error) {
-	err = r.c.CallRPC(ctx, &states, "pstate_queryContractNullifiers", domain, contractAddress, schemaRef, query)
+	err = r.c.CallRPC(ctx, &states, "pstate_queryContractNullifiers", domain, contractAddress, schemaRef, query, status)
 	return
 }
 

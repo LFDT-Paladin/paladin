@@ -75,6 +75,11 @@ func (s *pvpTestSuite) SetupSuite() {
 		"noto":      helpers.NotoFactoryJSON,
 		"atom":      helpers.AtomFactoryJSON,
 	}
+	deployOrder := []string{
+		"noto_impl",
+		"noto",
+		"atom",
+	}
 	// Deploy proxy for noto factory
 	deployNotoProxy := func(deployed map[string]string, rpc rpcclient.Client) {
 		proxyAddr := deployFactoryProxy(ctx, s.T(), rpc, notary,
@@ -83,7 +88,7 @@ func (s *pvpTestSuite) SetupSuite() {
 		deployed["noto"] = proxyAddr
 		log.L(ctx).Infof("Noto factory proxy deployed to %s", proxyAddr)
 	}
-	contracts := deployContracts(ctx, s.T(), s.hdWalletSeed, notary, contractSource, deployNotoProxy)
+	contracts := deployContracts(ctx, s.T(), s.hdWalletSeed, notary, deployOrder, contractSource, deployNotoProxy)
 	for name, address := range contracts {
 		log.L(ctx).Infof("%s deployed to %s", name, address)
 	}
@@ -155,8 +160,8 @@ func (s *pvpTestSuite) pvpNotoNoto(withHooks bool) {
 	}
 
 	log.L(ctx).Infof("Deploying 2 instances of Noto")
-	notoGold := helpers.DeployNoto(ctx, t, rpc, s.notoDomainName, notary, trackerAddress)
-	notoSilver := helpers.DeployNoto(ctx, t, rpc, s.notoDomainName, notary, nil)
+	notoGold := helpers.DeployNoto(ctx, t, rpc, s.notoDomainName, "", notary, trackerAddress)
+	notoSilver := helpers.DeployNoto(ctx, t, rpc, s.notoDomainName, "", notary, nil)
 	log.L(ctx).Infof("Noto gold deployed to %s", notoGold.Address)
 	log.L(ctx).Infof("Noto silver deployed to %s", notoSilver.Address)
 
@@ -333,7 +338,7 @@ func (s *pvpTestSuite) TestNotoForZeto() {
 	atomFactory := helpers.InitAtom(t, tb, pld, s.atomFactoryAddress)
 
 	log.L(ctx).Infof("Deploying Noto and Zeto")
-	noto := helpers.DeployNoto(ctx, t, rpc, s.notoDomainName, notary, nil)
+	noto := helpers.DeployNoto(ctx, t, rpc, s.notoDomainName, "", notary, nil)
 	zeto := helpers.DeployZetoFungible(ctx, t, rpc, s.zetoDomainName, notary, tokenName)
 	log.L(ctx).Infof("Noto deployed to %s", noto.Address)
 	log.L(ctx).Infof("Zeto deployed to %s", zeto.Address)
