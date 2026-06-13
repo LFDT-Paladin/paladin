@@ -35,7 +35,7 @@ import { Keys } from "./views/Keys";
 import { Registries } from "./views/Registries";
 import { Transactions } from "./views/Transactions";
 import { TransactionDetails } from "./views/TransactionDetails";
-import { IPaladinTransactionPagingReference, ITransactionPagingReference } from "./interfaces";
+import { IFilter, IPaladinTransactionPagingReference, ITransactionPagingReference } from "./interfaces";
 import { Submissions } from "./views/Submissions";
 import { DomainContract } from "./views/DomainContract";
 import { PrivacyGroups } from "./views/PrivacyGroups";
@@ -56,8 +56,8 @@ function App() {
   const [txRefEntries, setTxRefEntries] = useState<ITransactionPagingReference[]>([]);
   const [txPage, txSetPage] = useState(0);
   const [txRowsPerPage, setTxRowsPerPage] = useState(10);
-  const [txFromBlock, setTxFromBlock] = useState<number>();
-  const [txShowTxsWithReceipt, txSetShowTxsWithReceipt] = useState(false);
+  const [txShowTxsWithReceipt, txSetShowTxsWithReceipt] = useState(true);
+  const [txFilters, setTxFilters] = useState<IFilter[]>([]);
   const [submissionsSection, setSubmissionsSection] = useState<'pending' | 'failed'>('pending');
   const [domainSortAscending, setDomainSortAscending] = useState(false);
   const [domainsPage, txSetDomainsPage] = useState(0);
@@ -67,6 +67,7 @@ function App() {
   const [submissionsPage, setSubmissionsPage] = useState(0);
   const [submissionsRowsPerPage, setSubmissionsRowsPerPage] = useState(10);
   const [domainsSelectedDomain, setDomainsSelectedDomain] = useState<string>();
+  const [privacyGroupsFilters, setPrivacyGroupsFilters] = useState<IFilter[]>([]);
   const [privacyGroupsPage, setPrivacyGroupsPage] = useState(0);
   const [privacyGroupsRowsPerPage, setPrivacyGroupsRowsPerPage] = useState(10);
   const [privacyGroupsRefTimestamps, sePrivacyGroupsRefTimestamps] = useState<string[]>([]);
@@ -78,10 +79,13 @@ function App() {
   const [stateRowsPerPage, setStateRowsPerPage] = useState(10);
   const [stateRefTimestamps, setStateRefTimestamps] = useState<string[]>([]);
   const [stateSortAscending, setStateSortAscending] = useState(false);
+  const [stateFilters, setStateFilters] = useState<IFilter[]>([]);
   const [messagesPage, setMessagesPage] = useState(0);
   const [messagesRowsPerPage, setMessagesRowsPerPage] = useState(10);
   const [messagesRefTimestamps, setMessagesRefTimestamps] = useState<string[]>([]);
   const [messagesSortAscending, setMessagesSortAscending] = useState(false);
+  const [messagesFilters, setMessagesFilters] = useState<IFilter[]>([]);
+  const [messagesSortBy, setMessagesSortBy] = useState('created');
 
   const [systemTheme, setSystemTheme] = useState(
     window.matchMedia &&
@@ -162,10 +166,10 @@ function App() {
                       setPage={txSetPage}
                       rowsPerPage={txRowsPerPage}
                       setRowsPerPage={setTxRowsPerPage}
-                      fromBlock={txFromBlock}
-                      setFromBlock={setTxFromBlock}
                       showTxsWithReceipt={txShowTxsWithReceipt}
                       setShowTxsWithReceipt={txSetShowTxsWithReceipt}
+                      filters={txFilters}
+                      setFilters={setTxFilters}
                     />} />
                     <Route path={AppRoutes.Submissions} element={<Submissions
                       section={submissionsSection}
@@ -202,6 +206,8 @@ function App() {
                       setPage={setPrivacyGroupsPage}
                       rowsPerPage={privacyGroupsRowsPerPage}
                       setRowsPerPage={setPrivacyGroupsRowsPerPage}
+                      filters={privacyGroupsFilters}
+                      setFilters={setPrivacyGroupsFilters}
                     />} />
                     <Route path={AppRoutes.PrivacyGroup} element={<PrivacyGroup />} />
                     <Route path={AppRoutes.States} element={<States
@@ -217,6 +223,8 @@ function App() {
                       setPage={setStatePage}
                       rowsPerPage={stateRowsPerPage}
                       setRowsPerPage={setStateRowsPerPage}
+                      filters={stateFilters}
+                      setFilters={setStateFilters}
                     />} />
                     <Route path={AppRoutes.State} element={<State />} />
                     <Route path={AppRoutes.Messages} element={<Messages
@@ -228,6 +236,10 @@ function App() {
                       setRowsPerPage={setMessagesRowsPerPage}
                       refTimestamps={messagesRefTimestamps}
                       setRefTimestamps={setMessagesRefTimestamps}
+                      filters={messagesFilters}
+                      setFilters={setMessagesFilters}
+                      sortBy={messagesSortBy}
+                      setSortBy={setMessagesSortBy}
                     />} />
                     <Route path={AppRoutes.Message} element={<Message />} />
                     <Route path="*" element={<Navigate to={AppRoutes.Transactions} replace />} />

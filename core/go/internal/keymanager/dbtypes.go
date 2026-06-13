@@ -56,4 +56,5 @@ var KeyEntryFilters filters.FieldSet = filters.FieldMap{
 	"path":        filters.StringField("path"),
 	"wallet":      filters.StringField("wallet"),
 	"keyHandle":   filters.StringField("key_handle"),
+	"verifier":    filters.StringField("verifier"),
 }

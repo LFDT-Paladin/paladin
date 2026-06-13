@@ -32,15 +32,6 @@ import { translateFilters } from '../utils';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
 
-const getBlockNumberQuery = (blockNumber: number) => {
-  return [
-    {
-      field: 'blockNumber',
-      value: blockNumber,
-    }
-  ]
-};
-
 const getTransactionPagingQuery = (pageParam: ITransactionPagingReference) => {
   return [
     {
@@ -71,24 +62,24 @@ const getTransactionPagingQuery = (pageParam: ITransactionPagingReference) => {
 export const fetchIndexedTransactions = async (
   limit: number,
   withReceipt: boolean,
-  fromBlockNumber?: number,
+  filters: IFilter[],
   pageParam?: ITransactionPagingReference
 ): Promise<IEnrichedTransaction[]> => {
+  let translatedFilters = translateFilters(filters);
+  
   let requestPayload: any = {
     jsonrpc: '2.0',
     id: Date.now(),
     method: withReceipt? RpcMethods.bidx_QueryIndexedTransactionsWithReceipt : RpcMethods.bidx_QueryIndexedTransactions,
     params: [
       {
+        ...translatedFilters,
         limit,
         sort: ['blockNumber DESC', 'transactionIndex DESC'],
-      },
-    ],
+      }
+    ]
   };
 
-  if (fromBlockNumber !== undefined) {
-    requestPayload.params[0].lessThanOrEqual = getBlockNumberQuery(fromBlockNumber);
-  }
   if (pageParam !== undefined) {
     requestPayload.params[0].or = getTransactionPagingQuery(pageParam);
   }

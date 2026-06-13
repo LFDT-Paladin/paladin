@@ -74,10 +74,34 @@ export const translateFilters = (filters: IFilter[]) => {
         entry.not = true;
         entry.value = `%${entry.value}`;
         break;
+
+      case 'on':
+        operator = 'equal';
+        break;
+      case 'onOrAfter':
+        operator = 'gte';
+        break;
+      case 'onOrBefore':
+        operator = 'lte';
+        break;
+      case 'after':
+        operator = 'gt';
+        break;
+      case 'before':
+        operator = 'lt';
+        break;
     }
 
-    if(filter.field.type === 'boolean') {
+    if (filter.field.type === 'boolean') {
       entry.value = Boolean(entry.value);
+    }
+    
+    if(filter.field.type === 'timestamp') {
+      if(filter.field.isSeconds) {
+        entry.value = entry.value / 1000;
+      } else if(filter.field.isNanoSeconds) {
+        entry.value = entry.value * 1000000;
+      }
     }
 
     let group = result[operator] ?? [];
@@ -92,6 +116,9 @@ export const isValidUUID = (uuid: string) =>
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(
     uuid
   );
+
+export const isValidHex = (hex: string) =>
+  /^(0[xX])?([0-9a-fA-F]{2})+$/.test(hex);
 
 export const encodeHex = (str: string) =>
   '0x' +

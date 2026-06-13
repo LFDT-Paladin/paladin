@@ -79,8 +79,8 @@ export const PaladinTransaction: React.FC<Props> = ({ paladinTransaction }) => {
             </Grid2>
             <Grid2 size={{ md: 1 }}>
               <Box sx={{ minWidth: '100px', textAlign: 'center' }}>
-                <Typography align="center" variant="body2" color="textSecondary">{t('time')}</Typography>
                 <EllapsedTime icon={null} timestamp={paladinTransaction.created} />
+                <Typography align="center" variant="body2" color="textSecondary">{t('time')}</Typography>
               </Box>
             </Grid2>
             <Grid2 size={{ md: 1 }} sx={{ textAlign: 'right'}}>

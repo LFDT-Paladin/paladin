@@ -88,6 +88,7 @@ var reliableMessageFilters = filters.FieldMap{
 	"created":     filters.TimestampField("created"),
 	"node":        filters.StringField("node"),
 	"messageType": filters.StringField("msg_type"),
+	"ack.time":    filters.TimestampField(`"Ack"."time"`),
 }
 
 var reliableMessageAckFilters = filters.FieldMap{

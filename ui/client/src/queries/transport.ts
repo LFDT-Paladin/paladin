@@ -68,6 +68,7 @@ export const fetchTransportPeers = async (): Promise<ITransportPeer[]> => {
 
 export const queryMessages = async (
   limit: number,
+  sortBy: string,
   sortAscending: boolean,
   filters: IFilter[],
   refTimestamp?: string
@@ -82,16 +83,16 @@ export const queryMessages = async (
     params: [{
       ...translatedFilters,
       limit,
-      sort: [`created ${sortAscending ? 'ASC' : 'DESC'}`],
+      sort: [`${sortBy} ${sortAscending ? 'ASC' : 'DESC'}`],
       greaterThan: refTimestamp !== undefined && sortAscending ? [
         {
-          field: 'created',
+          field: sortBy,
           value: refTimestamp
         }
       ] : undefined,
       lessThan: refTimestamp !== undefined && !sortAscending ? [
         {
-          field: 'created',
+          field: sortBy,
           value: refTimestamp
         }
       ] : undefined

@@ -128,6 +128,7 @@ func TestRPCReliableMessages(t *testing.T) {
 	transportRPC := pldclient.Wrap(client).Transport()
 
 	// Wait for the message to get nack'd
+	var ackTime pldtypes.Timestamp
 	for {
 		rmsgs, err := transportRPC.QueryReliableMessages(ctx, query.NewQueryBuilder().Equal("node", "node2").Limit(100).Query())
 		require.NoError(t, err)
@@ -139,9 +140,18 @@ func TestRPCReliableMessages(t *testing.T) {
 				continue
 			}
 			require.Regexp(t, "PD012016", rmsgs[0].Ack.Error)
+			ackTime = rmsgs[0].Ack.Time
 			break
 		}
 	}
+
+	rmsgs, err := transportRPC.QueryReliableMessages(ctx, query.NewQueryBuilder().
+		Equal("ack.time", ackTime).
+		Limit(100).
+		Query())
+	require.NoError(t, err)
+	require.Len(t, rmsgs, 1)
+	require.Equal(t, msgID, rmsgs[0].ID)
 
 	// Get the ack directly
 	acks, err := transportRPC.QueryReliableMessageAcks(ctx, query.NewQueryBuilder().Equal("messageId", msgID).Limit(100).Query())

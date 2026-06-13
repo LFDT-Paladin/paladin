@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Breadcrumbs, Button, Fade, Grid2, IconButton, Link, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Breadcrumbs, Button, Collapse, Fade, IconButton, Link, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { fetchKeys } from "../queries/keys";
@@ -31,8 +31,7 @@ import RemoveIcon from '@mui/icons-material/Remove';
 import { VerifiersDialog } from "../dialogs/Verifiers";
 import { useTranslation } from "react-i18next";
 import { Filters } from "../components/Filters";
-import AccountTreeIcon from '@mui/icons-material/AccountTree';
-import ViewListIcon from '@mui/icons-material/ViewList';
+import { FiltersButton } from "../components/FiltersButton";
 
 export const Keys: React.FC = () => {
 
@@ -83,6 +82,7 @@ export const Keys: React.FC = () => {
   const [verifiersDialogOpen, setVerifiersDialogOpen] = useState(false);
   const [filters, setFilters] = useState<IFilter[]>(getFiltersFromStorage());
   const [mode, setMode] = useState<'explorer' | 'list'>(getDefaultMode());
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -276,83 +276,28 @@ export const Keys: React.FC = () => {
             marginRight: "auto",
           }}
         >
-          <Grid2 container alignItems="center" spacing={2}>
-            <Grid2 sx={{ display: { xs: 'none', sm: 'none', md: 'block' } }} size={{ md: 4 }} />
-            <Grid2 size={{ xs: 12, md: 4 }}>
-              <Typography align="center" variant="h5">
-                {t("localKeys")}
-              </Typography>
-            </Grid2>
-            <Grid2 size={{ xs: 12, md: 4 }} container justifyContent="right">
-              <Grid2>
-                <Button
-                  size="large"
-                  variant="outlined"
-                  startIcon={<SearchIcon />}
-                  sx={{ borderRadius: '20px' }}
-                  onClick={() => setReverseLookupDialogOpen(true)}
-                >
-                  {t('reverseLookup')}
-                </Button>
-              </Grid2>
-            </Grid2>
-          </Grid2>
-          <Box sx={{ height: '10px' }} />
-          <Filters
-            filterFields={[
-              {
-                label: t('path'),
-                name: 'path',
-                type: 'string'
-              },
-              {
-                label: t('index'),
-                name: 'index',
-                type: 'number'
-              },
-              {
-                label: t('wallet'),
-                name: 'wallet',
-                type: 'string'
-              },
-              {
-                label: t('handle'),
-                name: 'keyHandle',
-                type: 'string'
-              },
-              {
-                label: t('isFolder'),
-                name: 'hasChildren',
-                type: 'boolean'
-              },
-              {
-                label: t('isKey'),
-                name: 'isKey',
-                type: 'boolean'
-              }
-            ]}
-            filters={filters}
-            setFilters={setFilters}
-          />
-          <Box sx={{ display: 'flex', marginBottom: '15px', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <Typography variant="h5">
+              {t("localKeys")}
+            </Typography>
+
+
+
             <ToggleButtonGroup exclusive
+              size="small"
+              sx={{ height: '30px' }}
               onChange={(_event, value) => {
                 if (value !== null) {
                   setMode(value);
                 }
-              }
-              }
+              }}
               value={mode}>
-              <Tooltip arrow title={t('listView')}>
-                <ToggleButton color="primary" value="list">
-                  <ViewListIcon fontSize="small" />
-                </ToggleButton>
-              </Tooltip>
-              <Tooltip arrow title={t('explorerView')}>
-                <ToggleButton color="primary" value="explorer">
-                  <AccountTreeIcon fontSize="small" />
-                </ToggleButton>
-              </Tooltip>
+              <ToggleButton color="primary" value="list" sx={{ width: '120px' }}>
+                {t('listView')}
+              </ToggleButton>
+              <ToggleButton color="primary" value="explorer" sx={{ width: '120px' }}>
+                {t('explorerView')}
+              </ToggleButton>
             </ToggleButtonGroup>
             {mode === 'explorer' &&
               <Breadcrumbs
@@ -365,7 +310,70 @@ export const Keys: React.FC = () => {
                 </Link>
                 {breadcrumbContent}
               </Breadcrumbs>}
+
+
+
+            <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
+              <Button
+                sx={{ borderRadius: '20px', minWidth: '120px' }}
+                size="small"
+                variant="outlined"
+                startIcon={<SearchIcon />}
+                onClick={() => setReverseLookupDialogOpen(true)}
+              >
+                {t('lookup')}
+              </Button>
+              <FiltersButton
+                filtersVisible={filtersVisible}
+                setFiltersVisible={setFiltersVisible}
+              />
+            </Box>
           </Box>
+          <Collapse in={filtersVisible}>
+            <Box sx={{ marginBottom: '20px' }}>
+              <Filters
+                filterFields={[
+                  {
+                    label: t('path'),
+                    name: 'path',
+                    type: 'string'
+                  },
+                  {
+                    label: t('index'),
+                    name: 'index',
+                    type: 'number'
+                  },
+                  {
+                    label: t('address'),
+                    name: 'verifier',
+                    type: 'string'
+                  },
+                  {
+                    label: t('wallet'),
+                    name: 'wallet',
+                    type: 'string'
+                  },
+                  {
+                    label: t('handle'),
+                    name: 'keyHandle',
+                    type: 'string'
+                  },
+                  {
+                    label: t('isFolder'),
+                    name: 'hasChildren',
+                    type: 'boolean'
+                  },
+                  {
+                    label: t('isKey'),
+                    name: 'isKey',
+                    type: 'boolean'
+                  }
+                ]}
+                filters={filters}
+                setFilters={setFilters}
+              />
+            </Box>
+          </Collapse>
           <TableContainer component={Paper}>
             <Table stickyHeader>
               <TableHead>

@@ -17,18 +17,23 @@
 import i18next from 'i18next';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
-import { IPrivacyGroup } from '../interfaces';
+import { IFilter, IPrivacyGroup } from '../interfaces';
+import { translateFilters } from '../utils';
 
 export const listPrivacyGroups = async (
   limit: number,
+  filters: IFilter[],
   sortAscending: boolean,
   refTimestamp?: string
 ): Promise<IPrivacyGroup[]> => {
+  let translatedFilters = translateFilters(filters);
+
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
     method: RpcMethods.pgroup_queryGroups,
     params: [{
+      ...translatedFilters,
       limit,
       sort: [`created ${sortAscending ? 'ASC' : 'DESC'}`],
       greaterThan: refTimestamp !== undefined && sortAscending ? [

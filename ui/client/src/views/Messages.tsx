@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, Tooltip, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -28,6 +28,9 @@ import { queryMessages } from "../queries/transport";
 import { Filters } from "../components/Filters";
 import { IFilter } from "../interfaces";
 import { constants } from "../components/config";
+import { FiltersButton } from "../components/FiltersButton";
+import { MessageLookupDialog } from "../dialogs/MessageLookup";
+import SearchIcon from '@mui/icons-material/Search';
 
 type Props = {
   sortAscending: boolean
@@ -38,6 +41,10 @@ type Props = {
   setPage: Dispatch<SetStateAction<number>>
   rowsPerPage: number
   setRowsPerPage: Dispatch<SetStateAction<number>>
+  filters: IFilter[]
+  setFilters: Dispatch<SetStateAction<IFilter[]>>
+  sortBy: string
+  setSortBy: Dispatch<SetStateAction<string>>
 };
 
 export const Messages: React.FC<Props> = ({
@@ -48,27 +55,22 @@ export const Messages: React.FC<Props> = ({
   page,
   setPage,
   rowsPerPage,
-  setRowsPerPage
+  setRowsPerPage,
+  filters,
+  setFilters,
+  sortBy,
+  setSortBy
 }) => {
 
-  const getFiltersFromStorage = () => {
-    const value = window.localStorage.getItem(constants.MESSAGES_FILTERS);
-    if (value !== null) {
-      try {
-        return JSON.parse(value);
-      } catch (_err) { }
-    }
-    return [];
-  };
-
-  const [filters, setFilters] = useState<IFilter[]>(getFiltersFromStorage());
+  const [lookupMessageDialogOpen, setLookupMessageDialogOpen] = useState(false);
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const [count, setCount] = useState(-1);
   const navigate = useNavigate();
   const { t } = useTranslation();
 
   const { data: messages, error } = useQuery({
-    queryKey: ['messages', page, rowsPerPage, sortAscending, filters],
-    queryFn: () => queryMessages(rowsPerPage, sortAscending, filters, refTimestamps[refTimestamps.length - 1]),
+    queryKey: ['messages', page, rowsPerPage, sortBy, sortAscending, filters],
+    queryFn: () => queryMessages(rowsPerPage, sortBy, sortAscending, filters, refTimestamps[refTimestamps.length - 1]),
   });
 
   useEffect(() => {
@@ -133,35 +135,63 @@ export const Messages: React.FC<Props> = ({
             marginRight: "auto",
           }}
         >
-          <Box sx={{ marginBottom: '20px' }}>
-            <Typography align="center" variant="h5">
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <Typography variant="h5">
               {t("messages")}
             </Typography>
+            <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
+              <Button
+                sx={{ borderRadius: '20px', minWidth: '120px' }}
+                size="small"
+                variant="outlined"
+                startIcon={<SearchIcon />}
+                onClick={() => setLookupMessageDialogOpen(true)}
+              >
+                {t('lookup')}
+              </Button>
+              <FiltersButton
+                filtersVisible={filtersVisible}
+                setFiltersVisible={setFiltersVisible}
+              />
+            </Box>
           </Box>
-          <Box sx={{ marginBottom: '20px' }}>
-            <Filters
-              filterFields={[
-                {
-                  label: t('id'),
-                  name: 'id',
-                  type: 'string',
-                  isUUID: true
-                },
-                {
-                  label: t('node'),
-                  name: 'node',
-                  type: 'string'
-                },
-                {
-                  label: t('type'),
-                  name: 'messageType',
-                  type: 'string'
-                }
-              ]}
-              filters={filters}
-              setFilters={setFilters}
-            />
-          </Box>
+          <Collapse in={filtersVisible}>
+            <Box sx={{ marginBottom: '20px' }}>
+              <Filters
+                filterFields={[
+                  {
+                    label: t('created'),
+                    name: 'created',
+                    type: 'timestamp',
+                    isNanoSeconds: true
+                  },
+                  {
+                    label: t('acknowledged'),
+                    name: 'ack.time',
+                    type: 'timestamp',
+                    isNanoSeconds: true
+                  },
+                  {
+                    label: t('id'),
+                    name: 'id',
+                    type: 'string'
+                  },
+                  {
+                    label: t('node'),
+                    name: 'node',
+                    type: 'string'
+                  },
+                  {
+                    label: t('type'),
+                    name: 'messageType',
+                    type: 'string'
+                  }
+                ]}
+                filters={filters}
+                setFilters={setFilters}
+              />
+            </Box>
+          </Collapse>
           <Box sx={{
             display: 'flex',
             flexDirection: 'column',
@@ -180,10 +210,14 @@ export const Messages: React.FC<Props> = ({
                           backgroundColor: (theme) => theme.palette.background.paper,
                         }}>
                         <TableSortLabel
-                          active={true}
+                          active={sortBy === 'created'}
                           direction={sortAscending ? 'asc' : 'desc'}
                           onClick={() => {
-                            setSortAscending(!sortAscending);
+                            if (sortBy === 'created') {
+                              setSortAscending(!sortAscending);
+                            } else {
+                              setSortBy('created');
+                            }
                             setRefTimestamps([]);
                             setPage(0);
                           }}
@@ -195,10 +229,22 @@ export const Messages: React.FC<Props> = ({
                         width={1}
                         sx={{
                           backgroundColor: (theme) => theme.palette.background.paper,
-                          whiteSpace: 'nowrap'
-                        }}
-                      >
-                        {t('acknowledged')}
+                        }}>
+                        <TableSortLabel
+                          active={sortBy === 'acknowledged'}
+                          direction={sortAscending ? 'asc' : 'desc'}
+                          onClick={() => {
+                            if (sortBy === 'ack.time') {
+                              setSortAscending(!sortAscending);
+                            } else {
+                              setSortBy('ack.time')
+                            }
+                            setRefTimestamps([]);
+                            setPage(0);
+                          }}
+                        >
+                          {t('acknowledged')}
+                        </TableSortLabel>
                       </TableCell>
                       <TableCell
                         width={1}
@@ -244,10 +290,10 @@ export const Messages: React.FC<Props> = ({
                           <Timestamp timestamp={message.created} />
                         </TableCell>
                         <TableCell>
-                          {message.ack?.time?
-                          <Timestamp timestamp={message.ack.time} />
-                          :
-                          <>--</>}
+                          {message.ack?.time ?
+                            <Timestamp timestamp={message.ack.time} />
+                            :
+                            <>--</>}
                         </TableCell>
                         <TableCell>
                           <Hash Icon={<Tag size="18px" />} title={t('id')} hash={message.id} />
@@ -291,7 +337,10 @@ export const Messages: React.FC<Props> = ({
           </Box>
         </Box>
       </Fade>
-
+      <MessageLookupDialog
+        dialogOpen={lookupMessageDialogOpen}
+        setDialogOpen={setLookupMessageDialogOpen}
+      />
     </>
   );
 

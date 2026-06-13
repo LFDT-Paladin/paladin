@@ -191,16 +191,18 @@ export interface IKeyMappingAndVerifier {
 export interface IFilterField {
   label: string;
   name: string;
-  type: 'string' | 'number' | 'boolean';
-  isUUID?: boolean;
-  isHexValue?: boolean;
-  emun?: string[];
+  type: 'string' | 'number' | 'boolean' | 'enum' | 'timestamp';
+  enum?: string[];
+  isHexValue?: boolean
+  isUUID?: boolean
+  isSeconds?: boolean
+  isNanoSeconds?: boolean
 }
 
 export interface IFilter {
   field: IFilterField;
   operator: string;
-  value: string;
+  value: string | boolean | number;
   caseSensitive?: boolean;
 }
 

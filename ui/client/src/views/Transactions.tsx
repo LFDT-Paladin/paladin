@@ -14,31 +14,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Fade, Grid2, TablePagination, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { Alert, Box, Button, Collapse, Fade, TablePagination, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { fetchIndexedTransactions } from "../queries/transactions";
 import { EnrichedTransaction } from "../components/EnrichedTransaction";
 import { Dispatch, SetStateAction, useContext, useEffect, useState } from "react";
-import { ITransactionPagingReference } from "../interfaces";
+import { IFilter, ITransactionPagingReference } from "../interfaces";
 import { useTranslation } from "react-i18next";
 import SearchIcon from '@mui/icons-material/Search';
 import { TransactionLookupDialog } from "../dialogs/TransactionLookup";
 import { ApplicationContext } from "../contexts/ApplicationContext";
-import ViewArrayOutlinedIcon from '@mui/icons-material/ViewArrayOutlined';
-import { FromBlockDialog } from "../dialogs/FromBlock";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { Filters } from "../components/Filters";
+import { FiltersButton } from "../components/FiltersButton";
 
 type Props = {
   refEntries: ITransactionPagingReference[]
   setRefEntries: Dispatch<SetStateAction<ITransactionPagingReference[]>>
   page: number
   setPage: Dispatch<SetStateAction<number>>
-  fromBlock: number | undefined
-  setFromBlock: Dispatch<SetStateAction<number | undefined>>
   rowsPerPage: number
   setRowsPerPage: Dispatch<SetStateAction<number>>
   showTxsWithReceipt: boolean
   setShowTxsWithReceipt: Dispatch<SetStateAction<boolean>>
+  filters: IFilter[]
+  setFilters: Dispatch<SetStateAction<IFilter[]>>
 };
 
 export const Transactions: React.FC<Props> = ({
@@ -48,21 +48,21 @@ export const Transactions: React.FC<Props> = ({
   setPage,
   rowsPerPage,
   setRowsPerPage,
-  fromBlock,
-  setFromBlock,
   showTxsWithReceipt,
-  setShowTxsWithReceipt
+  setShowTxsWithReceipt,
+  filters,
+  setFilters
 }) => {
 
   const { lastBlockWithTransactions } = useContext(ApplicationContext);
   const [lookupTransactionDialogOpen, setLookupTransactionDialogOpen] = useState(false);
-  const [fromBlockDialogOpen, setFromBlockDialogOpen] = useState(false);
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const [count, setCount] = useState(-1);
   const { t } = useTranslation();
 
   const { data: enrichedTransactions, error } = useQuery({
-    queryKey: ['transactions', refEntries, rowsPerPage, showTxsWithReceipt, page, lastBlockWithTransactions, fromBlock],
-    queryFn: () => fetchIndexedTransactions(rowsPerPage, showTxsWithReceipt, fromBlock, refEntries[refEntries.length - 1])
+    queryKey: ['transactions', refEntries, rowsPerPage, showTxsWithReceipt, filters, page, lastBlockWithTransactions],
+    queryFn: () => fetchIndexedTransactions(rowsPerPage, showTxsWithReceipt, filters, refEntries[refEntries.length - 1])
   });
 
   useEffect(() => {
@@ -117,47 +117,85 @@ export const Transactions: React.FC<Props> = ({
             marginRight: "auto",
           }}
         >
-          <Box sx={{ marginBottom: '20px' }}>
-            <Grid2 container alignItems="center" spacing={2}>
-              <Grid2 sx={{ display: { xs: 'none', sm: 'none', md: 'block' } }} size={{ md: 4 }} />
-              <Grid2 size={{ xs: 12, md: 4 }}>
-                <Typography align="center" variant="h5">
-                  {t("transactions")}
-                </Typography>
-              </Grid2>
-              <Grid2 size={{ xs: 12, md: 4 }} container justifyContent="right">
-                <Grid2>
-                  <Button
-                    sx={{ borderRadius: '20px', minWidth: '180px' }}
-                    size="large"
-                    variant="outlined"
-                    startIcon={<SearchIcon />}
-                    onClick={() => setLookupTransactionDialogOpen(true)}
-                  >
-                    {t('lookup')}
-                  </Button>
-                </Grid2>
-                <Grid2>
-                  <Button
-                    color={fromBlock === undefined ? 'secondary' : 'warning'}
-                    size="large"
-                    variant="outlined"
-                    startIcon={<ViewArrayOutlinedIcon />}
-                    sx={{ borderRadius: '20px', minWidth: '180px' }}
-                    onClick={() => setFromBlockDialogOpen(true)}
-                  >
-                    {t(fromBlock === undefined ? 'Latest block' : 'fromBlockN', { n: fromBlock?.toLocaleString() })}
-                  </Button>
-                </Grid2>
-              </Grid2>
-            </Grid2>
-          </Box>
-          <Box sx={{ marginTop: '15px', marginBottom: '15px', textAlign: 'center' }}>
-            <ToggleButtonGroup exclusive onChange={(_event, value) => setShowTxsWithReceipt(value === 'withReceipt')} value={showTxsWithReceipt ? 'withReceipt' : 'all'}>
-              <ToggleButton color="primary" value="all" sx={{ width: '130px', height: '45px' }}>{t('all')}</ToggleButton>
-              <ToggleButton color="primary" value="withReceipt" sx={{ width: '130px', height: '45px' }}>{t('withReceipt')}</ToggleButton>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <Typography variant="h5">
+              {t("transactions")}
+            </Typography>
+            <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive onChange={(_event, value) => setShowTxsWithReceipt(value === 'withReceipt')} value={showTxsWithReceipt ? 'withReceipt' : 'all'}>
+              <ToggleButton color="primary" value="withReceipt" sx={{ width: '120px' }}>{t('paladinOnly')}</ToggleButton>
+              <ToggleButton color="primary" value="all" sx={{ width: '120px' }}>{t('all')}</ToggleButton>
             </ToggleButtonGroup>
+            <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
+              <Button
+                sx={{ borderRadius: '20px', minWidth: '120px' }}
+                size="small"
+                variant="outlined"
+                startIcon={<SearchIcon />}
+                onClick={() => setLookupTransactionDialogOpen(true)}
+              >
+                {t('lookup')}
+              </Button>
+              <FiltersButton
+                filtersVisible={filtersVisible}
+                setFiltersVisible={setFiltersVisible}
+              />
+            </Box>
           </Box>
+          <Collapse in={filtersVisible}>
+            <Box sx={{ marginBottom: '20px' }}>
+              <Filters
+                filterFields={[
+                  {
+                    label: t('transactionHash'),
+                    name: 'hash',
+                    type: 'string',
+                    isHexValue: true
+                  },
+                  {
+                    label: t('block'),
+                    name: 'blockNumber',
+                    type: 'number'
+                  },
+                  {
+                    label: t('transactionIndex'),
+                    name: 'transactionIndex',
+                    type: 'number'
+                  },
+                  {
+                    label: t('nonce'),
+                    name: 'nonce',
+                    type: 'number'
+                  },
+                  {
+                    label: t('from'),
+                    name: 'from',
+                    type: 'string',
+                    isHexValue: true
+                  },
+                  {
+                    label: t('to'),
+                    name: 'to',
+                    type: 'string',
+                    isHexValue: true
+                  },
+                  {
+                    label: t('status'),
+                    name: 'result',
+                    type: 'enum',
+                    enum: ['success', 'failed']
+                  },
+                  {
+                    label: t('time'),
+                    name: 'blockTimestamp',
+                    type: 'timestamp',
+                    isSeconds: true
+                  }
+                ]}
+                filters={filters}
+                setFilters={setFilters}
+              />
+            </Box>
+          </Collapse>
           <Box sx={{
             display: 'flex',
             flexDirection: 'column',
@@ -199,14 +237,6 @@ export const Transactions: React.FC<Props> = ({
         dialogOpen={lookupTransactionDialogOpen}
         setDialogOpen={setLookupTransactionDialogOpen}
         label={t('blockchainTransactionHashOrPaladinTransactionId')}
-      />
-      <FromBlockDialog
-        dialogOpen={fromBlockDialogOpen}
-        setDialogOpen={setFromBlockDialogOpen}
-        fromBlock={fromBlock}
-        setFromBlock={setFromBlock}
-        setPage={setPage}
-        setRefEntries={setRefEntries}
       />
     </>
   );

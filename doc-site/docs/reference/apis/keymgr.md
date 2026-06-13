@@ -7,6 +7,19 @@ title: keymgr_*
 
 0. `query`: [`QueryJSON`](../types/queryjson.md#queryjson)
 
+### Filter fields
+
+| Field | Type |
+|-------|------|
+| `isKey` | `boolean` |
+| `hasChildren` | `boolean` |
+| `parent` | `string` |
+| `index` | `int64` |
+| `path` | `string` |
+| `wallet` | `string` |
+| `keyHandle` | `string` |
+| `verifier` | `string` |
+
 ### Returns
 
 0. `keys`: [`KeyQueryEntry[]`](../types/keyqueryentry.md#keyqueryentry)

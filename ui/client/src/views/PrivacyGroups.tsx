@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Fade, Grid2, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, Tooltip, Typography } from "@mui/material";
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import SearchIcon from '@mui/icons-material/Search';
@@ -29,6 +29,9 @@ import { PrivacyGroupMembers } from "../components/PrivacyGroupMembers";
 import { Captions, Tag } from "lucide-react";
 import { PrivacyGroupLookupDialog } from "../dialogs/PrivacyGroupLookup";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { FiltersButton } from "../components/FiltersButton";
+import { Filters } from "../components/Filters";
+import { IFilter } from "../interfaces";
 
 type Props = {
   sortAscending: boolean
@@ -39,6 +42,8 @@ type Props = {
   setPage: Dispatch<SetStateAction<number>>
   rowsPerPage: number
   setRowsPerPage: Dispatch<SetStateAction<number>>
+  filters: IFilter[]
+  setFilters: Dispatch<SetStateAction<IFilter[]>>
 };
 
 export const PrivacyGroups: React.FC<Props> = ({
@@ -50,16 +55,19 @@ export const PrivacyGroups: React.FC<Props> = ({
   setPage,
   rowsPerPage,
   setRowsPerPage,
+  filters,
+  setFilters
 }) => {
 
   const [lookupPrivacyGroupDialogOpen, setLookupPrivacyGroupDialogOpen] = useState(false);
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const navigate = useNavigate();
   const [count, setCount] = useState(-1);
   const { t } = useTranslation();
 
   const { data: privacyGroups, error } = useQuery({
-    queryKey: ['privacyGroups', page, rowsPerPage, sortAscending],
-    queryFn: () => listPrivacyGroups(rowsPerPage, sortAscending, refTimestamps[refTimestamps.length - 1]),
+    queryKey: ['privacyGroups', page, rowsPerPage, filters, sortAscending],
+    queryFn: () => listPrivacyGroups(rowsPerPage, filters, sortAscending, refTimestamps[refTimestamps.length - 1]),
   });
 
   if (error) {
@@ -118,29 +126,66 @@ export const PrivacyGroups: React.FC<Props> = ({
             marginRight: "auto",
           }}
         >
-          <Box sx={{ marginBottom: '20px' }}>
-            <Grid2 container alignItems="center" spacing={2}>
-              <Grid2 sx={{ display: { xs: 'none', sm: 'none', md: 'block' } }} size={{ md: 4 }} />
-              <Grid2 size={{ xs: 12, md: 4 }}>
-                <Typography align="center" variant="h5">
-                  {t("privacyGroups")}
-                </Typography>
-              </Grid2>
-              <Grid2 size={{ xs: 12, md: 4 }} container justifyContent="right">
-                <Grid2>
-                  <Button
-                    sx={{ borderRadius: '20px', minWidth: '180px' }}
-                    size="large"
-                    variant="outlined"
-                    startIcon={<SearchIcon />}
-                    onClick={() => setLookupPrivacyGroupDialogOpen(true)}
-                  >
-                    {t('lookup')}
-                  </Button>
-                </Grid2>
-              </Grid2>
-            </Grid2>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <Typography align="center" variant="h5">
+              {t("privacyGroups")}
+            </Typography>
+            <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
+              <Button
+                sx={{ borderRadius: '20px', minWidth: '120px' }}
+                size="small"
+                variant="outlined"
+                startIcon={<SearchIcon />}
+                onClick={() => setLookupPrivacyGroupDialogOpen(true)}
+              >
+                {t('lookup')}
+              </Button>
+              <FiltersButton
+                filtersVisible={filtersVisible}
+                setFiltersVisible={setFiltersVisible}
+              />
+            </Box>
           </Box>
+
+          <Collapse in={filtersVisible}>
+            <Box sx={{ marginBottom: '20px' }}>
+              <Filters
+                filterFields={[
+                  {
+                    label: t('created'),
+                    name: 'created',
+                    type: 'timestamp',
+                    isNanoSeconds: true
+                  },
+                  {
+                    label: t('id'),
+                    name: 'id',
+                    type: 'string',
+                    isHexValue: true
+                  },
+                  {
+                    label: t('name'),
+                    name: 'name',
+                    type: 'string'
+                  },
+                  {
+                    label: t('domain'),
+                    name: 'domain',
+                    type: 'string'
+                  },
+                  {
+                    label: t('contractAddress'),
+                    name: 'contractAddress',
+                    type: 'string',
+                    isHexValue: true
+                  }
+                ]}
+                filters={filters}
+                setFilters={setFilters}
+              />
+            </Box>
+          </Collapse>
+
           <Box sx={{
             display: 'flex',
             flexDirection: 'column',
