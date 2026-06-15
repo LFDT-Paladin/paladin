@@ -49,8 +49,9 @@ type Server interface {
 type grpcTransport struct {
 	proto.UnimplementedPaladinGRPCTransportServer
 
-	bgCtx     context.Context
-	callbacks plugintk.TransportCallbacks
+	bgCtx       context.Context
+	bgCtxCancel context.CancelFunc
+	callbacks   plugintk.TransportCallbacks
 
 	name               string
 	listener           net.Listener
@@ -73,8 +74,10 @@ func NewPlugin(ctx context.Context) plugintk.PluginBase {
 }
 
 func NewGRPCTransport(callbacks plugintk.TransportCallbacks) plugintk.TransportAPI {
+	bgCtx, bgCtxCancel := context.WithCancel(context.Background())
 	return &grpcTransport{
-		bgCtx:               log.WithComponent(context.Background(), "grpctransport"),
+		bgCtx:               log.WithComponent(bgCtx, "grpctransport"),
+		bgCtxCancel:         bgCtxCancel,
 		callbacks:           callbacks,
 		outboundConnections: make(map[string]*outboundConn),
 	}
@@ -351,6 +354,11 @@ func (t *grpcTransport) StopTransport(ctx context.Context, req *prototk.StopTran
 }
 
 func (t *grpcTransport) shutdownTransport() {
+	// Cancel bgCtx before GracefulStop so any TLS handshake goroutines blocked in
+	// VerifyConnection → getTransportDetails → RequestFromPlugin → inflight.Wait()
+	// are unblocked immediately, allowing GracefulStop to drain cleanly.
+	t.bgCtxCancel()
+
 	t.connLock.Lock()
 	grpcServer := t.grpcServer
 	serverDone := t.serverDone

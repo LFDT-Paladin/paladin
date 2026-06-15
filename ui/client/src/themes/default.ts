@@ -47,6 +47,17 @@ const commonThemeOptions: ThemeOptions = {
           textTransform: 'none'
         }
       }
+    },
+        MuiListItemButton: {
+      styleOverrides: {
+        root: {
+          borderRadius: '4px',
+          '.mainNavigation &.Mui-selected': {
+            color: 'white',
+            backgroundColor: '#107070',
+          }
+        }
+      }
     }
   }
 };
@@ -76,6 +87,17 @@ export const darkThemeOptions: ThemeOptions = {
         },
         filledError: {
           color: 'white'
+        }
+      }
+    },
+    MuiListItemButton: {
+      styleOverrides: {
+        root: {
+          borderRadius: '4px',
+          '.mainNavigation &.Mui-selected': {
+            color: 'black',
+            backgroundColor: '#20dfdf',
+          }
         }
       }
     }

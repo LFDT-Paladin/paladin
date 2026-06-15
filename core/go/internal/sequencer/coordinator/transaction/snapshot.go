@@ -80,3 +80,4 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.Snaps
 	// Reverted/final/other states are excluded from snapshots.
 	return nil, nil, nil
 }
+

@@ -49,6 +49,92 @@ func mockBeginRollback(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 	mc.db.ExpectRollback()
 }
 
+func TestInsertTransactionsWithChainedDependsOn(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, true)
+	defer done()
+
+	txID := uuid.New()
+	chainedDepID := uuid.New()
+	sig := "doIt()"
+
+	// Store a real ABI so the FK constraint on transactions.abi_ref is satisfied on Postgres
+	testABI := abi.ABI{{Type: abi.Function, Name: "doIt"}}
+	abiRefPtr, err := txm.storeABINewDBTX(ctx, testABI)
+	require.NoError(t, err)
+	abiRef := *abiRefPtr
+
+	txi := &components.ValidatedTransaction{
+		ResolvedTransaction: components.ResolvedTransaction{
+			Transaction: &pldapi.Transaction{
+				ID:         &txID,
+				SubmitMode: pldapi.SubmitModeAuto.Enum(),
+				TransactionBase: pldapi.TransactionBase{
+					Type:   pldapi.TransactionTypePrivate.Enum(),
+					From:   "me@node1",
+					Domain: "domain1",
+				},
+			},
+			Function: &components.ResolvedFunction{
+				ABIReference: &abiRef,
+				Signature:    sig,
+			},
+			ChainedDependsOn: []uuid.UUID{chainedDepID},
+		},
+	}
+
+	var rowsAffected int64
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		var txErr error
+		rowsAffected, txErr = txm.insertTransactions(ctx, dbTX, []*components.ValidatedTransaction{txi}, false)
+		return txErr
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rowsAffected)
+}
+
+func TestInsertTransactionsChainedDepsDBError(t *testing.T) {
+	txID := uuid.New()
+	chainedDepID := uuid.New()
+	abiRef := (pldtypes.Bytes32)(pldtypes.RandBytes(32))
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			mc.db.ExpectExec("INSERT.*transactions").WillReturnResult(sqlmock.NewResult(1, 1))
+			mc.db.ExpectExec("INSERT.*transaction_history").WillReturnResult(sqlmock.NewResult(1, 1))
+			mc.db.ExpectExec("INSERT.*transaction_chained_deps").WillReturnError(fmt.Errorf("chained deps insert failed"))
+			mc.db.ExpectRollback()
+		})
+	defer done()
+
+	txi := &components.ValidatedTransaction{
+		ResolvedTransaction: components.ResolvedTransaction{
+			Transaction: &pldapi.Transaction{
+				ID:         &txID,
+				SubmitMode: pldapi.SubmitModeAuto.Enum(),
+				TransactionBase: pldapi.TransactionBase{
+					Type:   pldapi.TransactionTypePrivate.Enum(),
+					From:   "me@node1",
+					Domain: "domain1",
+				},
+			},
+			Function: &components.ResolvedFunction{
+				ABIReference: &abiRef,
+				Signature:    "doIt()",
+			},
+			ChainedDependsOn: []uuid.UUID{chainedDepID},
+		},
+	}
+
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := txm.insertTransactions(ctx, dbTX, []*components.ValidatedTransaction{txi}, false)
+		return err
+	})
+	require.Error(t, err)
+	assert.Regexp(t, "chained deps insert failed", err)
+}
+
 func TestResolveFunctionABIAndDef(t *testing.T) {
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,

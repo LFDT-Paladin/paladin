@@ -17,9 +17,7 @@ package transaction
 import (
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -93,38 +91,3 @@ func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedul
 	assert.True(t, cancelCalled, "assemble request timeout cancel should have been called")
 }
 
-func Test_guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(t *testing.T) {
-	ctx := t.Context()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		ConfirmedLockRetentionGracePeriod(2).
-		HeartbeatIntervalsSinceStateChange(1).
-		Build()
-	assert.False(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
-
-	txn, _ = NewTransactionBuilderForTesting(t, State_Confirmed).
-		ConfirmedLockRetentionGracePeriod(2).
-		HeartbeatIntervalsSinceStateChange(2).
-		Build()
-	assert.True(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
-
-	txn, _ = NewTransactionBuilderForTesting(t, State_Confirmed).
-		ConfirmedLockRetentionGracePeriod(2).
-		HeartbeatIntervalsSinceStateChange(2).
-		ConfirmedLocksReleased(true).
-		Build()
-	assert.True(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
-}
-
-func Test_action_ResetConfirmedTransactionLocksOnce_CallsResetAtMostOnce(t *testing.T) {
-	ctx := t.Context()
-	mockGrapher := grapher.NewMockGrapher(t)
-	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().Forget(mock.Anything, txn.pt.ID).Once()
-
-	err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.True(t, txn.confirmedLocksReleased)
-
-	err = action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
-	require.NoError(t, err)
-}

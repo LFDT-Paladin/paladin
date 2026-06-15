@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -14,12 +14,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, LinearProgress, ToggleButton, ToggleButtonGroup, Typography, useTheme } from "@mui/material";
+import { Alert, Box, LinearProgress, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { fetchRegistryEntries } from "../queries/registry";
 import { RegistryEntry } from "./RegistryEntry";
 import { IFilter, IRegistryEntry } from "../interfaces";
-import { getAltModeScrollBarStyle } from "../themes/default";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { useTranslation } from "react-i18next";
 import { Filters } from "./Filters";
@@ -44,7 +43,6 @@ export const Registry: React.FC<Props> = ({ registryName }) => {
 
   const [filters, setFilters] = useState<IFilter[]>(getFiltersFromStorage());
   const [tab, setTab] = useState<'active' | 'inactive' | 'any'>('any');
-  const theme = useTheme();
   const { t } = useTranslation();
 
   const { data: registryEntries, fetchNextPage, hasNextPage, error } = useInfiniteQuery({
@@ -69,7 +67,11 @@ export const Registry: React.FC<Props> = ({ registryName }) => {
   return (
     <>
       <Box sx={{ margin: '10px', textAlign: 'center' }}>
-        <ToggleButtonGroup exclusive onChange={(_event, value) => setTab(value)} value={tab}>
+        <ToggleButtonGroup exclusive onChange={(_event, value) => {
+          if (value !== null) {
+            setTab(value);
+          }
+        }} value={tab}>
           <ToggleButton color="primary" value="any" sx={{ width: '130px', height: '45px' }}>{t('all')}</ToggleButton>
           <ToggleButton color="primary" value="active" sx={{ width: '130px', height: '45px' }}>{t('active')}</ToggleButton>
           <ToggleButton color="primary" value="inactive" sx={{ width: '130px', height: '45px' }}>{t('inactive')}</ToggleButton>
@@ -101,9 +103,7 @@ export const Registry: React.FC<Props> = ({ registryName }) => {
       <Box
         id="scrollableDivRegistryEntries"
         sx={{
-          paddingRight: "15px",
-          height: "calc(100vh - 300px)",
-          ...getAltModeScrollBarStyle(theme.palette.mode)
+          paddingRight: "15px"
         }}
       >
         <InfiniteScroll

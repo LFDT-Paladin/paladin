@@ -28,6 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
@@ -47,19 +48,19 @@ func (n *Noto) GetHandler(method string) types.DomainHandler {
 	case "lock", "createLock":
 		return &lockHandler{noto: n}
 	case "unlock":
-		return &unlockHandler{unlockCommon: unlockCommon{noto: n}}
+		return &unlockHandler{unlockCommon: unlockCommon{lockCommon: lockCommon{noto: n}}}
 	case "createTransferLock":
-		return &createTransferLockHandler{unlockCommon: unlockCommon{noto: n}}
+		return &createTransferLockHandler{lockCommon: lockCommon{noto: n}}
 	case "createMintLock":
-		return &createMintLockHandler{unlockCommon: unlockCommon{noto: n}}
+		return &createMintLockHandler{lockCommon: lockCommon{noto: n}}
 	case "createBurnLock":
-		return &createBurnLockHandler{unlockCommon: unlockCommon{noto: n}}
+		return &createBurnLockHandler{lockCommon: lockCommon{noto: n}}
 	case "prepareUnlock":
-		return &prepareUnlockHandler{unlockCommon: unlockCommon{noto: n}}
+		return &prepareUnlockHandler{unlockCommon: unlockCommon{lockCommon: lockCommon{noto: n}}}
 	case "prepareMintUnlock":
-		return &prepareMintUnlockHandler{unlockCommon: unlockCommon{noto: n}}
+		return &prepareMintUnlockHandler{lockCommon: lockCommon{noto: n}}
 	case "prepareBurnUnlock":
-		return &prepareBurnUnlockHandler{unlockCommon: unlockCommon{noto: n}}
+		return &prepareBurnUnlockHandler{lockCommon: lockCommon{noto: n}}
 	case "delegateLock":
 		return &delegateLockHandler{noto: n}
 	default:
@@ -231,4 +232,75 @@ func (tw *TransactionWrapper) prepare() (*prototk.PrepareTransactionResponse, er
 
 func (tw *TransactionWrapper) encode(ctx context.Context) ([]byte, error) {
 	return tw.functionABI.EncodeCallDataJSONCtx(ctx, tw.paramsJSON)
+}
+
+type resolvedIdentities struct {
+	notary *identityPair
+	sender *identityPair
+	from   *identityPair
+	to     *identityPair
+}
+
+// resolveIdentities resolves notary and sender from the transaction, plus optional from/to lookups.
+func resolveIdentities(ctx context.Context, n *Noto, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, fromLookup, toLookup string) (*resolvedIdentities, error) {
+	notaryID, err := n.findEthAddressVerifier(ctx, "notary", tx.DomainConfig.NotaryLookup, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	senderID, err := n.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	ids := &resolvedIdentities{notary: notaryID, sender: senderID}
+	if fromLookup != "" {
+		ids.from, err = n.findEthAddressVerifier(ctx, "from", fromLookup, req.ResolvedVerifiers)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if toLookup != "" {
+		ids.to, err = n.findEthAddressVerifier(ctx, "to", toLookup, req.ResolvedVerifiers)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return ids, nil
+}
+
+// buildEndorsePlan returns the standard Noto attestation plan:
+// sender signs the payload, notary endorses.
+func buildEndorsePlan(notaryParty, senderParty string, signPayload []byte) []*prototk.AttestationRequest {
+	return []*prototk.AttestationRequest{
+		{
+			Name:            "sender",
+			AttestationType: prototk.AttestationType_SIGN,
+			Algorithm:       algorithms.ECDSA_SECP256K1,
+			VerifierType:    verifiers.ETH_ADDRESS,
+			Payload:         signPayload,
+			PayloadType:     signpayloads.OPAQUE_TO_RSV,
+			Parties:         []string{senderParty},
+		},
+		{
+			Name:            "notary",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			Algorithm:       algorithms.ECDSA_SECP256K1,
+			VerifierType:    verifiers.ETH_ADDRESS,
+			Parties:         []string{notaryParty},
+		},
+	}
+}
+
+// assembleRevertOrError returns a revert Assemble response when revert is true, otherwise the original error.
+func assembleRevertOrError(revert bool, err error) (*prototk.AssembleTransactionResponse, error) {
+	if err == nil {
+		return nil, nil
+	}
+	if revert {
+		reason := err.Error()
+		return &prototk.AssembleTransactionResponse{
+			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+			RevertReason:   &reason,
+		}, nil
+	}
+	return nil, err
 }

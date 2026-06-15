@@ -1934,3 +1934,157 @@ func TestUpdateTransactionGasEstimateRejectedNoRevertData(t *testing.T) {
 	}, []byte("test data"), func(dbTX persistence.DBTX) error { return nil })
 	assert.Error(t, err)
 }
+
+func TestWriteReceivedPublicTransactionSubmissionsLookupExistingDBError(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		mocks.disableManagerStart = true
+	})
+	defer done()
+
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testTxID := uuid.New()
+
+	txns := []*pldapi.PublicTxWithBinding{
+		{
+			PublicTx: &pldapi.PublicTx{
+				From:    *testAddress,
+				Nonce:   confutil.P(pldtypes.HexUint64(42)),
+				Data:    []byte("test"),
+				Created: pldtypes.TimestampNow(),
+				PublicTxOptions: pldapi.PublicTxOptions{
+					Gas: confutil.P(pldtypes.HexUint64(21000)),
+				},
+				Dispatcher: "test-dispatcher",
+			},
+			PublicTxBinding: pldapi.PublicTxBinding{
+				Transaction:     testTxID,
+				TransactionType: pldapi.TransactionTypePrivate.Enum(),
+			},
+		},
+	}
+
+	// INSERT returns pub_txn_id=0 (DoNothing conflict: existing row with same from+nonce)
+	m.db.ExpectQuery("INSERT.*public_txns").WillReturnRows(sqlmock.NewRows([]string{"pub_txn_id"}).AddRow(0))
+	// Subsequent Take query to look up the existing tx fails
+	m.db.ExpectQuery("SELECT.*public_txns").WillReturnError(fmt.Errorf("lookup error"))
+
+	err := ptm.WriteReceivedPublicTransactionSubmissions(ctx, m.allComponents.Persistence().NOTX(), txns)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "lookup error")
+}
+
+func TestQueryPublicTxForTransactionsDBError(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, m, done := newTestPublicTxManager(t, false)
+	defer done()
+
+	m.db.ExpectQuery("SELECT.*public_txns").WillReturnError(fmt.Errorf("database error"))
+
+	results, err := ptm.QueryPublicTxForTransactions(ctx, m.allComponents.Persistence().NOTX(), []uuid.UUID{uuid.New()}, nil)
+	assert.Error(t, err)
+	assert.Nil(t, results)
+}
+
+func TestSuspendTransactionPersistFlagDBError(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		mocks.disableManagerStart = true
+	})
+	defer done()
+
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testNonce := uint64(12345)
+
+	// No orchestrator in flight, so dispatchAction calls persistSuspendedFlag which does an UPDATE
+	m.db.ExpectExec("UPDATE.*public_txns").WillReturnError(fmt.Errorf("db update error"))
+
+	err := ptm.SuspendTransaction(ctx, *testAddress, testNonce)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "db update error")
+}
+
+func TestResumeTransactionPersistFlagDBError(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		mocks.disableManagerStart = true
+	})
+	defer done()
+
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testNonce := uint64(12346)
+
+	// No orchestrator in flight, so dispatchAction calls persistSuspendedFlag which does an UPDATE
+	m.db.ExpectExec("UPDATE.*public_txns").WillReturnError(fmt.Errorf("db update error"))
+
+	err := ptm.ResumeTransaction(ctx, *testAddress, testNonce)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "db update error")
+}
+
+func TestUpdateTransactionCheckCompletionQueryError(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		mocks.disableManagerStart = true
+	})
+	defer done()
+
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	txID := uuid.New()
+	testPubTxnID := uint64(99)
+
+	// First query: find the public transaction - succeeds returning a row
+	m.db.ExpectQuery("SELECT.*public_txns").WillReturnRows(
+		sqlmock.NewRows([]string{"pub_txn_id", "from", "gas"}).AddRow(testPubTxnID, testAddress.String(), uint64(21000)),
+	)
+	// Second query: CheckTransactionCompleted - fails
+	m.db.ExpectQuery("SELECT.*public_txns").WillReturnError(fmt.Errorf("check completed db error"))
+
+	err := ptm.UpdateTransaction(ctx, txID, testPubTxnID, testAddress, &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			PublicTxOptions: pldapi.PublicTxOptions{
+				Gas: confutil.P(pldtypes.HexUint64(30000)),
+			},
+		},
+	}, nil, func(dbTX persistence.DBTX) error { return nil })
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "check completed db error")
+}
+
+func TestMatchUpdateConfirmedTransactionsCompletionInsertError(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, m, done := newTestPublicTxManager(t, false)
+	defer done()
+
+	testHash := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	testTxID := uuid.New()
+	testPubTxnID := uint64(42)
+
+	itxs := []*blockindexer.IndexedTransactionNotify{
+		{
+			IndexedTransaction: pldapi.IndexedTransaction{
+				Hash:   testHash,
+				Result: pldapi.TXResult_SUCCESS.Enum(),
+			},
+		},
+	}
+
+	// SELECT from public_txn_bindings with Submission join returns a matching row.
+	// The Submission__tx_hash column must match testHash for a completion to be generated.
+	m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(
+		sqlmock.NewRows([]string{
+			"pub_txn_id", "transaction", "tx_type", "sender", "contract_address",
+			"Submission__pub_txn_id", "Submission__tx_hash",
+		}).AddRow(
+			testPubTxnID, testTxID.String(), "private", "", "",
+			testPubTxnID, testHash[:],
+		),
+	)
+	// The INSERT into public_completions fails
+	m.db.ExpectQuery("INSERT.*public_completions").WillReturnError(fmt.Errorf("completions insert error"))
+
+	matches, err := ptm.MatchUpdateConfirmedTransactions(ctx, m.allComponents.Persistence().NOTX(), itxs)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "completions insert error")
+	assert.Nil(t, matches)
+}

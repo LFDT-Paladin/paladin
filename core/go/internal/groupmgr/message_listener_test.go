@@ -559,8 +559,10 @@ func TestClosedRetryingWritingCheckpoint(t *testing.T) {
 	mdb := mc.db.Mock
 	mdb.ExpectExec("INSERT.*message_listeners").WillReturnResult(driver.ResultNoRows)
 	mdb.ExpectQuery("SELECT.*message_listener_checkpoints").WillReturnRows(sqlmock.NewRows([]string{}))
-	mdb.ExpectExec("INSERT.*message_listener_checkpoints").WillReturnError(fmt.Errorf("pop"))
 	mockMessages(1, mc)
+	mdb.ExpectBegin()
+	mdb.ExpectExec("INSERT.*message_listener_checkpoints").WillReturnError(fmt.Errorf("pop"))
+	mdb.ExpectRollback()
 
 	err := gm.CreateMessageListener(ctx, &pldapi.PrivacyGroupMessageListener{
 		Name:    "listener1",
@@ -652,6 +654,22 @@ func TestDeliverBatchCancelledCtxNotifyReceiver(t *testing.T) {
 	require.NotNil(t, r)
 	close(l.done)
 
+}
+
+func TestSetActiveAlreadyActive(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	l := &messageListener{
+		ctx:          ctx,
+		newReceivers: make(chan bool, 1),
+	}
+
+	receiver := l.addReceiver(newTestMessageReceiver(nil))
+	receiver.SetActive()
+	receiver.SetActive() // hits the "already active" early return
+
+	require.Len(t, l.receivers, 1)
 }
 
 func TestNextMessageReceiverSkipsInactive(t *testing.T) {

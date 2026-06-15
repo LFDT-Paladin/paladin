@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2026 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -84,7 +84,7 @@ type transportManager struct {
 
 var reliableMessageFilters = filters.FieldMap{
 	"sequence":    filters.Int64Field("sequence"),
-	"id":          filters.UUIDField("id"),
+	"id":          filters.UUIDField(`"reliable_msgs"."id"`),
 	"created":     filters.TimestampField("created"),
 	"node":        filters.StringField("node"),
 	"messageType": filters.StringField("msg_type"),
@@ -154,6 +154,10 @@ func (tm *transportManager) Start() error {
 }
 
 func (tm *transportManager) Stop() {
+	// Cancel bgCtx first so any goroutines blocked on p.ctx (derived from bgCtx),
+	// such as startSender holding peersLock while waiting on GetNodeTransports or
+	// ActivatePeer, are unblocked before we attempt to acquire peersLock below.
+	tm.cancelCtx()
 
 	peers := tm.listActivePeers()
 	for _, p := range peers {
@@ -170,7 +174,6 @@ func (tm *transportManager) Stop() {
 		tm.cleanupTransport(t)
 	}
 
-	tm.cancelCtx()
 	if tm.peerReaperDone != nil {
 		<-tm.peerReaperDone
 	}

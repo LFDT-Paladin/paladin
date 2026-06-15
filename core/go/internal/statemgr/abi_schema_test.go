@@ -62,7 +62,6 @@ func TestStoreRetrieveABISchema(t *testing.T) {
 
 	_ = mockDomain(t, m, "domain1", false)
 	mockStateCallback(m)
-
 	as, err := newABISchema(ctx, "domain1", &abi.Parameter{
 		Type:         "tuple",
 		Name:         "MyStruct",

@@ -18,46 +18,88 @@ package coordinator
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 )
 
-func action_NewBlock(ctx context.Context, c *coordinator, event common.Event) error {
-	e := event.(*NewBlockEvent)
-	c.currentBlockHeight = e.BlockHeight
+// validator_IsHeartbeatSenderLive returns true when the heartbeat sender reports being in one of
+// the liveness-proving states: Elect, Prepared, Active, or Active_Flush.
+func validator_IsHeartbeatSenderLive(_ context.Context, _ *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	state := e.CoordinatorSnapshot.CoordinatorState
+	return state == common.CoordinatorState_Elect ||
+		state == common.CoordinatorState_Prepared ||
+		state == common.CoordinatorState_Active ||
+		state == common.CoordinatorState_Active_Flush, nil
+}
+
+// validator_IsHandoverRequestFromHigherPriorityCoordinator returns true when a HandoverRequest is from
+// a node that has strictly higher priority (lower index) than this node.
+func validator_IsHandoverRequestFromHigherPriorityCoordinator(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+	e := event.(*HandoverRequestEvent)
+	return common.IsHigherPriority(c.coordinatorPriorityList, e.FromNode, c.nodeName), nil
+}
+
+// validator_IsDelegationBlockHeightToleranceExceeded returns true when the absolute difference
+// between this coordinator's stored block height (refreshed by action_RefreshBlockHeight)
+// and the originator's block height exceeds the configured block height tolerance.
+func validator_IsDelegationBlockHeightToleranceExceeded(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+	e := event.(*TransactionsDelegatedEvent)
+	ch := uint64(c.currentBlockHeight)
+	oh := e.OriginatorsBlockHeight
+	diff := max(ch, oh) - min(ch, oh)
+	return diff > c.blockHeightTolerance, nil
+}
+
+// action_RejectDelegationRequestBlockHeight sends a DelegationRejection indicating the block
+// height difference exceeds the configured tolerance.
+func action_RejectDelegationRequestBlockHeight(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*TransactionsDelegatedEvent)
+	c.recordOriginatorActivity(e.FromNode)
+	log.L(ctx).Warnf("rejecting delegation from %s due to block height tolerance (originator=%d, coordinator=%d, tolerance=%d)",
+		e.FromNode, e.OriginatorsBlockHeight, c.currentBlockHeight, c.blockHeightTolerance)
+	return c.transportWriter.SendDelegationRejection(
+		ctx,
+		e.FromNode,
+		e.DelegationID,
+		engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
+		"", // no active coordinator redirect for block height rejections
+		int64(e.OriginatorsBlockHeight),
+		c.currentBlockHeight,
+		int64(c.blockHeightTolerance),
+	)
+}
+
+func action_RejectDelegationRequest(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*TransactionsDelegatedEvent)
+	c.recordOriginatorActivity(e.FromNode)
+	return c.transportWriter.SendDelegationRejection(
+		ctx,
+		e.FromNode,
+		e.DelegationID,
+		engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
+		c.currentActiveCoordinator,
+		int64(e.OriginatorsBlockHeight),
+		c.currentBlockHeight,
+		0, // tolerance not relevant for non-block-height rejections
+	)
+}
+
+func action_SetSelfAsActiveCoordinator(_ context.Context, c *coordinator, _ common.Event) error {
+	c.currentActiveCoordinator = c.nodeName
 	return nil
 }
 
-func action_EndorsementRequested(_ context.Context, c *coordinator, event common.Event) error {
-	e := event.(*EndorsementRequestedEvent)
-	if c.activeCoordinatorNode != e.From {
-		c.activeCoordinatorNode = e.From
-		c.coordinatorActive(c.contractAddress, e.From)
-		c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+// action_UpdateActiveCoordinator updates the current active coordinator from either a received
+// heartbeat or a handover request. Both events carry the sender identity in different fields.
+func action_UpdateActiveCoordinator(_ context.Context, c *coordinator, event common.Event) error {
+	switch e := event.(type) {
+	case *common.HeartbeatReceivedEvent:
+		c.currentActiveCoordinator = e.FromNode
+	case *HandoverRequestEvent:
+		c.currentActiveCoordinator = e.FromNode
 	}
-	return nil
-}
-
-func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Event) error {
-	e := event.(*HeartbeatReceivedEvent)
-	if c.activeCoordinatorNode != e.From {
-		c.activeCoordinatorNode = e.From
-		c.coordinatorActive(c.contractAddress, e.From)
-		c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
-	}
-	c.activeCoordinatorBlockHeight = e.BlockHeight
-	for _, flushPoint := range e.FlushPoints {
-		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
-	}
-	return nil
-}
-
-func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Event) error {
-	c.sendHandoverRequest(ctx)
-	return nil
-}
-
-func action_Idle(_ context.Context, c *coordinator, _ common.Event) error {
-	c.coordinatorIdle(c.contractAddress)
 	return nil
 }
 
@@ -66,11 +108,21 @@ func action_ResetHeartbeatIntervalsSinceLastReceive(_ context.Context, c *coordi
 	return nil
 }
 
-func action_IncrementHeartbeatIntervalsSinceLastReceive(_ context.Context, c *coordinator, _ common.Event) error {
+func action_IncrementHeartbeatIntervalCounts(_ context.Context, c *coordinator, _ common.Event) error {
 	c.heartbeatIntervalsSinceLastReceive++
+	c.heartbeatIntervalsSinceStateChange++
 	return nil
 }
 
-func guard_ObservingIdleThresholdExceeded(_ context.Context, c *coordinator) bool {
-	return c.heartbeatIntervalsSinceLastReceive >= c.inactiveToIdleGracePeriod
+// validator_IsHeartbeatFromCurrentActiveCoordinator checks that the heartbeat is from the node
+// we believe is the current active coordinator
+func validator_IsHeartbeatFromCurrentActiveCoordinator(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	return c.currentActiveCoordinator == e.FromNode, nil
+}
+
+func action_AddEndorsersFromSnapshot(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*common.HeartbeatReceivedEvent)
+	c.updateEndorserCandidates(ctx, e.CoordinatorSnapshot.EndorserCandidates...)
+	return nil
 }

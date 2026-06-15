@@ -40,6 +40,7 @@ func TestBurn(t *testing.T) {
 		Callbacks:      mockCallbacks,
 		coinSchema:     testSchema("coin"),
 		dataSchemaV1:   testSchema("data"),
+		dataSchemaV2:   testSchema("data_v2"),
 		manifestSchema: testSchema("manifest"),
 	}
 	ctx := t.Context()
@@ -76,7 +77,7 @@ func TestBurn(t *testing.T) {
 			ContractAddress: contractAddress,
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
 				NotaryLookup: "notary@node1",
-				Variant:      types.NotoVariantDefault,
+				Variant:      types.NotoVariantV2,
 			}),
 		},
 		FunctionAbiJson:   mustParseJSON(fn),
@@ -140,7 +141,7 @@ func TestBurn(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      hashName("data"),
+			SchemaId:      hashName("data_v2"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
@@ -184,7 +185,7 @@ func TestBurn(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction := mustParseJSON(interfaceV1Build.ABI.Functions()["transfer"])
+	expectedFunction := mustParseJSON(interfaceV2Build.ABI.Functions()["transfer"])
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 	assert.JSONEq(t, fmt.Sprintf(`{
@@ -206,7 +207,7 @@ func TestBurn(t *testing.T) {
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
 		NotaryLookup: "notary@node1",
 		NotaryMode:   types.NotaryModeHooks.Enum(),
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress:     pldtypes.MustEthAddress(hookAddress),
@@ -377,7 +378,7 @@ func TestBurn_V0(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      hashName("data"),
+			SchemaId:      hashName("data_v2"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},

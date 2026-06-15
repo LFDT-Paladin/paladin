@@ -201,9 +201,9 @@ func doDomainInitAssembleTransactionOK(t *testing.T, td *testDomainContext) (*do
 			},
 		}, nil
 	}
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, tx, localTx)
+	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, tx, localTx, []*prototk.ResolvedVerifier{})
 	require.NoError(t, err)
-	tx.PreAssembly.Verifiers = []*prototk.ResolvedVerifier{}
+	tx.PostAssembly.ResolvedVerifiers = []*prototk.ResolvedVerifier{}
 	tx.PostAssembly.Signatures = []*prototk.AttestationResult{}
 	// Check we resolved the identities to local node
 	require.Equal(t, "endorser1@node1", tx.PostAssembly.AttestationPlan[0].Parties[0])
@@ -729,7 +729,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 			},
 		}, nil
 	}
-	err := psc.AssembleTransaction(dCtx, td.c.dbTX, ptx, localTx)
+	err := psc.AssembleTransaction(dCtx, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
 	require.NoError(t, err)
 
 	assert.Len(t, ptx.PostAssembly.InputStates, 2)
@@ -740,7 +740,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	assert.Len(t, ptx.PostAssembly.AttestationPlan, 1)
 
 	// This would be the engine's job
-	ptx.PreAssembly.Verifiers = make([]*prototk.ResolvedVerifier, 0)
+	ptx.PostAssembly.ResolvedVerifiers = make([]*prototk.ResolvedVerifier, 0)
 	ptx.PostAssembly.Signatures = make([]*prototk.AttestationResult, 0)
 
 	// Write the output states
@@ -810,7 +810,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	}
 	endorsement, err := psc.EndorseTransaction(dCtx, td.c.dbTX, &components.PrivateTransactionEndorseRequest{
 		TransactionSpecification: ptx.PreAssembly.TransactionSpecification,
-		Verifiers:                ptx.PreAssembly.Verifiers,
+		Verifiers:                ptx.PostAssembly.ResolvedVerifiers,
 		Signatures:               ptx.PostAssembly.Signatures,
 		InputStates:              psc.d.toEndorsableList(ptx.PostAssembly.InputStates),
 		ReadStates:               psc.d.toEndorsableList(ptx.PostAssembly.ReadStates),
@@ -902,7 +902,7 @@ func TestDomainAssembleTransactionInvalidTxn(t *testing.T) {
 		Transaction: &pldapi.Transaction{
 			ID: localTx.Transaction.ID,
 		},
-	})
+	}, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "PD011626", err)
 
 	assert.Nil(t, ptx.PostAssembly)
@@ -916,7 +916,7 @@ func TestDomainAssembleTransactionError(t *testing.T) {
 	td.tp.Functions.AssembleTransaction = func(ctx context.Context, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 		return nil, fmt.Errorf("pop")
 	}
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx)
+	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "pop", err)
 
 	assert.Nil(t, ptx.PostAssembly)
@@ -945,7 +945,7 @@ func TestDomainAssembleTransactionLoadInputError(t *testing.T) {
 			},
 		}, nil
 	}
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx)
+	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "PD011614.*badid", err)
 
 	assert.Nil(t, ptx.PostAssembly)
@@ -962,12 +962,44 @@ func TestDomainAssembleTransactionRevert(t *testing.T) {
 			RevertReason:   confutil.P("failed with error"),
 		}, nil
 	}
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx)
+	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
 	require.NoError(t, err)
 
 	assert.NotNil(t, ptx.PostAssembly)
 	assert.Equal(t, prototk.AssembleTransactionResponse_REVERT, ptx.PostAssembly.AssemblyResult)
 	assert.Equal(t, "failed with error", *ptx.PostAssembly.RevertReason)
+}
+
+func TestDomainAssembleTransactionDoesNotMutateInputFields(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
+	defer done()
+
+	psc, ptx, localTx := doDomainInitTransactionOK(t, td)
+
+	resolvedVerifiers := []*prototk.ResolvedVerifier{
+		{Lookup: "alice@node1", Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS, Verifier: "0xabc"},
+	}
+
+	// Snapshot the pre-assembly input as JSON before the call. Any unexpected mutation of
+	// RequiredVerifiers, PublicTxOptions, ChainedDependsOn, or any field added in future
+	// will cause a mismatch and fail the test.
+	beforePreAssemblyJSON, err := json.Marshal(ptx.PreAssembly)
+	require.NoError(t, err)
+
+	td.tp.Functions.AssembleTransaction = func(ctx context.Context, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+		return &prototk.AssembleTransactionResponse{
+			AssemblyResult:       prototk.AssembleTransactionResponse_OK,
+			AssembledTransaction: &prototk.AssembledTransaction{},
+		}, nil
+	}
+
+	err = psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, resolvedVerifiers)
+	require.NoError(t, err)
+
+	afterPreAssemblyJSON, err := json.Marshal(ptx.PreAssembly)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(beforePreAssemblyJSON), string(afterPreAssemblyJSON))
+	assert.Nil(t, ptx.PostAssembly.ResolvedVerifiers)
 }
 
 func TestDomainAssembleTransactionLoadReadError(t *testing.T) {
@@ -993,7 +1025,7 @@ func TestDomainAssembleTransactionLoadReadError(t *testing.T) {
 			},
 		}, nil
 	}
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx)
+	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "PD011614.*badid", err)
 
 	assert.Nil(t, ptx.PostAssembly)
@@ -1059,7 +1091,7 @@ func TestEndorseTransactionFail(t *testing.T) {
 
 	_, err := psc.EndorseTransaction(td.mdc, td.c.dbTX, &components.PrivateTransactionEndorseRequest{
 		TransactionSpecification: tx.PreAssembly.TransactionSpecification,
-		Verifiers:                tx.PreAssembly.Verifiers,
+		Verifiers:                tx.PostAssembly.ResolvedVerifiers,
 		Signatures:               tx.PostAssembly.Signatures,
 		InputStates:              psc.d.toEndorsableList(tx.PostAssembly.InputStates),
 		ReadStates:               psc.d.toEndorsableList(tx.PostAssembly.ReadStates),
@@ -1250,7 +1282,7 @@ func TestIncompleteStages(t *testing.T) {
 	err := psc.InitTransaction(td.ctx, ptx, localTx)
 	assert.Regexp(t, "PD011626", err)
 
-	err = psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx)
+	err = psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "PD011627", err)
 
 	err = psc.WritePotentialStates(td.mdc, td.c.dbTX, ptx)
@@ -1805,5 +1837,103 @@ func TestInvokeRPCError(t *testing.T) {
 	}
 
 	_, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "pop", err)
+}
+
+func TestInitSmartContractQueryGroupsError(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+
+	gm := td.d.dm.groupManager.(*componentsmocks.GroupManager)
+	gm.On("QueryGroups", mock.Anything, mock.Anything, mock.Anything).Unset()
+	gm.On("QueryGroups", mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("groups query error"))
+
+	loadResult, psc, err := td.d.initSmartContract(td.ctx, td.d.dm.persistence.NOTX(), &PrivateSmartContract{
+		DeployTX:        uuid.New(),
+		RegistryAddress: *td.d.RegistryAddress(),
+		Address:         *pldtypes.RandAddress(),
+		ConfigBytes:     []byte{},
+	})
+	require.Error(t, err)
+	assert.Regexp(t, "groups query error", err)
+	assert.Equal(t, pscInitError, loadResult)
+	assert.Nil(t, psc)
+}
+
+func TestInitSmartContractWithPrivacyGroup(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+
+	pg := &pldapi.PrivacyGroup{
+		ID:     pldtypes.RandBytes(32),
+		Domain: "test1",
+	}
+
+	gm := td.d.dm.groupManager.(*componentsmocks.GroupManager)
+	gm.On("QueryGroups", mock.Anything, mock.Anything, mock.Anything).Unset()
+	gm.On("QueryGroups", mock.Anything, mock.Anything, mock.Anything).Return([]*pldapi.PrivacyGroup{pg}, nil)
+
+	td.tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+		assert.NotNil(t, icr.PrivacyGroup)
+		return &prototk.InitContractResponse{
+			Valid: true,
+			ContractConfig: &prototk.ContractConfig{
+				ContractConfigJson:   `{}`,
+				CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
+				SubmitterSelection:   prototk.ContractConfig_SUBMITTER_SENDER,
+			},
+		}, nil
+	}
+
+	loadResult, psc, err := td.d.initSmartContract(td.ctx, td.d.dm.persistence.NOTX(), &PrivateSmartContract{
+		DeployTX:        uuid.New(),
+		RegistryAddress: *td.d.RegistryAddress(),
+		Address:         *pldtypes.RandAddress(),
+		ConfigBytes:     []byte{},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, pscValid, loadResult)
+	assert.NotNil(t, psc)
+}
+
+func TestMapPotentialStatesEmpty(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+
+	psc := goodPSC(t, td)
+
+	stateUpserts, err := psc.MapPotentialStates(td.c.dCtx, nil, false, nil)
+	require.NoError(t, err)
+	assert.Empty(t, stateUpserts)
+}
+
+func TestIsBaseLedgerRevertRetryableOK(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+
+	psc := goodPSC(t, td)
+
+	td.tp.Functions.IsBaseLedgerRevertRetryable = func(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+		assert.Equal(t, []byte("revert data"), req.RevertData)
+		return &prototk.IsBaseLedgerRevertRetryableResponse{Retryable: true, DecodedReason: "reason"}, nil
+	}
+
+	retryable, reason, err := psc.IsBaseLedgerRevertRetryable(td.ctx, []byte("revert data"))
+	require.NoError(t, err)
+	assert.True(t, retryable)
+	assert.Equal(t, "reason", reason)
+}
+
+func TestIsBaseLedgerRevertRetryableError(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+
+	psc := goodPSC(t, td)
+
+	td.tp.Functions.IsBaseLedgerRevertRetryable = func(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+
+	_, _, err := psc.IsBaseLedgerRevertRetryable(td.ctx, []byte("revert data"))
 	require.Regexp(t, "pop", err)
 }

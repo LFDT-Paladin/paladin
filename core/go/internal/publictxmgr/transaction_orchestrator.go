@@ -133,6 +133,8 @@ type orchestrator struct {
 	state          OrchestratorState
 	stateEntryTime time.Time // when it's run last time
 
+	testOnlyNoActionMode bool // propagated to all in-flight stage controllers; never set outside of tests
+
 	staleTimeout    time.Duration
 	lastQueueUpdate time.Time
 
@@ -465,6 +467,7 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 			}
 			queueUpdated = true
 			it := NewInFlightTransactionStageController(oc.pubTxManager, oc, ptx, ptx.Binding.Transaction)
+			it.testOnlyNoActionMode = oc.testOnlyNoActionMode
 			oc.inFlightTxs = append(oc.inFlightTxs, it)
 			txStage := it.stateManager.GetStage(ctx)
 			if string(txStage) == "" {

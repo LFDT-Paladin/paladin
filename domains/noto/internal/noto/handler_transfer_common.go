@@ -24,12 +24,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type transferCommon struct {
@@ -55,35 +51,15 @@ func (h *transferCommon) initTransfer(ctx context.Context, tx *types.ParsedTrans
 }
 
 func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.AssembleTransactionResponse, error) {
-	notary := tx.DomainConfig.NotaryLookup
-
-	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	ids, err := resolveIdentities(ctx, h.noto, tx, req, from, to)
 	if err != nil {
 		return nil, err
 	}
-	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, err
-	}
-	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, err
-	}
-	toID, err := h.noto.findEthAddressVerifier(ctx, "to", to, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, err
-	}
+	notaryID, senderID, fromID, toID := ids.notary, ids.sender, ids.from, ids.to
 
 	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount)
-	if err != nil {
-		if revert {
-			message := err.Error()
-			return &prototk.AssembleTransactionResponse{
-				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-				RevertReason:   &message,
-			}, nil
-		}
-		return nil, err
+	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
+		return res, err
 	}
 
 	// Avoid duplicating the sender in distribution lists
@@ -94,7 +70,7 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	}
 
 	infoDistribution := identityList{notaryID, senderID, fromID, toID}
-	infoStates, err := h.noto.prepareDataInfo(data, tx.DomainConfig.Variant, infoDistribution.identities())
+	infoStates, err := h.noto.prepareDataInfo(ctx, data, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -115,27 +91,6 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	if err != nil {
 		return nil, err
 	}
-	attestation := []*prototk.AttestationRequest{
-		// Sender confirms the initial request with a signature
-		{
-			Name:            "sender",
-			AttestationType: prototk.AttestationType_SIGN,
-			Algorithm:       algorithms.ECDSA_SECP256K1,
-			VerifierType:    verifiers.ETH_ADDRESS,
-			Payload:         encodedTransfer,
-			PayloadType:     signpayloads.OPAQUE_TO_RSV,
-			Parties:         []string{req.Transaction.From},
-		},
-		// Notary will endorse the assembled transaction (by submitting to the ledger)
-		{
-			Name:            "notary",
-			AttestationType: prototk.AttestationType_ENDORSE,
-			Algorithm:       algorithms.ECDSA_SECP256K1,
-			VerifierType:    verifiers.ETH_ADDRESS,
-			Parties:         []string{notary},
-		},
-	}
-
 	if !tx.DomainConfig.IsV0() {
 		manifestState, err := h.noto.newManifestBuilder().
 			addOutputs(outputStates).
@@ -154,7 +109,7 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 			OutputStates: outputStates.states,
 			InfoStates:   infoStates,
 		},
-		AttestationPlan: attestation,
+		AttestationPlan: buildEndorsePlan(tx.DomainConfig.NotaryLookup, req.Transaction.From, encodedTransfer),
 	}, nil
 }
 
@@ -202,33 +157,26 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 		return nil, err
 	}
 
-	var interfaceABI abi.ABI
-	var functionName string
+	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
+	functionName := "transfer"
 	var paramsJSON []byte
 
-	switch tx.DomainConfig.Variant {
-	case types.NotoVariantDefault:
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
-		functionName = "transfer"
-		params := &NotoTransferParams{
-			TxId:    req.Transaction.TransactionId,
-			Inputs:  endorsableStateIDs(req.InputStates),
-			Outputs: endorsableStateIDs(req.OutputStates),
-			Proof:   signature.Payload,
-			Data:    data,
-		}
-		paramsJSON, err = json.Marshal(params)
-	default:
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
-		functionName = "transfer"
-		params := &NotoTransfer_V0_Params{
+	if tx.DomainConfig.IsV0() {
+		paramsJSON, err = json.Marshal(&NotoTransfer_V0_Params{
 			TxId:      req.Transaction.TransactionId,
 			Inputs:    endorsableStateIDs(req.InputStates),
 			Outputs:   endorsableStateIDs(req.OutputStates),
 			Signature: signature.Payload,
 			Data:      data,
-		}
-		paramsJSON, err = json.Marshal(params)
+		})
+	} else {
+		paramsJSON, err = json.Marshal(&NotoTransferParams{
+			TxId:    req.Transaction.TransactionId,
+			Inputs:  endorsableStateIDs(req.InputStates),
+			Outputs: endorsableStateIDs(req.OutputStates),
+			Proof:   signature.Payload,
+			Data:    data,
+		})
 	}
 	if err != nil {
 		return nil, err

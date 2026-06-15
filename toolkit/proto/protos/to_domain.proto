@@ -303,6 +303,7 @@ message DomainConfig {
   repeated string abi_state_schemas_json = 2; // A list of Schema definitions (in ABI parameter format) the domain requires for all state types it interacts with
   string abi_events_json = 3; // ABI events that the domain will process for state updates
   map<string, int32> signing_algorithms = 4; // A list of supported signing algorithms with the minimum key lengths for each algorithm
+  bool full_state_availablity_required = 5; // If true, CheckStateCompletion always returns a definitive answer; core will maintain a global completion index for assembly/endorsement gating
 }
 
 message ContractInfo {

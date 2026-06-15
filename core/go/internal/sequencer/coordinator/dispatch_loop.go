@@ -24,7 +24,6 @@ import (
 )
 
 func (c *coordinator) dispatchLoop(ctx context.Context) {
-	defer close(c.dispatchLoopStopped)
 	dispatchedAhead := 0 // Number of transactions we've dispatched without confirming they are in the state machine's in-flight list
 	log.L(ctx).Debugf("coordinator dispatch loop started for contract %s", c.contractAddress.String())
 
@@ -87,6 +86,56 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func (c *coordinator) startDispatchLoop() {
+	if c.ctx == nil || c.dispatchLoopCancel != nil {
+		return // coordinator not yet started, or loop already running
+	}
+	loopCtx, cancel := context.WithCancel(c.ctx)
+	done := make(chan struct{})
+	c.dispatchLoopCancel = cancel
+	c.dispatchLoopDone = done
+	go func() {
+		defer close(done)
+		c.dispatchLoop(loopCtx)
+	}()
+}
+
+func (c *coordinator) stopDispatchLoop() {
+	if c.dispatchLoopCancel == nil {
+		return
+	}
+	c.dispatchLoopCancel()
+	c.dispatchLoopCancel = nil
+
+	// Wake the loop if it is blocked in a cond.Wait on inFlightMutex,
+	// since context cancellation alone does not unblock that.
+	c.inFlightMutex.L.Lock()
+	c.inFlightMutex.Broadcast()
+	c.inFlightMutex.L.Unlock()
+
+	<-c.dispatchLoopDone
+	c.dispatchLoopDone = nil
+}
+
+func action_StartDispatchLoop(_ context.Context, c *coordinator, _ common.Event) error {
+	c.startDispatchLoop()
+	return nil
+}
+
+// action_QueueRestartDispatchLoop defers the dispatch loop restart by queuing a RestartDispatchLoopEvent
+// rather than calling startDispatchLoop directly. This ensures any TransactionStateTransitionEvents
+// that were queued by the loop before it stopped are processed first, so c.inFlightTxns is fully
+// up to date before the loop resumes with dispatchedAhead reset to zero.
+func action_QueueRestartDispatchLoop(ctx context.Context, c *coordinator, _ common.Event) error {
+	c.queueEventInternal(ctx, &RestartDispatchLoopEvent{})
+	return nil
+}
+
+func action_StopDispatchLoop(_ context.Context, c *coordinator, _ common.Event) error {
+	c.stopDispatchLoop()
+	return nil
 }
 
 func action_NudgeDispatchLoop(ctx context.Context, c *coordinator, _ common.Event) error {

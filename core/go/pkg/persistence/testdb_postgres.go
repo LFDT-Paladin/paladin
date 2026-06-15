@@ -30,7 +30,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
@@ -40,7 +39,6 @@ const utDBPrefix = "paladin_ut_"
 const migrationsDirRelative = "../../db/migrations/postgres"
 
 var reversedDropTables []string = nil // built once
-var utDBLock sync.Mutex
 
 func requireNoError(err error) {
 	if err != nil {
@@ -49,7 +47,11 @@ func requireNoError(err error) {
 }
 
 func buildReversedTableListFromMigrations() []string {
-	migrationFiles, err := os.ReadDir(migrationsDirRelative)
+	return buildReversedTableListFromDir(migrationsDirRelative)
+}
+
+func buildReversedTableListFromDir(dir string) []string {
+	migrationFiles, err := os.ReadDir(dir)
 	requireNoError(err)
 
 	fileNames := make([]string, len(migrationFiles))
@@ -65,7 +67,7 @@ func buildReversedTableListFromMigrations() []string {
 	dropTables := map[string]string{}
 	var dropList []string
 	for _, migrationFile := range fileNames {
-		fileData, err := os.ReadFile(path.Join(migrationsDirRelative, migrationFile))
+		fileData, err := os.ReadFile(path.Join(dir, migrationFile))
 		requireNoError(err)
 		scanner := bufio.NewScanner(bytes.NewReader(fileData))
 		switch {
@@ -108,11 +110,11 @@ func buildReversedTableListFromMigrations() []string {
 		}
 	}
 
-	reversedDropTables = make([]string, len(dropList))
+	result := make([]string, len(dropList))
 	for i := 0; i < len(dropList); i++ {
-		reversedDropTables[len(dropList)-i-1] = dropList[i]
+		result[len(dropList)-i-1] = dropList[i]
 	}
-	return reversedDropTables
+	return result
 }
 
 func clearAllData(utDBName string) {

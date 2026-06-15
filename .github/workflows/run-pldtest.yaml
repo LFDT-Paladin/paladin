@@ -1,4 +1,4 @@
-name: "Run integration test"
+name: "Run integration tests"
 
 permissions:
   contents: read
@@ -7,10 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       test_name:
-        description: "Test configuration to run"
+        description: "Test to run (leave as 'all' to run all tests in parallel)"
         required: true
         type: choice
         options:
+          - all
           - public-contract
           - private-transaction-node-restart
           - privacy-group-contract-deploy
@@ -27,8 +28,44 @@ on:
         default: ""
 
 jobs:
-  run-pldtest:
+  setup:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          case "${{ inputs.test_name }}" in
+            all)
+              matrix=$(jq -cn '{include:[
+                {name:"public-contract",               config_file:"example-public-contract.yaml"},
+                {name:"private-transaction-node-restart", config_file:"example-private-transaction-node-restart.yaml"},
+                {name:"privacy-group-contract-deploy", config_file:"example-privacy-group-contract-deploy.yaml"},
+                {name:"noto-revertable-hooks",         config_file:"example-noto-revertable-hooks.yaml"}
+              ]}')
+              ;;
+            public-contract)
+              matrix=$(jq -cn '{include:[{name:"public-contract",config_file:"example-public-contract.yaml"}]}')
+              ;;
+            private-transaction-node-restart)
+              matrix=$(jq -cn '{include:[{name:"private-transaction-node-restart",config_file:"example-private-transaction-node-restart.yaml"}]}')
+              ;;
+            privacy-group-contract-deploy)
+              matrix=$(jq -cn '{include:[{name:"privacy-group-contract-deploy",config_file:"example-privacy-group-contract-deploy.yaml"}]}')
+              ;;
+            noto-revertable-hooks)
+              matrix=$(jq -cn '{include:[{name:"noto-revertable-hooks",config_file:"example-noto-revertable-hooks.yaml"}]}')
+              ;;
+          esac
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+
+  run-pld-integration-test:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
     steps:
       - name: Checkout Paladin branch
         uses: actions/checkout@v4
@@ -46,32 +83,18 @@ jobs:
       - name: Setup kustomize
         uses: imranismail/setup-kustomize@v2
 
-      - name: Resolve test configuration
-        id: test-config
-        run: |
-          case "${{ inputs.test_name }}" in
-            public-contract)
-              echo "config_file=example-public-contract.yaml" >> $GITHUB_OUTPUT
-              ;;
-            private-transaction-node-restart)
-              echo "config_file=example-private-transaction-node-restart.yaml" >> $GITHUB_OUTPUT
-              ;;
-            privacy-group-contract-deploy)
-              echo "config_file=example-privacy-group-contract-deploy.yaml" >> $GITHUB_OUTPUT
-              ;;
-            noto-revertable-hooks)
-              echo "config_file=example-noto-revertable-hooks.yaml" >> $GITHUB_OUTPUT
-              ;;
-          esac
-
       - name: Override test length
         if: inputs.length != ''
         run: |
           sed -i "s/^\(\s*\)length:.*$/\1length: ${{ inputs.length }}/" \
-            test/config/${{ steps.test-config.outputs.config_file }}
+            paladin/test/config/${{ matrix.config_file }}
+
+      - name: Copy solidity artifacts
+        working-directory: paladin
+        run: ./gradlew --no-daemon :toolkit:go:protoc :domains:noto:copyInternalSolidity :domains:noto:copyPkgSolidity :test:copySolidity
 
       - name: Build test application
-        working-directory: test
+        working-directory: paladin/test
         run: make
 
       - name: Install Kind
@@ -86,10 +109,26 @@ jobs:
           ./gradlew --no-daemon :operator:installOperatorDefault \
             -x :operator:helmUnitTest
 
-      - name: Run test
+      # Limit the step to 2 x the chosen test length to prevent a hang resulting in hitting 6h GHA limit
+      - name: Compute test timeout
+        id: test-timeout
         run: |
-          ./test/pldtest/pldtest run \
-            -c test/config/${{ steps.test-config.outputs.config_file }} \
+          length="${{ inputs.length }}"
+          if [ -z "$length" ]; then
+            echo "minutes=30" >> $GITHUB_OUTPUT
+          else
+            total_seconds=0
+            [[ "$length" =~ ([0-9]+)h ]] && total_seconds=$((total_seconds + BASH_REMATCH[1] * 3600))
+            [[ "$length" =~ ([0-9]+)m ]] && total_seconds=$((total_seconds + BASH_REMATCH[1] * 60))
+            [[ "$length" =~ ([0-9]+)s ]] && total_seconds=$((total_seconds + BASH_REMATCH[1]))
+            echo "minutes=$(( (total_seconds * 2 + 59) / 60 ))" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run test
+        timeout-minutes: ${{ fromJson(steps.test-timeout.outputs.minutes) }}
+        run: |
+          ./paladin/test/pldtest/pldtest run \
+            -c paladin/test/config/${{ matrix.config_file }} \
             -i 0
 
       - name: Cleanup cluster

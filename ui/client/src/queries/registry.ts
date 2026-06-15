@@ -45,9 +45,6 @@ export const fetchRegistryEntries = async (
 
   let translatedFilters = translateFilters(filters);
 
-
-  
-
   let requestPayload: any = {
     jsonrpc: "2.0",
     id: Date.now(),
