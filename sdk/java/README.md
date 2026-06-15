@@ -1,7 +1,7 @@
 # Paladin Java SDK
 
 Native Java SDK for [Paladin](https://github.com/LFDT-Paladin/paladin) — enables enterprise
-JVM applications to interact with a Paladin node without going through the Go or TypeScript SDKs.
+JVM applications to interact with a Paladin node using a Java native library.
 
 Work in progress...
 
@@ -25,4 +25,4 @@ Work in progress...
 ./gradlew :sdk:java:integration-test:build
 ```
 
-Requires JDK 17+.
+Requires JDK 21+.
