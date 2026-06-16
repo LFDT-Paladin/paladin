@@ -16,7 +16,7 @@
 
 import { Button } from "@mui/material";
 import { ITransactionReceipt } from "../interfaces";
-import { getShortId } from "../utils";
+import { customNavigate, getShortId } from "../utils";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -39,7 +39,7 @@ export const PaladinReceiptChip: React.FC<Props> = ({
         paddingTop: 0, paddingBottom: 0, fontWeight: '400', whiteSpace: 'nowrap',
         minWidth: '170px'
       }}
-      onClick={() => navigate(`/ui/transactions/${receipt.id}`, { state: { from: 'transactions' } })}
+      onClick={event => customNavigate(`/ui/transactions/${receipt.id}`, event, navigate )}
       endIcon={<OpenInNewIcon />}
     >
       <span style={{ fontWeight: 600, marginRight: '6px' }}>{t(receipt.domain ??  'public')}</span>

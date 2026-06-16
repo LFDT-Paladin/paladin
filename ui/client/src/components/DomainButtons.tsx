@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -14,13 +14,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Button, Grid2 } from '@mui/material';
+import { Box, Button } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotoMintDialog } from '../dialogs/domains/noto/NotoMint';
 import { NotoTransferDialog } from '../dialogs/domains/noto/NotoTransfer';
 import { ZetoMintDialog } from '../dialogs/domains/zeto/ZetoMint';
 import { ZetoTransferDialog } from '../dialogs/domains/zeto/ZetoTransfer';
+import { NotoCheckBalanceDialog } from '../dialogs/domains/noto/NotoCheckBalance';
+import { ZetoCheckBalanceDialog } from '../dialogs/domains/zeto/ZetoCheckBalance';
+import { NotoBurnDialog } from '../dialogs/domains/noto/NotoBurn';
 
 type Props = {
   domainName: string;
@@ -42,6 +45,9 @@ export const DomainButtons: React.FC<Props> = ({
   const [notoTransferDialogOpen, setNotoTransferDialogOpen] = useState(false);
   const [zetoMintDialogOpen, setZetoMintDialogOpen] = useState(false);
   const [zetoTransferDialogOpen, setZetoTransferDialogOpen] = useState(false);
+  const [notoCheckBalanceDialogOpen, setNotoCheckBalanceDialogOpen] = useState(false);
+  const [zetoCheckBalanceDialogOpen, setZetoCheckBalanceDialogOpen] = useState(false);
+  const [notoBurnDialogOpen, setNotoBurnDialogOpen] = useState(false);
 
   useEffect(() => {
     const tmpButtons: DomainButton[] = [];
@@ -50,6 +56,10 @@ export const DomainButtons: React.FC<Props> = ({
     switch (domainName) {
       case 'noto': {
         tmpButtons.push({
+          name: 'balance',
+          action: () => setNotoCheckBalanceDialogOpen(true),
+        });
+        tmpButtons.push({
           name: 'mint',
           action: () => setNotoMintDialogOpen(true),
         });
@@ -57,9 +67,17 @@ export const DomainButtons: React.FC<Props> = ({
           name: 'transfer',
           action: () => setNotoTransferDialogOpen(true),
         });
+        tmpButtons.push({
+          name: 'burn',
+          action: () => setNotoBurnDialogOpen(true),
+        });
         break;
       }
       case 'zeto': {
+        tmpButtons.push({
+          name: 'checkBalance',
+          action: () => setZetoCheckBalanceDialogOpen(true),
+        });
         tmpButtons.push({
           name: 'mint',
           action: () => setZetoMintDialogOpen(true),
@@ -77,7 +95,7 @@ export const DomainButtons: React.FC<Props> = ({
 
   return (
     <>
-      <Grid2>
+      <Box sx={{ display: 'flex', gap: '20px' }}>
         {buttons.map((button) => (
           <Button
             key={button.name}
@@ -89,7 +107,7 @@ export const DomainButtons: React.FC<Props> = ({
           </Button>
         ))}
         {buttons.length === 0 && t('noActions')}
-      </Grid2>
+      </Box>
 
       <NotoMintDialog
         dialogOpen={notoMintDialogOpen}
@@ -100,6 +118,12 @@ export const DomainButtons: React.FC<Props> = ({
       <NotoTransferDialog
         dialogOpen={notoTransferDialogOpen}
         setDialogOpen={setNotoTransferDialogOpen}
+        contractAddress={contractAddress}
+      />
+
+      <NotoBurnDialog
+        dialogOpen={notoBurnDialogOpen}
+        setDialogOpen={setNotoBurnDialogOpen}
         contractAddress={contractAddress}
       />
 
@@ -114,6 +138,19 @@ export const DomainButtons: React.FC<Props> = ({
         setDialogOpen={setZetoTransferDialogOpen}
         contractAddress={contractAddress}
       />
+
+      <NotoCheckBalanceDialog
+        dialogOpen={notoCheckBalanceDialogOpen}
+        setDialogOpen={setNotoCheckBalanceDialogOpen}
+        contractAddress={contractAddress}
+      />
+
+      <ZetoCheckBalanceDialog
+        dialogOpen={zetoCheckBalanceDialogOpen}
+        setDialogOpen={setZetoCheckBalanceDialogOpen}
+        contractAddress={contractAddress}
+      />
+
     </>
   );
 };

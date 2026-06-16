@@ -24,6 +24,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
+	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -141,7 +143,7 @@ func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
 func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
 	ctx := t.Context()
 
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(mockGrapher).
 		Build()
@@ -155,7 +157,7 @@ func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
 	ctx := t.Context()
 
 	missingID := uuid.New()
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(mockGrapher).
 		Build()
@@ -169,7 +171,7 @@ func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
 func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 	ctx := t.Context()
 
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(mockGrapher).Build()
 	txn1.stateMachine.SetCurrentState(State_Assembling)
 
@@ -193,7 +195,7 @@ func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 	ctx := t.Context()
 
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(mockGrapher).
 		Build()
@@ -244,7 +246,7 @@ func Test_traceDispatch_WithPostAssembly(t *testing.T) {
 func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
 	ctx := t.Context()
 
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(mockGrapher).
 		Build()
@@ -258,7 +260,7 @@ func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
 func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
 	ctx := t.Context()
 	missingID := uuid.New()
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(mockGrapher).
 		Build()
@@ -272,7 +274,7 @@ func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
 func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 	ctx := t.Context()
 
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	tx1ID := uuid.New()
 	tx2ID := uuid.New()
 	// txn1 is the notifier: it enters Ready_For_Dispatch and notifies its dependents (txn2)
@@ -311,7 +313,7 @@ func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
 	log.SetLevel("trace")
 	defer log.SetLevel(originalLevel)
 
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(mockGrapher).
 		PostAssembly(&components.TransactionPostAssembly{
@@ -341,7 +343,7 @@ func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
 func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 	ctx := t.Context()
 
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 
 	// Dependent in State_Blocked: DependencyReady transitions to Confirming_Dispatchable and runs sendPreDispatchRequest,
 	// which fails to hash when PostAssembly is nil (attestation guard still allows the transition).
@@ -424,7 +426,7 @@ func Test_action_AllocateSigningIdentity_WithoutSigner(t *testing.T) {
 
 func TestDependsOn_HasDependenciesNotReady_BlockedByDep(t *testing.T) {
 	ctx := t.Context()
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(mockGrapher).
@@ -449,7 +451,7 @@ func TestDependsOn_HasDependenciesNotReady_BlockedByDep(t *testing.T) {
 
 func TestDependsOn_HasDependenciesNotReady_UnblockedWhenDepDispatched(t *testing.T) {
 	ctx := t.Context()
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(mockGrapher).
@@ -474,7 +476,7 @@ func TestDependsOn_HasDependenciesNotReady_UnblockedWhenDepDispatched(t *testing
 
 func TestDependsOn_HasDependenciesNotReady_UnknownDepBlocksDispatch(t *testing.T) {
 	ctx := t.Context()
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 
 	unknownID := uuid.New()
 
@@ -489,7 +491,7 @@ func TestDependsOn_HasDependenciesNotReady_UnknownDepBlocksDispatch(t *testing.T
 
 func Test_Blocked_DependencyReady_TransitionsToConfirmingDispatchable(t *testing.T) {
 	ctx := t.Context()
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
@@ -520,7 +522,7 @@ func Test_Blocked_DependencyReady_TransitionsToConfirmingDispatchable(t *testing
 
 func Test_Blocked_DependencyReady_StaysBlocked_WhenDepsNotReady(t *testing.T) {
 	ctx := t.Context()
-	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher := graphermocks.NewGrapher(t)
 	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -552,7 +554,7 @@ func Test_Blocked_DependencyReady_StaysBlocked_WhenDepsNotReady(t *testing.T) {
 func TestDependsOn_NotifyDependentsOfReadiness(t *testing.T) {
 	ctx := t.Context()
 	depTracker := dependencytracker.NewDependencyTracker()
-	g := grapher.NewGrapher(depTracker)
+	g := grapher.NewGrapher(depTracker, statevisibilitytracker.NewStore(), 5)
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(g).

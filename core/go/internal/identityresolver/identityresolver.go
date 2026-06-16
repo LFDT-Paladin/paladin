@@ -35,6 +35,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// protoMarshal is a variable so it can be overridden in tests to exercise error paths.
+var protoMarshal = proto.Marshal
+
 type identityResolver struct {
 	bgCtx                 context.Context
 	nodeName              string
@@ -160,7 +163,7 @@ func (ir *identityResolver) ResolveVerifierAsync(ctx context.Context, lookup str
 			Algorithm:    algorithm,
 			VerifierType: verifierType,
 		}
-		resolveVerifierRequestBytes, err := proto.Marshal(resolveVerifierRequest)
+		resolveVerifierRequestBytes, err := protoMarshal(resolveVerifierRequest)
 		if err != nil {
 			log.L(ctx).Errorf("Failed to marshal ResolveVerifierRequest for lookup %s: %s", lookup, err)
 			failed(ctx, err)
@@ -169,21 +172,15 @@ func (ir *identityResolver) ResolveVerifierAsync(ctx context.Context, lookup str
 
 		requestID := uuid.New()
 
-		remoteNodeId, err := pldtypes.PrivateIdentityLocator(lookup).Node(ctx, false)
-		if err != nil {
-			failed(ctx, err)
-			return
-		}
-
 		err = ir.transportManager.Send(ctx, &components.FireAndForgetMessageSend{
 			MessageID:   &requestID,
 			MessageType: "ResolveVerifierRequest",
 			Component:   prototk.PaladinMsg_IDENTITY_RESOLVER,
-			Node:        remoteNodeId,
+			Node:        node,
 			Payload:     resolveVerifierRequestBytes,
 		}, &components.TransportSendOptions{
 			ErrorHandler: func(ctx context.Context, err error) {
-				log.L(ctx).Errorf("Failed to send resolve verifier request to %s: %s", remoteNodeId, err)
+				log.L(ctx).Errorf("Failed to send resolve verifier request to %s: %s", node, err)
 				ir.handleResolveVerifierError(ctx, resolveVerifierRequestBytes, requestID.String())
 			},
 		})
@@ -287,7 +284,7 @@ func (ir *identityResolver) handleResolveVerifierRequest(ctx context.Context, me
 			Verifier:     resolvedKey.Verifier.Verifier,
 			VerifierType: resolveVerifierRequest.VerifierType,
 		}
-		resolveVerifierResponseBytes, err := proto.Marshal(resolveVerifierResponse)
+		resolveVerifierResponseBytes, err := protoMarshal(resolveVerifierResponse)
 		if err == nil {
 			err = ir.transportManager.Send(ctx, &components.FireAndForgetMessageSend{
 				MessageType:   "ResolveVerifierResponse",
@@ -315,7 +312,7 @@ func (ir *identityResolver) handleResolveVerifierRequest(ctx context.Context, me
 			Algorithm:    resolveVerifierRequest.Algorithm,
 			ErrorMessage: err.Error(),
 		}
-		resolveVerifierErrorBytes, err := proto.Marshal(resolveVerifierError)
+		resolveVerifierErrorBytes, err := protoMarshal(resolveVerifierError)
 		if err == nil {
 			err = ir.transportManager.Send(ctx, &components.FireAndForgetMessageSend{
 				MessageType:   "ResolveVerifierError",

@@ -262,6 +262,7 @@ task copySolidity(type: Copy) {
     inputs.files(configurations.contractCompile)
     from fileTree(configurations.contractCompile.asPath) {
         include 'contracts/registry/IdentityRegistry.sol/IdentityRegistry.json'
+        include 'contracts/domains/noto/Noto.sol/Noto.json'
         include 'contracts/domains/noto/NotoFactory.sol/NotoFactory.json'
         include 'contracts/domains/pente/PenteFactory.sol/PenteFactory.json'
         include 'contracts/private/BondTracker.sol/BondTracker.json'
@@ -271,6 +272,7 @@ task copySolidity(type: Copy) {
         include 'contracts/shared/BondTrackerPublic.sol/BondTrackerPublic.json'
         include 'contracts/shared/AtomFactory.sol/AtomFactory.json'
         include 'contracts/testcontracts/ERC20Simple.sol/ERC20Simple.json'
+        include '@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json'
     }
     into 'test/e2e/abis'
 

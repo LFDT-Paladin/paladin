@@ -191,9 +191,9 @@ func (tb *testbed) gatherEndorsements(dCtx components.DomainContext, tx *testbed
 					return fmt.Errorf("failed to resolve (local in testbed case) endorser for %s (algorithm=%s): %s", partyName, ar.Algorithm, err)
 				}
 				// Invoke the domain
-				endorseRes, err := tx.psc.EndorseTransaction(dCtx, tb.c.Persistence().NOTX(), &components.PrivateTransactionEndorseRequest{
-					TransactionSpecification: tx.ptx.PreAssembly.TransactionSpecification,
-					Verifiers:                tx.ptx.PreAssembly.Verifiers,
+			endorseRes, err := tx.psc.EndorseTransaction(dCtx, tb.c.Persistence().NOTX(), &components.PrivateTransactionEndorseRequest{
+				TransactionSpecification: tx.ptx.PreAssembly.TransactionSpecification,
+				Verifiers:                tx.ptx.PostAssembly.ResolvedVerifiers,
 					Signatures:               tx.ptx.PostAssembly.Signatures,
 					InputStates:              toEndorsableList(tx.ptx.PostAssembly.InputStates),
 					ReadStates:               toEndorsableList(tx.ptx.PostAssembly.ReadStates),

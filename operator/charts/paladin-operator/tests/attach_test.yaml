@@ -14,11 +14,11 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
-        zetoFactory:
+        zetoFactoryProxy:
           address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
-        penteFactory:
+        penteFactoryProxy:
           address: "0x48c11bbb7caa77329d53b89235fec64733a24ca1"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -258,7 +258,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -335,7 +335,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -411,7 +411,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -498,9 +498,9 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
-        zetoFactory:
+        zetoFactoryProxy:
           address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -643,7 +643,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -732,7 +732,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -812,7 +812,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -897,13 +897,13 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
           deployment: ""
-        zetoFactory:
+        zetoFactoryProxy:
           address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
           deployment: ""
-        penteFactory:
+        penteFactoryProxy:
           address: "0x48c11bbb7caa77329d53b89235fec64733a24ca1"
           deployment: ""
         registry:
@@ -1020,13 +1020,13 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
           deployment: ""
-        zetoFactory:
+        zetoFactoryProxy:
           address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
           deployment: ""
-        penteFactory:
+        penteFactoryProxy:
           address: "0x48c11bbb7caa77329d53b89235fec64733a24ca1"
           deployment: ""
         registry:

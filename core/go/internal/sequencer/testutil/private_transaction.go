@@ -340,7 +340,6 @@ func (b *PrivateTransactionBuilderForTesting) BuildSparse() *components.PrivateT
 func (b *PrivateTransactionBuilderForTesting) BuildPreAssembly() *components.TransactionPreAssembly {
 	preAssembly := &components.TransactionPreAssembly{
 		RequiredVerifiers: make([]*prototk.ResolveVerifierRequest, b.numberOfEndorsers+1),
-		Verifiers:         make([]*prototk.ResolvedVerifier, b.numberOfEndorsers+1),
 	}
 
 	preAssembly.RequiredVerifiers[0] = &prototk.ResolveVerifierRequest{
@@ -349,28 +348,34 @@ func (b *PrivateTransactionBuilderForTesting) BuildPreAssembly() *components.Tra
 		VerifierType: verifiers.ETH_ADDRESS,
 	}
 
-	preAssembly.Verifiers[0] = &prototk.ResolvedVerifier{
-		Lookup:       b.originator.identityLocator,
-		Algorithm:    algorithms.ECDSA_SECP256K1,
-		VerifierType: verifiers.ETH_ADDRESS,
-		Verifier:     pldtypes.RandAddress().String(),
-	}
-
 	for i := 0; i < b.numberOfEndorsers; i++ {
 		preAssembly.RequiredVerifiers[i+1] = &prototk.ResolveVerifierRequest{
 			Lookup:       b.endorsers[i].identityLocator,
 			Algorithm:    algorithms.ECDSA_SECP256K1,
 			VerifierType: verifiers.ETH_ADDRESS,
 		}
-		preAssembly.Verifiers[i+1] = &prototk.ResolvedVerifier{
+	}
+
+	return preAssembly
+}
+
+func (b *PrivateTransactionBuilderForTesting) buildResolvedVerifiers() []*prototk.ResolvedVerifier {
+	resolvedVerifiers := make([]*prototk.ResolvedVerifier, b.numberOfEndorsers+1)
+	resolvedVerifiers[0] = &prototk.ResolvedVerifier{
+		Lookup:       b.originator.identityLocator,
+		Algorithm:    algorithms.ECDSA_SECP256K1,
+		VerifierType: verifiers.ETH_ADDRESS,
+		Verifier:     pldtypes.RandAddress().String(),
+	}
+	for i := 0; i < b.numberOfEndorsers; i++ {
+		resolvedVerifiers[i+1] = &prototk.ResolvedVerifier{
 			Lookup:       b.endorsers[i].identityLocator,
 			Algorithm:    algorithms.ECDSA_SECP256K1,
 			VerifierType: verifiers.ETH_ADDRESS,
 			Verifier:     b.endorsers[i].verifier,
 		}
 	}
-
-	return preAssembly
+	return resolvedVerifiers
 }
 
 // Function BuildEndorsement creates a new AttestationResult for the given endorserIndex
@@ -411,7 +416,8 @@ func (b *PrivateTransactionBuilderForTesting) BuildPostAssembly() *components.Tr
 		}
 	}
 	postAssembly := &components.TransactionPostAssembly{
-		AssemblyResult: prototk.AssembleTransactionResponse_OK,
+		AssemblyResult:    prototk.AssembleTransactionResponse_OK,
+		ResolvedVerifiers: b.buildResolvedVerifiers(),
 	}
 
 	//it is normal to have one AttestationRequest for the originator to sign the pre-assembly

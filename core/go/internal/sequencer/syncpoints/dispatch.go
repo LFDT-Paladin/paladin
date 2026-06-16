@@ -267,7 +267,7 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 		}
 
 		if len(op.preparedReliableMsgs) == 0 {
-			log.L(opCtx).Debug("No prepared reliable messages to persist to persist")
+			log.L(opCtx).Debug("No prepared reliable messages to persist")
 		} else {
 
 			log.L(opCtx).Debugf("Writing %d reliable messages", len(op.preparedReliableMsgs))

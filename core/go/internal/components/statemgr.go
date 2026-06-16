@@ -67,6 +67,18 @@ type StateManager interface {
 
 	// Get all states created, read or spent by a confirmed transaction
 	GetTransactionStates(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (*pldapi.TransactionStates, error)
+
+	// WritePendingPrivateStateDataBatch writes rows for a batch of states whose private data has not yet arrived.
+	WritePendingPrivateStateDataBatch(ctx context.Context, dbTX persistence.DBTX, domainName string, states []PendingPrivateStateDataEntry) error
+
+	// CheckPendingPrivateStateDataForContract returns true if there are no outstanding rows for the given contract at or below the given block number.
+	CheckPendingPrivateStateDataForContract(ctx context.Context, dbTX persistence.DBTX, contract string, block int64) (complete bool, err error)
+}
+
+type PendingPrivateStateDataEntry struct {
+	StateID     pldtypes.HexBytes
+	Contract    pldtypes.EthAddress
+	BlockNumber int64
 }
 
 type StateQueryOptions struct {

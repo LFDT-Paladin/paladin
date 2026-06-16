@@ -112,7 +112,6 @@ export const TransactionLookupDialog: React.FC<Props> = ({
         </DialogTitle>
         <DialogContent>
           <Box sx={{ marginTop: '6px' }}>
-
             <TextField
               label={label}
               autoComplete="OFF"
@@ -122,7 +121,6 @@ export const TransactionLookupDialog: React.FC<Props> = ({
               onChange={event => setHashOrId(event.target.value)}
             />
           </Box>
-
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
           <Button

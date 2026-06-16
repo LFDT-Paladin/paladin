@@ -48,6 +48,7 @@ Install the following pre-requisites:
 - Docker - <https://docs.docker.com/compose/install/>
 - npm/NodeJS - <https://nodejs.org/en/download/package-manager>
 - Go - https://go.dev/doc/install
+- Python 3 - <https://www.python.org/downloads/>
 
 Then run the following command to build Paladin via [Gradle](https://gradle.org/):
 

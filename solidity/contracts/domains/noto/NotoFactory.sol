@@ -1,18 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {INoto} from "../interfaces/INoto.sol";
-import {Noto} from "./Noto.sol";
 import {IPaladinContractRegistry_V0} from "../interfaces/IPaladinContractRegistry.sol";
 
-// NotoFactory version: 1
-contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
+// NotoFactory version: 2
+error UnknownImplementation(string name);
+
+contract NotoFactory is
+    Initializable,
+    OwnableUpgradeable,
+    UUPSUpgradeable,
+    IPaladinContractRegistry_V0
+{
     mapping(string => address) internal implementations;
 
-    constructor() Ownable(_msgSender()) {
-        implementations["default"] = address(new Noto());
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * Initialize the factory with a default Noto implementation.
+     * @param defaultImplementation Address of the deployed Noto implementation contract
+     */
+    function initialize(address defaultImplementation) public initializer {
+        __Ownable_init(_msgSender());
+        __UUPSUpgradeable_init();
+        implementations["default"] = defaultImplementation;
     }
 
     /**
@@ -52,12 +71,15 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
      */
     function deployImplementation(
         bytes32 transactionId,
+        string calldata implementationName,
         string calldata name,
         string calldata symbol,
         address notary,
         bytes calldata data
     ) external {
-        _deploy(implementations[name], transactionId, name, symbol, notary, data);
+        address impl = implementations[implementationName];
+        if (impl == address(0)) revert UnknownImplementation(implementationName);
+        _deploy(impl, transactionId, name, symbol, notary, data);
     }
 
     function _deploy(
@@ -81,4 +103,6 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
             INoto(instance).buildConfig(data)
         );
     }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 }

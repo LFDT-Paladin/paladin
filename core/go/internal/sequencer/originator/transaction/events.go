@@ -16,6 +16,8 @@
 package transaction
 
 import (
+	"time"
+
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -89,13 +91,19 @@ func (*DelegatedEvent) TypeString() string {
 	return "Event_Delegated"
 }
 
+func (e *DelegatedEvent) GetCoordinator() string {
+	return e.Coordinator
+}
+
 type AssembleRequestReceivedEvent struct {
 	BaseEvent
-	RequestID               uuid.UUID
-	Coordinator             string
-	CoordinatorsBlockHeight int64
-	StateLocksJSON          []byte
-	PreAssembly             []byte
+	RequestID              uuid.UUID
+	Coordinator            string
+	CoordinatorBlockHeight int64
+	BlockHeightTolerance   int64
+	StateLocksJSON         []byte
+	PreAssembly            []byte
+	Expiry                 time.Time
 }
 
 func (*AssembleRequestReceivedEvent) Type() EventType {
@@ -176,22 +184,18 @@ func (*PreDispatchRequestReceivedEvent) TypeString() string {
 	return "Event_PreDispatchRequestReceived"
 }
 
-type CoordinatorChangedEvent struct {
-	BaseEvent
-	Coordinator string
-}
-
-func (*CoordinatorChangedEvent) Type() EventType {
-	return Event_CoordinatorChanged
-}
-
-func (*CoordinatorChangedEvent) TypeString() string {
-	return "Event_CoordinatorChanged"
+// EventWithCoordinator is implemented by events that carry the coordinator node identity as their sender,
+// enabling a common validator to gate processing based on the transaction's current delegate.
+// GetCoordinator returns the node name populated from the transport layer's FromNode field which carries
+// the sender's LocalNodeName().
+type EventWithCoordinator interface {
+	GetCoordinator() string
 }
 
 type DispatchedEvent struct {
 	BaseEvent
 	SignerAddress pldtypes.EthAddress
+	Coordinator   string
 }
 
 func (*DispatchedEvent) Type() EventType {
@@ -202,10 +206,15 @@ func (*DispatchedEvent) TypeString() string {
 	return "Event_Dispatched"
 }
 
+func (e *DispatchedEvent) GetCoordinator() string {
+	return e.Coordinator
+}
+
 type NonceAssignedEvent struct {
 	BaseEvent
 	SignerAddress pldtypes.EthAddress // include the signer address in case we never actually saw a dispatch event
 	Nonce         uint64
+	Coordinator   string
 }
 
 func (*NonceAssignedEvent) Type() EventType {
@@ -216,11 +225,16 @@ func (*NonceAssignedEvent) TypeString() string {
 	return "Event_NonceAssigned"
 }
 
+func (e *NonceAssignedEvent) GetCoordinator() string {
+	return e.Coordinator
+}
+
 type SubmittedEvent struct {
 	BaseEvent
 	SignerAddress        pldtypes.EthAddress // include the signer address and nonce in case we never actually saw a dispatch event or nonce assigned event
 	Nonce                uint64
 	LatestSubmissionHash pldtypes.Bytes32
+	Coordinator          string
 }
 
 func (*SubmittedEvent) Type() EventType {
@@ -229,6 +243,10 @@ func (*SubmittedEvent) Type() EventType {
 
 func (*SubmittedEvent) TypeString() string {
 	return "Event_Submitted"
+}
+
+func (e *SubmittedEvent) GetCoordinator() string {
+	return e.Coordinator
 }
 
 type ResumedEvent struct {

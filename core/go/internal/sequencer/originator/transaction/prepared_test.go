@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -68,8 +67,8 @@ func TestAction_ResendPreDispatchResponse_Success(t *testing.T) {
 func TestAction_ResendPreDispatchResponse_TransportError(t *testing.T) {
 	// Test that action_ResendPreDispatchResponse returns error when transport fails
 	ctx := context.Background()
-	builder := NewTransactionBuilderForTesting(t, State_Prepared)
-	txn, _ := builder.BuildWithMocks()
+	builder := NewTransactionBuilderForTesting(t, State_Prepared).WithMockTransportWriter()
+	txn, mocks := builder.BuildWithMocks()
 
 	// Set up required fields
 	coordinator := "coordinator@node1"
@@ -87,19 +86,13 @@ func TestAction_ResendPreDispatchResponse_TransportError(t *testing.T) {
 	}
 	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
-	// Create a mock transport writer that returns an error
-	mockTransport := transport.NewMockTransportWriter(t)
 	expectedError := errors.New("transport error")
-	mockTransport.EXPECT().SendPreDispatchResponse(
+	mocks.TransportWriter.EXPECT().SendPreDispatchResponse(
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 	).Return(expectedError)
-
-	// Replace transport writer with mock
-	originalTransport := txn.transportWriter
-	txn.transportWriter = mockTransport
 
 	// Execute the action
 	err := action_ResendPreDispatchResponse(ctx, txn, nil)
@@ -107,9 +100,6 @@ func TestAction_ResendPreDispatchResponse_TransportError(t *testing.T) {
 	// Verify error is returned
 	assert.Error(t, err)
 	assert.Equal(t, expectedError, err)
-
-	// Restore original transport
-	txn.transportWriter = originalTransport
 }
 
 func Test_action_Dispatched_SetsSignerAddress(t *testing.T) {
@@ -132,13 +122,12 @@ func Test_action_PreDispatchRequestReceived_SetsRequestID(t *testing.T) {
 	txn, _ := builder.BuildWithMocks()
 	requestID := uuid.New()
 	event := &PreDispatchRequestReceivedEvent{
-		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
-		RequestID:   requestID,
-		Coordinator: "coord@node1",
+		BaseEvent:        BaseEvent{TransactionID: txn.pt.ID},
+		RequestID:        requestID,
+		Coordinator:      "coord@node1",
 		PostAssemblyHash: nil,
 	}
 	err := action_PreDispatchRequestReceived(ctx, txn, event)
 	require.NoError(t, err)
 	assert.Equal(t, requestID, txn.latestPreDispatchRequestID)
 }
-

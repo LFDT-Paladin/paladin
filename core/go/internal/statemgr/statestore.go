@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -40,6 +40,7 @@ type stateManager struct {
 	conf              *pldconf.StateStoreConfig
 	domainManager     components.DomainManager
 	txManager         components.TXManager
+	transportManager  components.TransportManager
 	abiSchemaCache    cache.Cache[string, components.Schema]
 	rpcModule         *rpcserver.RPCModule
 	domainContextLock sync.Mutex
@@ -107,6 +108,7 @@ func (ss *stateManager) PreInit(c components.PreInitComponents) (*components.Man
 func (ss *stateManager) PostInit(c components.AllComponents) error {
 	ss.domainManager = c.DomainManager()
 	ss.txManager = c.TxManager()
+	ss.transportManager = c.TransportManager()
 	return nil
 }
 

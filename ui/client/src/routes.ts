@@ -20,5 +20,12 @@ export const AppRoutes = {
   Registry: '/ui/registry',
   Domains: '/ui/domains',
   Transactions: '/ui/transactions',
-  Transaction: '/ui/transactions/:hashOrId'
+  Transaction: '/ui/transactions/:hashOrId',
+  DomainContract: '/ui/domains/:address',
+  PrivactGroups: '/ui/privacy-groups',
+  PrivacyGroup: '/ui/privacy-groups/:idOrAddress',
+  States: '/ui/states',
+  Messages: '/ui/messages',
+  Message: '/ui/messages/:id',
+  State: '/ui/states/:domain/:schema/:id'
 };

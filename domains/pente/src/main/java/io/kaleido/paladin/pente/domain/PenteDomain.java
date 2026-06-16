@@ -72,10 +72,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          // we get called on for this and subsequent gRPC calls is safe).
          config.initFromConfig(request);
 
-         var domainConfig = DomainConfig.newBuilder()
-                 .addAllAbiStateSchemasJson(config.allPenteSchemas())
-                 .setAbiEventsJson(config.getEventsABI().toString())
-                 .build();
+        var domainConfig = DomainConfig.newBuilder()
+                .addAllAbiStateSchemasJson(config.allPenteSchemas())
+                .setAbiEventsJson(config.getEventsABI().toString())
+                .setFullStateAvailablityRequired(true)
+                .build();
          return CompletableFuture.completedFuture(ConfigureDomainResponse.newBuilder()
                  .setDomainConfig(domainConfig)
                  .build()

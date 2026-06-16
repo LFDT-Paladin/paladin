@@ -38,7 +38,7 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	t.dependencyTracker.GetChainedDeps().ForgetChainedChild(ctx, t.pt.ID)
 	// Clear post-assembly dependencies. Chained dependencies are tracked separately and persist.
 	t.pendingPreDispatchRequest = nil
-	t.grapher.Forget(ctx, t.pt.ID)
+	t.grapher.ForgetTransactionAndLocks(ctx, t.pt.ID)
 	t.clearTimeoutSchedules()
 	t.resetEndorsementRequests(ctx)
 
@@ -49,7 +49,7 @@ func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransacti
 	log.L(ctx).Debugf("resetting transaction locks for %s", txn.pt.ID.String())
 	// Clear minted-state index immediately when resetting in-memory transaction state to avoid
 	// later assembles binding to stale minters that have already been reset/reverted.
-	txn.grapher.Forget(ctx, txn.pt.ID)
+	txn.grapher.ForgetTransactionAndLocks(ctx, txn.pt.ID)
 	return nil
 }
 
@@ -110,7 +110,7 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	// Once dependents have been notified of reset, remove ourselves from the grapher (and indirectly
 	// clear post-assemble dependencies) so repeated reset events while dispatched are no-ops and stale
 	// dependency links are dropped.
-	txn.grapher.Forget(ctx, txn.pt.ID)
+	txn.grapher.ForgetTransactionAndLocks(ctx, txn.pt.ID)
 	return nil
 }
 

@@ -55,6 +55,11 @@ type keyManager struct {
 	allocLock       sync.Mutex
 	allocLockHolder *keyResolver
 
+	// testHookBeforeAllocationWait is nil in production. Tests set it to
+	// synchronize on the moment takeAllocationLock is about to block in its
+	// select, enabling deterministic coverage of the contention paths.
+	testHookBeforeAllocationWait func()
+
 	// plugin signing modules
 	mux                  sync.Mutex
 	signingModulesByID   map[uuid.UUID]*signingModule
@@ -188,6 +193,9 @@ func (km *keyManager) takeAllocationLock(ctx context.Context, kr *keyResolver) e
 			return nil
 		}
 		// There is contention on this path - wait until the lock is released, and try to get it again
+		if km.testHookBeforeAllocationWait != nil {
+			km.testHookBeforeAllocationWait()
+		}
 		select {
 		case <-lockingKRC.done:
 		case <-ctx.Done():

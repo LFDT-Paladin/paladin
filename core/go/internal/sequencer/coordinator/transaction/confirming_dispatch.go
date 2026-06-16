@@ -21,6 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/sha3"
@@ -116,4 +117,12 @@ func action_SendPreDispatchRequest(ctx context.Context, txn *coordinatorTransact
 
 func action_NudgePreDispatchRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	return txn.nudgePreDispatchRequest(ctx)
+}
+
+func validator_IsPreDispatchNotCurrentDelegateRejection(_ context.Context, _ *coordinatorTransaction, event common.Event) (bool, error) {
+	return event.(*PreDispatchRequestRejectedEvent).RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE, nil
+}
+
+func validator_IsPreDispatchTransactionUnknownRejection(_ context.Context, _ *coordinatorTransaction, event common.Event) (bool, error) {
+	return event.(*PreDispatchRequestRejectedEvent).RejectionReason == engineProto.RejectionReason_TRANSACTION_UNKNOWN, nil
 }

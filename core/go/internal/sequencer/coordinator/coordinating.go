@@ -17,6 +17,8 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
+	"slices"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -26,6 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
@@ -39,14 +42,164 @@ const (
 	DelegationAcknowledgementError_PreviousTransactionError
 )
 
+// action_SendHandoverRequest sends a CoordinatorHandoverRequest to the current active coordinator,
+// asking it to step down so this node can take over. Creates an IdempotentRequest on first call
+// and arms the request-timeout timer. Mirrors the pattern of sendAssembleRequest.
+func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Event) error {
+	return c.sendHandoverRequest(ctx)
+}
+
+// action_NudgeHandoverRequest is called when the request-timeout fires and re-prompts the
+// IdempotentRequest to send if enough time has elapsed since the last attempt.
+func action_NudgeHandoverRequest(ctx context.Context, c *coordinator, _ common.Event) error {
+	return c.nudgeHandoverRequest(ctx)
+}
+
+func (c *coordinator) sendHandoverRequest(ctx context.Context) error {
+	if c.pendingHandoverRequest == nil {
+		c.pendingHandoverRequest = common.NewIdempotentRequest(ctx, c.clock, c.requestTimeout, func(ctx context.Context, _ uuid.UUID) error {
+			return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, c.contractAddress)
+		})
+		c.scheduleRequestTimeout(ctx)
+	}
+	return c.pendingHandoverRequest.Nudge(ctx)
+}
+
+func (c *coordinator) nudgeHandoverRequest(ctx context.Context) error {
+	if c.pendingHandoverRequest == nil {
+		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nudgeHandoverRequest called with no pending request")
+	}
+	return c.pendingHandoverRequest.Nudge(ctx)
+}
+
+// action_ScheduleStateTimeout arms the state give-up timer. Called from OnTransitionTo of states
+// that use the send-nudge-give-up pattern (currently State_Elect).
+func action_ScheduleStateTimeout(ctx context.Context, c *coordinator, _ common.Event) error {
+	c.scheduleStateTimeout(ctx)
+	return nil
+}
+
+// action_ClearTimeoutSchedules cancels any pending request and state timers. Included as a
+// transition action on every exit from a timed state so timers never fire after the state is left.
+func action_ClearTimeoutSchedules(_ context.Context, c *coordinator, _ common.Event) error {
+	c.clearTimeoutSchedules()
+	return nil
+}
+
+func (c *coordinator) scheduleRequestTimeout(ctx context.Context) {
+	if c.cancelRequestTimeout != nil {
+		c.cancelRequestTimeout()
+	}
+	c.cancelRequestTimeout = c.clock.ScheduleTimer(ctx, c.requestTimeout, func() {
+		c.QueueEvent(ctx, &RequestTimeoutIntervalEvent{})
+	})
+}
+
+func (c *coordinator) scheduleStateTimeout(ctx context.Context) {
+	if c.cancelStateTimeout != nil {
+		c.cancelStateTimeout()
+	}
+	c.cancelStateTimeout = c.clock.ScheduleTimer(ctx, c.stateTimeout, func() {
+		c.QueueEvent(ctx, &StateTimeoutIntervalEvent{})
+	})
+}
+
+func (c *coordinator) clearTimeoutSchedules() {
+	if c.cancelRequestTimeout != nil {
+		c.cancelRequestTimeout()
+		c.cancelRequestTimeout = nil
+	}
+	if c.cancelStateTimeout != nil {
+		c.cancelStateTimeout()
+		c.cancelStateTimeout = nil
+	}
+	c.pendingHandoverRequest = nil
+}
+
+// action_ProcessConfirmedTransactionsFromSnapshot cleans up any delegated transactions that the
+// flushing/closing coordinator has already confirmed. Called in State_Prepared so that transactions
+// confirmed by the outgoing coordinator are not redundantly re-submitted after becoming Active.
+func action_ProcessConfirmedTransactionsFromSnapshot(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*common.HeartbeatReceivedEvent)
+	if e.CoordinatorSnapshot == nil {
+		return nil
+	}
+	for _, confirmed := range e.CoordinatorSnapshot.ConfirmedTransactions {
+		c.cleanUpTransaction(ctx, confirmed.ID)
+	}
+	return nil
+}
+
+// action_ImportStatesAndLocks imports confirmed locks and private state data from the previous
+// coordinator's closing heartbeat into the grapher. This covers states confirmed within the block
+// height tolerance window.
+// Triggered as a transition action on State_Prepared → State_Active when the closing heartbeat arrives.
+func action_ImportStatesAndLocks(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*common.HeartbeatReceivedEvent)
+	snapshot := e.CoordinatorSnapshot
+	if len(snapshot.Locks) > 0 || len(snapshot.OutputStates) > 0 {
+		log.L(ctx).Debugf("action_ImportStatesAndLocks: importing %d output states and %d locks from previous coordinator snapshot", len(snapshot.OutputStates), len(snapshot.Locks))
+		c.grapher.ImportStatesAndLocks(ctx, snapshot.OutputStates, snapshot.Locks)
+	}
+	return nil
+}
+
 // Originators send only the delegated transactions that they believe the coordinator needs to know/be reminded about. Which transactions are
 // included in this list depends on whether it is an intitial attempt or a scheduled retry, and whether individual delegation timeouts have
 // been exceeded. This means that the coordinator cannot infer any dependency or ordering between transactions based on the list of transactions
 // in the request.
-func action_TransactionsDelegated(ctx context.Context, c *coordinator, event common.Event) error {
+func action_ProcessDelegatedTransactions(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*TransactionsDelegatedEvent)
-	c.updateOriginatorNodePool(e.FromNode)
+	c.recordOriginatorActivity(e.FromNode)
 	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions, e.DelegationID, c.newCoordinatorTransaction)
+}
+
+// recordOriginatorActivity records that an originator node has sent a delegation request,
+// resetting its inactivity counter to 0. No-op in ENDORSER mode.
+func (c *coordinator) recordOriginatorActivity(node string) {
+	if c.coordinatorSelection == prototk.ContractConfig_COORDINATOR_ENDORSER {
+		return
+	}
+	c.originatorActivity[node] = 0
+}
+
+// guard_IsCoordinatorEndorserSelectionMode returns true when the coordinator is
+// configured for COORDINATOR_ENDORSER mode, where all endorsers are also coordinator candidates.
+func guard_IsCoordinatorEndorserSelectionMode(_ context.Context, c *coordinator) bool {
+	return c.coordinatorSelection == prototk.ContractConfig_COORDINATOR_ENDORSER
+}
+
+// updateEndorserCandidates adds newly-discovered endorser nodes to the candidate pool.
+// Only operates in ENDORSER mode; no-op in STATIC/SENDER. When new nodes are actually added
+// both the coordinator's own priority list is recomputed and the co-located originator is
+// notified with the updated candidates so it can recompute its own list independently.
+func (c *coordinator) updateEndorserCandidates(ctx context.Context, nodes ...string) bool {
+	if c.coordinatorSelection != prototk.ContractConfig_COORDINATOR_ENDORSER {
+		return false
+	}
+	before := len(c.endorserCandidates)
+	for _, node := range nodes {
+		if !slices.Contains(c.endorserCandidates, node) {
+			c.endorserCandidates = append(c.endorserCandidates, node)
+		}
+	}
+	if !slices.Contains(c.endorserCandidates, c.nodeName) {
+		c.endorserCandidates = append(c.endorserCandidates, c.nodeName)
+	}
+	if len(c.endorserCandidates) > before {
+		slices.Sort(c.endorserCandidates)
+		c.coordinatorPriorityList = common.ComputeCoordinatorPriorityList(
+			ctx,
+			c.endorserCandidates,
+			c.effectiveBlockHeight,
+		)
+		c.notifyOriginator(ctx, &common.EndorserNodesDiscoveredEvent{
+			// Put a copy of the candidates in the event so the originator can't modify the coordinator's internal state.
+			Nodes: slices.Clone(c.endorserCandidates),
+		})
+		return true
+	}
+	return false
 }
 
 func (c *coordinator) coordinatorTransactionHandleEvent(ctx context.Context, txID uuid.UUID, event common.Event) error {
@@ -65,20 +218,49 @@ func (c *coordinator) getCoordinatorTransactionState(ctx context.Context, id uui
 	return txn.GetCurrentState(), true
 }
 
-func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction, coordinatorSigningIdentity string) transaction.CoordinatorTransaction {
+func (c *coordinator) getCoordinatorSigningIdentity() string {
+	c.signingIdentity.used = true
+	return c.signingIdentity.value
+}
+
+func action_RefreshBlockHeight(ctx context.Context, c *coordinator, _ common.Event) error {
+	c.refreshBlockHeight(ctx)
+	return nil
+}
+
+// refreshBlockHeight queries the live block height, caches it in c.currentBlockHeight,
+// calls grapher.ForgetLocks, recomputes the priority list, and queues an internal
+// EpochBoundaryReachedEvent when the effective block height advances to a new epoch.
+func (c *coordinator) refreshBlockHeight(ctx context.Context) {
+	liveHeight := c.engineIntegration.GetBlockHeight(ctx)
+	c.currentBlockHeight = liveHeight
+	c.grapher.ForgetLocks(ctx, uint64(liveHeight))
+	c.calculateCoordinatorPriorities(ctx)
+	newEffective := common.ComputeEffectiveBlockHeight(uint64(liveHeight), c.coordinatorSelectionBlockRange)
+	if newEffective != c.effectiveBlockHeight {
+		c.effectiveBlockHeight = newEffective
+		c.queueEventInternal(ctx, &EpochBoundaryReachedEvent{})
+	}
+}
+
+func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction) transaction.CoordinatorTransaction {
 	return transaction.NewTransaction(
 		ctx,
 		originator,
 		originatorNode,
 		nodeName,
 		pt,
-		coordinatorSigningIdentity,
+		c.getCoordinatorSigningIdentity,
 		c.transportWriter,
 		c.clock,
 		c.queueEventInternal,
 		c.coordinatorTransactionHandleEvent,
 		c.getCoordinatorTransactionState,
+		func(ctx context.Context, nodes ...string) { c.updateEndorserCandidates(ctx, nodes...) },
 		c.engineIntegration,
+		c.refreshBlockHeight,                         
+		func() int64 { return c.currentBlockHeight }, 
+		c.blockHeightTolerance,
 		c.syncPoints,
 		c.components,
 		c.domainAPI,
@@ -86,10 +268,10 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.requestTimeout,
 		c.stateTimeout,
 		c.closingGracePeriod,
-		c.confirmedLockRetentionGracePeriod,
 		c.baseLedgerRevertRetryThreshold,
 		c.assembleErrorRetryThreshhold,
 		c.grapher,
+		c.stateVisibilityTracker,
 		c.dependencyTracker,
 		c.metrics,
 	)
@@ -106,8 +288,7 @@ func (c *coordinator) addToDelegatedTransactions(
 		originator string,
 		originatorNode string,
 		nodeName string,
-		pt *components.PrivateTransaction,
-		coordinatorSigningIdentity string) transaction.CoordinatorTransaction) error {
+		pt *components.PrivateTransaction) transaction.CoordinatorTransaction) error {
 
 	var previousTransaction transaction.CoordinatorTransaction
 
@@ -186,7 +367,7 @@ func (c *coordinator) addToDelegatedTransactions(
 			}
 		}
 
-		newTransaction := createTransaction(ctx, originator, originatorNode, c.nodeName, txn, c.signingIdentity)
+		newTransaction := createTransaction(ctx, originator, originatorNode, c.nodeName, txn)
 
 		c.transactionsByID[txn.ID] = newTransaction
 		c.metrics.IncCoordinatingTransactions()
@@ -209,7 +390,7 @@ func (c *coordinator) addToDelegatedTransactions(
 	}
 
 	// Acknowledge the delegate request. Optionally errors can be returned which the originator may use to base re-delegate decisions on
-	err = c.transportWriter.SendDelegationRequestAcknowledgment(ctx, originatorNode, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementErrors)
+	err = c.transportWriter.SendDelegationResponse(ctx, originatorNode, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementErrors, uint64(c.currentBlockHeight))
 	if err != nil {
 		return err
 	}
@@ -226,14 +407,14 @@ func (c *coordinator) addToDelegatedTransactions(
 	return nil
 }
 
-func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
-	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
-	// casued us to reach the node's limit on active coordinators.
-	if c.activeCoordinatorNode != c.nodeName {
-		c.activeCoordinatorNode = c.nodeName
-		c.coordinatorActive(c.contractAddress, c.nodeName)
-	}
+func action_NewSigningIdentity(ctx context.Context, c *coordinator, _ common.Event) error {
+	c.signingIdentity.value = fmt.Sprintf("domains.%s.submit.%s", c.contractAddress.String(), uuid.New())
+	c.signingIdentity.used = false
+	log.L(ctx).Debugf("new signing identity: %s", c.signingIdentity.value)
+	return nil
+}
 
+func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
 	// Select our next transaction. May return nothing if a different transaction is currently being assembled.
 	return c.selectNextTransactionToAssemble(ctx)
 }
@@ -288,7 +469,7 @@ func validator_TransactionStateTransitionFrom(states ...transaction.State) state
 	return func(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
 		e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 		for _, s := range states {
-			if e.From == s {
+			if e.FromState == s {
 				return true, nil
 			}
 		}
@@ -300,7 +481,7 @@ func validator_TransactionStateTransitionTo(states ...transaction.State) statema
 	return func(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
 		e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 		for _, s := range states {
-			if e.To == s {
+			if e.ToState == s {
 				return true, nil
 			}
 		}
@@ -333,17 +514,47 @@ func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, eve
 	return nil
 }
 
+func action_CleanUpTransactionsNotYetDispatched(ctx context.Context, c *coordinator, _ common.Event) error {
+	txns := c.getTransactionsNotInStates(ctx, []transaction.State{
+		transaction.State_Dispatched,
+		transaction.State_Confirmed,
+		transaction.State_Reverted,
+	})
+	for _, txn := range txns {
+		c.cleanUpTransaction(ctx, txn.GetID())
+	}
+	// Drain any Ready_For_Dispatch items still sitting in the dispatch channel.
+	// The dispatch loop is guaranteed to be stopped before this action runs (either by an
+	// explicit action_StopDispatchLoop earlier in the same sequence, or by State_Active's
+	// OnTransitionFrom no-op stop). Consuming these references here prevents a future
+	// dispatch loop — started when this node is re-elected — from processing stale
+	// CoordinatorTransaction objects whose IDs are no longer in transactionsByID.
+	for {
+		select {
+		case <-c.dispatchQueue:
+		default:
+			return nil
+		}
+	}
+}
+
 func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	delete(c.transactionsByID, e.TransactionID)
-	// this is a no-op if the transaction is not in the pool
-	c.removeTransactionFromPool(e.TransactionID)
-	c.metrics.DecCoordinatingTransactions()
-	c.grapher.Forget(ctx, e.TransactionID)
-	c.dependencyTracker.Delete(ctx, e.TransactionID)
-
-	log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
+	c.cleanUpTransaction(ctx, e.TransactionID)
 	return nil
+}
+
+func (c *coordinator) cleanUpTransaction(ctx context.Context, txID uuid.UUID) {
+	txn := c.transactionsByID[txID]
+	if txn != nil {
+		delete(c.transactionsByID, txID)
+		// this is a no-op if the transaction is not in the pool
+		c.removeTransactionFromPool(txID)
+		c.metrics.DecCoordinatingTransactions()
+		c.grapher.ForgetTransactionAndLocks(ctx, txID)
+		c.dependencyTracker.Delete(ctx, txID)
+		log.L(ctx).Debugf("transaction %s cleaned up", txID.String())
+	}
 }
 
 func action_cancelCurrentlyAssemblingTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
@@ -361,4 +572,23 @@ func action_cancelCurrentlyAssemblingTransaction(ctx context.Context, c *coordin
 		return err
 	}
 	return nil
+}
+
+func validator_HeartBeatState(state ...common.CoordinatorState) statemachine.Validator[*coordinator] {
+	return func(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+		e := event.(*common.HeartbeatReceivedEvent)
+		for _, s := range state {
+			if e.CoordinatorSnapshot.CoordinatorState == s {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+}
+
+// validator_IsHeartbeatFromHigherPriorityCoordinator returns true when a heartbeat is from a node
+// that is higher-priority than this node in the coordinator priority list.
+func validator_IsHeartbeatFromHigherPriorityCoordinator(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.HeartbeatReceivedEvent)
+	return common.IsHigherPriority(c.coordinatorPriorityList, e.FromNode, c.nodeName), nil
 }

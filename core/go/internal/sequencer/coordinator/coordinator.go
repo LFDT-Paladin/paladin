@@ -17,18 +17,16 @@ package coordinator
 
 import (
 	"context"
-	"fmt"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
@@ -37,13 +35,23 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
+// signingIdentityState groups the coordinator's current signing key with a flag that tracks
+// whether any transaction has consumed it since the last key rotation.
+type signingIdentityState struct {
+	value string
+	used  bool // set when a transaction first retrieves the signing identity; cleared on key rotation
+}
+
 // Coordinator is the interface that consumers should use to interact with the coordinator.
 type Coordinator interface {
+	// Start initializes the coordinator from the contract config and begins the event loop and
+	// dispatch goroutines. It must be called once after construction before any events are processed.
+	Start(ctx context.Context) error
+
 	// Asynchronously update the state machine by queueing an event to be processed
 	// These are the only interfaces by which consumers should update the state of the coordinator
 	QueueEvent(ctx context.Context, event common.Event)
@@ -64,38 +72,47 @@ type coordinator struct {
 	// take the read lock when called.
 	sync.RWMutex
 
-	ctx context.Context
-
-	signingIdentity string
+	started bool
+	ctx     context.Context
 
 	/* State machine - using generic statemachine.StateMachineEventLoop */
-	stateMachineEventLoop                      *statemachine.StateMachineEventLoop[State, *coordinator]
-	activeCoordinatorNode                      string
-	activeCoordinatorBlockHeight               uint64
-	heartbeatIntervalsSinceStateChange         int
-	heartbeatIntervalsSinceLastReceive         int
-	transactionsByID                           map[uuid.UUID]transaction.CoordinatorTransaction
-	pooledTransactions                         []transaction.CoordinatorTransaction
-	currentBlockHeight                         uint64
-	activeCoordinatorsFlushPointsBySignerNonce map[string]*common.SnapshotFlushPoint
-	dependencyTracker                          dependencytracker.DependencyTracker
-	grapher                                    grapher.Grapher
-	originatorNodePool                         []string // The (possibly changing) list of originator nodes
+	stateMachineEventLoop              *statemachine.StateMachineEventLoop[State, *coordinator]
+	currentActiveCoordinator           string
+	heartbeatIntervalsSinceStateChange int
+	heartbeatIntervalsSinceLastReceive int
+	transactionsByID                   map[uuid.UUID]transaction.CoordinatorTransaction
+	pooledTransactions                 []transaction.CoordinatorTransaction
+	currentBlockHeight                 int64
+	effectiveBlockHeight               uint64
+	dependencyTracker                  dependencytracker.DependencyTracker
+	grapher                            grapher.Grapher
+	stateVisibilityTracker             statevisibilitytracker.StateVisibilityStore
+	endorserCandidates                 []string       // ENDORSER mode only: candidate nodes for coordinator priority list and heartbeat fan-out
+	originatorActivity                 map[string]int // STATIC/SENDER only: heartbeat-intervals since last delegation activity per originator node
+	coordinatorPriorityList            []string       // priority-ordered list; index 0 is current active coordinator
+	signingIdentity                    signingIdentityState
+
+	// Handover request tracking
+	pendingHandoverRequest *common.IdempotentRequest // idempotent request in flight while in State_Elect
+
+	// Request/state timeout timers
+	cancelRequestTimeout func() // cancels the pending request-nudge timer; armed once on Elect entry
+	cancelStateTimeout   func() // cancels the pending give-up timer
 
 	/* Config */
-	contractAddress                   *pldtypes.EthAddress
-	blockHeightTolerance              uint64
-	closingGracePeriod                int // expressed as a multiple of heartbeat intervals
-	inactiveToIdleGracePeriod         int // expressed as a multiple of heartbeat intervals
-	confirmedLockRetentionGracePeriod int // expressed as a multiple of heartbeat intervals
-	baseLedgerRevertRetryThreshold    int
-	assembleErrorRetryThreshhold      int
-	requestTimeout                    time.Duration
-	stateTimeout                      time.Duration
-	nodeName                          string
-	coordinatorSelectionBlockRange    uint64
-	maxInflightTransactions           int
-	maxDispatchAhead                  int
+	contractAddress                *pldtypes.EthAddress
+	blockHeightTolerance           uint64
+	closingGracePeriod             int // expressed as a multiple of heartbeat intervals
+	inactiveGracePeriod            int // expressed as a multiple of heartbeat intervals
+	baseLedgerRevertRetryThreshold int
+	assembleErrorRetryThreshhold   int
+	requestTimeout                 time.Duration
+	stateTimeout                   time.Duration
+	nodeName                       string
+	coordinatorSelectionBlockRange uint64
+	maxInflightTransactions        int
+	maxDispatchAhead               int
+	coordinatorSelection           prototk.ContractConfig_CoordinatorSelection
 
 	/* Dependencies */
 	domainAPI             components.DomainSmartContract
@@ -107,19 +124,18 @@ type coordinator struct {
 	buildNullifiers       func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error)
 	newPrivateTransaction func(context.Context, []*components.ValidatedTransaction) error
 	syncPoints            syncpoints.SyncPoints
-	coordinatorActive     func(contractAddress *pldtypes.EthAddress, coordinatorNode string)
-	coordinatorIdle       func(contractAddress *pldtypes.EthAddress)
 	metrics               metrics.DistributedSequencerMetrics
+	notifyOriginator      func(ctx context.Context, event common.Event) // optional callback to push events to the co-located originator
 
 	/* Dispatch loop */
-	dispatchQueue       chan transaction.CoordinatorTransaction
-	dispatchLoopStopped chan struct{}
-	inFlightTxns        map[uuid.UUID]transaction.CoordinatorTransaction
-	inFlightMutex       *sync.Cond
+	dispatchQueue      chan transaction.CoordinatorTransaction
+	dispatchLoopCancel context.CancelFunc // non-nil iff this coordinator owns a running loop
+	dispatchLoopDone   chan struct{}      // per-run done channel; nil = never started / already stopped+waited
+	inFlightTxns       map[uuid.UUID]transaction.CoordinatorTransaction
+	inFlightMutex      *sync.Cond
 }
 
 func NewCoordinator(
-	ctx context.Context,
 	contractAddress *pldtypes.EthAddress,
 	domainAPI components.DomainSmartContract,
 	dCtx components.DomainContext,
@@ -130,17 +146,15 @@ func NewCoordinator(
 	clock common.Clock,
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
-	initialOriginatorNodePool []string,
 	configuration *pldconf.SequencerConfig,
 	nodeName string,
 	metrics metrics.DistributedSequencerMetrics,
-	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string),
-	coordinatorIdle func(contractAddress *pldtypes.EthAddress),
-) (*coordinator, error) {
-	coordCtx := log.WithLogField(ctx, "role", "coordinator")
+	notifyOriginator func(ctx context.Context, event common.Event),
+	selectionConfig *common.CoordinatorSelectionConfig,
+) *coordinator {
 	dependencyTracker := dependencytracker.NewDependencyTracker()
+	stateVisibilityTracker := statevisibilitytracker.NewStore()
 	c := &coordinator{
-		ctx:                                coordCtx,
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]transaction.CoordinatorTransaction),
 		domainAPI:                          domainAPI,
@@ -151,19 +165,14 @@ func NewCoordinator(
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
 		dependencyTracker:                  dependencyTracker,
-		grapher:                            grapher.NewGrapher(dependencyTracker),
+		stateVisibilityTracker:             stateVisibilityTracker,
+		grapher:                            grapher.NewGrapher(dependencyTracker, stateVisibilityTracker, confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)),
 		clock:                              clock,
 		engineIntegration:                  engineIntegration,
 		syncPoints:                         syncPoints,
-		coordinatorActive:                  coordinatorActive,
-		coordinatorIdle:                    coordinatorIdle,
 		nodeName:                           nodeName,
 		metrics:                            metrics,
-		dispatchLoopStopped:                make(chan struct{}),
-	}
-	c.originatorNodePool = make([]string, 0, len(initialOriginatorNodePool))
-	for _, node := range initialOriginatorNodePool {
-		c.updateOriginatorNodePool(node)
+		notifyOriginator:                   notifyOriginator,
 	}
 
 	// Configuration
@@ -175,96 +184,91 @@ func NewCoordinator(
 	c.stateTimeout = confutil.DurationMin(configuration.StateTimeout, pldconf.SequencerMinimum.StateTimeout, *pldconf.SequencerDefaults.StateTimeout)
 	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
 	c.closingGracePeriod = confutil.IntMin(configuration.ClosingGracePeriod, pldconf.SequencerMinimum.ClosingGracePeriod, *pldconf.SequencerDefaults.ClosingGracePeriod)
-	c.inactiveToIdleGracePeriod = confutil.IntMin(configuration.InactiveToIdleGracePeriod, pldconf.SequencerMinimum.InactiveToIdleGracePeriod, *pldconf.SequencerDefaults.InactiveToIdleGracePeriod)
-	c.confirmedLockRetentionGracePeriod = confutil.IntMin(configuration.ConfirmedLockRetentionGracePeriod, pldconf.SequencerMinimum.ConfirmedLockRetentionGracePeriod, *pldconf.SequencerDefaults.ConfirmedLockRetentionGracePeriod)
+	c.inactiveGracePeriod = confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod)
 	c.baseLedgerRevertRetryThreshold = confutil.IntMin(configuration.BaseLedgerRevertRetryThreshold, pldconf.SequencerMinimum.BaseLedgerRevertRetryThreshold, *pldconf.SequencerDefaults.BaseLedgerRevertRetryThreshold)
 	c.assembleErrorRetryThreshhold = confutil.IntMin(configuration.AssembleErrorRetryThreshold, pldconf.SequencerMinimum.AssembleErrorRetryThreshold, *pldconf.SequencerDefaults.AssembleErrorRetryThreshold)
 	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
 
-	c.signingIdentity = fmt.Sprintf("domains.%s.submit.%s", c.contractAddress.String(), uuid.New())
+	// Initialize coordinator selection state from pre-resolved config.
+	c.coordinatorSelection = selectionConfig.Mode
+	switch selectionConfig.Mode {
+	case prototk.ContractConfig_COORDINATOR_STATIC:
+		c.currentActiveCoordinator = selectionConfig.StaticCoordinator
+	case prototk.ContractConfig_COORDINATOR_SENDER:
+		c.currentActiveCoordinator = nodeName
+	case prototk.ContractConfig_COORDINATOR_ENDORSER:
+		c.endorserCandidates = selectionConfig.Endorsers
+	}
 
 	// Initialize the state machine event loop (state machine + event loop combined)
 	c.initializeStateMachineEventLoop(State_Initial, coordinatorEventQueueSize, coordinatorPriorityEventQueueSize)
 
+	c.originatorActivity = make(map[string]int)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]transaction.CoordinatorTransaction, c.maxDispatchAhead)
 	c.pooledTransactions = make([]transaction.CoordinatorTransaction, 0, c.maxInflightTransactions)
 	c.dispatchQueue = make(chan transaction.CoordinatorTransaction, c.maxInflightTransactions)
+
+	return c
+}
+
+func (c *coordinator) Start(ctx context.Context) error {
+	if c.started {
+		return nil
+	}
+	coordCtx := log.WithLogField(ctx, "role", "coordinator")
+	c.ctx = coordCtx
+
+	blockHeight := c.engineIntegration.GetBlockHeight(ctx)
+	c.currentBlockHeight = blockHeight
+	c.effectiveBlockHeight = common.ComputeEffectiveBlockHeight(uint64(blockHeight), c.coordinatorSelectionBlockRange)
+
+	c.started = true
+
 	context.AfterFunc(ctx, func() {
-		// the disptach loop may be waiting on this mutex when the context is cancelled- this wakes
+		// the dispatch loop may be waiting on this mutex when the context is cancelled - this wakes
 		// it up so it may exit
 		c.inFlightMutex.L.Lock()
 		c.inFlightMutex.Broadcast()
 		c.inFlightMutex.L.Unlock()
 	})
 
-	if err := c.initializeOriginatorNodePoolFromContractConfig(coordCtx); err != nil {
-		return nil, err
-	}
-
 	// Start the state machine event loop
 	go c.stateMachineEventLoop.Start(coordCtx)
 
-	// Start dispatch queue loop
-	go c.dispatchLoop(coordCtx)
-
 	// Handle loopback messages to the same node without blocking the event loop
-	transportWriter.StartLoopbackWriter()
+	c.transportWriter.StartLoopbackWriter()
 
 	// Trigger the initial transition out of State_Initial
 	c.QueueEvent(coordCtx, &CoordinatorCreatedEvent{})
 
-	return c, nil
+	return nil
 }
 
 // GetCurrentState returns the current state of the coordinator.
-// TODO This method cannot acquire a lock because this method may be called from callbacks during event processing when the
-// coordinator's mutex is already held, which would cause a deadlock with RLock(). Currently it is always called in a thread
-// safe way, but as it is not guaranteed to be in the future this needs more refactoring.
+// The state machine has its own mutex for protecting the current state variable.
 func (c *coordinator) GetCurrentState() State {
 	return c.stateMachineEventLoop.GetCurrentState()
 }
 
 func (c *coordinator) WaitForDone(ctx context.Context) {
-	select {
-	case <-c.dispatchLoopStopped:
-	case <-ctx.Done():
+	if !c.started {
 		return
+	}
+	c.RLock()
+	done := c.dispatchLoopDone
+	c.RUnlock()
+
+	if done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return
+		}
 	}
 	c.stateMachineEventLoop.WaitForDone(ctx)
 	c.transportWriter.WaitForDone(ctx)
-}
-
-func (c *coordinator) sendHandoverRequest(ctx context.Context) {
-	err := c.transportWriter.SendHandoverRequest(ctx, c.activeCoordinatorNode, c.contractAddress)
-	if err != nil {
-		log.L(ctx).Errorf("error sending handover request: %v", err)
-	}
-}
-
-func (c *coordinator) initializeOriginatorNodePoolFromContractConfig(ctx context.Context) error {
-	contractConfig := c.domainAPI.ContractConfig()
-	if contractConfig.GetCoordinatorSelection() != prototk.ContractConfig_COORDINATOR_ENDORSER {
-		return nil
-	}
-	candidates := contractConfig.GetCoordinatorEndorserCandidates()
-	if len(candidates) == 0 {
-		log.L(ctx).Warnf("endorser coordinator mode for contract %s has no configured candidates; runtime originator updates will populate the pool", c.contractAddress.String())
-		return nil
-	}
-
-	c.originatorNodePool = make([]string, 0, len(candidates))
-	for _, locator := range candidates {
-		_, node, err := pldtypes.PrivateIdentityLocator(locator).Validate(ctx, "", false)
-		if err != nil {
-			return i18n.WrapError(ctx, err, msgs.MsgSequencerInvalidEndorserCandidate, locator)
-		}
-		c.originatorNodePool = append(c.originatorNodePool, node)
-	}
-	slices.Sort(c.originatorNodePool)
-	log.L(ctx).Debugf("initialized originator node pool from coordinator endorser candidates: %+v", c.originatorNodePool)
-	return nil
 }
 
 func (c *coordinator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {
@@ -308,6 +312,21 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 	return matchingTxns
 }
 
-func ptrTo[T any](v T) *T {
-	return &v
+func (c *coordinator) getTransactionsNotInStates(ctx context.Context, states []transaction.State) []transaction.CoordinatorTransaction {
+	log.L(ctx).Debugf("getting transactions not in states: %+v", states)
+	excludedStates := make(map[transaction.State]bool)
+	for _, state := range states {
+		excludedStates[state] = true
+	}
+
+	log.L(ctx).Tracef("checking %d transactions for those not in states: %+v", len(c.transactionsByID), states)
+	matchingTxns := make([]transaction.CoordinatorTransaction, 0, len(c.transactionsByID))
+	for _, txn := range c.transactionsByID {
+		if !excludedStates[txn.GetCurrentState()] {
+			log.L(ctx).Debugf("found transaction %s in state %s", txn.GetID().String(), txn.GetCurrentState())
+			matchingTxns = append(matchingTxns, txn)
+		}
+	}
+	log.L(ctx).Tracef("%d transactions not in states: %+v", len(matchingTxns), states)
+	return matchingTxns
 }

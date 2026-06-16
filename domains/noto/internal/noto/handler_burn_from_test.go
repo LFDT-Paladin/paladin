@@ -41,7 +41,7 @@ func TestBurnFromBasicModeRestriction(t *testing.T) {
 	basicConfig := &types.NotoParsedConfig{
 		NotaryMode:   types.NotaryModeBasic.Enum(),
 		NotaryLookup: "notary@node1",
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Basic: &types.NotoBasicOptions{
 				AllowBurn: &pTrue,
@@ -87,7 +87,7 @@ func TestBurnFromHooksModeAllowed(t *testing.T) {
 	hooksConfig := &types.NotoParsedConfig{
 		NotaryMode:   types.NotaryModeHooks.Enum(),
 		NotaryLookup: "notary@node1",
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress: &pldtypes.EthAddress{},

@@ -207,7 +207,7 @@ func (dc *domainContract) fullyQualifyAssemblyIdentities(res *prototk.AssembleTr
 	}
 }
 
-func (dc *domainContract) AssembleTransaction(dCtx components.DomainContext, readTX persistence.DBTX, tx *components.PrivateTransaction, localTx *components.ResolvedTransaction) error {
+func (dc *domainContract) AssembleTransaction(dCtx components.DomainContext, readTX persistence.DBTX, tx *components.PrivateTransaction, localTx *components.ResolvedTransaction, resolvedVerifiers []*prototk.ResolvedVerifier) error {
 	if tx.PreAssembly == nil || localTx.Transaction == nil || localTx.Transaction.ID == nil || *localTx.Transaction.ID != tx.ID {
 		return i18n.NewError(dCtx.Ctx(), msgs.MsgDomainTXIncompleteAssembleTransaction)
 	}
@@ -235,7 +235,7 @@ func (dc *domainContract) AssembleTransaction(dCtx components.DomainContext, rea
 	res, err := dc.api.AssembleTransaction(dCtx.Ctx(), &prototk.AssembleTransactionRequest{
 		StateQueryContext: c.id,
 		Transaction:       preAssembly.TransactionSpecification,
-		ResolvedVerifiers: preAssembly.Verifiers,
+		ResolvedVerifiers: resolvedVerifiers,
 	})
 	if err != nil {
 		return err
@@ -431,12 +431,6 @@ func (dc *domainContract) EndorseTransaction(dCtx components.DomainContext, read
 
 	if req == nil ||
 		req.TransactionSpecification == nil ||
-		req.Verifiers == nil ||
-		req.Signatures == nil ||
-		req.InputStates == nil ||
-		req.ReadStates == nil ||
-		req.OutputStates == nil ||
-		req.InfoStates == nil ||
 		req.Endorsement == nil ||
 		req.Endorser == nil {
 		return nil, i18n.NewError(dCtx.Ctx(), msgs.MsgDomainReqIncompleteEndorseTransaction)
@@ -505,7 +499,7 @@ func (dc *domainContract) PrepareTransaction(dCtx components.DomainContext, read
 		OutputStates:      dc.d.toEndorsableList(postAssembly.OutputStates),
 		InfoStates:        dc.d.toEndorsableList(postAssembly.InfoStates),
 		AttestationResult: dc.allAttestations(tx),
-		ResolvedVerifiers: preAssembly.Verifiers,
+		ResolvedVerifiers: postAssembly.ResolvedVerifiers,
 		DomainData:        postAssembly.DomainData,
 	})
 	if err != nil {

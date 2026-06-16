@@ -241,3 +241,4 @@ func (t *coordinatorTransaction) mapPreparedTransaction() *components.PreparedTr
 	}
 	return preparedTransaction
 }
+
