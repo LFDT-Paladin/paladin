@@ -1,0 +1,4 @@
+// HTTP + WebSocket transport and RPC client
+dependencies {
+    implementation project(':sdk:java:core')
+}
