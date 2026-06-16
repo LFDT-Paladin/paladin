@@ -16,10 +16,11 @@
 package coordinator
 
 import (
+	"time"
+
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/google/uuid"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 type Event interface {
@@ -55,120 +56,79 @@ func (*TransactionsDelegatedEvent) TypeString() string {
 	return "Event_TransactionsDelegated"
 }
 
-type CoordinatorClosedEvent struct {
+// RequestTimeoutIntervalEvent is fired by the request-timeout timer to trigger a re-send of the
+// pending outbound request for the current state (e.g. HandoverRequest while in State_Elect).
+type RequestTimeoutIntervalEvent struct {
 	common.BaseEvent
 }
 
-func (*CoordinatorClosedEvent) Type() EventType {
-	return Event_Closed
+func (*RequestTimeoutIntervalEvent) Type() EventType { return Event_RequestTimeoutInterval }
+func (*RequestTimeoutIntervalEvent) TypeString() string {
+	return "Event_RequestTimeoutInterval"
 }
 
-func (*CoordinatorClosedEvent) TypeString() string {
-	return "Event_Closed"
-}
-
-type CoordinatorFlushedEvent struct{}
-
-func (*CoordinatorFlushedEvent) Type() EventType {
-	return Event_Flushed
-}
-
-func (*CoordinatorFlushedEvent) TypeString() string {
-	return "Event_Flushed"
-}
-
-type TransactionDispatchConfirmedEvent struct {
+// StateTimeoutIntervalEvent is fired by the state-timeout timer to signal that the current state
+// has exceeded its maximum wait duration (e.g. Elect → Active when no handover acknowledgement arrives).
+type StateTimeoutIntervalEvent struct {
 	common.BaseEvent
-	TransactionID uuid.UUID
 }
 
-func (*TransactionDispatchConfirmedEvent) Type() EventType {
-	return Event_TransactionDispatchConfirmed
+func (*StateTimeoutIntervalEvent) Type() EventType { return Event_StateTimeoutInterval }
+func (*StateTimeoutIntervalEvent) TypeString() string {
+	return "Event_StateTimeoutInterval"
 }
 
-func (*TransactionDispatchConfirmedEvent) TypeString() string {
-	return "Event_TransactionDispatchConfirmed"
-}
-func (t *TransactionDispatchConfirmedEvent) GetTransactionID() uuid.UUID {
-	return t.TransactionID
-}
-
-type EndorsementRequestedEvent struct {
-	common.BaseEvent
-	From string
-}
-
-func (*EndorsementRequestedEvent) Type() EventType {
-	return Event_EndorsementRequested
-}
-
-func (*EndorsementRequestedEvent) TypeString() string {
-	return "Event_EndorsementRequested"
-}
-
-type HeartbeatReceivedEvent struct {
-	common.BaseEvent
-	transport.CoordinatorHeartbeatNotification
-}
-
-func (*HeartbeatReceivedEvent) Type() EventType {
-	return Event_HeartbeatReceived
-}
-
-func (*HeartbeatReceivedEvent) TypeString() string {
-	return "Event_HeartbeatReceived"
-}
-
+// HandoverRequestEvent is queued by the transport client to the coordinator when a
+// CoordinatorHandoverRequest message is received from a higher-priority node. The coordinator
+// in Active state handles it identically to a preemption heartbeat.
 type HandoverRequestEvent struct {
 	common.BaseEvent
-	Requester string
+	FromNode string
 }
 
-func (*HandoverRequestEvent) Type() EventType {
-	return Event_HandoverRequestReceived
-}
-
+func (*HandoverRequestEvent) Type() EventType { return Event_HandoverRequest }
 func (*HandoverRequestEvent) TypeString() string {
-	return "Event_HandoverRequestReceived"
+	return "Event_HandoverRequest"
 }
 
-type NewBlockEvent struct {
-	common.BaseEvent
-	BlockHeight uint64
-}
-
-func (*NewBlockEvent) Type() EventType {
-	return Event_NewBlock
-}
-
-func (*NewBlockEvent) TypeString() string {
-	return "Event_NewBlock"
-}
-
-type HandoverReceivedEvent struct {
+// RestartDispatchLoopEvent is queued internally during an in-place key rotation so that the
+// dispatch loop is restarted in a subsequent event-processing step, after any pending
+// TransactionStateTransitionEvents have been processed and c.inFlightTxns is up to date.
+type RestartDispatchLoopEvent struct {
 	common.BaseEvent
 }
 
-func (*HandoverReceivedEvent) Type() EventType {
-	return Event_HandoverReceived
+func (*RestartDispatchLoopEvent) Type() EventType { return Event_RestartDispatchLoop }
+func (*RestartDispatchLoopEvent) TypeString() string {
+	return "Event_RestartDispatchLoop"
 }
 
-func (*HandoverReceivedEvent) TypeString() string {
-	return "Event_HandoverReceived"
-}
-
-// OriginatorNodePoolUpdateRequestedEvent is queued when a sequencer is loaded and already exists,
-// so the coordinator can add the transaction's endorsers to its originator node pool (e.g. when
-// the sequencer was first created with tx=nil and had an empty pool).
-type OriginatorNodePoolUpdateRequestedEvent struct {
+type EndorsementRequestReceivedEvent struct {
 	common.BaseEvent
-	Nodes []string // Node names (e.g. from tx.PreAssembly.RequiredVerifiers)
+	FromNode                  string
+	TransactionId             string
+	IdempotencyKey            string
+	Party                     string
+	PrivateEndorsementRequest *components.PrivateTransactionEndorseRequest
+	AttestationRequest        *prototk.AttestationRequest
+	Expiry                    time.Time
+	CoordinatorBlockHeight    int64
+	BlockHeightTolerance      int64
 }
 
-func (*OriginatorNodePoolUpdateRequestedEvent) Type() EventType {
-	return Event_OriginatorNodePoolUpdateRequested
+func (*EndorsementRequestReceivedEvent) Type() EventType {
+	return Event_EndorsementRequestReceived
 }
 
-func (*OriginatorNodePoolUpdateRequestedEvent) TypeString() string {
-	return "Event_OriginatorNodePoolUpdateRequested"
+func (*EndorsementRequestReceivedEvent) TypeString() string {
+	return "Event_EndorsementRequestReceived"
+}
+
+type EpochBoundaryReachedEvent struct {
+	common.BaseEvent
+}
+
+func (*EpochBoundaryReachedEvent) Type() EventType { return Event_EpochBoundaryReached }
+func (*EpochBoundaryReachedEvent) TypeString() string {
+	return "Event_EpochBoundaryReached"
 }

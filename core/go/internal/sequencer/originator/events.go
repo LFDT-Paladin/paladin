@@ -18,24 +18,11 @@ package originator
 import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 )
 
 type Event interface {
 	common.Event
-}
-
-type HeartbeatReceivedEvent struct {
-	common.BaseEvent
-	transport.CoordinatorHeartbeatNotification
-}
-
-func (*HeartbeatReceivedEvent) Type() EventType {
-	return Event_HeartbeatReceived
-}
-
-func (*HeartbeatReceivedEvent) TypeString() string {
-	return "Event_HeartbeatReceived"
 }
 
 type TransactionCreatedEvent struct {
@@ -51,15 +38,31 @@ func (*TransactionCreatedEvent) TypeString() string {
 	return "Event_TransactionCreated"
 }
 
-type ActiveCoordinatorUpdatedEvent struct {
+type OriginatorCreatedEvent struct {
 	common.BaseEvent
-	Coordinator string
 }
 
-func (*ActiveCoordinatorUpdatedEvent) Type() EventType {
-	return Event_ActiveCoordinatorUpdated
+func (*OriginatorCreatedEvent) Type() EventType {
+	return Event_OriginatorCreated
 }
 
-func (*ActiveCoordinatorUpdatedEvent) TypeString() string {
-	return "Event_ActiveCoordinatorUpdated"
+func (*OriginatorCreatedEvent) TypeString() string {
+	return "Event_OriginatorCreated"
+}
+
+type DelegationRequestRejectedEvent struct {
+	common.BaseEvent
+	RejectionReason        engineProto.RejectionReason
+	ActiveCoordinator      string
+	OriginatorBlockHeight  int64
+	CoordinatorBlockHeight int64
+	BlockHeightTolerance   int64
+}
+
+func (*DelegationRequestRejectedEvent) Type() EventType {
+	return Event_DelegationRequestRejected
+}
+
+func (*DelegationRequestRejectedEvent) TypeString() string {
+	return "Event_DelegationRequestRejected"
 }

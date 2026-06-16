@@ -17,9 +17,7 @@ package transaction
 import (
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,15 +32,14 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenLessThan
 	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenEqual(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		FinalizingGracePeriod(5).
 		HeartbeatIntervalsSinceStateChange(5).
 		Build()
 
-	// Should return true when heartbeat intervals equals grace period
-	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
@@ -60,10 +57,9 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroGracePeriod(t
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		FinalizingGracePeriod(0).
-		HeartbeatIntervalsSinceStateChange(0).
+		HeartbeatIntervalsSinceStateChange(1).
 		Build()
 
-	// Should return true when both are zero (0 >= 0)
 	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
@@ -91,40 +87,4 @@ func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedul
 
 	// Verify the cancel function was called
 	assert.True(t, cancelCalled, "assemble request timeout cancel should have been called")
-}
-
-func Test_guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(t *testing.T) {
-	ctx := t.Context()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		ConfirmedLockRetentionGracePeriod(2).
-		HeartbeatIntervalsSinceStateChange(1).
-		Build()
-	assert.False(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
-
-	txn, _ = NewTransactionBuilderForTesting(t, State_Confirmed).
-		ConfirmedLockRetentionGracePeriod(2).
-		HeartbeatIntervalsSinceStateChange(2).
-		Build()
-	assert.True(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
-
-	txn, _ = NewTransactionBuilderForTesting(t, State_Confirmed).
-		ConfirmedLockRetentionGracePeriod(2).
-		HeartbeatIntervalsSinceStateChange(2).
-		ConfirmedLocksReleased(true).
-		Build()
-	assert.True(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
-}
-
-func Test_action_ResetConfirmedTransactionLocksOnce_CallsResetAtMostOnce(t *testing.T) {
-	ctx := t.Context()
-	mockGrapher := grapher.NewMockGrapher(t)
-	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().Forget(mock.Anything, txn.pt.ID).Once()
-
-	err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.True(t, txn.confirmedLocksReleased)
-
-	err = action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
-	require.NoError(t, err)
 }

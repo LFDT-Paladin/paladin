@@ -24,21 +24,9 @@ import (
 func guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx context.Context, txn *coordinatorTransaction) bool {
 	// Has this transaction been in the same state for longer than the finalizing grace period?
 	// most useful to know this once we have reached one of the terminal states - Reverted or Committed
-	return txn.heartbeatIntervalsSinceStateChange >= txn.finalizingGracePeriod
-}
-
-func guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx context.Context, txn *coordinatorTransaction) bool {
-	return txn.heartbeatIntervalsSinceStateChange >= txn.confirmedLockRetentionGracePeriod
-}
-
-func action_ResetConfirmedTransactionLocksOnce(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	if txn.confirmedLocksReleased {
-		return nil
-	}
-	log.L(ctx).Debugf("releasing confirmed transaction locks for %s", txn.pt.ID.String())
-	txn.grapher.Forget(ctx, txn.pt.ID)
-	txn.confirmedLocksReleased = true
-	return nil
+	// measure number of complete heartbeat interval periods - e.g. count of 2 means
+	// 1 full heartbeat interval has elapsed, hence use of > not >=
+	return txn.heartbeatIntervalsSinceStateChange > txn.finalizingGracePeriod
 }
 
 // action_FinalizeAsUnknownByOriginator is called when the originator reports that it doesn't recognize

@@ -18,17 +18,17 @@ package common
 import (
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 )
 
 type EventType int
 
-// function that can be used to emit events from the internals of the sequencer to feed back into the state machine
-type EmitEvent func(event Event)
-
 const (
-	Event_HeartbeatInterval          EventType = iota // emitted on a regular basis, interval defined by the sequencer config
-	Event_TransactionStateTransition                  // transaction state machine transition; originator/coordinator handle cleanup and side effects
+	Event_HeartbeatInterval         EventType = iota // emitted on a regular basis, interval defined by the sequencer config
+	Event_TransactionStateTransition                 // transaction state machine transition; originator/coordinator handle cleanup and side effects
+	Event_HeartbeatReceived                          // a heartbeat notification was received from the active coordinator
+	Event_EndorserNodesDiscovered                    // pushed by the coordinator to its co-located originator when new endorser nodes are discovered
 )
 
 type BaseEvent struct {
@@ -62,8 +62,8 @@ func (*HeartbeatIntervalEvent) TypeString() string {
 type TransactionStateTransitionEvent[S comparable] struct {
 	BaseEvent
 	TransactionID uuid.UUID
-	From          S
-	To            S
+	FromState     S
+	ToState       S
 }
 
 func (*TransactionStateTransitionEvent[S]) Type() EventType {
@@ -72,4 +72,35 @@ func (*TransactionStateTransitionEvent[S]) Type() EventType {
 
 func (*TransactionStateTransitionEvent[S]) TypeString() string {
 	return "Event_TransactionStateTransition"
+}
+
+type HeartbeatReceivedEvent struct {
+	BaseEvent
+	FromNode            string               `json:"from"`
+	ContractAddress     *pldtypes.EthAddress `json:"contractAddress"`
+	CoordinatorSnapshot *CoordinatorSnapshot `json:"coordinatorSnapshot"`
+}
+
+func (*HeartbeatReceivedEvent) Type() EventType {
+	return Event_HeartbeatReceived
+}
+
+func (*HeartbeatReceivedEvent) TypeString() string {
+	return "Event_HeartbeatReceived"
+}
+
+// EndorserNodesDiscoveredEvent is queued by the coordinator to its co-located originator
+// when updateEndorserCandidates adds new nodes to the pool. Nodes carries the full updated
+// endorser candidates so the originator can recompute its own priority list.
+type EndorserNodesDiscoveredEvent struct {
+	BaseEvent
+	Nodes []string
+}
+
+func (*EndorserNodesDiscoveredEvent) Type() EventType {
+	return Event_EndorserNodesDiscovered
+}
+
+func (*EndorserNodesDiscoveredEvent) TypeString() string {
+	return "Event_EndorserNodesDiscovered"
 }

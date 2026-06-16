@@ -78,3 +78,15 @@ title: pstate_*
 
 0. `state`: [`State`](../types/state.md#state)
 
+## `pstate_transferPrivateState`
+
+### Parameters
+
+0. `domain`: `string`
+1. `stateId`: [`HexBytes`](../types/simpletypes.md#hexbytes)
+2. `recipient`: [`PrivateIdentityLocator`](../types/simpletypes.md#privateidentitylocator)
+
+### Returns
+
+0. `reliableMessageId`: [`UUID`](../types/simpletypes.md#uuid)
+

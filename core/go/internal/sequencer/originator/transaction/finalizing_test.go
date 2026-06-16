@@ -83,9 +83,7 @@ func Test_action_QueueFinalizeEvent_QueuesFinalizeEvent(t *testing.T) {
 	txn, mocks := builder.BuildWithMocks()
 	err := action_QueueFinalizeEvent(ctx, txn, nil)
 	require.NoError(t, err)
-	events := mocks.GetEmittedEvents()
-	require.Len(t, events, 1)
-	finalizeEv, ok := events[0].(*FinalizeEvent)
+	finalizeEv, ok := (<-mocks.Events).(*FinalizeEvent)
 	require.True(t, ok)
 	assert.Equal(t, txn.pt.ID, finalizeEv.TransactionID)
 }

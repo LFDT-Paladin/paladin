@@ -15,9 +15,10 @@
 // limitations under the License.
 
 import i18next from "i18next";
-import { IStateReceipt } from "../interfaces";
+import { IFilter, ISchema, IState, IStateReceipt } from "../interfaces";
 import { generatePostReq, returnResponse } from "./common";
 import { RpcEndpoint, RpcMethods } from "./rpcMethods";
+import { translateFilters } from "../utils";
 
 export const fetchStateReceipt = async (
   transactionId: string
@@ -52,3 +53,123 @@ export const resolveVerifier = async (keyIdentifier: string, algorithm: string, 
     )
   );
 };
+
+export const listSchemas = async (domain: string): Promise<ISchema[]> => {
+  const requestPayload = {
+    jsonrpc: "2.0",
+    id: Date.now(),
+    method: RpcMethods.pstate_listSchemas,
+    params: [domain]
+  };
+  return <Promise<ISchema[]>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
+      i18next.t("errorFetchingSchemas"), []
+    )
+  );
+};
+
+export const queryStates = async (
+  domain: string,
+  schemaId: string,
+  limit: number,
+  sortBy: string,
+  sortAscending: boolean,
+  filters: IFilter[],
+  refTimestamp?: string
+): Promise<IState[]> => {
+
+  let translatedFilters = translateFilters(filters);
+
+  const requestPayload = {
+    jsonrpc: "2.0",
+    id: Date.now(),
+    method: RpcMethods.pstate_queryStates,
+    params: [
+      domain,
+      schemaId,
+      {
+        ...translatedFilters,
+        limit,
+        sort: [`${sortBy} ${sortAscending ? 'ASC' : 'DESC'}`],
+        greaterThan: refTimestamp !== undefined && sortAscending ? [
+          {
+            field: '.created',
+            value: refTimestamp
+          }
+        ] : undefined,
+        lessThan: refTimestamp !== undefined && !sortAscending ? [
+          {
+            field: '.created',
+            value: refTimestamp
+          }
+        ] : undefined
+      },
+      'all'
+    ]
+  };
+  return <Promise<IState[]>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
+      i18next.t("errorFetchingSchemas"), []
+    )
+  );
+};
+
+export const getState = async (
+  domain: string,
+  schemaId: string,
+  id: string
+): Promise<IState | null> => {
+  const requestPayload = {
+    jsonrpc: "2.0",
+    id: Date.now(),
+    method: RpcMethods.pstate_queryStates,
+    params: [
+      domain,
+      schemaId,
+      {
+        limit: 1,
+        "equal": [{
+          "field": ".id",
+          "value": id
+        }]
+      },
+      'all'
+    ]
+  };
+  const states = await <Promise<IState[]>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
+      i18next.t("errorFetchingSchemas"), []
+    )
+  );
+  if (states.length === 0) {
+    return null;
+  }
+  return states[0];
+};
+
+export const pushState = async (
+  domain: string,
+  stateId: string,
+  recipient: string
+): Promise<string> => {
+  const requestPayload = {
+    jsonrpc: "2.0",
+    id: Date.now(),
+    method: RpcMethods.pstate_transferPrivateState,
+    params: [
+      domain,
+      stateId,
+      recipient
+    ]
+  };
+  return <Promise<string>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
+      i18next.t("errorFetchingSchemas"), []
+    )
+  );
+};
+

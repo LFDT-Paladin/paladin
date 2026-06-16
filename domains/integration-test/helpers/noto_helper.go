@@ -31,8 +31,14 @@ import (
 //go:embed abis/NotoFactory.json
 var NotoFactoryJSON []byte
 
+//go:embed abis/Noto.json
+var NotoJSON []byte
+
 //go:embed abis/Noto_V0.json
 var NotoV0JSON []byte
+
+//go:embed abis/ERC1967Proxy.json
+var ERC1967ProxyJSON []byte
 
 //go:embed abis/INoto.json
 var NotoInterfaceJSON []byte

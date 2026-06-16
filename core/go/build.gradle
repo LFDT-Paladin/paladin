@@ -31,7 +31,7 @@ ext {
         include "mocks/**/*.go"
     }
 
-    targetCoverage = 94.9
+    targetCoverage = 96.0
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
         'github.com/LFDT-Paladin/paladin/core/pkg/proto',
@@ -142,42 +142,33 @@ task protoc(type: ProtoCompile, dependsOn: [
     ]) {
     protocPath "bin"
     protoPath projectDir
+    protoPath configurations.toolkitProtoDefinitions.asPath
     protoFiles fileTree("pkg/proto") {
         include "**/*.proto"
     }
     plugins {
         go {
             out projectDir
+            fileTree(configurations.toolkitProtoDefinitions.asPath) {
+                include "*.proto"
+            }.each { File file ->
+                opt "M${file.name}=github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+            }
         }
         go_grpc {
             out projectDir
+            fileTree(configurations.toolkitProtoDefinitions.asPath) {
+                include "*.proto"
+            }.each { File file ->
+                opt "M${file.name}=github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+            }
         }
     }
 }
 
-task makeMocksComponents(type: Exec, dependsOn: [":installMockery", protoc]) {
+task makeMocks(type: Exec, dependsOn: [":installMockery", protoc]) {
    executable "mockery"
 }
-
-task makeMocksTransport(type: Exec, dependsOn: [makeMocksComponents]) {
-   executable "mockery"
-   args '--config=.mockery.sequencer.transport.yml'
-}
-
-task makeMocksSyncpoints(type: Exec, dependsOn: [makeMocksTransport]) {
-   executable "mockery"
-   args '--config=.mockery.sequencer.syncpoints.yml'
-}
-
-// Make mocks for components first, then for sequencer. Mockery doesn't
-// support strict ordering in package lists and gets stuck in a chicken-and-egg loop
-// of trying to generate component mocks after sequencer mocks even though the
-// latter pre-reqs the former.
-task makeMocks(type: Exec, dependsOn: [makeMocksSyncpoints]) {
-   executable "mockery"
-   args '--config=.mockery.sequencer.yml'
-}
-
 
 task goGet(type:Exec, dependsOn:[protoc, copyContracts, makeMocks, ":toolkit:go:goGet"]) {
     workingDir '.'
@@ -494,11 +485,50 @@ task testcov(type: Exec, dependsOn: [test, aggregateCoverage]) {
     args '-html=coverage/coverage.txt'
 }
 
+task generateStateMachineDocs(type: Exec) {
+    description = 'Regenerates distributed sequencer state machine documentation from source'
+    commandLine 'python3', 'scripts/generate_state_machine_docs.py'
+    workingDir rootDir
+}
+
+task checkStateMachineDocs {
+    description = 'Checks that state machine docs are up to date without modifying source files'
+    doLast {
+        def docFiles = [
+            rootProject.file('doc-site/docs/architecture/distributed_sequencer_state_machine.md'),
+            rootProject.file('doc-site/docs/architecture/distributed_sequencer_state_machine_transitions.md'),
+        ]
+        def tmpDir = file("${buildDir}/tmp/checkStateMachineDocs")
+        tmpDir.mkdirs()
+
+        def originals = docFiles.collectEntries { f -> [(f): f.text] }
+
+        try {
+            exec {
+                commandLine 'python3', 'scripts/generate_state_machine_docs.py'
+                workingDir rootDir
+            }
+            docFiles.each { f -> new File(tmpDir, f.name).text = f.text }
+            def changed = docFiles.any { f -> new File(tmpDir, f.name).text != originals[f] }
+            if (changed) {
+                throw new GradleException(
+                    "State machine docs are out of date. " +
+                    "Run './gradlew generateStateMachineDocs' and commit the updated files."
+                )
+            }
+        } finally {
+            originals.each { f, content -> f.text = content }
+            tmpDir.deleteDir()
+        }
+    }
+}
+
 task build {
     dependsOn lint
     dependsOn test
     dependsOn aggregateCoverage
     dependsOn checkCoverage
+    dependsOn checkStateMachineDocs
 }
 
 task assemble {

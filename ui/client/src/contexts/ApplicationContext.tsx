@@ -60,17 +60,13 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   });
 
   useEffect(() => {
-
-
     if(actualLastBlockWithTransactions !== undefined
       && actualLastBlockWithTransactions > lastBlockWithTransactions) {
-        
         if(autoRefreshEnabled || lastBlockWithTransactions === -1) {
           setLastBlockWithTransactions(actualLastBlockWithTransactions);
         } else {
           setRefreshRequired(true);
         }
-
     }
   }, [actualLastBlockWithTransactions, lastBlockWithTransactions, setLastBlockWithTransactions]);
 

@@ -27,6 +27,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -35,6 +37,9 @@ import (
 
 // Originator is the interface that consumers use to interact with the originator.
 type Originator interface {
+	// Start begins the event loop. It must be called once after construction before any events are queued.
+	Start(ctx context.Context) error
+
 	// Asynchronously update the state machine by queueing an event to be processed
 	// This the only interface by which consumers should update the state of the originator
 	QueueEvent(ctx context.Context, event common.Event)
@@ -52,23 +57,26 @@ type originator struct {
 	// Any functions that expose non atomic state outside of the originator must
 	// take the read lock when called.
 	sync.RWMutex
-	ctx context.Context
+	ctx     context.Context
+	started bool
 
 	/* State machine - using generic statemachine.StateMachineEventLoop */
 	stateMachineEventLoop              *statemachine.StateMachineEventLoop[State, *originator]
-	activeCoordinatorNode              string
+	currentActiveCoordinator           string
 	heartbeatIntervalsSinceLastReceive int
 	transactionsByID                   map[uuid.UUID]transaction.OriginatorTransaction
 	transactionsOrdered                []transaction.OriginatorTransaction
-	currentBlockHeight                 uint64
-	latestCoordinatorSnapshot          *common.CoordinatorSnapshot
+	effectiveBlockHeight               uint64
+	currentBlockHeight                 int64
+	endorserCandidates                 []string // COORDINATOR_ENDORSER mode: deduped+sorted candidate pool; updated when EndorserNodesDiscoveredEvent arrives
+	coordinatorPriorityList            []string // COORDINATOR_ENDORSER mode: priority-ordered list computed independently from endorserCandidates + effectiveBlockHeight + blockRangeSize
+	failoverIndex                      int      // COORDINATOR_ENDORSER mode: the next position in coordinatorPriorityList to try when the current active coordinator exceeds the inactive grace period
 
 	/* Config */
 	nodeName            string
-	blockRangeSize      uint64
+	blockRange          uint64
 	contractAddress     *pldtypes.EthAddress
-	idleThreshold       int // expressed as a multiple of heartbeat intervals
-	redelegateThreshold int // expressed as a multiple of heartbeat intervals
+	inactiveGracePeriod int // expressed as a multiple of heartbeat intervals
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
@@ -77,38 +85,63 @@ type originator struct {
 }
 
 func NewOriginator(
-	ctx context.Context,
 	nodeName string,
 	transportWriter transport.TransportWriter,
 	engineIntegration common.EngineIntegration,
 	contractAddress *pldtypes.EthAddress,
 	configuration *pldconf.SequencerConfig,
 	metrics metrics.DistributedSequencerMetrics,
-) (*originator, error) {
-	origCtx := log.WithLogField(ctx, "role", "originator")
+	selectionConfig *common.CoordinatorSelectionConfig,
+) *originator {
 	o := &originator{
-		ctx:                 origCtx,
 		nodeName:            nodeName,
 		transactionsByID:    make(map[uuid.UUID]transaction.OriginatorTransaction),
 		transportWriter:     transportWriter,
-		blockRangeSize:      confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
+		blockRange:          confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
 		contractAddress:     contractAddress,
 		engineIntegration:   engineIntegration,
 		metrics:             metrics,
-		idleThreshold:       confutil.IntMin(configuration.InactiveToIdleGracePeriod, pldconf.SequencerMinimum.InactiveToIdleGracePeriod, *pldconf.SequencerDefaults.InactiveToIdleGracePeriod),
-		redelegateThreshold: confutil.IntMin(configuration.RedelegateGracePeriod, pldconf.SequencerMinimum.RedelegateGracePeriod, *pldconf.SequencerDefaults.RedelegateGracePeriod),
+		inactiveGracePeriod: confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod),
+	}
+
+	switch selectionConfig.Mode {
+	case prototk.ContractConfig_COORDINATOR_STATIC:
+		o.currentActiveCoordinator = selectionConfig.StaticCoordinator
+	case prototk.ContractConfig_COORDINATOR_SENDER:
+		o.currentActiveCoordinator = nodeName
+	case prototk.ContractConfig_COORDINATOR_ENDORSER:
+		o.endorserCandidates = selectionConfig.Endorsers
 	}
 
 	originatorEventQueueSize := confutil.IntMin(configuration.OriginatorEventQueueSize, pldconf.SequencerMinimum.OriginatorEventQueueSize, *pldconf.SequencerDefaults.OriginatorEventQueueSize)
 	originatorPriorityEventQueueSize := confutil.IntMin(configuration.OriginatorPriorityEventQueueSize, pldconf.SequencerMinimum.OriginatorPriorityEventQueueSize, *pldconf.SequencerDefaults.OriginatorPriorityEventQueueSize)
-	o.initializeStateMachineEventLoop(State_Idle, originatorEventQueueSize, originatorPriorityEventQueueSize)
+	o.initializeStateMachineEventLoop(State_Initial, originatorEventQueueSize, originatorPriorityEventQueueSize)
 
-	go o.stateMachineEventLoop.Start(origCtx)
+	return o
+}
 
-	return o, nil
+func (o *originator) Start(ctx context.Context) error {
+	if o.started {
+		return nil
+	}
+	o.ctx = log.WithLogField(ctx, "role", "originator")
+
+	blockHeight := o.engineIntegration.GetBlockHeight(ctx)
+	o.effectiveBlockHeight = common.ComputeEffectiveBlockHeight(uint64(blockHeight), o.blockRange)
+
+	o.started = true
+
+	go o.stateMachineEventLoop.Start(o.ctx)
+
+	o.QueueEvent(o.ctx, &OriginatorCreatedEvent{})
+
+	return nil
 }
 
 func (o *originator) WaitForDone(ctx context.Context) {
+	if !o.started {
+		return
+	}
 	o.stateMachineEventLoop.WaitForDone(ctx)
 }
 
@@ -138,24 +171,19 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 	// Transaction not known to this originator.
 	// The most likely cause is that the transaction reached a terminal state (e.g., reverted during assembly)
 	// and has since been removed from memory after cleanup. We need to tell the coordinator so they can clean up.
-	log.L(ctx).Debugf("transaction not known to this originator %s", event.GetTransactionID().String())
-
-	// Extract coordinator from events that require a response
-	var coordinator string
+	log.L(ctx).Warnf("received %s for unknown transaction %s", event.TypeString(), event.GetTransactionID())
 
 	switch e := event.(type) {
 	case *transaction.AssembleRequestReceivedEvent:
-		coordinator = e.Coordinator
+		return o.transportWriter.SendAssembleRejection(ctx, e.GetTransactionID(), e.RequestID, e.Coordinator,
+			engineProto.RejectionReason_TRANSACTION_UNKNOWN, 0, 0)
 	case *transaction.PreDispatchRequestReceivedEvent:
-		coordinator = e.Coordinator
+		return o.transportWriter.SendPreDispatchRejection(ctx, e.GetTransactionID(), e.RequestID, e.Coordinator,
+			engineProto.RejectionReason_TRANSACTION_UNKNOWN)
 	default:
 		// Other events can be safely ignored
 		return nil
 	}
-
-	log.L(ctx).Warnf("received %s for unknown transaction %s, notifying coordinator %s",
-		event.TypeString(), event.GetTransactionID(), coordinator)
-	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID())
 }
 
 // getTransactionsInStates returns transactions in any of the given states.
@@ -191,8 +219,4 @@ func (o *originator) getTransactionsNotInStates(states []transaction.State) []tr
 		}
 	}
 	return matchingTxns
-}
-
-func ptrTo[T any](v T) *T {
-	return &v
 }

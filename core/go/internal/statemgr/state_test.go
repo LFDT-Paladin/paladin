@@ -17,6 +17,7 @@
 package statemgr
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -350,4 +351,65 @@ func TestFindStatesWithNilOptions(t *testing.T) {
 	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", pldtypes.RandBytes32(), query.NewQueryBuilder().Query(), nil)
 	assert.Regexp(t, "called", err)
 
+}
+
+func TestWritePreVerifiedStates_ClearsCompletionRows(t *testing.T) {
+	// Writing states should delete any outstanding completion rows for those state IDs.
+	ctx, ss, m, done := newDBTestStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+
+	_ = mockDomain(t, m, "domain1", false)
+	m.txManager.On("NotifyStatesDBChanged", mock.Anything).Return()
+
+	contractAddr := pldtypes.RandAddress()
+
+	// We need the real state IDs to pre-insert completion rows, so write the states first.
+	var states []*pldapi.State
+	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		states, err = ss.WritePreVerifiedStates(ctx, dbTX, "domain1", []*components.StateUpsertOutsideContext{
+			{
+				SchemaID:        schema.ID(),
+				Data:            pldtypes.RawJSON(fmt.Sprintf(`{"amount":10,"owner":"0x615dD09124271D8008225054d85Ffe720E7a447A","salt":"%s"}`, pldtypes.RandHex(32))),
+				ContractAddress: contractAddr,
+			},
+			{
+				SchemaID:        schema.ID(),
+				Data:            pldtypes.RawJSON(fmt.Sprintf(`{"amount":20,"owner":"0x615dD09124271D8008225054d85Ffe720E7a447A","salt":"%s"}`, pldtypes.RandHex(32))),
+				ContractAddress: contractAddr,
+			},
+		})
+		return err
+	})
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+
+	// Seed pending rows for both state IDs.
+	for _, s := range states {
+		err = ss.p.DB().Create(&pendingPrivateStateData{
+			StateID:     s.ID.String(),
+			Contract:    contractAddr.String(),
+			BlockNumber: 1,
+		}).Error
+		require.NoError(t, err)
+	}
+
+	// Now write the states again (idempotent upsert) — this must clear the pending rows.
+	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err = ss.WritePreVerifiedStates(ctx, dbTX, "domain1", []*components.StateUpsertOutsideContext{
+			{ID: states[0].ID, SchemaID: schema.ID(), Data: states[0].Data, ContractAddress: contractAddr},
+			{ID: states[1].ID, SchemaID: schema.ID(), Data: states[1].Data, ContractAddress: contractAddr},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	var remaining []pendingPrivateStateData
+	err = ss.p.DB().Find(&remaining).Error
+	require.NoError(t, err)
+	assert.Empty(t, remaining)
 }

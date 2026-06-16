@@ -38,7 +38,6 @@ type PreparedTransactionWithRefs struct {
 type TransactionPreAssembly struct {
 	TransactionSpecification *prototk.TransactionSpecification `json:"transaction_specification"`
 	RequiredVerifiers        []*prototk.ResolveVerifierRequest `json:"required_verifiers"`
-	Verifiers                []*prototk.ResolvedVerifier       `json:"verifiers"`
 	PublicTxOptions          pldapi.PublicTxOptions            `json:"public_tx_options"`
 	// Chained dependencies: ordering constraints from the parent coordinator's grapher.
 	// These are persisted on chained transaction creation so they are preserved by any receiving
@@ -77,6 +76,7 @@ type TransactionPostAssembly struct {
 	Endorsements          []*prototk.AttestationResult               `json:"endorsements"`
 	DomainData            *string                                    `json:"domain_data"`
 	RevertReason          *string                                    `json:"revert_reason"`
+	ResolvedVerifiers     []*prototk.ResolvedVerifier                `json:"resolved_verifiers"`
 }
 
 // PrivateTransaction is the critical exchange object between the engine and the domain manager,

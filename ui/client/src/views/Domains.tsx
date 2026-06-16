@@ -17,6 +17,7 @@
 import {
   Alert,
   Box,
+  Button,
   Fade,
   Grid2,
   MenuItem,
@@ -26,14 +27,41 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { t } from 'i18next';
 import { Captions } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import { DomainDeploy } from '../components/DomainDeploy';
 import { Hash } from '../components/Hash';
 import { SmartContractsTable } from '../components/SmartContractsTable';
 import { getDomainByName, listDomains } from '../queries/domains';
+import SearchIcon from '@mui/icons-material/Search';
+import { DomainContractLookupDialog } from '../dialogs/DomainContractLookp';
 
-export const Domains: React.FC = () => {
-  const [selectedDomain, setSelectedDomain] = useState<string>();
+type Props = {
+  sortAscending: boolean
+  setSortAscending: Dispatch<SetStateAction<boolean>>
+  page: number
+  setPage: Dispatch<SetStateAction<number>>
+  rowsPerPage: number
+  setRowsPerPage: Dispatch<SetStateAction<number>>
+  refTimestamps: string[]
+  setRefTimestamps: Dispatch<SetStateAction<string[]>>
+  selectedDomain: string | undefined
+  setSelectedDomain: Dispatch<SetStateAction<string | undefined>>
+};
+
+export const Domains: React.FC<Props> = ({
+  sortAscending,
+  setSortAscending,
+  page,
+  setPage,
+  rowsPerPage,
+  setRowsPerPage,
+  refTimestamps,
+  setRefTimestamps,
+  selectedDomain,
+  setSelectedDomain
+}) => {
+
+  const [lookupDomainContractDialogOpen, setLookupDomainContractDialogOpen] = useState(false);
 
   const {
     data: domains,
@@ -69,7 +97,7 @@ export const Domains: React.FC = () => {
         <Box
           sx={{
             padding: '20px',
-            maxWidth: '1300px',
+            maxWidth: '1500px',
             marginLeft: 'auto',
             marginRight: 'auto',
           }}
@@ -87,7 +115,7 @@ export const Domains: React.FC = () => {
                     },
                   },
                 }}
-                select
+                select={domains !== undefined && domains.length > 0}
                 value={selectedDomain ?? ''}
                 onChange={(event) => setSelectedDomain(event.target.value)}
               >
@@ -147,17 +175,48 @@ export const Domains: React.FC = () => {
               </Grid2>
             </Grid2>
           </Box>
-          <Grid2>
-            <Typography align="center" variant="h5">
-              {t('smartContracts')}
-            </Typography>
+          <Grid2 container alignItems="center" spacing={2}>
+            <Grid2 sx={{ display: { xs: 'none', sm: 'none', md: 'block' } }} size={{ md: 4 }} />
+            <Grid2 size={{ xs: 12, md: 4 }}>
+              <Typography align="center" variant="h5">
+                {t('smartContracts')}
+              </Typography>
+            </Grid2>
+            <Grid2 size={{ xs: 12, md: 4 }} container justifyContent="right">
+              <Grid2>
+                <Button
+                  sx={{ borderRadius: '20px', minWidth: '180px' }}
+                  size="large"
+                  variant="outlined"
+                  startIcon={<SearchIcon />}
+                  onClick={() => setLookupDomainContractDialogOpen(true)}
+                >
+                  {t('lookup')}
+                </Button>
+              </Grid2>
+            </Grid2>
           </Grid2>
           <Box sx={{ height: '10px' }} />
           {domain?.registryAddress && (
-            <SmartContractsTable domainAddress={domain.registryAddress} />
+            <SmartContractsTable
+              domainAddress={domain.registryAddress}
+              sortAscending={sortAscending}
+              setSortAscending={setSortAscending}
+              page={page}
+              setPage={setPage}
+              rowsPerPage={rowsPerPage}
+              setRowsPerPage={setRowsPerPage}
+              refTimestamps={refTimestamps}
+              setRefTimestamps={setRefTimestamps}
+              selectedDomain={selectedDomain}
+            />
           )}
         </Box>
       </Fade>
+      <DomainContractLookupDialog
+        dialogOpen={lookupDomainContractDialogOpen}
+        setDialogOpen={setLookupDomainContractDialogOpen}
+      />
     </>
   );
 };

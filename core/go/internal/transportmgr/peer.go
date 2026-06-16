@@ -19,6 +19,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"math"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -54,9 +55,10 @@ type peer struct {
 
 	// Send loop state (no lock as only used on the loop)
 	lastFullScan          time.Time
-	lastDrainHWM          *uint64
-	persistentMsgsDrained bool
 	consecutiveSendErrors int
+
+	lowestPendingSeqLock sync.Mutex
+	lowestPendingSeq     uint64
 
 	senderStarted atomic.Bool
 	senderDone    chan struct{}
@@ -195,6 +197,8 @@ func (tm *transportManager) connectPeer(ctx context.Context, nodeName string, se
 			sendQueue:              make(chan *msgWithErrChan, tm.senderBufferLen),
 			senderDone:             make(chan struct{}),
 		}
+		// imitialise high - the first pending reliable message sequencer must be lower than the start value
+		p.lowestPendingSeq = math.MaxUint64
 		p.ctx, p.cancelCtx = context.WithCancel(
 			log.WithLogField(tm.bgCtx /* go-routine need bg context*/, "peer", nodeName))
 	}
@@ -261,7 +265,16 @@ func (p *peer) startSender() (string, error) {
 	return p.transport.name, nil
 }
 
-func (p *peer) notifyPersistedMsgAvailable() {
+// notifyPersistedMsgAvailableFromSeq records the minimum sequence number of newly committed
+// reliable messages and signals the sender loop to wake up. If the channel already has a
+// pending notification, the sequence floor is still updated so the next scan starts from
+// the correct position.
+func (p *peer) notifyPersistedMsgAvailableFromSeq(minSeq uint64) {
+	p.lowestPendingSeqLock.Lock()
+	if minSeq < p.lowestPendingSeq {
+		p.lowestPendingSeq = minSeq
+	}
+	p.lowestPendingSeqLock.Unlock()
 	select {
 	case p.persistedMsgsAvailable <- struct{}{}:
 	default:
@@ -287,9 +300,6 @@ func (p *peer) send(msg *prototk.PaladinMsg, reliableSeq *uint64) error {
 	if reliableSeq != nil && *reliableSeq > p.Stats.ReliableHighestSent {
 		p.Stats.ReliableHighestSent = *reliableSeq
 	}
-	if p.lastDrainHWM != nil {
-		p.Stats.ReliableAckBase = *p.lastDrainHWM
-	}
 	return nil
 }
 
@@ -310,17 +320,19 @@ func (p *peer) updateReceivedStats(msg *prototk.PaladinMsg) {
 
 func (p *peer) reliableMessageScan(checkNew bool) error {
 
-	fullScan := p.lastDrainHWM == nil || time.Since(p.lastFullScan) >= p.tm.reliableMessageResend
+	// A full scan queries all unacked messages and applies an age gate before resending.
+	// A triggered scan (checkNew) queries only newly committed messages (from lowestPendingSeq)
+	// and sends them immediately with no age gate.
+	fullScan := !checkNew && (p.lastFullScan.IsZero() || time.Since(p.lastFullScan) >= p.tm.reliableMessageResend)
 	if !fullScan && !checkNew {
 		return nil // Nothing to do
 	}
 	log.L(p.ctx).Debugf(
-		"reliableMessageScan starting node=%s checkNew=%t fullScan=%t pageSize=%d lastDrainHWM=%v",
+		"reliableMessageScan starting node=%s checkNew=%t fullScan=%t pageSize=%d",
 		p.Name,
 		checkNew,
 		fullScan,
 		p.tm.reliableMessagePageSize,
-		p.lastDrainHWM,
 	)
 
 	pageSize := p.tm.reliableMessagePageSize
@@ -328,12 +340,11 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 	var lastPageEnd *uint64
 	for {
 		log.L(p.ctx).Tracef(
-			"reliableMessageScan querying DB node=%s pageSize=%d fullScan=%t lastPageEnd=%v lastDrainHWM=%v",
+			"reliableMessageScan querying DB node=%s pageSize=%d fullScan=%t lastPageEnd=%v",
 			p.Name,
 			pageSize,
 			fullScan,
 			lastPageEnd,
-			p.lastDrainHWM,
 		)
 		query := p.tm.persistence.DB().
 			WithContext(p.ctx).
@@ -345,7 +356,21 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 		if lastPageEnd != nil {
 			query = query.Where("sequence > ?", *lastPageEnd)
 		} else if !fullScan {
-			query = query.Where("sequence > ?", *p.lastDrainHWM)
+			// Triggered by a post-commit notification. Consume lowestPendingSeq as the scan
+			// floor so all messages from the triggering (and any concurrent) DB transactions
+			// are found, including those that committed out-of-order relative to each other.
+			p.lowestPendingSeqLock.Lock()
+			startSeq := p.lowestPendingSeq
+			p.lowestPendingSeq = math.MaxUint64
+			p.lowestPendingSeqLock.Unlock()
+			if startSeq == math.MaxUint64 {
+				// Stale notification: a concurrent scan already consumed and reset lowestPendingSeq,
+				// covering the messages from this notification's batch. Nothing left to scan.
+				log.L(p.ctx).Debugf("reliableMessageScan triggered scan on node=%s skipped - stale notification (lowestPendingSeq already consumed)", p.Name)
+				break
+			}
+			log.L(p.ctx).Tracef("reliableMessageScan triggered scan from sequence %d", startSeq)
+			query = query.Where("sequence >= ?", startSeq)
 		}
 
 		var page []*pldapi.ReliableMessage
@@ -366,14 +391,13 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 		}
 
 		// Process the page - building and sending the proto messages
-		if err = p.processReliableMsgPage(p.tm.persistence.NOTX(), page); err != nil {
+		if err = p.processReliableMsgPage(p.tm.persistence.NOTX(), page, checkNew); err != nil {
 			// Errors returned are retryable - for data errors the function
 			// must record those as acks with an error.
 			return err
 		}
 
 		if len(page) > 0 {
-			p.persistentMsgsDrained = false // we know there's some messages
 			total += len(page)
 			lastPageEnd = &page[len(page)-1].Sequence
 		}
@@ -387,24 +411,15 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 
 	log.L(p.ctx).Debugf("reliableMessageScan fullScan=%t total=%d lastPageEnd=%v", fullScan, total, lastPageEnd)
 
-	// If we found anything, then mark that as our high water mark for
-	// future scans. If an empty full scan - then we store nil
-	if lastPageEnd != nil || fullScan {
-		p.lastDrainHWM = lastPageEnd
-	}
-
 	// Record the last full scan
 	if fullScan {
-		// We only know we're empty when we do a full re-scan, and that comes back empty
-		p.persistentMsgsDrained = (total == 0)
-
 		p.lastFullScan = time.Now()
 	}
 
 	return nil
 }
 
-func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.ReliableMessage) (err error) {
+func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.ReliableMessage, isTriggeredScan bool) (err error) {
 
 	type paladinMsgWithSeq struct {
 		*prototk.PaladinMsg
@@ -416,10 +431,11 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 	var errorAcks []*pldapi.ReliableMessageAck
 	for _, rm := range page {
 
-		// Check it's either after our HWM, or eligible for re-send
-		afterHWM := p.lastDrainHWM == nil || *p.lastDrainHWM < rm.Sequence
-		if !afterHWM && time.Since(rm.Created.Time()) < p.tm.reliableMessageResend {
-			log.L(p.ctx).Infof("Unacknowledged message %s not yet eligible for re-send", rm.ID)
+		// Triggered scans deliver freshly committed messages — send immediately.
+		// Periodic full scans may re-encounter messages already sent; skip them until
+		// enough time has passed that a resend is warranted.
+		if !isTriggeredScan && time.Since(rm.Created.Time()) < p.tm.reliableMessageResend {
+			log.L(p.ctx).Debugf("Unacknowledged message %s not yet eligible for re-send", rm.ID)
 			continue
 		}
 		log.L(p.ctx).Debugf(

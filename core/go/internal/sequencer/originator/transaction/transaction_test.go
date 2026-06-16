@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/prometheus/client_golang/prometheus"
@@ -32,7 +33,7 @@ import (
 
 func TestNewTransaction_NilPrivateTransaction_ReturnsError(t *testing.T) {
 	ctx := context.Background()
-	_, err := NewTransaction(ctx, nil, nil, nil, nil, nil)
+	_, err := NewTransaction(ctx, nil, nil, nil, nil, nil, func(_ context.Context) {}, func() int64 { return 0 })
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot create transaction without private tx")
 }
@@ -40,12 +41,12 @@ func TestNewTransaction_NilPrivateTransaction_ReturnsError(t *testing.T) {
 func TestNewTransaction_Success_ReturnsOriginatorTransaction(t *testing.T) {
 	ctx := context.Background()
 	pt := testutil.NewPrivateTransactionBuilderForTesting().Build()
-	engine := &common.FakeEngineIntegrationForTesting{}
-	recorder := NewSentMessageRecorder()
+	engine := sequencercommonmocks.NewEngineIntegration(t)
+	recorder := testutil.NewSentMessageRecorder()
 	queue := func(context.Context, common.Event) {}
 	m := metrics.InitMetrics(context.Background(), prometheus.NewRegistry())
 
-	ot, err := NewTransaction(ctx, pt, recorder, queue, engine, m)
+	ot, err := NewTransaction(ctx, pt, recorder, queue, engine, m, func(_ context.Context) {}, func() int64 { return 0 })
 	require.NoError(t, err)
 	require.NotNil(t, ot)
 	assert.Equal(t, pt.ID, ot.GetID())
@@ -78,7 +79,7 @@ func TestTransaction_GetStatus_NilPostAssembly_ReturnsStatusWithNilEndorsements(
 	txn.stateMachine.SetCurrentState(State_Assembling)
 	status := txn.GetStatus(ctx)
 	assert.Equal(t, txn.pt.ID.String(), status.TxID)
-	assert.Equal(t, "State_Assembling", status.Status)
+	assert.Equal(t, "Assembling", status.Status)
 	assert.Nil(t, status.Endorsements)
 }
 
@@ -97,7 +98,7 @@ func TestTransaction_GetStatus_ReturnsStatusWithEndorsements(t *testing.T) {
 	txn.stateMachine.SetCurrentState(State_Assembling)
 	status := txn.GetStatus(ctx)
 	assert.Equal(t, txn.pt.ID.String(), status.TxID)
-	assert.Equal(t, "State_Assembling", status.Status)
+	assert.Equal(t, "Assembling", status.Status)
 	require.Len(t, status.Endorsements, 1)
 	assert.Equal(t, "party1", status.Endorsements[0].Party)
 	assert.True(t, status.Endorsements[0].EndorsementReceived)

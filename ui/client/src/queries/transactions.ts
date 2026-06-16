@@ -70,13 +70,14 @@ const getTransactionPagingQuery = (pageParam: ITransactionPagingReference) => {
 
 export const fetchIndexedTransactions = async (
   limit: number,
+  withReceipt: boolean,
   fromBlockNumber?: number,
   pageParam?: ITransactionPagingReference
 ): Promise<IEnrichedTransaction[]> => {
   let requestPayload: any = {
     jsonrpc: '2.0',
     id: Date.now(),
-    method: RpcMethods.bidx_QueryIndexedTransactions,
+    method: withReceipt? RpcMethods.bidx_QueryIndexedTransactionsWithReceipt : RpcMethods.bidx_QueryIndexedTransactions,
     params: [
       {
         limit,

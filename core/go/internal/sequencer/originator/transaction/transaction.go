@@ -37,6 +37,7 @@ type assembleRequestFromCoordinator struct {
 	stateLocksJSON          []byte
 	requestID               uuid.UUID
 	preAssembly             []byte
+	expiry                  time.Time
 }
 
 type OriginatorTransaction interface {
@@ -67,6 +68,9 @@ type originatorTransaction struct {
 	nonce                            *uint64
 	metrics                          metrics.DistributedSequencerMetrics
 	lastReceivedWillRetry            bool
+	refreshBlockHeight               func(context.Context)
+	getBlockHeight                   func() int64
+	cancelCurrentAssembly            context.CancelFunc
 }
 
 func NewTransaction(
@@ -76,28 +80,32 @@ func NewTransaction(
 	queueEventForOriginator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	metrics metrics.DistributedSequencerMetrics,
+	refreshBlockHeight func(context.Context),
+	getBlockHeight func() int64,
 ) (OriginatorTransaction, error) {
 	if pt == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "cannot create transaction without private tx")
 	}
 
 	return newTransaction(
-		ctx,
 		pt,
 		engineIntegration,
 		transportWriter,
 		queueEventForOriginator,
 		metrics,
+		refreshBlockHeight,
+		getBlockHeight,
 	), nil
 }
 
 func newTransaction(
-	ctx context.Context,
 	pt *components.PrivateTransaction,
 	engineIntegration common.EngineIntegration,
 	transportWriter transport.TransportWriter,
 	queueEventForOriginator func(context.Context, common.Event),
 	metrics metrics.DistributedSequencerMetrics,
+	refreshBlockHeight func(context.Context),
+	getBlockHeight func() int64,
 ) *originatorTransaction {
 	txn := &originatorTransaction{
 		pt:                      pt,
@@ -105,6 +113,8 @@ func newTransaction(
 		transportWriter:         transportWriter,
 		queueEventForOriginator: queueEventForOriginator,
 		metrics:                 metrics,
+		refreshBlockHeight:      refreshBlockHeight,
+		getBlockHeight:          getBlockHeight,
 	}
 	txn.initializeStateMachine(State_Initial)
 	return txn

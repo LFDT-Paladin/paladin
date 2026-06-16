@@ -764,6 +764,7 @@ func TestDomainContextFlushErrorCapture(t *testing.T) {
 	db.ExpectBegin()
 	db.ExpectExec("INSERT.*states").WillReturnResult(driver.ResultNoRows)
 	db.ExpectExec("INSERT.*state_labels").WillReturnResult(driver.ResultNoRows)
+	db.ExpectExec("DELETE.*pending_private_state_data").WillReturnResult(driver.ResultNoRows)
 	db.ExpectCommit()
 	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		err := dc.Flush(dbTX)
@@ -1353,8 +1354,8 @@ func TestImportSnapshotBadStates(t *testing.T) {
 	err := dc.ImportSnapshot(ctx, []byte(`{
 		"states": [
 			{
-				"id": "` + pldtypes.RandHex(32) + `",
-				"schema": "` + pldtypes.RandHex(32) + `",
+				"id": "`+pldtypes.RandHex(32)+`",
+				"schema": "`+pldtypes.RandHex(32)+`",
 				"data": {}
 			}
 		]

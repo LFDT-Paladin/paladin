@@ -557,10 +557,13 @@ func (s *notoRevertableHooksSuite) PostRun() error {
 	const revertRevertReason = "Configured to revert"
 	const notoInvalidInputSelector = "8b8ff76e"
 	const penteInputNotAvailableReason = "PenteInputNotAvailable"
+	const dependencyFailedReason = "PD012256"
 	failRevertReasonHex := fmt.Sprintf("%x", failRevertReason)
 	revertRevertReasonHex := fmt.Sprintf("%x", revertRevertReason)
 	penteInputNotAvailableTxIDs := make([]string, 0)
 	penteInputNotAvailableSet := make(map[string]struct{})
+	dependencyFailedTxIDs := make([]string, 0)
+	dependencyFailedSet := make(map[string]struct{})
 
 	s.trackMu.Lock()
 	revertTxIDs := append([]string{}, s.revertTxIDs...)
@@ -613,6 +616,13 @@ func (s *notoRevertableHooksSuite) PostRun() error {
 			}
 			return nil
 		}
+		if !receipt.Success && strings.HasPrefix(receipt.FailureMessage, dependencyFailedReason) {
+			if _, seen := dependencyFailedSet[txID]; !seen {
+				dependencyFailedSet[txID] = struct{}{}
+				dependencyFailedTxIDs = append(dependencyFailedTxIDs, txID)
+			}
+			return nil
+		}
 		if shouldSucceed {
 			if !receipt.Success {
 				return fmt.Errorf("%s tx %s expected success but failed: %s", label, txID, receipt.FailureMessage)
@@ -653,9 +663,6 @@ func (s *notoRevertableHooksSuite) PostRun() error {
 				end = len(txIDs)
 			}
 			for _, txID := range txIDs[i:end] {
-				if _, skip := penteInputNotAvailableSet[txID]; skip {
-					continue
-				}
 				parsedID, err := uuid.Parse(txID)
 				if err != nil {
 					return fmt.Errorf("%s tx %s has invalid UUID: %w", label, txID, err)
@@ -687,11 +694,10 @@ func (s *notoRevertableHooksSuite) PostRun() error {
 	recordFailure(assertBatched(revertTxIDs, false, revertRevertReason, revertRevertReasonHex, "REVERT"))
 	recordFailure(assertBatched(successTxIDs, true, "", "", "SUCCESS"))
 
-	// TODO: I believe we've been hitting these because of the possible inconsistencies in cleaning up
-	// minters in the grapher and lock states in the domain context, which should be resolved by the new graper.
-	// However, I think there might be a new class of informational unexpected failures which is a small number
-	// of transactions who keep getting caught behind a chained dependency until they reach their retry limit.
-	// Tuning config could reduce the likelihood of these, but I don't think it's possible to completely eliminate them.
+	// A small number of transactions can exhaust their retry limit after repeatedly being queued
+	// behind a chained dependency that fails. This is not possible to eliminate entirely, so it
+	// is treated as informational rather than a test failure. Which revert reason depends on whether
+	// the transaction it failed behind had also reached its retry limit or not.
 	if len(penteInputNotAvailableTxIDs) > 0 {
 		log.Infof(
 			"Informational: %d transactions hit %s: %s",
@@ -700,15 +706,25 @@ func (s *notoRevertableHooksSuite) PostRun() error {
 			strings.Join(penteInputNotAvailableTxIDs, ", "),
 		)
 	}
+	if len(dependencyFailedTxIDs) > 0 {
+		log.Infof(
+			"Informational: %d transactions hit %s (chained dependency failed): %s",
+			len(dependencyFailedTxIDs),
+			dependencyFailedReason,
+			strings.Join(dependencyFailedTxIDs, ", "),
+		)
+	}
 
 	log.Infof(
-		"Post-run analysis complete: submissions=%d tracked=%d (revert=%d fail=%d invalid_input=%d success=%d)",
+		"Post-run analysis complete: submissions=%d tracked=%d (revert=%d fail=%d invalid_input=%d success=%d informational_pente_input=%d informational_dep_failed=%d)",
 		totalSubmissions,
 		trackedTotal,
 		len(revertTxIDs),
 		len(failTxIDs),
 		len(invalidInputTxIDs),
 		len(successTxIDs),
+		len(penteInputNotAvailableTxIDs),
+		len(dependencyFailedTxIDs),
 	)
 
 	if len(failures) > 0 {

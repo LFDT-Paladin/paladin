@@ -1740,3 +1740,120 @@ func TestProcessStaleIncompletesFailRetryingDeleteIncompletes(t *testing.T) {
 	close(l.done)
 
 }
+
+func TestProcessStaleIncompletesStillIncomplete(t *testing.T) {
+	// Test that when a receipt is still incomplete after reassessment (stillIncomplete=true),
+	// the incomplete record is updated in the DB with the new blocking state.
+	// Uses a real DB so that GORM InnerJoins scanning works correctly for *EthAddress fields.
+	txID := uuid.New()
+	newMissingStateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	contractAddr := pldtypes.RandAddress()
+
+	md := componentsmocks.NewDomain(t)
+	ctx, txm, done := newTestTransactionManager(t, true,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID).
+				Return(&pldapi.TransactionStates{
+					Info: []*pldapi.StateBase{
+						{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))},
+					},
+					Unavailable: &pldapi.UnavailableStates{
+						Read: []pldtypes.HexBytes{newMissingStateID},
+					},
+				}, nil)
+			mc.domainManager.On("GetDomainByName", mock.Anything, "domain1").Return(md, nil)
+			md.On("CheckStateCompletion", mock.Anything, mock.Anything, txID, mock.Anything).
+				Return(newMissingStateID, nil)
+		},
+	)
+	defer done()
+
+	txm.receiptsRetry.UTSetMaxAttempts(1)
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name:    "listener1",
+		Started: confutil.P(false),
+		Options: pldapi.TransactionReceiptListenerOptions{
+			IncompleteStateReceiptBehavior: pldapi.IncompleteStateReceiptBehaviorCompleteOnly.Enum(),
+		},
+	})
+	require.NoError(t, err)
+
+	// Insert a receipt with Source set via FinalizeTransactions
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				ReceiptType:   components.RT_Success,
+				TransactionID: txID,
+				Domain:        "domain1",
+				OnChain:       randOnChain(contractAddr),
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	// Retrieve the inserted receipt's sequence number
+	var receipt transactionReceipt
+	err = txm.p.DB().Where(`"transaction" = ?`, txID).First(&receipt).Error
+	require.NoError(t, err)
+
+	// Insert a state into the states table (required for InnerJoins("State")).
+	// Use raw SQL to satisfy the NOT NULL constraint on the `created` column.
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	err = txm.p.DB().Exec(
+		`INSERT INTO states (id, created, domain_name) VALUES (?, ?, ?)`,
+		stateID, time.Now().UnixMilli(), "domain1",
+	).Error
+	require.NoError(t, err)
+
+	// Insert the incomplete record linking the receipt and state
+	err = txm.p.DB().Create(&persistedReceiptIncomplete{
+		Listener:   "listener1",
+		Sequence:   receipt.Sequence,
+		DomainName: "domain1",
+		StateID:    stateID,
+	}).Error
+	require.NoError(t, err)
+
+	l := txm.receiptListeners["listener1"]
+	l.initStart()
+	l.addReceiver(newTestReceiptReceiver(nil)).SetActive()
+
+	err = l.processStaleIncompletes()
+	require.NoError(t, err)
+
+	// Verify the incomplete record was updated with the new blocking state
+	var updated persistedReceiptIncomplete
+	err = txm.p.DB().Where(`"listener" = ? AND "sequence" = ?`, "listener1", receipt.Sequence).First(&updated).Error
+	require.NoError(t, err)
+	require.Equal(t, newMissingStateID, updated.StateID)
+
+	close(l.done)
+}
+
+func TestReceiptListenerSetActiveAlreadyActive(t *testing.T) {
+	l := &receiptListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		spec: &pldapi.TransactionReceiptListener{
+			Name: "listener1",
+		},
+		newReceivers: make(chan bool, 1),
+	}
+	l.initStart()
+	defer close(l.done)
+
+	r := newTestReceiptReceiver(nil)
+	registered := l.addReceiver(r)
+
+	// First SetActive should move the receiver from pending to active
+	registered.SetActive()
+	assert.Len(t, l.receivers, 1)
+	assert.Len(t, l.pendingReceivers, 0)
+
+	// Second SetActive with the same receiver should be a no-op (already active)
+	registered.SetActive()
+	assert.Len(t, l.receivers, 1)
+	assert.Len(t, l.pendingReceivers, 0)
+}

@@ -18,415 +18,110 @@ package coordinator
 import (
 	"context"
 	"testing"
-	"time"
 
-	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
+	"github.com/stretchr/testify/mock"
 )
 
-func Test_action_UpdateOriginatorNodePoolFromEvent_AddsNodesToPool(t *testing.T) {
+func Test_calculateCoordinatorPriorities_SingleNodeInPool_SetsPriorityList(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{}
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1").
+		CoordinatorSelectionBlockRange(100).
+		CurrentBlockHeight(1000).
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Build()
 
-	err := action_UpdateOriginatorNodePoolFromEvent(ctx, c, &OriginatorNodePoolUpdateRequestedEvent{
-		Nodes: []string{"node2", "node3"},
-	})
-	require.NoError(t, err)
-	assert.Len(t, c.originatorNodePool, 3, "pool should contain event nodes plus coordinator's own node")
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain coordinator's own node")
-	assert.Contains(t, c.originatorNodePool, "node2", "pool should contain node2 from event")
-	assert.Contains(t, c.originatorNodePool, "node3", "pool should contain node3 from event")
+	c.calculateCoordinatorPriorities(ctx)
+	assert.Equal(t, []string{"node1"}, c.coordinatorPriorityList)
 }
 
-func Test_selectActiveCoordinatorNode_StaticMode_StaticCoordinatorWithFullyQualifiedIdentity_ReturnsNode(t *testing.T) {
+func Test_calculateCoordinatorPriorities_MultipleNodesInPool_SetsNonEmptyPriorityList(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_STATIC,
-		StaticCoordinator:    proto.String("identity@node1"),
-	})
-	c, _, done := builder.Build(ctx)
-	defer done()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1", "node2", "node3").
+		CoordinatorSelectionBlockRange(100).
+		CurrentBlockHeight(1000).
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Build()
 
-	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, "node1", coordinatorNode)
+	c.calculateCoordinatorPriorities(ctx)
+	assert.NotEmpty(t, c.coordinatorPriorityList)
+	assert.Contains(t, []string{"node1", "node2", "node3"}, c.coordinatorPriorityList[0])
 }
 
-func Test_selectActiveCoordinatorNode_StaticMode_StaticCoordinatorWithIdentityOnly_ReturnsError(t *testing.T) {
+func Test_calculateCoordinatorPriorities_BlockHeightRounding_SameRangeSamePriorityList(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_STATIC,
-		StaticCoordinator:    proto.String("identity"),
-	})
-	c, _, done := builder.Build(ctx)
-	defer done()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1", "node2", "node3").
+		CoordinatorSelectionBlockRange(100).
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Build()
 
-	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
-	require.Error(t, err)
-	assert.Empty(t, coordinatorNode)
+	c.effectiveBlockHeight = common.ComputeEffectiveBlockHeight(1000, 100)
+	c.calculateCoordinatorPriorities(ctx)
+	list1 := c.coordinatorPriorityList[0]
+
+	c.effectiveBlockHeight = common.ComputeEffectiveBlockHeight(1001, 100)
+	c.calculateCoordinatorPriorities(ctx)
+	list2 := c.coordinatorPriorityList[0]
+
+	c.effectiveBlockHeight = common.ComputeEffectiveBlockHeight(1099, 100)
+	c.calculateCoordinatorPriorities(ctx)
+	list3 := c.coordinatorPriorityList[0]
+
+	assert.Equal(t, list1, list2)
+	assert.Equal(t, list2, list3)
+
+	c.effectiveBlockHeight = common.ComputeEffectiveBlockHeight(1100, 100)
+	c.calculateCoordinatorPriorities(ctx)
+	assert.Contains(t, []string{"node1", "node2", "node3"}, c.coordinatorPriorityList[0])
 }
 
-func Test_selectActiveCoordinatorNode_StaticMode_EmptyStaticCoordinator_ReturnsError(t *testing.T) {
+func Test_calculateCoordinatorPriorities_DifferentBlockRanges_CanSelectDifferentPriorityHeads(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_STATIC,
-		StaticCoordinator:    proto.String(""),
-	})
-	c, _, done := builder.Build(ctx)
-	defer done()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1", "node2").
+		CoordinatorSelectionBlockRange(50).
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Build()
 
-	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
-	require.Error(t, err)
-	assert.Empty(t, coordinatorNode)
-	assert.Contains(t, err.Error(), "static coordinator mode is configured but static coordinator node is not set")
+	c.effectiveBlockHeight = common.ComputeEffectiveBlockHeight(100, 50)
+	c.calculateCoordinatorPriorities(ctx)
+	head1 := c.coordinatorPriorityList[0]
+
+	c.effectiveBlockHeight = common.ComputeEffectiveBlockHeight(150, 50)
+	c.calculateCoordinatorPriorities(ctx)
+	head2 := c.coordinatorPriorityList[0]
+
+	assert.Contains(t, []string{"node1", "node2"}, head1)
+	assert.Contains(t, []string{"node1", "node2"}, head2)
 }
 
-func Test_selectActiveCoordinatorNode_EndorserMode_EmptyPool_ReturnsEmpty(t *testing.T) {
+func Test_calculateCoordinatorPriorities_SenderMode_NoOp(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
-	})
-	config := builder.GetSequencerConfig()
-	config.BlockRange = confutil.P(uint64(100))
-	builder.OverrideSequencerConfig(config)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{}
-	c.currentBlockHeight = 1000
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		CurrentActiveCoordinator("node1").
+		Build()
 
-	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err)
-	assert.Empty(t, coordinatorNode)
+	c.calculateCoordinatorPriorities(ctx)
+	assert.Empty(t, c.coordinatorPriorityList, "SENDER mode must not compute a priority list")
 }
 
-func Test_selectActiveCoordinatorNode_EndorserMode_SingleNodeInPool_ReturnsNode(t *testing.T) {
+
+func Test_refreshBlockHeight_SetsEffectiveBlockHeight(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
-	})
-	config := builder.GetSequencerConfig()
-	config.BlockRange = confutil.P(uint64(100))
-	builder.OverrideSequencerConfig(config)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{"node1"}
-	c.currentBlockHeight = 1000
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1").
+		CoordinatorSelectionBlockRange(100).
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Build()
 
-	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, "node1", coordinatorNode)
-}
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(1000))
 
-func Test_selectActiveCoordinatorNode_EndorserMode_MultipleNodesInPool_ReturnsOneOfPool(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
-	})
-	config := builder.GetSequencerConfig()
-	config.BlockRange = confutil.P(uint64(100))
-	builder.OverrideSequencerConfig(config)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{"node1", "node2", "node3"}
-	c.currentBlockHeight = 1000
-
-	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err)
-	assert.Contains(t, []string{"node1", "node2", "node3"}, coordinatorNode)
-}
-
-func Test_selectActiveCoordinatorNode_EndorserMode_BlockHeightRounding_SameRangeSameCoordinator(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
-	})
-	config := builder.GetSequencerConfig()
-	config.BlockRange = confutil.P(uint64(100))
-	builder.OverrideSequencerConfig(config)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{"node1", "node2", "node3"}
-
-	c.currentBlockHeight = 1000
-	coordinatorNode1, err1 := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err1)
-	c.currentBlockHeight = 1001
-	coordinatorNode2, err2 := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err2)
-	c.currentBlockHeight = 1099
-	coordinatorNode3, err3 := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err3)
-	assert.Equal(t, coordinatorNode1, coordinatorNode2)
-	assert.Equal(t, coordinatorNode2, coordinatorNode3)
-
-	c.currentBlockHeight = 1100
-	coordinatorNode4, err4 := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err4)
-	assert.Contains(t, []string{"node1", "node2", "node3"}, coordinatorNode4)
-}
-
-func Test_selectActiveCoordinatorNode_EndorserMode_DifferentBlockRanges_CanSelectDifferentCoordinators(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
-	})
-	config := builder.GetSequencerConfig()
-	config.BlockRange = confutil.P(uint64(50))
-	builder.OverrideSequencerConfig(config)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{"node1", "node2"}
-
-	c.currentBlockHeight = 100
-	coordinatorNode1, err1 := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err1)
-	c.currentBlockHeight = 150
-	coordinatorNode2, err2 := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err2)
-	assert.Contains(t, []string{"node1", "node2"}, coordinatorNode1)
-	assert.Contains(t, []string{"node1", "node2"}, coordinatorNode2)
-}
-
-func Test_selectActiveCoordinatorNode_SenderMode_ReturnsCurrentNodeName(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
-	})
-	c, _, done := builder.Build(ctx)
-	defer done()
-	assert.Equal(t, "node1", c.nodeName)
-
-	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, "node1", coordinatorNode)
-}
-
-func Test_updateOriginatorNodePool_AddsNodeToEmptyPool(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{}
-
-	c.updateOriginatorNodePool("node2")
-
-	assert.Equal(t, 2, len(c.originatorNodePool), "pool should contain 2 nodes")
-	assert.Contains(t, c.originatorNodePool, "node2", "pool should contain node2")
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain coordinator's own node")
-}
-
-func Test_updateOriginatorNodePool_AddsNodeToNonEmptyPool(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{"node1", "node3"}
-
-	c.updateOriginatorNodePool("node2")
-
-	assert.Equal(t, 3, len(c.originatorNodePool), "pool should contain 3 nodes")
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain node1")
-	assert.Contains(t, c.originatorNodePool, "node2", "pool should contain node2")
-	assert.Contains(t, c.originatorNodePool, "node3", "pool should contain node3")
-}
-
-func Test_updateOriginatorNodePool_DoesNotAddDuplicateNode(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{"node1", "node2"}
-
-	c.updateOriginatorNodePool("node2")
-
-	assert.Equal(t, 2, len(c.originatorNodePool), "pool should still contain 2 nodes")
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain node1")
-	assert.Contains(t, c.originatorNodePool, "node2", "pool should contain node2")
-}
-
-func Test_updateOriginatorNodePool_EnsuresCoordinatorsOwnNodeIsAlwaysInPool(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{}
-
-	c.updateOriginatorNodePool("node2")
-
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain coordinator's own node")
-	assert.Equal(t, 2, len(c.originatorNodePool), "pool should contain 2 nodes")
-}
-
-func Test_updateOriginatorNodePool_EnsuresCoordinatorsOwnNodeIsAddedEvenWhenPoolAlreadyHasOtherNodes(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{"node2", "node3"}
-
-	c.updateOriginatorNodePool("node4")
-
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain coordinator's own node")
-	assert.Equal(t, 4, len(c.originatorNodePool), "pool should contain 4 nodes")
-}
-
-func Test_updateOriginatorNodePool_DoesNotDuplicateCoordinatorsOwnNode(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{"node1", "node2"}
-
-	c.updateOriginatorNodePool("node1")
-
-	assert.Equal(t, 2, len(c.originatorNodePool), "pool should still contain 2 nodes")
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain node1")
-	assert.Contains(t, c.originatorNodePool, "node2", "pool should contain node2")
-}
-
-func Test_updateOriginatorNodePool_HandlesMultipleSequentialUpdates(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{}
-
-	c.updateOriginatorNodePool("node2")
-	c.updateOriginatorNodePool("node3")
-	c.updateOriginatorNodePool("node4")
-
-	assert.Equal(t, 4, len(c.originatorNodePool), "pool should contain 4 nodes")
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain node1")
-	assert.Contains(t, c.originatorNodePool, "node2", "pool should contain node2")
-	assert.Contains(t, c.originatorNodePool, "node3", "pool should contain node3")
-	assert.Contains(t, c.originatorNodePool, "node4", "pool should contain node4")
-}
-
-func Test_updateOriginatorNodePool_HandlesEmptyStringNode(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{}
-
-	c.updateOriginatorNodePool("")
-
-	assert.Equal(t, 2, len(c.originatorNodePool), "pool should contain 2 nodes")
-	assert.Contains(t, c.originatorNodePool, "", "pool should contain empty string")
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain coordinator's own node")
-}
-
-func Test_action_SelectActiveCoordinator_StaticModeSelectsCoordinator(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_STATIC,
-		StaticCoordinator:    proto.String("identity@node1"),
-	})
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.activeCoordinatorNode = ""
-
-	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
-
-	require.Eventually(t, func() bool {
-		return c.GetCurrentState() == State_Idle && c.activeCoordinatorNode == "node1"
-	}, time.Second, 10*time.Millisecond)
-}
-
-func Test_action_SelectActiveCoordinator_SenderModeSelectsSelf(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
-	})
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.activeCoordinatorNode = ""
-
-	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
-
-	require.Eventually(t, func() bool {
-		return c.activeCoordinatorNode == "node1" && c.GetCurrentState() == State_Idle
-	}, time.Second, 10*time.Millisecond)
-}
-
-func Test_action_SelectActiveCoordinator_EndorserModeSelectsFromPool(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
-	})
-	config := builder.GetSequencerConfig()
-	config.BlockRange = confutil.P(uint64(100))
-	builder.OverrideSequencerConfig(config)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.activeCoordinatorNode = ""
-	c.originatorNodePool = []string{"node1", "node2", "node3"}
-	c.currentBlockHeight = 1000
-
-	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
-
-	require.Eventually(t, func() bool {
-		return c.GetCurrentState() == State_Idle
-	}, time.Second*1000000000, 10*time.Millisecond)
-	assert.Contains(t, []string{"node1", "node2", "node3"}, c.activeCoordinatorNode)
-}
-
-func Test_action_SelectActiveCoordinator_EmptyPoolLeavesSelectingState(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
-	})
-	config := builder.GetSequencerConfig()
-	config.BlockRange = confutil.P(uint64(100))
-	builder.OverrideSequencerConfig(config)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.activeCoordinatorNode = ""
-	c.originatorNodePool = []string{}
-	c.currentBlockHeight = 1000
-
-	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
-
-	syncEvent := statemachine.NewSyncEvent()
-	c.QueueEvent(ctx, syncEvent)
-	<-syncEvent.Done
-
-	assert.Equal(t, State_Initial, c.GetCurrentState())
-	assert.Empty(t, c.activeCoordinatorNode)
-}
-
-func Test_action_SelectActiveCoordinator_WhenSelectReturnsError_ReturnsNil(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_STATIC,
-		StaticCoordinator:    proto.String("identity"),
-	})
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.activeCoordinatorNode = ""
-
-	err := action_SelectActiveCoordinator(ctx, c, nil)
-	require.NoError(t, err)
-	assert.Empty(t, c.activeCoordinatorNode, "activeCoordinatorNode should remain empty when select returns error")
+	c.refreshBlockHeight(ctx)
+	assert.Equal(t, int64(1000), c.currentBlockHeight)
+	assert.Equal(t, uint64(1000), c.effectiveBlockHeight)
 }

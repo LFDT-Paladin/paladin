@@ -159,6 +159,7 @@ export interface INotoDomainReceipt {
   }[];
   lockInfo?: INotoReceiptLockInfo;
   data?: string;
+  sender?: string;
 }
 
 export interface INotoReceiptLockInfo {

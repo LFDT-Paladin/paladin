@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -26,7 +26,7 @@ daysjs.extend(relativeTime);
 
 type Props = {
   timestamp: string
-  icon?: JSX.Element
+  icon?: JSX.Element | null
   prefix?: string
 };
 

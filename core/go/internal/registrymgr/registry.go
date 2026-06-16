@@ -57,7 +57,7 @@ type registry struct {
 	initDone  chan struct{}
 
 	config      *prototk.RegistryConfig
-	eventStream *blockindexer.EventStream
+	eventStream blockindexer.EventStream
 }
 
 func (rm *registryManager) newRegistry(id uuid.UUID, name string, conf *pldconf.RegistryConfig, toRegistry components.RegistryManagerToRegistry) *registry {
@@ -109,7 +109,7 @@ func (r *registry) configureEventStream(ctx context.Context, dbTX persistence.DB
 		return nil
 	}
 
-	stream := &blockindexer.EventStream{
+	stream := &blockindexer.EventStreamDefinition{
 		Type:    blockindexer.EventStreamTypeInternal.Enum(),
 		Sources: []blockindexer.EventStreamSource{},
 	}

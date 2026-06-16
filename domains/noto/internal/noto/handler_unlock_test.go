@@ -159,7 +159,7 @@ func TestUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 2) // locked coin and lock info
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2) // manifest + output-info
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // both manifests + output-info
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.InputStates[0].Id)
 
 	outputCoinState := assembleRes.AssembledTransaction.OutputStates[0]
@@ -168,7 +168,7 @@ func TestUnlock(t *testing.T) {
 	assert.Equal(t, receiverAddress, outputCoin.Owner.String())
 	assert.Equal(t, "100", outputCoin.Amount.Int().String())
 
-	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	dataState := assembleRes.AssembledTransaction.InfoStates[2]
 	outputInfo, err := n.unmarshalInfo(dataState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
@@ -339,6 +339,7 @@ func TestUnlock(t *testing.T) {
 	assert.Equal(t, encodedCall, []byte(hookParams.Prepared.EncodedCall))
 
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	unlockManifestState := assembleRes.AssembledTransaction.InfoStates[1]
 	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
 	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
 	mt.withMissingStates( /* no missing states */ ).
@@ -346,6 +347,10 @@ func TestUnlock(t *testing.T) {
 		completeForIdentity(senderKey.Address.String()).
 		completeForIdentity(receiverAddress)
 	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(unlockManifestState, dataState).
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String()).
 		incompleteForIdentity(receiverAddress)

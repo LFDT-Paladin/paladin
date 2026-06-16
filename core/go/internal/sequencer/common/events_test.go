@@ -109,8 +109,8 @@ func TestTransactionStateTransitionEvent_GetEventTime(t *testing.T) {
 	event := &TransactionStateTransitionEvent[int]{
 		BaseEvent:     BaseEvent{EventTime: now},
 		TransactionID: uuid.New(),
-		From:          0,
-		To:            1,
+		FromState:     0,
+		ToState:       1,
 	}
 
 	result := event.GetEventTime()
@@ -126,14 +126,14 @@ func TestTransactionStateTransitionEvent_ImplementsEventInterface(t *testing.T) 
 	event := &TransactionStateTransitionEvent[int]{
 		BaseEvent:     BaseEvent{EventTime: now},
 		TransactionID: txID,
-		From:          0,
-		To:            1,
+		FromState:     0,
+		ToState:       1,
 	}
 
 	assert.Equal(t, Event_TransactionStateTransition, event.Type())
 	assert.Equal(t, "Event_TransactionStateTransition", event.TypeString())
 	assert.Equal(t, now, event.GetEventTime())
 	assert.Equal(t, txID, event.TransactionID)
-	assert.Equal(t, 0, event.From)
-	assert.Equal(t, 1, event.To)
+	assert.Equal(t, 0, event.FromState)
+	assert.Equal(t, 1, event.ToState)
 }

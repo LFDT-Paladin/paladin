@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
@@ -38,7 +39,7 @@ type CoordinatorTransaction interface {
 	GetCurrentState() State
 	HasDispatchedPublicTransaction() bool
 	GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction)
-	GetPrivateTransaction() *components.PrivateTransaction
+	GetOriginatorNode() string
 }
 
 // coordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
@@ -51,12 +52,12 @@ type coordinatorTransaction struct {
 	stateMachine *StateMachine
 
 	// immutable properties of the transaction
-	originator                 string // The fully qualified identity of the originator e.g. "member1@node1"
-	originatorNode             string // The node the originator is running on e.g. "node1"
-	nodeName                   string // The local node coordinating this transaction
-	domainSigningIdentity      string // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
-	coordinatorSigningIdentity string
-	submitterSelection         prototk.ContractConfig_SubmitterSelection // The selection of submitter for the transaction
+	originator                    string // The fully qualified identity of the originator e.g. "member1@node1"
+	originatorNode                string // The node the originator is running on e.g. "node1"
+	nodeName                      string // The local node coordinating this transaction
+	domainSigningIdentity         string // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
+	getCoordinatorSigningIdentity func() string
+	submitterSelection            prototk.ContractConfig_SubmitterSelection // The selection of submitter for the transaction
 
 	// mutable fields that state machine actions will change
 	signerAddress                      *pldtypes.EthAddress
@@ -68,7 +69,8 @@ type coordinatorTransaction struct {
 	revertCount                        int
 	lastCanRetryRevert                 bool
 	assembleErrorCount                 int
-	confirmedLocksReleased             bool
+	endorseToleranceByRequirement      map[string]int
+	endorseFailureCountByRequirement   map[string]int
 	heartbeatIntervalsSinceStateChange int
 	stateEntryTime                     time.Time
 
@@ -79,19 +81,22 @@ type coordinatorTransaction struct {
 	pendingPreDispatchRequest    *common.IdempotentRequest
 
 	//Configuration
-	requestTimeout                    time.Duration
-	stateTimeout                      time.Duration
-	finalizingGracePeriod             int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
-	confirmedLockRetentionGracePeriod int // number of heartbeat intervals after confirmation before we clear in-memory state locks
-	baseLedgerRevertRetryThreshold    int
-	assembleErrorRetryThreshhold      int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
+	blockHeightTolerance           uint64
+	requestTimeout                 time.Duration
+	stateTimeout                   time.Duration
+	finalizingGracePeriod          int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
+	baseLedgerRevertRetryThreshold int
+	assembleErrorRetryThreshhold   int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
 
 	// Dependencies
 	clock                             common.Clock
 	transportWriter                   transport.TransportWriter
 	grapher                           grapher.Grapher
+	stateVisibilityTracker            statevisibilitytracker.StateVisibilityStore
 	dependencyTracker                 dependencytracker.DependencyTracker
 	engineIntegration                 common.EngineIntegration
+	refreshBlockHeight                func(context.Context)
+	getBlockHeight                    func() int64
 	syncPoints                        syncpoints.SyncPoints
 	components                        components.AllComponents
 	domainAPI                         components.DomainSmartContract
@@ -99,6 +104,7 @@ type coordinatorTransaction struct {
 	queueEventForCoordinator          func(context.Context, common.Event)
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error
 	getCoordinatorTransactionState    func(context.Context, uuid.UUID) (State, bool)
+	notifyEndorserCandidates          func(context.Context, ...string) // called once when endorsement requests are first sent; passes endorser node names to the coordinator for pool updates
 	metrics                           metrics.DistributedSequencerMetrics
 }
 
@@ -107,13 +113,17 @@ func NewTransaction(ctx context.Context,
 	originatorNode string,
 	nodeName string,
 	pt *components.PrivateTransaction,
-	coordinatorSigningIdentity string,
+	getCoordinatorSigningIdentity func() string,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
+	notifyEndorserCandidates func(context.Context, ...string),
 	engineIntegration common.EngineIntegration,
+	refreshBlockHeight func(context.Context),
+	getBlockHeight func() int64,
+	blockHeightTolerance uint64,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
 	domainAPI components.DomainSmartContract,
@@ -121,10 +131,10 @@ func NewTransaction(ctx context.Context,
 	requestTimeout,
 	stateTimeout time.Duration,
 	finalizingGracePeriod int,
-	confirmedLockRetentionGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
 	grapher grapher.Grapher,
+	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
 	dependencyTracker dependencytracker.DependencyTracker,
 	metrics metrics.DistributedSequencerMetrics,
 ) CoordinatorTransaction {
@@ -134,13 +144,17 @@ func NewTransaction(ctx context.Context,
 		originatorNode,
 		nodeName,
 		pt,
-		coordinatorSigningIdentity,
+		getCoordinatorSigningIdentity,
 		transportWriter,
 		clock,
 		queueEventForCoordinator,
 		coordinatorTransactionHandleEvent,
 		getCoordinatorTransactionState,
+		notifyEndorserCandidates,
 		engineIntegration,
+		refreshBlockHeight,
+		getBlockHeight,
+		blockHeightTolerance,
 		syncPoints,
 		allComponents,
 		domainAPI,
@@ -148,10 +162,10 @@ func NewTransaction(ctx context.Context,
 		requestTimeout,
 		stateTimeout,
 		finalizingGracePeriod,
-		confirmedLockRetentionGracePeriod,
 		baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold,
 		grapher,
+		stateVisibilityTracker,
 		dependencyTracker,
 		metrics,
 	)
@@ -163,13 +177,17 @@ func newTransaction(
 	originatorNode string,
 	nodeName string,
 	pt *components.PrivateTransaction,
-	coordinatorSigningIdentity string,
+	getCoordinatorSigningIdentity func() string,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
+	notifyEndorserCandidates func(context.Context, ...string),
 	engineIntegration common.EngineIntegration,
+	refreshBlockHeight func(context.Context),
+	getBlockHeight func() int64,
+	blockHeightTolerance uint64,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
 	domainAPI components.DomainSmartContract,
@@ -177,10 +195,10 @@ func newTransaction(
 	requestTimeout,
 	stateTimeout time.Duration,
 	finalizingGracePeriod int,
-	confirmedLockRetentionGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
 	grapher grapher.Grapher,
+	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
 	dependencyTracker dependencytracker.DependencyTracker,
 	metrics metrics.DistributedSequencerMetrics,
 ) *coordinatorTransaction {
@@ -196,21 +214,25 @@ func newTransaction(
 		queueEventForCoordinator:          queueEventForCoordinator,
 		coordinatorTransactionHandleEvent: coordinatorTransactionHandleEvent,
 		getCoordinatorTransactionState:    getCoordinatorTransactionState,
+		notifyEndorserCandidates:          notifyEndorserCandidates,
 		engineIntegration:                 engineIntegration,
+		getBlockHeight:                    getBlockHeight,
+		refreshBlockHeight:                refreshBlockHeight,
+		blockHeightTolerance:              blockHeightTolerance,
 		syncPoints:                        syncPoints,
 		components:                        allComponents,
 		domainAPI:                         domainAPI,
 		dCtx:                              dCtx,
 		domainSigningIdentity:             domainAPI.Domain().FixedSigningIdentity(),
-		coordinatorSigningIdentity:        coordinatorSigningIdentity,
+		getCoordinatorSigningIdentity:     getCoordinatorSigningIdentity,
 		submitterSelection:                domainAPI.ContractConfig().GetSubmitterSelection(),
 		requestTimeout:                    requestTimeout,
 		stateTimeout:                      stateTimeout,
 		finalizingGracePeriod:             finalizingGracePeriod,
-		confirmedLockRetentionGracePeriod: confirmedLockRetentionGracePeriod,
 		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
 		grapher:                           grapher,
+		stateVisibilityTracker:            stateVisibilityTracker,
 		dependencyTracker:                 dependencyTracker,
 		metrics:                           metrics,
 	}
@@ -268,8 +290,8 @@ func (t *coordinatorTransaction) HasDispatchedPublicTransaction() bool {
 		t.pt.PreAssembly.TransactionSpecification.Intent == prototk.TransactionSpecification_SEND_TRANSACTION
 }
 
-func (t *coordinatorTransaction) GetPrivateTransaction() *components.PrivateTransaction {
+func (t *coordinatorTransaction) GetOriginatorNode() string {
 	t.RLock()
 	defer t.RUnlock()
-	return t.pt
+	return t.originatorNode
 }

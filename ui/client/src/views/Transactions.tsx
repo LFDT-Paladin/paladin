@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Fade, Grid2, TablePagination, Typography } from "@mui/material";
+import { Alert, Box, Button, Fade, Grid2, TablePagination, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { fetchIndexedTransactions } from "../queries/transactions";
 import { EnrichedTransaction } from "../components/EnrichedTransaction";
@@ -37,6 +37,8 @@ type Props = {
   setFromBlock: Dispatch<SetStateAction<number | undefined>>
   rowsPerPage: number
   setRowsPerPage: Dispatch<SetStateAction<number>>
+  showTxsWithReceipt: boolean
+  setShowTxsWithReceipt: Dispatch<SetStateAction<boolean>>
 };
 
 export const Transactions: React.FC<Props> = ({
@@ -47,7 +49,9 @@ export const Transactions: React.FC<Props> = ({
   rowsPerPage,
   setRowsPerPage,
   fromBlock,
-  setFromBlock
+  setFromBlock,
+  showTxsWithReceipt,
+  setShowTxsWithReceipt
 }) => {
 
   const { lastBlockWithTransactions } = useContext(ApplicationContext);
@@ -57,8 +61,8 @@ export const Transactions: React.FC<Props> = ({
   const { t } = useTranslation();
 
   const { data: enrichedTransactions, error } = useQuery({
-    queryKey: ['transactions', refEntries, rowsPerPage, page, lastBlockWithTransactions, fromBlock],
-    queryFn: () => fetchIndexedTransactions(rowsPerPage, fromBlock, refEntries[refEntries.length - 1])
+    queryKey: ['transactions', refEntries, rowsPerPage, showTxsWithReceipt, page, lastBlockWithTransactions, fromBlock],
+    queryFn: () => fetchIndexedTransactions(rowsPerPage, showTxsWithReceipt, fromBlock, refEntries[refEntries.length - 1])
   });
 
   useEffect(() => {
@@ -108,7 +112,7 @@ export const Transactions: React.FC<Props> = ({
         <Box
           sx={{
             padding: "20px",
-            maxWidth: "1300px",
+            maxWidth: "1500px",
             marginLeft: "auto",
             marginRight: "auto",
           }}
@@ -147,6 +151,12 @@ export const Transactions: React.FC<Props> = ({
                 </Grid2>
               </Grid2>
             </Grid2>
+          </Box>
+          <Box sx={{ marginTop: '15px', marginBottom: '15px', textAlign: 'center' }}>
+            <ToggleButtonGroup exclusive onChange={(_event, value) => setShowTxsWithReceipt(value === 'withReceipt')} value={showTxsWithReceipt ? 'withReceipt' : 'all'}>
+              <ToggleButton color="primary" value="all" sx={{ width: '130px', height: '45px' }}>{t('all')}</ToggleButton>
+              <ToggleButton color="primary" value="withReceipt" sx={{ width: '130px', height: '45px' }}>{t('withReceipt')}</ToggleButton>
+            </ToggleButtonGroup>
           </Box>
           <Box sx={{
             display: 'flex',

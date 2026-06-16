@@ -1,3 +1,4 @@
+build-tags: generate_mocks
 template: testify
 pkgname: "{{.SrcPackageName}}mocks"
 structname: "{{.InterfaceName}}"
@@ -19,6 +20,7 @@ packages:
   github.com/LFDT-Paladin/paladin/core/pkg/blockindexer:    
     interfaces:
       BlockIndexer:
+      EventStream:
   github.com/LFDT-Paladin/paladin/core/pkg/ethclient:
     config:
       all: true
@@ -37,3 +39,45 @@ packages:
   github.com/LFDT-Paladin/paladin/core/internal/publictxmgr:
     interfaces:
       InFlightStageActionTriggers:
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator:
+    config:
+      all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher:
+    config:
+      all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker:
+    config:
+      all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction:
+    config:
+      pkgname: coordinatortransactionmocks
+      dir: mocks/coordinatortransactionmocks
+      all: true    
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/common:
+    interfaces:
+      EngineIntegration:
+      Clock:
+    config:
+      pkgname: sequencercommonmocks
+      dir: mocks/sequencercommonmocks
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport:
+    config:
+      pkgname: sequencertransportmocks
+      dir: mocks/sequencertransportmocks
+      all: true 
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints:
+    config:
+      all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics:
+    config:
+      all: true
+      pkgname: sequencermetricsmocks
+      dir: mocks/sequencermetricsmocks
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction:
+    config:
+      all: true
+      pkgname: originatortransactionmocks
+      dir: mocks/originatortransactionmocks
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator:
+    config:
+      all: true
