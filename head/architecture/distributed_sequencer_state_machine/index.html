@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".zoomable-image", ".d2"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".d2", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -1495,10 +1495,11 @@ stateDiagram-v2
     Elect --&gt; Observing
     Elect --&gt; Closing_Flush
     Elect --&gt; Closing
+    Elect --&gt; Prepared
     Prepared --&gt; Active
+    Prepared --&gt; Observing
     Prepared --&gt; Closing_Flush
     Prepared --&gt; Closing
-    Prepared --&gt; Observing
     Active --&gt; Idle
     Active --&gt; Closing_Flush
     Active --&gt; Closing
@@ -1586,6 +1587,7 @@ stateDiagram-v2
     Assembling --&gt; Pooled
     Assembling --&gt; Reverted
     Assembling --&gt; Evicted
+    Assembling --&gt; Final
     Assembling --&gt; PreAssembly_Blocked
     Endorsement_Gathering --&gt; Confirming_Dispatchable
     Endorsement_Gathering --&gt; Blocked
@@ -1594,14 +1596,17 @@ stateDiagram-v2
     Endorsement_Gathering --&gt; Reverted
     Blocked --&gt; Confirming_Dispatchable
     Blocked --&gt; PreAssembly_Blocked
+    Blocked --&gt; Pooled
     Blocked --&gt; Reverted
     Confirming_Dispatchable --&gt; Ready_For_Dispatch
     Confirming_Dispatchable --&gt; Pooled
     Confirming_Dispatchable --&gt; Evicted
+    Confirming_Dispatchable --&gt; Final
     Confirming_Dispatchable --&gt; PreAssembly_Blocked
     Confirming_Dispatchable --&gt; Reverted
     Ready_For_Dispatch --&gt; Dispatched
     Ready_For_Dispatch --&gt; PreAssembly_Blocked
+    Ready_For_Dispatch --&gt; Pooled
     Ready_For_Dispatch --&gt; Reverted
     Dispatched --&gt; Confirmed
     Dispatched --&gt; PreAssembly_Blocked

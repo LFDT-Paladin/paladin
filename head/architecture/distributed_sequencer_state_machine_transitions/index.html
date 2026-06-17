@@ -17,7 +17,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".zoomable-image", ".d2"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".d2", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -1407,6 +1407,8 @@ stateDiagram-v2
     Elect --&gt; Observing : HeartbeatReceived [!HasTransactionsInflight]
     Elect --&gt; Closing_Flush : HeartbeatReceived [HasTransactionsInflight &amp;&amp; HasUnconfirmedDispatchedTransactions]
     Elect --&gt; Closing : HeartbeatReceived [HasTransactionsInflight &amp;&amp; !HasUnconfirmedDispatchedTransactions]
+    Elect --&gt; Prepared : HeartbeatReceived
+    Elect --&gt; Active : HeartbeatReceived
     Elect --&gt; Closing_Flush : HandoverRequest [HasUnconfirmedDispatchedTransactions]
     Elect --&gt; Closing : HandoverRequest [!HasUnconfirmedDispatchedTransactions]
     Elect --&gt; Observing : EndorsementRequestReceived [!HasTransactionsInflight]
@@ -1414,6 +1416,9 @@ stateDiagram-v2
     Elect --&gt; Closing : EndorsementRequestReceived [HasTransactionsInflight &amp;&amp; !HasUnconfirmedDispatchedTransactions]
     Prepared --&gt; Active : HeartbeatInterval [InactiveGracePeriodExceeded]
     Prepared --&gt; Active : HeartbeatReceived
+    Prepared --&gt; Observing : HeartbeatReceived [!HasTransactionsInflight]
+    Prepared --&gt; Closing_Flush : HeartbeatReceived [HasTransactionsInflight &amp;&amp; HasUnconfirmedDispatchedTransactions]
+    Prepared --&gt; Closing : HeartbeatReceived [HasTransactionsInflight &amp;&amp; !HasUnconfirmedDispatchedTransactions]
     Prepared --&gt; Closing_Flush : HandoverRequest [HasUnconfirmedDispatchedTransactions]
     Prepared --&gt; Closing : HandoverRequest [!HasUnconfirmedDispatchedTransactions]
     Prepared --&gt; Observing : EndorsementRequestReceived [!HasTransactionsInflight]
@@ -1434,24 +1439,10 @@ stateDiagram-v2
     Active_Flush --&gt; Active : TransactionStateTransition [!HasUnconfirmedDispatchedTransactions]
     Closing_Flush --&gt; Elect : TransactionsDelegated [IsHigherPriorityThanCurrentActive]
     Closing_Flush --&gt; Closing : TransactionStateTransition [!HasUnconfirmedDispatchedTransactions]
-    Closing --&gt; Idle : HeartbeatInterval [statemachine.GuardAnd(
-                                statemachine.GuardNot(guard_HasTransactionsInflight),
-                                guard_ClosingGracePeriodExpired,
-                                guard_InactiveGracePeriodExceeded,
-                            )]
-    Closing --&gt; Observing : HeartbeatInterval [statemachine.GuardAnd(
-                                statemachine.GuardNot(guard_HasTransactionsInflight),
-                                guard_ClosingGracePeriodExpired,
-                                statemachine.GuardNot(guard_InactiveGracePeriodExceeded),
-                            )]
-    Closing --&gt; Elect : TransactionsDelegated [statemachine.GuardAnd(
-                                guard_IsHigherPriorityThanCurrentActive,
-                                statemachine.GuardNot(guard_InactiveGracePeriodExceeded),
-                            )]
-    Closing --&gt; Active : TransactionsDelegated [statemachine.GuardAnd(
-                                statemachine.GuardNot(guard_IsHigherPriorityThanCurrentActive),
-                                guard_InactiveGracePeriodExceeded,
-                            )]</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+    Closing --&gt; Idle : HeartbeatInterval [!HasTransactionsInflight &amp;&amp; ClosingGracePeriodExpired &amp;&amp; InactiveGracePeriodExceeded]
+    Closing --&gt; Observing : HeartbeatInterval [!HasTransactionsInflight &amp;&amp; ClosingGracePeriodExpired &amp;&amp; !InactiveGracePeriodExceeded]
+    Closing --&gt; Elect : TransactionsDelegated [IsHigherPriorityThanCurrentActive &amp;&amp; !InactiveGracePeriodExceeded]
+    Closing --&gt; Active : TransactionsDelegated [!IsHigherPriorityThanCurrentActive &amp;&amp; InactiveGracePeriodExceeded]</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
 <h3 id="transition-events">Transition Events<a class="headerlink" href="#transition-events" title="Permanent link">¶</a></h3>
 <table>
 <thead>
@@ -1466,7 +1457,23 @@ stateDiagram-v2
 <td></td>
 </tr>
 <tr>
-<td><strong>TransactionsDelegated</strong></td>
+<td><strong>EndorsementRequestReceived</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>EpochBoundaryReached</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>HandoverRequest</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>HeartbeatInterval</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>HeartbeatReceived</strong></td>
 <td></td>
 </tr>
 <tr>
@@ -1474,28 +1481,12 @@ stateDiagram-v2
 <td></td>
 </tr>
 <tr>
-<td><strong>HandoverRequest</strong></td>
-<td>pushed by transport_client when a CoordinatorHandoverRequest message is received from a higher-priority node</td>
-</tr>
-<tr>
-<td><strong>EndorsementRequestReceived</strong></td>
-<td>pushed by transport_client when an EndorsementRequest message arrives for this coordinator</td>
-</tr>
-<tr>
-<td><strong>EpochBoundaryReached</strong></td>
-<td>queued internally by getAndRefreshBlockHeight when the effective block height advances to a new epoch</td>
-</tr>
-<tr>
-<td><strong>HeartbeatInterval</strong></td>
-<td>(shared event from sequencer common package)</td>
-</tr>
-<tr>
-<td><strong>HeartbeatReceived</strong></td>
-<td>(shared event from sequencer common package)</td>
-</tr>
-<tr>
 <td><strong>TransactionStateTransition</strong></td>
-<td>(shared event from sequencer common package)</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>TransactionsDelegated</strong></td>
+<td></td>
 </tr>
 </tbody>
 </table>
@@ -1531,6 +1522,8 @@ stateDiagram-v2
     Assembling --&gt; Pooled : AssembleError [CanRetryErroredAssemble]
     Assembling --&gt; Evicted : AssembleError [!CanRetryErroredAssemble]
     Assembling --&gt; Pooled : AssembleRequestRejected
+    Assembling --&gt; Evicted : AssembleRequestRejected
+    Assembling --&gt; Final : AssembleRequestRejected
     Assembling --&gt; PreAssembly_Blocked : DependencyReset
     Assembling --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
     Assembling --&gt; Reverted : ChainedDependencyFailed
@@ -1542,22 +1535,31 @@ stateDiagram-v2
     Endorsement_Gathering --&gt; Pooled : EndorseRequestRejected [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --&gt; Pooled : StateTimeoutInterval
     Endorsement_Gathering --&gt; PreAssembly_Blocked : DependencyReset
+    Endorsement_Gathering --&gt; Pooled : DependencyReset
     Endorsement_Gathering --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
+    Endorsement_Gathering --&gt; Pooled : DependencyConfirmedReverted
     Endorsement_Gathering --&gt; Reverted : ChainedDependencyFailed
     Blocked --&gt; Confirming_Dispatchable : DependencyReady [!HasDependenciesNotReady]
     Blocked --&gt; PreAssembly_Blocked : DependencyReset
+    Blocked --&gt; Pooled : DependencyReset
     Blocked --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
+    Blocked --&gt; Pooled : DependencyConfirmedReverted
     Blocked --&gt; Reverted : ChainedDependencyFailed
     Confirming_Dispatchable --&gt; Ready_For_Dispatch : DispatchRequestApproved
     Confirming_Dispatchable --&gt; Pooled : DispatchRequestRejected
     Confirming_Dispatchable --&gt; Evicted : PreDispatchRequestRejected
+    Confirming_Dispatchable --&gt; Final : PreDispatchRequestRejected
     Confirming_Dispatchable --&gt; Pooled : StateTimeoutInterval
     Confirming_Dispatchable --&gt; PreAssembly_Blocked : DependencyReset
+    Confirming_Dispatchable --&gt; Pooled : DependencyReset
     Confirming_Dispatchable --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
+    Confirming_Dispatchable --&gt; Pooled : DependencyConfirmedReverted
     Confirming_Dispatchable --&gt; Reverted : ChainedDependencyFailed
     Ready_For_Dispatch --&gt; Dispatched : Dispatched
     Ready_For_Dispatch --&gt; PreAssembly_Blocked : DependencyReset
+    Ready_For_Dispatch --&gt; Pooled : DependencyReset
     Ready_For_Dispatch --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
+    Ready_For_Dispatch --&gt; Pooled : DependencyConfirmedReverted
     Ready_For_Dispatch --&gt; Reverted : ChainedDependencyFailed
     Dispatched --&gt; Confirmed : ConfirmedSuccess
     Dispatched --&gt; PreAssembly_Blocked : ConfirmedReverted [CanRetryRevert &amp;&amp; HasUnassembledDependencies]
@@ -1578,108 +1580,108 @@ stateDiagram-v2
 </thead>
 <tbody>
 <tr>
-<td><strong>Delegated</strong></td>
-<td>Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions</td>
-</tr>
-<tr>
-<td><strong>DependencySelectedForAssemble</strong></td>
-<td>the transaction delegated immediately before the transaction from the same originator has been selected for assembly</td>
-</tr>
-<tr>
-<td><strong>Selected</strong></td>
-<td>selected from the pool as the next transaction to be assembled</td>
-</tr>
-<tr>
-<td><strong>AssembleSuccess</strong></td>
-<td>assembler returned a successful assembly</td>
-</tr>
-<tr>
-<td><strong>AssembleRevert</strong></td>
-<td>assembler returned a revert (domain said assembly is invalid)</td>
+<td><strong>AssembleCancelled</strong></td>
+<td></td>
 </tr>
 <tr>
 <td><strong>AssembleError</strong></td>
-<td>assembler returned an unexpected error</td>
+<td></td>
 </tr>
 <tr>
 <td><strong>AssembleRequestRejected</strong></td>
-<td>originator rejected the assemble request (e.g. block height tolerance exceeded)</td>
+<td></td>
 </tr>
 <tr>
-<td><strong>AssembleCancelled</strong></td>
-<td>the assemble attempt has been cancelled</td>
+<td><strong>AssembleRevert</strong></td>
+<td></td>
 </tr>
 <tr>
-<td><strong>Endorsed</strong></td>
-<td>endorsement received from one endorser</td>
-</tr>
-<tr>
-<td><strong>EndorseRevert</strong></td>
-<td>endorser responded that the assembly is invalid (domain REVERT)</td>
-</tr>
-<tr>
-<td><strong>EndorseError</strong></td>
-<td>endorser encountered an unexpected error processing the request</td>
-</tr>
-<tr>
-<td><strong>EndorseRequestRejected</strong></td>
-<td>endorser rejected the request before processing (e.g. block height tolerance)</td>
-</tr>
-<tr>
-<td><strong>DependencyReady</strong></td>
-<td>another transaction, for which this transaction has a dependency on, has become ready for dispatch</td>
-</tr>
-<tr>
-<td><strong>DependencyReset</strong></td>
-<td>another transaction, for which this transaction has a dependency on, has been reset</td>
-</tr>
-<tr>
-<td><strong>DependencyConfirmedReverted</strong></td>
-<td>another transaction, for which this transaction has a dependency on, has been confirmed as reverted</td>
-</tr>
-<tr>
-<td><strong>DispatchRequestApproved</strong></td>
-<td>dispatch confirmation received from the originator</td>
-</tr>
-<tr>
-<td><strong>DispatchRequestRejected</strong></td>
-<td>dispatch confirmation response received from the originator with a rejection</td>
-</tr>
-<tr>
-<td><strong>Dispatched</strong></td>
-<td>dispatched to the public TX manager</td>
-</tr>
-<tr>
-<td><strong>ConfirmedSuccess</strong></td>
-<td>confirmation received from the blockchain of a successful transaction</td>
-</tr>
-<tr>
-<td><strong>ConfirmedReverted</strong></td>
-<td>confirmation received from the blockchain of a reverted transaction</td>
-</tr>
-<tr>
-<td><strong>StateTimeoutInterval</strong></td>
-<td>event emitted when a state has exceeded its maximum allowed duration</td>
-</tr>
-<tr>
-<td><strong>PreDispatchRequestRejected</strong></td>
-<td>originator has rejected the pre-dispatch request (NOT_CURRENT_DELEGATE or TRANSACTION_UNKNOWN)</td>
-</tr>
-<tr>
-<td><strong>ChainedDependencyFailed</strong></td>
-<td>a chained (same-coordinator) dependency has been permanently finalized as failed</td>
+<td><strong>AssembleSuccess</strong></td>
+<td></td>
 </tr>
 <tr>
 <td><strong>ChainedDependencyEvicted</strong></td>
-<td>a chained (same-coordinator) dependency has been evicted (e.g. assembly failure threshold exceeded)</td>
+<td></td>
 </tr>
 <tr>
-<td><strong>PreAssembleDependencyTerminated</strong></td>
-<td>the pre-assemble (FIFO ordering) predecessor has reached a terminal state</td>
+<td><strong>ChainedDependencyFailed</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>ConfirmedReverted</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>ConfirmedSuccess</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Delegated</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>DependencyConfirmedReverted</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>DependencyReady</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>DependencyReset</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>DependencySelectedForAssemble</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>DispatchRequestApproved</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>DispatchRequestRejected</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Dispatched</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>EndorseError</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>EndorseRequestRejected</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>EndorseRevert</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Endorsed</strong></td>
+<td></td>
 </tr>
 <tr>
 <td><strong>HeartbeatInterval</strong></td>
-<td>(shared event from sequencer common package)</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>PreAssembleDependencyTerminated</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>PreDispatchRequestRejected</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Selected</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>StateTimeoutInterval</strong></td>
+<td></td>
 </tr>
 </tbody>
 </table>
@@ -1705,24 +1707,24 @@ stateDiagram-v2
 </thead>
 <tbody>
 <tr>
-<td><strong>OriginatorCreated</strong></td>
-<td>fired once by Start to drive the initial coordinator selection</td>
-</tr>
-<tr>
-<td><strong>TransactionCreated</strong></td>
-<td>a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?</td>
-</tr>
-<tr>
 <td><strong>HeartbeatInterval</strong></td>
-<td>(shared event from sequencer common package)</td>
+<td></td>
 </tr>
 <tr>
 <td><strong>HeartbeatReceived</strong></td>
-<td>(shared event from sequencer common package)</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>OriginatorCreated</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>TransactionCreated</strong></td>
+<td></td>
 </tr>
 <tr>
 <td><strong>TransactionStateTransition</strong></td>
-<td>(shared event from sequencer common package)</td>
+<td></td>
 </tr>
 </tbody>
 </table>
@@ -1788,64 +1790,64 @@ stateDiagram-v2
 </thead>
 <tbody>
 <tr>
-<td><strong>Created</strong></td>
-<td>Transaction initially received by the originator or has been loaded from the database after a restart / swap-in</td>
-</tr>
-<tr>
-<td><strong>ConfirmedSuccess</strong></td>
-<td>confirmation received from the blockchain of base ledge transaction successful completion</td>
-</tr>
-<tr>
-<td><strong>ConfirmedReverted</strong></td>
-<td>confirmation received from the blockchain of base ledge transaction failure</td>
-</tr>
-<tr>
-<td><strong>Delegated</strong></td>
-<td>transaction has been delegated to a coordinator</td>
-</tr>
-<tr>
-<td><strong>AssembleRequestReceived</strong></td>
-<td>coordinator has requested that we assemble the transaction</td>
-</tr>
-<tr>
 <td><strong>AssembleAndSignSuccess</strong></td>
-<td>we have successfully assembled the transaction and signing module has signed the assembled transaction</td>
-</tr>
-<tr>
-<td><strong>AssembleRevert</strong></td>
-<td>we have failed to assemble the transaction</td>
-</tr>
-<tr>
-<td><strong>AssemblePark</strong></td>
-<td>we have parked the transaction</td>
+<td></td>
 </tr>
 <tr>
 <td><strong>AssembleError</strong></td>
-<td>an unexpected error occurred while trying to assemble the transaction</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>AssemblePark</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>AssembleRequestReceived</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>AssembleRevert</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>ConfirmedReverted</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>ConfirmedSuccess</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Created</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Delegated</strong></td>
+<td></td>
 </tr>
 <tr>
 <td><strong>Dispatched</strong></td>
-<td>coordinator has dispatched the transaction to a public transaction manager</td>
-</tr>
-<tr>
-<td><strong>PreDispatchRequestReceived</strong></td>
-<td>coordinator has requested confirmation that the transaction is OK to be dispatched</td>
-</tr>
-<tr>
-<td><strong>Resumed</strong></td>
-<td>Received an RPC call to resume a parked transaction</td>
-</tr>
-<tr>
-<td><strong>NonceAssigned</strong></td>
-<td>the public transaction manager has assigned a nonce to the transaction</td>
-</tr>
-<tr>
-<td><strong>Submitted</strong></td>
-<td>the transaction has been submitted to the blockchain</td>
+<td></td>
 </tr>
 <tr>
 <td><strong>Finalize</strong></td>
-<td>internal event to trigger transition from terminal states (Confirmed/Reverted) to State_Final for cleanup</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>NonceAssigned</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>PreDispatchRequestReceived</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Resumed</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Submitted</strong></td>
+<td></td>
 </tr>
 </tbody>
 </table>
