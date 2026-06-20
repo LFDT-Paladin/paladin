@@ -29,6 +29,7 @@ type MockDomainCallbacks struct {
 	MockLocalNodeName       func() (*prototk.LocalNodeNameResponse, error)
 	MockValidateStates      func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
 	MockReverseKeyLookup    func(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error)
+	MockGetStatesByID       func(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error)
 }
 
 func (dc *MockDomainCallbacks) FindAvailableStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
@@ -54,7 +55,10 @@ func (dc *MockDomainCallbacks) LocalNodeName(context.Context, *prototk.LocalNode
 	return dc.MockLocalNodeName()
 }
 
-func (dc *MockDomainCallbacks) GetStatesByID(context.Context, *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error) {
+func (dc *MockDomainCallbacks) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error) {
+	if dc.MockGetStatesByID != nil {
+		return dc.MockGetStatesByID(ctx, req)
+	}
 	return nil, nil
 }
 

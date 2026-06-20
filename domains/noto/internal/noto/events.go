@@ -206,7 +206,7 @@ func (n *Noto) handleNotaryPrivateUnlock(ctx context.Context, stateQueryContext 
 
 	transactionType, functionABI, paramsJSON, err := n.wrapHookTransaction(
 		domainConfig,
-		solutils.MustLoadBuild(notoHooksJSON).ABI.Functions()["handleDelegateUnlock"],
+		solutils.MustLoadBuild(notoHooksV1JSON).ABI.Functions()["handleDelegateUnlock"],
 		&DelegateUnlockHookParams{
 			Sender:     spender,
 			LockID:     lockID,

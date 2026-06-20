@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {INotoHooks} from "../domains/interfaces/INotoHooks.sol";
+import {INotoHooks_V1} from "../domains/interfaces/INotoHooks_V1.sol";
 
 /**
  * Helpers for tracking locked amounts from Noto hooks contracts.
@@ -19,7 +19,7 @@ contract NotoLocks {
     struct LockDetail {
         address from;
         uint256 amount;
-        INotoHooks.UnlockRecipient[] recipients;
+        INotoHooks_V1.UnlockRecipient[] recipients;
     }
 
     function getLock(bytes32 lockId) public view returns (LockDetail memory) {
@@ -39,7 +39,7 @@ contract NotoLocks {
 
     function onUnlock(
         bytes32 lockId,
-        INotoHooks.UnlockRecipient[] calldata recipients
+        INotoHooks_V1.UnlockRecipient[] calldata recipients
     ) public {
         LockDetail storage lock = _locks[lockId];
         for (uint256 i = 0; i < recipients.length; i++) {
@@ -55,7 +55,7 @@ contract NotoLocks {
 
     function onPrepareUnlock(
         bytes32 lockId,
-        INotoHooks.UnlockRecipient[] calldata recipients
+        INotoHooks_V1.UnlockRecipient[] calldata recipients
     ) public {
         LockDetail storage lock = _locks[lockId];
         delete lock.recipients;
@@ -66,14 +66,34 @@ contract NotoLocks {
         }
     }
 
-    function handleDelegateUnlock(
+    // Notary-triggered execution of a prepared lock's prearranged spend: clear the pending
+    // balances reserved at prepare time, then apply the unlock to the (prearranged) recipients.
+    function onSpendLock(
         bytes32 lockId,
-        INotoHooks.UnlockRecipient[] calldata recipients
+        INotoHooks_V1.UnlockRecipient[] calldata recipients
     ) public {
         LockDetail storage lock = _locks[lockId];
         for (uint256 i = 0; i < lock.recipients.length; i++) {
             pendingBalance[lock.recipients[i].to] -= lock.recipients[i].amount;
         }
         onUnlock(lockId, recipients);
+    }
+
+    // Notary-triggered execution of a prepared lock's prearranged cancel: clear the pending
+    // balances reserved at prepare time and release the locked balance back to the owner.
+    function onCancelLock(bytes32 lockId) public {
+        LockDetail storage lock = _locks[lockId];
+        for (uint256 i = 0; i < lock.recipients.length; i++) {
+            pendingBalance[lock.recipients[i].to] -= lock.recipients[i].amount;
+        }
+        lockedBalance[lock.from] -= lock.amount;
+        delete _locks[lockId];
+    }
+
+    function handleDelegateUnlock(
+        bytes32 lockId,
+        INotoHooks_V1.UnlockRecipient[] calldata recipients
+    ) public {
+        onSpendLock(lockId, recipients);
     }
 }

@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {INotoHooks} from "../domains/interfaces/INotoHooks.sol";
+import {INotoHooks_V2} from "../domains/interfaces/INotoHooks_V2.sol";
 import {NotoLocks} from "../private/NotoLocks.sol";
 
 /**
@@ -13,7 +13,7 @@ import {NotoLocks} from "../private/NotoLocks.sol";
  * Real-world applications should use the private NotoTrackerERC20 contract in a
  * Pente privacy group instead.
  */
-contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
+contract NotoTrackerPublicERC20 is INotoHooks_V2, ERC20 {
     using Address for address;
 
     NotoLocks internal _locks = new NotoLocks();
@@ -170,6 +170,31 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         PreparedTransaction calldata prepared
     ) external override onlyLockOwner(sender, lockId) {
         _locks.onLock(lockId, from, amount);
+        _executeOperation(prepared);
+    }
+
+    function onSpendLock(
+        address sender,
+        bytes32 lockId,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata /* data */,
+        PreparedTransaction calldata prepared
+    ) external override onlyLockOwner(sender, lockId) {
+        address from = _locks.ownerOf(lockId);
+        _locks.onSpendLock(lockId, recipients);
+        for (uint256 i = 0; i < recipients.length; i++) {
+            _transfer(from, recipients[i].to, recipients[i].amount);
+        }
+        _executeOperation(prepared);
+    }
+
+    function onCancelLock(
+        address sender,
+        bytes32 lockId,
+        bytes calldata /* data */,
+        PreparedTransaction calldata prepared
+    ) external override onlyLockOwner(sender, lockId) {
+        _locks.onCancelLock(lockId);
         _executeOperation(prepared);
     }
 

@@ -413,7 +413,7 @@ func TestPrepareUnlock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunctionABI := hooksBuild.ABI.Functions()["onPrepareUnlock"]
+	expectedFunctionABI := hooksV1Build.ABI.Functions()["onPrepareUnlock"]
 	assert.JSONEq(t, mustParseJSON(expectedFunctionABI), prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
 	_, err = expectedFunctionABI.EncodeCallDataJSON([]byte(prepareRes.Transaction.ParamsJson))
@@ -717,7 +717,7 @@ func TestPrepareUnlock_V0(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction = mustParseJSON(hooksBuild.ABI.Functions()["onPrepareUnlock"])
+	expectedFunction = mustParseJSON(hooksV1Build.ABI.Functions()["onPrepareUnlock"])
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
 	assert.JSONEq(t, fmt.Sprintf(`{

@@ -282,7 +282,7 @@ func (h *delegateLockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTr
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onDelegateLock"],
+		hooksV1Build.ABI.Functions()["onDelegateLock"],
 		params,
 	)
 	if err != nil {

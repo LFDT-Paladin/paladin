@@ -278,7 +278,7 @@ func (h *prepareMintUnlockHandler) hookInvoke(ctx context.Context, tx *types.Par
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onPrepareMintUnlock"],
+		hooksV1Build.ABI.Functions()["onPrepareMintUnlock"],
 		hookParams,
 	)
 	if err != nil {

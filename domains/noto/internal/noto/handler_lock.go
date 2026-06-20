@@ -359,7 +359,7 @@ func (h *lockHandler) hookInvoke(ctx context.Context, lockID pldtypes.Bytes32, t
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onLock"],
+		hooksV1Build.ABI.Functions()["onLock"],
 		params,
 	)
 	if err != nil {

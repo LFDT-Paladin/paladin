@@ -4,14 +4,16 @@ pragma solidity ^0.8.20;
 import {IPenteExternalCall} from "./IPenteExternalCall.sol";
 
 /**
- * @dev Noto hooks can be deployed privately on top of Pente, to receive prepared transactions
+ * @dev V1 of the Noto hooks interface.
+ *
+ *      Noto hooks can be deployed privately on top of Pente, to receive prepared transactions
  *      from Noto in order to perform final checking and submission to the base ledger.
  *      Unless otherwise noted, each hook should always have one of two outcomes:
  *        - success: the hook should emit "PenteExternalCall" with the prepared transaction in
  *          order to continue submission of the transaction to the base ledger
  *        - failure: the hook should revert with a reason
  */
-interface INotoHooks is IPenteExternalCall {
+interface INotoHooks_V1 is IPenteExternalCall {
     struct PreparedTransaction {
         address contractAddress;
         bytes encodedCall;

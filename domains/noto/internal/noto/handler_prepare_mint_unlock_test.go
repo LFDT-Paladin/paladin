@@ -370,7 +370,7 @@ func TestPrepareMintUnlock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunctionABI := hooksBuild.ABI.Functions()["onPrepareMintUnlock"]
+	expectedFunctionABI := hooksV1Build.ABI.Functions()["onPrepareMintUnlock"]
 	assert.JSONEq(t, mustParseJSON(expectedFunctionABI), prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
 	_, err = expectedFunctionABI.EncodeCallDataJSON([]byte(prepareRes.Transaction.ParamsJson))

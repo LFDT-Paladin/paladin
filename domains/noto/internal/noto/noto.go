@@ -66,8 +66,11 @@ var notoInterfaceV0JSON []byte
 //go:embed abis/INotoErrors.json
 var notoErrorsJSON []byte
 
-//go:embed abis/INotoHooks.json
-var notoHooksJSON []byte
+//go:embed abis/INotoHooks_V1.json
+var notoHooksV1JSON []byte
+
+//go:embed abis/INotoHooks_V2.json
+var notoHooksV2JSON []byte
 
 var (
 	factoryV2Build   = solutils.MustLoadBuild(notoFactoryV2JSON)
@@ -77,7 +80,8 @@ var (
 	interfaceV1Build = solutils.MustLoadBuild(notoInterfaceV1JSON)
 	interfaceV0Build = solutils.MustLoadBuild(notoInterfaceV0JSON)
 	errorsBuild      = solutils.MustLoadBuild(notoErrorsJSON)
-	hooksBuild       = solutils.MustLoadBuild(notoHooksJSON)
+	hooksV1Build     = solutils.MustLoadBuild(notoHooksV1JSON)
+	hooksV2Build     = solutils.MustLoadBuild(notoHooksV2JSON)
 )
 
 var (

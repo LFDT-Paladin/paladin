@@ -218,7 +218,7 @@ func TestMint(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunctionABI := hooksBuild.ABI.Functions()["onMint"]
+	expectedFunctionABI := hooksV1Build.ABI.Functions()["onMint"]
 	assert.JSONEq(t, mustParseJSON(expectedFunctionABI), prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
 	_, err = expectedFunctionABI.EncodeCallDataJSON([]byte(prepareRes.Transaction.ParamsJson))
@@ -434,7 +434,7 @@ func TestMint_V0(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction = mustParseJSON(hooksBuild.ABI.Functions()["onMint"])
+	expectedFunction = mustParseJSON(hooksV1Build.ABI.Functions()["onMint"])
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
 	assert.JSONEq(t, fmt.Sprintf(`{

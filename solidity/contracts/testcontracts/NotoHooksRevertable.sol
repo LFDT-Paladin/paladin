@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {INotoHooks} from "../domains/interfaces/INotoHooks.sol";
+import {INotoHooks_V2} from "../domains/interfaces/INotoHooks_V2.sol";
 import {IRevertableTarget} from "./RevertableTarget.sol";
 
 /**
  * @title NotoHooksRevertable
- * @dev Minimal INotoHooks implementation for testing. onTransfer can:
+ * @dev Minimal INotoHooks_V2 implementation for testing. onTransfer can:
  *      - revert directly for the configured revertAddress
  *      - emit a revertable external call for the configured failAddress
  *      - emit an external call that reverts with NotoInvalidInput(bytes32) for invalidInputAddress
  *      - emit only the prepared transaction for all other transfers
  *      All other hook methods emit only the prepared transaction.
  */
-contract NotoHooksRevertable is INotoHooks {
+contract NotoHooksRevertable is INotoHooks_V2 {
     address public revertableTarget;
     address public revertAddress;
     address public failAddress;
@@ -153,6 +153,25 @@ contract NotoHooksRevertable is INotoHooks {
         address,
         bytes32,
         UnlockRecipient[] calldata,
+        bytes calldata,
+        PreparedTransaction calldata prepared
+    ) external override {
+        _emitPrepared(prepared);
+    }
+
+    function onSpendLock(
+        address,
+        bytes32,
+        UnlockRecipient[] calldata,
+        bytes calldata,
+        PreparedTransaction calldata prepared
+    ) external override {
+        _emitPrepared(prepared);
+    }
+
+    function onCancelLock(
+        address,
+        bytes32,
         bytes calldata,
         PreparedTransaction calldata prepared
     ) external override {

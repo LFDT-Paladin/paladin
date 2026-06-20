@@ -337,7 +337,7 @@ func (h *prepareUnlockHandler) hookInvoke(ctx context.Context, tx *types.ParsedT
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onPrepareUnlock"],
+		hooksV1Build.ABI.Functions()["onPrepareUnlock"],
 		params,
 	)
 	if err != nil {

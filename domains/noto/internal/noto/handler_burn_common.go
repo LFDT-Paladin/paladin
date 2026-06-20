@@ -219,7 +219,7 @@ func (h *burnCommon) hookInvokeBurn(ctx context.Context, tx *types.ParsedTransac
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onBurn"],
+		hooksV1Build.ABI.Functions()["onBurn"],
 		params,
 	)
 	if err != nil {

@@ -190,6 +190,20 @@ type SpendLockPublicParams struct {
 	Data   pldtypes.HexBytes `json:"data"`
 }
 
+// Params for the INotoPrivate.spendLock() method: requests the notary to execute the
+// prearranged spend of a prepared lock.
+type SpendLockParams struct {
+	LockID pldtypes.Bytes32  `json:"lockId"`
+	Data   pldtypes.HexBytes `json:"data"`
+}
+
+// Params for the INotoPrivate.cancelLock() method: requests the notary to execute the
+// prearranged cancel of a prepared lock, returning the locked balance to the owner.
+type CancelLockParams struct {
+	LockID pldtypes.Bytes32  `json:"lockId"`
+	Data   pldtypes.HexBytes `json:"data"`
+}
+
 type BalanceOfParam struct {
 	Account string `json:"account"`
 }
