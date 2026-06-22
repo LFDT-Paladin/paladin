@@ -200,6 +200,18 @@ export interface CancelLockPublicParams {
   data: string;
 }
 
+// Params for the private spendLock/cancelLock methods, which request the notary to execute a
+// prepared lock's prearranged spend/cancel outcome on the owner's behalf.
+export interface NotoSpendLockParams {
+  lockId: string;
+  data: string;
+}
+
+export interface NotoCancelLockParams {
+  lockId: string;
+  data: string;
+}
+
 export interface NotoBalanceOfParams {
   account: string;
 }
@@ -469,7 +481,9 @@ export class NotoInstance {
     );
   }
 
-  spendLock(
+  // Submits the base-ledger spendLock directly (e.g. as a delegated spender). For requesting
+  // the notary to execute a prepared lock's spend on the owner's behalf, use spendLock().
+  spendLockPublic(
     from: PaladinVerifier,
     data: SpendLockPublicParams,
     idempotencyKey?: string,
@@ -488,7 +502,9 @@ export class NotoInstance {
     );
   }
 
-  cancelLock(
+  // Submits the base-ledger cancelLock directly (e.g. as a delegated spender). For requesting
+  // the notary to execute a prepared lock's cancel on the owner's behalf, use cancelLock().
+  cancelLockPublic(
     from: PaladinVerifier,
     data: CancelLockPublicParams,
     idempotencyKey?: string,
@@ -499,6 +515,48 @@ export class NotoInstance {
         idempotencyKey,
         type: TransactionType.PUBLIC,
         abi: notoJSON.abi,
+        function: "cancelLock",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  // Requests the notary to execute the prearranged spend of a prepared lock (one created via
+  // prepareUnlock/createTransferLock/createMintLock/createBurnLock) on the owner's behalf.
+  spendLock(
+    from: PaladinVerifier,
+    data: NotoSpendLockParams,
+    idempotencyKey?: string,
+  ) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "spendLock",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  // Requests the notary to execute the prearranged cancel of a prepared lock, returning the
+  // locked balance to the owner.
+  cancelLock(
+    from: PaladinVerifier,
+    data: NotoCancelLockParams,
+    idempotencyKey?: string,
+  ) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
         function: "cancelLock",
         to: this.address,
         from: from.lookup,

@@ -324,7 +324,7 @@ func (h *createBurnLockHandler) hookInvoke(ctx context.Context, tx *types.Parsed
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onCreateBurnLock"],
+		hooksV1Build.ABI.Functions()["onCreateBurnLock"],
 		params,
 	)
 	if err != nil {

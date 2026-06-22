@@ -123,6 +123,15 @@ type PrepareMintUnlockHookParams struct {
 	Prepared   PreparedTransaction        `json:"prepared"`
 }
 
+// CancelLockHookParams is passed to the V2 onCancelLock hook when the notary executes the
+// prearranged cancel of a prepared lock (returning the locked balance to the owner).
+type CancelLockHookParams struct {
+	Sender   *pldtypes.EthAddress `json:"sender"`
+	LockID   pldtypes.Bytes32     `json:"lockId"`
+	Data     pldtypes.HexBytes    `json:"data"`
+	Prepared PreparedTransaction  `json:"prepared"`
+}
+
 type DelegateUnlockHookParams struct {
 	Sender     *pldtypes.EthAddress       `json:"sender"`
 	LockID     pldtypes.Bytes32           `json:"lockId"`

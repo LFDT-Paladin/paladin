@@ -303,7 +303,7 @@ func (h *createMintLockHandler) hookInvoke(ctx context.Context, tx *types.Parsed
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onCreateMintLock"],
+		hooksV1Build.ABI.Functions()["onCreateMintLock"],
 		params,
 	)
 	if err != nil {

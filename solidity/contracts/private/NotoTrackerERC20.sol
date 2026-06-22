@@ -2,14 +2,14 @@
 pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {INotoHooks} from "../domains/interfaces/INotoHooks.sol";
+import {INotoHooks_V2} from "../domains/interfaces/INotoHooks_V2.sol";
 import {NotoLocks} from "./NotoLocks.sol";
 
 /**
  * @title NotoTrackerERC20
  * @dev Example Noto hooks which track all Noto token movements on a private ERC20.
  */
-contract NotoTrackerERC20 is INotoHooks, ERC20 {
+contract NotoTrackerERC20 is INotoHooks_V2, ERC20 {
     NotoLocks internal _locks = new NotoLocks();
     address internal _notary;
 
@@ -247,5 +247,51 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         for (uint256 i = 0; i < recipients.length; i++) {
             _transfer(from, recipients[i].to, recipients[i].amount);
         }
+    }
+
+    function _onSpendLock(
+        address /* sender */,
+        bytes32 lockId,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata /* data */,
+        PreparedTransaction calldata prepared
+    ) internal virtual {
+        address from = _locks.ownerOf(lockId);
+        _locks.onSpendLock(lockId, recipients);
+        for (uint256 i = 0; i < recipients.length; i++) {
+            _transfer(from, recipients[i].to, recipients[i].amount);
+        }
+        emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
+    }
+
+    function _onCancelLock(
+        address /* sender */,
+        bytes32 lockId,
+        bytes calldata /* data */,
+        PreparedTransaction calldata prepared
+    ) internal virtual {
+        // The locked tokens were always owned by the lock owner (no ERC20 movement on lock),
+        // so cancelling simply releases the locked-balance accounting.
+        _locks.onCancelLock(lockId);
+        emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
+    }
+
+    function onSpendLock(
+        address sender,
+        bytes32 lockId,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data,
+        PreparedTransaction calldata prepared
+    ) external virtual override onlyLockOwner(sender, lockId) {
+        _onSpendLock(sender, lockId, recipients, data, prepared);
+    }
+
+    function onCancelLock(
+        address sender,
+        bytes32 lockId,
+        bytes calldata data,
+        PreparedTransaction calldata prepared
+    ) external virtual override onlyLockOwner(sender, lockId) {
+        _onCancelLock(sender, lockId, data, prepared);
     }
 }

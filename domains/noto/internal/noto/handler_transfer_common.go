@@ -219,7 +219,7 @@ func (h *transferCommon) hookInvokeTransfer(ctx context.Context, tx *types.Parse
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onTransfer"],
+		hooksV1Build.ABI.Functions()["onTransfer"],
 		params,
 	)
 	if err != nil {

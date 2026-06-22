@@ -79,4 +79,8 @@ var (
 	MsgInvalidLockStateLockID             = pde("PD200039", "Invalid lockId in state %s expected=%s found=%s")
 	MsgInvalidLockState                   = pde("PD200040", "Invalid lock state %s")
 	MsgInvalidLockTransition              = pde("PD200042", "Invalid lock transition")
+	MsgLockNotPrepared                    = pde("PD200043", "Lock is not prepared; use unlock to spend an unprepared lock")
+	MsgLockDelegated                      = pde("PD200044", "Lock is delegated to '%s'; the delegate must submit spendLock/cancelLock directly")
+	MsgPreparedExecRequiresV2Hooks        = pde("PD200045", "spendLock/cancelLock require V2 hooks when using hooks notary mode")
+	MsgPreparedExecOnlyOwner              = pde("PD200046", "Only the lock owner can request spendLock/cancelLock: expected=%s actual=%s")
 )

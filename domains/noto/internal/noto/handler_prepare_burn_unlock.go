@@ -303,7 +303,7 @@ func (h *prepareBurnUnlockHandler) hookInvoke(ctx context.Context, tx *types.Par
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onPrepareBurnUnlock"],
+		hooksV1Build.ABI.Functions()["onPrepareBurnUnlock"],
 		hookParams,
 	)
 	if err != nil {

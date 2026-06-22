@@ -192,7 +192,7 @@ async function main(): Promise<boolean> {
   const unlockParams = lockInfo.unlockParams as INotoSpendLockParams;
   const spendReceipt = await token
     .using(paladinClientNode2)
-    .spendLock(recipient, unlockParams)
+    .spendLockPublic(recipient, unlockParams)
     .waitForReceipt(LONG_POLL_TIMEOUT);
   if (!spendReceipt?.success) {
     logger.error("spendLock transaction failed!");

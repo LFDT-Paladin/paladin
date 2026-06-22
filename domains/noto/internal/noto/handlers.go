@@ -49,6 +49,10 @@ func (n *Noto) GetHandler(method string) types.DomainHandler {
 		return &lockHandler{noto: n}
 	case "unlock":
 		return &unlockHandler{unlockCommon: unlockCommon{lockCommon: lockCommon{noto: n}}}
+	case "spendLock":
+		return &spendLockHandler{preparedExecCommon: preparedExecCommon{noto: n}}
+	case "cancelLock":
+		return &cancelLockHandler{preparedExecCommon: preparedExecCommon{noto: n}}
 	case "createTransferLock":
 		return &createTransferLockHandler{lockCommon: lockCommon{noto: n}}
 	case "createMintLock":
@@ -287,6 +291,27 @@ func buildEndorsePlan(notaryParty, senderParty string, signPayload []byte) []*pr
 			VerifierType:    verifiers.ETH_ADDRESS,
 			Parties:         []string{notaryParty},
 		},
+	}
+}
+
+// buildNotaryEndorsement returns just the notary ENDORSE attestation request, for operations
+// where nothing new is being authorized by the sender (e.g. executing a prearranged lock outcome).
+func buildNotaryEndorsement(notaryParty string) *prototk.AttestationRequest {
+	return &prototk.AttestationRequest{
+		Name:            "notary",
+		AttestationType: prototk.AttestationType_ENDORSE,
+		Algorithm:       algorithms.ECDSA_SECP256K1,
+		VerifierType:    verifiers.ETH_ADDRESS,
+		Parties:         []string{notaryParty},
+	}
+}
+
+// assembleRevert returns a REVERT Assemble response carrying the given error as the reason.
+func assembleRevert(err error) *prototk.AssembleTransactionResponse {
+	reason := err.Error()
+	return &prototk.AssembleTransactionResponse{
+		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+		RevertReason:   &reason,
 	}
 }
 

@@ -553,6 +553,133 @@ func (s *notoTestSuite) testNotoLock(version string) {
 	assert.Equal(t, recipient2Key, coins[1].Data.Owner.String())
 }
 
+// TestNotoNotarySpendLock exercises the notary executing a prepared lock's spend on the owner's
+// behalf (without delegation) via the private spendLock method (issue #1238).
+func (s *notoTestSuite) TestNotoNotarySpendLock() {
+	s.testNotoNotaryPreparedExec(false /* spend */)
+}
+
+// TestNotoNotaryCancelLock exercises the notary executing a prepared lock's cancel on the owner's
+// behalf (without delegation) via the private cancelLock method (issue #1238).
+func (s *notoTestSuite) TestNotoNotaryCancelLock() {
+	s.testNotoNotaryPreparedExec(true /* cancel */)
+}
+
+func (s *notoTestSuite) testNotoNotaryPreparedExec(cancel bool) {
+	t := s.T()
+	ctx := t.Context()
+	log.L(ctx).Infof("TestNotoNotaryPreparedExec (cancel=%t)", cancel)
+
+	waitForNoto, notoTestbed := newNotoDomain(t, pldtypes.MustEthAddress(s.factoryAddress))
+	done, _, _, _, paladinClient := newTestbed(t, s.hdWalletSeed, map[string]*testbed.TestbedDomain{
+		s.domainName: notoTestbed,
+	})
+	defer done()
+
+	notoDomain := <-waitForNoto
+
+	notoReceipts := make(chan notoReceiptWithTXID)
+	subscribeAndSendNotoReceiptsToChannel(t, paladinClient, notoDomain.Name(), notoReceipts)
+
+	recipient1Key, err := paladinClient.PTX().ResolveVerifier(ctx, recipient1Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	require.NoError(t, err)
+	recipient2Key, err := paladinClient.PTX().ResolveVerifier(ctx, recipient2Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	require.NoError(t, err)
+
+	noto := helpers.DeployNoto(ctx, t, paladinClient, s.domainName, notary, nil)
+	log.L(ctx).Infof("Noto deployed to %s", noto.Address)
+
+	log.L(ctx).Infof("Mint 100 from notary to recipient1")
+	rpcerr := paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			From:     notaryName,
+			To:       noto.Address,
+			Function: "mint",
+			Data:     toJSON(t, &types.MintParams{To: recipient1Name, Amount: pldtypes.Int64ToInt256(100)}),
+		},
+		ABI: types.NotoABI,
+	}, false)
+	require.NoError(t, rpcerr)
+	<-notoReceipts
+
+	log.L(ctx).Infof("Lock 50 from recipient1")
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			From:     recipient1Name,
+			To:       noto.Address,
+			Function: "lock",
+			Data:     toJSON(t, &types.LockParams{Amount: pldtypes.Int64ToInt256(50)}),
+		},
+		ABI: types.NotoABI,
+	}, false)
+	require.NoError(t, rpcerr)
+	lockReceipt := <-notoReceipts
+	require.NotNil(t, lockReceipt.LockInfo)
+
+	log.L(ctx).Infof("Prepare unlock that will send all 50 to recipient2")
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			From:     recipient1Name,
+			To:       noto.Address,
+			Function: "prepareUnlock",
+			Data: toJSON(t, &types.PrepareUnlockParams{
+				UnlockParams: types.UnlockParams{
+					LockID:     lockReceipt.LockInfo.LockID,
+					From:       recipient1Name,
+					Recipients: []*types.UnlockRecipient{{To: recipient2Name, Amount: pldtypes.Int64ToInt256(50)}},
+					Data:       pldtypes.RandBytes(16),
+				},
+				UnlockData: pldtypes.RandBytes(16),
+			}),
+		},
+		ABI: types.NotoABI,
+	}, false)
+	require.NoError(t, rpcerr)
+	prepareUnlockReceipt := <-notoReceipts
+	require.NotEmpty(t, prepareUnlockReceipt.LockInfo)
+	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.SpendTxId)
+
+	// Rather than delegating, the lock owner asks the notary to execute the prearranged operation.
+	function := "spendLock"
+	data := toJSON(t, &types.SpendLockParams{LockID: prepareUnlockReceipt.LockInfo.LockID, Data: pldtypes.RandBytes(16)})
+	if cancel {
+		function = "cancelLock"
+		data = toJSON(t, &types.CancelLockParams{LockID: prepareUnlockReceipt.LockInfo.LockID, Data: pldtypes.RandBytes(16)})
+	}
+	log.L(ctx).Infof("Notary executes prepared %s on owner's behalf", function)
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			From:     recipient1Name,
+			To:       noto.Address,
+			Function: function,
+			Data:     data,
+		},
+		ABI: types.NotoABI,
+	}, false)
+	require.NoError(t, rpcerr)
+	execReceipt := <-notoReceipts
+
+	// In both cases the lock is fully consumed
+	findAvailableCoins(t, ctx, paladinClient, notoDomain.Name(), notoDomain.LockedCoinSchemaID(), "pstate_queryContractStates", noto.Address, nil, func(coins []*types.NotoLockedCoinState) bool {
+		return len(coins) == 0
+	})
+
+	if cancel {
+		// Cancel returns the locked balance to the owner (recipient1 back to 100)
+		require.Len(t, execReceipt.Transfers, 1)
+		assert.Equal(t, recipient1Key, execReceipt.Transfers[0].To.String())
+		balanceOfResult := noto.BalanceOf(ctx, &types.BalanceOfParam{Account: recipient1Name}).SignAndCall(notaryName).Wait()
+		assert.Equal(t, "100", balanceOfResult["totalBalance"].(string), "recipient1 should have the cancelled balance back")
+	} else {
+		// Spend sends the prearranged 50 to recipient2
+		require.Len(t, execReceipt.Transfers, 1)
+		assert.Equal(t, int64(50), execReceipt.Transfers[0].Amount.Int().Int64())
+		assert.Equal(t, recipient2Key, execReceipt.Transfers[0].To.String())
+		balanceOfResult := noto.BalanceOf(ctx, &types.BalanceOfParam{Account: recipient2Name}).SignAndCall(notaryName).Wait()
+		assert.Equal(t, "50", balanceOfResult["totalBalance"].(string), "recipient2 should have received the spent balance")
+	}
+}
+
 type notoReceiptWithTXID struct {
 	types.NotoDomainReceipt
 	txID uuid.UUID

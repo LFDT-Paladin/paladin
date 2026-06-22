@@ -59,6 +59,15 @@ interface INotoPrivate {
         bytes calldata data
     ) external;
 
+    // Executes the prearranged spend of a prepared lock (one created via prepareUnlock,
+    // createTransferLock, createMintLock, or createBurnLock). Requests the notary to submit
+    // the prearranged spend on the lock owner's behalf, without requiring delegation.
+    function spendLock(bytes32 lockId, bytes calldata data) external;
+
+    // Executes the prearranged cancel of a prepared lock, returning the locked balance to the
+    // owner. Requests the notary to submit the prearranged cancel on the owner's behalf.
+    function cancelLock(bytes32 lockId, bytes calldata data) external;
+
     function createTransferLock(
         string calldata from,
         UnlockRecipient[] calldata recipients,

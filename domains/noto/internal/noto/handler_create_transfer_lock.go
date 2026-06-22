@@ -354,7 +354,7 @@ func (h *createTransferLockHandler) hookInvoke(ctx context.Context, tx *types.Pa
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onCreateTransferLock"],
+		hooksV1Build.ABI.Functions()["onCreateTransferLock"],
 		params,
 	)
 	if err != nil {

@@ -219,7 +219,7 @@ func (h *mintHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransactio
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onMint"],
+		hooksV1Build.ABI.Functions()["onMint"],
 		params,
 	)
 	if err != nil {
