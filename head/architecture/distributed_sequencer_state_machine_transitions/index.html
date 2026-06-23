@@ -17,7 +17,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".d2", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -1738,43 +1738,49 @@ stateDiagram-v2
     Initial --&gt; Confirmed : ConfirmedSuccess
     Initial --&gt; Pending : Created
     Pending --&gt; Confirmed : ConfirmedSuccess
+    Pending --&gt; Confirmed : ConfirmedReverted
     Pending --&gt; Delegated : Delegated
     Delegated --&gt; Confirmed : ConfirmedSuccess
+    Delegated --&gt; Confirmed : ConfirmedReverted
     Delegated --&gt; Assembling : AssembleRequestReceived
     Delegated --&gt; Dispatched : Dispatched
     Assembling --&gt; Confirmed : ConfirmedSuccess
+    Assembling --&gt; Confirmed : ConfirmedReverted
     Assembling --&gt; Delegated : Delegated
     Assembling --&gt; Endorsement_Gathering : AssembleAndSignSuccess
     Assembling --&gt; Reverted : AssembleRevert
     Assembling --&gt; Parked : AssemblePark
     Assembling --&gt; Delegated : AssembleError
     Endorsement_Gathering --&gt; Confirmed : ConfirmedSuccess
+    Endorsement_Gathering --&gt; Confirmed : ConfirmedReverted
     Endorsement_Gathering --&gt; Delegated : Delegated
     Endorsement_Gathering --&gt; Assembling : AssembleRequestReceived [!AssembleRequestMatchesPreviousResponse]
     Endorsement_Gathering --&gt; Prepared : PreDispatchRequestReceived
     Prepared --&gt; Confirmed : ConfirmedSuccess
+    Prepared --&gt; Confirmed : ConfirmedReverted
     Prepared --&gt; Delegated : Delegated
     Prepared --&gt; Dispatched : Dispatched
     Prepared --&gt; Assembling : AssembleRequestReceived [!AssembleRequestMatchesPreviousResponse]
     Dispatched --&gt; Confirmed : ConfirmedSuccess
-    Dispatched --&gt; Delegated : ConfirmedReverted [WillRetry]
-    Dispatched --&gt; Confirmed : ConfirmedReverted [!WillRetry]
+    Dispatched --&gt; Delegated : ConfirmedReverted
+    Dispatched --&gt; Confirmed : ConfirmedReverted
     Dispatched --&gt; Delegated : Delegated
     Dispatched --&gt; Sequenced : NonceAssigned
     Dispatched --&gt; Submitted : Submitted
     Dispatched --&gt; Assembling : AssembleRequestReceived
     Sequenced --&gt; Confirmed : ConfirmedSuccess
-    Sequenced --&gt; Delegated : ConfirmedReverted [WillRetry]
-    Sequenced --&gt; Confirmed : ConfirmedReverted [!WillRetry]
+    Sequenced --&gt; Delegated : ConfirmedReverted
+    Sequenced --&gt; Confirmed : ConfirmedReverted
     Sequenced --&gt; Delegated : Delegated
     Sequenced --&gt; Submitted : Submitted
     Sequenced --&gt; Assembling : AssembleRequestReceived
     Submitted --&gt; Confirmed : ConfirmedSuccess
-    Submitted --&gt; Delegated : ConfirmedReverted [WillRetry]
-    Submitted --&gt; Confirmed : ConfirmedReverted [!WillRetry]
+    Submitted --&gt; Delegated : ConfirmedReverted
+    Submitted --&gt; Confirmed : ConfirmedReverted
     Submitted --&gt; Delegated : Delegated
     Submitted --&gt; Assembling : AssembleRequestReceived
     Parked --&gt; Confirmed : ConfirmedSuccess
+    Parked --&gt; Confirmed : ConfirmedReverted
     Parked --&gt; Delegated : Delegated
     Parked --&gt; Pending : Resumed
     Confirmed --&gt; Final : Finalize
