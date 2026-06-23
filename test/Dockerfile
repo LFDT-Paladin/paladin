@@ -8,7 +8,7 @@ COPY solidity/tsconfig.json solidity/
 RUN cd solidity && npm ci && npm run compile
 
 # Stage 2: Build the pldtest binary
-FROM golang:1.24-bookworm AS go-builder
+FROM golang:1.26-bookworm AS go-builder
 WORKDIR /workspace
 
 COPY go.work go.work.sum ./
