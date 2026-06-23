@@ -690,9 +690,13 @@ func TestPrepareInputsForNullifiers(t *testing.T) {
 
 	assert.Equal(t, []*big.Int{a, b}, nullifiers)
 	assert.Equal(t, big.NewInt(0x123456), root)
+	// Parse proof nodes with SetString(hex) to match the internal representation
+	// used by prepareInputsForNullifiers, avoiding big.Int nil-vs-empty-nat
+	// differences introduced in Go 1.26.
+	hexNode := func(s string) *big.Int { n, _ := new(big.Int).SetString(s, 16); return n }
 	assert.Equal(t, [][]*big.Int{
-		{big.NewInt(1), big.NewInt(2), big.NewInt(3)},
-		{big.NewInt(0), big.NewInt(0), big.NewInt(0)},
+		{hexNode("1"), hexNode("2"), hexNode("3")},
+		{hexNode("0"), hexNode("0"), hexNode("0")},
 	}, proofs)
 	assert.Equal(t, []*big.Int{big.NewInt(1), big.NewInt(0)}, enabled)
 }
