@@ -1,6 +1,6 @@
-go 1.24.4
+go 1.26.4
 
-toolchain go1.24.13
+toolchain go1.26.4
 
 // this just contains what's needed for the base-builder in docker
 // By running this first, we get a big head start on the pre-reqs install
