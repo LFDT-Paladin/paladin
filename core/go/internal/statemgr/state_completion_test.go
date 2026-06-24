@@ -29,6 +29,19 @@ import (
 
 const testDomain = "domain1"
 
+// lockControlledPersistence wraps a real Persistence and allows tests to control the
+// outcome of TakeNamedLock without touching the underlying DB connection.
+type lockControlledPersistence struct {
+	persistence.Persistence
+	lockErr   error
+	lockCalls int
+}
+
+func (p *lockControlledPersistence) TakeNamedLock(_ context.Context, _ persistence.DBTX, _ string) error {
+	p.lockCalls++
+	return p.lockErr
+}
+
 // queryAllPendingRows fetches every row from pending_private_state_data.
 func queryAllPendingRows(t *testing.T, ss *stateManager) []pendingPrivateStateData {
 	t.Helper()
@@ -222,6 +235,35 @@ func TestWritePendingPrivateStateDataBatch_MultipleContracts(t *testing.T) {
 	assert.Equal(t, int64(51), rowByID[id2.String()].BlockNumber)
 }
 
+func TestWritePendingPrivateStateDataBatch_LockAcquisitionError(t *testing.T) {
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	wrapper := &lockControlledPersistence{Persistence: ss.p, lockErr: fmt.Errorf("lock error")}
+	ss.p = wrapper
+
+	contractAddr := *pldtypes.RandAddress()
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	entries := []components.PendingPrivateStateDataEntry{makePendingEntry(stateID, contractAddr, 10)}
+
+	err := ss.WritePendingPrivateStateDataBatch(ctx, ss.p.NOTX(), testDomain, entries)
+	require.ErrorContains(t, err, "lock error")
+	assert.Equal(t, 1, wrapper.lockCalls)
+	assert.Empty(t, queryAllPendingRows(t, ss))
+}
+
+func TestWritePendingPrivateStateDataBatch_EmptyBatch_SkipsLock(t *testing.T) {
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	wrapper := &lockControlledPersistence{Persistence: ss.p}
+	ss.p = wrapper
+
+	err := ss.WritePendingPrivateStateDataBatch(ctx, ss.p.NOTX(), testDomain, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, wrapper.lockCalls)
+}
+
 // ─── updatePendingPrivateStateData ─────────────────────────────────────────────────────
 
 func TestUpdatePendingPrivateStateData_EmptyList(t *testing.T) {
@@ -313,6 +355,36 @@ func TestUpdatePendingPrivateStateData_PartialArrivals(t *testing.T) {
 	rows := queryAllPendingRows(t, ss)
 	require.Len(t, rows, 1)
 	assert.Equal(t, id2.String(), rows[0].StateID)
+}
+
+func TestUpdatePendingPrivateStateData_LockAcquisitionError(t *testing.T) {
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	contractAddr := *pldtypes.RandAddress()
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	seedPendingRow(t, ss, contractAddr.String(), stateID, 10)
+
+	wrapper := &lockControlledPersistence{Persistence: ss.p, lockErr: fmt.Errorf("lock error")}
+	ss.p = wrapper
+
+	err := ss.updatePendingPrivateStateData(ctx, ss.p.NOTX(), []pldtypes.HexBytes{stateID})
+	require.ErrorContains(t, err, "lock error")
+	assert.Equal(t, 1, wrapper.lockCalls)
+	// Row must still be present — the delete did not run.
+	assert.Len(t, queryAllPendingRows(t, ss), 1)
+}
+
+func TestUpdatePendingPrivateStateData_EmptyList_SkipsLock(t *testing.T) {
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	wrapper := &lockControlledPersistence{Persistence: ss.p}
+	ss.p = wrapper
+
+	err := ss.updatePendingPrivateStateData(ctx, ss.p.NOTX(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, wrapper.lockCalls)
 }
 
 // ─── CheckPendingPrivateStateDataForContract ──────────────────────────────────────────

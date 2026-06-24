@@ -179,6 +179,7 @@ func (s *ChainedDependenciesSuite) injectRevert(txID uuid.UUID, retriable bool) 
 		Hash:                 pldtypes.Bytes32(pldtypes.RandBytes(32)),
 		RevertReason:         revertReason,
 		FailureMessage:       msg,
+		OnChain:              pldtypes.OnChainLocation{Type: pldtypes.OnChainTransaction},
 	})
 }
 

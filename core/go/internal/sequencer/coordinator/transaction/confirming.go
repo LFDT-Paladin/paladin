@@ -56,15 +56,10 @@ func action_RecordConfirmationRevert(ctx context.Context, t *coordinatorTransact
 
 	t.revertCount++
 	t.revertReason = e.RevertReason
-	if len(e.RevertReason) == 0 {
-		t.decodedRevertReason = e.FailureMessage
-		// We will only see this revert reason if a chained dispatch has failed because its dependency failed.
-		// This means that we assembled this transaction on potential output states that we now
-		// know will not be confirmed on the base ledger.
-		// As a general rule we should not be making sequencer logic conditional on specific error codes; however,
-		// this is acceptable since this is an error code that can originate from within the sequencer.
-		t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256") && t.revertCount <= t.baseLedgerRevertRetryThreshold
-	} else {
+	if e.OnChain.Type != pldtypes.NotOnChain {
+		// On-chain revert: the base ledger transaction was mined but reverted.
+		// Always record the on-chain location so that a receipt can be produced even
+		// when there is no revert data (e.g. a bare revert() with no message).
 		t.revertOnChain = &e.OnChain
 		retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)
 		if err != nil {
@@ -86,6 +81,15 @@ func action_RecordConfirmationRevert(ctx context.Context, t *coordinatorTransact
 		t.lastCanRetryRevert = retryable && t.revertCount <= t.baseLedgerRevertRetryThreshold
 		log.L(ctx).Debugf("transaction %s base ledger reverted with \"%s\" (%s) (count=%d, retryable=%t, threshold=%d, canRetry=%t)",
 			t.pt.ID.String(), t.decodedRevertReason, t.revertReason.String(), t.revertCount, retryable, t.baseLedgerRevertRetryThreshold, t.lastCanRetryRevert)
+	} else {
+		// Off-chain failure (e.g. chained dispatch dependency failed): no on-chain location.
+		t.decodedRevertReason = e.FailureMessage
+		// We will only see this revert reason if a chained dispatch has failed because its dependency failed.
+		// This means that we assembled this transaction on potential output states that we now
+		// know will not be confirmed on the base ledger.
+		// As a general rule we should not be making sequencer logic conditional on specific error codes; however,
+		// this is acceptable since this is an error code that can originate from within the sequencer.
+		t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256") && t.revertCount <= t.baseLedgerRevertRetryThreshold
 	}
 	checkConfirmedHash(ctx, t, e.Hash)
 	return nil

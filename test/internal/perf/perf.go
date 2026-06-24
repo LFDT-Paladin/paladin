@@ -172,11 +172,6 @@ func New(config *conf.RunnerConfig, reportBuilder *util.Report) PerfRunner {
 	startTime := endRampTime
 	endTime := startTime + int64(config.Length.Seconds())
 
-	rollingCheckBatchSize := config.RollingCheckBatchSize
-	if rollingCheckBatchSize <= 0 {
-		rollingCheckBatchSize = 100
-	}
-
 	pr := &perfRunner{
 		bfr:           make(chan int, totalWorkers),
 		cfg:           config,
@@ -200,8 +195,8 @@ func New(config *conf.RunnerConfig, reportBuilder *util.Report) PerfRunner {
 		pauseAcks:             make([]chan struct{}, totalWorkers),
 		resumeSignals:         make([]chan struct{}, totalWorkers),
 		stopRunners:           make(chan struct{}),
-		rollingCheckBatchSize: rollingCheckBatchSize,
-		rollingBatch:          make([]string, 0, rollingCheckBatchSize),
+		rollingCheckBatchSize: config.RollingCheckBatchSize,
+		rollingBatch:          make([]string, 0, config.RollingCheckBatchSize),
 	}
 	// Initialize channels for each worker
 	for i := 0; i < totalWorkers; i++ {
@@ -839,10 +834,10 @@ func (pr *perfRunner) runLoop(tc testsuite.TestCase, workerID int, actionsPerLoo
 				actionCount := actionsCompleted
 				pendingActions++
 				go func() {
-				transactionID, err := tc.RunOnce(actionCount)
-				if err == nil {
-					log.Infof("%d --> %s action %d submitted transaction %s after %f seconds", workerID, testName, actionCount, transactionID, time.Since(startTime).Seconds())
-				}
+					transactionID, err := tc.RunOnce(actionCount)
+					if err == nil {
+						log.Infof("%d --> %s action %d submitted transaction %s after %f seconds", workerID, testName, actionCount, transactionID, time.Since(startTime).Seconds())
+					}
 					actionResponses <- &ActionResponse{
 						transactionID: transactionID,
 						err:           err,

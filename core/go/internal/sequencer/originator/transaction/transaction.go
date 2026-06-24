@@ -70,6 +70,7 @@ type originatorTransaction struct {
 	refreshBlockHeight               func(context.Context)
 	getBlockHeight                   func() int64
 	cancelCurrentAssembly            context.CancelFunc
+	currentAssemblyRequestID         uuid.UUID
 }
 
 func NewTransaction(

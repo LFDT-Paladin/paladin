@@ -340,3 +340,4 @@ func TestGuard_AssembleRequestMatchesPreviousResponse_OneNilUUID(t *testing.T) {
 
 	assert.False(t, matches, "Should return false when one request ID is nil and the other is not")
 }
+

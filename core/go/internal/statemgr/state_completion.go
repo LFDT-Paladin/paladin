@@ -24,6 +24,15 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// pendingPrivateStateDataLock is the advisory lock name used to serialize writes to
+// pending_private_state_data against concurrent state arrivals. Both
+// WritePendingPrivateStateDataBatch (event-indexer path) and updatePendingPrivateStateData
+// (state-arrival path) acquire this lock at the start of their DB transaction so that the
+// read-then-write in WritePendingPrivateStateDataBatch and the delete in
+// updatePendingPrivateStateData cannot interleave under PostgreSQL READ COMMITTED isolation.
+// On SQLite and in tests the lock is a no-op.
+const pendingPrivateStateDataLock = "pending_private_state_data"
+
 // pendingPrivateStateData tracks confirmed states for opted-in domains that are still
 // waiting for private data. One row exists per state ID; rows are deleted when
 // the corresponding state data arrives.
@@ -41,9 +50,16 @@ func (pendingPrivateStateData) TableName() string {
 // transaction after the entire event batch has been processed for a domain that supports the
 // completion index. It makes a single getStateIDsMissingPrivateData query for all state IDs
 // in the batch, then writes one row per missing state.
+//
+// An advisory lock (pendingPrivateStateDataLock) is taken before the read so that a concurrent
+// reliable-messaging transaction delivering state data cannot delete a pending row between this
+// function's read of the states table and its write to pending_private_state_data.
 func (ss *stateManager) WritePendingPrivateStateDataBatch(ctx context.Context, dbTX persistence.DBTX, domainName string, states []components.PendingPrivateStateDataEntry) error {
 	if len(states) == 0 {
 		return nil
+	}
+	if err := ss.p.TakeNamedLock(ctx, dbTX, pendingPrivateStateDataLock); err != nil {
+		return err
 	}
 
 	allStateIDs := make([]pldtypes.HexBytes, len(states))
@@ -88,9 +104,17 @@ func (ss *stateManager) WritePendingPrivateStateDataBatch(ctx context.Context, d
 
 // updatePendingPrivateStateData is called internally from writeStates after new states are written.
 // It deletes rows whose state_id matches one of the arrived states.
+//
+// An advisory lock (pendingPrivateStateDataLock) is taken before the delete so that this
+// operation is serialized against WritePendingPrivateStateDataBatch running concurrently in
+// the event-indexer transaction. Without the lock, the delete could run (finding no rows)
+// before the event-indexer transaction commits the pending row, leaving it stranded.
 func (ss *stateManager) updatePendingPrivateStateData(ctx context.Context, dbTX persistence.DBTX, arrivedStateIDs []pldtypes.HexBytes) error {
 	if len(arrivedStateIDs) == 0 {
 		return nil
+	}
+	if err := ss.p.TakeNamedLock(ctx, dbTX, pendingPrivateStateDataLock); err != nil {
+		return err
 	}
 
 	arrivedStrs := make([]string, len(arrivedStateIDs))

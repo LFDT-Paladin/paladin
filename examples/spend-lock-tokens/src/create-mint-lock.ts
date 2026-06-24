@@ -23,8 +23,24 @@ import {
   nodeConnections,
   DEFAULT_POLL_TIMEOUT,
   LONG_POLL_TIMEOUT,
+  getCachePath,
 } from "paladin-example-common";
 import assert from "assert";
+import * as fs from "fs";
+import * as path from "path";
+
+export interface ContractData {
+  tokenAddress: string;
+  notaryVerifier: string;
+  recipientVerifier: string;
+  node1Id: string;
+  node2Id: string;
+  mintLockAmount: number;
+  recipientFinalBalance: string;
+  mintLockTransactionHash: string | undefined;
+  spendLockTransactionHash: string | undefined;
+  timestamp: string;
+}
 
 const logger = console;
 
@@ -167,6 +183,28 @@ async function main(): Promise<boolean> {
     balanceAfter.totalBalance === mintLockAmount.toString(),
     `Expected recipient balance to be ${mintLockAmount}, got ${balanceAfter.totalBalance}`,
   );
+
+  const contractData: ContractData = {
+    tokenAddress: token.address,
+    notaryVerifier: notary.lookup,
+    recipientVerifier: recipient.lookup,
+    node1Id: nodeConnections[0].id,
+    node2Id: nodeConnections[1].id,
+    mintLockAmount,
+    recipientFinalBalance: balanceAfter.totalBalance,
+    mintLockTransactionHash: createMintLockReceipt.transactionHash,
+    spendLockTransactionHash: spendReceipt.transactionHash,
+    timestamp: new Date().toISOString(),
+  };
+
+  const dataDir = getCachePath();
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const dataFile = path.join(dataDir, `contract-data-${timestamp}.json`);
+  fs.writeFileSync(dataFile, JSON.stringify(contractData, null, 2));
+  logger.log(`Contract data saved to ${dataFile}`);
 
   logger.log("All createMintLock operations completed successfully!");
   return true;

@@ -36,3 +36,4 @@ func action_ResendAssembleParkResponse(ctx context.Context, txn *originatorTrans
 func guard_AssembleRequestMatchesPreviousResponse(ctx context.Context, txn *originatorTransaction) bool {
 	return txn.latestAssembleRequest.requestID == txn.latestFulfilledAssembleRequestID
 }
+

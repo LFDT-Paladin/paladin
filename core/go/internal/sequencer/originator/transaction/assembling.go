@@ -110,6 +110,7 @@ func action_AssembleAndSign(ctx context.Context, txn *originatorTransaction, _ c
 		assembleCtx, cancel = context.WithDeadline(assembleCtx, req.expiry)
 	}
 	txn.cancelCurrentAssembly = cancel
+	txn.currentAssemblyRequestID = req.requestID
 
 	go func() {
 		defer cancel()
@@ -251,6 +252,14 @@ func validator_AssembleAndSignSuccessMatchesCurrentRequest(_ context.Context, t 
 		return false, nil
 	}
 	return t.latestAssembleRequest.requestID == e.RequestID, nil
+}
+
+// guard_AssembleRequestMatchesInProgressAssembly returns true when the most recent assemble request
+// has the same idempotency key as the assembly goroutine currently in flight.
+// This detects a coordinator nudge arriving while the originator is still assembling the original
+// request: the nudge carries the same idempotency key, so there is no need to cancel and restart.
+func guard_AssembleRequestMatchesInProgressAssembly(_ context.Context, txn *originatorTransaction) bool {
+	return txn.cancelCurrentAssembly != nil && txn.latestAssembleRequest.requestID == txn.currentAssemblyRequestID
 }
 
 // action_SendAssembleRejectionNotCurrentDelegate sends an AssembleRejection indicating the

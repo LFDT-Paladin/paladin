@@ -549,8 +549,9 @@ func Test_action_AssembleAndSign_NilCancelIsNoOp(t *testing.T) {
 	err := action_AssembleAndSign(ctx, txn, nil)
 	require.NoError(t, err)
 
-	// cancelCurrentAssembly must be populated after the call
+	// cancelCurrentAssembly and currentAssemblyRequestID must be populated after the call
 	assert.NotNil(t, txn.cancelCurrentAssembly)
+	assert.Equal(t, txn.latestAssembleRequest.requestID, txn.currentAssemblyRequestID)
 
 	select {
 	case <-done:
@@ -625,6 +626,100 @@ func Test_action_AssembleAndSign_CancelsPreviousGoroutine(t *testing.T) {
 	}
 }
 
+func Test_action_AssembleAndSign_SetsCurrentAssemblyRequestID(t *testing.T) {
+	// action_AssembleAndSign must record the in-flight request ID so that a coordinator nudge
+	// carrying the same idempotency key can be detected by guard_AssembleRequestMatchesInProgressAssembly.
+	ctx := t.Context()
+
+	done := make(chan struct{})
+	builder := NewTransactionBuilderForTesting(t, State_Assembling).
+		QueueEventsTo(func(_ context.Context, _ common.Event) { close(done) })
+	txn := builder.Build()
+
+	expectedRequestID := txn.latestAssembleRequest.requestID
+
+	builder.fakeEngineIntegration.On(
+		"AssembleAndSign",
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything,
+	).Return(&components.TransactionPostAssembly{
+		AssemblyResult: prototk.AssembleTransactionResponse_OK,
+	}, nil)
+
+	err := action_AssembleAndSign(ctx, txn, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, expectedRequestID, txn.currentAssemblyRequestID)
+
+	<-done
+}
+
+func Test_action_AssembleAndSign_NudgeDoesNotCancelInFlightAssembly(t *testing.T) {
+	// When a coordinator nudge arrives (same idempotency key) while the originator is still
+	// assembling, guard_AssembleRequestMatchesInProgressAssembly must return true so that the state
+	// machine skips action_AssembleAndSign.  This test verifies the guard directly and also
+	// confirms that the in-flight goroutine is not interrupted.
+	ctx := t.Context()
+
+	eventCh := make(chan common.Event, 2)
+	builder := NewTransactionBuilderForTesting(t, State_Assembling).
+		QueueEventsTo(func(_ context.Context, e common.Event) { eventCh <- e })
+	txn := builder.Build()
+
+	firstReqID := txn.latestAssembleRequest.requestID
+
+	blocked := make(chan struct{})
+	unblock := make(chan struct{})
+
+	var firstCancelCalled bool
+	builder.fakeEngineIntegration.On(
+		"AssembleAndSign",
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything,
+	).Once().Run(func(_ mock.Arguments) {
+		close(blocked)
+		<-unblock
+	}).Return(&components.TransactionPostAssembly{
+		AssemblyResult: prototk.AssembleTransactionResponse_OK,
+	}, nil)
+
+	// Start first goroutine
+	err := action_AssembleAndSign(ctx, txn, nil)
+	require.NoError(t, err)
+
+	// Wrap the real cancel so we can detect if it gets called prematurely
+	realCancel := txn.cancelCurrentAssembly
+	txn.cancelCurrentAssembly = func() {
+		firstCancelCalled = true
+		realCancel()
+	}
+
+	// Wait until the goroutine is inside AssembleAndSign
+	<-blocked
+
+	// The guard must recognise this as a nudge (same request ID, cancel func set)
+	assert.True(t, guard_AssembleRequestMatchesInProgressAssembly(ctx, txn),
+		"guard must return true for a nudge with the same request ID while assembly is in flight")
+	assert.Equal(t, firstReqID, txn.currentAssemblyRequestID,
+		"currentAssemblyRequestID must not have changed")
+
+	// The original goroutine must NOT have been cancelled by the nudge
+	assert.False(t, firstCancelCalled, "in-flight assembly must not be cancelled by a nudge")
+
+	// Let the first goroutine finish normally
+	close(unblock)
+
+	event := <-eventCh
+	successEvent, ok := event.(*AssembleAndSignSuccessEvent)
+	require.True(t, ok)
+	assert.Equal(t, firstReqID, successEvent.RequestID)
+
+	// No second event
+	select {
+	case e := <-eventCh:
+		t.Fatalf("unexpected second event: %T", e)
+	default:
+	}
+}
+
 func Test_validator_AssembleAndSignSuccessMatchesCurrentRequest_Match(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
@@ -686,4 +781,46 @@ func Test_action_RejectAssemblyPrivateStateDataPending_SendsRejection(t *testing
 	err := action_RejectAssemblyPrivateStateDataPending(ctx, txn, event)
 	require.NoError(t, err)
 	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "expected assemble rejection to be sent")
+}
+
+func TestGuard_AssembleRequestMatchesCurrentAssembly_Matches(t *testing.T) {
+	// Returns true when the latest request ID matches the in-flight assembly request ID and a cancel func is set.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+
+	requestID := uuid.New()
+	txn.currentAssemblyRequestID = requestID
+	txn.latestAssembleRequest = &assembleRequestFromCoordinator{requestID: requestID}
+	txn.cancelCurrentAssembly = func() {}
+
+	assert.True(t, guard_AssembleRequestMatchesInProgressAssembly(ctx, txn))
+}
+
+func TestGuard_AssembleRequestMatchesCurrentAssembly_DoesNotMatch(t *testing.T) {
+	// Returns false when the latest request ID differs from the in-flight one.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+
+	txn.currentAssemblyRequestID = uuid.New()
+	txn.latestAssembleRequest = &assembleRequestFromCoordinator{requestID: uuid.New()}
+	txn.cancelCurrentAssembly = func() {}
+
+	assert.False(t, guard_AssembleRequestMatchesInProgressAssembly(ctx, txn))
+}
+
+func TestGuard_AssembleRequestMatchesCurrentAssembly_NoCancelFunc(t *testing.T) {
+	// Returns false when there is no in-flight goroutine (cancelCurrentAssembly is nil), even if
+	// the request IDs happen to match, because there is nothing currently being assembled.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+
+	requestID := uuid.New()
+	txn.currentAssemblyRequestID = requestID
+	txn.latestAssembleRequest = &assembleRequestFromCoordinator{requestID: requestID}
+	txn.cancelCurrentAssembly = nil
+
+	assert.False(t, guard_AssembleRequestMatchesInProgressAssembly(ctx, txn))
 }

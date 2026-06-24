@@ -1398,6 +1398,7 @@ func TestCoordinatorTransaction_Dispatched_ToPooled_OnConfirmedRevert_IfRetryabl
 			TransactionID: txn.GetID(),
 		},
 		RevertReason: revertReason,
+		OnChain:      pldtypes.OnChainLocation{Type: pldtypes.OnChainTransaction},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
@@ -1421,6 +1422,7 @@ func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfNonRet
 			TransactionID: txn.GetID(),
 		},
 		RevertReason: revertReason,
+		OnChain:      pldtypes.OnChainLocation{Type: pldtypes.OnChainTransaction},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
@@ -1446,6 +1448,7 @@ func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfThresh
 			TransactionID: txn.GetID(),
 		},
 		RevertReason: revertReason,
+		OnChain:      pldtypes.OnChainLocation{Type: pldtypes.OnChainTransaction},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())

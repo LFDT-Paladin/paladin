@@ -22,10 +22,15 @@ configurations {
         canBeConsumed = false
         canBeResolved = true
     }
+    buildCommon {
+        canBeConsumed = false
+        canBeResolved = true
+    }
 }
 
 dependencies {
     buildSDK project(path: ':sdk:typescript', configuration: 'buildSDK')
+    buildCommon project(path: ':examples:common', configuration: 'buildCommon')
 }
 
 task install_sdk(type: Exec) {
@@ -34,6 +39,7 @@ task install_sdk(type: Exec) {
     args 'file:../../sdk/typescript'
 
     inputs.files(configurations.buildSDK)
+    inputs.files(configurations.buildCommon)
     inputs.files('package.json')
     outputs.files('package-lock.json')
     outputs.dir('node_modules')
@@ -44,6 +50,7 @@ task install(type: Exec, dependsOn: install_sdk) {
     args 'install'
 
     inputs.files(configurations.buildSDK)
+    inputs.files(configurations.buildCommon)
     inputs.files('package.json')
     outputs.files('package-lock.json')
     outputs.dir('node_modules')
@@ -64,6 +71,13 @@ task start(type: Exec, dependsOn: [build]) {
     executable 'npm'
     args 'run'
     args 'start'
+}
+
+task e2e(type: Exec, dependsOn: [start]) {
+
+    executable 'npm'
+    args 'run'
+    args 'verify'
 }
 
 task clean(type: Delete) {
