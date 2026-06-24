@@ -183,25 +183,24 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 		WithContext(ctx).
 		// This query joins across three tables in a single query - pushing the complexity to the DB.
 		// The reason we have three tables is to make the queries for available states simpler.
-		Raw(`SELECT "states".*, "records"."state", "records"."transaction", "records"."record_type" from "states" RIGHT JOIN ( `+
-			`SELECT "transaction", "state", 'spent'     AS "record_type" FROM "state_spend_records"   WHERE "transaction" = ? UNION ALL `+
+		// Previously we used OR join condition to join the records table with the states table.
+		// This prevented the planner from using the states.id index, forcing a full table scan.
+		// Instead we use union all to join the records table with the states table.
+		Raw(`SELECT "states".*, "records"."state", "records"."transaction", "records"."record_type" FROM ( `+
+			`SELECT "transaction", "state", 'spent' AS "record_type" FROM "state_spend_records" WHERE "transaction" = ? `+
+			`  AND NOT EXISTS (SELECT 1 FROM "state_nullifiers" WHERE "state_nullifiers"."id" = "state_spend_records"."state") `+
+			`UNION ALL `+
 			`SELECT "transaction", "state", 'read'      AS "record_type" FROM "state_read_records"    WHERE "transaction" = ? UNION ALL `+
 			`SELECT "transaction", "state", 'confirmed' AS "record_type" FROM "state_confirm_records" WHERE "transaction" = ? UNION ALL `+
-			`SELECT "transaction", "state", 'info'      AS "record_type" FROM "state_info_records"    WHERE "transaction" = ? ) AS "records" `+
-			// Resolve state references:
-			//   1) direct state ID match
-			//   2) OR nullifier ID → state ID (only for spent records)
-			`ON ("states"."id" = "records"."state"
-			    OR ("records"."record_type" = 'spent'
-				    AND EXISTS (
-					    SELECT 1
-						  FROM "state_nullifiers"
-					    WHERE "state_nullifiers"."id" = "records"."state"
-              AND "state_nullifiers"."state" = "states"."id"
-					  )
-					)
-				)`,
-			txID, txID, txID, txID).
+			`SELECT "transaction", "state", 'info'      AS "record_type" FROM "state_info_records"    WHERE "transaction" = ? `+
+			`) AS "records" LEFT JOIN "states" ON "states"."id" = "records"."state" `+
+			`UNION ALL `+
+			`SELECT "states".*, "sn"."id" AS "state", "sr"."transaction", 'spent' AS "record_type" `+
+			`FROM "state_spend_records" "sr" `+
+			`JOIN "state_nullifiers" "sn" ON "sn"."id" = "sr"."state" `+
+			`LEFT JOIN "states" ON "states"."id" = "sn"."state" `+
+			`WHERE "sr"."transaction" = ?`,
+			txID, txID, txID, txID, txID).
 		Scan(&records).
 		Error
 	if err != nil {
