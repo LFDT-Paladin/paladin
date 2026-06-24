@@ -15,36 +15,37 @@
 package common
 
 import (
-	"fmt"
-
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 )
 
-type SnapshotFlushPoint struct {
-	From          pldtypes.EthAddress
-	Nonce         uint64
-	TransactionID uuid.UUID
-	Hash          pldtypes.Bytes32
-	Confirmed     bool
-}
-
-func (f *SnapshotFlushPoint) GetSignerNonce() string {
-	return fmt.Sprintf("%s:%d", f.From.String(), f.Nonce)
-}
-
+// CoordinatorSnapshot must only contain information about transactions which is (or will eventually be)
+// known on the base ledger (e.g. hash, nonce, signer, revert reason). It must not contain information
+// such as the transaction originator.
+// The exception to this is OutputStates, since this is already filtered to only include output states
+// that the receiver is allowed to see.
 type CoordinatorSnapshot struct {
-	FlushPoints            []*SnapshotFlushPoint            `json:"flushPoints"`
 	DispatchedTransactions []*SnapshotDispatchedTransaction `json:"dispatchedTransactions"`
 	PooledTransactions     []*SnapshotPooledTransaction     `json:"pooledTransactions"`
 	ConfirmedTransactions  []*SnapshotConfirmedTransaction  `json:"confirmedTransactions"`
-	CoordinatorState       string                           `json:"coordinatorState"`
+	RevertedTransactions   []*SnapshotRevertedTransaction   `json:"revertedTransactions"`
+	CoordinatorState       CoordinatorState                 `json:"coordinatorState"`
 	BlockHeight            uint64                           `json:"blockHeight"`
+	EndorserCandidates     []string                         `json:"endorserCandidates,omitempty"` // (COORDINATOR_ENDORSER selection mode only)
+	// Locks and OutputStates are only populated in Flush and Closing heartbeats, for coordinator handover.
+	// Locks contain only on-chain metadata (state IDs, types, block numbers) — no privacy protection needed,
+	// as this data ends up on the base ledger. All locks are sent to every recipient node.
+	// OutputStates carry private state data and are filtered per node: each recipient only receives
+	// the OutputStates where it appears in AllowedNodes. A receiving coordinator can cross-reference the
+	// create locks against its OutputStates to validate it has all the private data it needs.
+	Locks        []*grapher.StateLock                  `json:"locks,omitempty"`
+	OutputStates []*statevisibilitytracker.OutputState `json:"outputStates,omitempty"`
 }
 
 type SnapshotPooledTransaction struct {
-	ID         uuid.UUID
-	Originator string
+	ID uuid.UUID
 }
 
 func (t *SnapshotPooledTransaction) GetID() string {
@@ -53,7 +54,6 @@ func (t *SnapshotPooledTransaction) GetID() string {
 
 type SnapshotDispatchedTransaction struct {
 	SnapshotPooledTransaction
-	SignerLocator        string
 	Signer               pldtypes.EthAddress
 	LatestSubmissionHash *pldtypes.Bytes32
 	Nonce                *uint64
@@ -61,6 +61,10 @@ type SnapshotDispatchedTransaction struct {
 
 type SnapshotConfirmedTransaction struct {
 	SnapshotDispatchedTransaction
-	Hash         pldtypes.Bytes32
+	Hash pldtypes.Bytes32
+}
+
+type SnapshotRevertedTransaction struct {
+	SnapshotPooledTransaction
 	RevertReason pldtypes.HexBytes
 }

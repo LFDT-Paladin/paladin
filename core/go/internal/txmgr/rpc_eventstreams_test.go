@@ -25,6 +25,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -279,9 +280,11 @@ func TestRPCReceiptListenerE2ENack(t *testing.T) {
 func TestRPCEventListenerE2E(t *testing.T) {
 	ctx, url, txm, done := newTestTransactionManagerWithWebSocketRPC(t,
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(&blockindexer.EventStream{
-				ID: uuid.New(),
-			}, nil)
+			esID := uuid.New()
+			mockESHandle := blockindexermocks.NewEventStream(t)
+			mockESHandle.On("Definition").Return(&blockindexer.EventStreamDefinition{ID: esID}).Maybe()
+			mockESHandle.On("ID").Return(esID).Maybe()
+			mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(mockESHandle, nil)
 			mc.blockIndexer.On("StopEventStream", mock.Anything, mock.Anything).Return(nil)
 		})
 	defer done()
@@ -566,4 +569,59 @@ func TestHandleLifecycleNoBlockNack(t *testing.T) {
 	es.getSubscription("sub1").ConnectionClosed()
 	require.Empty(t, es.subs)
 
+}
+
+func TestWaitForAckContextCanceled(t *testing.T) {
+	_, _, txm, done := newTestTransactionManagerWithWebSocketRPC(t)
+	defer done()
+
+	es := txm.rpcEventStreams
+	sub := &listenerSubscription{
+		es:        es,
+		ctrl:      &mockRPCAsyncControl{},
+		acksNacks: make(chan *rpcAckNack),
+		closed:    make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	err := sub.WaitForAck(ctx, "batch1")
+	require.ErrorContains(t, err, "PD010301") // MsgContextCanceled
+}
+
+func TestWaitForAckSubscriptionClosed(t *testing.T) {
+	_, _, txm, done := newTestTransactionManagerWithWebSocketRPC(t)
+	defer done()
+
+	es := txm.rpcEventStreams
+	closed := make(chan struct{})
+	sub := &listenerSubscription{
+		es:        es,
+		ctrl:      &mockRPCAsyncControl{},
+		acksNacks: make(chan *rpcAckNack),
+		closed:    closed,
+	}
+
+	close(closed) // close the subscription channel immediately
+
+	err := sub.WaitForAck(context.Background(), "batch1")
+	require.ErrorContains(t, err, "PD012242") // MsgTxMgrJSONRPCSubscriptionClosed
+}
+
+func TestStopWithActiveSubs(t *testing.T) {
+	_, _, txm, done := newTestTransactionManagerWithWebSocketRPC(t)
+	defer done()
+
+	es := txm.rpcEventStreams
+	es.subs["sub1"] = &listenerSubscription{
+		es:        es,
+		ctrl:      &mockRPCAsyncControl{},
+		acksNacks: make(chan *rpcAckNack, 1),
+		closed:    make(chan struct{}),
+	}
+
+	require.Len(t, es.subs, 1)
+	es.stop()
+	require.Empty(t, es.subs)
 }

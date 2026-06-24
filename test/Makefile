@@ -28,7 +28,13 @@ install: ## Installs the package
 		cd pldtest && go install -ldflags="-X 'github.com/LFDT-Paladin/paladin/test/internal/version.Version=$(VERSION)' -X 'github.com/LFDT-Paladin/paladin/test/internal/version.Date=$(DATE)' -X 'github.com/LFDT-Paladin/paladin/test/internal/version.Commit=$(GITREF)'"
 # TODO: what should the tag be
 docker:
-	docker build --platform linux/amd64 --build-arg BUILD_VERSION=$(VERSION) . -t ghcr.io/lfdt-paladin/paladin-test-cli
+	docker build --platform linux/amd64 \
+		-f Dockerfile \
+		--build-arg BUILD_VERSION=$(VERSION) \
+		--build-arg BUILD_DATE=$(DATE) \
+		--build-arg BUILD_COMMIT=$(GITREF) \
+		-t ghcr.io/lfdt-paladin/paladin-test-cli:$(VERSION) \
+		..
 
 lint: ${LINT} ## Checks and reports lint errors
 		GOGC=20 $(LINT) run -v --timeout 5m

@@ -30,7 +30,6 @@ import {
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IFilter, IFilterField } from '../interfaces';
-import { isValidUUID } from '../utils';
 
 type Props = {
   filterFields: IFilterField[]
@@ -102,8 +101,7 @@ export const AddFilterDialog: React.FC<Props> = ({
       if (selectedFilterField.type === 'number' && isNaN(Number(value))) {
         setValue('');
       }
-      if (selectedFilterField.isUUID || (selectedOperator !== undefined
-        && ['greaterThan', 'greaterThanOrEqual', 'lessThan', 'lessThanOrEqual'].includes(selectedOperator))) {
+      if (selectedOperator !== undefined && ['greaterThan', 'greaterThanOrEqual', 'lessThan', 'lessThanOrEqual'].includes(selectedOperator)) {
         setIsCaseSensitive(true);
       }
       setValues(availableValues);
@@ -123,18 +121,10 @@ export const AddFilterDialog: React.FC<Props> = ({
     }
   };
 
-  let valueHelperText: string | undefined = undefined;
-  if(selectedFilterField?.isUUID) {
-    valueHelperText = t('mustBeAValidUUID')
-  } else if(selectedFilterField?.isHexValue) {
-    valueHelperText = t('mustBeAValidHex')
-  }
 
   const canSubmit = selectedFilterField !== undefined
     && selectedOperator !== undefined
-    && (selectedFilterField.type === 'boolean' || value.length > 0)
-    && (selectedFilterField.isUUID !== true || isValidUUID(value))
-    && (selectedFilterField.isHexValue !== true || value.startsWith('0x'))
+    && (selectedFilterField.type === 'boolean' || value.length > 0);
 
   return (
     <Dialog
@@ -187,7 +177,6 @@ export const AddFilterDialog: React.FC<Props> = ({
                 <TextField
                   type={selectedFilterField?.type === 'number' ? 'number' : 'text'}
                   label={t('value')}
-                  helperText={valueHelperText}
                   autoComplete="off"
                   fullWidth
                   disabled={selectedFilterField === undefined}
@@ -199,7 +188,7 @@ export const AddFilterDialog: React.FC<Props> = ({
                 </TextField>
                 <Box sx={{ textAlign: 'center' }}>
                   <FormControlLabel
-                    disabled={selectedFilterField === undefined || selectedFilterField.isUUID || selectedFilterField.type !== 'string'
+                    disabled={selectedFilterField === undefined || selectedFilterField.type !== 'string'
                       || (selectedOperator !== undefined &&
                         ['greaterThan', 'greaterThanOrEqual', 'lessThan', 'lessThanOrEqual'].includes(selectedOperator))
                     }

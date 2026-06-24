@@ -147,7 +147,7 @@ func newTestDomainPluginManager(t *testing.T, setup *testManagers) (context.Cont
 
 func TestDomainRequestsOK(t *testing.T) {
 
-	log.InitConfig(&pldconf.LogConfig{Level: confutil.P("debug")}) // test debug specific logging
+	log.InitConfig(&pldconf.LogConfig{Level: confutil.P("trace")}) // enable trace to exercise trace logging branches
 	waitForAPI := make(chan components.DomainManagerToDomain, 1)
 	waitForCallbacks := make(chan plugintk.DomainCallbacks, 1)
 
@@ -281,6 +281,19 @@ func TestDomainRequestsOK(t *testing.T) {
 			assert.Equal(t, `tx1`, cscr.TransactionId)
 			return &prototk.CheckStateCompletionResponse{
 				NextMissingStateId: confutil.P("state1"),
+			}, nil
+		},
+		IsBaseLedgerRevertRetryable: func(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+			assert.Equal(t, []byte("revert1"), req.RevertData)
+			return &prototk.IsBaseLedgerRevertRetryableResponse{
+				Retryable:     true,
+				DecodedReason: "decoded1",
+			}, nil
+		},
+		InvokeRPC: func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+			assert.Equal(t, "method1", req.Method)
+			return &prototk.InvokeRPCResponse{
+				ResultJson: `{"rpc":"result"}`,
 			}, nil
 		},
 	}
@@ -516,6 +529,19 @@ func TestDomainRequestsOK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, `state1`, *cscr.NextMissingStateId)
+
+	iblrr, err := domainAPI.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: []byte("revert1"),
+	})
+	require.NoError(t, err)
+	assert.True(t, iblrr.Retryable)
+	assert.Equal(t, "decoded1", iblrr.DecodedReason)
+
+	irpcr, err := domainAPI.InvokeRPC(ctx, &prototk.InvokeRPCRequest{
+		Method: "method1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, `{"rpc":"result"}`, irpcr.ResultJson)
 
 	// Add timeout for callbacks
 	var callbacks plugintk.DomainCallbacks

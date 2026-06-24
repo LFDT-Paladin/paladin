@@ -21,6 +21,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -100,12 +101,12 @@ func TestSelectedEvent_GetTransactionID(t *testing.T) {
 
 func TestAssembleCancelledEvent_Type(t *testing.T) {
 	event := &AssembleCancelledEvent{}
-	assert.Equal(t, Event_Assemble_Cancelled, event.Type())
+	assert.Equal(t, Event_AssembleCancelled, event.Type())
 }
 
 func TestAssembleCancelledEvent_TypeString(t *testing.T) {
 	event := &AssembleCancelledEvent{}
-	assert.Equal(t, "Event_Assemble_Cancelled", event.TypeString())
+	assert.Equal(t, "Event_AssembleCancelled", event.TypeString())
 }
 
 func TestAssembleCancelledEvent_GetTransactionID(t *testing.T) {
@@ -140,12 +141,12 @@ func TestAssembleRequestSentEvent_GetTransactionID(t *testing.T) {
 
 func TestAssembleSuccessEvent_Type(t *testing.T) {
 	event := &AssembleSuccessEvent{}
-	assert.Equal(t, Event_Assemble_Success, event.Type())
+	assert.Equal(t, Event_AssembleSuccess, event.Type())
 }
 
 func TestAssembleSuccessEvent_TypeString(t *testing.T) {
 	event := &AssembleSuccessEvent{}
-	assert.Equal(t, "Event_Assemble_Success", event.TypeString())
+	assert.Equal(t, "Event_AssembleSuccess", event.TypeString())
 }
 
 func TestAssembleSuccessEvent_GetTransactionID(t *testing.T) {
@@ -164,10 +165,6 @@ func TestAssembleSuccessEvent_Fields(t *testing.T) {
 	postAssembly := &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}
-	preAssembly := &components.TransactionPreAssembly{
-		RequiredVerifiers: []*prototk.ResolveVerifierRequest{},
-		Verifiers:         []*prototk.ResolvedVerifier{},
-	}
 
 	event := &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -177,29 +174,27 @@ func TestAssembleSuccessEvent_Fields(t *testing.T) {
 			TransactionID: txID,
 		},
 		PostAssembly: postAssembly,
-		PreAssembly:  preAssembly,
 		RequestID:    requestID,
 	}
 
 	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, postAssembly, event.PostAssembly)
-	assert.Equal(t, preAssembly, event.PreAssembly)
 	assert.Equal(t, requestID, event.RequestID)
 }
 
-func TestAssembleRevertResponseEvent_Type(t *testing.T) {
-	event := &AssembleRevertResponseEvent{}
-	assert.Equal(t, Event_Assemble_Revert_Response, event.Type())
+func TestAssembleRevertEvent_Type(t *testing.T) {
+	event := &AssembleRevertEvent{}
+	assert.Equal(t, Event_AssembleRevert, event.Type())
 }
 
-func TestAssembleRevertResponseEvent_TypeString(t *testing.T) {
-	event := &AssembleRevertResponseEvent{}
-	assert.Equal(t, "Event_Assemble_Revert_Response", event.TypeString())
+func TestAssembleRevertEvent_TypeString(t *testing.T) {
+	event := &AssembleRevertEvent{}
+	assert.Equal(t, "Event_AssembleRevert", event.TypeString())
 }
 
-func TestAssembleRevertResponseEvent_GetTransactionID(t *testing.T) {
+func TestAssembleRevertEvent_GetTransactionID(t *testing.T) {
 	txID := uuid.New()
-	event := &AssembleRevertResponseEvent{
+	event := &AssembleRevertEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txID,
 		},
@@ -207,7 +202,7 @@ func TestAssembleRevertResponseEvent_GetTransactionID(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 }
 
-func TestAssembleRevertResponseEvent_Fields(t *testing.T) {
+func TestAssembleRevertEvent_Fields(t *testing.T) {
 	txID := uuid.New()
 	requestID := uuid.New()
 	revertReason := "transaction reverted"
@@ -216,7 +211,7 @@ func TestAssembleRevertResponseEvent_Fields(t *testing.T) {
 		RevertReason:   &revertReason,
 	}
 
-	event := &AssembleRevertResponseEvent{
+	event := &AssembleRevertEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			BaseEvent: common.BaseEvent{
 				EventTime: time.Now(),
@@ -232,19 +227,19 @@ func TestAssembleRevertResponseEvent_Fields(t *testing.T) {
 	assert.Equal(t, requestID, event.RequestID)
 }
 
-func TestAssembleErrorResponseEvent_Type(t *testing.T) {
-	event := &AssembleErrorResponseEvent{}
-	assert.Equal(t, Event_Assemble_Error_Response, event.Type())
+func TestAssembleErrorEvent_Type(t *testing.T) {
+	event := &AssembleErrorEvent{}
+	assert.Equal(t, Event_AssembleError, event.Type())
 }
 
-func TestAssembleErrorResponseEvent_TypeString(t *testing.T) {
-	event := &AssembleErrorResponseEvent{}
-	assert.Equal(t, "Event_Assemble_Error_Response", event.TypeString())
+func TestAssembleErrorEvent_TypeString(t *testing.T) {
+	event := &AssembleErrorEvent{}
+	assert.Equal(t, "Event_AssembleError", event.TypeString())
 }
 
-func TestAssembleErrorResponseEvent_GetTransactionID(t *testing.T) {
+func TestAssembleErrorEvent_GetTransactionID(t *testing.T) {
 	txID := uuid.New()
-	event := &AssembleErrorResponseEvent{
+	event := &AssembleErrorEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txID,
 		},
@@ -252,11 +247,11 @@ func TestAssembleErrorResponseEvent_GetTransactionID(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 }
 
-func TestAssembleErrorResponseEvent_Fields(t *testing.T) {
+func TestAssembleErrorEvent_Fields(t *testing.T) {
 	txID := uuid.New()
 	requestID := uuid.New()
 
-	event := &AssembleErrorResponseEvent{
+	event := &AssembleErrorEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			BaseEvent: common.BaseEvent{
 				EventTime: time.Now(),
@@ -315,19 +310,19 @@ func TestEndorsedEvent_Fields(t *testing.T) {
 	assert.Equal(t, requestID, event.RequestID)
 }
 
-func TestEndorsedRejectedEvent_Type(t *testing.T) {
-	event := &EndorsedRejectedEvent{}
-	assert.Equal(t, Event_EndorsedRejected, event.Type())
+func TestEndorseRequestRejectedEvent_Type(t *testing.T) {
+	event := &EndorseRequestRejectedEvent{}
+	assert.Equal(t, Event_EndorseRequestRejected, event.Type())
 }
 
-func TestEndorsedRejectedEvent_TypeString(t *testing.T) {
-	event := &EndorsedRejectedEvent{}
-	assert.Equal(t, "Event_EndorsedRejected", event.TypeString())
+func TestEndorseRequestRejectedEvent_TypeString(t *testing.T) {
+	event := &EndorseRequestRejectedEvent{}
+	assert.Equal(t, "Event_EndorseRequestRejected", event.TypeString())
 }
 
-func TestEndorsedRejectedEvent_GetTransactionID(t *testing.T) {
+func TestEndorseRequestRejectedEvent_GetTransactionID(t *testing.T) {
 	txID := uuid.New()
-	event := &EndorsedRejectedEvent{
+	event := &EndorseRequestRejectedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txID,
 		},
@@ -335,31 +330,166 @@ func TestEndorsedRejectedEvent_GetTransactionID(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 }
 
-func TestEndorsedRejectedEvent_Fields(t *testing.T) {
+func TestEndorseRequestRejectedEvent_Fields(t *testing.T) {
 	txID := uuid.New()
 	requestID := uuid.New()
-	revertReason := "endorsement rejected"
-	party := "endorser@testNode"
-	attestationRequestName := "test-endorsement"
+	var coordinatorBlockHeight int64 = 100
+	var endorserBlockHeight int64 = 200
 
-	event := &EndorsedRejectedEvent{
+	event := &EndorseRequestRejectedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			BaseEvent: common.BaseEvent{
 				EventTime: time.Now(),
 			},
 			TransactionID: txID,
 		},
-		RevertReason:           revertReason,
-		Party:                  party,
-		AttestationRequestName: attestationRequestName,
+		Party:                  "party1@node1",
+		AttestationRequestName: "endorse-0",
+		RequestID:              requestID,
+		RejectionReason:        engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
+		CoordinatorBlockHeight: coordinatorBlockHeight,
+		EndorserBlockHeight:    endorserBlockHeight,
+	}
+
+	assert.Equal(t, txID, event.GetTransactionID())
+	assert.Equal(t, "party1@node1", event.Party)
+	assert.Equal(t, "endorse-0", event.AttestationRequestName)
+	assert.Equal(t, requestID, event.RequestID)
+	assert.Equal(t, engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, event.RejectionReason)
+	assert.Equal(t, coordinatorBlockHeight, event.CoordinatorBlockHeight)
+	assert.Equal(t, endorserBlockHeight, event.EndorserBlockHeight)
+}
+
+func TestAssembleRequestRejectedEvent_Type(t *testing.T) {
+	event := &AssembleRequestRejectedEvent{}
+	assert.Equal(t, Event_AssembleRequestRejected, event.Type())
+}
+
+func TestAssembleRequestRejectedEvent_TypeString(t *testing.T) {
+	event := &AssembleRequestRejectedEvent{}
+	assert.Equal(t, "Event_AssembleRequestRejected", event.TypeString())
+}
+
+func TestAssembleRequestRejectedEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &AssembleRequestRejectedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
+func TestAssembleRequestRejectedEvent_Fields(t *testing.T) {
+	txID := uuid.New()
+	requestID := uuid.New()
+	var coordinatorBlockHeight int64 = 100
+	var assemblerBlockHeight int64 = 200
+
+	event := &AssembleRequestRejectedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			BaseEvent: common.BaseEvent{
+				EventTime: time.Now(),
+			},
+			TransactionID: txID,
+		},
+		RequestID:              requestID,
+		RejectionReason:        engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
+		CoordinatorBlockHeight: coordinatorBlockHeight,
+		AssemblerBlockHeight:   assemblerBlockHeight,
+	}
+
+	assert.Equal(t, txID, event.GetTransactionID())
+	assert.Equal(t, requestID, event.RequestID)
+	assert.Equal(t, engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, event.RejectionReason)
+	assert.Equal(t, coordinatorBlockHeight, event.CoordinatorBlockHeight)
+	assert.Equal(t, assemblerBlockHeight, event.AssemblerBlockHeight)
+}
+
+func TestEndorseRevertEvent_Type(t *testing.T) {
+	event := &EndorseRevertEvent{}
+	assert.Equal(t, Event_EndorseRevert, event.Type())
+}
+
+func TestEndorseRevertEvent_TypeString(t *testing.T) {
+	event := &EndorseRevertEvent{}
+	assert.Equal(t, "Event_EndorseRevert", event.TypeString())
+}
+
+func TestEndorseRevertEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &EndorseRevertEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
+func TestEndorseRevertEvent_Fields(t *testing.T) {
+	txID := uuid.New()
+	requestID := uuid.New()
+
+	event := &EndorseRevertEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			BaseEvent: common.BaseEvent{
+				EventTime: time.Now(),
+			},
+			TransactionID: txID,
+		},
+		Party:                  "party1@node1",
+		RevertReason:           "assembly state is invalid",
+		AttestationRequestName: "endorse-0",
 		RequestID:              requestID,
 	}
 
 	assert.Equal(t, txID, event.GetTransactionID())
-	assert.Equal(t, revertReason, event.RevertReason)
-	assert.Equal(t, party, event.Party)
-	assert.Equal(t, attestationRequestName, event.AttestationRequestName)
+	assert.Equal(t, "party1@node1", event.Party)
+	assert.Equal(t, "assembly state is invalid", event.RevertReason)
+	assert.Equal(t, "endorse-0", event.AttestationRequestName)
 	assert.Equal(t, requestID, event.RequestID)
+}
+
+func TestEndorseErrorEvent_Type(t *testing.T) {
+	event := &EndorseErrorEvent{}
+	assert.Equal(t, Event_EndorseError, event.Type())
+}
+
+func TestEndorseErrorEvent_TypeString(t *testing.T) {
+	event := &EndorseErrorEvent{}
+	assert.Equal(t, "Event_EndorseError", event.TypeString())
+}
+
+func TestEndorseErrorEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &EndorseErrorEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
+func TestEndorseErrorEvent_Fields(t *testing.T) {
+	txID := uuid.New()
+	requestID := uuid.New()
+
+	event := &EndorseErrorEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			BaseEvent: common.BaseEvent{
+				EventTime: time.Now(),
+			},
+			TransactionID: txID,
+		},
+		RequestID:              requestID,
+		Party:                  "party1@node1",
+		AttestationRequestName: "endorse-0",
+	}
+
+	assert.Equal(t, txID, event.GetTransactionID())
+	assert.Equal(t, requestID, event.RequestID)
+	assert.Equal(t, "party1@node1", event.Party)
+	assert.Equal(t, "endorse-0", event.AttestationRequestName)
 }
 
 func TestDispatchRequestApprovedEvent_Type(t *testing.T) {
@@ -731,6 +861,102 @@ func TestDependencyReadyEvent_Fields(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 }
 
+func TestChainedDependencyFailedEvent_Type(t *testing.T) {
+	event := &ChainedDependencyFailedEvent{}
+	assert.Equal(t, Event_ChainedDependencyFailed, event.Type())
+}
+
+func TestChainedDependencyFailedEvent_TypeString(t *testing.T) {
+	event := &ChainedDependencyFailedEvent{}
+	assert.Equal(t, "Event_ChainedDependencyFailed", event.TypeString())
+}
+
+func TestChainedDependencyFailedEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &ChainedDependencyFailedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
+func TestChainedDependencyFailedEvent_Fields(t *testing.T) {
+	txID := uuid.New()
+	failedTxID := uuid.New()
+
+	event := &ChainedDependencyFailedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			BaseEvent: common.BaseEvent{
+				EventTime: time.Now(),
+			},
+			TransactionID: txID,
+		},
+		FailedTxID: failedTxID,
+	}
+
+	assert.Equal(t, txID, event.GetTransactionID())
+	assert.Equal(t, failedTxID, event.FailedTxID)
+}
+
+func TestChainedDependencyEvictedEvent_Type(t *testing.T) {
+	event := &ChainedDependencyEvictedEvent{}
+	assert.Equal(t, Event_ChainedDependencyEvicted, event.Type())
+}
+
+func TestChainedDependencyEvictedEvent_TypeString(t *testing.T) {
+	event := &ChainedDependencyEvictedEvent{}
+	assert.Equal(t, "Event_ChainedDependencyEvicted", event.TypeString())
+}
+
+func TestChainedDependencyEvictedEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &ChainedDependencyEvictedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
+func TestChainedDependencyEvictedEvent_Fields(t *testing.T) {
+	txID := uuid.New()
+	evictedTxID := uuid.New()
+
+	event := &ChainedDependencyEvictedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			BaseEvent: common.BaseEvent{
+				EventTime: time.Now(),
+			},
+			TransactionID: txID,
+		},
+		EvictedTxID: evictedTxID,
+	}
+
+	assert.Equal(t, txID, event.GetTransactionID())
+	assert.Equal(t, evictedTxID, event.EvictedTxID)
+}
+
+func TestPreAssembleDependencyTerminatedEvent_Type(t *testing.T) {
+	event := &PreAssembleDependencyTerminatedEvent{}
+	assert.Equal(t, Event_PreAssembleDependencyTerminated, event.Type())
+}
+
+func TestPreAssembleDependencyTerminatedEvent_TypeString(t *testing.T) {
+	event := &PreAssembleDependencyTerminatedEvent{}
+	assert.Equal(t, "Event_PreAssembleDependencyTerminated", event.TypeString())
+}
+
+func TestPreAssembleDependencyTerminatedEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &PreAssembleDependencyTerminatedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
 func TestRequestTimeoutIntervalEvent_Type(t *testing.T) {
 	event := &RequestTimeoutIntervalEvent{}
 	assert.Equal(t, Event_RequestTimeoutInterval, event.Type())
@@ -841,12 +1067,12 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 				TransactionID: txID,
 			},
 		},
-		&AssembleRevertResponseEvent{
+		&AssembleRevertEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},
 		},
-		&AssembleErrorResponseEvent{
+		&AssembleErrorEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},
@@ -856,7 +1082,22 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 				TransactionID: txID,
 			},
 		},
-		&EndorsedRejectedEvent{
+		&EndorseRevertEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
+		&EndorseErrorEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
+		&EndorseRequestRejectedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
+		&AssembleRequestRejectedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},
@@ -916,6 +1157,21 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 				TransactionID: txID,
 			},
 		},
+		&ChainedDependencyFailedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
+		&ChainedDependencyEvictedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
+		&PreAssembleDependencyTerminatedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
 		&RequestTimeoutIntervalEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
@@ -931,10 +1187,12 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 				TransactionID: txID,
 			},
 		},
-		&TransactionUnknownByOriginatorEvent{
+		&PreDispatchRequestRejectedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},
+			RequestID:       txID,
+			RejectionReason: engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
 		},
 	}
 

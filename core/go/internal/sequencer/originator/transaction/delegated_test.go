@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -92,8 +92,8 @@ func TestAction_SendPreDispatchResponse_Success(t *testing.T) {
 func TestAction_SendPreDispatchResponse_TransportError(t *testing.T) {
 	// Test that action_SendPreDispatchResponse returns error when transport fails
 	ctx := context.Background()
-	builder := NewTransactionBuilderForTesting(t, State_Delegated)
-	txn, _ := builder.BuildWithMocks()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated).WithMockTransportWriter()
+	txn, mocks := builder.BuildWithMocks()
 
 	// Set up required fields first
 	coordinator := "coordinator@node1"
@@ -111,19 +111,13 @@ func TestAction_SendPreDispatchResponse_TransportError(t *testing.T) {
 	}
 	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
-	// Create a mock transport writer that returns an error
-	mockTransport := transport.NewMockTransportWriter(t)
 	expectedError := errors.New("transport error")
-	mockTransport.EXPECT().SendPreDispatchResponse(
+	mocks.TransportWriter.EXPECT().SendPreDispatchResponse(
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 	).Return(expectedError)
-
-	// Replace transport writer with mock
-	originalTransport := txn.transportWriter
-	txn.transportWriter = mockTransport
 
 	// Execute the action
 	err := action_SendPreDispatchResponse(ctx, txn, nil)
@@ -131,13 +125,10 @@ func TestAction_SendPreDispatchResponse_TransportError(t *testing.T) {
 	// Verify error is returned
 	assert.Error(t, err)
 	assert.Equal(t, expectedError, err)
-
-	// Restore original transport
-	txn.transportWriter = originalTransport
 }
 
 func TestValidator_AssembleRequestMatches_Matches(t *testing.T) {
-	// Test that validator_AssembleRequestMatches returns true when coordinator matches
+	// Test that validator_AssembleRequestFromCurrentDelegate returns true when coordinator matches
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Delegated)
 	txn, _ := builder.BuildWithMocks()
@@ -153,14 +144,14 @@ func TestValidator_AssembleRequestMatches_Matches(t *testing.T) {
 		RequestID:   uuid.New(),
 	}
 
-	matches, err := validator_AssembleRequestMatches(ctx, txn, event)
+	matches, err := validator_AssembleRequestFromCurrentDelegate(ctx, txn, event)
 
 	assert.NoError(t, err)
 	assert.True(t, matches, "Should return true when coordinator matches")
 }
 
 func TestValidator_AssembleRequestMatches_DoesNotMatch(t *testing.T) {
-	// Test that validator_AssembleRequestMatches returns false when coordinator does not match
+	// Test that validator_AssembleRequestFromCurrentDelegate returns false when coordinator does not match
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Delegated)
 	txn, _ := builder.BuildWithMocks()
@@ -177,14 +168,14 @@ func TestValidator_AssembleRequestMatches_DoesNotMatch(t *testing.T) {
 		RequestID:   uuid.New(),
 	}
 
-	matches, err := validator_AssembleRequestMatches(ctx, txn, event)
+	matches, err := validator_AssembleRequestFromCurrentDelegate(ctx, txn, event)
 
 	assert.NoError(t, err)
 	assert.False(t, matches, "Should return false when coordinator does not match")
 }
 
 func TestValidator_AssembleRequestMatches_WrongEventType(t *testing.T) {
-	// Test that validator_AssembleRequestMatches returns false when event type is wrong
+	// Test that validator_AssembleRequestFromCurrentDelegate returns false when event type is wrong
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Delegated)
 	txn, _ := builder.BuildWithMocks()
@@ -200,14 +191,14 @@ func TestValidator_AssembleRequestMatches_WrongEventType(t *testing.T) {
 		Coordinator: coordinator,
 	}
 
-	matches, err := validator_AssembleRequestMatches(ctx, txn, event)
+	matches, err := validator_AssembleRequestFromCurrentDelegate(ctx, txn, event)
 
 	assert.NoError(t, err)
 	assert.False(t, matches, "Should return false when event type is wrong")
 }
 
 func TestValidator_PreDispatchRequestMatchesAssembledDelegation_Success(t *testing.T) {
-	// Test that validator_PreDispatchRequestMatchesAssembledDelegation returns true when coordinator and hash match
+	// Test that validator_PreDispatchRequestFromCurrentDelegate returns true when coordinator and hash match
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn, _ := builder.BuildWithMocks()
@@ -239,15 +230,16 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_Success(t *testi
 		RequestID:        requestID,
 	}
 
-	matches, err := validator_PreDispatchRequestMatchesAssembledDelegation(ctx, txn, event)
+	matches, err := validator_PreDispatchRequestFromCurrentDelegate(ctx, txn, event)
 
 	assert.NoError(t, err)
 	assert.True(t, matches, "Should return true when coordinator and hash match")
 	// Note: request ID is stored by action_PreDispatchRequestReceived (first action) when the event is processed via HandleEvent
 }
 
-func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongCoordinator(t *testing.T) {
-	// Test that validator_PreDispatchRequestMatchesAssembledDelegation returns false when coordinator does not match
+func TestValidator_PreDispatchRequestFromCurrentDelegate_WrongCoordinator(t *testing.T) {
+	// Test that validator_PreDispatchRequestFromCurrentDelegate returns false when coordinator does not match.
+	// No transport call is expected — the send is handled by action_SendPreDispatchRejectionNotCurrentDelegate.
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn, _ := builder.BuildWithMocks()
@@ -278,7 +270,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongCoordinator
 		RequestID:        uuid.New(),
 	}
 
-	matches, err := validator_PreDispatchRequestMatchesAssembledDelegation(ctx, txn, event)
+	matches, err := validator_PreDispatchRequestFromCurrentDelegate(ctx, txn, event)
 
 	assert.NoError(t, err)
 	assert.False(t, matches, "Should return false when coordinator does not match")
@@ -286,7 +278,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongCoordinator
 }
 
 func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongHash(t *testing.T) {
-	// Test that validator_PreDispatchRequestMatchesAssembledDelegation returns false when hash does not match
+	// Test that validator_PreDispatchRequestFromCurrentDelegate returns false when hash does not match
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn, _ := builder.BuildWithMocks()
@@ -323,7 +315,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongHash(t *tes
 		RequestID:        uuid.New(),
 	}
 
-	matches, err := validator_PreDispatchRequestMatchesAssembledDelegation(ctx, txn, event)
+	matches, err := validator_PreDispatchRequestFromCurrentDelegate(ctx, txn, event)
 
 	assert.NoError(t, err)
 	assert.False(t, matches, "Should return false when hash does not match")
@@ -331,7 +323,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongHash(t *tes
 }
 
 func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongEventType(t *testing.T) {
-	// Test that validator_PreDispatchRequestMatchesAssembledDelegation returns false when event type is wrong
+	// Test that validator_PreDispatchRequestFromCurrentDelegate returns false when event type is wrong
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn, _ := builder.BuildWithMocks()
@@ -347,14 +339,14 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongEventType(t
 		Coordinator: coordinator,
 	}
 
-	matches, err := validator_PreDispatchRequestMatchesAssembledDelegation(ctx, txn, event)
+	matches, err := validator_PreDispatchRequestFromCurrentDelegate(ctx, txn, event)
 
 	assert.NoError(t, err)
 	assert.False(t, matches, "Should return false when event type is wrong")
 }
 
 func TestValidator_PreDispatchRequestMatchesAssembledDelegation_HashError(t *testing.T) {
-	// Test that validator_PreDispatchRequestMatchesAssembledDelegation returns error when Hash() fails
+	// Test that validator_PreDispatchRequestFromCurrentDelegate returns error when Hash() fails
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Delegated)
 	txn, _ := builder.BuildWithMocks()
@@ -374,9 +366,156 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_HashError(t *tes
 		RequestID:        uuid.New(),
 	}
 
-	matches, err := validator_PreDispatchRequestMatchesAssembledDelegation(ctx, txn, event)
+	matches, err := validator_PreDispatchRequestFromCurrentDelegate(ctx, txn, event)
 
 	assert.Error(t, err, "Should return error when Hash() fails")
 	assert.False(t, matches, "Should return false when there's an error")
 	assert.Contains(t, err.Error(), "cannot hash transaction without PostAssembly", "Error should indicate missing PostAssembly")
+}
+
+func Test_action_ResetDelegationState_ClearsAssemblyAndDispatchState(t *testing.T) {
+	ctx := context.Background()
+	// Start in State_Assembling — state machine has a top-level validator for Event_Delegated in
+	// this state that checks ValidatorNot(validator_CoordinatorIsCurrentDelegate), so a re-delegation
+	// from a DIFFERENT coordinator triggers action_ResetDelegationState.
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+
+	// Populate assembly state that should be cleared on re-delegation.
+	txn.latestFulfilledAssembleRequestID = uuid.New()
+	txn.signerAddress = pldtypes.RandAddress()
+	nonce := uint64(42)
+	txn.nonce = &nonce
+	txn.latestPreDispatchRequestID = uuid.New()
+	submissionHash := pldtypes.RandBytes32()
+	txn.latestSubmissionHash = &submissionHash
+
+	// Send DelegatedEvent from a DIFFERENT coordinator than the current delegate.
+	// The ValidatorNot(validator_CoordinatorIsCurrentDelegate) passes because coordinator differs.
+	newCoordinator := "new-coordinator@node2"
+	err := txn.HandleEvent(ctx, &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
+		Coordinator: newCoordinator,
+	})
+	require.NoError(t, err)
+
+	// State should transition back to Delegated.
+	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+
+	// action_ResetDelegationState should have cleared all assembly/dispatch state.
+	assert.Nil(t, txn.latestAssembleRequest)
+	assert.Equal(t, uuid.Nil, txn.latestFulfilledAssembleRequestID)
+	assert.Equal(t, uuid.Nil, txn.latestPreDispatchRequestID)
+	assert.Nil(t, txn.signerAddress)
+	assert.Nil(t, txn.latestSubmissionHash)
+	assert.Nil(t, txn.nonce)
+	// currentDelegate should now be the new coordinator (set by action_Delegated).
+	assert.Equal(t, newCoordinator, txn.currentDelegate)
+}
+
+func Test_validator_CoordinatorIsCurrentDelegate_WrongCoordinator_ReturnsFalse(t *testing.T) {
+	// Exercises the return false, nil branch — event implements EventWithCoordinator but
+	// the coordinator doesn't match the current delegate.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated)
+	txn, _ := builder.BuildWithMocks()
+
+	txn.currentDelegate = "coord@node1"
+
+	// DispatchedEvent implements EventWithCoordinator.
+	event := &DispatchedEvent{
+		BaseEvent:     BaseEvent{TransactionID: txn.GetID()},
+		Coordinator:   "other@node2",
+		SignerAddress: *pldtypes.RandAddress(),
+	}
+
+	ok, err := validator_CoordinatorIsCurrentDelegate(ctx, txn, event)
+	require.NoError(t, err)
+	assert.False(t, ok, "should return false when coordinator does not match currentDelegate")
+}
+
+func TestAction_SendAssembleRejectionNotCurrentDelegate_Success(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated).WithMockTransportWriter()
+	txn, mocks := builder.BuildWithMocks()
+
+	txn.currentDelegate = "coordinator@node1"
+	reqID := uuid.New()
+	event := &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		Coordinator: "other@node2",
+		RequestID:   reqID,
+	}
+
+	mocks.TransportWriter.EXPECT().
+		SendAssembleRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE, int64(0), int64(0)).
+		Return(nil)
+
+	err := action_SendAssembleRejectionNotCurrentDelegate(ctx, txn, event)
+	require.NoError(t, err)
+}
+
+func TestAction_SendAssembleRejectionNotCurrentDelegate_TransportError_LogsWarnAndReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated).WithMockTransportWriter()
+	txn, mocks := builder.BuildWithMocks()
+
+	txn.currentDelegate = "coordinator@node1"
+	reqID := uuid.New()
+	event := &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		Coordinator: "other@node2",
+		RequestID:   reqID,
+	}
+
+	mocks.TransportWriter.EXPECT().
+		SendAssembleRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE, int64(0), int64(0)).
+		Return(errors.New("transport error"))
+
+	err := action_SendAssembleRejectionNotCurrentDelegate(ctx, txn, event)
+	require.NoError(t, err, "transport error must be logged and swallowed, not returned as action error")
+}
+
+func TestAction_SendPreDispatchRejectionNotCurrentDelegate_Success(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Prepared).WithMockTransportWriter()
+	txn, mocks := builder.BuildWithMocks()
+
+	txn.currentDelegate = "coordinator@node1"
+	reqID := uuid.New()
+	event := &PreDispatchRequestReceivedEvent{
+		BaseEvent:        BaseEvent{TransactionID: txn.GetID()},
+		Coordinator:      "other@node2",
+		PostAssemblyHash: ptrTo(pldtypes.RandBytes32()),
+		RequestID:        reqID,
+	}
+
+	mocks.TransportWriter.EXPECT().
+		SendPreDispatchRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE).
+		Return(nil)
+
+	err := action_SendPreDispatchRejectionNotCurrentDelegate(ctx, txn, event)
+	require.NoError(t, err)
+}
+
+func TestAction_SendPreDispatchRejectionNotCurrentDelegate_TransportError_LogsWarnAndReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Prepared).WithMockTransportWriter()
+	txn, mocks := builder.BuildWithMocks()
+
+	txn.currentDelegate = "coordinator@node1"
+	reqID := uuid.New()
+	event := &PreDispatchRequestReceivedEvent{
+		BaseEvent:        BaseEvent{TransactionID: txn.GetID()},
+		Coordinator:      "other@node2",
+		PostAssemblyHash: ptrTo(pldtypes.RandBytes32()),
+		RequestID:        reqID,
+	}
+
+	mocks.TransportWriter.EXPECT().
+		SendPreDispatchRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE).
+		Return(errors.New("transport error"))
+
+	err := action_SendPreDispatchRejectionNotCurrentDelegate(ctx, txn, event)
+	require.NoError(t, err, "transport error must be logged and swallowed, not returned as action error")
 }

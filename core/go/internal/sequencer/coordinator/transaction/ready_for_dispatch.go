@@ -133,7 +133,7 @@ func (t *coordinatorTransaction) allocateSigningIdentity(ctx context.Context) {
 	}
 
 	log.L(ctx).Debugf("No fixed or endorsement-specific signing identity for TX %s - allocating a dynamic signing identity", t.pt.ID.String())
-	t.pt.Signer = t.coordinatorSigningIdentity
+	t.pt.Signer = t.getCoordinatorSigningIdentity()
 }
 
 func action_NotifyDependentsOfReadiness(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {

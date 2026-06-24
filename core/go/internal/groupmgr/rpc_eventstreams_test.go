@@ -577,6 +577,23 @@ func (ac *mockRPCAsyncControl) ID() string                     { return "sub1" }
 func (ac *mockRPCAsyncControl) Closed()                        {}
 func (ac *mockRPCAsyncControl) Send(method string, params any) {}
 
+func TestStopWithActiveSubscriptions(t *testing.T) {
+	_, _, gm, _, done := newTestGroupManagerWithWebSocketRPC(t)
+	defer done()
+
+	ctrl := &mockRPCAsyncControl{}
+	es := gm.rpcEventStreams
+	es.receiptSubs["sub1"] = &receiptListenerSubscription{
+		es:        es,
+		ctrl:      ctrl,
+		acksNacks: make(chan *rpcAckNack),
+		closed:    make(chan struct{}),
+	}
+
+	es.stop()
+	require.Empty(t, es.receiptSubs)
+}
+
 func TestHandleLifecycleNoBlockNack(t *testing.T) {
 	ctx, _, gm, _, done := newTestGroupManagerWithWebSocketRPC(t)
 	defer done()

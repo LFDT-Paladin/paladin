@@ -299,6 +299,7 @@ func subscribeAndSendDataToChannel(ctx context.Context, t *testing.T, wsClient p
 	sub, err := wsClient.PTX().SubscribeBlockchainEvents(ctx, listenerName)
 	require.NoError(t, err)
 	go func() {
+		var lastBlock, lastTxIndex, lastLogIndex int64 = -1, -1, -1
 		for {
 			select {
 			case subNotification, ok := <-sub.Notifications():
@@ -308,7 +309,25 @@ func subscribeAndSendDataToChannel(ctx context.Context, t *testing.T, wsClient p
 					_ = json.Unmarshal(subNotification.GetResult(), &batch)
 					for _, e := range batch.Events {
 						t.Logf("Received event on %s from %d/%d/%d : %s", listenerName, e.BlockNumber, e.TransactionIndex, e.LogIndex, e.Data.String())
-						eventData = append(eventData, e.Data.String())
+						switch {
+						case e.BlockNumber > lastBlock ||
+							(e.BlockNumber == lastBlock && e.TransactionIndex > lastTxIndex) ||
+							(e.BlockNumber == lastBlock && e.TransactionIndex == lastTxIndex && e.LogIndex > lastLogIndex):
+							// New event - forward it
+							lastBlock, lastTxIndex, lastLogIndex = e.BlockNumber, e.TransactionIndex, e.LogIndex
+							eventData = append(eventData, e.Data.String())
+						case e.BlockNumber == lastBlock && e.TransactionIndex == lastTxIndex && e.LogIndex == lastLogIndex:
+							// Exact duplicate - at-least-once re-delivery, discard silently
+							t.Logf("Discarding duplicate event on %s from %d/%d/%d", listenerName, e.BlockNumber, e.TransactionIndex, e.LogIndex)
+						default:
+							// Event position went backwards - this is a serious bug
+							// We can't fail the test from a goroutine but exiting will stop us from processing any more events
+							// which whould stop the test expecations from being met
+							t.Errorf("Event on %s went backwards: received %d/%d/%d after last seen %d/%d/%d",
+								listenerName, e.BlockNumber, e.TransactionIndex, e.LogIndex,
+								lastBlock, lastTxIndex, lastLogIndex)
+							return
+						}
 					}
 					require.NoError(t, subNotification.Ack(ctx))
 					// send after the ack otherwise the main test can complete when it receives the last values and the websocket is closed before the ack
@@ -393,9 +412,10 @@ func TestUpdatePublicTransaction(t *testing.T) {
 		tx, err = c.PTX().GetTransactionFull(ctx, *setRes.ID())
 		require.NoError(ct, err)
 		require.Len(ct, tx.Public, 1)
-		require.NotEmpty(ct, tx.Public[0].Activity)
-		assert.Regexp(ct, "ERROR.*Intrinsic", tx.Public[0].Activity[0].Message)
-	}, 10*time.Second, 100*time.Millisecond, "Transaction was not processed with error in time")
+		require.NotEmpty(ct, tx.Public[0].Activity, "Activity array should not be empty")
+		require.NotNil(ct, tx.Public[0].Activity[0])
+		assert.Regexp(ct, "ERROR.*Intrinsic", tx.Public[0].Activity[0])
+	}, 10*time.Second, 100*time.Millisecond, "Transaction was not processed with error in time (txID: %s)", setRes.ID())
 
 	_, err = c.PTX().UpdateTransaction(ctx, *setRes.ID(), &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
@@ -847,9 +867,7 @@ func TestCreateStateOnOneNodeSpendOnAnother(t *testing.T) {
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
 
-	domainConfig := &domains.SimpleDomainConfig{
-		SubmitMode: domains.ENDORSER_SUBMISSION,
-	}
+	domainConfig := &domains.SimpleDomainConfig{}
 
 	startNode(t, alice, domainConfig)
 	startNode(t, bob, domainConfig)
@@ -1116,7 +1134,7 @@ func TestNotaryDelegatedPrepare(t *testing.T) {
 		},
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
-		"Prepared transaction not available on originator node",
+		"Prepared transaction not available on originator node (txID: %s)", transferA2BTx.ID(),
 	)
 
 }
@@ -1432,9 +1450,7 @@ func TestPrivacyGroupEndorsement(t *testing.T) {
 	bob.AddPeer(alice.GetNodeConfig(), carol.GetNodeConfig())
 	carol.AddPeer(alice.GetNodeConfig(), bob.GetNodeConfig())
 
-	domainConfig := &domains.SimpleStorageDomainConfig{
-		SubmitMode: domains.ONE_TIME_USE_KEYS,
-	}
+	domainConfig := &domains.SimpleStorageDomainConfig{}
 	startNode(t, alice, domainConfig)
 	startNode(t, bob, domainConfig)
 	startNode(t, carol, domainConfig)
@@ -1531,9 +1547,7 @@ func TestPrivacyGroupEndorsementConcurrent(t *testing.T) {
 	bob.AddPeer(alice.GetNodeConfig(), carol.GetNodeConfig())
 	carol.AddPeer(alice.GetNodeConfig(), bob.GetNodeConfig())
 
-	domainConfig := &domains.SimpleStorageDomainConfig{
-		SubmitMode: domains.ONE_TIME_USE_KEYS,
-	}
+	domainConfig := &domains.SimpleStorageDomainConfig{}
 	startNode(t, alice, domainConfig)
 	startNode(t, bob, domainConfig)
 	startNode(t, carol, domainConfig)

@@ -30,8 +30,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/go-resty/resty/v2"
+	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -165,4 +167,45 @@ func TestRPC(t *testing.T) {
 	assert.Equal(t, state.ID, states[0].ID)
 	assert.Equal(t, nullifier1, states[0].Nullifier.ID)
 
+}
+
+func TestRPCTransferState(t *testing.T) {
+	ctx, ss, c, m, done := newTestRPCServer(t)
+	defer done()
+
+	m.transportManager.On("LocalNodeName").Return(localNodeName).Maybe()
+
+	expectedMsgID := uuid.New()
+	m.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			msgs := args.Get(2).([]*pldapi.ReliableMessage)
+			msgs[0].ID = expectedMsgID
+		}).Return(nil).Once()
+
+	_ = mockDomain(t, m, "domain1", false)
+	mockStateCallback(m)
+
+	var abiParam abi.Parameter
+	err := json.Unmarshal([]byte(widgetABI), &abiParam)
+	require.NoError(t, err)
+	schema, err := newABISchema(ctx, "domain1", &abiParam)
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+
+	contractAddress := pldtypes.RandAddress()
+	var storedState *pldapi.State
+	rpcErr := c.CallRPC(ctx, &storedState, "pstate_storeState", "domain1", contractAddress.String(), schema.ID(), pldtypes.RawJSON(`{
+	    "salt": "fd2724ce91a859e24c228e50ae17b9443454514edce9a64437c208b0184d8910",
+		"size": 10,
+		"color": "blue",
+		"price": "1230000000000000000"
+	}`))
+	require.Nil(t, rpcErr)
+	require.NotNil(t, storedState)
+
+	var msgID uuid.UUID
+	rpcErr = c.CallRPC(ctx, &msgID, "pstate_transferPrivateState", "domain1", storedState.ID, "alice@node2")
+	assert.Nil(t, rpcErr)
+	assert.Equal(t, expectedMsgID, msgID)
 }

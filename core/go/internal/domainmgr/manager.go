@@ -366,7 +366,6 @@ func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persisten
 				}
 			}
 			return result, err
-
 		},
 	}
 	return qw.Run(ctx, dbTX)

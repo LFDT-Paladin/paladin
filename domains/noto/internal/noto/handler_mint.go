@@ -23,11 +23,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 )
 
 type mintHandler struct {
@@ -75,24 +72,47 @@ func (h *mintHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req
 
 func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.MintParams)
-	notary := tx.DomainConfig.NotaryLookup
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
-	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	ids, err := resolveIdentities(ctx, h.noto, tx, req, "", params.To)
 	if err != nil {
 		return nil, err
 	}
-	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, err
-	}
-	toID, err := h.noto.findEthAddressVerifier(ctx, "to", params.To, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, err
-	}
+	notaryID, senderID, toID := ids.notary, ids.sender, ids.to
 
 	outputStates, err := h.noto.prepareOutputs(toID, params.Amount, identityList{notaryID, toID})
 	if err != nil {
 		return nil, err
+	}
+	if useNullifiers {
+		// for new output states, while we create them, we add the corresponding nullifier to the new state,
+		// which will be persisted in the state DB. This allows us to track which states have been spent,
+		// because the spending transactions will include the nullifier IDs, rather than the state IDs, in
+		// the receipt.
+		for _, newState := range outputStates.states {
+			// Here the new output state could be for the minter (notaryID) or the receiver (toID).
+			// regardless of the owner, the notary always knows about the nullifier. So we always
+			// add the nullifier spec for the notary.
+			newState.NullifierSpecs = []*prototk.NullifierSpec{
+				{
+					Party:        notaryID.identifier,
+					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+				},
+			}
+			// In addition, Paladin also puts the responsibility to generate the nullifier for the states
+			// to be owned by the receiver, on the minter. So if the receiver is not the notary, we add
+			// another nullifier spec with the distribution to the receiver.
+			if toID.identifier != notaryID.identifier {
+				newState.NullifierSpecs = append(newState.NullifierSpecs, &prototk.NullifierSpec{
+					Party:        toID.identifier,
+					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+				})
+			}
+		}
 	}
 	infoDistribution := identityList{notaryID, senderID, toID}
 	infoStates, err := h.noto.prepareDataInfo(ctx, params.Data, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, req.ResolvedVerifiers)
@@ -122,26 +142,7 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 			OutputStates: outputStates.states,
 			InfoStates:   infoStates,
 		},
-		AttestationPlan: []*prototk.AttestationRequest{
-			// Sender confirms the initial request with a signature
-			{
-				Name:            "sender",
-				AttestationType: prototk.AttestationType_SIGN,
-				Algorithm:       algorithms.ECDSA_SECP256K1,
-				VerifierType:    verifiers.ETH_ADDRESS,
-				Payload:         encodedTransfer,
-				PayloadType:     signpayloads.OPAQUE_TO_RSV,
-				Parties:         []string{req.Transaction.From},
-			},
-			// Notary will endorse the assembled transaction (by submitting to the ledger)
-			{
-				Name:            "notary",
-				AttestationType: prototk.AttestationType_ENDORSE,
-				Algorithm:       algorithms.ECDSA_SECP256K1,
-				VerifierType:    verifiers.ETH_ADDRESS,
-				Parties:         []string{notary},
-			},
-		},
+		AttestationPlan: buildEndorsePlan(tx.DomainConfig.NotaryLookup, req.Transaction.From, encodedTransfer),
 	}, nil
 }
 
@@ -191,6 +192,15 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		return nil, err
 	}
 
+	payload := sender.Payload
+	if tx.DomainConfig.IsNullifierVariant() {
+		encoded, encErr := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
+		if encErr != nil {
+			return nil, encErr
+		}
+		payload = encoded
+	}
+
 	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
 	functionName := "mint"
 	var paramsJSON []byte
@@ -198,17 +208,19 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 	if tx.DomainConfig.IsV0() {
 		paramsJSON, err = json.Marshal(&NotoMint_V0_Params{
 			TxId:      req.Transaction.TransactionId,
-			Outputs:   endorsableStateIDs(req.OutputStates),
+			Outputs:   endorsableStateIDs(ctx, req.OutputStates, false),
 			Signature: sender.Payload,
 			Data:      data,
 		})
-	} else {
+	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		paramsJSON, err = json.Marshal(&NotoMintParams{
 			TxId:    req.Transaction.TransactionId,
-			Outputs: endorsableStateIDs(req.OutputStates),
-			Proof:   sender.Payload,
+			Outputs: endorsableStateIDs(ctx, req.OutputStates, false),
+			Proof:   payload,
 			Data:    data,
 		})
+	} else {
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, tx.DomainConfig.Variant)
 	}
 	if err != nil {
 		return nil, err

@@ -164,6 +164,49 @@ func TestValidatorOr_Error(t *testing.T) {
 	assert.Equal(t, expectedErr, err)
 }
 
+func TestValidatorNot(t *testing.T) {
+	ctx := context.Background()
+	entity := &validatorTestEntity{value: 7}
+	event := newValidatorTestEvent()
+
+	notTrue := ValidatorNot(trueValidator)
+	valid, err := notTrue(ctx, entity, event)
+	require.NoError(t, err)
+	assert.False(t, valid)
+
+	notFalse := ValidatorNot(falseValidator)
+	valid, err = notFalse(ctx, entity, event)
+	require.NoError(t, err)
+	assert.True(t, valid)
+
+	notConditional := ValidatorNot(valueGreaterThan5Validator)
+	valid, err = notConditional(ctx, entity, event)
+	require.NoError(t, err)
+	assert.False(t, valid)
+
+	entityBelow := &validatorTestEntity{value: 3}
+	valid, err = notConditional(ctx, entityBelow, event)
+	require.NoError(t, err)
+	assert.True(t, valid)
+}
+
+func TestValidatorNot_Error(t *testing.T) {
+	ctx := context.Background()
+	entity := &validatorTestEntity{}
+	event := newValidatorTestEvent()
+	expectedErr := errors.New("validator failed")
+
+	validator := ValidatorNot(
+		func(ctx context.Context, e *validatorTestEntity, event common.Event) (bool, error) {
+			return false, expectedErr
+		},
+	)
+
+	valid, err := validator(ctx, entity, event)
+	assert.False(t, valid)
+	assert.Equal(t, expectedErr, err)
+}
+
 func TestValidatorShortCircuit(t *testing.T) {
 	ctx := context.Background()
 	entity := &validatorTestEntity{}

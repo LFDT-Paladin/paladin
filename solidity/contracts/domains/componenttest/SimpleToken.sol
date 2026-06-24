@@ -18,8 +18,15 @@ contract SimpleToken {
     error SimpleTokenRetryableError(bytes32 id);
     error SimpleTokenNonRetryableError(bytes32 id);
     bytes32 public constant SINGLE_FUNCTION_SELECTOR = keccak256("SimpleToken()");
-    
+
+    mapping(bytes32 => bool) private _txIds;
+
     constructor() {
+    }
+
+    function _useTxId(bytes32 txId) internal {
+        require(!_txIds[txId], "duplicate txId");
+        _txIds[txId] = true;
     }
 
     function paladinExecute_V0(bytes32 txId, bytes32 fnSelector, bytes calldata payload) public  {
@@ -30,6 +37,7 @@ contract SimpleToken {
     }
 
     function executeNotarized(bytes32 txId, bytes32[] calldata inputs, bytes32[] calldata outputs, bytes calldata signature, uint256 errorMode) public {
+        _useTxId(txId);
 
         if (errorMode == 1) {
             revert SimpleTokenRetryableError(outputs.length > 0 ? outputs[0] : bytes32(0));
@@ -43,6 +51,8 @@ contract SimpleToken {
     // Version of the on-chain function that exposes the actual amount the transfer represents and enforces a fixed validation rule
     // that every amount muust be +=1 the previous amount. We use this to exercise simple on-ledger in-order delivery in the tests
     function executeNotarizedAmountExposed(bytes32 txId, bytes32[] calldata inputs, bytes32[] calldata outputs, bytes calldata signature, uint256 amount) public {
+        _useTxId(txId);
+
         if (amount != storedAmount + 1) {
             revert("tx arrived out of order, amount not expected");
         }
@@ -51,6 +61,9 @@ contract SimpleToken {
     }
 
     function executeNotarizedHook(bytes32 txId, bytes32[] calldata inputs, bytes32[] calldata outputs, bytes calldata signature, bytes32 originTxId, uint256 errorMode) public {
+        _useTxId(txId);
+        _useTxId(originTxId);
+
         if (errorMode == 1) {
             revert SimpleTokenRetryableError(outputs.length > 0 ? outputs[0] : bytes32(0));
         }

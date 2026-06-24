@@ -17,7 +17,7 @@ syntax = "proto3";
 
 package io.kaleido.paladin.kata.engine;
 option go_package = "pkg/proto/engine";
-import "google/protobuf/any.proto";
+import "to_domain.proto";
 
 message NonceAssigned {
     string id = 1;
@@ -57,102 +57,83 @@ message TransactionConfirmed {
     string failure_message = 8;
 }
 
+enum RejectionReason {
+    BLOCK_HEIGHT_TOLERANCE = 0;         // sender and receiver block heights differ by more than the configured tolerance
+    NOT_CURRENT_DELEGATE = 1;           // receiver does not recognise the sender as its current active coordinator/delegate
+    TRANSACTION_UNKNOWN = 2;            // receiver does not recognise the transaction (likely already cleaned up)
+    ENDORSER_IS_ACTIVE_COORDINATOR = 3; // endorser is currently the active coordinator and will not accept requests from a different coordinator
+    PRIVATE_STATE_DATA_PENDING = 4;     // private state data for this contract is pending arrival at this node up to the assembly/endorsement low watermark
+}
+
 message EndorsementRequest {
-    // TODO we are using google.protobuf.Any here for a few fields that should be more specific
-    // need to figure out the build magic to import these from toolkit protos
-    google.protobuf.Any attestation_request = 1;
+    io.kaleido.paladin.toolkit.AttestationRequest attestation_request = 1;
     string idempotency_key = 2;
     string transaction_id = 3;
     string contract_address = 4;
     string party = 5;
-    google.protobuf.Any transaction_specification = 6;
-    repeated google.protobuf.Any verifiers = 7;
-    repeated google.protobuf.Any signatures = 8;
-    repeated google.protobuf.Any inputStates = 9;
-    repeated google.protobuf.Any readStates = 10;
-    repeated google.protobuf.Any outputStates = 11;
-    repeated google.protobuf.Any infoStates = 12;
+    io.kaleido.paladin.toolkit.TransactionSpecification transaction_specification = 6;
+    repeated io.kaleido.paladin.toolkit.ResolvedVerifier verifiers = 7;
+    repeated io.kaleido.paladin.toolkit.AttestationResult signatures = 8;
+    repeated io.kaleido.paladin.toolkit.EndorsableState inputStates = 9;
+    repeated io.kaleido.paladin.toolkit.EndorsableState readStates = 10;
+    repeated io.kaleido.paladin.toolkit.EndorsableState outputStates = 11;
+    repeated io.kaleido.paladin.toolkit.EndorsableState infoStates = 12;
+    int64 expiry_time_unix_ms = 13;
+    int64 coordinator_block_height = 14;
+    int64 block_height_tolerance = 15;
 }
 
 message EndorsementResponse {
     string transaction_id = 1;
     string idempotency_key = 2;
     string contract_address = 3;
-    optional google.protobuf.Any endorsement = 4;
+    optional io.kaleido.paladin.toolkit.AttestationResult endorsement = 4;
     optional string revert_reason = 5;
     string party = 6;
     string attestation_request_name = 7;
 }
 
-message ResolveVerifierRequest {
-    string lookup = 1;
-    string algorithm = 2;
-    string verifier_type = 3;
-}
-
-message ResolveVerifierResponse {
-    string lookup = 1;
-    string algorithm = 2;
-    string verifier_type = 3;
-    string verifier = 4;
-}
-
-message ResolveVerifierError {
-    string lookup = 1;
-    string algorithm = 2;
-    string verifier_type = 3;
-    string error_message = 4;
+message EndorsementRejection {
+    string transaction_id = 1;
+    string idempotency_key = 2;
+    string contract_address = 3;
+    string party = 4;
+    string attestation_request_name = 5;
+    RejectionReason rejection_reason = 6;
+    int64 coordinator_block_height = 7;
+    int64 endorser_block_height = 8;
+    int64 block_height_tolerance = 9;   // the tolerance the coordinator was configured with, for diagnostic logging
 }
 
 message DelegationRequest {
-    string transaction_id = 1;
-    string delegate_node_id = 2;
-    string delegation_id = 3; //this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
-    bytes private_transaction = 4; //json serialized copy of the in-memory private transaction object
-    int64 block_height = 5; // the block height upon which this delegation was calculated (the highest delegation wins when crossing in the post)
-    
-    
-    // TODO we are using google.protobuf.Any here for TransactionSpecification which is defined in toolkit protos
-    // need to figure out the build magic to import these from toolkit protos
-    //google.protobuf.Any transaction_specification = 4; // serialized io.kaleido.paladin.toolkit.TransactionSpecification
-    //optional google.protobuf.Any assembled_transaction = 5; // serialized io.kaleido.paladin.toolkit.AssembledTransaction
-    //repeated google.protobuf.Any attestation_plan = 6; // serialized io.kaleido.paladin.toolkit.AttestationRequest
-    //repeated google.protobuf.Any verifiers = 7; // serialized io.kaleido.paladin.toolkit.ResolvedVerifier
+    string delegate_node_id = 1;
+    string delegation_id = 2; //this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
+    int64 originator_block_height = 3; // the originator's block height upon which this delegation was calculated
+    repeated bytes private_transactions = 4; // json serialized copies of all in-memory private transaction objects, batched into a single message
 }
 
-message DelegationRequestAcknowledgment {
+message DelegationResponse {
     repeated string transaction_ids = 1;
     repeated int64 errors = 2; // Every delegate could have a different result. Allow optional enum error per transaction
     string delegate_node_id = 3;
-    string delegation_id = 4;//this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
+    string delegation_id = 4; // this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
     string contract_address = 5;
 }
 
-message StateAcknowledgedEvent {
-    string state_id = 1;
-    string state_data_json = 2;
-    string party = 3;
-    string domain_name = 4;
-	string contract_address = 5;
-	string schema_id = 6 ;
-    string distribution_id = 7; //this is used to correlate the acknowledgement back to the distribution. unlike the transport message id / correlation id, this is not unique across retries
+message DelegationRejection {
+    string delegate_node_id = 1;
+    string delegation_id = 2;           // correlates the rejection back to the delegation request
+    string contract_address = 3;
+    string active_coordinator = 4;      // the rejecting coordinator's belief of who is currently active, so the originator can fast-redirect
+    RejectionReason rejection_reason = 5;
+    int64 originator_block_height = 6;  // the originator's block height echoed from the request
+    int64 coordinator_block_height = 7; // the coordinator's block height at the time of rejection
+    int64 block_height_tolerance = 8;   // the tolerance the coordinator was configured with
 }
 
-message PreparedTransactionMessage {
-    string prepared_txn_id = 1;
-    bytes  prepared_transaction_json = 2;
-    string party = 3;
-    string domain_name = 4;
-	string contract_address = 5;
-    string distribution_id = 6; //this is used to correlate the acknowledgement back to the distribution. unlike the transport message id / correlation id, this is not unique across retries
-}
-
-message PreparedTransactionAcknowledgedMessage {
-    string prepared_txn_id = 1;
-    string party = 2;
-    string domain_name = 3;
-	string contract_address = 4;
-    string distribution_id = 5; //this is used to correlate the acknowledgement back to the distribution. unlike the transport message id / correlation id, this is not unique across retries
+message CoordinatorHandoverRequest {
+    string from_node = 1;
+    string contract_address = 2;
 }
 
 message AssembleRequest {
@@ -161,7 +142,9 @@ message AssembleRequest {
     string contract_address = 3;
     bytes pre_assembly = 5;
     bytes state_locks = 6;
-    int64 block_height = 7;
+    int64 coordinator_block_height = 7;
+    int64 expiry_time_unix_ms = 8;
+    int64 block_height_tolerance = 9;
 }
 
 message AssembleResponse {
@@ -179,21 +162,46 @@ message AssembleError {
     string error_message = 4;
 }
 
+message EndorsementError {
+    string transaction_id = 1;
+    string idempotency_key = 2;
+    string contract_address = 3;
+    string error_message = 4;
+    string party = 5;
+    string attestation_request_name = 6;
+}
+
+message AssembleRejection {
+    string transaction_id = 1;
+    string assemble_request_id = 2;
+    string contract_address = 3;
+    RejectionReason rejection_reason = 4;
+    int64 coordinator_block_height = 5;
+    int64 assembler_block_height = 6;
+}
+
+message PreDispatchRequest {
+    string id = 1;
+    string transaction_id = 2;
+    string contract_address = 3;
+    bytes post_assemble_hash = 4;
+}
+
+message PreDispatchResponse {
+    string id = 1;
+    string transaction_id = 2;
+    string contract_address = 3;
+}
+
+message PreDispatchRejection {
+    string transaction_id = 1;
+    string request_id = 2;
+    string contract_address = 3;
+    RejectionReason rejection_reason = 4;
+}
+
 message CoordinatorHeartbeatNotification {
     string from = 1;
     string contract_address = 2; // Represent as hex address?
     bytes coordinator_snapshot = 3;
-}
-
-message HandoverRequest {
-    string contract_address = 1; // Represent as hex address?
-}
-
-// Sent by an originator when it receives a message for a transaction it doesn't recognize.
-// The most likely cause is that the transaction reached a terminal state (e.g. reverted during assembly)
-// but the response was lost, and the transaction has since been removed from memory on the originator after cleanup.
-message TransactionUnknown {
-    string id = 1;
-    string transaction_id = 2;
-    string contract_address = 3;
 }

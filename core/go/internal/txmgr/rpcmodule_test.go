@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
@@ -33,6 +34,7 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
@@ -786,7 +788,7 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 		ABI:     testABI,
 		Address: address,
 	}}
-	es := &blockindexer.EventStream{
+	es := &blockindexer.EventStreamDefinition{
 		ID:      id,
 		Name:    name,
 		Started: confutil.P(true),
@@ -795,10 +797,13 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 
 	ctx, url, _, done := newTestTransactionManagerWithRPC(t, func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 
+		mockESHandle := blockindexermocks.NewEventStream(t)
+		mockESHandle.On("Definition").Return(es).Maybe()
+		mockESHandle.On("ID").Return(es.ID).Maybe()
 		mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).
-			Return(es, nil)
+			Return(mockESHandle, nil)
 		mc.blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			Return([]*blockindexer.EventStream{es}, nil)
+			Return([]*blockindexer.EventStreamDefinition{es}, nil)
 		mc.blockIndexer.On("StartEventStream", mock.Anything, id).Return(nil)
 		mc.blockIndexer.On("StopEventStream", mock.Anything, id).Return(nil)
 		mc.blockIndexer.On("RemoveEventStream", mock.Anything, id).Return(nil)
@@ -904,4 +909,42 @@ func TestDispatchAndChainedDispatchRPCs(t *testing.T) {
 	// Query chained dispatches missing limit
 	err = rpcClient.CallRPC(ctx, &chainedDispatches, "ptx_queryChainedDispatches", query.NewQueryBuilder().Query())
 	require.Regexp(t, "PD010721", err)
+}
+
+func TestSendTransactionIdempotencyConflict(t *testing.T) {
+
+	senderAddr := pldtypes.RandAddress()
+	ctx, url, _, done := newTestTransactionManagerWithRPC(t,
+		mockSubmitPublicTxOk(t, senderAddr),
+	)
+	defer done()
+
+	rpcClient, err := rpcclient.NewHTTPClient(ctx, &pldconf.HTTPClientConfig{URL: url})
+	require.NoError(t, err)
+
+	toAddr := pldtypes.MustEthAddress(pldtypes.RandHex(20))
+	txInput := &pldapi.TransactionInput{
+		ABI: abi.ABI{{Type: abi.Function, Name: "set", Inputs: abi.ParameterArray{{Type: "uint256"}}}},
+		TransactionBase: pldapi.TransactionBase{
+			IdempotencyKey: "idem-conflict-1",
+			From:           "sender1",
+			Type:           pldapi.TransactionTypePublic.Enum(),
+			Function:       "set(uint256)",
+			To:             toAddr,
+			Data:           pldtypes.RawJSON(`[12345]`),
+		},
+	}
+
+	// First submission should succeed
+	var txID uuid.UUID
+	err = rpcClient.CallRPC(ctx, &txID, "ptx_sendTransaction", txInput)
+	require.NoError(t, err)
+	assert.NotEqual(t, uuid.UUID{}, txID)
+
+	// Second submission with the same idempotency key must return PD012220 with RPCCodeConflict
+	var txID2 uuid.UUID
+	rpcErr := rpcClient.CallRPC(ctx, &txID2, "ptx_sendTransaction", txInput)
+	require.Error(t, rpcErr)
+	assert.Regexp(t, "PD012220", rpcErr.Error())
+	assert.Equal(t, int64(pldclient.RPCCodeConflict), rpcErr.RPCError().Code)
 }

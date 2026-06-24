@@ -59,7 +59,7 @@ func (n *Noto) loadLockInfoV1(ctx context.Context, stateQueryContext string, loc
 		Sort("-.created").
 		Equal("lockId", lockID)
 	log.L(ctx).Debugf("Lock query: %s", queryBuilder.Query())
-	states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockInfoSchemaV1.Id, queryBuilder.Query().String())
+	states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockInfoSchemaV1.Id, queryBuilder.Query().String(), false)
 	if err != nil {
 		return nil, false, err
 	}

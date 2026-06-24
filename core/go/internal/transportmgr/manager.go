@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2026 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -84,7 +84,7 @@ type transportManager struct {
 
 var reliableMessageFilters = filters.FieldMap{
 	"sequence":    filters.Int64Field("sequence"),
-	"id":          filters.UUIDField("id"),
+	"id":          filters.UUIDField(`"reliable_msgs"."id"`),
 	"created":     filters.TimestampField("created"),
 	"node":        filters.StringField("node"),
 	"messageType": filters.StringField("msg_type"),
@@ -316,6 +316,9 @@ func (tm *transportManager) queueFireAndForget(ctx context.Context, nodeName str
 		return nil
 	case <-ctx.Done():
 		return i18n.NewError(ctx, msgs.MsgContextCanceled)
+	case <-p.senderDone:
+		log.L(ctx).Warnf("peer %s sender stopped before message %s/%s could be queued (discarding)", p.Name, msg.MessageType, msg.MessageId)
+		return nil
 	}
 }
 
@@ -355,9 +358,20 @@ func (tm *transportManager) SendReliable(ctx context.Context, dbTX persistence.D
 		return err
 	}
 
+	// After Create, each message has its DB-assigned Sequence populated. Compute the minimum
+	// sequence per peer so the post-commit notification can correctly seed the scan floor
+	minSeqPerPeer := make(map[string]uint64, len(peers))
+	for _, msg := range msgs {
+		if prev, ok := minSeqPerPeer[msg.Node]; !ok || msg.Sequence < prev {
+			minSeqPerPeer[msg.Node] = msg.Sequence
+		}
+	}
+
 	dbTX.AddPostCommit(func(ctx context.Context) {
-		for _, p := range peers {
-			p.notifyPersistedMsgAvailable()
+		for nodeName, minSeq := range minSeqPerPeer {
+			if p := peers[nodeName]; p != nil {
+				p.notifyPersistedMsgAvailableFromSeq(minSeq)
+			}
 		}
 	})
 	return nil

@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	mock "github.com/stretchr/testify/mock"
@@ -51,7 +52,7 @@ func Test_IdempotentRequestErrorFromSend(t *testing.T) {
 
 func Test_IdempotentRequest_RetryOnNudgeIfExpired(t *testing.T) {
 	ctx := context.Background()
-	clock := NewMockClock(t)
+	clock := sequencercommonmocks.NewClock(t)
 	clock.On("Now").Return(time.Now())
 
 	requested := 0
@@ -74,7 +75,7 @@ func Test_IdempotentRequest_RetryOnNudgeIfExpired(t *testing.T) {
 
 func Test_IdempotentRequest_NoRetryOnNudgeIfNotExpired(t *testing.T) {
 	ctx := context.Background()
-	clock := NewMockClock(t)
+	clock := sequencercommonmocks.NewClock(t)
 	clock.On("Now").Return(time.Now())
 
 	requested := 0
@@ -100,7 +101,7 @@ func Test_IdempotentRequest_FirstRequestTime(t *testing.T) {
 	ctx := context.Background()
 	start := time.Now()
 	end := start.Add(time.Duration(1))
-	clock := NewMockClock(t)
+	clock := sequencercommonmocks.NewClock(t)
 	clock.On("Now").Return(start).Once()
 	clock.On("Now").Return(end).Once()
 	clock.On("HasExpired", mock.Anything, mock.Anything).Return(true)

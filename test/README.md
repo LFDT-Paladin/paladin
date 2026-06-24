@@ -165,6 +165,103 @@ This test submits transactions which call the `set` method on a [`simplestorage`
     pldtest run -c <config file> -i 0
     ```
 
+## Running in Kubernetes
+
+### 1. Create a ConfigMap with your test config
+
+Replace the `httpEndpoint` and `wsEndpoint` values with the in-cluster service names for your Paladin nodes.
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pldtest-config
+  namespace: paladin
+data:
+  config.yaml: |
+    nodes:
+      - name: node1
+        httpEndpoint: http://paladin-node1:8548
+        wsEndpoint: ws://paladin-node1:8549
+      - name: node2
+        httpEndpoint: http://paladin-node2:8548
+        wsEndpoint: ws://paladin-node2:8549
+      - name: node3
+        httpEndpoint: http://paladin-node3:8548
+        wsEndpoint: ws://paladin-node3:8549
+    instances:
+      - name: my-test
+        test:
+          name: noto_pente_tracker
+          workers: 4
+        maxActions: 500
+        length: 5m
+    logLevel: info
+```
+
+### 2. Create a Job that runs the test
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pldtest
+  namespace: paladin
+spec:
+  template:
+    spec:
+      serviceAccountName: pldtest   # see note on RBAC below
+      containers:
+        - name: pldtest
+          image: ghcr.io/lfdt-paladin/paladin-test-cli:latest
+          args: ["run", "-c", "/config/config.yaml", "-i", "0"]
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: config
+          configMap:
+            name: pldtest-config
+      restartPolicy: Never
+  backoffLimit: 0
+```
+
+### 3. RBAC (node-kill tests only)
+
+For node-kill enabled tests, create a ServiceAccount with permission to delete pods:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pldtest
+  namespace: paladin
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pldtest
+  namespace: paladin
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pldtest
+  namespace: paladin
+subjects:
+  - kind: ServiceAccount
+    name: pldtest
+    namespace: paladin
+roleRef:
+  kind: Role
+  name: pldtest
+  apiGroup: rbac.authorization.k8s.io
+```
+
 ## Command line options
 
 ```

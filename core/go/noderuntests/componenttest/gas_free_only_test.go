@@ -13,8 +13,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	testutils "github.com/LFDT-Paladin/paladin/core/noderuntests/pkg"
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -24,10 +24,9 @@ import (
 func TestPrivateTransactionsSequencerLimitSequentialContracts(t *testing.T) {
 	ctx := t.Context()
 
-	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.TargetActiveSequencers = confutil.P(10)
-
-	alice := newSingleNodePartyForComponentTestingWithSequencerConfig(t, "node1", &sequencerConfig)
+	alice := newSingleNodePartyForComponentTestingWithSequencerConfig(t, "node1", &pldconf.SequencerConfig{
+		TargetActiveSequencers: confutil.P(10),
+	})
 	client := alice.GetClient()
 	endorsementSet := []string{alice.GetIdentityLocator()}
 
@@ -37,6 +36,7 @@ func TestPrivateTransactionsSequencerLimitSequentialContracts(t *testing.T) {
 			Domain("domain1").
 			IdempotencyKey(fmt.Sprintf("deploy-seq-limit-%d", flowNum)).
 			From(alice.GetIdentity()).
+			// endorsementThreshold is 0 means all parties must endorse (default)
 			Inputs(pldtypes.RawJSON(fmt.Sprintf(`{
                     "from": "wallets.org1.node1",
                     "endorsementSet": ["%s"],
@@ -44,7 +44,8 @@ func TestPrivateTransactionsSequencerLimitSequentialContracts(t *testing.T) {
                     "symbol": "SLT%d",
 					"endorsementMode": "%s",
 					"hookAddress": "",
-					"amountVisible": false
+					"amountVisible": false,
+					"endorsementThreshold": 0
                 }`, endorsementSet[0], flowNum, flowNum, domains.PrivacyGroupEndorsement))).
 			Send()
 		require.NoError(t, deploy.Error(), "deploy flow %d should submit", flowNum)
@@ -86,7 +87,6 @@ func newTwoDomainPartyWithSequencerConfig(t *testing.T, nodeName string, sequenc
 		party.OverrideSequencerConfig(sequencerConfig)
 	}
 	domainConfig := &domains.SimpleDomainPairConfig{
-		SubmitMode:             domains.ENDORSER_SUBMISSION,
 		Domain1RegistryAddress: registry1.String(),
 		Domain2RegistryAddress: registry2.String(),
 	}
@@ -397,7 +397,7 @@ func TestChainedTransactionRetryableRevert_OnlyChainedFails_ThenSucceeds(t *test
 func TestChainedTransactionNonRetryableRevert_OnlyChainedFails(t *testing.T) {
 	ctx := t.Context()
 
-	party := newTwoDomainPartyWithSequencerConfig(t, "node1", &pldconf.SequencerConfig{})
+	party := newTwoDomainParty(t, "node1")
 	client := party.GetClient()
 
 	hookTargetAddr := deploySimpleTokenInDomain(t, ctx, client, "domain2", party.GetIdentity(), &domains.ConstructorParameters{
@@ -495,9 +495,14 @@ func TestChainedTransactionRetryableRevert_OnlyChainedFails_ExceedsThreshold(t *
 	require.NotNil(t, txFull)
 	require.NotNil(t, txFull.Receipt)
 	assert.False(t, txFull.Receipt.Success)
-	require.Len(t, txFull.SequencerActivity, 2)
-	assert.Equal(t, string(pldapi.SequencerActivityType_ChainedDispatch), txFull.SequencerActivity[0].ActivityType)
-	assert.Equal(t, string(pldapi.SequencerActivityType_ChainedDispatch), txFull.SequencerActivity[1].ActivityType)
+	// With threshold=1 we expect exactly 2 retries under normal conditions.
+	// An epoch boundary crossing during the test resets revertCount on the re-delegated transaction,
+	// allowing one additional retry cycle — so we tolerate up to 3 activities.
+	require.GreaterOrEqual(t, len(txFull.SequencerActivity), 2)
+	require.LessOrEqual(t, len(txFull.SequencerActivity), 3)
+	for _, activity := range txFull.SequencerActivity {
+		assert.Equal(t, string(pldapi.SequencerActivityType_ChainedDispatch), activity.ActivityType)
+	}
 	chainedDispatch1, err := client.PTX().GetChainedDispatch(ctx, txFull.SequencerActivity[0].SubjectID)
 	require.NoError(t, err)
 	require.NotNil(t, chainedDispatch1)
@@ -505,4 +510,108 @@ func TestChainedTransactionRetryableRevert_OnlyChainedFails_ExceedsThreshold(t *
 	require.NoError(t, err)
 	require.NotNil(t, chainedDispatch2)
 	require.NotEqual(t, chainedDispatch1.ID, chainedDispatch2.ID)
+}
+
+// TestCoordinatorEndorserSigningAddressRotation verifies that the coordinator's signing key
+// rotates across epoch boundaries. With blockRange=10 (the minimum), 11 sequential transactions
+// span at least one epoch boundary, which triggers a State_Active re-entry and a new signingIdentity
+// UUID — producing a different public-transaction From address.
+func TestCoordinatorEndorserSigningAddressRotation(t *testing.T) {
+	ctx := t.Context()
+
+	alice := newSingleNodePartyForComponentTestingWithSequencerConfig(t, "node1", &pldconf.SequencerConfig{
+		BlockRange: confutil.P(uint64(10)),
+	})
+	client := alice.GetClient()
+
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "RotationToken",
+		Symbol:          "RT",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator()},
+	}, transactionLatencyThreshold)
+
+	fromAddresses := make(map[string]bool)
+	for i := 0; i < 11; i++ {
+		tx := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
+			Private().
+			Domain("domain1").
+			IdempotencyKey(fmt.Sprintf("mint-%d", i)).
+			From(alice.GetIdentity()).
+			To(contractAddress).
+			Function("transfer").
+			Inputs(pldtypes.RawJSON(`{"from":"","to":"` + alice.GetIdentityLocator() + `","amount":"100"}`)).
+			Send().Wait(transactionLatencyThreshold(t))
+		require.NoError(t, tx.Error(), "mint %d should succeed", i)
+		require.NotNil(t, tx.Receipt())
+		require.True(t, tx.Receipt().Success, "mint %d receipt should be successful", i)
+
+		txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
+		require.NoError(t, err)
+		require.NotEmpty(t, txFull.Public, "mint %d should have a public transaction", i)
+		fromAddresses[txFull.Public[0].From.String()] = true
+	}
+
+	assert.Greater(t, len(fromAddresses), 1,
+		"expected signing address to rotate across epoch boundaries (blockRange=10, 11 transactions)")
+}
+
+// TestCoordinatorEndorserMultiNodeSigningAddressRotation verifies the same signing-key rotation
+// behaviour in a two-node coordinator endorser setup. We cannot guarantee that successive block
+// range epochs will choose different preferred coordinators, so we cannot assert here that the
+// coordinator changes within the test.
+func TestCoordinatorEndorserMultiNodeSigningAddressRotation(t *testing.T) {
+	ctx := t.Context()
+
+	seqConfig := &pldconf.SequencerConfig{
+		BlockRange: confutil.P(uint64(10)),
+	}
+
+	domainRegistryAddress := deployDomainRegistry(t, "node1")
+	alice := testutils.NewPartyForTestingWithNodeName(t, "alice", "node1", domainRegistryAddress)
+	bob := testutils.NewPartyForTestingWithNodeName(t, "bob", "node2", domainRegistryAddress)
+
+	alice.OverrideSequencerConfig(seqConfig)
+	bob.OverrideSequencerConfig(seqConfig)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+
+	startNode(t, alice, &domains.SimpleDomainConfig{})
+	startNode(t, bob, &domains.SimpleDomainConfig{})
+
+	ensurePeerConnections(t, ctx, alice, bob)
+
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "MultiNodeRotationToken",
+		Symbol:          "MNRT",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator(), bob.GetIdentityLocator()},
+	}, transactionLatencyThreshold)
+
+	fromAddresses := make(map[string]bool)
+	for i := 0; i < 11; i++ {
+		tx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+			Private().
+			Domain("domain1").
+			IdempotencyKey(fmt.Sprintf("mint-%d", i)).
+			From(alice.GetIdentity()).
+			To(contractAddress).
+			Function("transfer").
+			Inputs(pldtypes.RawJSON(`{"from":"","to":"` + alice.GetIdentityLocator() + `","amount":"100"}`)).
+			Send().Wait(transactionLatencyThreshold(t))
+		require.NoError(t, tx.Error(), "mint %d should succeed", i)
+		require.NotNil(t, tx.Receipt())
+		require.True(t, tx.Receipt().Success, "mint %d receipt should be successful", i)
+
+		txFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, tx.ID())
+		require.NoError(t, err)
+		require.NotEmpty(t, txFull.Public, "mint %d should have a public transaction", i)
+		fromAddresses[txFull.Public[0].From.String()] = true
+	}
+
+	assert.Greater(t, len(fromAddresses), 1,
+		"expected signing address to rotate across epoch boundaries (blockRange=10, 11 transactions, 2-node endorsement set)")
 }

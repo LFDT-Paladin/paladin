@@ -35,7 +35,7 @@ func (sf Bytes32Field) SQLColumn() string {
 }
 
 func (sf Bytes32Field) SupportsLIKE() bool {
-	return false
+	return true
 }
 
 func (sf Bytes32Field) SQLValue(ctx context.Context, jsonValue pldtypes.RawJSON) (driver.Value, error) {

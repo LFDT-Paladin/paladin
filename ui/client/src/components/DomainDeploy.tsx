@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -61,6 +61,7 @@ export const DomainDeploy: React.FC<Props> = ({ domainName }) => {
             variant="outlined"
             sx={{ borderRadius: '20px' }}
             onClick={button.action}
+            disabled={domainName === 'pente'}
           >
             {t('deployNew')}
           </Button>

@@ -27,7 +27,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { fetchPaladinTransaction, fetchEnrichedTransaction } from '../queries/transactions';
+import { fetchEnrichedTransaction, fetchPaladinTransaction, fetchTransactionReceipt } from '../queries/transactions';
 import { isValidTransactionHash, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
 
@@ -57,7 +57,13 @@ export const TransactionLookupDialog: React.FC<Props> = ({
   const { refetch: blockchainTransactionByHash } = useQuery({
     queryKey: ["blockchainTransactionByHash", hashOrId],
     queryFn: () => fetchEnrichedTransaction(hashOrId),
-    enabled: isValidTransactionHash(hashOrId),
+    refetchOnMount: false,
+    retry: false
+  });
+
+  const { refetch: paladinReceiptById } = useQuery({
+    queryKey: ["paladinReceiptById", hashOrId],
+    queryFn: () => fetchTransactionReceipt(hashOrId),
     refetchOnMount: false,
     retry: false
   });
@@ -65,7 +71,6 @@ export const TransactionLookupDialog: React.FC<Props> = ({
   const { refetch: paladinTransactionById } = useQuery({
     queryKey: ["paladinTransactionById", hashOrId],
     queryFn: () => fetchPaladinTransaction(hashOrId),
-    enabled: isValidUUID(hashOrId),
     refetchOnMount: false,
     retry: false
   });
@@ -81,11 +86,17 @@ export const TransactionLookupDialog: React.FC<Props> = ({
         }
       });
     } else if (isValidUUID(hashOrId)) {
-      paladinTransactionById().then(result => {
+      paladinReceiptById().then(result => {
         if (result.isSuccess && result.data !== null) {
           navigate(`/ui/transactions/${hashOrId}`);
         } else {
-          setNotFound(true);
+          paladinTransactionById().then(result => {
+            if (result.isSuccess && result.data !== null) {
+              navigate(`/ui/transactions/${hashOrId}`);
+            } else {
+              setNotFound(true);
+            }
+          });
         }
       });
     }
@@ -112,7 +123,6 @@ export const TransactionLookupDialog: React.FC<Props> = ({
         </DialogTitle>
         <DialogContent>
           <Box sx={{ marginTop: '6px' }}>
-
             <TextField
               label={label}
               autoComplete="OFF"
@@ -122,7 +132,6 @@ export const TransactionLookupDialog: React.FC<Props> = ({
               onChange={event => setHashOrId(event.target.value)}
             />
           </Box>
-
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
           <Button

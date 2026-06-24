@@ -16,8 +16,7 @@ title: PeerInfo
         "receivedBytes": 0,
         "lastSend": null,
         "lastReceive": null,
-        "reliableHighestSent": 0,
-        "reliableAckBase": 0
+        "reliableHighestSent": 0
     },
     "activated": 0
 }
@@ -46,6 +45,5 @@ title: PeerInfo
 | `lastSend` | Timestamp of the last send to this peer | [`Timestamp`](simpletypes.md#timestamp) |
 | `lastReceive` | Timestamp of the last receive from this peer | [`Timestamp`](simpletypes.md#timestamp) |
 | `reliableHighestSent` | Outbound reliable messages are assigned a sequence. This is the highest sequence sent to the peer since activation | `uint64` |
-| `reliableAckBase` | Outbound reliable messages are assigned a sequence. This is the lowest sequence that has not received an acknowledgement from the peer | `uint64` |
 
 

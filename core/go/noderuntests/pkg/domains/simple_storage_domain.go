@@ -182,7 +182,6 @@ type simpleStorageConfigParser simpleTokenConfigParser // for now, we are re-sin
 
 // domain config
 type SimpleStorageDomainConfig struct {
-	SubmitMode      string   `json:"submitMode"`
 	EndorsementMode string   `json:"endorsementMode"`
 	EndorsementSet  []string `json:"endorsementSet"`
 }
@@ -517,21 +516,23 @@ func SimpleStorageDomain(t *testing.T, ctx context.Context) plugintk.PluginBase 
 				contractConfig := &prototk.ContractConfig{
 					ContractConfigJson: string(configJSON),
 				}
-				var constructorParameters SimpleStorageConstructorParameters
-				err = json.Unmarshal([]byte(configJSON), &constructorParameters)
-				require.NoError(t, err)
+			// Use simpleStorageConfigParser (alias of simpleTokenConfigParser) which has the correct
+			// json tag "endorsementSetLocators" matching the ABI-decoded field name.
+			var config simpleStorageConfigParser
+			err = json.Unmarshal([]byte(configJSON), &config)
+			require.NoError(t, err)
 
-				switch constructorParameters.EndorsementMode {
-				case SelfEndorsement:
-					contractConfig.CoordinatorSelection = prototk.ContractConfig_COORDINATOR_SENDER
-					contractConfig.SubmitterSelection = prototk.ContractConfig_SUBMITTER_SENDER
-				case PrivacyGroupEndorsement:
-					contractConfig.CoordinatorSelection = prototk.ContractConfig_COORDINATOR_ENDORSER
-					contractConfig.SubmitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
-					contractConfig.CoordinatorEndorserCandidates = constructorParameters.EndorsementSet
-				default:
-					return nil, fmt.Errorf("unknown endorsement mode %s", constructorParameters.EndorsementMode)
-				}
+			switch config.EndorsementMode {
+			case SelfEndorsement:
+				contractConfig.CoordinatorSelection = prototk.ContractConfig_COORDINATOR_SENDER
+				contractConfig.SubmitterSelection = prototk.ContractConfig_SUBMITTER_SENDER
+			case PrivacyGroupEndorsement:
+				contractConfig.CoordinatorSelection = prototk.ContractConfig_COORDINATOR_ENDORSER
+				contractConfig.SubmitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
+				contractConfig.CoordinatorEndorserCandidates = config.EndorsementSet
+			default:
+				return nil, fmt.Errorf("unknown endorsement mode %s", config.EndorsementMode)
+			}
 
 				return &prototk.InitContractResponse{
 					Valid:          true,

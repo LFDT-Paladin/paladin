@@ -2,7 +2,7 @@
 ARG JAVA_VERSION=21.0.4+7
 ARG NODE_VERSION=20.17.0
 ARG PROTO_VERSION=28.2
-ARG GO_VERSION=1.24.4
+ARG GO_VERSION=1.24.13
 ARG GO_MIGRATE_VERSION=4.18.3
 ARG GRADLE_VERSION=8.5
 ARG WASMER_VERSION=4.3.7
@@ -135,7 +135,7 @@ COPY rpcauth/basicauth rpcauth/basicauth
 COPY signingmodules/example signingmodules/example
 COPY transports/grpc transports/grpc
 COPY ui/client ui/client
-# No build of these three, but we need to go.mod to make the go.work valid
+# No build of these four, but we need to go.mod to make the go.work valid
 COPY testinfra/go.mod testinfra/go.mod
 COPY operator/go.mod operator/go.mod
 COPY test/go.mod test/go.mod

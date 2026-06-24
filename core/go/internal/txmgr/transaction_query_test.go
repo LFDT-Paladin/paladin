@@ -27,9 +27,11 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	seqcommon "github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -505,4 +507,153 @@ func TestMapPersistedChainedDispatch(t *testing.T) {
 	assert.Equal(t, chainedTxID.String(), result.ChainedTransactionID)
 	assert.Equal(t, transactionID.String(), result.TransactionID)
 	assert.Equal(t, id.String(), result.ID)
+}
+
+func TestMapPersistedDispatch(t *testing.T) {
+	_, txm, done := newTestTransactionManager(t, false, mockEmptyReceiptListeners)
+	defer done()
+
+	pd := &syncpoints.DispatchPersisted{
+		ID:                  "dispatch-1",
+		TransactionID:       uuid.New().String(),
+		PublicTransactionID: 42,
+	}
+
+	result := txm.mapPersistedDispatch(pd)
+
+	require.NotNil(t, result)
+	assert.Equal(t, pd.ID, result.ID)
+	assert.Equal(t, pd.TransactionID, result.TransactionID)
+	assert.Equal(t, pd.PublicTransactionID, result.PublicTransactionID)
+}
+
+func TestQueryDispatchesWithResults(t *testing.T) {
+	dispatchID := "dispatch-1"
+	txID := uuid.New().String()
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(
+				sqlmock.NewRows([]string{"id", "transaction_id", "public_transaction_id"}).
+					AddRow(dispatchID, txID, int64(42)),
+			)
+		})
+	defer done()
+
+	results, err := txm.QueryDispatches(ctx, query.NewQueryBuilder().Limit(10).Query())
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, dispatchID, results[0].ID)
+	assert.Equal(t, txID, results[0].TransactionID)
+}
+
+func TestGetDispatchByIDFound(t *testing.T) {
+	dispatchID := "dispatch-1"
+	txID := uuid.New().String()
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(
+				sqlmock.NewRows([]string{"id", "transaction_id", "public_transaction_id"}).
+					AddRow(dispatchID, txID, int64(42)),
+			)
+		})
+	defer done()
+
+	result, err := txm.GetDispatchByID(ctx, dispatchID)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, dispatchID, result.ID)
+	assert.Equal(t, txID, result.TransactionID)
+}
+
+func TestQueryChainedDispatchesWithResults(t *testing.T) {
+	id := uuid.New()
+	chainedTxID := uuid.New()
+	transactionID := uuid.New()
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectQuery("SELECT.*chained_dispatches").WillReturnRows(
+				sqlmock.NewRows([]string{"id", "chained_transaction", "transaction", "sender", "domain", "contract_address"}).
+					AddRow(id, chainedTxID, transactionID, "sender1", "domain1", "0x1234567890123456789012345678901234567890"),
+			)
+		})
+	defer done()
+
+	results, err := txm.QueryChainedDispatches(ctx, query.NewQueryBuilder().Limit(10).Query())
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, chainedTxID.String(), results[0].ChainedTransactionID)
+	assert.Equal(t, transactionID.String(), results[0].TransactionID)
+	assert.Equal(t, id.String(), results[0].ID)
+}
+
+func TestGetChainedDispatchByIDFound(t *testing.T) {
+	id := uuid.New()
+	chainedTxID := uuid.New()
+	transactionID := uuid.New()
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectQuery("SELECT.*chained_dispatches").WillReturnRows(
+				sqlmock.NewRows([]string{"id", "chained_transaction", "transaction", "sender", "domain", "contract_address"}).
+					AddRow(id, chainedTxID, transactionID, "sender1", "domain1", "0x1234567890123456789012345678901234567890"),
+			)
+		})
+	defer done()
+
+	result, err := txm.GetChainedDispatchByID(ctx, id.String())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, chainedTxID.String(), result.ChainedTransactionID)
+	assert.Equal(t, transactionID.String(), result.TransactionID)
+}
+
+func TestMapPersistedTXResolvedWithChainedDeps(t *testing.T) {
+	_, txm, done := newTestTransactionManager(t, false, mockEmptyReceiptListeners)
+	defer done()
+
+	txID := uuid.New()
+	depID := uuid.New()
+	chainedDepID := uuid.New()
+
+	pt := &persistedTransaction{
+		ID: txID,
+		TransactionDeps: []*transactionDep{
+			{Transaction: txID, DependsOn: depID},
+		},
+		TransactionChainedDeps: []*transactionChainedDep{
+			{Transaction: txID, DependsOn: chainedDepID},
+		},
+	}
+
+	result := txm.mapPersistedTXResolved(pt)
+
+	require.NotNil(t, result)
+	require.Len(t, result.DependsOn, 1)
+	assert.Equal(t, depID, result.DependsOn[0])
+	require.Len(t, result.ChainedDependsOn, 1)
+	assert.Equal(t, chainedDepID, result.ChainedDependsOn[0])
+}
+
+func TestIsConstructorSignatureEmptyFunction(t *testing.T) {
+	result := isConstructorSignature(&pldapi.StoredABI{
+		ABI: abi.ABI{{Type: abi.Constructor, Inputs: abi.ParameterArray{}}},
+	}, "")
+	assert.False(t, result)
+}
+
+func TestIsConstructorSignatureWithNonConstructorEntry(t *testing.T) {
+	result := isConstructorSignature(&pldapi.StoredABI{
+		ABI: abi.ABI{
+			{Type: abi.Function, Name: "doIt", Inputs: abi.ParameterArray{}},
+			{Type: abi.Constructor, Inputs: abi.ParameterArray{}},
+		},
+	}, "()")
+	assert.True(t, result)
 }

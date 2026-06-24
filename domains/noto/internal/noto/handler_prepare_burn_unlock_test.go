@@ -153,16 +153,18 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)  // old info
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1) // new info
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4) // manifest + unlock-data-info + prepare-data-info + cancel-coin
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 6) // outer-manifest + spend-manifest + cancel-manifest + unlock-data-info + prepare-data-info + cancel-coin
 
 	assert.Equal(t, inputLockInfo.Id, assembleRes.AssembledTransaction.InputStates[0].Id)
 	assert.Equal(t, hashName("lockInfo_v1"), assembleRes.AssembledTransaction.OutputStates[0].SchemaId)
 
 	inputCoinState := assembleRes.AssembledTransaction.ReadStates[0]
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
-	unlockDataState := assembleRes.AssembledTransaction.InfoStates[1]
-	prepareDataState := assembleRes.AssembledTransaction.InfoStates[2]
-	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[3]
+	unlockManifestState := assembleRes.AssembledTransaction.InfoStates[1] // spend manifest
+	cancelManifestState := assembleRes.AssembledTransaction.InfoStates[2]
+	unlockDataState := assembleRes.AssembledTransaction.InfoStates[3]
+	prepareDataState := assembleRes.AssembledTransaction.InfoStates[4]
+	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[5]
 	newLockInfoState := assembleRes.AssembledTransaction.OutputStates[0]
 
 	assert.Equal(t, inputCoin.ID.String(), inputCoinState.Id)
@@ -186,7 +188,8 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	require.Len(t, lockInfo.SpendOutputs, 0)
 	require.Len(t, lockInfo.CancelOutputs, 1)
 	require.NotEmpty(t, lockInfo.SpendData)
-	require.Equal(t, lockInfo.SpendData, lockInfo.CancelData) // same data for both currently
+	require.NotEmpty(t, lockInfo.CancelData)
+	require.NotEqual(t, lockInfo.SpendData, lockInfo.CancelData) // spend and cancel use distinct manifests
 
 	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{&inputCoin.Data}, []*types.NotoLockedCoin{}, []*types.NotoCoin{})
 	require.NoError(t, err)
@@ -291,24 +294,25 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	}, data)
 
 	// Decode the options we store into the lockInfo
-	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockDataState}))
+	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockManifestState, unlockDataState}))
+	require.NoError(t, err)
+	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
 	require.NoError(t, err)
 	notoParams := decodeSingleABITuple[types.NotoUpdateLockArgs](t, types.NotoUpdateLockArgsABI, fnParams.UpdateArgs)
-	notoOptions := notoParams.Options
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), []string{}, unlockTxData)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), endorsableStateIDs(ctx, readStates, false), []string{}, unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[1:2]), unlockTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), endorsableStateIDs(ctx, readStates, false), endorsableStateIDs(ctx, infoStates[1:2], false), cancelUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
 
 	// Validate the encoded noto parameters passed in
 	require.Equal(t, &types.NotoUpdateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Contents:     endorsableStateIDs(readStates),
+		Contents:     endorsableStateIDs(ctx, readStates, false),
 		OldLockState: pldtypes.MustParseBytes32(inputLockInfo.Id),
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
-		Options:      notoParams.Options,
+		Options:      types.NotoLockOptions{SpendTxId: lockInfo.SpendTxId},
 		Proof:        signatureBytes,
 	}, notoParams)
 
@@ -418,6 +422,9 @@ func TestPrepareBurnUnlock(t *testing.T) {
 		completeForIdentity(notaryAddress).
 		completeForIdentity(senderKey.Address.String())
 	mt.withMissingNewStates(manifestState, unlockDataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(unlockManifestState, unlockDataState).
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String())
 	mt.withMissingNewStates(unlockDataState).

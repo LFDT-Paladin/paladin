@@ -70,12 +70,6 @@ func action_QueueFinalizeEvent(ctx context.Context, txn *originatorTransaction, 
 	return nil
 }
 
-func action_RecordWillRetry(ctx context.Context, t *originatorTransaction, event common.Event) error {
-	e := event.(*ConfirmedRevertedEvent)
-	t.lastReceivedWillRetry = e.WillRetry
-	return nil
-}
-
-func guard_WillRetry(ctx context.Context, t *originatorTransaction) bool {
-	return t.lastReceivedWillRetry
+func validator_WillRetry(_ context.Context, _ *originatorTransaction, event common.Event) (bool, error) {
+	return event.(*ConfirmedRevertedEvent).WillRetry, nil
 }

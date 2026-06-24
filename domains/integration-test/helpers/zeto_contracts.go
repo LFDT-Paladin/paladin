@@ -41,6 +41,9 @@ import (
 //go:embed abis/ZetoFactory.json
 var zetoFactoryJSON []byte
 
+//go:embed abis/ERC1967Proxy.json
+var erc1967ProxyJSON []byte
+
 type ZetoDomainConfig struct {
 	DomainContracts zetoDomainContracts `yaml:"contracts"`
 }
@@ -117,7 +120,7 @@ type verifiersInfo struct {
 // Zeto dual-variant deploy keys (config-for-deploy-anon-nullifier-dual.yaml).
 const (
 	ZetoDualDeployVariantV0 = "v0_2_2"
-	ZetoDualDeployVariantV1      = "v1"
+	ZetoDualDeployVariantV1 = "v1"
 )
 
 type zetoDualDeployConfig struct {
@@ -244,12 +247,40 @@ func deployDomainContracts(ctx context.Context, rpc rpcclient.Client, deployer s
 		return nil, err
 	}
 
-	// deploy the factory contract (V1 uses explicit ERC1967 proxy deploy — see deployZetoFactoryV1WithProxy)
-	factoryAddr, factoryABI, err := deployContract(ctx, rpc, deployer, zkpRoot, &config.DomainContracts.Factory, deployedContracts)
+	// deploy the factory contract
+	factoryDeployAddr, factoryABI, err := deployContract(ctx, rpc, deployer, zkpRoot, &config.DomainContracts.Factory, deployedContracts)
 	if err != nil {
 		return nil, err
 	}
-	log.L(ctx).Infof("Deployed factory contract to %s", factoryAddr.String())
+
+	var factoryAddr *pldtypes.EthAddress
+	if isZetoFactoryV1Deploy(&config.DomainContracts.Factory) {
+		// V1 factories deploy their own ERC1967 proxy inside deployContract (see
+		// deployZetoFactoryV1WithProxy) and already return the proxy address.
+		factoryAddr = factoryDeployAddr
+		log.L(ctx).Infof("Using ZetoFactoryV1 proxy at %s", factoryAddr.String())
+	} else {
+		// V0 factories return the implementation address, so we wrap it in an
+		// ERC1967Proxy with initialize() calldata.
+		log.L(ctx).Infof("Deployed factory implementation to %s", factoryDeployAddr.String())
+
+		zetoFactoryABI := solutils.MustParseBuildABI(zetoFactoryJSON)
+		initCalldata, err := zetoFactoryABI.Functions()["initialize"].EncodeCallDataJSON([]byte(`[]`))
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode initialize calldata: %s", err)
+		}
+
+		proxyBuild := solutils.MustLoadBuild(erc1967ProxyJSON)
+		proxyParams := fmt.Sprintf(`["%s", "%s"]`, factoryDeployAddr.String(), pldtypes.HexBytes(initCalldata))
+		var proxyAddrStr string
+		rpcerr := rpc.CallRPC(ctx, &proxyAddrStr, "testbed_deployBytecode",
+			deployer, proxyBuild.ABI, proxyBuild.Bytecode.String(), pldtypes.RawJSON(proxyParams))
+		if rpcerr != nil {
+			return nil, fmt.Errorf("failed to deploy factory proxy: %s", rpcerr)
+		}
+		factoryAddr = pldtypes.MustEthAddress(proxyAddrStr)
+		log.L(ctx).Infof("Deployed factory proxy to %s", factoryAddr.String())
+	}
 
 	ctrs := newZetoDomainContracts()
 	ctrs.factoryAbi = factoryABI

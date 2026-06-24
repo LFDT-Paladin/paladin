@@ -120,14 +120,16 @@ func TestCreateTransferLock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)  // the input coin
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 3) // lock + locked-coin + remainder-coin
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 5) // manifest + unlock-data-info + data-info + spend-coin + cancel-coin
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 7) // outer-manifest + spend-manifest + cancel-manifest + unlock-data-info + data-info + spend-coin + cancel-coin
 
 	inputCoinState := assembleRes.AssembledTransaction.InputStates[0]
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
-	unlockDataState := assembleRes.AssembledTransaction.InfoStates[1]
-	dataState := assembleRes.AssembledTransaction.InfoStates[2]
-	spendCoinState := assembleRes.AssembledTransaction.InfoStates[3]
-	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[4]
+	unlockManifestState := assembleRes.AssembledTransaction.InfoStates[1] // spend manifest
+	cancelManifestState := assembleRes.AssembledTransaction.InfoStates[2]
+	unlockDataState := assembleRes.AssembledTransaction.InfoStates[3]
+	dataState := assembleRes.AssembledTransaction.InfoStates[4]
+	spendCoinState := assembleRes.AssembledTransaction.InfoStates[5]
+	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[6]
 	newLockInfoState := assembleRes.AssembledTransaction.OutputStates[0]
 	lockedCoinState := assembleRes.AssembledTransaction.OutputStates[1]
 	remainderCoinState := assembleRes.AssembledTransaction.OutputStates[2]
@@ -164,7 +166,8 @@ func TestCreateTransferLock(t *testing.T) {
 	require.Len(t, lockInfo.SpendOutputs, 1)
 	require.Len(t, lockInfo.CancelOutputs, 1)
 	require.NotEmpty(t, lockInfo.SpendData)
-	require.Equal(t, lockInfo.SpendData, lockInfo.CancelData) // same data for both currently
+	require.NotEmpty(t, lockInfo.CancelData)
+	require.NotEqual(t, lockInfo.SpendData, lockInfo.CancelData) // spend and cancel use distinct manifests
 
 	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{lockedCoin}, []*types.NotoLockedCoin{}, []*types.NotoCoin{spendCoin})
 	require.NoError(t, err)
@@ -277,25 +280,29 @@ func TestCreateTransferLock(t *testing.T) {
 	}, data)
 
 	// Decode the options we store into the lockInfo
-	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockDataState}))
+	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockManifestState, unlockDataState}))
+	require.NoError(t, err)
+	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
 	require.NoError(t, err)
 	createLockArgs := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
-	notoOptions := createLockArgs.Options
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), unlockTxData)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), endorsableStateIDs(ctx, outputStates[1:2], false), endorsableStateIDs(ctx, infoStates[1:2], false), unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[2:3]), unlockTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), endorsableStateIDs(ctx, outputStates[1:2], false), endorsableStateIDs(ctx, infoStates[2:3], false), cancelUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
+
+	expectedInputs := endorsableStateIDs(ctx, inputStates, false)
+	require.NotNil(t, expectedInputs)
 
 	// Validate the encoded noto parameters passed in
 	require.Equal(t, &types.NotoCreateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Inputs:       []string{inputCoinState.Id},
+		Inputs:       expectedInputs,
 		Outputs:      []string{*remainderCoinState.Id},
 		Contents:     []string{*lockedCoinState.Id},
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
-		Options:      createLockArgs.Options,
+		Options:      &types.NotoLockOptions{SpendTxId: lockInfo.SpendTxId},
 		Proof:        signatureBytes,
 	}, createLockArgs)
 
@@ -410,7 +417,11 @@ func TestCreateTransferLock(t *testing.T) {
 		completeForIdentity(notaryAddress).
 		completeForIdentity(senderKey.Address.String()).
 		completeForIdentity(receiverAddress)
-	mt.withMissingNewStates(manifestState, dataState).
+	mt.withMissingNewStates(manifestState, unlockDataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(unlockManifestState, unlockDataState).
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String()).
 		incompleteForIdentity(receiverAddress)

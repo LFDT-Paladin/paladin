@@ -119,7 +119,7 @@ func TestNotoDomainInit(t *testing.T) {
 		ConfigJson: "{}",
 	})
 	require.NoError(t, err)
-	assert.Len(t, configureRes.DomainConfig.AbiStateSchemasJson, 8)
+	assert.Len(t, configureRes.DomainConfig.AbiStateSchemasJson, 10)
 
 	initRes, err := n.InitDomain(ctx, &prototk.InitDomainRequest{
 		AbiStateSchemas: []*prototk.StateSchema{
@@ -131,6 +131,8 @@ func TestNotoDomainInit(t *testing.T) {
 			{Id: "schema6"},
 			{Id: "schema7"},
 			{Id: "schema8"},
+			{Id: "schema9"},
+			{Id: "schema10"},
 		},
 	})
 	require.NoError(t, err)
@@ -513,6 +515,172 @@ func TestPrepareDeployUnqualifiedNotary(t *testing.T) {
 	assert.Equal(t, "notary@node1", deployData["notaryLookup"])
 }
 
+func TestPrepareDeployV1Factory(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks, config: types.DomainConfig{FactoryVersion: 1}}
+	ctx := context.Background()
+
+	deployTransaction := &prototk.DeployTransactionSpecification{
+		TransactionId: "tx1",
+		ConstructorParamsJson: `{
+			"notary": "notary@node1",
+			"notaryMode": "basic",
+			"name": "test",
+			"symbol": "TEST"
+		}`,
+	}
+
+	prepareDeployRes, err := n.PrepareDeploy(ctx, &prototk.PrepareDeployRequest{
+		Transaction: deployTransaction,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{
+				Lookup:       "notary@node1",
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71",
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, prepareDeployRes.Transaction.FunctionAbiJson)
+	var deployParams map[string]any
+	err = json.Unmarshal([]byte(prepareDeployRes.Transaction.ParamsJson), &deployParams)
+	require.NoError(t, err)
+	assert.Equal(t, "tx1", deployParams["transactionId"])
+	assert.Equal(t, "test", deployParams["name"])
+	assert.Equal(t, "TEST", deployParams["symbol"])
+	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notary"])
+	assert.NotContains(t, deployParams, "implementationName")
+	deployData := pldtypes.MustParseHexBytes(deployParams["data"].(string))
+	assert.JSONEq(t, `{
+		"notaryLookup": "notary@node1",
+		"notaryMode": "0x0",
+		"privateAddress": null,
+		"privateGroup": null,
+		"restrictMint": true,
+		"allowBurn": true,
+		"allowLock": true
+	}`, string(deployData))
+
+	initContractRes, err := n.InitContract(ctx, &prototk.InitContractRequest{
+		ContractAddress: "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3",
+		ContractConfig:  encodedConfig(&types.NotoConfigData_V0{NotaryLookup: "notary@node1"}),
+	})
+	require.NoError(t, err)
+	assert.True(t, initContractRes.Valid)
+}
+
+func TestPrepareDeployV2Factory(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks, config: types.DomainConfig{FactoryVersion: 2}}
+	ctx := context.Background()
+
+	deployTransaction := &prototk.DeployTransactionSpecification{
+		TransactionId: "tx1",
+		ConstructorParamsJson: `{
+			"notary": "notary@node1",
+			"notaryMode": "basic",
+			"name": "test",
+			"symbol": "TEST"
+		}`,
+	}
+
+	prepareDeployRes, err := n.PrepareDeploy(ctx, &prototk.PrepareDeployRequest{
+		Transaction: deployTransaction,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{
+				Lookup:       "notary@node1",
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71",
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, prepareDeployRes.Transaction.FunctionAbiJson)
+	var deployParams map[string]any
+	err = json.Unmarshal([]byte(prepareDeployRes.Transaction.ParamsJson), &deployParams)
+	require.NoError(t, err)
+	assert.Equal(t, "tx1", deployParams["transactionId"])
+	assert.Equal(t, "test", deployParams["name"])
+	assert.Equal(t, "TEST", deployParams["symbol"])
+	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notary"])
+	assert.NotContains(t, deployParams, "implementationName")
+	deployData := pldtypes.MustParseHexBytes(deployParams["data"].(string))
+	assert.JSONEq(t, `{
+		"notaryLookup": "notary@node1",
+		"notaryMode": "0x0",
+		"privateAddress": null,
+		"privateGroup": null,
+		"restrictMint": true,
+		"allowBurn": true,
+		"allowLock": true
+	}`, string(deployData))
+
+	initContractRes, err := n.InitContract(ctx, &prototk.InitContractRequest{
+		ContractAddress: "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3",
+		ContractConfig:  encodedConfig(&types.NotoConfigData_V0{NotaryLookup: "notary@node1"}),
+	})
+	require.NoError(t, err)
+	assert.True(t, initContractRes.Valid)
+}
+
+func TestPrepareDeployV2FactoryImplementation(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks, config: types.DomainConfig{FactoryVersion: 2}}
+	ctx := context.Background()
+
+	deployTransaction := &prototk.DeployTransactionSpecification{
+		TransactionId: "tx1",
+		ConstructorParamsJson: `{
+			"notary": "notary@node1",
+			"notaryMode": "basic",
+			"implementation": "alt-noto",
+			"name": "test",
+			"symbol": "TEST"
+		}`,
+	}
+
+	prepareDeployRes, err := n.PrepareDeploy(ctx, &prototk.PrepareDeployRequest{
+		Transaction: deployTransaction,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{
+				Lookup:       "notary@node1",
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71",
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, prepareDeployRes.Transaction.FunctionAbiJson)
+	var deployParams map[string]any
+	err = json.Unmarshal([]byte(prepareDeployRes.Transaction.ParamsJson), &deployParams)
+	require.NoError(t, err)
+	assert.Equal(t, "tx1", deployParams["transactionId"])
+	assert.Equal(t, "test", deployParams["name"])
+	assert.Equal(t, "TEST", deployParams["symbol"])
+	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notary"])
+	assert.Equal(t, "alt-noto", deployParams["implementationName"])
+	deployData := pldtypes.MustParseHexBytes(deployParams["data"].(string))
+	assert.JSONEq(t, `{
+		"notaryLookup": "notary@node1",
+		"notaryMode": "0x0",
+		"privateAddress": null,
+		"privateGroup": null,
+		"restrictMint": true,
+		"allowBurn": true,
+		"allowLock": true
+	}`, string(deployData))
+
+	initContractRes, err := n.InitContract(ctx, &prototk.InitContractRequest{
+		ContractAddress: "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3",
+		ContractConfig:  encodedConfig(&types.NotoConfigData_V0{NotaryLookup: "notary@node1"}),
+	})
+	require.NoError(t, err)
+	assert.True(t, initContractRes.Valid)
+}
+
 func TestPrepareDeployCheckFunction(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
@@ -854,17 +1022,32 @@ func TestPrepareTransactionBadAbi(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid character")
 }
 
+func TestSign(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := context.Background()
+
+	coin := &types.NotoCoin{
+		Amount: pldtypes.MustParseHexUint256("100"),
+		Salt:   pldtypes.RandBytes32(),
+	}
+	coinJSON, err := json.Marshal(coin)
+	require.NoError(t, err)
+
+	resp, err := n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		Payload:     coinJSON,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, len(resp.Payload), 32)
+}
+
 func TestUnimplementedMethods(t *testing.T) {
 	n := &Noto{}
 	ctx := t.Context()
 
-	_, err := n.Sign(ctx, nil)
-	assert.ErrorContains(t, err, "PD200022")
-
-	_, err = n.GetVerifier(ctx, nil)
-	assert.ErrorContains(t, err, "PD200022")
-
-	_, err = n.ValidateStateHashes(ctx, nil)
+	_, err := n.ValidateStateHashes(ctx, nil)
 	assert.ErrorContains(t, err, "PD200022")
 }
 

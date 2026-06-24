@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package originator
 
 import (
@@ -20,40 +19,55 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
+	"github.com/LFDT-Paladin/paladin/core/mocks/originatortransactionmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
-
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(t.Context())
 	originatorLocator := "sender@senderNode"
-	coordinatorLocator := "coordinator@coordinatorNode"
-	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
-	s, mocks, cleanup := builder.Build(ctx)
-	defer cleanup()
-
+	coordinatorNode := "coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(t, State_Idle).CurrentActiveCoordinator(coordinatorNode)
+	o, mocks := builder.Build()
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(0))
+	mocks.EngineIntegration.On("CheckPendingPrivateStateData", mock.Anything, mock.Anything).Return(true, nil)
+	require.NoError(t, o.Start(ctx))
+	defer func() {
+		cancel()
+		o.WaitForDone(t.Context())
+	}()
 	// Ensure the originator is in observing mode by queuing a heartbeat from an active coordinator
 	contractAddress := builder.GetContractAddress()
-	heartbeatEvent := &HeartbeatReceivedEvent{}
-	heartbeatEvent.From = coordinatorLocator
-	heartbeatEvent.ContractAddress = &contractAddress
-	s.QueueEvent(ctx, heartbeatEvent)
-	require.Eventually(t, func() bool { return s.GetCurrentState() == State_Observing }, 100*time.Millisecond, 1*time.Millisecond, "Originator should transition to Observing")
-
+	heartbeatEvent := &common.HeartbeatReceivedEvent{
+		FromNode:        coordinatorNode,
+		ContractAddress: &contractAddress,
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{
+			CoordinatorState: common.CoordinatorState_Active,
+		},
+	}
+	o.QueueEvent(ctx, heartbeatEvent)
+	sync := statemachine.NewSyncEvent()
+	o.QueueEvent(ctx, sync)
+	<-sync.Done
+	require.Equal(t, State_Observing, o.GetCurrentState(), "Originator should transition to Observing")
 	// Start by creating a transaction with the originator
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
-	s.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: txn})
-	require.Eventually(t, func() bool { return mocks.SentMessageRecorder.HasSentDelegationRequest() }, 100*time.Millisecond, 1*time.Millisecond, "Delegation request should be sent")
-
 	postAssembly, postAssemblyHash := transactionBuilder.BuildPostAssemblyAndHash()
 	mocks.EngineIntegration.On(
 		"AssembleAndSign",
@@ -63,99 +77,98 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 	).Return(postAssembly, nil)
-
+	// Queue TransactionCreated and the coordinator's assemble request together
+	o.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: txn})
 	// Simulate the coordinator sending an assemble request
 	assembleRequestIdempotencyKey := uuid.New()
-	s.QueueEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	o.QueueEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{TransactionID: txn.ID},
-		RequestID: assembleRequestIdempotencyKey, Coordinator: coordinatorLocator,
-		CoordinatorsBlockHeight: 1000, StateLocksJSON: []byte("{}"),
+		RequestID: assembleRequestIdempotencyKey, Coordinator: coordinatorNode,
+		CoordinatorBlockHeight: 0, StateLocksJSON: []byte("{}"),
 	})
-	// Assert that the transaction was assembled and a response sent
-	require.Eventually(t, func() bool { return mocks.SentMessageRecorder.HasSentAssembleSuccessResponse() }, 100*time.Millisecond, 1*time.Millisecond, "Assemble success response should be sent")
-
+	sync = statemachine.NewSyncEvent()
+	o.QueueEvent(ctx, sync)
+	<-sync.Done
+	assert.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Delegation request should be sent")
+	// Assert that the transaction was assembled and a response sent. Assembly runs in a background
+	// goroutine so use Eventually to wait for the originator to process the result event.
+	require.Eventually(t, mocks.SentMessageRecorder.HasSentAssembleSuccessResponse, 2*time.Second, 10*time.Millisecond, "Assemble success response should be sent")
 	// Simulate the coordinator sending a dispatch confirmation
-	s.QueueEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
+	o.QueueEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{TransactionID: txn.ID},
-		RequestID: assembleRequestIdempotencyKey, Coordinator: coordinatorLocator, PostAssemblyHash: postAssemblyHash,
+		RequestID: assembleRequestIdempotencyKey, Coordinator: coordinatorNode, PostAssemblyHash: postAssemblyHash,
 	})
+	sync = statemachine.NewSyncEvent()
+	o.QueueEvent(ctx, sync)
+	<-sync.Done
 	// Assert that a dispatch confirmation was returned
-	require.Eventually(t, func() bool { return mocks.SentMessageRecorder.HasSentPreDispatchResponse() }, 100*time.Millisecond, 1*time.Millisecond, "Pre-dispatch response should be sent")
-
+	require.True(t, mocks.SentMessageRecorder.HasSentPreDispatchResponse(), "Pre-dispatch response should be sent")
 	// Simulate the coordinator having dispatched the transaction (Prepared → Dispatched) so the
 	// following heartbeat with LatestSubmissionHash is accepted (State_Dispatched handles Event_Submitted).
 	signerAddress := pldtypes.RandAddress()
-	s.QueueEvent(ctx, &transaction.DispatchedEvent{
+	o.QueueEvent(ctx, &transaction.DispatchedEvent{
 		BaseEvent:     transaction.BaseEvent{TransactionID: txn.ID},
 		SignerAddress: *signerAddress,
+		Coordinator:   coordinatorNode,
 	})
-
 	// Simulate the coordinator sending a heartbeat after the transaction was submitted
 	submissionHash := pldtypes.RandBytes32()
 	nonce := uint64(42)
 	// Originator must match the originator's nodeName so the heartbeat is applied
 	// (builder defaults nodeName to "member1@node1").
-	heartbeatEvent.DispatchedTransactions = []*common.SnapshotDispatchedTransaction{
-		{
-			SnapshotPooledTransaction: common.SnapshotPooledTransaction{
-				ID:         txn.ID,
-				Originator: "member1@node1",
+	heartbeatEvent.CoordinatorSnapshot = &common.CoordinatorSnapshot{
+		DispatchedTransactions: []*common.SnapshotDispatchedTransaction{
+			{
+				SnapshotPooledTransaction: common.SnapshotPooledTransaction{
+					ID: txn.ID,
+				},
+				Signer:               *signerAddress,
+				Nonce:                &nonce,
+				LatestSubmissionHash: &submissionHash,
 			},
-			Signer:               *signerAddress,
-			SignerLocator:        "signer@node2",
-			Nonce:                &nonce,
-			LatestSubmissionHash: &submissionHash,
 		},
 	}
-	s.QueueEvent(ctx, heartbeatEvent)
-
+	o.QueueEvent(ctx, heartbeatEvent)
 	// Simulate the block indexer confirming the transaction
-	s.QueueEvent(ctx, &transaction.ConfirmedSuccessEvent{
+	o.QueueEvent(ctx, &transaction.ConfirmedSuccessEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
 	})
-
 	// After confirmation: the transaction state machine transitions Submitted → Confirmed → Final,
 	// and the originator removes the transaction from memory (removeTransaction). With no
 	// unconfirmed transactions left, the originator transitions back to State_Observing.
-	require.Eventually(t, func() bool { return s.transactionsByID[txn.ID] == nil }, 100*time.Millisecond, 1*time.Millisecond, "Transaction should be cleaned up from transactionsByID after confirmation")
-	require.Eventually(t, func() bool { return s.GetCurrentState() == State_Observing }, 100*time.Millisecond, 1*time.Millisecond, "Originator should transition to Observing when all transactions are confirmed")
+	sync = statemachine.NewSyncEvent()
+	o.QueueEvent(ctx, sync)
+	<-sync.Done
+	require.Nil(t, o.transactionsByID[txn.ID], "Transaction should be cleaned up from transactionsByID after confirmation")
+	require.Equal(t, State_Observing, o.GetCurrentState(), "Originator should transition to Observing when all transactions are confirmed")
 }
 
-func Test_propagateEventToTransaction_UnknownTransaction_AssembleRequestSendsUnknown(t *testing.T) {
-	ctx := context.Background()
-	originatorLocator := "sender@senderNode"
+func Test_propagateEventToTransaction_UnknownTransaction_AssembleRequestSendsRejection(t *testing.T) {
+	ctx := t.Context()
 	coordinatorLocator := "coordinator@coordinatorNode"
-	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
-	s, mocks, cleanup := builder.Build(ctx)
-	defer cleanup()
-
-	// Create a transaction event with a transaction ID that doesn't exist in the originator
+	builder := NewOriginatorBuilderForTesting(t, State_Observing)
+	o, mocks := builder.Build()
 	unknownTxID := uuid.New()
 	assembleRequestIdempotencyKey := uuid.New()
 	event := &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: unknownTxID,
 		},
-		RequestID:               assembleRequestIdempotencyKey,
-		Coordinator:             coordinatorLocator,
-		CoordinatorsBlockHeight: 1000,
-		StateLocksJSON:          []byte("{}"),
+		RequestID:              assembleRequestIdempotencyKey,
+		Coordinator:            coordinatorLocator,
+		CoordinatorBlockHeight: 1000,
+		StateLocksJSON:         []byte("{}"),
 	}
-	s.QueueEvent(ctx, event)
-	// State machine should call propagateEventToTransaction, which should send a TransactionUnknown response
-	require.Eventually(t, func() bool { return mocks.SentMessageRecorder.HasSentTransactionUnknown() }, 100*time.Millisecond, 1*time.Millisecond, "SendTransactionUnknown should be called")
-	txID, coordinator := mocks.SentMessageRecorder.GetTransactionUnknownDetails()
-	assert.Equal(t, unknownTxID, txID, "TransactionUnknown should be sent for the correct transaction ID")
-	assert.Equal(t, coordinatorLocator, coordinator, "TransactionUnknown should be sent to the correct coordinator")
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, event))
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "SendAssembleRejection should be called for unknown transaction")
 }
-func Test_propagateEventToTransaction_UnknownTransaction_NonRequestEventReturnsNil(t *testing.T) {
-	ctx := context.Background()
-	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
-	s, mocks, cleanup := builder.Build(ctx)
-	defer cleanup()
 
+func Test_propagateEventToTransaction_UnknownTransaction_NonRequestEventReturnsNil(t *testing.T) {
+	ctx := t.Context()
+	builder := NewOriginatorBuilderForTesting(t, State_Observing)
+	o, mocks := builder.Build()
 	// Create a ConfirmedSuccessEvent for an unknown transaction
 	unknownTxID := uuid.New()
 	event := &transaction.ConfirmedSuccessEvent{
@@ -163,130 +176,179 @@ func Test_propagateEventToTransaction_UnknownTransaction_NonRequestEventReturnsN
 			TransactionID: unknownTxID,
 		},
 	}
-
-	// Verify that SendTransactionUnknown was NOT called
-	s.QueueEvent(ctx, event)
-	sync := statemachine.NewSyncEvent()
-	s.QueueEvent(ctx, sync)
-	<-sync.Done
-	assert.False(t, mocks.SentMessageRecorder.HasSentTransactionUnknown(), "Expected SendTransactionUnknown to NOT be called for confirmation events")
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, event))
+	// Verify that neither rejection was sent
+	assert.False(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "Expected SendAssembleRejection to NOT be called for confirmation events")
+	assert.False(t, mocks.SentMessageRecorder.HasSentPreDispatchRejection(), "Expected SendPreDispatchRejection to NOT be called for confirmation events")
 }
 
 func TestOriginator_CreateTransaction_ErrorFromNewTransaction(t *testing.T) {
-
-	ctx := context.Background()
-	originatorLocator := "sender@senderNode"
-	coordinatorLocator := "coordinator@coordinatorNode"
-	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
-	s, mocks, cleanup := builder.Build(ctx)
-	defer cleanup()
-
-	contractAddress := builder.GetContractAddress()
-	heartbeatEvent := &HeartbeatReceivedEvent{}
-	heartbeatEvent.From = coordinatorLocator
-	heartbeatEvent.ContractAddress = &contractAddress
-	s.QueueEvent(ctx, heartbeatEvent)
-	require.Eventually(t, func() bool { return s.GetCurrentState() == State_Observing }, 100*time.Millisecond, 1*time.Millisecond, "Originator should transition to Observing")
-	mocks.SentMessageRecorder.Reset(ctx)
-
-	s.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: nil})
-	sync := statemachine.NewSyncEvent()
-	s.QueueEvent(ctx, sync)
-	<-sync.Done
-	// Nil transaction is rejected in the loop; no delegation should be sent and state should remain Observing
-	assert.True(t, s.GetCurrentState() == State_Observing, "State should remain Observing after nil transaction event")
+	ctx := t.Context()
+	builder := NewOriginatorBuilderForTesting(t, State_Observing)
+	o, mocks := builder.Build()
+	// Nil transaction triggers a handled error; state should remain Observing
+	_ = o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: nil})
+	assert.True(t, o.GetCurrentState() == State_Observing, "State should remain Observing after nil transaction event")
 	assert.False(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "No delegation should be sent for nil transaction")
 }
 
 func TestOriginator_EventLoop_ErrorHandling(t *testing.T) {
-
-	ctx := context.Background()
+	ctx := t.Context()
 	originatorLocator := "sender@senderNode"
-	coordinatorLocator := "coordinator@coordinatorNode"
-	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
-	s, mocks, cleanup := builder.Build(ctx)
-	defer cleanup()
-
-	// Ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
-	contractAddress := builder.GetContractAddress()
-	heartbeatEvent := &HeartbeatReceivedEvent{}
-	heartbeatEvent.From = coordinatorLocator
-	heartbeatEvent.ContractAddress = &contractAddress
-	s.QueueEvent(ctx, heartbeatEvent)
-	require.Eventually(t, func() bool { return s.GetCurrentState() == State_Observing }, 100*time.Millisecond, 1*time.Millisecond, "Originator should transition to Observing")
-
-	// Queue a TransactionCreatedEvent with a nil transaction to trigger an error
-	s.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: nil})
-	sync := statemachine.NewSyncEvent()
-	s.QueueEvent(ctx, sync)
-	<-sync.Done
-
+	builder := NewOriginatorBuilderForTesting(t, State_Observing)
+	o, mocks := builder.Build()
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(0))
+	// Process a TransactionCreatedEvent with a nil transaction to trigger an error
+	_ = o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: nil})
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
 	validEvent := &TransactionCreatedEvent{
 		Transaction: txn,
 	}
-	// Reset the message recorder to track the new event
-	mocks.SentMessageRecorder.Reset(ctx)
-	// Queue a valid event to verify the originator is still working
-	s.QueueEvent(ctx, validEvent)
-	require.Eventually(t, func() bool { return mocks.SentMessageRecorder.HasSentDelegationRequest() }, 100*time.Millisecond, 1*time.Millisecond, "Originator should still process valid event after error")
+	// Process a valid event to verify the originator is still working
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, validEvent))
+	assert.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Originator should still process valid event after error")
 }
 
 func Test_getTransactionsInStates_ReturnsOnlyTransactionsWhoseStateIsListed(t *testing.T) {
-	ctx := context.Background()
-	tbPending := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending)
-	tbDelegated := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated)
-	tbAssembling := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
-
-	builder := NewOriginatorBuilderForTesting(State_Sending).
-		CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode").
-		TransactionBuilders(tbPending, tbDelegated, tbAssembling)
-	o, _, cleanup := builder.Build(ctx)
-	defer cleanup()
-
+	pendingID := uuid.New()
+	delegatedID := uuid.New()
+	assemblingID := uuid.New()
+	mockPending := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockPending.On("GetID").Return(pendingID)
+	mockPending.On("GetCurrentState").Return(transaction.State_Pending)
+	mockDelegated := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockDelegated.On("GetID").Return(delegatedID)
+	mockDelegated.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockAssembling := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockAssembling.On("GetID").Return(assemblingID)
+	mockAssembling.On("GetCurrentState").Return(transaction.State_Assembling)
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(mockPending, mockDelegated, mockAssembling).
+		Build()
 	matching := o.getTransactionsInStates([]transaction.State{transaction.State_Pending, transaction.State_Delegated})
 	require.Len(t, matching, 2)
-
 	byID := make(map[uuid.UUID]transaction.State)
 	for _, txn := range matching {
 		byID[txn.GetID()] = txn.GetCurrentState()
 	}
-	assert.Equal(t, transaction.State_Pending, byID[tbPending.GetBuiltTransaction().GetID()])
-	assert.Equal(t, transaction.State_Delegated, byID[tbDelegated.GetBuiltTransaction().GetID()])
+	assert.Equal(t, transaction.State_Pending, byID[pendingID])
+	assert.Equal(t, transaction.State_Delegated, byID[delegatedID])
 }
 
 func Test_getTransactionsInStates_EmptyStateListReturnsNoTransactions(t *testing.T) {
-	ctx := context.Background()
-	tb := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending)
-	builder := NewOriginatorBuilderForTesting(State_Sending).
-		CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode").
-		TransactionBuilders(tb)
-	o, _, cleanup := builder.Build(ctx)
-	defer cleanup()
-
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID)
+	mockTxn.On("GetCurrentState").Return(transaction.State_Pending)
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(mockTxn).
+		Build()
 	assert.Empty(t, o.getTransactionsInStates(nil))
 	assert.Empty(t, o.getTransactionsInStates([]transaction.State{}))
 }
 
-func Test_propagateEventToTransaction_UnknownTransaction_PreDispatchRequestSendsUnknown(t *testing.T) {
-	ctx := context.Background()
-	originatorLocator := "sender@senderNode"
+func Test_propagateEventToTransaction_UnknownTransaction_PreDispatchRequestSendsRejection(t *testing.T) {
+	ctx := t.Context()
 	coordinatorLocator := "coordinator@coordinatorNode"
-	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
-	s, mocks, cleanup := builder.Build(ctx)
-	defer cleanup()
-
+	builder := NewOriginatorBuilderForTesting(t, State_Observing)
+	o, mocks := builder.Build()
 	unknownTxID := uuid.New()
 	postAssemblyHash := pldtypes.RandBytes32()
 	event := &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent:        transaction.BaseEvent{TransactionID: unknownTxID},
 		Coordinator:      coordinatorLocator,
 		PostAssemblyHash: &postAssemblyHash,
+		RequestID:        uuid.New(),
 	}
-	s.QueueEvent(ctx, event)
-	require.Eventually(t, func() bool { return mocks.SentMessageRecorder.HasSentTransactionUnknown() }, 100*time.Millisecond, 1*time.Millisecond, "SendTransactionUnknown should be called")
-	txID, coordinator := mocks.SentMessageRecorder.GetTransactionUnknownDetails()
-	assert.Equal(t, unknownTxID, txID)
-	assert.Equal(t, coordinatorLocator, coordinator)
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, event))
+	assert.True(t, mocks.SentMessageRecorder.HasSentPreDispatchRejection(), "SendPreDispatchRejection should be called for unknown transaction")
+	assert.Equal(t, engineProto.RejectionReason_TRANSACTION_UNKNOWN, mocks.SentMessageRecorder.PreDispatchRejectionReason())
+}
+
+func Test_GetTxStatus_KnownTransactionReturnsStatus(t *testing.T) {
+	ctx := t.Context()
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID)
+	mockTxn.On("GetStatus", mock.Anything).Return(components.PrivateTxStatus{TxID: txID.String(), Status: "pending"})
+	o, _ := NewOriginatorBuilderForTesting(t, State_Observing).Transactions(mockTxn).Build()
+	status, err := o.GetTxStatus(ctx, txID)
+	require.NoError(t, err)
+	assert.Equal(t, txID.String(), status.TxID)
+	assert.NotEmpty(t, status.Status)
+}
+
+func Test_GetTxStatus_UnknownTransactionReturnsUnknown(t *testing.T) {
+	ctx := t.Context()
+	builder := NewOriginatorBuilderForTesting(t, State_Observing)
+	o, _ := builder.Build()
+	unknownID := uuid.New()
+	status, err := o.GetTxStatus(ctx, unknownID)
+	require.NoError(t, err)
+	assert.Equal(t, unknownID.String(), status.TxID)
+	assert.Equal(t, "unknown", status.Status)
+}
+
+func TestOriginator_Start_Idempotent(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Idle).Build()
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(0))
+	require.NoError(t, o.Start(ctx))
+	defer func() {
+		cancel()
+		o.WaitForDone(t.Context())
+	}()
+	// Second call should be a no-op (idempotent).
+	require.NoError(t, o.Start(ctx))
+}
+
+func TestOriginator_WaitForDone_NotStarted_ReturnsImmediately(t *testing.T) {
+	ctx := t.Context()
+	o, _ := NewOriginatorBuilderForTesting(t, State_Idle).Build()
+	// Without calling Start, WaitForDone should return immediately.
+	done := make(chan struct{})
+	go func() {
+		o.WaitForDone(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+		// expected
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("WaitForDone should have returned immediately when not started")
+	}
+}
+
+func TestNewOriginator_SenderMode_SetsCurrentActiveCoordinatorToNodeName(t *testing.T) {
+	const nodeName = "senderNode"
+	o := NewOriginator(
+		nodeName,
+		testutil.NewSentMessageRecorder(),
+		sequencercommonmocks.NewEngineIntegration(t),
+		pldtypes.RandAddress(),
+		&pldconf.SequencerDefaults,
+		metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
+		&common.CoordinatorSelectionConfig{
+			Mode: prototk.ContractConfig_COORDINATOR_SENDER,
+		},
+	)
+	assert.Equal(t, nodeName, o.currentActiveCoordinator)
+}
+
+func TestNewOriginator_EndorserMode_SetsEndorserCandidates(t *testing.T) {
+	endorsers := []string{"endorser1@node1", "endorser2@node2"}
+	o := NewOriginator(
+		"node1",
+		testutil.NewSentMessageRecorder(),
+		sequencercommonmocks.NewEngineIntegration(t),
+		pldtypes.RandAddress(),
+		&pldconf.SequencerDefaults,
+		metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
+		&common.CoordinatorSelectionConfig{
+			Mode:      prototk.ContractConfig_COORDINATOR_ENDORSER,
+			Endorsers: endorsers,
+		},
+	)
+	assert.Equal(t, endorsers, o.endorserCandidates)
 }

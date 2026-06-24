@@ -149,6 +149,8 @@ func (s *privacyGroupContractDeploySuite) NewWorker(startTime int64, workerID in
 	}
 }
 
+func (s *privacyGroupContractDeploySuite) OnReceiptBatch(_ []string) {}
+
 func (s *privacyGroupContractDeploySuite) PostRun() error {
 	return nil
 }

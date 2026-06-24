@@ -32,6 +32,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 
 	"github.com/google/uuid"
@@ -46,6 +47,9 @@ type ParamValidator interface {
 }
 
 //go:embed abis/NotoFactory.json
+var notoFactoryV2JSON []byte
+
+//go:embed abis/NotoFactory_V1.json
 var notoFactoryV1JSON []byte
 
 //go:embed abis/NotoFactory_V0.json
@@ -67,6 +71,7 @@ var notoErrorsJSON []byte
 var notoHooksJSON []byte
 
 var (
+	factoryV2Build   = solutils.MustLoadBuild(notoFactoryV2JSON)
 	factoryV1Build   = solutils.MustLoadBuild(notoFactoryV1JSON)
 	factoryV0Build   = solutils.MustLoadBuild(notoFactoryV0JSON)
 	interfaceV2Build = solutils.MustLoadBuild(notoInterfaceV2JSON)
@@ -129,6 +134,8 @@ var allSchemas = []*abi.Parameter{
 	types.TransactionDataABI_V1,
 	types.TransactionDataABI_V2,
 	types.NotoManifestABI,
+	smt.MerkleTreeRootABI,
+	smt.MerkleTreeNodeABI,
 }
 
 var schemasJSON = mustParseSchemas(allSchemas)
@@ -146,6 +153,8 @@ type Noto struct {
 	fixedSigningIdentity string
 	coinSchema           *prototk.StateSchema
 	lockedCoinSchema     *prototk.StateSchema
+	merkleTreeRootSchema *prototk.StateSchema
+	merkleTreeNodeSchema *prototk.StateSchema
 	dataSchemaV0         *prototk.StateSchema
 	dataSchemaV1         *prototk.StateSchema
 	dataSchemaV2         *prototk.StateSchema
@@ -155,11 +164,12 @@ type Noto struct {
 }
 
 type NotoDeployParams struct {
-	TransactionID string              `json:"transactionId"`
-	Name          string              `json:"name"`
-	Symbol        string              `json:"symbol"`
-	Notary        pldtypes.EthAddress `json:"notary"`
-	Data          pldtypes.HexBytes   `json:"data"`
+	TransactionID      string              `json:"transactionId"`
+	ImplementationName string              `json:"implementationName,omitempty"`
+	Name               string              `json:"name"`
+	Symbol             string              `json:"symbol"`
+	Notary             pldtypes.EthAddress `json:"notary"`
+	Data               pldtypes.HexBytes   `json:"data"`
 }
 
 type NotoMintParams struct {
@@ -510,10 +520,17 @@ func (n *Noto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 	n.chainID = req.ChainId
 	n.fixedSigningIdentity = req.FixedSigningIdentity
 
+	algoName := types.AlgoDomainNullifier(n.name)
+	// using the "Sign" lifecycle method to generate the nullifier,
+	// we don't need a key length or a specific algorithm. just a placeholder entry.
+	signingAlgos := map[string]int32{}
+	signingAlgos[algoName] = 32
+
 	return &prototk.ConfigureDomainResponse{
 		DomainConfig: &prototk.DomainConfig{
 			AbiStateSchemasJson: schemasJSON,
 			AbiEventsJson:       allEventsJSON,
+			SigningAlgorithms:   signingAlgos,
 		},
 	}, nil
 }
@@ -535,6 +552,10 @@ func (n *Noto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (
 			n.lockInfoSchemaV0 = req.AbiStateSchemas[i]
 		case types.NotoLockInfoABI_V1.Name:
 			n.lockInfoSchemaV1 = req.AbiStateSchemas[i]
+		case smt.MerkleTreeRootABI.Name:
+			n.merkleTreeRootSchema = req.AbiStateSchemas[i]
+		case smt.MerkleTreeNodeABI.Name:
+			n.merkleTreeNodeSchema = req.AbiStateSchemas[i]
 		case types.NotoManifestABI.Name:
 			n.manifestSchema = req.AbiStateSchemas[i]
 		}
@@ -635,9 +656,14 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	}
 
 	// Default to the V0 NotoFactory ABI if no version is specified
-	abi := factoryV0Build.ABI
-	if n.config.FactoryVersion == 1 {
+	var abi abi.ABI
+	switch n.config.FactoryVersion {
+	case 1:
 		abi = factoryV1Build.ABI
+	case 2:
+		abi = factoryV2Build.ABI
+	default:
+		abi = factoryV0Build.ABI
 	}
 
 	functionName := "deploy"
@@ -649,23 +675,29 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 		deployDataJSON, err = json.Marshal(deployData)
 	}
 	if err == nil {
+		var deployParams *NotoDeployParams
 		// For V0 factories, we need to omit name and symbol parameters
 		if n.config.FactoryVersion == 0 {
-			paramsJSON, err = json.Marshal(&NotoDeployParams{
+			deployParams = &NotoDeployParams{
 				TransactionID: req.Transaction.TransactionId,
 				Notary:        *notaryAddress,
 				Data:          deployDataJSON,
-			})
+			}
 		} else {
-			// For V1 factories, include name and symbol
-			paramsJSON, err = json.Marshal(&NotoDeployParams{
-				TransactionID: req.Transaction.TransactionId,
-				Name:          params.Name,
-				Symbol:        params.Symbol,
-				Notary:        *notaryAddress,
-				Data:          deployDataJSON,
-			})
+			// For V1 and V2 factories, include name and symbol
+			deployParams = &NotoDeployParams{
+				TransactionID:      req.Transaction.TransactionId,
+				ImplementationName: params.Implementation,
+				Name:               params.Name,
+				Symbol:             params.Symbol,
+				Notary:             *notaryAddress,
+				Data:               deployDataJSON,
+			}
+			if n.config.FactoryVersion == 2 && params.Implementation != "" {
+				deployParams.ImplementationName = params.Implementation
+			}
 		}
+		paramsJSON, err = json.Marshal(deployParams)
 	}
 
 	return &prototk.PrepareDeployResponse{
@@ -1192,11 +1224,33 @@ func mapPrepareTransactionType(transactionType pldapi.TransactionType) prototk.P
 }
 
 func (n *Noto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.SignResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+	log.L(ctx).Infof("generating nullifier for %s\n", req.Algorithm)
+	switch req.PayloadType {
+	case types.PAYLOAD_DOMAIN_NOTO_NULLIFIER:
+		var coin *types.NotoCoin
+		var hashBytes *pldtypes.Bytes32
+		err := json.Unmarshal(req.Payload, &coin)
+		log.L(ctx).Debugf("unmarshaled coin: %+v\n", coin)
+		if err == nil {
+			hashBytes, err = calculateNullifier(coin)
+		}
+		if err != nil {
+			return nil, i18n.WrapError(ctx, err, msgs.MsgNullifierGenerationFailed)
+		}
+		return &prototk.SignResponse{
+			Payload: hashBytes.Bytes(),
+		}, nil
+	default:
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownSignPayload, req.PayloadType)
+	}
 }
 
 func (n *Noto) GetVerifier(ctx context.Context, req *prototk.GetVerifierRequest) (*prototk.GetVerifierResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+	// as per the current nullifier design, no specific verifier is required
+	// to produce the nullifier. return a placeholder verifier
+	return &prototk.GetVerifierResponse{
+		Verifier: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+	}, nil
 }
 
 func (n *Noto) ValidateStateHashes(ctx context.Context, req *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {

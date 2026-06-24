@@ -29,14 +29,16 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator"
 	coordinatorTx "github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatormocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/metricsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/originatormocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencermetricsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
@@ -62,11 +64,11 @@ type sequencerLifecycleTestMocks struct {
 	publicTxManager  *componentsmocks.PublicTxManager
 	keyManager       *componentsmocks.KeyManager
 	domainAPI        *componentsmocks.DomainSmartContract
-	transportWriter  *transport.MockTransportWriter
-	originator       *originator.MockOriginator
-	coordinator      *coordinator.MockCoordinator
-	syncPoints       *syncpoints.MockSyncPoints
-	metrics          *metrics.MockDistributedSequencerMetrics
+	transportWriter  *sequencertransportmocks.TransportWriter
+	originator       *originatormocks.Originator
+	coordinator      *coordinatormocks.Coordinator
+	syncPoints       *syncpointsmocks.SyncPoints
+	metrics          *sequencermetricsmocks.DistributedSequencerMetrics
 }
 
 func newSequencerLifecycleTestMocks(t *testing.T) *sequencerLifecycleTestMocks {
@@ -81,11 +83,11 @@ func newSequencerLifecycleTestMocks(t *testing.T) *sequencerLifecycleTestMocks {
 		publicTxManager:  componentsmocks.NewPublicTxManager(t),
 		keyManager:       componentsmocks.NewKeyManager(t),
 		domainAPI:        componentsmocks.NewDomainSmartContract(t),
-		transportWriter:  transport.NewMockTransportWriter(t),
-		originator:       originator.NewMockOriginator(t),
-		coordinator:      coordinator.NewMockCoordinator(t),
-		syncPoints:       syncpoints.NewMockSyncPoints(t),
-		metrics:          metrics.NewMockDistributedSequencerMetrics(t),
+		transportWriter:  sequencertransportmocks.NewTransportWriter(t),
+		originator:       originatormocks.NewOriginator(t),
+		coordinator:      coordinatormocks.NewCoordinator(t),
+		syncPoints:       syncpointsmocks.NewSyncPoints(t),
+		metrics:          sequencermetricsmocks.NewDistributedSequencerMetrics(t),
 	}
 }
 
@@ -132,16 +134,15 @@ func newSequencerManagerForTesting(t *testing.T, mocks *sequencerLifecycleTestMo
 	config := &pldconf.SequencerConfig{}
 
 	sm := &sequencerManager{
-		ctx:                           ctx,
-		config:                        config,
-		components:                    mocks.components,
-		nodeName:                      "test-node",
-		sequencersLock:                sync.RWMutex{},
-		sequencers:                    make(map[string]*sequencer),
-		metrics:                       mocks.metrics,
-		heartbeatInterval:             10 * time.Second,
-		targetActiveCoordinatorsLimit: 2,
-		targetActiveSequencersLimit:   2,
+		ctx:                         ctx,
+		config:                      config,
+		components:                  mocks.components,
+		nodeName:                    "test-node",
+		sequencersLock:              sync.RWMutex{},
+		sequencers:                  make(map[string]*sequencer),
+		metrics:                     mocks.metrics,
+		heartbeatInterval:           10 * time.Second,
+		targetActiveSequencersLimit: 2,
 	}
 
 	return sm
@@ -228,7 +229,8 @@ func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	mocks.setupDefaultExpectations(ctx, contractAddr)
 	mockDomainSmartContract := componentsmocks.NewDomainSmartContract(t)
 	mockDomain := componentsmocks.NewDomain(t)
-	mockDomainSmartContract.EXPECT().Domain().Return(mockDomain).Once()
+	mockDomain.EXPECT().GetBlockHeight().Return(int64(0))
+	mockDomainSmartContract.EXPECT().Domain().Return(mockDomain)
 	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("test-identity@test-coordinator")}).Maybe()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mockDomainSmartContract, nil)
 	mocks.stateManager.EXPECT().NewDomainContext(ctx, mockDomain, *contractAddr).Return(componentsmocks.NewDomainContext(t)).Once()
@@ -285,12 +287,6 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer(t *testing.T) {
 	mocks.setupDefaultExpectations(ctx, contractAddr)
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
 
-	// When LoadSequencer finds an existing sequencer and tx has PreAssembly, it queues OriginatorNodePoolUpdateRequestedEvent
-	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
-		ev, ok := e.(*coordinator.OriginatorNodePoolUpdateRequestedEvent)
-		return ok && ev != nil
-	})).Return().Once()
-
 	// Create a mock private transaction
 	tx := &components.PrivateTransaction{
 		ID: uuid.New(),
@@ -329,12 +325,6 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer_NoCoordinator_Success(
 	// Setup expectations for existing sequencer
 	mocks.setupDefaultExpectations(ctx, contractAddr)
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
-
-	// When LoadSequencer finds an existing sequencer and tx has PreAssembly, it queues OriginatorNodePoolUpdateRequestedEvent
-	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
-		ev, ok := e.(*coordinator.OriginatorNodePoolUpdateRequestedEvent)
-		return ok && ev != nil
-	})).Return().Once()
 
 	// Create a mock private transaction with required verifiers
 	tx := &components.PrivateTransaction{
@@ -424,8 +414,7 @@ func TestSequencerManager_GetSequencer_NotLoaded(t *testing.T) {
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 
-	seq, err := sm.GetSequencer(ctx, *contractAddr)
-	require.NoError(t, err)
+	seq := sm.GetSequencer(ctx, *contractAddr)
 	assert.Nil(t, seq)
 }
 
@@ -440,8 +429,7 @@ func TestSequencerManager_GetSequencer_Loaded(t *testing.T) {
 	sm.sequencers[contractAddr.String()] = existing
 	sm.sequencersLock.Unlock()
 
-	seq, err := sm.GetSequencer(ctx, *contractAddr)
-	require.NoError(t, err)
+	seq := sm.GetSequencer(ctx, *contractAddr)
 	assert.Equal(t, existing, seq)
 }
 
@@ -702,7 +690,7 @@ func TestSequencerManager_stopLowestPrioritySequencer_SequencerAlreadyClosing(t 
 
 	// Create a sequencer that's already closing
 	seq := newSequencerForTesting(contractAddr, mocks)
-	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Flush)
+	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Closing_Flush)
 
 	sm.sequencersLock.Lock()
 	sm.sequencers[contractAddr.String()] = seq
@@ -812,142 +800,6 @@ func TestSequencerManager_stopLowestPrioritySequencer_LowestPriority(t *testing.
 	assert.Contains(t, sm.sequencers, contractAddr2.String())
 }
 
-// func TestSequencerManager_updateActiveCoordinators_NoActiveCoordinators(t *testing.T) {
-// 	ctx := context.Background()
-// 	contractAddr := pldtypes.RandAddress()
-// 	mocks := newSequencerLifecycleTestMocks(t)
-// 	sm := newSequencerManagerForTesting(t, mocks)
-
-// 	// Create a sequencer with inactive coordinator
-// 	seq := newSequencerForTesting(contractAddr, mocks)
-// 	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Idle)
-// 	mocks.metrics.EXPECT().SetActiveCoordinators(0).Once()
-
-// 	sm.sequencersLock.Lock()
-// 	sm.sequencers[contractAddr.String()] = seq
-// 	sm.sequencersLock.Unlock()
-
-// 	// Call updateActiveCoordinators
-// 	sm.updateActiveCoordinators(ctx)
-
-// 	mocks.metrics.AssertExpectations(t)
-// }
-
-// func TestSequencerManager_updateActiveCoordinators_ActiveCoordinators(t *testing.T) {
-// 	ctx := context.Background()
-// 	contractAddr := pldtypes.RandAddress()
-// 	mocks := newSequencerLifecycleTestMocks(t)
-// 	sm := newSequencerManagerForTesting(t, mocks)
-
-// 	// Create a sequencer with active coordinator
-// 	seq := newSequencerForTesting(contractAddr, mocks)
-// 	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
-// 	mocks.metrics.EXPECT().SetActiveCoordinators(1).Once()
-
-// 	sm.sequencersLock.Lock()
-// 	sm.sequencers[contractAddr.String()] = seq
-// 	sm.sequencersLock.Unlock()
-
-// 	// Call updateActiveCoordinators
-// 	sm.updateActiveCoordinators(ctx)
-
-// 	mocks.metrics.AssertExpectations(t)
-// }
-
-// func TestSequencerManager_updateActiveCoordinators_ExceedsLimit(t *testing.T) {
-// 	ctx := context.Background()
-// 	contractAddr1 := pldtypes.RandAddress()
-// 	contractAddr2 := pldtypes.RandAddress()
-// 	contractAddr3 := pldtypes.RandAddress()
-// 	mocks1 := newSequencerLifecycleTestMocks(t)
-// 	mocks2 := newSequencerLifecycleTestMocks(t)
-// 	mocks3 := newSequencerLifecycleTestMocks(t)
-// 	sm := newSequencerManagerForTesting(t, mocks1)
-
-// 	// Set limit to 2
-// 	sm.targetActiveCoordinatorsLimit = 2
-
-// 	// Create three sequencers with active coordinators
-// 	seq1 := newSequencerForTesting(contractAddr1, mocks1)
-// 	seq1.lastTXTime = time.Now().Add(-3 * time.Hour) // Oldest
-
-// 	seq2 := newSequencerForTesting(contractAddr2, mocks2)
-// 	seq2.lastTXTime = time.Now().Add(-2 * time.Hour) // Middle
-
-// 	seq3 := newSequencerForTesting(contractAddr3, mocks3)
-// 	seq3.lastTXTime = time.Now().Add(-1 * time.Hour) // Newest
-
-// 	// Setup expectations - all are active, seq1 should be stopped
-// 	mocks1.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
-// 	mocks2.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
-// 	mocks3.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
-// 	mocks1.coordinator.EXPECT().WaitForDone(mock.Anything).Once()
-// 	mocks1.originator.EXPECT().WaitForDone(mock.Anything).Once()
-// 	mocks1.metrics.EXPECT().SetActiveCoordinators(3).Once()
-
-// 	sm.sequencersLock.Lock()
-// 	sm.sequencers[contractAddr1.String()] = seq1
-// 	sm.sequencers[contractAddr2.String()] = seq2
-// 	sm.sequencers[contractAddr3.String()] = seq3
-// 	sm.sequencersLock.Unlock()
-
-// 	// Call updateActiveCoordinators
-// 	sm.updateActiveCoordinators(ctx)
-
-// 	// Verify only seq1 was removed (lowest priority)
-// 	sm.sequencersLock.RLock()
-// 	defer sm.sequencersLock.RUnlock()
-// 	assert.NotContains(t, sm.sequencers, contractAddr1.String())
-// 	assert.Contains(t, sm.sequencers, contractAddr2.String())
-// 	assert.Contains(t, sm.sequencers, contractAddr3.String())
-
-// 	mocks1.metrics.AssertExpectations(t)
-// }
-
-func TestSequencerManager_getOriginatorNodesFromTx_InvalidVerifierLookup(t *testing.T) {
-	ctx := context.Background()
-	mocks := newSequencerLifecycleTestMocks(t)
-	sm := newSequencerManagerForTesting(t, mocks)
-
-	// Create a transaction with an invalid verifier lookup (too many @ symbols)
-	tx := &components.PrivateTransaction{
-		ID: uuid.New(),
-		PreAssembly: &components.TransactionPreAssembly{
-			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
-				{Lookup: "invalid@format@too@many"}, // Invalid format - too many @ symbols
-			},
-		},
-	}
-
-	_, err := sm.getOriginatorNodesFromTx(ctx, tx)
-
-	// Verify that an error is returned
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD020006") // Error code for invalid private identity locator format
-}
-
-func TestSequencerManager_getOriginatorNodesFromTx_ReturnsNodes(t *testing.T) {
-	ctx := context.Background()
-	mocks := newSequencerLifecycleTestMocks(t)
-	sm := newSequencerManagerForTesting(t, mocks)
-
-	// Create a transaction with valid required verifiers
-	tx := &components.PrivateTransaction{
-		ID: uuid.New(),
-		PreAssembly: &components.TransactionPreAssembly{
-			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
-				{Lookup: "verifier1@node1"},
-			},
-		},
-	}
-
-	nodes, err := sm.getOriginatorNodesFromTx(ctx, tx)
-
-	require.NoError(t, err)
-	require.Len(t, nodes, 1)
-	assert.Equal(t, "node1", nodes[0])
-}
-
 func TestSequencerManager_StopAllSequencers_NoSequencers(t *testing.T) {
 	ctx := context.Background()
 	mocks := newSequencerLifecycleTestMocks(t)
@@ -1043,9 +895,8 @@ func TestSequencerManager_StopAllSequencers_MultipleSequencers(t *testing.T) {
 // Tests for PreInit, PostInit, Start, Stop, and NewDistributedSequencerManager
 
 func TestSequencerManager_PreInit_Success(t *testing.T) {
-	ctx := context.Background()
 	config := &pldconf.SequencerConfig{}
-	sMgr := NewDistributedSequencerManager(ctx, config).(*sequencerManager)
+	sMgr := NewDistributedSequencerManager(t.Context(), config).(*sequencerManager)
 
 	// Create mocks
 	preInitComponents := componentsmocks.NewPreInitComponents(t)
@@ -1062,43 +913,8 @@ func TestSequencerManager_PreInit_Success(t *testing.T) {
 	// Verify results
 	require.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.NotNil(t, result.PreCommitHandler)
+	assert.Nil(t, result.PreCommitHandler)
 	assert.NotNil(t, sMgr.metrics)
-
-	// Verify PreCommitHandler can be called
-	testBlocks := []*pldapi.IndexedBlock{
-		{Number: 100},
-		{Number: 101},
-	}
-	testTransactions := []*blockindexer.IndexedTransactionNotify{}
-	mockDBTX := persistencemocks.NewDBTX(t)
-	mockDBTX.EXPECT().AddPostCommit(mock.Anything).Once()
-
-	err = result.PreCommitHandler(ctx, mockDBTX, testBlocks, testTransactions)
-	require.NoError(t, err)
-}
-
-func TestSequencerManager_PreInit_PreCommitHandler_EmptyBlocks(t *testing.T) {
-	ctx := context.Background()
-	config := &pldconf.SequencerConfig{}
-	sMgr := NewDistributedSequencerManager(ctx, config).(*sequencerManager)
-
-	// Create mocks
-	preInitComponents := componentsmocks.NewPreInitComponents(t)
-	metricsManager := metricsmocks.NewMetrics(t)
-	registry := prometheus.NewRegistry()
-
-	// Setup expectations
-	preInitComponents.EXPECT().MetricsManager().Return(metricsManager).Once()
-	metricsManager.EXPECT().Registry().Return(registry).Once()
-
-	// Call PreInit
-	result, err := sMgr.PreInit(preInitComponents)
-	require.NoError(t, err)
-
-	// Test PreCommitHandler exists
-	// In practice, blocks should never be empty, but we test that the handler exists
-	assert.NotNil(t, result.PreCommitHandler)
 }
 
 func TestSequencerManager_PostInit_Success(t *testing.T) {
@@ -1287,8 +1103,7 @@ func TestSequencerManager_Stop_NoSequencers(t *testing.T) {
 func TestNewDistributedSequencerManager_Success(t *testing.T) {
 	ctx := context.Background()
 	config := &pldconf.SequencerConfig{
-		TargetActiveCoordinators: confutil.P(10),
-		TargetActiveSequencers:   confutil.P(20),
+		TargetActiveSequencers: confutil.P(20),
 	}
 
 	// Call constructor
@@ -1300,9 +1115,7 @@ func TestNewDistributedSequencerManager_Success(t *testing.T) {
 	assert.Equal(t, config, sMgr.config)
 	assert.NotNil(t, sMgr.sequencers)
 	assert.Equal(t, 0, len(sMgr.sequencers))
-	assert.Equal(t, 10, sMgr.targetActiveCoordinatorsLimit)
 	assert.Equal(t, 20, sMgr.targetActiveSequencersLimit)
-	assert.Equal(t, int64(0), sMgr.blockHeight)
 }
 
 func TestNewDistributedSequencerManager_DefaultLimits(t *testing.T) {
@@ -1315,92 +1128,20 @@ func TestNewDistributedSequencerManager_DefaultLimits(t *testing.T) {
 	sMgr := NewDistributedSequencerManager(ctx, config).(*sequencerManager)
 
 	// Verify default limits are applied
-	assert.Greater(t, sMgr.targetActiveCoordinatorsLimit, 0)
 	assert.Greater(t, sMgr.targetActiveSequencersLimit, 0)
 }
 
 func TestNewDistributedSequencerManager_MinimumLimits(t *testing.T) {
 	ctx := context.Background()
 	config := &pldconf.SequencerConfig{
-		TargetActiveCoordinators: confutil.P(0), // Below minimum
-		TargetActiveSequencers:   confutil.P(0), // Below minimum
+		TargetActiveSequencers: confutil.P(0), // Below minimum
 	}
 
 	// Call constructor
 	sMgr := NewDistributedSequencerManager(ctx, config).(*sequencerManager)
 
 	// Verify minimum limits are applied
-	assert.GreaterOrEqual(t, sMgr.targetActiveCoordinatorsLimit, pldconf.SequencerMinimum.TargetActiveCoordinators)
 	assert.GreaterOrEqual(t, sMgr.targetActiveSequencersLimit, pldconf.SequencerMinimum.TargetActiveSequencers)
-}
-
-func TestSequencerManager_OnNewBlockHeight(t *testing.T) {
-	ctx := context.Background()
-	mocks := newSequencerLifecycleTestMocks(t)
-	sMgr := newSequencerManagerForTesting(t, mocks)
-
-	// Test initial block height is 0
-	assert.Equal(t, int64(0), sMgr.GetBlockHeight())
-
-	// Test setting block height
-	testHeight := int64(100)
-	sMgr.OnNewBlockHeight(ctx, testHeight)
-	assert.Equal(t, testHeight, sMgr.GetBlockHeight())
-
-	// Test updating block height
-	newHeight := int64(200)
-	sMgr.OnNewBlockHeight(ctx, newHeight)
-	assert.Equal(t, newHeight, sMgr.GetBlockHeight())
-
-	// Test concurrent updates to ensure thread safety
-	var wg sync.WaitGroup
-	numGoroutines := 10
-	expectedHeight := int64(1000)
-
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func(height int64) {
-			defer wg.Done()
-			sMgr.OnNewBlockHeight(ctx, height)
-		}(expectedHeight + int64(i))
-	}
-
-	wg.Wait()
-	// After concurrent updates, the height should be one of the values we set
-	// (the exact value depends on which goroutine finished last)
-	finalHeight := sMgr.GetBlockHeight()
-	assert.GreaterOrEqual(t, finalHeight, expectedHeight)
-	assert.Less(t, finalHeight, expectedHeight+int64(numGoroutines))
-}
-
-func TestSequencerManager_GetBlockHeight(t *testing.T) {
-	ctx := context.Background()
-	mocks := newSequencerLifecycleTestMocks(t)
-	sMgr := newSequencerManagerForTesting(t, mocks)
-
-	// Test initial block height
-	assert.Equal(t, int64(0), sMgr.GetBlockHeight())
-
-	// Test after setting block height
-	testHeight := int64(42)
-	sMgr.OnNewBlockHeight(ctx, testHeight)
-	assert.Equal(t, testHeight, sMgr.GetBlockHeight())
-
-	// Test concurrent reads to ensure thread safety
-	var wg sync.WaitGroup
-	numReaders := 20
-	sMgr.OnNewBlockHeight(ctx, int64(500))
-
-	for i := 0; i < numReaders; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			height := sMgr.GetBlockHeight()
-			assert.Equal(t, int64(500), height)
-		}()
-	}
-
-	wg.Wait()
 }
 
 func TestSequencerManager_GetNodeName(t *testing.T) {

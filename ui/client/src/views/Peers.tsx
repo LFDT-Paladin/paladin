@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -18,8 +18,7 @@ import { useContext, useState } from "react";
 import { ApplicationContext } from "../contexts/ApplicationContext";
 import { useQuery } from "@tanstack/react-query";
 import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
-import { Alert, Box, Button, Fade, Typography, useTheme } from "@mui/material";
-import { getAltModeScrollBarStyle } from "../themes/default";
+import { Alert, Box, Button, Fade, Typography } from "@mui/material";
 import { TransportPeer } from "../components/TransportPeer";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { fetchTransportNodeName, fetchTransportPeers } from "../queries/transport";
@@ -29,7 +28,6 @@ import { useTranslation } from "react-i18next";
 export const Nodes: React.FC = () => {
 
   const { lastBlockWithTransactions, autoRefreshEnabled } = useContext(ApplicationContext);
-  const theme = useTheme();
   const [MyNodeDialogOpen, setMyNodeDialogOpen] = useState(false);
   const { t } = useTranslation();
 
@@ -61,7 +59,7 @@ export const Nodes: React.FC = () => {
         <Box
           sx={{
             padding: "20px",
-            maxWidth: "1300px",
+            maxWidth: "1500px",
             marginLeft: "auto",
             marginRight: "auto",
             position: 'relative'
@@ -79,13 +77,7 @@ export const Nodes: React.FC = () => {
           >
             {transportNodeName}
           </Button>
-          <Box
-            sx={{
-              paddingRight: '15px',
-              height: "calc(100vh - 170px)",
-              ...getAltModeScrollBarStyle(theme.palette.mode)
-            }}
-          >
+          <Box>
             {transportPeers?.map(transportPeer => (
               <TransportPeer key={transportPeer.name} transportPeer={transportPeer} />
             ))}

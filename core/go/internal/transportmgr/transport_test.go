@@ -507,6 +507,28 @@ func TestSendContextClosed(t *testing.T) {
 
 }
 
+func TestSendSenderStopped(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false)
+	defer done()
+
+	senderDone := make(chan struct{})
+	close(senderDone)
+
+	p := &peer{
+		transport:  tp.t,
+		sendQueue:  make(chan *msgWithErrChan), // no readers, so the send case never fires
+		senderDone: senderDone,
+	}
+	tm.peers = map[string]*peer{
+		"node2": p,
+	}
+	p.senderStarted.Store(true)
+	defer delete(tm.peers, "node2") // remove before done() runs to avoid Stop() trying to reap this bare peer
+
+	err := tm.Send(ctx, testMessage())
+	assert.NoError(t, err)
+}
+
 func TestSendReliableOk(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,

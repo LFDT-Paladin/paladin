@@ -18,56 +18,33 @@ package coordinator
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 )
 
 // Guard type is defined as a type alias in state_machine.go using statemachine.Guard[*coordinator]
 
-func guard_Not(guard Guard) Guard {
-	return func(ctx context.Context, c *coordinator) bool {
-		return !guard(ctx, c)
-	}
-}
-
-func guard_Behind(ctx context.Context, c *coordinator) bool {
-	//Return true if the current block height that our indexer has reached is behind the current coordinator
-	// there is a configured tolerance so if we are within this tolerance we are not considered behind
-	return c.currentBlockHeight < c.activeCoordinatorBlockHeight-c.blockHeightTolerance
-}
-
-func guard_ActiveCoordinatorFlushComplete(ctx context.Context, c *coordinator) bool {
-	for _, flushPoint := range c.activeCoordinatorsFlushPointsBySignerNonce {
-		if !flushPoint.Confirmed {
-			return false
-		}
-	}
-	return true
-}
-
-// Function flushComplete returns true if there are no transactions past the point of no return that haven't been confirmed yet
-// TODO: does considering the flush complete while there might be transactions in terminal states (State_Confirmed/State reverted)
-// waiting for the grace period to expire before being cleaned result in a memory leak? N.B. There is currently no heartbeat handling in State_Flush
-func guard_FlushComplete(ctx context.Context, c *coordinator) bool {
+func guard_HasUnconfirmedDispatchedTransactions(ctx context.Context, c *coordinator) bool {
 	return len(
 		c.getTransactionsInStates(ctx, []transaction.State{
-			transaction.State_Ready_For_Dispatch,
 			transaction.State_Dispatched,
 		}),
-	) == 0
+	) > 0
 }
 
 // Function noTransactionsInflight returns true if all transactions that have been delegated to this coordinator have been confirmed/reverted
 // and since removed from memory
-func guard_HasTransactionsInflight(ctx context.Context, c *coordinator) bool {
+func guard_HasTransactionsInflight(_ context.Context, c *coordinator) bool {
 	return len(c.transactionsByID) > 0
 }
 
-func guard_ClosingGracePeriodExpired(ctx context.Context, c *coordinator) bool {
-	return c.heartbeatIntervalsSinceStateChange >= c.closingGracePeriod
+func guard_ClosingGracePeriodExpired(_ context.Context, c *coordinator) bool {
+	// measure number of complete heartbeat interval periods - e.g. count of 2 means
+	// 1 full heartbeat interval has elapsed, hence use of > not >=
+	return c.heartbeatIntervalsSinceStateChange > c.closingGracePeriod
 }
 
 func guard_HasTransactionAssembling(ctx context.Context, c *coordinator) bool {
-
 	//TODO this could be optimized by keeping track of a boolean that is switched from the onStateChange handler
 	return len(
 		c.getTransactionsInStates(ctx, []transaction.State{
@@ -76,6 +53,24 @@ func guard_HasTransactionAssembling(ctx context.Context, c *coordinator) bool {
 	) > 0
 }
 
-func guard_HasActiveCoordinator(ctx context.Context, c *coordinator) bool {
-	return c.activeCoordinatorNode != ""
+// guard_InactiveGracePeriodExceeded returns true when no heartbeat has been received for at least
+// inactiveGracePeriod heartbeat intervals.
+func guard_InactiveGracePeriodExceeded(_ context.Context, c *coordinator) bool {
+	// measure number of complete heartbeat interval periods - e.g. count of 2 means
+	// 1 full heartbeat interval has elapsed, hence use of > not >=
+	return c.heartbeatIntervalsSinceLastReceive > c.inactiveGracePeriod
+}
+
+// guard_IsHigherPriorityThanCurrentActive returns true when this node has a strictly higher
+// priority (lower index) than the current active coordinator in the coordinator priority list.
+// Used in Observing and Closing when deciding whether to initiate a handover.
+func guard_IsHigherPriorityThanCurrentActive(_ context.Context, c *coordinator) bool {
+	return common.IsHigherPriority(c.coordinatorPriorityList, c.nodeName, c.currentActiveCoordinator)
+}
+
+// Guards are typically combined using the statemachine combination functions so that the state machine definition
+// can read like a spec; however, this particular check self describes better by being combined
+// into a new single guard function.
+func guard_MustFlushToRotateSigningIdentity(ctx context.Context, c *coordinator) bool {
+	return c.signingIdentity.used && guard_HasUnconfirmedDispatchedTransactions(ctx, c)
 }

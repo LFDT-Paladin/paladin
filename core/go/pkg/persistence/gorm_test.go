@@ -508,3 +508,58 @@ func TestANYBuildFallbackToINForGormDB(t *testing.T) {
 	_, isGormDB := anyClause.IN.Values[0].(*gorm.DB)
 	assert.True(t, isGormDB)
 }
+
+// TestUseAnyClauseWithClauseIN exercises the c.IN != nil path in Build, which is
+// never reached by Where("col IN (?)", list) since GORM represents that as clause.Expr.
+// Using clause.IN{} directly is the only way to hit that code path.
+func TestUseAnyClauseWithClauseIN(t *testing.T) {
+	p, mdb := newMockGormPSQLPersistence(t)
+	db := p.DB()
+	UseAny(db)
+
+	// Multiple plain values: hasNonValue=false, len>1 → Build writes "= ANY (...)".
+	// Use dry-run (ToSQL) to assert the generated SQL without execution — direct execution
+	// fails at the database/sql layer because []interface{} is not a supported postgres driver type.
+	sql := db.ToSQL(func(tx *gorm.DB) *gorm.DB {
+		return tx.Table("test").Where(clause.IN{Column: "id", Values: []interface{}{"a", "b", "c"}}).Find(&struct{}{})
+	})
+	assert.Contains(t, sql, "= ANY")
+
+	// Single value: hasNonValue=false, len<=1 → falls back to c.IN.Build; GORM emits "id" = $1 (not IN)
+	mdb.ExpectQuery(`SELECT \* FROM "test" WHERE "id" = \$1`).WithArgs("single").WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	db.Table("test").Where(clause.IN{Column: "id", Values: []interface{}{"single"}}).Find(&struct{}{})
+
+	// Non-value type (clause.Column): hasNonValue=true → falls back to c.IN.Build; GORM emits "id" = "other_col"
+	mdb.ExpectQuery(`SELECT \* FROM "test" WHERE "id" = "other_col"`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	db.Table("test").Where(clause.IN{Column: "id", Values: []interface{}{clause.Column{Name: "other_col"}}}).Find(&struct{}{})
+
+	assert.NoError(t, mdb.ExpectationsWereMet())
+}
+
+// TestUseAnyClauseExprFallbackPaths covers the two early-return paths in the c.Expr branch of Build.
+func TestUseAnyClauseExprFallbackPaths(t *testing.T) {
+	p, mdb := newMockGormPSQLPersistence(t)
+	db := p.DB()
+	UseAny(db)
+
+	// Vars contains []any: hasNonValue=true → early return via c.Expr.Build (covers return true in Expr ContainsFunc)
+	mdb.ExpectQuery(`SELECT .* WHERE`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	db.Table("test").Where(clause.Expr{SQL: "id IN (?)", Vars: []interface{}{[]interface{}{"a", "b"}}}).Find(&struct{}{})
+
+	// Vars[0] is a nil slice: interfaceSlice returns nil → early return via c.Expr.Build (covers values==nil path)
+	mdb.ExpectQuery(`SELECT .* WHERE`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	db.Table("test").Where(clause.Expr{SQL: "id IN (?)", Vars: []interface{}{([]string)(nil)}}).Find(&struct{}{})
+
+	assert.NoError(t, mdb.ExpectationsWereMet())
+}
+
+func TestInterfaceSliceNilAndPanic(t *testing.T) {
+	// nil slice input: returns nil (covers the s.IsNil() → return nil branch)
+	result := interfaceSlice([]string(nil))
+	assert.Nil(t, result)
+
+	// non-slice input: panics (covers the s.Kind() != reflect.Slice → panic branch)
+	assert.Panics(t, func() {
+		interfaceSlice("not a slice")
+	})
+}

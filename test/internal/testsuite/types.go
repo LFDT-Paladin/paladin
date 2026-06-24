@@ -19,9 +19,9 @@ package testsuite
 import (
 	"context"
 
-	"github.com/LFDT-Paladin/paladin/test/internal/conf"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/test/internal/conf"
 )
 
 // Node holds the HTTP client, WebSocket client, and config for one configured node.
@@ -48,6 +48,7 @@ type TestSuite interface {
 	Setup() error
 	Subscribe() (rpcclient.Subscription, error)
 	NewWorker(startTime int64, workerID int) TestCase
+	OnReceiptBatch(txIDs []string)
 	PostRun() error
 	Unsubscribe()
 	Cleanup()

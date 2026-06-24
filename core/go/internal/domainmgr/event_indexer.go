@@ -309,6 +309,8 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 		stateReads[i] = &pldapi.StateReadRecord{DomainName: d.name, State: stateID, Transaction: txUUID}
 	}
 
+	// Only confirmed states are tracked for the completion index
+	confirmedStateIDsByTX := make(map[uuid.UUID]map[string]pldtypes.HexBytes)
 	stateConfirms := make([]*pldapi.StateConfirmRecord, len(res.ConfirmedStates))
 	for i, state := range res.ConfirmedStates {
 		txUUID, stateID, err := d.prepareIndexRecord(ctx, state.TransactionId, state.Id)
@@ -316,6 +318,14 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 			return nil, err
 		}
 		stateConfirms[i] = &pldapi.StateConfirmRecord{DomainName: d.name, State: stateID, Transaction: txUUID}
+		if d.FullStateAvailablityRequired() {
+			if len(stateID) > 0 {
+				if confirmedStateIDsByTX[txUUID] == nil {
+					confirmedStateIDsByTX[txUUID] = make(map[string]pldtypes.HexBytes)
+				}
+				confirmedStateIDsByTX[txUUID][stateID.String()] = stateID
+			}
+		}
 	}
 
 	stateInfoRecords := make([]*pldapi.StateInfoRecord, len(res.InfoStates))
@@ -371,6 +381,28 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 			return nil, err
 		}
 	}
+
+	// Update the global pending private state data index for domains that opt in.
+	if len(confirmedStateIDsByTX) > 0 {
+		var batchEntries []components.PendingPrivateStateDataEntry
+		for _, txCompletionEvent := range res.TransactionsComplete {
+			txUUID, err := d.recoverTransactionID(ctx, txCompletionEvent.TransactionId)
+			if err != nil {
+				return nil, err
+			}
+			for _, id := range confirmedStateIDsByTX[*txUUID] {
+				batchEntries = append(batchEntries, components.PendingPrivateStateDataEntry{
+					StateID:     id,
+					Contract:    addr,
+					BlockNumber: txCompletionEvent.Location.BlockNumber,
+				})
+			}
+		}
+		if err := d.dm.stateStore.WritePendingPrivateStateDataBatch(ctx, dbTX, d.name, batchEntries); err != nil {
+			return nil, err
+		}
+	}
+
 	return res, err
 }
 

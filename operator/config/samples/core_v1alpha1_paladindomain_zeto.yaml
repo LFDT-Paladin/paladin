@@ -7,7 +7,7 @@ metadata:
     paladin.io/domain-name: zeto
   name: zeto
 spec:
-  smartContractDeployment: zeto-factory
+  smartContractDeployment: zeto-factory-proxy
   allowSigning: true
   plugin:
     type: c-shared

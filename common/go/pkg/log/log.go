@@ -27,7 +27,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/sirupsen/logrus"
-	prefixed "github.com/x-cray/logrus-prefixed-formatter"
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -218,13 +217,11 @@ func setFormatting(format *Formatting) {
 	case "simple":
 		fallthrough
 	default:
-		formatter = &prefixed.TextFormatter{
+		formatter = &simpleFormatter{
 			DisableColors:   format.DisableColor,
 			ForceColors:     format.ForceColor,
 			TimestampFormat: format.TimestampFormat,
 			DisableSorting:  false,
-			ForceFormatting: true,
-			FullTimestamp:   true,
 		}
 	}
 	if format.UTC {

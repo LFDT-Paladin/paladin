@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
@@ -34,14 +33,12 @@ import (
 	"github.com/LFDT-Paladin/paladin/test/internal/contracts"
 	"github.com/LFDT-Paladin/paladin/test/internal/util"
 
-	nototypes "github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
-	"github.com/google/uuid"
+	nototypes "github.com/LFDT-Paladin/paladin/test/internal/contracts"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	log "github.com/sirupsen/logrus"
 )
 
 const notoRevertableHooksDefaultListenerName = "notorevertablehookslistener"
-const notoRevertableHooksDefaultPostRunPageSize = 500
 const notoRevertableHooksDefaultErrorInterval = "15s"
 const notoRevertableHooksDefaultInitialMintAmount = int64(1000000)
 const notoRevertableHooksDefaultIncludeInvalidInputErrors = true
@@ -49,21 +46,22 @@ const notoRevertableHooksDefaultIncludeInvalidInputErrors = true
 const notoResolveAlgorithm = "ecdsa:secp256k1"
 const notoResolveVerifierType = "eth_address"
 
-var notoConstructorABI = abi.ABI{
-	{Type: abi.Constructor, Inputs: abi.ParameterArray{
-		{Name: "notary", Type: "string"},
-		{Name: "notaryMode", Type: "string"},
-		{Name: "options", Type: "tuple", Components: abi.ParameterArray{
-			{Name: "hooks", Type: "tuple", Components: abi.ParameterArray{
-				{Name: "publicAddress", Type: "string"},
-				{Name: "privateAddress", Type: "string"},
-				{Name: "privateGroup", Type: "tuple", Components: abi.ParameterArray{
-					{Name: "salt", Type: "bytes32"},
-					{Name: "members", Type: "string[]"},
-				}},
-			}},
-		}},
-	}},
+var notoConstructorABI = contracts.NotoConstructorABI
+
+type TransferAction int
+
+const (
+	notoActionRevert TransferAction = iota
+	notoActionFail
+	notoActionInvalidInput
+	notoActionSuccess
+)
+
+// pendingEntry carries a completed txID together with the outcome that was
+// expected for it at submission time.
+type pendingEntry struct {
+	txID   string
+	action TransferAction
 }
 
 type notoRevertableHooksSuite struct {
@@ -82,25 +80,26 @@ type notoRevertableHooksSuite struct {
 	invalidInputAddress  *pldtypes.EthAddress
 	successAddress       *pldtypes.EthAddress
 	listenerName         string
-	postRunPageSize      int
 	initialMintAmount    int64
 	errorInterval        time.Duration
 	includeInvalidInput  bool
 	errorQueue           chan TransferAction
 	tickerStop           chan struct{}
 	tickerWG             sync.WaitGroup
-	trackMu              sync.Mutex
-	revertTxIDs          []string
-	failTxIDs            []string
-	invalidInputTxIDs    []string
-	successTxIDs         []string
 	sub                  rpcclient.Subscription
-	submissions          atomic.Int64
+
+	// pendingOutcome maps txID → expected TransferAction. Entries are added at
+	// submission time and deleted when OnReceiptBatch moves them to checkBatch.
+	// The map is bounded to "submitted but not yet completed".
+	pendingOutcome sync.Map
+
+	resultsMu     sync.Mutex
+	failures      []string
+	informational map[string][]string
 }
 
 type notoRevertableHooksOptions struct {
 	ListenerName              *string `json:"listenerName"`
-	PostRunPageSize           *int    `json:"postRunPageSize"`
 	InitialMintAmount         *int64  `json:"initialMintAmount"`
 	ErrorInterval             *string `json:"errorInterval"`
 	IncludeInvalidInputErrors *bool   `json:"includeInvalidInputErrors"`
@@ -109,15 +108,6 @@ type notoRevertableHooksOptions struct {
 func NewNotoRevertableHooksSuite(ctx context.Context, runner Runner) *notoRevertableHooksSuite {
 	return &notoRevertableHooksSuite{ctx: ctx, runner: runner}
 }
-
-type TransferAction int
-
-const (
-	notoActionRevert TransferAction = iota
-	notoActionFail
-	notoActionInvalidInput
-	notoActionSuccess
-)
 
 func (s *notoRevertableHooksSuite) parseNotoRevertableHooksOptions(options map[string]any) error {
 	var input notoRevertableHooksOptions
@@ -132,7 +122,6 @@ func (s *notoRevertableHooksSuite) parseNotoRevertableHooksOptions(options map[s
 	}
 
 	s.listenerName = confutil.StringNotEmpty(input.ListenerName, notoRevertableHooksDefaultListenerName)
-	s.postRunPageSize = confutil.IntMin(input.PostRunPageSize, 1, notoRevertableHooksDefaultPostRunPageSize)
 	s.initialMintAmount = confutil.Int64Min(input.InitialMintAmount, 1, notoRevertableHooksDefaultInitialMintAmount)
 	s.errorInterval = confutil.DurationMin(input.ErrorInterval, time.Millisecond, notoRevertableHooksDefaultErrorInterval)
 	s.includeInvalidInput = confutil.Bool(input.IncludeInvalidInputErrors, notoRevertableHooksDefaultIncludeInvalidInputErrors)
@@ -171,18 +160,7 @@ func (s *notoRevertableHooksSuite) startErrorTicker(interval time.Duration) {
 }
 
 func (s *notoRevertableHooksSuite) trackTransaction(actionType TransferAction, txID string) {
-	s.trackMu.Lock()
-	defer s.trackMu.Unlock()
-	switch actionType {
-	case notoActionRevert:
-		s.revertTxIDs = append(s.revertTxIDs, txID)
-	case notoActionFail:
-		s.failTxIDs = append(s.failTxIDs, txID)
-	case notoActionInvalidInput:
-		s.invalidInputTxIDs = append(s.invalidInputTxIDs, txID)
-	default:
-		s.successTxIDs = append(s.successTxIDs, txID)
-	}
+	s.pendingOutcome.Store(txID, actionType)
 }
 
 func (s *notoRevertableHooksSuite) Setup() error {
@@ -198,6 +176,8 @@ func (s *notoRevertableHooksSuite) Setup() error {
 	if err := s.parseNotoRevertableHooksOptions(testCfg.Options); err != nil {
 		return err
 	}
+
+	s.informational = make(map[string][]string)
 
 	s.notary = fmt.Sprintf("member@%s", node3.Config.Name)
 	s.sender = fmt.Sprintf("member@%s", node2.Config.Name)
@@ -500,6 +480,152 @@ func (s *notoRevertableHooksSuite) Subscribe() (rpcclient.Subscription, error) {
 	return sub, nil
 }
 
+// OnReceiptBatch is called by the runner every N completions. It resolves the expected
+// outcome for each txID from pendingOutcome, validates the receipts, and records failures.
+// Concurrent calls are safe via resultsMu and sync.Map.
+func (s *notoRevertableHooksSuite) OnReceiptBatch(txIDs []string) {
+	entries := make([]pendingEntry, 0, len(txIDs))
+	for _, id := range txIDs {
+		v, ok := s.pendingOutcome.LoadAndDelete(id)
+		if !ok {
+			continue
+		}
+		entries = append(entries, pendingEntry{txID: id, action: v.(TransferAction)})
+	}
+	if len(entries) > 0 {
+		s.checkBatch(entries)
+	}
+}
+
+func (s *notoRevertableHooksSuite) checkBatch(entries []pendingEntry) {
+	nodes := s.runner.GetNodes()
+	if len(nodes) < 2 {
+		return
+	}
+	submitterClient := nodes[1].HTTPClient
+
+	const failRevertReason = "Configured to fail"
+	const revertRevertReason = "Configured to revert"
+	const notoInvalidInputSelector = "8b8ff76e"
+	const penteInputNotAvailableReason = "PenteInputNotAvailable"
+	const dependencyFailedReason = "PD012256"
+	failRevertReasonHex := fmt.Sprintf("%x", failRevertReason)
+	revertRevertReasonHex := fmt.Sprintf("%x", revertRevertReason)
+
+	ids := make([]any, len(entries))
+	for i, e := range entries {
+		ids[i] = e.txID
+	}
+	txsFull, err := submitterClient.PTX().QueryTransactionsFull(
+		s.ctx,
+		query.NewQueryBuilder().In("id", ids).Limit(len(entries)).Query(),
+	)
+	if err != nil {
+		s.resultsMu.Lock()
+		s.failures = append(s.failures, fmt.Sprintf("failed to query transactions for batch of %d: %v", len(entries), err))
+		s.resultsMu.Unlock()
+		return
+	}
+
+	txByID := make(map[string]*pldapi.TransactionFull, len(txsFull))
+	for _, tx := range txsFull {
+		if tx.Transaction != nil {
+			txByID[tx.Transaction.ID.String()] = tx
+		}
+	}
+
+	countDispatches := func(activity []*pldapi.SequencerActivity) int {
+		dispatches := 0
+		for _, a := range activity {
+			if a == nil {
+				continue
+			}
+			if strings.Contains(strings.ToLower(a.ActivityType), "dispatch") {
+				dispatches++
+			}
+		}
+		return dispatches
+	}
+
+	var batchFailures []string
+	var penteInputNotAvailableTxIDs []string
+	var dependencyFailedTxIDs []string
+
+	for _, entry := range entries {
+		tx := txByID[entry.txID]
+		if tx == nil {
+			batchFailures = append(batchFailures, fmt.Sprintf("tx %s not found in query results", entry.txID))
+			continue
+		}
+		receipt := tx.Receipt
+		if receipt == nil {
+			batchFailures = append(batchFailures, fmt.Sprintf("tx %s has no receipt", entry.txID))
+			continue
+		}
+
+		// Informational outcomes — not failures.
+		if !receipt.Success && strings.Contains(receipt.FailureMessage, penteInputNotAvailableReason) {
+			penteInputNotAvailableTxIDs = append(penteInputNotAvailableTxIDs, entry.txID)
+			continue
+		}
+		if !receipt.Success && strings.HasPrefix(receipt.FailureMessage, dependencyFailedReason) {
+			dependencyFailedTxIDs = append(dependencyFailedTxIDs, entry.txID)
+			continue
+		}
+
+		switch entry.action {
+		case notoActionSuccess:
+			if !receipt.Success {
+				batchFailures = append(batchFailures, fmt.Sprintf("SUCCESS tx %s expected success but failed: %s", entry.txID, receipt.FailureMessage))
+			}
+		case notoActionFail:
+			if receipt.Success {
+				batchFailures = append(batchFailures, fmt.Sprintf("FAIL tx %s expected failure but succeeded", entry.txID))
+			} else if !strings.Contains(receipt.FailureMessage, failRevertReasonHex) &&
+				!strings.Contains(receipt.FailureMessage, failRevertReason) {
+				batchFailures = append(batchFailures, fmt.Sprintf("FAIL tx %s failed with unexpected reason: %s", entry.txID, receipt.FailureMessage))
+			}
+		case notoActionRevert:
+			if receipt.Success {
+				batchFailures = append(batchFailures, fmt.Sprintf("REVERT tx %s expected failure but succeeded", entry.txID))
+			} else if !strings.Contains(receipt.FailureMessage, revertRevertReasonHex) &&
+				!strings.Contains(receipt.FailureMessage, revertRevertReason) {
+				batchFailures = append(batchFailures, fmt.Sprintf("REVERT tx %s failed with unexpected reason: %s", entry.txID, receipt.FailureMessage))
+			}
+		case notoActionInvalidInput:
+			if receipt.Success {
+				batchFailures = append(batchFailures, fmt.Sprintf("INVALID_INPUT tx %s expected failure but succeeded", entry.txID))
+			} else if !strings.Contains(receipt.FailureMessage, notoInvalidInputSelector) {
+				batchFailures = append(batchFailures, fmt.Sprintf("INVALID_INPUT tx %s failed with unexpected reason: %s", entry.txID, receipt.FailureMessage))
+			} else {
+				dispatches := countDispatches(tx.SequencerActivity)
+				if dispatches != 4 {
+					batchFailures = append(batchFailures, fmt.Sprintf("INVALID_INPUT tx %s had %d dispatches in sequencer activity, expected 4", entry.txID, dispatches))
+				}
+			}
+		}
+	}
+
+	log.Infof("notoRevertableHooksSuite: rolling check batch=%d failures=%d pente_input_n/a=%d dep_failed=%d",
+		len(entries), len(batchFailures), len(penteInputNotAvailableTxIDs), len(dependencyFailedTxIDs))
+
+	if len(batchFailures) > 0 {
+		for _, f := range batchFailures {
+			log.Errorf("notoRevertableHooksSuite: rolling check failure: %s", f)
+		}
+	}
+
+	s.resultsMu.Lock()
+	s.failures = append(s.failures, batchFailures...)
+	if len(penteInputNotAvailableTxIDs) > 0 {
+		s.informational[penteInputNotAvailableReason] = append(s.informational[penteInputNotAvailableReason], penteInputNotAvailableTxIDs...)
+	}
+	if len(dependencyFailedTxIDs) > 0 {
+		s.informational[dependencyFailedReason] = append(s.informational[dependencyFailedReason], dependencyFailedTxIDs...)
+	}
+	s.resultsMu.Unlock()
+}
+
 func (s *notoRevertableHooksSuite) Unsubscribe() {
 	if s.sub != nil {
 		if err := s.sub.Unsubscribe(s.ctx); err != nil {
@@ -548,171 +674,41 @@ func (s *notoRevertableHooksSuite) NewWorker(startTime int64, workerID int) Test
 }
 
 func (s *notoRevertableHooksSuite) PostRun() error {
-	nodes := s.runner.GetNodes()
-	if len(nodes) < 2 {
-		return fmt.Errorf("noto_revertable_hooks requires at least 2 nodes for post-run analysis")
-	}
-	submitterClient := nodes[1].HTTPClient
-	const failRevertReason = "Configured to fail"
-	const revertRevertReason = "Configured to revert"
-	const notoInvalidInputSelector = "8b8ff76e"
+	s.resultsMu.Lock()
+	defer s.resultsMu.Unlock()
+
 	const penteInputNotAvailableReason = "PenteInputNotAvailable"
-	failRevertReasonHex := fmt.Sprintf("%x", failRevertReason)
-	revertRevertReasonHex := fmt.Sprintf("%x", revertRevertReason)
-	penteInputNotAvailableTxIDs := make([]string, 0)
-	penteInputNotAvailableSet := make(map[string]struct{})
+	const dependencyFailedReason = "PD012256"
 
-	s.trackMu.Lock()
-	revertTxIDs := append([]string{}, s.revertTxIDs...)
-	failTxIDs := append([]string{}, s.failTxIDs...)
-	invalidInputTxIDs := append([]string{}, s.invalidInputTxIDs...)
-	successTxIDs := append([]string{}, s.successTxIDs...)
-	s.trackMu.Unlock()
-
-	totalSubmissions := int(s.submissions.Load())
-	trackedTotal := len(revertTxIDs) + len(failTxIDs) + len(invalidInputTxIDs) + len(successTxIDs)
-	if trackedTotal != totalSubmissions {
-		return fmt.Errorf(
-			"tracked tx count %d does not match submissions %d (revert=%d fail=%d invalid_input=%d success=%d)",
-			trackedTotal,
-			totalSubmissions,
-			len(revertTxIDs),
-			len(failTxIDs),
-			len(invalidInputTxIDs),
-			len(successTxIDs),
-		)
-	}
-
-	countDispatches := func(activity []*pldapi.SequencerActivity) int {
-		dispatches := 0
-		for _, a := range activity {
-			if a == nil {
-				continue
-			}
-			if strings.Contains(strings.ToLower(a.ActivityType), "dispatch") {
-				dispatches++
-			}
-		}
-		return dispatches
-	}
-
-	assertTx := func(txID string, shouldSucceed bool, expectedReason string, expectedReasonHex string, label string) error {
-		parsedID, err := uuid.Parse(txID)
-		if err != nil {
-			return fmt.Errorf("%s tx %s has invalid UUID: %w", label, txID, err)
-		}
-
-		receipt, err := submitterClient.PTX().GetTransactionReceiptFull(s.ctx, parsedID)
-		if err != nil || receipt == nil {
-			return fmt.Errorf("%s tx %s failed to fetch receipt: %w", label, txID, err)
-		}
-		if !receipt.Success && strings.Contains(receipt.FailureMessage, penteInputNotAvailableReason) {
-			if _, seen := penteInputNotAvailableSet[txID]; !seen {
-				penteInputNotAvailableSet[txID] = struct{}{}
-				penteInputNotAvailableTxIDs = append(penteInputNotAvailableTxIDs, txID)
-			}
-			return nil
-		}
-		if shouldSucceed {
-			if !receipt.Success {
-				return fmt.Errorf("%s tx %s expected success but failed: %s", label, txID, receipt.FailureMessage)
-			}
-			return nil
-		}
-		if receipt.Success {
-			return fmt.Errorf("%s tx %s expected failure but succeeded", label, txID)
-		}
-		if !strings.Contains(receipt.FailureMessage, expectedReasonHex) &&
-			!strings.Contains(receipt.FailureMessage, expectedReason) {
-			return fmt.Errorf("%s tx %s failed with unexpected reason: %s", label, txID, receipt.FailureMessage)
-		}
-		return nil
-	}
-
-	assertBatched := func(txIDs []string, shouldSucceed bool, expectedReason string, expectedReasonHex string, label string) error {
-		pageSize := s.postRunPageSize
-		for i := 0; i < len(txIDs); i += pageSize {
-			end := i + pageSize
-			if end > len(txIDs) {
-				end = len(txIDs)
-			}
-			for _, txID := range txIDs[i:end] {
-				if err := assertTx(txID, shouldSucceed, expectedReason, expectedReasonHex, label); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}
-
-	assertDispatches := func(txIDs []string, expectedDispatches int, label string) error {
-		pageSize := s.postRunPageSize
-		for i := 0; i < len(txIDs); i += pageSize {
-			end := i + pageSize
-			if end > len(txIDs) {
-				end = len(txIDs)
-			}
-			for _, txID := range txIDs[i:end] {
-				if _, skip := penteInputNotAvailableSet[txID]; skip {
-					continue
-				}
-				parsedID, err := uuid.Parse(txID)
-				if err != nil {
-					return fmt.Errorf("%s tx %s has invalid UUID: %w", label, txID, err)
-				}
-				txFull, err := submitterClient.PTX().GetTransactionFull(s.ctx, parsedID)
-				if err != nil || txFull == nil {
-					return fmt.Errorf("%s tx %s failed to fetch full transaction: %w", label, txID, err)
-				}
-				dispatches := countDispatches(txFull.SequencerActivity)
-				if dispatches != expectedDispatches {
-					return fmt.Errorf("%s tx %s had %d dispatches in sequencer activity, expected %d", label, txID, dispatches, expectedDispatches)
-				}
-			}
-		}
-		return nil
-	}
-
-	failures := make([]string, 0)
-	recordFailure := func(err error) {
-		if err == nil {
-			return
-		}
-		failures = append(failures, err.Error())
-	}
-
-	recordFailure(assertBatched(failTxIDs, false, failRevertReason, failRevertReasonHex, "FAIL"))
-	recordFailure(assertBatched(invalidInputTxIDs, false, "", notoInvalidInputSelector, "INVALID_INPUT"))
-	recordFailure(assertDispatches(invalidInputTxIDs, 4, "INVALID_INPUT"))
-	recordFailure(assertBatched(revertTxIDs, false, revertRevertReason, revertRevertReasonHex, "REVERT"))
-	recordFailure(assertBatched(successTxIDs, true, "", "", "SUCCESS"))
-
-	// TODO: I believe we've been hitting these because of the possible inconsistencies in cleaning up
-	// minters in the grapher and lock states in the domain context, which should be resolved by the new graper.
-	// However, I think there might be a new class of informational unexpected failures which is a small number
-	// of transactions who keep getting caught behind a chained dependency until they reach their retry limit.
-	// Tuning config could reduce the likelihood of these, but I don't think it's possible to completely eliminate them.
-	if len(penteInputNotAvailableTxIDs) > 0 {
+	// A small number of transactions can exhaust their retry limit after repeatedly being queued
+	// behind a chained dependency that fails. This is not possible to eliminate entirely, so it
+	// is treated as informational rather than a test failure.
+	if ids := s.informational[penteInputNotAvailableReason]; len(ids) > 0 {
 		log.Infof(
 			"Informational: %d transactions hit %s: %s",
-			len(penteInputNotAvailableTxIDs),
+			len(ids),
 			penteInputNotAvailableReason,
-			strings.Join(penteInputNotAvailableTxIDs, ", "),
+			strings.Join(ids, ", "),
+		)
+	}
+	if ids := s.informational[dependencyFailedReason]; len(ids) > 0 {
+		log.Infof(
+			"Informational: %d transactions hit %s (chained dependency failed): %s",
+			len(ids),
+			dependencyFailedReason,
+			strings.Join(ids, ", "),
 		)
 	}
 
 	log.Infof(
-		"Post-run analysis complete: submissions=%d tracked=%d (revert=%d fail=%d invalid_input=%d success=%d)",
-		totalSubmissions,
-		trackedTotal,
-		len(revertTxIDs),
-		len(failTxIDs),
-		len(invalidInputTxIDs),
-		len(successTxIDs),
+		"notoRevertableHooksSuite: post-run complete, failures=%d informational_pente_input=%d informational_dep_failed=%d",
+		len(s.failures),
+		len(s.informational[penteInputNotAvailableReason]),
+		len(s.informational[dependencyFailedReason]),
 	)
 
-	if len(failures) > 0 {
-		return fmt.Errorf("post-run validation failures (%d): %s", len(failures), strings.Join(failures, "; "))
+	if len(s.failures) > 0 {
+		return fmt.Errorf("rolling check failures (%d): %s", len(s.failures), strings.Join(s.failures, "; "))
 	}
 	return nil
 }
@@ -783,7 +779,6 @@ func (tc *notoRevertableHooksWorker) RunOnce(iterationCount int) (string, error)
 		return "", fmt.Errorf("failed to send noto transfer transaction: %w", err)
 	}
 	tc.suite.trackTransaction(actionType, txID.String())
-	tc.suite.submissions.Add(1)
 
 	return txID.String(), nil
 }

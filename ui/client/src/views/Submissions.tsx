@@ -14,13 +14,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Fade, Grid2, TablePagination, ToggleButton, ToggleButtonGroup, Typography, useTheme } from "@mui/material";
+import { Alert, Box, Button, Fade, Grid2, TablePagination, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { Dispatch, SetStateAction, useContext, useEffect, useState } from "react";
 import { PaladinTransaction } from "../components/PaladinTransaction";
 import { ApplicationContext } from "../contexts/ApplicationContext";
 import { fetchSubmissions } from "../queries/transactions";
-import { getAltModeScrollBarStyle } from "../themes/default";
 import { IFilter, IPaladinTransactionPagingReference } from "../interfaces";
 import { useTranslation } from "react-i18next";
 import { Filters } from "../components/Filters";
@@ -64,7 +63,6 @@ export const Submissions: React.FC<Props> = ({
   const { lastBlockWithTransactions } = useContext(ApplicationContext);
   const [filters, setFilters] = useState<IFilter[]>(getFiltersFromStorage());
   const [count, setCount] = useState(-1);
-  const theme = useTheme();
   const { t } = useTranslation();
 
   const { data: transactions, error } = useQuery({
@@ -123,7 +121,7 @@ export const Submissions: React.FC<Props> = ({
         <Box
           sx={{
             padding: "20px",
-            maxWidth: "1300px",
+            maxWidth: "1500px",
             marginLeft: "auto",
             marginRight: "auto",
           }}
@@ -149,12 +147,6 @@ export const Submissions: React.FC<Props> = ({
               </Grid2>
             </Grid2>
           </Grid2>
-
-
-
-
-
-
           <Box sx={{ marginTop: '15px', marginBottom: '15px', textAlign: 'center' }}>
             <ToggleButtonGroup exclusive onChange={(_event, value) => setSection(value)} value={section}>
               <ToggleButton color="primary" value="pending" sx={{ width: '130px', height: '45px' }}>{t('pending')}</ToggleButton>
@@ -165,12 +157,6 @@ export const Submissions: React.FC<Props> = ({
             <Filters
               filterFields={[
                 {
-                  label: t('id'),
-                  name: 'id',
-                  type: 'string',
-                  isUUID: true
-                },
-                {
                   label: t('from'),
                   name: 'from',
                   type: 'string'
@@ -178,8 +164,7 @@ export const Submissions: React.FC<Props> = ({
                 {
                   label: t('to'),
                   name: 'to',
-                  type: 'string',
-                  isHexValue: true
+                  type: 'string'
                 },
                 {
                   label: t('type'),
@@ -196,14 +181,7 @@ export const Submissions: React.FC<Props> = ({
               setFilters={setFilters}
             />
           </Box>
-          <Box
-            id="scrollableDivSubmissions"
-            sx={{
-              paddingRight: "15px",
-              height: "calc(100vh - 250px)",
-              ...getAltModeScrollBarStyle(theme.palette.mode)
-            }}
-          >
+          <Box>
             {
               transactions?.map(transaction => (
                 <PaladinTransaction
@@ -212,7 +190,6 @@ export const Submissions: React.FC<Props> = ({
                 />
               )
               )}
-
             {transactions?.length === 0 ?
               <Typography color="textSecondary" align="center" variant="h6" sx={{ marginTop: '40px' }}>
                 {t(section === 'pending' ? 'noPendingTransactions' : 'noFailedTransactions')}

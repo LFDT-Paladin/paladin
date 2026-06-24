@@ -18,9 +18,22 @@ jobs:
 
       - name: Free up disk space on runner
         uses: ./.github/actions/free-up-disk-space
-          
+
       - name: Install pre-requisites
         uses: ./.github/actions/setup
+
+      - name: Install js-merkletree dependency by checking out from github.com/kaleido-io/js-merkletree
+        uses: actions/checkout@v4
+        with:
+          repository: kaleido-io/js-merkletree
+          path: solidity/js-merkletree
+
+      - name: Build js-merkletree
+        working-directory: solidity/js-merkletree
+        shell: bash
+        run: |
+          npm install
+          npm run build:node
 
       # Build with Gradle
       # This does not build any docker images, and does not run any dockerized tests.

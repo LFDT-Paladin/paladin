@@ -23,6 +23,8 @@ export const constants = {
   KEYS_MODE: 'keys-mode',
   SUBMISSIONS_FILTERS_KEY: 'submissions-fiters',
   REGISTRY_FILTERS: 'registry-filters',
+  STATE_FILTERS: 'state-filters',
+  MESSAGES_FILTERS: 'messages-filters',
   EVENT_QUERY_LIMIT: 10,
   SUBMISSIONS_QUERY_LIMIT: 10,
   REGISTRY_ENTRIES_QUERY_LIMIT: 10,

@@ -36,3 +36,6 @@ wallets:
             seed:
               encoding: none
               inline: b461057bef2aeaf43816f95b3c41b667d6fa56342f278d9237d7463226fd101d
+sequencerManager:
+  heartbeatInterval: "1s"
+  inactiveGracePeriod: 2

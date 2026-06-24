@@ -597,6 +597,59 @@ func TestIdempotentSubmit(t *testing.T) {
 
 }
 
+func TestIdempotentSubmitRPCCodeConflict(t *testing.T) {
+	txID := uuid.New()
+	// Simulate new Paladin behaviour: HTTP 200 with RPCCodeConflict (-32001) in the error body
+	conflictResponse := func(id pldtypes.RawJSON) (int, *rpcclient.RPCResponse) {
+		return 200, &rpcclient.RPCResponse{
+			JSONRpc: "2.0",
+			ID:      id,
+			Error: &rpcclient.RPCError{
+				Code:    int64(RPCCodeConflict),
+				Message: "PD012220: key clash",
+			},
+		}
+	}
+	methods := []testRPCMethod{
+		{
+			name: "ptx_sendTransaction",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return conflictResponse(rpcReq.ID)
+			},
+		},
+		{
+			name: "ptx_prepareTransaction",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return conflictResponse(rpcReq.ID)
+			},
+		},
+		{
+			name: "ptx_getTransactionByIdempotencyKey",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return successResponse(rpcReq.ID, pldtypes.RawJSON(`{"id": "`+txID.String()+`"}`))
+			},
+		},
+	}
+	ctx, c, done := newTestClientAndServerHTTP(t, methods...)
+	defer done()
+
+	txb := c.TxBuilder(ctx).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx.12345").
+		ABIJSON(testABIJSON).
+		From("tx.sender").
+		Inputs(`{"supplier": "0x172EA50B3535721154ae5B368E850825615882BB"}`)
+
+	send := txb.Send()
+	require.NoError(t, send.Error())
+	assert.Equal(t, txID, *send.ID())
+
+	prepare := txb.Prepare()
+	require.NoError(t, prepare.Error())
+	assert.Equal(t, txID, *prepare.ID())
+}
+
 func TestDeferFunctionSelectError(t *testing.T) {
 	ctx, c, done := newTestClientAndServerHTTP(t)
 	defer done()

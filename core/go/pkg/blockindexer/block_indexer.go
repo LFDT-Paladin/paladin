@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -50,9 +50,9 @@ import (
 type BlockIndexer interface {
 	Start(...*InternalEventStream) error
 	Stop()
-	AddEventStream(ctx context.Context, dbTX persistence.DBTX, stream *InternalEventStream) (*EventStream, error)
+	AddEventStream(ctx context.Context, dbTX persistence.DBTX, stream *InternalEventStream) (EventStream, error)
 	RemoveEventStream(ctx context.Context, id uuid.UUID) error
-	QueryEventStreamDefinitions(ctx context.Context, dbTX persistence.DBTX, esType pldtypes.Enum[EventStreamType], jq *query.QueryJSON) ([]*EventStream, error)
+	QueryEventStreamDefinitions(ctx context.Context, dbTX persistence.DBTX, esType pldtypes.Enum[EventStreamType], jq *query.QueryJSON) ([]*EventStreamDefinition, error)
 	StartEventStream(ctx context.Context, id uuid.UUID) error
 	StopEventStream(ctx context.Context, id uuid.UUID) error
 	GetIndexedBlockByNumber(ctx context.Context, number uint64) (*pldapi.IndexedBlock, error)
@@ -62,7 +62,7 @@ type BlockIndexer interface {
 	GetTransactionEventsByHash(ctx context.Context, hash pldtypes.Bytes32) ([]*pldapi.IndexedEvent, error)
 	QueryIndexedBlocks(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.IndexedBlock, error)
 	QueryIndexedEvents(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.IndexedEvent, error)
-	QueryIndexedTransactions(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.IndexedTransaction, error)
+	QueryIndexedTransactions(ctx context.Context, jq *query.QueryJSON, hasPaladinReceipt bool) ([]*pldapi.IndexedTransaction, error)
 	ListTransactionEvents(ctx context.Context, lastBlock int64, lastIndex, limit int) ([]*pldapi.IndexedEvent, error)
 	DecodeTransactionEvents(ctx context.Context, hash pldtypes.Bytes32, abi abi.ABI, resultFormat pldtypes.JSONFormatOptions) ([]*pldapi.EventWithData, error)
 	WaitForTransactionSuccess(ctx context.Context, hash pldtypes.Bytes32, errorABI abi.ABI) (*pldapi.IndexedTransaction, error)
@@ -1087,13 +1087,16 @@ func (bi *blockIndexer) QueryIndexedBlocks(ctx context.Context, jq *query.QueryJ
 	return results, err
 }
 
-func (bi *blockIndexer) QueryIndexedTransactions(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.IndexedTransaction, error) {
+func (bi *blockIndexer) QueryIndexedTransactions(ctx context.Context, jq *query.QueryJSON, hasPaladinReceipt bool) ([]*pldapi.IndexedTransaction, error) {
 	ctx = log.WithComponent(ctx, "blockindexer")
 	if jq.Limit == nil || *jq.Limit == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgBlockIndexerLimitRequired)
 	}
 	db := bi.persistence.DB()
 	q := db.Table("indexed_transactions").Joins("Block").WithContext(ctx)
+	if hasPaladinReceipt {
+		q = q.Where(`EXISTS (SELECT 1 FROM transaction_receipts WHERE "transaction_receipts"."tx_hash" = "indexed_transactions"."hash")`)
+	}
 	if jq != nil {
 		q = filters.BuildGORM(ctx, jq, q, IndexedTransactionFilters)
 	}

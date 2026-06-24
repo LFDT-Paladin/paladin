@@ -16,6 +16,7 @@
 package noto
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -447,4 +448,108 @@ func TestMint_V0(t *testing.T) {
 			"encodedCall": "%s"
 		}
 	}`, notaryKey.Address, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
+}
+
+func TestMint_Nullifiers(t *testing.T) {
+	callIdx := 0
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		defer func() { callIdx++ }()
+		if callIdx == 0 {
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{
+					{
+						DataJson: `{"rootIndex":"0x9bc7adede8e6ef3f5a6a3a466a9d9f115d040e8891f77023ebc4825196b55726","smtName":"smt_noto_0xfc401339d61baabc22091432c1148d9ccd1088d0"}`,
+					},
+				},
+			}, nil
+		} else {
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{
+					{
+						DataJson: `{"index":"0x78f5fe3a8fd47d7bb4e9f71c4c9318cf83df700499b683201491c9459194cff5","leftChild":"0x0000000000000000000000000000000000000000000000000000000000000000","refKey":"0xc95e1f2a738628320dbc9c5378df861ff2baf2343acc7b4ac8c043f2e6f58209","rightChild":"0x0000000000000000000000000000000000000000000000000000000000000000","type":"0x02"}`,
+					},
+				},
+			}, nil
+		}
+	}
+	n := &Noto{
+		Callbacks:            mockCallbacks,
+		coinSchema:           testSchema("coin"),
+		dataSchemaV0:         testSchema("data"),
+		dataSchemaV1:         testSchema("data_v1"),
+		dataSchemaV2:         testSchema("data_v2"),
+		manifestSchema:       testSchema("manifest"),
+		merkleTreeRootSchema: testSchema("merkle_tree_root"),
+		merkleTreeNodeSchema: testSchema("merkle_tree_node"),
+	}
+	ctx := context.Background()
+	fn := types.NotoABI.Functions()["mint"]
+
+	receiverAddress := "0x2000000000000000000000000000000000000000"
+	notaryKey, err := secp256k1.GenerateSecp256k1KeyPair()
+	require.NoError(t, err)
+
+	contractAddress := "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3"
+	tx := &prototk.TransactionSpecification{
+		TransactionId: "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		From:          "notary@node1",
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress: contractAddress,
+			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
+				NotaryMode:   types.NotaryModeBasic.Enum(),
+				NotaryLookup: "notary@node1",
+				Options: types.NotoOptions{
+					Basic: &types.NotoBasicOptions{
+						RestrictMint: &pTrue,
+						AllowBurn:    &pTrue,
+						AllowLock:    &pTrue,
+					},
+				},
+				Variant: types.NotoVariantV2Nullifiers,
+			}),
+		},
+		FunctionAbiJson:   mustParseJSON(fn),
+		FunctionSignature: fn.SolString(),
+		FunctionParamsJson: `{
+			"to": "receiver@node2",
+			"amount": 100,
+			"data": "0x1234"
+		}`,
+	}
+
+	initRes, err := n.InitTransaction(ctx, &prototk.InitTransactionRequest{
+		Transaction: tx,
+	})
+	require.NoError(t, err)
+	require.Len(t, initRes.RequiredVerifiers, 2)
+	assert.Equal(t, "notary@node1", initRes.RequiredVerifiers[0].Lookup)
+	assert.Equal(t, "receiver@node2", initRes.RequiredVerifiers[1].Lookup)
+
+	verifiers := []*prototk.ResolvedVerifier{
+		{
+			Lookup:       "notary@node1",
+			Algorithm:    algorithms.ECDSA_SECP256K1,
+			VerifierType: verifiers.ETH_ADDRESS,
+			Verifier:     notaryKey.Address.String(),
+		},
+		{
+			Lookup:       "receiver@node2",
+			Algorithm:    algorithms.ECDSA_SECP256K1,
+			VerifierType: verifiers.ETH_ADDRESS,
+			Verifier:     receiverAddress,
+		},
+	}
+
+	assembleRes, err := n.AssembleTransaction(ctx, &prototk.AssembleTransactionRequest{
+		Transaction:       tx,
+		ResolvedVerifiers: verifiers,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, prototk.AssembleTransactionResponse_OK, assembleRes.AssemblyResult)
+	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
+	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1)
+	require.Len(t, assembleRes.AssembledTransaction.OutputStates[0].NullifierSpecs, 2)
+	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2)
 }

@@ -35,7 +35,9 @@ type RunnerConfig struct {
 	MaxSubmissionsPerSecond int
 	CompletionTimeout       time.Duration
 	NoWaitSubmission        bool
+	RollingCheckBatchSize   int
 	NodeKillConfig          *NodeKillConfig
+	Diagnostics             *DiagnosticsConfig
 	Nodes                   []NodeConfig
 }
 
@@ -50,15 +52,17 @@ type PerformanceTestConfig struct {
 }
 
 type InstanceConfig struct {
-	Name                    string          `json:"name" yaml:"name"`
-	Test                    TestCaseConfig  `json:"test" yaml:"test"`
-	Length                  time.Duration   `json:"length" yaml:"length"`
-	MaxActions              int64           `json:"maxActions,omitempty" yaml:"maxActions,omitempty"`
-	RampLength              time.Duration   `json:"rampLength,omitempty" yaml:"rampLength,omitempty"`
-	MaxSubmissionsPerSecond int             `json:"maxSubmissionsPerSecond" yaml:"maxSubmissionsPerSecond"`
-	CompletionTimeout       time.Duration   `json:"completionTimeout,omitempty" yaml:"completionTimeout,omitempty"`
-	NoWaitSubmission        bool            `json:"noWaitSubmission,omitempty" yaml:"noWaitSubmission,omitempty"`
-	NodeKillConfig          *NodeKillConfig `json:"nodeKillConfig,omitempty" yaml:"nodeKillConfig,omitempty"`
+	Name                    string             `json:"name" yaml:"name"`
+	Test                    TestCaseConfig     `json:"test" yaml:"test"`
+	Length                  time.Duration      `json:"length" yaml:"length"`
+	MaxActions              int64              `json:"maxActions,omitempty" yaml:"maxActions,omitempty"`
+	RampLength              time.Duration      `json:"rampLength,omitempty" yaml:"rampLength,omitempty"`
+	MaxSubmissionsPerSecond int                `json:"maxSubmissionsPerSecond" yaml:"maxSubmissionsPerSecond"`
+	CompletionTimeout       time.Duration      `json:"completionTimeout,omitempty" yaml:"completionTimeout,omitempty"`
+	NoWaitSubmission        bool               `json:"noWaitSubmission,omitempty" yaml:"noWaitSubmission,omitempty"`
+	RollingCheckBatchSize   int                `json:"rollingCheckBatchSize,omitempty" yaml:"rollingCheckBatchSize,omitempty"`
+	NodeKillConfig          *NodeKillConfig    `json:"nodeKillConfig,omitempty" yaml:"nodeKillConfig,omitempty"`
+	Diagnostics             *DiagnosticsConfig `json:"diagnostics,omitempty" yaml:"diagnostics,omitempty"`
 }
 
 type TestCaseConfig struct {
@@ -68,10 +72,33 @@ type TestCaseConfig struct {
 	Options        map[string]any `json:"options,omitempty" yaml:"options,omitempty"`
 }
 
+// DebugPortForwardConfig instructs the test runner to set up a kubectl port-forward
+// to the node's debug/pprof server before starting diagnostics. Use this when the
+// debug server listens on loopback inside the pod and is not directly reachable
+// (e.g. the default devnet configuration).
+type DebugPortForwardConfig struct {
+	Namespace  string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Service    string `json:"service,omitempty" yaml:"service,omitempty"`
+	RemotePort int    `json:"remotePort,omitempty" yaml:"remotePort,omitempty"`
+	LocalPort  int    `json:"localPort,omitempty" yaml:"localPort,omitempty"`
+}
+
 type NodeConfig struct {
-	Name         string `json:"name" yaml:"name"`
-	HTTPEndpoint string `json:"httpEndpoint" yaml:"httpEndpoint"`
-	WSEndpoint   string `json:"wsEndpoint" yaml:"wsEndpoint"`
+	Name             string                  `json:"name" yaml:"name"`
+	HTTPEndpoint     string                  `json:"httpEndpoint" yaml:"httpEndpoint"`
+	WSEndpoint       string                  `json:"wsEndpoint" yaml:"wsEndpoint"`
+	MetricsEndpoint  string                  `json:"metricsEndpoint,omitempty" yaml:"metricsEndpoint,omitempty"`
+	DebugPortForward *DebugPortForwardConfig `json:"debugPortForward,omitempty" yaml:"debugPortForward,omitempty"`
+}
+
+// DiagnosticsConfig enables periodic collection of Paladin node metrics.
+// Set Interval to a non-zero duration to activate. On each tick a timestamped
+// subdirectory is written under diagnostics/<testname>-<timestamp>/ containing
+// metrics.json and per-node goroutine dump and heap profile files.
+// Nodes with MetricsEndpoint set are Prometheus-scraped; nodes with DebugPortForward
+// set have goroutine stacks and heap profiles fetched via /debug/pprof.
+type DiagnosticsConfig struct {
+	Interval time.Duration `json:"interval,omitempty" yaml:"interval,omitempty"`
 }
 
 type NodeKillConfig struct {
@@ -93,4 +120,8 @@ const (
 	PerfTestPrivateTransactionNodeRestart TestName = "private_transaction_node_restart"
 	// PerfTestNotoRevertableHooks deploys Noto with Pente hooks that include a revertable external call, verifying receipts contain revert data
 	PerfTestNotoRevertableHooks TestName = "noto_revertable_hooks"
+	// PerfTestNotoTransfer deploys Noto in basic notary mode and drives token transfers, rotating recipients across all configured nodes
+	PerfTestNotoTransfer TestName = "noto_transfer"
+	// PerfTestNotoPenteTracker deploys Noto with a Pente privacy group using NotoTrackerERC20 as the hook, then drives token transfers across all nodes
+	PerfTestNotoPenteTracker TestName = "noto_pente_tracker"
 )

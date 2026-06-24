@@ -37,7 +37,6 @@ func TestPrivateTransactionBuilder_Defaults(t *testing.T) {
 
 	require.NotNil(t, tx.PreAssembly)
 	assert.Len(t, tx.PreAssembly.RequiredVerifiers, 4)
-	assert.Len(t, tx.PreAssembly.Verifiers, 4)
 
 	require.NotNil(t, tx.PostAssembly)
 	assert.Len(t, tx.PostAssembly.AttestationPlan, 4)
@@ -45,6 +44,7 @@ func TestPrivateTransactionBuilder_Defaults(t *testing.T) {
 	assert.Equal(t, prototk.AssembleTransactionResponse_OK, tx.PostAssembly.AssemblyResult)
 	assert.Len(t, tx.PostAssembly.Signatures, 1)
 	assert.Len(t, tx.PostAssembly.Endorsements, 0)
+	assert.Len(t, tx.PostAssembly.ResolvedVerifiers, 4)
 
 }
 
@@ -73,7 +73,6 @@ func TestPrivateTransactionBuilderList_SameOriginatorAndAddress(t *testing.T) {
 
 		require.NotNil(t, tx.PreAssembly)
 		assert.Len(t, tx.PreAssembly.RequiredVerifiers, 4)
-		assert.Len(t, tx.PreAssembly.Verifiers, 4)
 
 		assert.Nil(t, tx.PostAssembly)
 	}

@@ -24,11 +24,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 )
 
@@ -62,16 +59,12 @@ func (h *delegateLockHandler) Init(ctx context.Context, tx *types.ParsedTransact
 
 func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.DelegateLockParams)
-	notary := tx.DomainConfig.NotaryLookup
 
-	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	ids, err := resolveIdentities(ctx, h.noto, tx, req, "", "")
 	if err != nil {
 		return nil, err
 	}
-	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, err
-	}
+	notaryID, senderID := ids.notary, ids.sender
 
 	// Load the existing lock
 	var lockedInputStates []*prototk.StateRef // V0 only
@@ -79,29 +72,15 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	if tx.DomainConfig.IsV0() {
 		// In V0 at least one locked input was always present here, to confirm lock ownership - not required in V1 due to lock state check.
 		lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, senderID.address, big.NewInt(1), false)
-		if err != nil {
-			if revert {
-				message := err.Error()
-				return &prototk.AssembleTransactionResponse{
-					AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-					RevertReason:   &message,
-				}, nil
-			}
-			return nil, err
+		if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
+			return res, err
 		}
 		lockedInputStates = lockedInputs.states
 	} else {
 		var revert bool
 		existingLock, revert, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
-		if err != nil {
-			if revert {
-				message := err.Error()
-				return &prototk.AssembleTransactionResponse{
-					AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-					RevertReason:   &message,
-				}, nil
-			}
-			return nil, err
+		if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
+			return res, err
 		}
 	}
 
@@ -161,26 +140,7 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 			OutputStates: outputStates,
 			InfoStates:   infoStates,
 		},
-		AttestationPlan: []*prototk.AttestationRequest{
-			// Sender confirms the initial request with a signature
-			{
-				Name:            "sender",
-				AttestationType: prototk.AttestationType_SIGN,
-				Algorithm:       algorithms.ECDSA_SECP256K1,
-				VerifierType:    verifiers.ETH_ADDRESS,
-				PayloadType:     signpayloads.OPAQUE_TO_RSV,
-				Payload:         encodedApproval,
-				Parties:         []string{req.Transaction.From},
-			},
-			// Notary will endorse the assembled transaction (by submitting to the ledger)
-			{
-				Name:            "notary",
-				AttestationType: prototk.AttestationType_ENDORSE,
-				Algorithm:       algorithms.ECDSA_SECP256K1,
-				VerifierType:    verifiers.ETH_ADDRESS,
-				Parties:         []string{notary},
-			},
-		},
+		AttestationPlan: buildEndorsePlan(tx.DomainConfig.NotaryLookup, req.Transaction.From, encodedApproval),
 	}, nil
 }
 
@@ -271,7 +231,7 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 			Signature:  signature.Payload,
 			Data:       txData,
 		})
-	} else {
+	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		var delegateInputsEncoded pldtypes.HexBytes
 		delegateInputsEncoded, err = h.noto.encodeNotoDelegateLockArgs(ctx, &types.NotoDelegateLockArgs{
 			TxId:         req.Transaction.TransactionId,
@@ -287,6 +247,8 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 				Data:         txData,
 			})
 		}
+	} else {
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, tx.DomainConfig.Variant)
 	}
 	if err != nil {
 		return nil, err

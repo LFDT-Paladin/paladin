@@ -134,12 +134,36 @@ const (
 	NotaryModeIntHooks pldtypes.HexUint64 = 0x0001
 )
 
-var NotoVariantV2 pldtypes.HexUint64 = 0x0002 // V2 variant (latest)
-var NotoVariantV1 pldtypes.HexUint64 = 0x0001 // V1 variant
-var NotoVariantV0 pldtypes.HexUint64 = 0x0000 // V0 variant
+// for the variant field in the NotoConfig, we adopt a two-byte convention:
+// - the lower 8 bits are for the variant number (V0, V1, V2 etc.)
+// - the upper 8 bits are for the variant type (standard, nullifiers etc.)
+//   - the variant type is 0 for the standard Noto.sol variant
+//   - the variant type is 1 for the nullifiers variant
+const (
+	// legacy
+	NotoVariantV0 pldtypes.HexUint64 = 0x0000
+	// INoto_V1-shaped parameters (nested LockParams)
+	NotoVariantV1 pldtypes.HexUint64 = 0x0001
+	// NotoVariantV2 is for the standard Noto.sol (ILockableCapability ABI).
+	NotoVariantV2 pldtypes.HexUint64 = 0x0002
+
+	// NotoVariantV2Nullifiers is for the NotoNullifiers.sol (nullifier inputs + commitment tree).
+	NotoVariantV2Nullifiers pldtypes.HexUint64 = 0x0102
+)
+
+// Backward-compatible aliases used across handlers and tests
+var (
+	NotoVariantNullifier = NotoVariantV2Nullifiers
+	NotoVariantDefault   = NotoVariantV2
+	NotoVariantLegacy    = NotoVariantV0
+)
 
 func (c *NotoParsedConfig) IsV2() bool {
-	return c.Variant == NotoVariantV2
+	return c.Variant == NotoVariantV2 || c.Variant == NotoVariantV2Nullifiers
+}
+
+func (c *NotoParsedConfig) IsNullifierVariant() bool {
+	return c.Variant == NotoVariantV2Nullifiers
 }
 
 func (c *NotoParsedConfig) IsV1() bool {

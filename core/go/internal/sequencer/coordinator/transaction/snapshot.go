@@ -22,7 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction) {
+func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction, *common.SnapshotRevertedTransaction) {
 	t.RLock()
 	defer t.RUnlock()
 
@@ -40,7 +40,7 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.Snaps
 		State_Pooled:
 		return &common.SnapshotPooledTransaction{
 			ID: t.pt.ID,
-		}, nil, nil
+		}, nil, nil, nil
 
 	// State_Ready_For_Dispatch is already past the point of no return. It is as good as dispatched, just waiting for
 	// the dispatcher thread to collect it so we include it in the dispatched transactions of the snapshot
@@ -48,8 +48,7 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.Snaps
 		State_Dispatched:
 		dispatchedTransaction := &common.SnapshotDispatchedTransaction{
 			SnapshotPooledTransaction: common.SnapshotPooledTransaction{
-				ID:         t.pt.ID,
-				Originator: t.originator,
+				ID: t.pt.ID,
 			},
 		}
 		if t.signerAddress != nil {
@@ -57,7 +56,7 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.Snaps
 			dispatchedTransaction.Nonce = t.nonce
 			dispatchedTransaction.LatestSubmissionHash = t.latestSubmissionHash
 		}
-		return nil, dispatchedTransaction, nil
+		return nil, dispatchedTransaction, nil, nil
 
 	case State_Confirmed:
 		log.L(ctx).Debugf("heartbeat snapshot building, transaction ID %s is in State_Confirmed, sending to heartbeat receipients", t.pt.ID.String())
@@ -69,14 +68,22 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.Snaps
 				Nonce:                t.nonce,
 				LatestSubmissionHash: t.latestSubmissionHash,
 			},
-			RevertReason: t.revertReason,
 		}
 		if t.signerAddress != nil {
 			confirmedTransaction.Signer = *t.signerAddress
 		}
-		return nil, nil, confirmedTransaction
+		return nil, nil, confirmedTransaction, nil
+
+	case State_Reverted:
+		log.L(ctx).Debugf("heartbeat snapshot building, transaction ID %s is in State_Reverted, sending to heartbeat recipients", t.pt.ID.String())
+		return nil, nil, nil, &common.SnapshotRevertedTransaction{
+			SnapshotPooledTransaction: common.SnapshotPooledTransaction{
+				ID: t.pt.ID,
+			},
+			RevertReason: t.revertReason,
+		}
 	}
 
-	// Reverted/final/other states are excluded from snapshots.
-	return nil, nil, nil
+	// Other states are excluded from snapshots.
+	return nil, nil, nil, nil
 }

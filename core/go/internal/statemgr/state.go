@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -190,7 +190,44 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 			Create(int64Labels).
 			Error
 	}
+
+	// Update the completion index for any opted-in domain transactions that were
+	// waiting for one of the just-written states
+	if err == nil && len(states) > 0 {
+		arrivedIDs := make([]pldtypes.HexBytes, len(states))
+		for i, s := range states {
+			arrivedIDs[i] = s.ID
+		}
+		err = ss.updatePendingPrivateStateData(ctx, dbTX, arrivedIDs)
+	}
 	return err
+}
+
+func (ss *stateManager) getStateIDsMissingPrivateData(ctx context.Context, dbTX persistence.DBTX, domainName string, stateIDs []pldtypes.HexBytes) ([]pldtypes.HexBytes, error) {
+	if len(stateIDs) == 0 {
+		return nil, nil
+	}
+	var found []pldtypes.HexBytes
+	if err := dbTX.DB().Table("states").WithContext(ctx).
+		Where("domain_name = ?", domainName).
+		Where("id IN ?", stateIDs).
+		Pluck("id", &found).Error; err != nil {
+		return nil, err
+	}
+	foundSet := make(map[string]bool, len(found))
+	for _, id := range found {
+		foundSet[id.String()] = true
+	}
+	var missing []pldtypes.HexBytes
+	for _, id := range stateIDs {
+		if !foundSet[id.String()] {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		log.L(ctx).Debugf("states missing private data (domain=%s): %v", domainName, missing)
+	}
+	return missing, nil
 }
 
 func (ss *stateManager) GetStatesByID(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, stateIDs []pldtypes.HexBytes, failNotFound, withLabels bool) ([]*pldapi.State, error) {
@@ -218,8 +255,9 @@ func (ss *stateManager) GetStatesByID(ctx context.Context, dbTX persistence.DBTX
 // Built in fields all start with "." as that prevents them
 // clashing with variable names in ABI structs ($ and _ are valid leading chars there)
 var baseStateFields = map[string]filters.FieldResolver{
-	".id":      filters.HexBytesField(`"states"."id"`),
-	".created": filters.TimestampField(`"states"."created"`),
+	".id":             filters.HexBytesField(`"states"."id"`),
+	".created":        filters.TimestampField(`"states"."created"`),
+	"contractAddress": filters.HexBytesField(`"states"."contract_address"`),
 }
 
 func addStateBaseLabels(labelValues filters.PassthroughValueSet, id pldtypes.HexBytes, createdAt pldtypes.Timestamp) filters.PassthroughValueSet {

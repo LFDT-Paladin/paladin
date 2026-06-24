@@ -282,13 +282,13 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	// Gather the addresses - in the testbed we assume these all to be local
-	tx.ptx.PreAssembly.Verifiers = make([]*prototk.ResolvedVerifier, len(tx.ptx.PreAssembly.RequiredVerifiers))
+	resolvedVerifiers := make([]*prototk.ResolvedVerifier, len(tx.ptx.PreAssembly.RequiredVerifiers))
 	for i, v := range tx.ptx.PreAssembly.RequiredVerifiers {
 		resolvedKey, err := tb.ResolveKey(ctx, v.Lookup, v.Algorithm, v.VerifierType)
 		if err != nil {
 			return fmt.Errorf("failed to resolve key %q: %s", v.Lookup, err)
 		}
-		tx.ptx.PreAssembly.Verifiers[i] = &prototk.ResolvedVerifier{
+		resolvedVerifiers[i] = &prototk.ResolvedVerifier{
 			Lookup:       v.Lookup,
 			Algorithm:    v.Algorithm,
 			Verifier:     resolvedKey.Verifier.Verifier,
@@ -297,9 +297,10 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	// Now call assemble
-	if err := tx.psc.AssembleTransaction(dCtx, tb.c.Persistence().NOTX(), tx.ptx, tx.localTx); err != nil {
+	if err := tx.psc.AssembleTransaction(dCtx, tb.c.Persistence().NOTX(), tx.ptx, tx.localTx, resolvedVerifiers); err != nil {
 		return err
 	}
+	tx.ptx.PostAssembly.ResolvedVerifiers = resolvedVerifiers
 
 	// The testbed only handles the OK result
 	switch tx.ptx.PostAssembly.AssemblyResult {
