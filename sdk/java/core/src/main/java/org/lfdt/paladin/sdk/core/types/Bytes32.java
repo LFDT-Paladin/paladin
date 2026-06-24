@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.types;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -26,76 +25,85 @@ import java.util.Arrays;
  */
 public final class Bytes32 {
 
-    /** Length of the value in bytes. */
-    public static final int SIZE = 32;
+  /** Length of the value in bytes. */
+  public static final int SIZE = 32;
 
-    private final byte[] value;
+  private final byte[] value;
 
-    private Bytes32(byte[] value) {
-        this.value = value;
+  private Bytes32(byte[] value) {
+    this.value = value;
+  }
+
+  /** Wraps a copy of exactly {@value #SIZE} bytes. */
+  public static Bytes32 wrap(byte[] bytes) {
+    if (bytes == null || bytes.length != SIZE) {
+      throw new IllegalArgumentException(
+          "Bytes32 requires exactly "
+              + SIZE
+              + " bytes, got "
+              + (bytes == null ? "null" : bytes.length));
     }
+    return new Bytes32(bytes.clone());
+  }
 
-    /** Wraps a copy of exactly {@value #SIZE} bytes. */
-    public static Bytes32 wrap(byte[] bytes) {
-        if (bytes == null || bytes.length != SIZE) {
-            throw new IllegalArgumentException(
-                    "Bytes32 requires exactly " + SIZE + " bytes, got " + (bytes == null ? "null" : bytes.length));
-        }
-        return new Bytes32(bytes.clone());
+  /** Parses a 32-byte value from hex (with or without {@code 0x}). */
+  @JsonCreator
+  public static Bytes32 fromString(String s) {
+    byte[] bytes = Hex.decode(s);
+    if (bytes.length != SIZE) {
+      throw new IllegalArgumentException(
+          "Bytes32 requires "
+              + SIZE
+              + " bytes ("
+              + (SIZE * 2)
+              + " hex chars), got "
+              + bytes.length
+              + " bytes");
     }
+    return new Bytes32(bytes);
+  }
 
-    /** Parses a 32-byte value from hex (with or without {@code 0x}). */
-    @JsonCreator
-    public static Bytes32 fromString(String s) {
-        byte[] bytes = Hex.decode(s);
-        if (bytes.length != SIZE) {
-            throw new IllegalArgumentException(
-                    "Bytes32 requires " + SIZE + " bytes (" + (SIZE * 2) + " hex chars), got " + bytes.length + " bytes");
-        }
-        return new Bytes32(bytes);
-    }
+  /** Returns a copy of the underlying bytes. */
+  public byte[] toByteArray() {
+    return value.clone();
+  }
 
-    /** Returns a copy of the underlying bytes. */
-    public byte[] toByteArray() {
-        return value.clone();
+  /** True if every byte is zero. */
+  public boolean isZero() {
+    for (byte b : value) {
+      if (b != 0) {
+        return false;
+      }
     }
+    return true;
+  }
 
-    /** True if every byte is zero. */
-    public boolean isZero() {
-        for (byte b : value) {
-            if (b != 0) {
-                return false;
-            }
-        }
-        return true;
-    }
+  /** Lower-case hex without a {@code 0x} prefix. */
+  public String toHex() {
+    return Hex.FORMAT.formatHex(value);
+  }
 
-    /** Lower-case hex without a {@code 0x} prefix. */
-    public String toHex() {
-        return Hex.FORMAT.formatHex(value);
-    }
+  /** Lower-case hex with a {@code 0x} prefix — the JSON representation. */
+  @JsonValue
+  public String to0xHex() {
+    return "0x" + Hex.FORMAT.formatHex(value);
+  }
 
-    /** Lower-case hex with a {@code 0x} prefix — the JSON representation. */
-    @JsonValue
-    public String to0xHex() {
-        return "0x" + Hex.FORMAT.formatHex(value);
-    }
+  @Override
+  public String toString() {
+    return to0xHex();
+  }
 
-    @Override
-    public String toString() {
-        return to0xHex();
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
     }
+    return o instanceof Bytes32 other && Arrays.equals(value, other.value);
+  }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        return o instanceof Bytes32 other && Arrays.equals(value, other.value);
-    }
-
-    @Override
-    public int hashCode() {
-        return Arrays.hashCode(value);
-    }
+  @Override
+  public int hashCode() {
+    return Arrays.hashCode(value);
+  }
 }

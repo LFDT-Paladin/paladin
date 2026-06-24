@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -25,33 +24,33 @@ import com.fasterxml.jackson.annotation.JsonValue;
  */
 public enum TransactionType {
 
-    /** A private transaction that uses a Paladin domain to mask the on-chain data. */
-    PRIVATE("private"),
-    /** A public transaction that goes straight to a base ledger EVM smart contract. */
-    PUBLIC("public");
+  /** A private transaction that uses a Paladin domain to mask the on-chain data. */
+  PRIVATE("private"),
+  /** A public transaction that goes straight to a base ledger EVM smart contract. */
+  PUBLIC("public");
 
-    private final String jsonValue;
+  private final String jsonValue;
 
-    TransactionType(String jsonValue) {
-        this.jsonValue = jsonValue;
-    }
+  TransactionType(String jsonValue) {
+    this.jsonValue = jsonValue;
+  }
 
-    /** The JSON token for this transaction type. */
-    @JsonValue
-    public String jsonValue() {
-        return jsonValue;
-    }
+  /** The JSON token for this transaction type. */
+  @JsonValue
+  public String jsonValue() {
+    return jsonValue;
+  }
 
-    /** Resolves a transaction type from its JSON token, case-insensitively. */
-    @JsonCreator
-    public static TransactionType fromJson(String s) {
-        if (s != null) {
-            for (TransactionType t : values()) {
-                if (t.jsonValue.equalsIgnoreCase(s)) {
-                    return t;
-                }
-            }
+  /** Resolves a transaction type from its JSON token, case-insensitively. */
+  @JsonCreator
+  public static TransactionType fromJson(String s) {
+    if (s != null) {
+      for (TransactionType t : values()) {
+        if (t.jsonValue.equalsIgnoreCase(s)) {
+          return t;
         }
-        throw new IllegalArgumentException("unknown transaction type: \"" + s + "\"");
+      }
     }
+    throw new IllegalArgumentException("unknown transaction type: \"" + s + "\"");
+  }
 }

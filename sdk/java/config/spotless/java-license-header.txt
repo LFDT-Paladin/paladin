@@ -12,12 +12,3 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
-/**
- * Primitive value types for the Paladin Java SDK, mirroring {@code sdk/go/pkg/pldtypes}.
- *
- * <p>Each type is immutable and carries its own Jackson serialization annotations, so it
- * round-trips correctly through any {@code ObjectMapper} with no extra configuration required by
- * consumers.
- */
-package org.lfdt.paladin.sdk.core.types;

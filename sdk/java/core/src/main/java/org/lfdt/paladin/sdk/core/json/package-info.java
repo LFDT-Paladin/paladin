@@ -16,9 +16,9 @@
 /**
  * JSON support for the Paladin Java SDK.
  *
- * <p>Holds {@link org.lfdt.paladin.sdk.core.json.PaladinObjectMapper}, the factory for the
- * SDK-wide Jackson {@code ObjectMapper} that bundles the cross-cutting serialization defaults
- * (Java time handling, lenient unknown-property policy, null omission, and big-number precision)
- * used by every higher-level module.
+ * <p>Holds {@link org.lfdt.paladin.sdk.core.json.PaladinObjectMapper}, the factory for the SDK-wide
+ * Jackson {@code ObjectMapper} that bundles the cross-cutting serialization defaults (Java time
+ * handling, lenient unknown-property policy, null omission, and big-number precision) used by every
+ * higher-level module.
  */
 package org.lfdt.paladin.sdk.core.json;

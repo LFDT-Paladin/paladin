@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.json;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -30,15 +29,15 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  * (client, domains, txbuilder) rely on so that request and response bodies behave consistently:
  *
  * <ul>
- *   <li><b>{@link JavaTimeModule}</b> registered, with dates written as ISO-8601 strings rather than
- *       numeric timestamps (mirrors the RFC 3339 convention used throughout Paladin's JSON).</li>
- *   <li><b>Unknown properties ignored</b> on deserialization, so a newer node returning extra fields
- *       does not break an older client (forward compatibility).</li>
+ *   <li><b>{@link JavaTimeModule}</b> registered, with dates written as ISO-8601 strings rather
+ *       than numeric timestamps (mirrors the RFC 3339 convention used throughout Paladin's JSON).
+ *   <li><b>Unknown properties ignored</b> on deserialization, so a newer node returning extra
+ *       fields does not break an older client (forward compatibility).
  *   <li><b>Nulls omitted</b> on serialization ({@link JsonInclude.Include#NON_NULL}), keeping
- *       JSON-RPC request payloads minimal and matching Go's {@code omitempty} conventions.</li>
- *   <li><b>{@code BigInteger}/{@code BigDecimal} for untyped numbers</b>, mirroring Go's
- *       {@code Decoder.UseNumber()} so that large integers bound to {@code Object}/{@code Map}
- *       targets do not lose precision through {@code double}.</li>
+ *       JSON-RPC request payloads minimal and matching Go's {@code omitempty} conventions.
+ *   <li><b>{@code BigInteger}/{@code BigDecimal} for untyped numbers</b>, mirroring Go's {@code
+ *       Decoder.UseNumber()} so that large integers bound to {@code Object}/{@code Map} targets do
+ *       not lose precision through {@code double}.
  * </ul>
  *
  * <p>Use {@link #shared()} for the common case. It returns a single canonical instance, which is
@@ -47,31 +46,30 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  */
 public final class PaladinObjectMapper {
 
-    private static final ObjectMapper SHARED = create();
+  private static final ObjectMapper SHARED = create();
 
-    private PaladinObjectMapper() {
-    }
+  private PaladinObjectMapper() {}
 
-    /**
-     * Returns the canonical shared mapper carrying the SDK-wide defaults. Safe for concurrent reads
-     * and writes; do not mutate its configuration — use {@link #create()} if you need a variant.
-     */
-    public static ObjectMapper shared() {
-        return SHARED;
-    }
+  /**
+   * Returns the canonical shared mapper carrying the SDK-wide defaults. Safe for concurrent reads
+   * and writes; do not mutate its configuration — use {@link #create()} if you need a variant.
+   */
+  public static ObjectMapper shared() {
+    return SHARED;
+  }
 
-    /**
-     * Builds a new, independently-configurable {@link ObjectMapper} with the SDK-wide defaults
-     * applied. Callers that need to layer on additional modules or features should start here rather
-     * than reconfiguring the {@link #shared()} instance.
-     */
-    public static ObjectMapper create() {
-        return new ObjectMapper()
-                .registerModule(new JavaTimeModule())
-                .setSerializationInclusion(JsonInclude.Include.NON_NULL)
-                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)
-                .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
-    }
+  /**
+   * Builds a new, independently-configurable {@link ObjectMapper} with the SDK-wide defaults
+   * applied. Callers that need to layer on additional modules or features should start here rather
+   * than reconfiguring the {@link #shared()} instance.
+   */
+  public static ObjectMapper create() {
+    return new ObjectMapper()
+        .registerModule(new JavaTimeModule())
+        .setSerializationInclusion(JsonInclude.Include.NON_NULL)
+        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+        .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+        .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)
+        .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+  }
 }

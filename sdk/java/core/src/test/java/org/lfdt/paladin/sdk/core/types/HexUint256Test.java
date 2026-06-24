@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.types;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,39 +22,39 @@ import org.junit.jupiter.api.Test;
 
 class HexUint256Test {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    @Test
-    void formatsAsEvenLength0xHex() {
-        assertEquals("0xff", HexUint256.of(255).to0xHex());
-        assertEquals("0x0100", HexUint256.of(256).to0xHex()); // odd nibble count gets zero-padded
-        assertEquals("0x00", HexUint256.of(0).to0xHex());
-    }
+  @Test
+  void formatsAsEvenLength0xHex() {
+    assertEquals("0xff", HexUint256.of(255).to0xHex());
+    assertEquals("0x0100", HexUint256.of(256).to0xHex()); // odd nibble count gets zero-padded
+    assertEquals("0x00", HexUint256.of(0).to0xHex());
+  }
 
-    @Test
-    void serializesAsString() throws Exception {
-        assertEquals("\"0xff\"", MAPPER.writeValueAsString(HexUint256.of(255)));
-    }
+  @Test
+  void serializesAsString() throws Exception {
+    assertEquals("\"0xff\"", MAPPER.writeValueAsString(HexUint256.of(255)));
+  }
 
-    @Test
-    void deserializesFromHexString() throws Exception {
-        assertEquals(HexUint256.of(255), MAPPER.readValue("\"0xff\"", HexUint256.class));
-    }
+  @Test
+  void deserializesFromHexString() throws Exception {
+    assertEquals(HexUint256.of(255), MAPPER.readValue("\"0xff\"", HexUint256.class));
+  }
 
-    @Test
-    void deserializesFromDecimalString() throws Exception {
-        assertEquals(HexUint256.of(255), MAPPER.readValue("\"255\"", HexUint256.class));
-    }
+  @Test
+  void deserializesFromDecimalString() throws Exception {
+    assertEquals(HexUint256.of(255), MAPPER.readValue("\"255\"", HexUint256.class));
+  }
 
-    @Test
-    void deserializesFromJsonNumberWithoutPrecisionLoss() throws Exception {
-        BigInteger big = BigInteger.TWO.pow(200).add(BigInteger.ONE);
-        assertEquals(HexUint256.of(big), MAPPER.readValue(big.toString(), HexUint256.class));
-    }
+  @Test
+  void deserializesFromJsonNumberWithoutPrecisionLoss() throws Exception {
+    BigInteger big = BigInteger.TWO.pow(200).add(BigInteger.ONE);
+    assertEquals(HexUint256.of(big), MAPPER.readValue(big.toString(), HexUint256.class));
+  }
 
-    @Test
-    void roundTripsThroughJson() throws Exception {
-        HexUint256 original = HexUint256.of(BigInteger.TWO.pow(255));
-        assertEquals(original, MAPPER.readValue(MAPPER.writeValueAsString(original), HexUint256.class));
-    }
+  @Test
+  void roundTripsThroughJson() throws Exception {
+    HexUint256 original = HexUint256.of(BigInteger.TWO.pow(255));
+    assertEquals(original, MAPPER.readValue(MAPPER.writeValueAsString(original), HexUint256.class));
+  }
 }

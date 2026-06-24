@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.types;
 
 import com.fasterxml.jackson.core.JsonGenerator;
@@ -28,99 +27,106 @@ import java.io.IOException;
 import java.math.BigInteger;
 
 /**
- * An unsigned 64-bit integer, mirroring {@code pldtypes.HexUint64}. Serializes to JSON as lower-case hex
- * with a {@code 0x} prefix. Deserializes from either a JSON string (hex with {@code 0x}, or decimal) or a
- * JSON integer. The full unsigned range is supported; the value is held in a {@code long} with unsigned
- * semantics.
+ * An unsigned 64-bit integer, mirroring {@code pldtypes.HexUint64}. Serializes to JSON as
+ * lower-case hex with a {@code 0x} prefix. Deserializes from either a JSON string (hex with {@code
+ * 0x}, or decimal) or a JSON integer. The full unsigned range is supported; the value is held in a
+ * {@code long} with unsigned semantics.
  */
 @JsonSerialize(using = HexUint64.Serializer.class)
 @JsonDeserialize(using = HexUint64.Deserializer.class)
 public final class HexUint64 {
 
-    /** The largest value representable, {@code 2^64 - 1}. */
-    private static final BigInteger MAX = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
+  /** The largest value representable, {@code 2^64 - 1}. */
+  private static final BigInteger MAX = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
 
-    private final long value;
+  private final long value;
 
-    private HexUint64(long value) {
-        this.value = value;
+  private HexUint64(long value) {
+    this.value = value;
+  }
+
+  /**
+   * Wraps a non-negative {@code long}. Use {@link #fromString(String)} for values above {@code
+   * Long.MAX_VALUE}.
+   */
+  public static HexUint64 of(long value) {
+    if (value < 0) {
+      throw new IllegalArgumentException("value must not be negative: " + value);
     }
+    return new HexUint64(value);
+  }
 
-    /** Wraps a non-negative {@code long}. Use {@link #fromString(String)} for values above {@code Long.MAX_VALUE}. */
-    public static HexUint64 of(long value) {
-        if (value < 0) {
-            throw new IllegalArgumentException("value must not be negative: " + value);
-        }
-        return new HexUint64(value);
+  /** Parses a hex ({@code 0x}-prefixed) or decimal string in the range {@code [0, 2^64 - 1]}. */
+  public static HexUint64 fromString(String s) {
+    return fromBigInteger(Hex.parseBigInteger(s), s);
+  }
+
+  private static HexUint64 fromBigInteger(BigInteger v, String source) {
+    if (v.signum() < 0 || v.compareTo(MAX) > 0) {
+      throw new IllegalArgumentException("value out of uint64 range: " + source);
     }
+    return new HexUint64(v.longValue());
+  }
 
-    /** Parses a hex ({@code 0x}-prefixed) or decimal string in the range {@code [0, 2^64 - 1]}. */
-    public static HexUint64 fromString(String s) {
-        return fromBigInteger(Hex.parseBigInteger(s), s);
+  /**
+   * The value as a {@code long} with unsigned bit semantics (may be negative for values {@code >
+   * Long.MAX_VALUE}).
+   */
+  public long asUnsignedLong() {
+    return value;
+  }
+
+  public BigInteger bigIntegerValue() {
+    return new BigInteger(Long.toUnsignedString(value));
+  }
+
+  /** Lower-case hex without a {@code 0x} prefix. */
+  public String toHex() {
+    return Long.toUnsignedString(value, 16);
+  }
+
+  /** Lower-case hex with a {@code 0x} prefix — the JSON representation. */
+  public String to0xHex() {
+    return "0x" + Long.toUnsignedString(value, 16);
+  }
+
+  @Override
+  public String toString() {
+    return to0xHex();
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
     }
+    return o instanceof HexUint64 other && value == other.value;
+  }
 
-    private static HexUint64 fromBigInteger(BigInteger v, String source) {
-        if (v.signum() < 0 || v.compareTo(MAX) > 0) {
-            throw new IllegalArgumentException("value out of uint64 range: " + source);
-        }
-        return new HexUint64(v.longValue());
-    }
+  @Override
+  public int hashCode() {
+    return Long.hashCode(value);
+  }
 
-    /** The value as a {@code long} with unsigned bit semantics (may be negative for values {@code > Long.MAX_VALUE}). */
-    public long asUnsignedLong() {
-        return value;
-    }
-
-    public BigInteger bigIntegerValue() {
-        return new BigInteger(Long.toUnsignedString(value));
-    }
-
-    /** Lower-case hex without a {@code 0x} prefix. */
-    public String toHex() {
-        return Long.toUnsignedString(value, 16);
-    }
-
-    /** Lower-case hex with a {@code 0x} prefix — the JSON representation. */
-    public String to0xHex() {
-        return "0x" + Long.toUnsignedString(value, 16);
-    }
-
+  static final class Serializer extends JsonSerializer<HexUint64> {
     @Override
-    public String toString() {
-        return to0xHex();
+    public void serialize(HexUint64 v, JsonGenerator gen, SerializerProvider provider)
+        throws IOException {
+      gen.writeString(v.to0xHex());
     }
+  }
 
+  static final class Deserializer extends JsonDeserializer<HexUint64> {
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        return o instanceof HexUint64 other && value == other.value;
+    public HexUint64 deserialize(JsonParser p, DeserializationContext ctx) throws IOException {
+      JsonToken t = p.currentToken();
+      if (t == JsonToken.VALUE_NUMBER_INT) {
+        return fromBigInteger(p.getBigIntegerValue(), p.getText());
+      }
+      if (t != null && t.isScalarValue()) {
+        return fromString(p.getValueAsString());
+      }
+      return (HexUint64) ctx.handleUnexpectedToken(HexUint64.class, p);
     }
-
-    @Override
-    public int hashCode() {
-        return Long.hashCode(value);
-    }
-
-    static final class Serializer extends JsonSerializer<HexUint64> {
-        @Override
-        public void serialize(HexUint64 v, JsonGenerator gen, SerializerProvider provider) throws IOException {
-            gen.writeString(v.to0xHex());
-        }
-    }
-
-    static final class Deserializer extends JsonDeserializer<HexUint64> {
-        @Override
-        public HexUint64 deserialize(JsonParser p, DeserializationContext ctx) throws IOException {
-            JsonToken t = p.currentToken();
-            if (t == JsonToken.VALUE_NUMBER_INT) {
-                return fromBigInteger(p.getBigIntegerValue(), p.getText());
-            }
-            if (t != null && t.isScalarValue()) {
-                return fromString(p.getValueAsString());
-            }
-            return (HexUint64) ctx.handleUnexpectedToken(HexUint64.class, p);
-        }
-    }
+  }
 }

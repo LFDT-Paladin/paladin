@@ -12,22 +12,23 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.query;
 
 /**
- * Optional modifiers applied to a filter operand, mirroring the variadic {@code addOns} of Go's query
- * builder (e.g. {@code query.Not}, {@code query.CaseInsensitive}, {@code query.CaseSensitive}).
+ * Optional modifiers applied to a filter operand, mirroring the variadic {@code addOns} of Go's
+ * query builder (e.g. {@code query.Not}, {@code query.CaseInsensitive}, {@code
+ * query.CaseSensitive}).
  *
- * <p>Passed to the value-bearing {@link QueryBuilder} methods ({@code equal}, {@code notEqual}, {@code in},
- * {@code notIn}) to set the corresponding {@code not}/{@code caseInsensitive} flags on the emitted operand.
+ * <p>Passed to the value-bearing {@link QueryBuilder} methods ({@code equal}, {@code notEqual},
+ * {@code in}, {@code notIn}) to set the corresponding {@code not}/{@code caseInsensitive} flags on
+ * the emitted operand.
  */
 public enum QueryModifier {
 
-    /** Negates the operand (sets {@code not: true}). */
-    NOT,
-    /** Makes the comparison case-insensitive (sets {@code caseInsensitive: true}). */
-    CASE_INSENSITIVE,
-    /** Forces a case-sensitive comparison (clears {@code caseInsensitive}); the default. */
-    CASE_SENSITIVE
+  /** Negates the operand (sets {@code not: true}). */
+  NOT,
+  /** Makes the comparison case-insensitive (sets {@code caseInsensitive: true}). */
+  CASE_INSENSITIVE,
+  /** Forces a case-sensitive comparison (clears {@code caseInsensitive}); the default. */
+  CASE_SENSITIVE
 }

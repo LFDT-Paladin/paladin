@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.types;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,34 +22,34 @@ import org.junit.jupiter.api.Test;
 
 class HexInt256Test {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    @Test
-    void formatsSignedHex() {
-        assertEquals("0xff", HexInt256.of(255).to0xHex());
-        assertEquals("-0x1", HexInt256.of(-1).to0xHex());
-        assertEquals("0x0", HexInt256.of(0).to0xHex());
-    }
+  @Test
+  void formatsSignedHex() {
+    assertEquals("0xff", HexInt256.of(255).to0xHex());
+    assertEquals("-0x1", HexInt256.of(-1).to0xHex());
+    assertEquals("0x0", HexInt256.of(0).to0xHex());
+  }
 
-    @Test
-    void serializesNegativeAsString() throws Exception {
-        assertEquals("\"-0xff\"", MAPPER.writeValueAsString(HexInt256.of(-255)));
-    }
+  @Test
+  void serializesNegativeAsString() throws Exception {
+    assertEquals("\"-0xff\"", MAPPER.writeValueAsString(HexInt256.of(-255)));
+  }
 
-    @Test
-    void deserializesNegativeFromString() throws Exception {
-        assertEquals(HexInt256.of(-255), MAPPER.readValue("\"-0xff\"", HexInt256.class));
-        assertEquals(HexInt256.of(-255), MAPPER.readValue("\"-255\"", HexInt256.class));
-    }
+  @Test
+  void deserializesNegativeFromString() throws Exception {
+    assertEquals(HexInt256.of(-255), MAPPER.readValue("\"-0xff\"", HexInt256.class));
+    assertEquals(HexInt256.of(-255), MAPPER.readValue("\"-255\"", HexInt256.class));
+  }
 
-    @Test
-    void deserializesFromJsonNumber() throws Exception {
-        assertEquals(HexInt256.of(-42), MAPPER.readValue("-42", HexInt256.class));
-    }
+  @Test
+  void deserializesFromJsonNumber() throws Exception {
+    assertEquals(HexInt256.of(-42), MAPPER.readValue("-42", HexInt256.class));
+  }
 
-    @Test
-    void roundTripsNegativeThroughJson() throws Exception {
-        HexInt256 original = HexInt256.of(BigInteger.TWO.pow(200).negate());
-        assertEquals(original, MAPPER.readValue(MAPPER.writeValueAsString(original), HexInt256.class));
-    }
+  @Test
+  void roundTripsNegativeThroughJson() throws Exception {
+    HexInt256 original = HexInt256.of(BigInteger.TWO.pow(200).negate());
+    assertEquals(original, MAPPER.readValue(MAPPER.writeValueAsString(original), HexInt256.class));
+  }
 }

@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.query;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -23,80 +22,80 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Objects;
 
 /**
- * A single-value filter operand, mirroring {@code query.OpSingleVal} (Go's {@code Op} embedded plus a
- * {@code value}). Backs the {@code eq}, {@code neq}, {@code like}, {@code lt}, {@code lte}, {@code gt}, and
- * {@code gte} operators.
+ * A single-value filter operand, mirroring {@code query.OpSingleVal} (Go's {@code Op} embedded plus
+ * a {@code value}). Backs the {@code eq}, {@code neq}, {@code like}, {@code lt}, {@code lte},
+ * {@code gt}, and {@code gte} operators.
  *
- * <p>Immutable and self-serializing. The {@code value} is held as a {@link JsonNode} (mirroring Go's
- * {@code RawJSON}) so any JSON scalar/structure round-trips without precision loss.
+ * <p>Immutable and self-serializing. The {@code value} is held as a {@link JsonNode} (mirroring
+ * Go's {@code RawJSON}) so any JSON scalar/structure round-trips without precision loss.
  */
 @JsonPropertyOrder({"field", "not", "caseInsensitive", "value"})
 public final class OpSingleVal {
 
-    private final String field;
-    private final boolean not;
-    private final boolean caseInsensitive;
-    private final JsonNode value;
+  private final String field;
+  private final boolean not;
+  private final boolean caseInsensitive;
+  private final JsonNode value;
 
-    @JsonCreator
-    public OpSingleVal(
-            @JsonProperty("field") String field,
-            @JsonProperty("not") boolean not,
-            @JsonProperty("caseInsensitive") boolean caseInsensitive,
-            @JsonProperty("value") JsonNode value) {
-        this.field = field == null ? "" : field;
-        this.not = not;
-        this.caseInsensitive = caseInsensitive;
-        this.value = value;
-    }
+  @JsonCreator
+  public OpSingleVal(
+      @JsonProperty("field") String field,
+      @JsonProperty("not") boolean not,
+      @JsonProperty("caseInsensitive") boolean caseInsensitive,
+      @JsonProperty("value") JsonNode value) {
+    this.field = field == null ? "" : field;
+    this.not = not;
+    this.caseInsensitive = caseInsensitive;
+    this.value = value;
+  }
 
-    /** The field the operand applies to. */
-    @JsonProperty("field")
-    @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    public String field() {
-        return field;
-    }
+  /** The field the operand applies to. */
+  @JsonProperty("field")
+  @JsonInclude(JsonInclude.Include.NON_EMPTY)
+  public String field() {
+    return field;
+  }
 
-    /** Whether the operand is negated. */
-    @JsonProperty("not")
-    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
-    public boolean not() {
-        return not;
-    }
+  /** Whether the operand is negated. */
+  @JsonProperty("not")
+  @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+  public boolean not() {
+    return not;
+  }
 
-    /** Whether the comparison is case-insensitive. */
-    @JsonProperty("caseInsensitive")
-    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
-    public boolean caseInsensitive() {
-        return caseInsensitive;
-    }
+  /** Whether the comparison is case-insensitive. */
+  @JsonProperty("caseInsensitive")
+  @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+  public boolean caseInsensitive() {
+    return caseInsensitive;
+  }
 
-    /** The value to compare against, as a raw JSON node. */
-    @JsonProperty("value")
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public JsonNode value() {
-        return value;
-    }
+  /** The value to compare against, as a raw JSON node. */
+  @JsonProperty("value")
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public JsonNode value() {
+    return value;
+  }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        return o instanceof OpSingleVal other
-                && not == other.not
-                && caseInsensitive == other.caseInsensitive
-                && field.equals(other.field)
-                && Objects.equals(value, other.value);
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
     }
+    return o instanceof OpSingleVal other
+        && not == other.not
+        && caseInsensitive == other.caseInsensitive
+        && field.equals(other.field)
+        && Objects.equals(value, other.value);
+  }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(field, not, caseInsensitive, value);
-    }
+  @Override
+  public int hashCode() {
+    return Objects.hash(field, not, caseInsensitive, value);
+  }
 
-    @Override
-    public String toString() {
-        return "OpSingleVal{field=" + field + ", value=" + value + (not ? ", not" : "") + "}";
-    }
+  @Override
+  public String toString() {
+    return "OpSingleVal{field=" + field + ", value=" + value + (not ? ", not" : "") + "}";
+  }
 }
