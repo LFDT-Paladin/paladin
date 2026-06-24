@@ -119,6 +119,8 @@ task copySolidity(type: Copy) {
         include 'contracts/domains/noto/Noto.sol/Noto.json'
         include 'contracts/domains/noto/Noto_V0.sol/Noto_V0.json'
         include 'contracts/domains/noto/NotoNullifiers.sol/NotoNullifiers.json'
+        // SmtLib library linked by NotoNullifiers; embedded flat as abis/SmtLib.json by noto_helper.go
+        include '@iden3/contracts/contracts/lib/SmtLib.sol/SmtLib.json'
         include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
         include 'contracts/domains/zeto/ZetoFactoryV1.sol/ZetoFactoryV1.json'
         include '@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json'
