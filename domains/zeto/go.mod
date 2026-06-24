@@ -8,7 +8,6 @@ require (
 	github.com/LFDT-Paladin/paladin/sdk/go v0.0.0-20250828150332-fbc1c1bc663b
 	github.com/LFDT-Paladin/paladin/toolkit v0.0.0-00010101000000-000000000000
 	github.com/LFDT-Paladin/smt v0.2.0
-	github.com/google/uuid v1.6.0
 	github.com/hyperledger-labs/zeto/go-sdk v0.0.0-20241004174307-aa3c1fdf0966
 	github.com/hyperledger/firefly-signer v1.1.22
 	github.com/iden3/go-iden3-crypto v0.0.17
@@ -32,8 +31,8 @@ require (
 	github.com/dchest/blake512 v1.0.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/hyperledger/firefly-common v1.5.9 // indirect
 	github.com/iden3/wasmer-go v0.0.1 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
@@ -41,8 +40,6 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
-	github.com/nxadm/tail v1.4.11 // indirect
-	github.com/onsi/gomega v1.36.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
