@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.27;
 
-import {ZetoTokenFactoryUpgradeable} from "@lfdecentralizedtrust/zeto-contracts/contracts/factory_upgradeable.sol";
+import {ZetoTokenFactoryUpgradeable} from "zeto-contracts-0.2.2/contracts/factory_upgradeable.sol";
 import {IPaladinContractRegistry_V0} from "../interfaces/IPaladinContractRegistry.sol";
 
 contract ZetoFactory is
