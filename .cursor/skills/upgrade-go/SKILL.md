@@ -114,14 +114,20 @@ grep -rn "go-version:" .github/
 
 ## Communicating to developers
 
-Include in the PR description:
+Include in the PR description or release notes so developers know what to run after pulling:
 
-> After pulling these changes, clear your local Go build cache before building:
+> After pulling these changes, clear your local caches before building:
+>
+> **Go + Gradle** (stale stdlib objects cause `compile: version mismatch` errors):
 > ```bash
 > go clean -cache && go clean -testcache
 > ./gradlew --stop && ./gradlew clean
 > ```
-> This is a one-time step after upgrading Go — stale compiled stdlib objects from the previous version cause `compile: version mismatch` errors.
+>
+> **Docker** (only if you have previously built the images locally — Docker layer caching can reuse the old `golang:1.X` base even after the Dockerfile is updated):
+> ```bash
+> docker build --no-cache -f <path/to/Dockerfile> .
+> ```
 
 ## Additional reference
 
