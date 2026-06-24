@@ -20,37 +20,53 @@ Creates a new Noto token, with a new address on the base ledger.
 
 ```json
 {
-    "name": "",
-    "type": "constructor",
-    "inputs": [
-        {"name": "notary", "type": "string"},
-        {"name": "notaryMode", "type": "string"},
-        {"name": "implementation", "type": "string"},
-        {"name": "options", "type": "tuple", "components": [
-            {"name": "basic", "type": "tuple", "components": [
-                {"name": "restrictMint", "type": "boolean"},
-                {"name": "allowBurn", "type": "boolean"},
-                {"name": "allowLock", "type": "boolean"},
-            ]},
-            {"name": "hooks", "type": "tuple", "components": [
-                {"name": "privateGroup", "type": "tuple", "components": [
-                    {"name": "salt", "type": "bytes32"},
-                    {"name": "members", "type": "string[]"}
-                ]},
-                {"name": "publicAddress", "type": "address"},
-                {"name": "privateAddress", "type": "address"}
-            ]}
-        ]}
-    ]
+  "name": "",
+  "type": "constructor",
+  "inputs": [
+    { "name": "notary", "type": "string" },
+    { "name": "notaryMode", "type": "string" },
+    { "name": "implementation", "type": "string" },
+    {
+      "name": "options",
+      "type": "tuple",
+      "components": [
+        {
+          "name": "basic",
+          "type": "tuple",
+          "components": [
+            { "name": "restrictMint", "type": "boolean" },
+            { "name": "allowBurn", "type": "boolean" },
+            { "name": "allowLock", "type": "boolean" }
+          ]
+        },
+        {
+          "name": "hooks",
+          "type": "tuple",
+          "components": [
+            {
+              "name": "privateGroup",
+              "type": "tuple",
+              "components": [
+                { "name": "salt", "type": "bytes32" },
+                { "name": "members", "type": "string[]" }
+              ]
+            },
+            { "name": "publicAddress", "type": "address" },
+            { "name": "privateAddress", "type": "address" }
+          ]
+        }
+      ]
+    }
+  ]
 }
 ```
 
 Inputs:
 
-* **notary** - lookup string for the identity that will serve as the notary for this token instance. May be located at this node or another node
-* **notaryMode** - choose the notary's mode of operation - must be "basic" or "hooks" (see [Notary logic](#notary-logic) section below)
-* **implementation** - (optional) the name of a non-default Noto implementation that has previously been registered
-* **options** - options specific to the chosen notary mode (see [Notary logic](#notary-logic) section below)
+- **notary** - lookup string for the identity that will serve as the notary for this token instance. May be located at this node or another node
+- **notaryMode** - choose the notary's mode of operation - must be "basic" or "hooks" (see [Notary logic](#notary-logic) section below)
+- **implementation** - (optional) the name of a non-default Noto implementation that has previously been registered
+- **options** - options specific to the chosen notary mode (see [Notary logic](#notary-logic) section below)
 
 ### mint
 
@@ -58,21 +74,21 @@ Mint new value. New UTXO state(s) will automatically be created to fulfill the r
 
 ```json
 {
-    "name": "mint",
-    "type": "function",
-    "inputs": [
-        {"name": "to", "type": "string"},
-        {"name": "amount", "type": "uint256"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "mint",
+  "type": "function",
+  "inputs": [
+    { "name": "to", "type": "string" },
+    { "name": "amount", "type": "uint256" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **to** - lookup string for the identity that will receive minted value
-* **amount** - amount of new value to create
-* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
+- **to** - lookup string for the identity that will receive minted value
+- **amount** - amount of new value to create
+- **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### transfer
 
@@ -81,19 +97,19 @@ new UTXO states will be created, in order to facilitate the requested transfer o
 
 ```json
 {
-    "name": "transfer",
-    "type": "function",
-    "inputs": [
-        {"name": "to", "type": "string"},
-        {"name": "amount", "type": "uint256"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "transfer",
+  "type": "function",
+  "inputs": [
+    { "name": "to", "type": "string" },
+    { "name": "amount", "type": "uint256" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
-* **to** - lookup string for the identity that will receive transferred value
-* **amount** - amount of value to transfer
-* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
+- **to** - lookup string for the identity that will receive transferred value
+- **amount** - amount of value to transfer
+- **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### transferFrom
 
@@ -101,27 +117,27 @@ Transfer value from a specified account to another recipient. Available UTXO sta
 new UTXO states will be created, in order to facilitate the requested transfer of value.
 
 !!! important
-    This method is only available in hooks mode. It is disabled in basic mode.
+This method is only available in hooks mode. It is disabled in basic mode.
 
 ```json
 {
-    "name": "transferFrom",
-    "type": "function",
-    "inputs": [
-        {"name": "from", "type": "string"},
-        {"name": "to", "type": "string"},
-        {"name": "amount", "type": "uint256"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "transferFrom",
+  "type": "function",
+  "inputs": [
+    { "name": "from", "type": "string" },
+    { "name": "to", "type": "string" },
+    { "name": "amount", "type": "uint256" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **from** - lookup string for the identity whose tokens will be transferred
-* **to** - lookup string for the identity that will receive transferred value
-* **amount** - amount of value to transfer
-* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
+- **from** - lookup string for the identity whose tokens will be transferred
+- **to** - lookup string for the identity that will receive transferred value
+- **amount** - amount of value to transfer
+- **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### burn
 
@@ -130,19 +146,19 @@ states will be created for the remaining amount (if any).
 
 ```json
 {
-    "name": "burn",
-    "type": "function",
-    "inputs": [
-        {"name": "amount", "type": "uint256"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "burn",
+  "type": "function",
+  "inputs": [
+    { "name": "amount", "type": "uint256" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **amount** - amount of value to burn
-* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
+- **amount** - amount of value to burn
+- **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### burnFrom
 
@@ -150,25 +166,25 @@ Burn value from a specified account. Available UTXO states will be selected for 
 states will be created for the remaining amount (if any).
 
 !!! important
-    This method is only available in hooks mode. It is disabled in basic mode.
+This method is only available in hooks mode. It is disabled in basic mode.
 
 ```json
 {
-    "name": "burnFrom",
-    "type": "function",
-    "inputs": [
-        {"name": "from", "type": "string"},
-        {"name": "amount", "type": "uint256"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "burnFrom",
+  "type": "function",
+  "inputs": [
+    { "name": "from", "type": "string" },
+    { "name": "amount", "type": "uint256" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **from** - lookup string for the identity whose tokens will be burned
-* **amount** - amount of value to burn
-* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
+- **from** - lookup string for the identity whose tokens will be burned
+- **amount** - amount of value to burn
+- **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### lock
 
@@ -176,19 +192,19 @@ Lock value from the sender and assign it a new lock ID. Available UTXO states wi
 
 ```json
 {
-    "name": "lock",
-    "type": "function",
-    "inputs": [
-        {"name": "amount", "type": "uint256"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "lock",
+  "type": "function",
+  "inputs": [
+    { "name": "amount", "type": "uint256" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **amount** - amount of value to lock
-* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
+- **amount** - amount of value to lock
+- **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### unlock
 
@@ -196,26 +212,30 @@ Unlock value that was previously locked, and send it to one or more recipients. 
 
 ```json
 {
-    "name": "unlock",
-    "type": "function",
-    "inputs": [
-        {"name": "lockId", "type": "bytes32"},
-        {"name": "from", "type": "string"},
-        {"name": "recipients", "type": "tuple[]", "components": [
-            {"name": "to", "type": "string"},
-            {"name": "amount", "type": "uint256"}
-        ]},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "unlock",
+  "type": "function",
+  "inputs": [
+    { "name": "lockId", "type": "bytes32" },
+    { "name": "from", "type": "string" },
+    {
+      "name": "recipients",
+      "type": "tuple[]",
+      "components": [
+        { "name": "to", "type": "string" },
+        { "name": "amount", "type": "uint256" }
+      ]
+    },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **lockId** - the lock ID assigned when the value was locked (available from the domain receipt for the `lock` transaction)
-* **from** - the lookup string for the owner of the locked value
-* **recipients** - array of recipients to receive some of the value (the sum of the amounts must be less than or equal to the total locked amount)
-* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
+- **lockId** - the lock ID assigned when the value was locked (available from the domain receipt for the `lock` transaction)
+- **from** - the lookup string for the owner of the locked value
+- **recipients** - array of recipients to receive some of the value (the sum of the amounts must be less than or equal to the total locked amount)
+- **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### prepareUnlock
 
@@ -242,11 +262,11 @@ When used in combination with `delegateLock`, this can allow any base ledger add
 
 Inputs:
 
-* **lockId** - the lock ID assigned when the value was locked (available from the domain receipt)
-* **from** - the lookup string for the owner of the locked value
-* **recipients** - array of recipients to receive some of the value (the sum of the amounts must be less than or equal to the total locked amount)
-* **unlockData** - user/application data to include with the unlock spend/cancel transaction when performed
-* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
+- **lockId** - the lock ID assigned when the value was locked (available from the domain receipt)
+- **from** - the lookup string for the owner of the locked value
+- **recipients** - array of recipients to receive some of the value (the sum of the amounts must be less than or equal to the total locked amount)
+- **unlockData** - user/application data to include with the unlock spend/cancel transaction when performed
+- **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### delegateLock
 
@@ -256,29 +276,33 @@ Once the lock has been delegated, the notary and the lock creator can no longer 
 
 ```json
 {
-    "name": "delegateLock",
-    "type": "function",
-    "inputs": [
-        {"name": "lockId", "type": "bytes32"},
-        {"name": "unlock", "type": "tuple", "components": [
-            {"name": "lockedInputs", "type": "bytes32[]"},
-            {"name": "lockedOutputs", "type": "bytes32[]"},
-            {"name": "outputs", "type": "bytes32[]"},
-            {"name": "signature", "type": "bytes"},
-            {"name": "data", "type": "bytes"}
-        ]},
-        {"name": "delegate", "type": "address"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "delegateLock",
+  "type": "function",
+  "inputs": [
+    { "name": "lockId", "type": "bytes32" },
+    {
+      "name": "unlock",
+      "type": "tuple",
+      "components": [
+        { "name": "lockedInputs", "type": "bytes32[]" },
+        { "name": "lockedOutputs", "type": "bytes32[]" },
+        { "name": "outputs", "type": "bytes32[]" },
+        { "name": "signature", "type": "bytes" },
+        { "name": "data", "type": "bytes" }
+      ]
+    },
+    { "name": "delegate", "type": "address" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **lockId** - the lock ID assigned when the value was locked (available from the domain receipt)
-* **unlock** - the parameters for the public `unlock` transaction that was prepared and is now being delegated (available from the domain receipt for the `prepareUnlock` transaction)
-* **delegate** - the address that will be allowed to trigger the prepared unlock
-* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
+- **lockId** - the lock ID assigned when the value was locked (available from the domain receipt)
+- **unlock** - the parameters for the public `unlock` transaction that was prepared and is now being delegated (available from the domain receipt for the `prepareUnlock` transaction)
+- **delegate** - the address that will be allowed to trigger the prepared unlock
+- **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ## Public ABI
 
@@ -294,21 +318,21 @@ May only be invoked by the notary address.
 
 ```json
 {
-    "name": "mint",
-    "type": "function",
-    "inputs": [
-        {"name": "outputs", "type": "bytes32[]"},
-        {"name": "signature", "type": "bytes"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "mint",
+  "type": "function",
+  "inputs": [
+    { "name": "outputs", "type": "bytes32[]" },
+    { "name": "signature", "type": "bytes" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **outputs** - output states that will be created
-* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **data** - encoded Paladin and/or user data
+- **outputs** - output states that will be created
+- **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
+- **data** - encoded Paladin and/or user data
 
 ### transfer
 
@@ -318,23 +342,23 @@ May only be invoked by the notary address.
 
 ```json
 {
-    "name": "transfer",
-    "type": "function",
-    "inputs": [
-        {"name": "inputs", "type": "bytes32[]"},
-        {"name": "outputs", "type": "bytes32[]"},
-        {"name": "signature", "type": "bytes"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "transfer",
+  "type": "function",
+  "inputs": [
+    { "name": "inputs", "type": "bytes32[]" },
+    { "name": "outputs", "type": "bytes32[]" },
+    { "name": "signature", "type": "bytes" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **inputs** - input states that will be spent
-* **outputs** - output states that will be created
-* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **data** - encoded Paladin and/or user data
+- **inputs** - input states that will be spent
+- **outputs** - output states that will be created
+- **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
+- **data** - encoded Paladin and/or user data
 
 ### lock
 
@@ -344,25 +368,25 @@ May only be invoked by the notary address.
 
 ```json
 {
-    "name": "lock",
-    "type": "function",
-    "inputs": [
-        {"name": "inputs", "type": "bytes32[]"},
-        {"name": "outputs", "type": "bytes32[]"},
-        {"name": "lockedOutputs", "type": "bytes32[]"},
-        {"name": "signature", "type": "bytes"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "lock",
+  "type": "function",
+  "inputs": [
+    { "name": "inputs", "type": "bytes32[]" },
+    { "name": "outputs", "type": "bytes32[]" },
+    { "name": "lockedOutputs", "type": "bytes32[]" },
+    { "name": "signature", "type": "bytes" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **inputs** - input states that will be spent
-* **outputs** - unlocked output states that will be created
-* **lockedOutputs** - locked output states that will be created
-* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **data** - encoded Paladin and/or user data
+- **inputs** - input states that will be spent
+- **outputs** - unlocked output states that will be created
+- **lockedOutputs** - locked output states that will be created
+- **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
+- **data** - encoded Paladin and/or user data
 
 ### unlock
 
@@ -370,25 +394,25 @@ Unlock some UTXO states. May be invoked by the notary in response to a private `
 
 ```json
 {
-    "name": "unlock",
-    "type": "function",
-    "inputs": [
-        {"name": "lockedInputs", "type": "bytes32[]"},
-        {"name": "lockedOutputs", "type": "bytes32[]"},
-        {"name": "outputs", "type": "bytes32[]"},
-        {"name": "signature", "type": "bytes"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "unlock",
+  "type": "function",
+  "inputs": [
+    { "name": "lockedInputs", "type": "bytes32[]" },
+    { "name": "lockedOutputs", "type": "bytes32[]" },
+    { "name": "outputs", "type": "bytes32[]" },
+    { "name": "signature", "type": "bytes" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **lockedInputs** - locked input states that will be spent
-* **lockedOutputs** - locked output states that will be created
-* **outputs** - unlocked output states that will be created
-* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **data** - encoded Paladin and/or user data
+- **lockedInputs** - locked input states that will be spent
+- **lockedOutputs** - locked output states that will be created
+- **outputs** - unlocked output states that will be created
+- **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
+- **data** - encoded Paladin and/or user data
 
 ### prepareUnlock
 
@@ -398,23 +422,23 @@ May only be invoked by the notary address.
 
 ```json
 {
-    "name": "prepareUnlock",
-    "type": "function",
-    "inputs": [
-        {"name": "lockedInputs", "type": "bytes32[]"},
-        {"name": "unlockHash", "type": "bytes32"},
-        {"name": "signature", "type": "bytes"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "prepareUnlock",
+  "type": "function",
+  "inputs": [
+    { "name": "lockedInputs", "type": "bytes32[]" },
+    { "name": "unlockHash", "type": "bytes32" },
+    { "name": "signature", "type": "bytes" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **lockedInputs** - locked input states that will be spent
-* **unlockHash** - EIP-712 hash of the intended unlock, using type `Unlock(bytes32[] lockedInputs,bytes32[] lockedOutputs,bytes32[] outputs,bytes data)`
-* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **data** - encoded Paladin and/or user data
+- **lockedInputs** - locked input states that will be spent
+- **unlockHash** - EIP-712 hash of the intended unlock, using type `Unlock(bytes32[] lockedInputs,bytes32[] lockedOutputs,bytes32[] outputs,bytes data)`
+- **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
+- **data** - encoded Paladin and/or user data
 
 ### delegateLock
 
@@ -424,23 +448,23 @@ May be invoked by the notary in response to a private `delegateLock` transaction
 
 ```json
 {
-    "name": "delegateLock",
-    "type": "function",
-    "inputs": [
-        {"name": "unlockHash", "type": "bytes32"},
-        {"name": "delegate", "type": "address"},
-        {"name": "signature", "type": "bytes"},
-        {"name": "data", "type": "bytes"}
-    ]
+  "name": "delegateLock",
+  "type": "function",
+  "inputs": [
+    { "name": "unlockHash", "type": "bytes32" },
+    { "name": "delegate", "type": "address" },
+    { "name": "signature", "type": "bytes" },
+    { "name": "data", "type": "bytes" }
+  ]
 }
 ```
 
 Inputs:
 
-* **unlockHash** - EIP-712 hash of the prepared unlock, using type `Unlock(bytes32[] lockedInputs,bytes32[] lockedOutputs,bytes32[] outputs,bytes data)`
-* **delegate** - address of the delegate party that will be able to execute the unlock
-* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **data** - encoded Paladin and/or user data
+- **unlockHash** - EIP-712 hash of the prepared unlock, using type `Unlock(bytes32[] lockedInputs,bytes32[] lockedOutputs,bytes32[] outputs,bytes data)`
+- **delegate** - address of the delegate party that will be able to execute the unlock
+- **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
+- **data** - encoded Paladin and/or user data
 
 ### balanceOf
 
@@ -510,11 +534,11 @@ notary logic can be easily configured as described below.
 
 When a Noto contract is constructed with notary mode `basic`, the following notary behaviors can be configured:
 
-| Option         | Default | Description |
-| -------------- | ------- | ----------- |
-| restrictMint   | true    | _True:_ only the notary may mint<br>_False:_ any party may mint |
-| allowBurn      | true    | _True:_ token owners may burn their tokens<br>_False:_ tokens cannot be burned |
-| allowLock      | true    | _True:_ token owners may lock tokens (for purposes such as preparing or delegating transfers)<br>_False:_ tokens cannot be locked (not recommended, as it restricts the ability to incorporate tokens into swaps and other workflows) |
+| Option       | Default | Description                                                                                                                                                                                                                           |
+| ------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| restrictMint | true    | _True:_ only the notary may mint<br>_False:_ any party may mint                                                                                                                                                                       |
+| allowBurn    | true    | _True:_ token owners may burn their tokens<br>_False:_ tokens cannot be burned                                                                                                                                                        |
+| allowLock    | true    | _True:_ token owners may lock tokens (for purposes such as preparing or delegating transfers)<br>_False:_ tokens cannot be locked (not recommended, as it restricts the ability to incorporate tokens into swaps and other workflows) |
 
 In addition, the following restrictions will always be enforced, and cannot be disabled in `basic` mode:
 
@@ -545,9 +569,9 @@ The `msg.sender` for each hook transaction will always be the resolved notary ad
 receive a `sender` parameter representing the resolved and verified party that sent the request to the notary.
 
 !!! important
-    Note that none of the `basic` notary constraints described in the previous section will be active when hooks are
-    configured. It is the responsibility of the hooks to enforce policies, such as which senders are allowed to mint,
-    burn, lock, unlock, etc.
+Note that none of the `basic` notary constraints described in the previous section will be active when hooks are
+configured. It is the responsibility of the hooks to enforce policies, such as which senders are allowed to mint,
+burn, lock, unlock, etc.
 
 ## Transaction walkthrough
 
@@ -558,30 +582,30 @@ No information is leaked to Party C, that allows them to infer that Party A and 
 ![Noto transaction walkthrough](../images/noto_transaction_flow_example.png)
 
 1. `Party A` has three existing private states in their wallet and proposes to the notary:
-    - Spend states `S1`, `S2` & `S3`
-    - Create new state `S4` to retain some of the fungible value for themselves
-    - Create new state `S5` to transfer some of the fungible value to `Party B`
+   - Spend states `S1`, `S2` & `S3`
+   - Create new state `S4` to retain some of the fungible value for themselves
+   - Create new state `S5` to transfer some of the fungible value to `Party B`
 2. `Notary` receives the signed proposal from `Party A`
-    - Validates that the rules of the token ecosystem are fully adhered to
-    - Example: `sum(S1,S2,S3) == sum(S4,S5)`
-    - Example: `Party B` is authorized to receive funds
-    - Example: The total balance of `Party A` will be above a threshold after the transaction
-    - Uses the notary account to submit `TX1` to the blockchain recording signature + hashes
+   - Validates that the rules of the token ecosystem are fully adhered to
+   - Example: `sum(S1,S2,S3) == sum(S4,S5)`
+   - Example: `Party B` is authorized to receive funds
+   - Example: The total balance of `Party A` will be above a threshold after the transaction
+   - Uses the notary account to submit `TX1` to the blockchain recording signature + hashes
 3. `Party B` processes the two parts of the transaction
-    - a) Receives the private data for `#5` to allow it to store `S5` in its wallet
-    - b) Receives the confirmation from the blockchain that `TX1` created `#5`
-    - Now `Party B` has `S5` confirmed in its wallet and ready to spend
+   - a) Receives the private data for `#5` to allow it to store `S5` in its wallet
+   - b) Receives the confirmation from the blockchain that `TX1` created `#5`
+   - Now `Party B` has `S5` confirmed in its wallet and ready to spend
 4. `Party B` proposes to the notary:
-    - Spend state `S5`
-    - Create new state `S6` to retain some of the fungible value for themselves
-    - Create new state `S7` to transfer some of the fungible value to `Party C`
+   - Spend state `S5`
+   - Create new state `S6` to retain some of the fungible value for themselves
+   - Create new state `S7` to transfer some of the fungible value to `Party C`
 5. `Notary` receives the signed proposal from `Party B`
-    - Validates that the rules of the token ecosystem are fully adhered to
-    - Uses the notary account to submit `TX2` to the blockchain recording signature + hashes
-3. `Party C` processes the two parts of the transaction
-    - a) Receives the private data for `#7` to allow it to store `S7` in its wallet
-    - b) Receives the confirmation from the blockchain that `TX2` created `#7`
-    - Now `Party C` has `S7` confirmed in its wallet and ready to spend
+   - Validates that the rules of the token ecosystem are fully adhered to
+   - Uses the notary account to submit `TX2` to the blockchain recording signature + hashes
+6. `Party C` processes the two parts of the transaction
+   - a) Receives the private data for `#7` to allow it to store `S7` in its wallet
+   - b) Receives the confirmation from the blockchain that `TX2` created `#7`
+   - Now `Party C` has `S7` confirmed in its wallet and ready to spend
 
 ## Locking and atomic settlement
 
@@ -626,6 +650,7 @@ CANCEL OUTCOME"])
     C -- delegate:spendLock(inputs,outputs) --> Y
     C -- delegate:cancelLock(inputs,outputs) --> Z
 ```
+
 </details>
 
 <details>
@@ -634,10 +659,11 @@ CANCEL OUTCOME"])
 Noto V0 had a very similar locking model, but with a more complex terminology that was simplified in V1, and a couple of functional limitations that were addressed in V1.
 
 The functional issues addressed V0 as part of the upgrade were:
+
 - No UTXO state transactions for the lock object itself, only the locked input coins
-    - This prevented the use of the model for locking a `mint` operation
+  - This prevented the use of the model for locking a `mint` operation
 - Only the success path was prepared - the cancel path was a re-delegate to nil
-    - Meaning additional steps after a transaction cancel/rollback to reclaim tokens
+  - Meaning additional steps after a transaction cancel/rollback to reclaim tokens
 
 ![Noto locking state machine (V0)](../images/noto_lock_state_machine_v0.svg)
 

@@ -5,16 +5,17 @@ When we consider the make up of a distributed ledger system that preserves priva
 ![Ledger layers](../images/ledger_layers.png){.zoomable-image}
 
 The Paladin project:
+
 - Provides an enterprise grade runtime within the these layers can come together
-   - So they can interoperate efficiently and thus a minimum viable ecosystem (MVE) can form
+  - So they can interoperate efficiently and thus a minimum viable ecosystem (MVE) can form
 - Adopts EVM as the base shared ledger layer
-   - Due to the amount of innovation already available from that ecosystem to build on
-   - Because programmability in the base shared ledger is what enables atomic interop
+  - Due to the amount of innovation already available from that ecosystem to build on
+  - Because programmability in the base shared ledger is what enables atomic interop
 - Brings in the latest approaches to privacy at the selective disclosure layer, for tokens
-   - Zero-knowledge proof based systems
-   - Notary/endorsement based systems
+  - Zero-knowledge proof based systems
+  - Notary/endorsement based systems
 - Allows EVM to be used as a programming model for atomic interop scenarios like DvP
-   - Combining the innovation of previous projects (e.g [Tessera](https://github.com/consensys/tessera)), with updated approaches to tokens
+  - Combining the innovation of previous projects (e.g [Tessera](https://github.com/consensys/tessera)), with updated approaches to tokens
 
 Let's discuss the layers in a little more detail.
 
@@ -32,26 +33,28 @@ As such there are lots of different terms used in privacy-enabled Web3 stacks fo
 - Synchronizer - used in models when the function of this layer is to collect endorsements that prepare a transaction, and record that finalization
 - Blockchain - used in models where this layer is a fully programmable blockchain, where programmable transactions execute directly at this layer
 
-> Note that in Orderer and Synchronizer based models, the amount of data/processing that happens in the shared ledger is quite limited. This has lead to many deployments of these models where these are *centralized* single-party infrastructure, running crash-fault-tolerant algorithms like RAFT or a traditional HA Database. Paladin does **not** take this approach.
+> Note that in Orderer and Synchronizer based models, the amount of data/processing that happens in the shared ledger is quite limited. This has lead to many deployments of these models where these are _centralized_ single-party infrastructure, running crash-fault-tolerant algorithms like RAFT or a traditional HA Database. Paladin does **not** take this approach.
 
 ### Paladin - EVM native approach to the shared / base ledger
 
 Paladin is opinionated that the shared ledger should be:
+
 - Fully decentralized with a Byzantine Fault Tolerant (BFT) consensus algorithm
-    - So immutability, order and finality of transaction is trusted by all parties that use it as their shared ledger
+  - So immutability, order and finality of transaction is trusted by all parties that use it as their shared ledger
 - Fully programmable via EVM
-    - So the different smart contracts can interoperate atomically
-    - So open/public EVM smart contracts (ERC-20, ERC-721, ERC-1155 etc.) can fully interoperate with privacy preserving smart contracts
-    - See [Atomic Interop of Privacy Preserving Smart Contracts](./atomic_interop.md) for more information
+  - So the different smart contracts can interoperate atomically
+  - So open/public EVM smart contracts (ERC-20, ERC-721, ERC-1155 etc.) can fully interoperate with privacy preserving smart contracts
+  - See [Atomic Interop of Privacy Preserving Smart Contracts](./atomic_interop.md) for more information
 - Unmodified EVM
-    - So that privacy preserving smart contracts can be deployed on top of any ledger that supports EVM
-    - To uphold good separation of concerns with projects like Hyperledger Besu, avoiding roadmap conflicts that limit innovation
+  - So that privacy preserving smart contracts can be deployed on top of any ledger that supports EVM
+  - To uphold good separation of concerns with projects like Hyperledger Besu, avoiding roadmap conflicts that limit innovation
 
 ## Selective Disclosure - the private transaction manager
 
 By definition when not all of the data is available directly in the shared / base ledger, there must be a layer of technology that sits above the ledger and is run by all parties in order for them to transact.
 
 This layer has some core responsibilities:
+
 - Distributed transaction coordination across parties
 - Secure transfer of data
 - Secure storage & retrieval of data that has been selectively disclosed
@@ -67,6 +70,7 @@ The Paladin project focusses on building an enterprise grade runtime for this la
 Paladin takes a modular approach, instead of building around a single cryptographic engine, or implementing a high-level orchestration domain-specific language (DSL) for implementing orchestration and business logic.
 
 Some guiding principals that influence the runtime engine architecture include:
+
 - Supporting the current and future generations of Zero-knowledge Proof (ZKP) cryptography modules
 - Supporting notary/issuer based pre-verification approaches, with equal priority to ZKP based approaches
 - Supporting scalable tokens using a UTXO approach to managing fragmented private state
@@ -74,7 +78,7 @@ Some guiding principals that influence the runtime engine architecture include:
 - Supporting atomic interoperability between privacy preserving smart contracts of all types
 - Supporting multiple private data transports, with enterprise qualities of service
 
-Learn more about the [Paladin Runtime Architecture](./runtime_architecture.md).
+Learn more about the [Paladin Runtime Architecture](./overview.md).
 
 ## Member-specific state
 

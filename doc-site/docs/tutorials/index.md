@@ -1,10 +1,10 @@
 # Tutorials
 
-Welcome to the Paladin tutorials! These tutorials provide a comprehensive introduction to running Paladin, starting with basic concepts and progressing to advanced privacy-preserving  applications.
+Welcome to the Paladin tutorials! These tutorials provide a comprehensive introduction to running Paladin, starting with basic concepts and progressing to advanced privacy-preserving applications.
 
 ## Prerequisites
 
-- **Git**  
+- **Git**
 - **Node.js 20.x or newer**  
   Follow the [official Node.js documentation](https://nodejs.org/en/download/package-manager) for your platform to install the appropriate version.
 
@@ -22,53 +22,53 @@ The tutorials on this page provide an introduction to building on the Paladin pl
 
 <div class="grid cards" markdown>
 
--   **[Hello World](hello-world.md)**  
-    
-    ---  
-    
-    Begin with a simple "Hello World" example to get familiar with deploying and interacting with smart contracts using the Paladin SDK.
+- **[Hello World](hello-world.md)**
 
--   **[Public Smart Contract](public-storage.md)**  
+  ***
 
-    ---  
+  Begin with a simple "Hello World" example to get familiar with deploying and interacting with smart contracts using the Paladin SDK.
 
-    Explore fundamental SDK functionality for deploying and interacting with a publicly visible contract that stores and retrieves data.
+- **[Public Smart Contract](public-storage.md)**
 
--   **[Private Smart Contract](private-storage.md)**  
+  ***
 
-    ---  
+  Explore fundamental SDK functionality for deploying and interacting with a publicly visible contract that stores and retrieves data.
 
-    Discover how to use **Privacy Groups** and keep contract data confidential among authorized members using Paladin's Pente domain.
+- **[Private Smart Contract](private-storage.md)**
 
--   **[Notarized Tokens](notarized-tokens.md)**  
+  ***
 
-    ---  
+  Discover how to use **Privacy Groups** and keep contract data confidential among authorized members using Paladin's Pente domain.
 
-    Learn how to issue, mint, and transfer tokens using Paladin's **Notarized Tokens** domain with notary-controlled oversight.
+- **[Notarized Tokens](notarized-tokens.md)**
 
--   **[Wholesale CBDC](zkp-cbdc.md)**  
+  ***
 
-    ---  
+  Learn how to issue, mint, and transfer tokens using Paladin's **Notarized Tokens** domain with notary-controlled oversight.
 
-    Implement a wholesale CBDC with **zero-knowledge proof** features for enhanced privacy and regulatory compliance using the Zeto domain.
+- **[Wholesale CBDC](zkp-cbdc.md)**
 
--   **[Private Stablecoin with KYC](private-stablecoin.md)**  
+  ***
 
-    ---  
+  Implement a wholesale CBDC with **zero-knowledge proof** features for enhanced privacy and regulatory compliance using the Zeto domain.
 
-    Deploy a **private stablecoin with KYC compliance** combining **deposit/withdraw functionality** with zero-knowledge proof privacy and nullifier protection.
+- **[Private Stablecoin with KYC](private-stablecoin.md)**
 
--   **[Atomic Swap](atomic-swap.md)**  
+  ***
 
-    ---  
+  Deploy a **private stablecoin with KYC compliance** combining **deposit/withdraw functionality** with zero-knowledge proof privacy and nullifier protection.
 
-    Learn how to perform **atomic swaps** between different types of privacy-preserving tokens across multiple Paladin domains.
+- **[Atomic Swap](atomic-swap.md)**
 
--   **[Bond Issuance](bond-issuance.md)**  
+  ***
 
-    ---  
+  Learn how to perform **atomic swaps** between different types of privacy-preserving tokens across multiple Paladin domains.
 
-    Understand how **Notarized Tokens** and **Privacy Groups** work together to model and manage a sophisticated bond issuance process.
+- **[Bond Issuance](bond-issuance.md)**
+
+  ***
+
+  Understand how **Notarized Tokens** and **Privacy Groups** work together to model and manage a sophisticated bond issuance process.
 
 </div>
 
@@ -85,7 +85,8 @@ The tutorials are designed to be completed in sequence, with each building upon 
 ## Getting Help
 
 If you encounter issues while working through the tutorials:
-- Check the [Troubleshooting guide](../../getting-started/troubleshooting.md).
-- Review the [Architecture documentation](../../architecture/).
-- Explore the [Examples repository](https://github.com/LFDT-Paladin/paladin/tree/main/examples).
+
+- Check the [troubleshooting guide](../getting-started/troubleshooting.md).
+- Review the [architecture documentation](../architecture/overview).
+- Explore the [examples folder](https://github.com/LFDT-Paladin/paladin/tree/main/examples) of the Paladin repository.
 - Join the [Paladin community on Discord](https://discord.com/channels/905194001349627914/1303371167020879903) for support and updates.

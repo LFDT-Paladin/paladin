@@ -75,6 +75,7 @@ markdown_extensions:
   - pymdownx.tasklist:
       custom_checkbox: true
   - pymdownx.tilde
+  - mdx_truly_sane_lists
 plugins:
   - include-markdown:
       rewrite_relative_urls: false
@@ -124,29 +125,29 @@ nav:
           - Dependency Handling: architecture/distributed_sequencer_dependency_handling.md
           - Protocol: architecture/distributed_sequencer_protocol.md
   - Getting Started:
-    - Installation: 
-      - Default Installation: getting-started/installation.md
-      - Advanced Installation: getting-started/installation-advanced.md
-      - Manual Installation: getting-started/installation-manual.md
-    - User Interface: getting-started/user-interface.md
-    - Troubleshooting: getting-started/troubleshooting.md
+      - Installation:
+          - Default Installation: getting-started/installation.md
+          - Advanced Installation: getting-started/installation-advanced.md
+          - Manual Installation: getting-started/installation-manual.md
+      - User Interface: getting-started/user-interface.md
+      - Troubleshooting: getting-started/troubleshooting.md
   - Tutorials:
-    - Introduction: tutorials/index.md
-    - Hello World: tutorials/hello-world.md
-    - Public Smart Contract: tutorials/public-storage.md
-    - Private Smart Contract: tutorials/private-storage.md
-    - Notarized Tokens: tutorials/notarized-tokens.md
-    - Wholesale CBDC: tutorials/zkp-cbdc.md
-    - Private Stablecoin with KYC: tutorials/private-stablecoin.md
-    - Atomic Swap: tutorials/atomic-swap.md
-    - Bond Issuance: tutorials/bond-issuance.md
+      - Introduction: tutorials/index.md
+      - Hello World: tutorials/hello-world.md
+      - Public Smart Contract: tutorials/public-storage.md
+      - Private Smart Contract: tutorials/private-storage.md
+      - Notarized Tokens: tutorials/notarized-tokens.md
+      - Wholesale CBDC: tutorials/zkp-cbdc.md
+      - Private Stablecoin with KYC: tutorials/private-stablecoin.md
+      - Atomic Swap: tutorials/atomic-swap.md
+      - Bond Issuance: tutorials/bond-issuance.md
   - Administration:
-    - Administering Peers: administration/administering_peers.md
-    - Authentication and Authorization: administration/auth.md
-    - Certificate Management: administration/certificate_management.md
-    - Configuration: administration/configuration.md
-    - L1 and L2 Chains: administration/l1-and-l2-chains.md
-    - Logging: administration/logging.md
+      - Administering Peers: administration/administering_peers.md
+      - Authentication and Authorization: administration/auth.md
+      - Certificate Management: administration/certificate_management.md
+      - Configuration: administration/configuration.md
+      - L1 and L2 Chains: administration/l1-and-l2-chains.md
+      - Logging: administration/logging.md
   - Reference:
       - APIs: reference/apis/*.md
       - Types: reference/types/*.md

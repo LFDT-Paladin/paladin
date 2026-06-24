@@ -32,13 +32,13 @@ When the block was confirmed by a node which already had the private input data,
 This model was evolved through a number of updates over the years, most significantly:
 
 - The re-building of the Constellation (Haskell) private state management runtime in Java:
-    - [Orion](https://github.com/consensys/orion): Started in 2019, abandoned in Sep 2021
-    - [Tessera](https://github.com/consensys/tessera): Started in 2018, [deprecated in 2024](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
+  - [Orion](https://github.com/consensys/orion): Started in 2019, abandoned in Sep 2021
+  - [Tessera](https://github.com/consensys/tessera): Started in 2018, [deprecated in 2024](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
 - Support for private smart contract submission in Hyperledger Besu (additional to Quorum)
-    - The modification to the base EVM was reduced, by avoiding modification of the `V` value of transactions, and rather using a special pre-compiled smart contract address
-    - A different approach to Private transaction nonce management was adopted in Besu, where a separate nonce is managed in each privacy group
+  - The modification to the base EVM was reduced, by avoiding modification of the `V` value of transactions, and rather using a special pre-compiled smart contract address
+  - A different approach to Private transaction nonce management was adopted in Besu, where a separate nonce is managed in each privacy group
 - Quorum added "Private state validation" (not supported in Besu)
-    - Provides a validation mode that helps ensure that all transactions for a given private smart contract are always sent to the same participants
+  - Provides a validation mode that helps ensure that all transactions for a given private smart contract are always sent to the same participants
 
 However, the model has not fundamentally changed in this time.
 
@@ -49,14 +49,14 @@ Read here about the [Private transaction lifecycle](https://docs.goquorum.consen
 There are two closely related problems with the EVM Private Smart Contract model as implemented in these generations of the technology.
 
 1. When used correctly, state is locked inside of a Private Smart Contract
-    - This is fundamental to the programming model of EVM. A Smart Contract holds a single and complete set of state, visible to all parties in the privacy group.
-    - Transacting across smart contracts is problematic
-    - Implementing something like an ERC-20/ERC-721 token does not make sense in many scenarios, as the token can never be traded outside of the privacy group (noting that private positions modelled with ERC-20 tokens are a good exception to this statement)
+   - This is fundamental to the programming model of EVM. A Smart Contract holds a single and complete set of state, visible to all parties in the privacy group.
+   - Transacting across smart contracts is problematic
+   - Implementing something like an ERC-20/ERC-721 token does not make sense in many scenarios, as the token can never be traded outside of the privacy group (noting that private positions modelled with ERC-20 tokens are a good exception to this statement)
 2. The system does not provide feedback when this model is broken, intentionally, or via an operational/system error
-    - Because _only the inputs_ are recorded to the blockchain for each transaction, via hash, and private smart contracts share a global address space, it is possible to have multiple overlapping sets of privacy groups transacting against the same smart contract
-    - This means **the states diverge** so there is no single source of truth of the state of the private smart contract. Different parties have different data. So the fundamental assurances of a Smart Contract of agreed computation are not net.
-    - The "Private state validation" feature (Quorum only) was a step towards solving this issue, by preventing mis-use of private smart contracts across different privacy groups.
-    - Read more about these challenges [here](https://www.kaleido.io/blockchain-blog/why-tokens-dont-work-using-private-transactions)
+   - Because _only the inputs_ are recorded to the blockchain for each transaction, via hash, and private smart contracts share a global address space, it is possible to have multiple overlapping sets of privacy groups transacting against the same smart contract
+   - This means **the states diverge** so there is no single source of truth of the state of the private smart contract. Different parties have different data. So the fundamental assurances of a Smart Contract of agreed computation are not net.
+   - The "Private state validation" feature (Quorum only) was a step towards solving this issue, by preventing mis-use of private smart contracts across different privacy groups.
+   - Read more about these challenges [here](https://www.kaleido.io/blockchain-blog/why-tokens-dont-work-using-private-transactions)
 
 ## Paladin privacy groups
 
@@ -71,33 +71,33 @@ Pre-submission endorsement of the full transaction execution is performed, combi
 The guiding principals are:
 
 - On-chain transactions on the base EVM are the source of truth
-    - Every transaction execution is enforced **on-chain**, via threshold signature verification
-    - Pre-verification / endorsement of transactions happens off-chain prior to submission
-    - The exact signed transaction, inputs and outputs, are verified & signed by endorsers
-    - The transaction and execution result are masked as `commitments` on-chain
-        - Salted hashes of the signed input transaction, and input/output/read account states
+  - Every transaction execution is enforced **on-chain**, via threshold signature verification
+  - Pre-verification / endorsement of transactions happens off-chain prior to submission
+  - The exact signed transaction, inputs and outputs, are verified & signed by endorsers
+  - The transaction and execution result are masked as `commitments` on-chain
+    - Salted hashes of the signed input transaction, and input/output/read account states
 - No modification to the base EVM
-    - No `V` value changes
-    - No special execution during block execution / confirmation
-    - The base EVM ledger transaction is a pure EVM transaction
+  - No `V` value changes
+  - No special execution during block execution / confirmation
+  - The base EVM ledger transaction is a pure EVM transaction
 - Each privacy group is a unique EVM smart contact on the base ledger
-    - Private Smart Contract exists entirely within a privacy group
-    - A privacy group is just like a mini-blockchain, hosted inside of one smart contract
+  - Private Smart Contract exists entirely within a privacy group
+  - A privacy group is just like a mini-blockchain, hosted inside of one smart contract
 - Submitter account and nonce management is managed within each privacy group
-    - Accounts are UTXO states stored in this contract
-        - Externally owned accounts (EOAs)
-        - Contract accounts
-    - State/code/nonce transitions are all deterministic
-    - Endorsements of exact transitions are verified on-chain via EIP-712 signatures
+  - Accounts are UTXO states stored in this contract
+    - Externally owned accounts (EOAs)
+    - Contract accounts
+  - State/code/nonce transitions are all deterministic
+  - Endorsements of exact transitions are verified on-chain via EIP-712 signatures
 - Besu EVMs are used to pre-execute EVM transactions
-    - Just the EVM is loaded as a Java code module, on-demand when required
-    - These "ephemeral EVMs" are executed in the Paladin runtime
-        - There is no requirement for a local Besu runtime co-located with Paladin
-    - State is managed via the UTXO state storage of Paladin
-        - No use is made of the Bonsai/Forrest state store of Besu
+  - Just the EVM is loaded as a Java code module, on-demand when required
+  - These "ephemeral EVMs" are executed in the Paladin runtime
+    - There is no requirement for a local Besu runtime co-located with Paladin
+  - State is managed via the UTXO state storage of Paladin
+    - No use is made of the Bonsai/Forrest state store of Besu
 - Private Smart Contract transactions are atomically interoperable via the Paladin framework
-    - This is the single most important enhancement. Because Pente is just another privacy preserving smart contract in Paladin, it can atomically interoperate with Token smart contracts. 
-    - See the [Atomic Interop](./atomic_interop.md) section for how this enables sophisticated DvP scenarios to be programmed via Private EVM
+  - This is the single most important enhancement. Because Pente is just another privacy preserving smart contract in Paladin, it can atomically interoperate with Token smart contracts.
+  - See the [Atomic Interop](./atomic_interop.md) section for how this enables sophisticated DvP scenarios to be programmed via Private EVM
 
 ## Implementation
 
@@ -109,21 +109,21 @@ using the [Besu EVM](https://github.com/hyperledger/besu) as a code module to st
 The recommended way to submit transactions is to:
 
 1. Create a privacy group using the [pgroup_createGroup](../../reference/apis/pgroup/#pgroup_creategroup) JSON/RPC API
-    - This distributes information about the privacy group off-chain to all members
-    - You can add properties to your privacy group to allow all members to find it (a business transaction identifier for example)
+   - This distributes information about the privacy group off-chain to all members
+   - You can add properties to your privacy group to allow all members to find it (a business transaction identifier for example)
 2. Wait for a receipt to the transaction returned in the [PrivacyGroup](../../reference/types/privacygroup/)
-    - This means that the blockchain has confirmed creation of the privacy group
+   - This means that the blockchain has confirmed creation of the privacy group
 3. Submit transactions using the [pgroup_sendTransaction](../../reference/apis/pgroup/#pgroup_sendtransaction) JSON/RPC API
-    - The [PrivacyGroupEVMTXInput](../../reference/types/privacygroupevmtxinput/#privacygroupevmtxinput) payload is as similar to a normal `eth_sendTransaction` payload as possible
-    - Deployment of smart contracts is performed by omitting the `to` address, and supplying `bytecode`
+   - The [PrivacyGroupEVMTXInput](../../reference/types/privacygroupevmtxinput/#privacygroupevmtxinput) payload is as similar to a normal `eth_sendTransaction` payload as possible
+   - Deployment of smart contracts is performed by omitting the `to` address, and supplying `bytecode`
 4. Use WebSockets combined with [TransactionReceiptListener](../../reference/types/transactionreceiptlistener/) to detect transaction completion
-    - This is a reliable ordered delivery system
-    - Use `incompleteStateReceiptBehavior: "block_contract` to ensure you receive receipts in order for each privacy group
+   - This is a reliable ordered delivery system
+   - Use `incompleteStateReceiptBehavior: "block_contract` to ensure you receive receipts in order for each privacy group
 5. Decode the receipts using [ptx_getDomainReceipt](../../reference/apis/ptx/#ptx_getdomainreceipt)
-    - Decodes the full EVM receipt format with `logs` (EVM emitted events) from the private states of the transaction
+   - Decodes the full EVM receipt format with `logs` (EVM emitted events) from the private states of the transaction
 6. Make calls to query data using [pgroup_call](../../reference/apis/pgroup/#pgroup_call) JSON/RPC API
-    - The [PrivacyGroupEVMCall](../../rreference/types/privacygroupevmcall/#privacygroupevmcall) payload is as similar to a normal `eth_call` payload as possible
-    - The result is decoded for you against the ABI you supply
+   - The [PrivacyGroupEVMCall](../../rreference/types/privacygroupevmcall/#privacygroupevmcall) payload is as similar to a normal `eth_call` payload as possible
+   - The result is decoded for you against the ABI you supply
 
 ## Private messaging
 
@@ -171,14 +171,14 @@ containing ABI, as they will not be the same as the public transaction that is s
 
 Inputs:
 
-* **group** - group details, including member lookup strings and a randomly-chosen group salt (must exactly match what was passed at group creation, as stored inside of the genesis state of the [PrivacyGroup](../../reference/types/privacygroup/))
-* **to** - the address of the private contract
-* **inputs** - ABI method inputs for the contract (must be filled in to match the contract)
+- **group** - group details, including member lookup strings and a randomly-chosen group salt (must exactly match what was passed at group creation, as stored inside of the genesis state of the [PrivacyGroup](../../reference/types/privacygroup/))
+- **to** - the address of the private contract
+- **inputs** - ABI method inputs for the contract (must be filled in to match the contract)
 
 Other fields:
 
-* **name** - name of the method to invoke on the contract, or the special `deploy` function for performing a deploy with `bytecode`
-* **outputs** - ABI method outputs for the contract (only valid for `ptx_call`, must be filled in to match the contract).
+- **name** - name of the method to invoke on the contract, or the special `deploy` function for performing a deploy with `bytecode`
+- **outputs** - ABI method outputs for the contract (only valid for `ptx_call`, must be filled in to match the contract).
 
 ## Public ABI
 
@@ -193,31 +193,39 @@ Generally should not be called directly.
 
 ```json
 {
-    "name": "transition",
-    "type": "function",
-    "inputs": [
-        {"name": "txId", "type": "bytes32"},
-        {"name": "states", "type": "tuple", "components": [
-            {"name": "inputs", "type": "bytes32[]"},
-            {"name": "reads", "type": "bytes32[]"},
-            {"name": "outputs", "type": "bytes32[]"},
-            {"name": "info", "type": "bytes32[]"}
-        ]},
-        {"name": "externalCalls", "type": "tuple[]", "components": [
-            {"name": "contractAddress", "type": "address"},
-            {"name": "encodedCall", "type": "bytes"}
-        ]},
-        {"name": "signatures", "type": "bytes[]"}
-    ]
+  "name": "transition",
+  "type": "function",
+  "inputs": [
+    { "name": "txId", "type": "bytes32" },
+    {
+      "name": "states",
+      "type": "tuple",
+      "components": [
+        { "name": "inputs", "type": "bytes32[]" },
+        { "name": "reads", "type": "bytes32[]" },
+        { "name": "outputs", "type": "bytes32[]" },
+        { "name": "info", "type": "bytes32[]" }
+      ]
+    },
+    {
+      "name": "externalCalls",
+      "type": "tuple[]",
+      "components": [
+        { "name": "contractAddress", "type": "address" },
+        { "name": "encodedCall", "type": "bytes" }
+      ]
+    },
+    { "name": "signatures", "type": "bytes[]" }
+  ]
 }
 ```
 
 Inputs:
 
-* **txId** - Paladin transaction identifier
-* **states** - list of states (input states will be spent, output states will be created, read states will be verified to exist, and info states will not be checked)
-* **externalCalls** - list of encoded EVM calls against other external contracts, which will be executed as a side-effect of the transition
-* **signatures** - EIP-712 signatures from all parties in the privacy group to validate the state transition
+- **txId** - Paladin transaction identifier
+- **states** - list of states (input states will be spent, output states will be created, read states will be verified to exist, and info states will not be checked)
+- **externalCalls** - list of encoded EVM calls against other external contracts, which will be executed as a side-effect of the transition
+- **signatures** - EIP-712 signatures from all parties in the privacy group to validate the state transition
 
 ### approveTransition
 
@@ -226,23 +234,23 @@ Generally should not be called directly.
 
 ```json
 {
-    "name": "approveTransition",
-    "type": "function",
-    "inputs": [
-        {"name": "txId", "type": "bytes32"},
-        {"name": "delegate", "type": "address"},
-        {"name": "transitionHash", "type": "bytes32"},
-        {"name": "signatures", "type": "bytes[]"}
-    ]
+  "name": "approveTransition",
+  "type": "function",
+  "inputs": [
+    { "name": "txId", "type": "bytes32" },
+    { "name": "delegate", "type": "address" },
+    { "name": "transitionHash", "type": "bytes32" },
+    { "name": "signatures", "type": "bytes[]" }
+  ]
 }
 ```
 
 Inputs:
 
-* **txId** - Paladin transaction identifier
-* **delegate** - address of the delegate party that will be able to execute this transaction once approved
-* **transitionHash** - EIP-712 hash of the intended transition, using types `Transition(bytes32[] inputs,bytes32[] reads,bytes32[] outputs,bytes32[] info,ExternalCall[] externalCalls)` and `ExternalCall(address contractAddress,bytes encodedCall)`
-* **signatures** - EIP-712 signatures from all parties in the privacy group to validate the state transition
+- **txId** - Paladin transaction identifier
+- **delegate** - address of the delegate party that will be able to execute this transaction once approved
+- **transitionHash** - EIP-712 hash of the intended transition, using types `Transition(bytes32[] inputs,bytes32[] reads,bytes32[] outputs,bytes32[] info,ExternalCall[] externalCalls)` and `ExternalCall(address contractAddress,bytes encodedCall)`
+- **signatures** - EIP-712 signatures from all parties in the privacy group to validate the state transition
 
 ### transitionWithApproval
 
@@ -253,26 +261,34 @@ match a `transitionHash` that was previously delegated to the sender via `approv
 
 ```json
 {
-    "name": "transitionWithApproval",
-    "type": "function",
-    "inputs": [
-        {"name": "txId", "type": "bytes32"},
-        {"name": "states", "type": "tuple", "components": [
-            {"name": "inputs", "type": "bytes32[]"},
-            {"name": "reads", "type": "bytes32[]"},
-            {"name": "outputs", "type": "bytes32[]"},
-            {"name": "info", "type": "bytes32[]"}
-        ]},
-        {"name": "externalCalls", "type": "tuple[]", "components": [
-            {"name": "contractAddress", "type": "address"},
-            {"name": "encodedCall", "type": "bytes"}
-        ]},
+  "name": "transitionWithApproval",
+  "type": "function",
+  "inputs": [
+    { "name": "txId", "type": "bytes32" },
+    {
+      "name": "states",
+      "type": "tuple",
+      "components": [
+        { "name": "inputs", "type": "bytes32[]" },
+        { "name": "reads", "type": "bytes32[]" },
+        { "name": "outputs", "type": "bytes32[]" },
+        { "name": "info", "type": "bytes32[]" }
       ]
+    },
+    {
+      "name": "externalCalls",
+      "type": "tuple[]",
+      "components": [
+        { "name": "contractAddress", "type": "address" },
+        { "name": "encodedCall", "type": "bytes" }
+      ]
+    }
+  ]
 }
 ```
 
 Inputs:
 
-* **txId** - Paladin transaction identifier
-* **states** - list of states (input states will be spent, output states will be created, read states will be verified to exist, and info states will not be checked)
-* **externalCalls** - list of encoded EVM calls against other external contracts, which will be executed as a side-effect of the transition
+- **txId** - Paladin transaction identifier
+- **states** - list of states (input states will be spent, output states will be created, read states will be verified to exist, and info states will not be checked)
+- **externalCalls** - list of encoded EVM calls against other external contracts, which will be executed as a side-effect of the transition
