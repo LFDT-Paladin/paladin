@@ -1,5 +1,15 @@
+plugins {
+    // Declared on the parent project so subprojects can apply it; jacoco is a built-in Gradle plugin.
+    id 'com.diffplug.spotless' version '6.25.0' apply false
+}
+
+// Resolves relative to sdk/java/ (this build script's directory).
+def javaLicenseHeader = file('config/spotless/java-license-header.txt')
+
 subprojects {
     apply plugin: 'java'
+    apply plugin: 'jacoco'
+    apply plugin: 'com.diffplug.spotless'
 
     group = 'org.lfdt.paladin.sdk'
 
@@ -17,10 +27,69 @@ subprojects {
         testImplementation 'org.junit.jupiter:junit-jupiter'
     }
 
+    jacoco {
+        toolVersion = '0.8.12'
+    }
+
     test {
         useJUnitPlatform()
         testLogging {
             showStandardStreams = true
+        }
+        finalizedBy jacocoTestReport
+    }
+
+    jacocoTestReport {
+        dependsOn test
+        reports {
+            xml.required = true
+            html.required = true
+        }
+    }
+
+    jacocoTestCoverageVerification {
+        violationRules {
+            rule {
+                limit {
+                    // Baseline from the core module's tests at the time of introduction
+                    // (instruction coverage 78.1%), floored to the nearest whole percent.
+                    counter = 'INSTRUCTION'
+                    minimum = 0.78
+                }
+            }
+        }
+    }
+
+    check.dependsOn jacocoTestCoverageVerification
+
+    tasks.withType(Javadoc).configureEach {
+        options.memberLevel = JavadocMemberLevel.PUBLIC
+        // Treat every doclint category (missing comments, missing @param/@return/@throws,
+        // bad HTML, broken @link references, syntax) as an error and fail the build on any of
+        // them — so the public API ships with complete, well-formed Javadoc. Without -Werror
+        // doclint only warns and the build would still pass.
+        options.addBooleanOption('Xdoclint:all', true)
+        options.addBooleanOption('Werror', true)
+        options.encoding = 'UTF-8'
+        options.addStringOption('Xmaxwarns', '1000')
+        // Skip skeleton modules that have no documentable types yet (only a package-info.java);
+        // javadoc errors with "No public or protected classes found to document" otherwise. The
+        // check engages automatically once such a module gains its first real class.
+        onlyIf { source.files.any { it.name != 'package-info.java' } }
+    }
+
+    // Run Javadoc as part of `check` so the existing root `./gradlew … build` CI enforces it.
+    check.dependsOn javadoc
+
+    spotless {
+        java {
+            target 'src/**/*.java'
+            googleJavaFormat()
+            importOrder()
+            removeUnusedImports()
+            trimTrailingWhitespace()
+            endWithNewline()
+            licenseHeaderFile(javaLicenseHeader)
         }
     }
 }
