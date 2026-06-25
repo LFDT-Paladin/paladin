@@ -29,8 +29,8 @@ Requires JDK 21+.
 
 ## Code quality
 
-The build enforces formatting and test coverage. Both run as part of `build`/`check`,
-so CI fails if either is violated.
+The build enforces formatting, Javadoc completeness, and test coverage. All run as part of
+`build`/`check`, so CI fails if any is violated.
 
 ### Formatting (Spotless + Google Java Format)
 
@@ -40,6 +40,20 @@ so CI fails if either is violated.
 ```
 
 Enforces Google Java Format (2-space), import ordering, and the Apache-2.0 license header.
+
+### Javadoc (doclint)
+
+```bash
+./gradlew :sdk:java:core:javadoc         # lint Javadoc (runs in build/check)
+```
+
+Runs the Javadoc tool with `-Xdoclint:all -Werror` over the public API, so the build fails on
+any missing or malformed documentation — e.g. an undocumented public method, or a missing
+`@param`/`@return`/`@throws` tag. Document every public class, method, and field you add.
+Modules that have no documentable types yet (only a `package-info.java`) are skipped until they
+gain their first class.
+
+Output: `core/build/docs/javadoc/index.html`.
 
 ### Test coverage (JaCoCo)
 
