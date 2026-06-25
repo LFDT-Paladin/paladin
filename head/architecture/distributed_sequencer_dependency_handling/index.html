@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".d2", ".mermaid", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -469,13 +469,6 @@
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../distributed_sequencer_components/">
-<span class="md-ellipsis">
-    Components
-  </span>
-</a>
-</li>
-<li class="md-nav__item">
 <a class="md-nav__link" href="../distributed_sequencer_state_machine/">
 <span class="md-ellipsis">
     State Machine
@@ -509,16 +502,30 @@
     </label>
 <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="#re-assembly-when-a-pre-req-transaction-reverts">
+<a class="md-nav__link" href="#pre-assemble-dependencies">
 <span class="md-ellipsis">
-      Re-assembly when a pre-req transaction reverts
+      Pre-assemble dependencies
     </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="#dispatch-control-based-on-signing-identities">
+<a class="md-nav__link" href="#post-assembly-dependencies">
 <span class="md-ellipsis">
-      Dispatch control based on signing identities
+      Post assembly dependencies
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#chained-transaction-dependencies">
+<span class="md-ellipsis">
+      Chained transaction dependencies
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#application-dependencies">
+<span class="md-ellipsis">
+      Application dependencies
     </span>
 </a>
 </li>
@@ -1340,16 +1347,30 @@
     </label>
 <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
 <li class="md-nav__item">
-<a class="md-nav__link" href="#re-assembly-when-a-pre-req-transaction-reverts">
+<a class="md-nav__link" href="#pre-assemble-dependencies">
 <span class="md-ellipsis">
-      Re-assembly when a pre-req transaction reverts
+      Pre-assemble dependencies
     </span>
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="#dispatch-control-based-on-signing-identities">
+<a class="md-nav__link" href="#post-assembly-dependencies">
 <span class="md-ellipsis">
-      Dispatch control based on signing identities
+      Post assembly dependencies
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#chained-transaction-dependencies">
+<span class="md-ellipsis">
+      Chained transaction dependencies
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#application-dependencies">
+<span class="md-ellipsis">
+      Application dependencies
     </span>
 </a>
 </li>
@@ -1364,16 +1385,179 @@
 <p>Paladin transactions can produce new states (e.g. minting new tokens), consume existing states (e.g. spending an existing token) or both.</p>
 <p>The states created and consumed by a transaction are determined when the originator node assembles the transaction. The originator will create and select states based on its assembly implementation.</p>
 <p>It is common for multiple Paladin transactions to be related to each other in terms of their state changes. An example would be that TX1 creates a state by minting a new token and TX2 consumes that state by transfering the token to another identity. Paladin tracks transaction state changes through its use of a <code>grapher</code> component. If a transaction creates a state that another transaction consumes, it is said to be a <code>pre-req</code> of that transaction. The <code>grapher</code> component maintains <code>pre-req</code> links between transaction based on the output of the assembly phase and makes certain decisions based on the <code>grapher</code>.</p>
-<p>There are 2 key aspects of Paladin's behaviour that depend on the grapher's knowledge or transaction relationships.</p>
-<h2 id="re-assembly-when-a-pre-req-transaction-reverts">Re-assembly when a pre-req transaction reverts<a class="headerlink" href="#re-assembly-when-a-pre-req-transaction-reverts" title="Permanent link">¶</a></h2>
-<p>If a transaction TX2 has a dependency on transaction TX1 and Paladin observes that the TX1 base ledger transaction has reverted, Paladin will automatically move TX2 back into the assembly phase of sequencing. Paladin knows that the failure of the TX1 base ledger transaction will result in the failure of TX2. On re-assembly of TX2 it is possible that the dependencies will change such that TX2 is no longer dependent on TX1. For example a subsequent successful transaction TX3 may have completed in the mean time and the originator selects states from TX3 as inputs to TX2. Hence the transaction depedency chains are not always the same after reassembly.</p>
-<p><div class="panzoom-box" data-key="alt" id="panzoom0" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><img alt="Re-assembly" class="zoomable-image" src="../diagrams/paladin-transaction-dependency-assembly.svg"/><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div></p>
-<h2 id="dispatch-control-based-on-signing-identities">Dispatch control based on signing identities<a class="headerlink" href="#dispatch-control-based-on-signing-identities" title="Permanent link">¶</a></h2>
-<p>Some domains or Paladin configurations dispatch base ledger transactions using a new signing key per transaction. This is supported and can be suitable for domains where the verification of the base ledger transaction is not based on the message sender of the public transaction but instead on the EIP-712 signatures in the payload.</p>
-<p>For transactions that are dependent on each other, the use of a different signing address per transaction can result in the transctions being included in blocks out of the order they were assembled by Paladin. In this case the public transactions will revert, for example because TX2 is trying to spend state that TX1 creates but TX1 has not yet been included in a base ledger block.</p>
-<p>In most cases Paladin will automatically use the dependency chains built into its <code>grapher</code> component and determine when it is not safe to dispatch dependent transactions in parallel.</p>
-<p><div class="panzoom-box" data-key="alt" id="panzoom1" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><img alt="Dispatch control" class="zoomable-image" src="../diagrams/paladin-transaction-dispatch-control.svg"/><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div></p>
-<p>Paladin provides manual control points to restrict the maximum number of base ledger tranasctions to dispatch at a time per domain instance. See <code>maxDispatchAhead</code>. Setting this to a value of <code>1</code> will result in only a single Paladin transaction for a given domain instance being dispatched at a time. Until that tranasction has been confirmed or finalized, the next assembled transaction will not be dispatched. In most cases it should not be necessary to modify <code>maxDispatchAhead</code>.</p>
+<p>The coordinator tracks transaction dependencies through three complementary components: the <strong>Grapher</strong> and the <strong>Dependency Tracker</strong>. Together they ensure transactions are assembled and dispatched in a safe order to prevent failure of their base-ledger transactions.</p>
+<h2 id="pre-assemble-dependencies">Pre-assemble dependencies<a class="headerlink" href="#pre-assemble-dependencies" title="Permanent link">¶</a></h2>
+<p>When multiple transactions are delegated from an originator to a coordinator, the coordinator ensures that the <strong>first</strong> attempt to assemble the transactions is performed in the order they were delegated.</p>
+<p>Subsequent assembly requests (for example if the initial assembly results in a retryable revert error) will be performed in non-deterministic order. The grapher (see below) will still ensure that state mints and spends are tracked so out-of-order processing will still result in safe transaction submission to the base ledger.</p>
+<h2 id="post-assembly-dependencies">Post assembly dependencies<a class="headerlink" href="#post-assembly-dependencies" title="Permanent link">¶</a></h2>
+<p>States and locks are the intermediaries that link transactions together. When a transaction reads or spends a state, it implicitly depends on the transaction that minted it. The <strong>Grapher</strong> and <strong>Dependency Tracker</strong> components track these dependencies.</p>
+<div class="panzoom-box" data-key="alt" id="panzoom0" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'theme': 'base', 'themeVariables': {'edgeLabelBackground': '#ffffff'}}}%%
+stateDiagram-v2
+    direction LR
+
+    classDef stateCls fill:#d5e8d4,stroke:#82b366,color:#333
+
+    Tx1 : Tx 1
+    Tx2 : Tx 2
+    Tx3 : Tx 3
+    Tx4 : Tx 4
+    Tx5 : Tx 5
+    SA : State A
+    SB : State B
+    SC : State C
+    SD : State D
+    SE : State E
+
+    class SA,SB,SC,SD,SE stateCls
+
+    Tx1 --&gt; SA : mints
+    Tx1 --&gt; SB : mints
+    SA --&gt; Tx2 : read by
+    Tx2 --&gt; SC : mints
+    SB --&gt; Tx3 : spent by
+    Tx3 --&gt; SD : mints
+    SC --&gt; Tx4 : spent by
+    Tx4 --&gt; SE : mints
+    SD --&gt; Tx5 : spent by
+    SE --&gt; Tx5 : spent by</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<p>In the example above:</p>
+<ul>
+<li>
+<p><strong>Tx 1</strong> has no dependencies. It mints State A and State B, making it the root of two independent chains.</p>
+</li>
+<li>
+<p><strong>Tx 2</strong> reads State A. Because the grapher knows Tx 1 minted State A, Tx 2 acquires a post-assembly dependency on Tx 1. Tx 2 also mints State C, extending the first chain.</p>
+</li>
+<li>
+<p><strong>Tx 3</strong> spends State B. This gives it a post-assembly dependency on Tx 1 via the second chain. Tx 3 mints State D as its output.</p>
+</li>
+<li>
+<p><strong>Tx 4</strong> spends State C, making it dependent on Tx 2 (and transitively on Tx 1). It mints State E as its output.</p>
+</li>
+<li>
+<p><strong>Tx 5</strong> spends both State D (minted by Tx 3) and State E (minted by Tx 4). The grapher therefore records post-assembly dependencies on both Tx 3 and Tx 4. Tx 5 cannot be dispatched until both chains have confirmed.</p>
+</li>
+</ul>
+<p>If <strong>Tx 2</strong> fails on the base ledger, the grapher removes all dependency links that flow through it. State C and State E are no longer valid, and Tx 4 loses its input. The surviving chain (Tx 1 → State B → Tx 3 → State D) is unaffected.</p>
+<div class="panzoom-box" data-key="alt" id="panzoom1" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'theme': 'base', 'themeVariables': {'edgeLabelBackground': '#ffffff'}}}%%
+stateDiagram-v2
+    direction LR
+
+    classDef stateCls fill:#d5e8d4,stroke:#82b366,color:#333
+    classDef deletedCls fill:#f8cecc,stroke:#b85450,color:#999
+
+    Tx1 : Tx 1
+    Tx2 : Tx 2
+    Tx3 : Tx 3
+    Tx4 : Tx 4
+    Tx5 : Tx 5
+    SA : State A
+    SB : State B
+    SC : State C
+    SD : State D
+    SE : State E
+
+    class SA,SB,SD stateCls
+    class Tx2,Tx4,Tx5,SC,SE deletedCls
+
+    Tx1 --&gt; SA : mints
+    Tx1 --&gt; SB : mints
+    SA --&gt; Tx2 : (deleted)
+    Tx2 --&gt; SC : (deleted)
+    SB --&gt; Tx3 : spent by
+    Tx3 --&gt; SD : mints
+    SC --&gt; Tx4 : (deleted)
+    Tx4 --&gt; SE : (deleted)
+    SD --&gt; Tx5 : (deleted)
+    SE --&gt; Tx5 : (deleted)</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<p>Depending on the domain assembly logic and the inputs to the transactions, when TX2 is re-assembled it will potentially consume the state minted by TX3:</p>
+<div class="panzoom-box" data-key="alt" id="panzoom2" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'theme': 'base', 'themeVariables': {'edgeLabelBackground': '#ffffff'}}}%%
+stateDiagram-v2
+    direction LR
+
+    classDef stateCls fill:#d5e8d4,stroke:#82b366,color:#333
+
+    Tx1 : Tx 1
+    Tx2 : Tx 2
+    Tx3 : Tx 3
+    Tx4 : Tx 4
+    Tx5 : Tx 5
+    SA : State A
+    SB : State B
+    SD : State D
+    SF : State F
+    SG : State G
+
+    class SA,SD,SF,SG stateCls
+
+    classDef completedCls fill:#f5f5f5,stroke:#999999,color:#666
+    class Tx1,Tx3,SB completedCls
+
+    Tx1 --&gt; SA : mints
+    Tx1 --&gt; SB : mints
+    SB --&gt; Tx3 : spent by
+    Tx3 --&gt; SD : mints
+    SD --&gt; Tx2 : spent by
+    Tx2 --&gt; SF : mints
+    SF --&gt; Tx4 : spent by
+    Tx4 --&gt; SG : mints
+    SG --&gt; Tx5 : spent by</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<h2 id="chained-transaction-dependencies">Chained transaction dependencies<a class="headerlink" href="#chained-transaction-dependencies" title="Permanent link">¶</a></h2>
+<p>Some transactions produce new private transactions as a side-effect of their execution — for example, a Notarized token mint that internally creates a follow-on private smart contract invocation. The sequencer tracks these as <strong>chained</strong> dependencies:</p>
+<div class="panzoom-box" data-key="alt" id="panzoom3" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'theme': 'base', 'themeVariables': {'edgeLabelBackground': '#ffffff'}}}%%
+stateDiagram-v2
+    direction LR
+
+    classDef parentCls fill:#dae8fc,stroke:#6c8ebf,color:#333
+    classDef chainedCls fill:#ffe6cc,stroke:#d79b00,color:#333
+    classDef failedCls fill:#f8cecc,stroke:#b85450,color:#999
+
+    Tx1 : Tx 1
+    Tx2 : Tx 2
+    Tx3 : Tx 3
+    Tx4 : Tx 4
+    Tx5 : Tx 5
+    Tx6 : Tx 6 (reverted)
+    Tx7 : Tx 7
+
+    class Tx1,Tx3,Tx5 parentCls
+    class Tx2,Tx4,Tx7 chainedCls
+    class Tx6 failedCls
+
+    Tx1 --&gt; Tx2 : chains to
+    Tx1 --&gt; Tx3 : grapher dep
+    Tx3 --&gt; Tx4 : chains to
+    Tx3 --&gt; Tx5 : grapher dep
+    Tx5 --&gt; Tx6 : chains to
+    Tx5 --&gt; Tx7 : chains to</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<p>Each transaction produces a chained child. <strong>Tx 1</strong> produces <strong>Tx 2</strong> (chained), and is also a grapher prerequisite of <strong>Tx 3</strong> — Tx 3 reads or spends a state minted by Tx 1. <strong>Tx 3</strong> in turn produces its own chained child <strong>Tx 4</strong>, and is a grapher prerequisite of <strong>Tx 5</strong>.</p>
+<p><strong>Tx 5</strong> produces its own chained child <strong>Tx 6</strong>. However, it is possible for a chained transaction to revert when submitted to the base ledger which results in re-assembly of the parent transaction and subsequently a new chained transaction.</p>
+<p>Unlike post-assembly dependencies (which are discovered from shared state), chained dependencies are registered when the parent transaction's domain implementation creates the child transaction.</p>
+<h2 id="application-dependencies">Application dependencies<a class="headerlink" href="#application-dependencies" title="Permanent link">¶</a></h2>
+<p>Applications can declare explicit dependencies between transactions across different domains. These are not tracked by the <strong>Grapher</strong> or <strong>Dependency Tracker</strong> packages but are instead handled before delegation to a coordinator. They allow multi-domain workflows to enforce ordering where there is no shared private state for the grapher to automatically infer dependencies. If an application has a requirement to ensure that a transaction isn't processed until a prior transaction has been successful, application or "explicit" dependencies can be stipulated in the submitted transaction.</p>
+<div class="panzoom-box" data-key="alt" id="panzoom4" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><pre class="mermaid"><code>%%{init: {'theme': 'base', 'themeVariables': {'edgeLabelBackground': '#ffffff'}}}%%
+stateDiagram-v2
+    direction LR
+
+    classDef domain1Cls fill:#dae8fc,stroke:#6c8ebf,color:#333
+    classDef domain2Cls fill:#d5e8d4,stroke:#82b366,color:#333
+    classDef domain3Cls fill:#ffe6cc,stroke:#d79b00,color:#333
+    classDef domain4Cls fill:#e1d5e7,stroke:#9673a6,color:#333
+
+    Tx1 : Tx 1 (Domain 1)
+    Tx2 : Tx 2 (Domain 2)
+    Tx3 : Tx 3 (Domain 3)
+    Tx4 : Tx 4 (Domain 4)
+
+    class Tx1 domain1Cls
+    class Tx2 domain2Cls
+    class Tx3 domain3Cls
+    class Tx4 domain4Cls
+
+    Tx1 --&gt; Tx2 : app dep
+    Tx2 --&gt; Tx3 : app dep
+    Tx3 --&gt; Tx4 : app dep</code></pre><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div>
+<p>Each transaction belongs to a different domain. The application has declared that they must execute in order — Tx 2 cannot proceed until Tx 1 completes, and so on down the chain.</p>
 </article>
 </div>
 <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>

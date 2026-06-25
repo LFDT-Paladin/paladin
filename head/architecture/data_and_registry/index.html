@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".d2", ".mermaid", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -533,13 +533,6 @@
 <a class="md-nav__link" href="../distributed_sequencer_architecture/">
 <span class="md-ellipsis">
     Architecture
-  </span>
-</a>
-</li>
-<li class="md-nav__item">
-<a class="md-nav__link" href="../distributed_sequencer_components/">
-<span class="md-ellipsis">
-    Components
   </span>
 </a>
 </li>
@@ -1440,7 +1433,7 @@
 <article class="md-content__inner md-typeset">
 <h1 id="data-transports-and-registry">Data Transports and Registry<a class="headerlink" href="#data-transports-and-registry" title="Permanent link">¶</a></h1>
 <p>Each Paladin runtime needs to share data privately with other Paladins, based on the identities that are transacting.</p>
-<p>These message are frequent and occur as part of the <a href="../transaction_manager/">Distributed transaction manager</a> operation to coordinate the assembly and submission of transactions.</p>
+<p>These message are frequent and occur as part of the <a href="./transaction_manager.md">Distributed transaction manager</a> operation to coordinate the assembly and submission of transactions.</p>
 <p><div class="panzoom-box" data-key="alt" id="panzoom0" oncontextmenu="return false;"><nav class="panzoom-top-nav"><button class="panzoom-info panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path></svg></button><button class="panzoom-reset panzoom-button"><svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path></svg></button><button class="panzoom-max panzoom-button"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path></svg></button><button class="panzoom-min panzoom-button panzoom-hidden"><svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path></svg></button></nav><img alt="Data transports &amp; registry" class="zoomable-image" src="../../images/data_transports_and_registry.jpg"/><div class="panzoom-info-box panzoom-hidden">Press "Alt" / "Option" to enable Pan &amp; Zoom</div></div></p>
 <h2 id="types-of-identity">Types of identity<a class="headerlink" href="#types-of-identity" title="Permanent link">¶</a></h2>
 <p>There are two fundamental types of identity involved in Paladin:</p>
@@ -1488,25 +1481,31 @@
 <li>Request submission from that party</li>
 </ul>
 <p>Some of this information is provided explicitly by the initiator of the transaction, and others are determined by the Paladin node interacting with the privacy preserving smart contract module to orchestrate the transaction.</p>
-<p>In each case the Paladin node needs to determine:
-- Which account signing identity is involved
-- Which runtime route to use to transfer the data</p>
+<p>In each case the Paladin node needs to determine:</p>
+<ul>
+<li>Which account signing identity is involved</li>
+<li>Which runtime route to use to transfer the data</li>
+</ul>
 <h2 id="account-routing-addresses">Account &amp; Routing Addresses<a class="headerlink" href="#account-routing-addresses" title="Permanent link">¶</a></h2>
 <p>Paladin solves this problem by requiring each specification of a target identity to include <strong>two parts</strong>:</p>
 <ol>
-<li>The <code>account identifier</code>: points to a signing account<ul>
+<li>The <code>account identifier</code>: points to a signing account</li>
 <li>An off-chain address book in each Paladin node allows mapping between arbitrary strings and the underlying address. This is covered in more detail in <a href="../key_management/">Key Management</a></li>
-</ul>
-</li>
-<li>The <code>routing identifier</code>: points to a Paladin runtime<ul>
+<li>The <code>routing identifier</code>: points to a Paladin runtime</li>
 <li>This is passed into a <code>registry</code> plugin to determine the right transport, physical address, and encryption details to use</li>
-</ul>
-</li>
 </ol>
 <h2 id="registry-plugin">Registry plugin<a class="headerlink" href="#registry-plugin" title="Permanent link">¶</a></h2>
-<blockquote>
-<p>TODO: Details to follow (Lead: Gabriel Indik)</p>
-</blockquote>
+<p>The registry plugin is responsible for resolving a routing identifier (a node name string) into the transport details needed to deliver a message — the transport type, connection address, and any TLS/certificate information. It runs as a gRPC subprocess plugin, loaded and managed by Paladin's plugin manager at startup.</p>
+<p>Paladin ships two reference registry implementations:</p>
+<ul>
+<li>
+<p><strong>EVM registry</strong>: monitors an on-chain <code>IdentityRegistry</code> smart contract. Nodes register themselves by emitting <code>IdentityRegistered</code> and <code>PropertySet</code> events. The plugin streams these events via the block indexer and persists the resulting entries and properties to a local database. When Paladin needs to contact a remote node, it queries the database to find the matching entry and extracts transport details from its properties (e.g. a property named <code>transport.grpc</code> carries the gRPC endpoint). Entries can be hierarchical (e.g. <code>org.node1</code>), allowing structured naming schemes.</p>
+</li>
+<li>
+<p><strong>Static registry</strong>: loads node entries and transport properties from a YAML/JSON configuration file at startup, with no on-chain dependency. Useful for development, testing, or closed networks where node addresses are known in advance.</p>
+</li>
+</ul>
+<p>Both implementations store entries in the same local schema, so the transport lookup logic is identical regardless of which plugin sourced the data. A regex configured per-registry controls which entry properties are treated as transport descriptors, and an optional prefix filter and transport name remapping allow different registries to serve different network segments from the same Paladin node.</p>
 <h2 id="transports">Transports<a class="headerlink" href="#transports" title="Permanent link">¶</a></h2>
 <p>Some fundamental architecture principals are applied to our transports, to allow the rest of the Paladin engine to be agnostic to which transport is used:</p>
 <ol>
@@ -1517,9 +1516,7 @@
 <li>Encryption must be end-to-end between Paladin runtimes</li>
 <li>Where a hub+spoke transport model exists, such a a central JMS/Kafka message bus, or a multi-hop gossip based peer to peer network, the data must be encrypted before it leaves Paladin, and not decrypted again until received by the final destination Paladin</li>
 </ol>
-<blockquote>
-<p>TODO: Details to follow (Lead: Sam May)</p>
-</blockquote>
+<!-- TODO: Should add more details here -->
 </article>
 </div>
 <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>

@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".d2", ".mermaid", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -487,13 +487,6 @@
 <a class="md-nav__link" href="../distributed_sequencer_architecture/">
 <span class="md-ellipsis">
     Architecture
-  </span>
-</a>
-</li>
-<li class="md-nav__item">
-<a class="md-nav__link" href="../distributed_sequencer_components/">
-<span class="md-ellipsis">
-    Components
   </span>
 </a>
 </li>
@@ -1347,47 +1340,54 @@
 <div class="md-content" data-md-component="content">
 <article class="md-content__inner md-typeset">
 <h1 id="paladin">Paladin<a class="headerlink" href="#paladin" title="Permanent link">¶</a></h1>
-<p>Paladin is a privacy preserving transaction manager for Ethereum.</p>
+<p>Paladin is a privacy preserving transaction manager for Ethereum. It gives enterprises control of sensitive information without compromising transparency or scalability.</p>
 <h2 id="architecture-overview">Architecture overview<a class="headerlink" href="#architecture-overview" title="Permanent link">¶</a></h2>
 <p><img alt="Paladin Architecture Overview" src="../../images/paladin_runtime.svg"/></p>
 <ul>
-<li>Paladin is a sidecar process that runs alongside a Hyperledger Besu node<ul>
-<li>Learn more about <a href="./runtime_architecture.md">Runtime Architecture</a></li>
-</ul>
-</li>
+<li>Paladin is a sidecar process that runs alongside a Hyperledger Besu node</li>
 <li>Paladin provides <strong>secure channels</strong> of communication to other Paladins over which it can selectively disclose private data<ul>
 <li>Learn more about <a href="../data_and_registry/">Private Data Transports &amp; Endpoint Registry</a></li>
 </ul>
 </li>
 <li>Paladin supports Privacy Preserving Smart Contracts, and provides samples out-of-the-box<ul>
-<li>Each smart contract has a part of that runs as a EVM smart contract on an <strong>unmodified</strong> EVM blockchain, and a part that runs as part of Paladin</li>
+<li>Each smart contract has a part of that runs as a EVM smart contract on an <strong>unmodified</strong> EVM blockchain, and a part that runs as part of Paladin<ul>
 <li>Learn more about <a href="../ledger_layers/">ledger layers</a></li>
-<li><em>Some</em> implement <code>tokens backed by Zero-knowledge Proofs</code></li>
+</ul>
+</li>
+<li><em>Some</em> implement <code>tokens backed by Zero-knowledge Proofs</code><ul>
 <li>Learn more about <a href="../zeto/">Zeto</a></li>
-<li><em>Some</em> implement <code>tokens backed by Notary Certificates</code> (issuer/signatory endorsed tokens)</li>
+</ul>
+</li>
+<li><em>Some</em> implement <code>tokens backed by Notary Certificates</code> (issuer/signatory endorsed tokens)<ul>
 <li>Learn more about <a href="../noto/">Noto</a></li>
-<li><em>Some</em> implement domains of <code>EVM Private Smart Contracts</code> running in <code>Privacy Groups</code> </li>
+</ul>
+</li>
+<li><em>Some</em> implement domains of <code>EVM Private Smart Contracts</code> running in <code>Privacy Groups</code> <ul>
 <li>Learn more about <a href="../pente/">Pente</a><blockquote>
 <p>Provides function similar to that provided by the <a href="https://github.com/consensys/tessera">Tessera</a> project (successor to <a href="https://github.com/Consensys/constellation">Constellation</a>) with additional interoperability and other enhancements</p>
 </blockquote>
 </li>
+</ul>
+</li>
 <li><em>All</em> use the EVM base ledger as the source of truth for order and finality of transactions</li>
-<li><em>All</em> are <code>atomically interoperable</code> via the base EVM ledger</li>
+<li><em>All</em> are <code>atomically interoperable</code> via the base EVM ledger<ul>
 <li>Learn more about <a href="../atomic_interop/">Atomic interop of privacy preserving smart contracts</a></li>
+</ul>
+</li>
 <li><em>All</em> store state in the EVM base ledger in a securely masked format preserving<ul>
 <li><strong>Confidentiality</strong>: the data is protected via cryptography, and selectively disclosed on a need to know basis</li>
 <li><strong>Anonymity</strong>: the parties involved in a transaction, or set of transactions, cannot be determined without access to the confidential data</li>
-<li>Learn more about <a href="./privacy.md">Privacy</a></li>
+<li>Learn more about <a href="../pente/">Privacy</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li>Paladin provides a high performance transaction manager that coordinates transaction assembly, submission and confirmation across Paladin runtimes<ul>
+<li>Paladin provides a high performance transaction manager that distributes the orchestration of transaction assembly, submission and confirmation across Paladin runtimes<ul>
 <li>To any EVM smart contract directly on the <strong>base EVM ledger</strong></li>
 <li>To EVM Private Smart Contracts in <strong>privacy groups</strong>, backed by privacy preserving smart contracts</li>
 <li>To Privacy Preserving Smart Contracts that use <strong>UTXO models</strong> for highly scalable private tokens</li>
 <li>For atomic swaps between privacy preserving smart contracts</li>
-<li>Learn more about <a href="../transaction_manager/">Distributed transaction management</a> </li>
+<li>Learn more about <a href="../distributed_sequencer_overview/">Distributed transaction management</a> </li>
 </ul>
 </li>
 <li>Paladin provides enterprise grade key management integration<ul>
