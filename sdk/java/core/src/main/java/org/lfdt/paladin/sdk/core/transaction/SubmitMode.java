@@ -39,13 +39,23 @@ public enum SubmitMode {
     this.jsonValue = jsonValue;
   }
 
-  /** The JSON token for this submit mode. */
+  /**
+   * The JSON token for this submit mode.
+   *
+   * @return the lower-case JSON token
+   */
   @JsonValue
   public String jsonValue() {
     return jsonValue;
   }
 
-  /** Resolves a submit mode from its JSON token, case-insensitively. */
+  /**
+   * Resolves a submit mode from its JSON token, case-insensitively.
+   *
+   * @param s the JSON token to resolve
+   * @return the matching submit mode
+   * @throws IllegalArgumentException if {@code s} is null or not a known submit mode
+   */
   @JsonCreator
   public static SubmitMode fromJson(String s) {
     if (s != null) {

@@ -43,6 +43,13 @@ public final class HexInt256 {
     this.value = value;
   }
 
+  /**
+   * Wraps a {@link BigInteger} value.
+   *
+   * @param value the integer value
+   * @return a {@code HexInt256} holding {@code value}
+   * @throws IllegalArgumentException if {@code value} is null
+   */
   public static HexInt256 of(BigInteger value) {
     if (value == null) {
       throw new IllegalArgumentException("value must not be null");
@@ -50,25 +57,50 @@ public final class HexInt256 {
     return new HexInt256(value);
   }
 
+  /**
+   * Wraps a {@code long} value.
+   *
+   * @param value the integer value
+   * @return a {@code HexInt256} holding {@code value}
+   */
   public static HexInt256 of(long value) {
     return new HexInt256(BigInteger.valueOf(value));
   }
 
-  /** Parses a hex ({@code 0x}-prefixed, optionally signed) or decimal string. */
+  /**
+   * Parses a hex ({@code 0x}-prefixed, optionally signed) or decimal string.
+   *
+   * @param s the hex or decimal string to parse
+   * @return the parsed {@code HexInt256}
+   * @throws IllegalArgumentException if {@code s} is not a valid hex or decimal integer
+   */
   public static HexInt256 fromString(String s) {
     return new HexInt256(Hex.parseBigInteger(s));
   }
 
+  /**
+   * The value as a {@link BigInteger}.
+   *
+   * @return the integer value
+   */
   public BigInteger bigIntegerValue() {
     return value;
   }
 
-  /** Lower-case hex of the absolute value without a {@code 0x} prefix (no sign). */
+  /**
+   * Lower-case hex of the absolute value without a {@code 0x} prefix (no sign).
+   *
+   * @return the magnitude as lower-case hex characters
+   */
   public String toHex() {
     return value.abs().toString(16);
   }
 
-  /** Signed, lower-case hex with a {@code 0x} prefix — the JSON representation. */
+  /**
+   * Signed, lower-case hex with a {@code 0x} prefix — the JSON representation.
+   *
+   * @return the value as lower-case hex, prefixed with {@code 0x} (or {@code -0x} when negative)
+   */
   public String to0xHex() {
     return (value.signum() < 0 ? "-0x" : "0x") + value.abs().toString(16);
   }

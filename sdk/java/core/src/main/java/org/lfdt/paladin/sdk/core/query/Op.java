@@ -35,6 +35,13 @@ public final class Op {
   private final boolean not;
   private final boolean caseInsensitive;
 
+  /**
+   * Creates a field-only operand.
+   *
+   * @param field the field the operand applies to
+   * @param not whether the operand is negated
+   * @param caseInsensitive whether the comparison is case-insensitive
+   */
   @JsonCreator
   public Op(
       @JsonProperty("field") String field,
@@ -45,21 +52,33 @@ public final class Op {
     this.caseInsensitive = caseInsensitive;
   }
 
-  /** The field the operand applies to. */
+  /**
+   * The field the operand applies to.
+   *
+   * @return the field name
+   */
   @JsonProperty("field")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String field() {
     return field;
   }
 
-  /** Whether the operand is negated. */
+  /**
+   * Whether the operand is negated.
+   *
+   * @return {@code true} if the operand is negated
+   */
   @JsonProperty("not")
   @JsonInclude(JsonInclude.Include.NON_DEFAULT)
   public boolean not() {
     return not;
   }
 
-  /** Whether the comparison is case-insensitive. */
+  /**
+   * Whether the comparison is case-insensitive.
+   *
+   * @return {@code true} if the comparison is case-insensitive
+   */
   @JsonProperty("caseInsensitive")
   @JsonInclude(JsonInclude.Include.NON_DEFAULT)
   public boolean caseInsensitive() {

@@ -37,6 +37,14 @@ public final class OpSingleVal {
   private final boolean caseInsensitive;
   private final JsonNode value;
 
+  /**
+   * Creates a single-value operand.
+   *
+   * @param field the field the operand applies to
+   * @param not whether the operand is negated
+   * @param caseInsensitive whether the comparison is case-insensitive
+   * @param value the value to compare against, as a raw JSON node
+   */
   @JsonCreator
   public OpSingleVal(
       @JsonProperty("field") String field,
@@ -49,28 +57,44 @@ public final class OpSingleVal {
     this.value = value;
   }
 
-  /** The field the operand applies to. */
+  /**
+   * The field the operand applies to.
+   *
+   * @return the field name
+   */
   @JsonProperty("field")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String field() {
     return field;
   }
 
-  /** Whether the operand is negated. */
+  /**
+   * Whether the operand is negated.
+   *
+   * @return {@code true} if the operand is negated
+   */
   @JsonProperty("not")
   @JsonInclude(JsonInclude.Include.NON_DEFAULT)
   public boolean not() {
     return not;
   }
 
-  /** Whether the comparison is case-insensitive. */
+  /**
+   * Whether the comparison is case-insensitive.
+   *
+   * @return {@code true} if the comparison is case-insensitive
+   */
   @JsonProperty("caseInsensitive")
   @JsonInclude(JsonInclude.Include.NON_DEFAULT)
   public boolean caseInsensitive() {
     return caseInsensitive;
   }
 
-  /** The value to compare against, as a raw JSON node. */
+  /**
+   * The value to compare against, as a raw JSON node.
+   *
+   * @return the comparison value, or {@code null} when unset
+   */
   @JsonProperty("value")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public JsonNode value() {

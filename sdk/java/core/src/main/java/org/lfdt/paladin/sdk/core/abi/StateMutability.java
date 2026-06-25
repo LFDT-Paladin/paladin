@@ -39,13 +39,23 @@ public enum StateMutability {
     this.jsonValue = jsonValue;
   }
 
-  /** The JSON token for this state mutability. */
+  /**
+   * The JSON token for this state mutability.
+   *
+   * @return the lower-case JSON token
+   */
   @JsonValue
   public String jsonValue() {
     return jsonValue;
   }
 
-  /** Resolves a state mutability from its JSON token, case-insensitively. */
+  /**
+   * Resolves a state mutability from its JSON token, case-insensitively.
+   *
+   * @param s the JSON token to resolve
+   * @return the matching state mutability
+   * @throws IllegalArgumentException if {@code s} is null or not a known state mutability
+   */
   @JsonCreator
   public static StateMutability fromJson(String s) {
     if (s != null) {

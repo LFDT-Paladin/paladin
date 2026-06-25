@@ -53,6 +53,8 @@ public final class PaladinObjectMapper {
   /**
    * Returns the canonical shared mapper carrying the SDK-wide defaults. Safe for concurrent reads
    * and writes; do not mutate its configuration — use {@link #create()} if you need a variant.
+   *
+   * @return the shared, pre-configured {@link ObjectMapper}
    */
   public static ObjectMapper shared() {
     return SHARED;
@@ -62,6 +64,8 @@ public final class PaladinObjectMapper {
    * Builds a new, independently-configurable {@link ObjectMapper} with the SDK-wide defaults
    * applied. Callers that need to layer on additional modules or features should start here rather
    * than reconfiguring the {@link #shared()} instance.
+   *
+   * @return a new {@link ObjectMapper} with the SDK-wide defaults applied
    */
   public static ObjectMapper create() {
     return new ObjectMapper()

@@ -31,7 +31,13 @@ public final class HexBytes {
     this.value = value;
   }
 
-  /** Wraps a copy of the supplied bytes. */
+  /**
+   * Wraps a copy of the supplied bytes.
+   *
+   * @param bytes the bytes to copy
+   * @return a {@code HexBytes} holding a defensive copy of {@code bytes}
+   * @throws IllegalArgumentException if {@code bytes} is null
+   */
   public static HexBytes wrap(byte[] bytes) {
     if (bytes == null) {
       throw new IllegalArgumentException("bytes must not be null");
@@ -39,32 +45,59 @@ public final class HexBytes {
     return new HexBytes(bytes.clone());
   }
 
-  /** Parses a hex string (with or without {@code 0x}); an empty string decodes to zero bytes. */
+  /**
+   * Parses a hex string (with or without {@code 0x}); an empty string decodes to zero bytes.
+   *
+   * @param s the hex string to parse, with or without a {@code 0x} prefix, in any case
+   * @return the parsed {@code HexBytes}
+   * @throws IllegalArgumentException if {@code s} is not valid hex
+   */
   @JsonCreator
   public static HexBytes fromString(String s) {
     return new HexBytes(Hex.decode(s));
   }
 
-  /** Returns a copy of the underlying bytes. */
+  /**
+   * Returns a copy of the underlying bytes.
+   *
+   * @return a defensive copy of the backing bytes
+   */
   public byte[] toByteArray() {
     return value.clone();
   }
 
-  /** Number of bytes. */
+  /**
+   * Number of bytes.
+   *
+   * @return the length of the byte string
+   */
   public int size() {
     return value.length;
   }
 
+  /**
+   * Reports whether the byte string is empty.
+   *
+   * @return {@code true} if there are no bytes
+   */
   public boolean isEmpty() {
     return value.length == 0;
   }
 
-  /** Lower-case hex without a {@code 0x} prefix. */
+  /**
+   * Lower-case hex without a {@code 0x} prefix.
+   *
+   * @return the bytes as lower-case hex characters (empty string when there are no bytes)
+   */
   public String toHex() {
     return Hex.FORMAT.formatHex(value);
   }
 
-  /** Lower-case hex with a {@code 0x} prefix — the JSON representation. */
+  /**
+   * Lower-case hex with a {@code 0x} prefix — the JSON representation.
+   *
+   * @return the bytes as {@code 0x}-prefixed lower-case hex
+   */
   @JsonValue
   public String to0xHex() {
     return "0x" + Hex.FORMAT.formatHex(value);

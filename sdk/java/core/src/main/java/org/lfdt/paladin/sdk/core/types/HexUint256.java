@@ -43,6 +43,13 @@ public final class HexUint256 {
     this.value = value;
   }
 
+  /**
+   * Wraps a {@link BigInteger} value.
+   *
+   * @param value the unsigned integer value
+   * @return a {@code HexUint256} holding {@code value}
+   * @throws IllegalArgumentException if {@code value} is null
+   */
   public static HexUint256 of(BigInteger value) {
     if (value == null) {
       throw new IllegalArgumentException("value must not be null");
@@ -50,26 +57,51 @@ public final class HexUint256 {
     return new HexUint256(value);
   }
 
+  /**
+   * Wraps a {@code long} value.
+   *
+   * @param value the unsigned integer value
+   * @return a {@code HexUint256} holding {@code value}
+   */
   public static HexUint256 of(long value) {
     return new HexUint256(BigInteger.valueOf(value));
   }
 
-  /** Parses a hex ({@code 0x}-prefixed) or decimal string. */
+  /**
+   * Parses a hex ({@code 0x}-prefixed) or decimal string.
+   *
+   * @param s the hex or decimal string to parse
+   * @return the parsed {@code HexUint256}
+   * @throws IllegalArgumentException if {@code s} is not a valid hex or decimal integer
+   */
   public static HexUint256 fromString(String s) {
     return new HexUint256(Hex.parseBigInteger(s));
   }
 
+  /**
+   * The value as a {@link BigInteger}.
+   *
+   * @return the unsigned integer value
+   */
   public BigInteger bigIntegerValue() {
     return value;
   }
 
-  /** Lower-case, even-length hex of the absolute value without a {@code 0x} prefix. */
+  /**
+   * Lower-case, even-length hex of the absolute value without a {@code 0x} prefix.
+   *
+   * @return the value as even-length lower-case hex characters
+   */
   public String toHex() {
     String hex = value.abs().toString(16);
     return (hex.length() & 1) == 1 ? "0" + hex : hex;
   }
 
-  /** Lower-case, even-length hex with a {@code 0x} prefix — the JSON representation. */
+  /**
+   * Lower-case, even-length hex with a {@code 0x} prefix — the JSON representation.
+   *
+   * @return the value as {@code 0x}-prefixed, even-length lower-case hex
+   */
   public String to0xHex() {
     return "0x" + toHex();
   }

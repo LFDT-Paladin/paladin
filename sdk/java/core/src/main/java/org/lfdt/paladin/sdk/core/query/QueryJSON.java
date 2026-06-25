@@ -91,103 +91,164 @@ public final class QueryJSON {
     return list == null ? List.of() : List.copyOf(list);
   }
 
-  /** Starts an empty query builder. */
+  /**
+   * Starts an empty query builder.
+   *
+   * @return a new builder
+   */
   public static QueryBuilder builder() {
     return new QueryBuilder();
   }
 
-  /** Maximum number of items to return, or {@code null} for the node default. */
+  /**
+   * Maximum number of items to return, or {@code null} for the node default.
+   *
+   * @return the result limit, or {@code null} for the node default
+   */
   @JsonProperty("limit")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Integer limit() {
     return limit;
   }
 
-  /** Sort fields, each optionally suffixed with {@code " DESC"}/{@code " ASC"}. Never null. */
+  /**
+   * Sort fields, each optionally suffixed with {@code " DESC"}/{@code " ASC"}. Never null.
+   *
+   * @return the sort fields (never null, empty when unset)
+   */
   @JsonProperty("sort")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<String> sort() {
     return sort;
   }
 
-  /** Alternative branches combined with logical OR. Never null. */
+  /**
+   * Alternative branches combined with logical OR. Never null.
+   *
+   * @return the OR branches (never null, empty when unset)
+   */
   @JsonProperty("or")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<QueryJSON> or() {
     return or;
   }
 
-  /** Equality operands. Never null. */
+  /**
+   * Equality operands. Never null.
+   *
+   * @return the {@code eq} operands (never null, empty when unset)
+   */
   @JsonProperty("eq")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<OpSingleVal> eq() {
     return eq;
   }
 
-  /** Not-equal operands. Never null. */
+  /**
+   * Not-equal operands. Never null.
+   *
+   * @return the {@code neq} operands (never null, empty when unset)
+   */
   @JsonProperty("neq")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<OpSingleVal> neq() {
     return neq;
   }
 
-  /** Like (pattern match) operands. Never null. */
+  /**
+   * Like (pattern match) operands. Never null.
+   *
+   * @return the {@code like} operands (never null, empty when unset)
+   */
   @JsonProperty("like")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<OpSingleVal> like() {
     return like;
   }
 
-  /** Less-than operands. Never null. */
+  /**
+   * Less-than operands. Never null.
+   *
+   * @return the {@code lt} operands (never null, empty when unset)
+   */
   @JsonProperty("lt")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<OpSingleVal> lt() {
     return lt;
   }
 
-  /** Less-than-or-equal operands. Never null. */
+  /**
+   * Less-than-or-equal operands. Never null.
+   *
+   * @return the {@code lte} operands (never null, empty when unset)
+   */
   @JsonProperty("lte")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<OpSingleVal> lte() {
     return lte;
   }
 
-  /** Greater-than operands. Never null. */
+  /**
+   * Greater-than operands. Never null.
+   *
+   * @return the {@code gt} operands (never null, empty when unset)
+   */
   @JsonProperty("gt")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<OpSingleVal> gt() {
     return gt;
   }
 
-  /** Greater-than-or-equal operands. Never null. */
+  /**
+   * Greater-than-or-equal operands. Never null.
+   *
+   * @return the {@code gte} operands (never null, empty when unset)
+   */
   @JsonProperty("gte")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<OpSingleVal> gte() {
     return gte;
   }
 
-  /** In (membership) operands. Never null. */
+  /**
+   * In (membership) operands. Never null.
+   *
+   * @return the {@code in} operands (never null, empty when unset)
+   */
   @JsonProperty("in")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<OpMultiVal> in() {
     return in;
   }
 
-  /** Not-in operands. Never null. */
+  /**
+   * Not-in operands. Never null.
+   *
+   * @return the {@code nin} operands (never null, empty when unset)
+   */
   @JsonProperty("nin")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<OpMultiVal> nin() {
     return nin;
   }
 
-  /** Is-null / is-not-null operands (the latter carry {@code not: true}). Never null. */
+  /**
+   * Is-null / is-not-null operands (the latter carry {@code not: true}). Never null.
+   *
+   * @return the null-check operands (never null, empty when unset)
+   */
   @JsonProperty("null")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<Op> isNull() {
     return isNull;
   }
 
-  /** Serializes this query to its JSON string form using the SDK-wide mapper. */
+  /**
+   * Serializes this query to its JSON string form using the SDK-wide mapper.
+   *
+   * @return the query as a JSON string
+   * @throws IllegalStateException if serialization fails
+   */
   public String toJson() {
     try {
       return PaladinObjectMapper.shared().writeValueAsString(this);

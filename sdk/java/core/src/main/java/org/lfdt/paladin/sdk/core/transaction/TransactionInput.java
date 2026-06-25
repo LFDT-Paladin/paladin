@@ -114,7 +114,11 @@ public final class TransactionInput {
     this.bytecode = bytecode;
   }
 
-  /** Externally supplied unique identifier; a re-submit with the same key yields 409 Conflict. */
+  /**
+   * Externally supplied unique identifier; a re-submit with the same key yields 409 Conflict.
+   *
+   * @return the idempotency key, or an empty string when unset
+   */
   @JsonProperty("idempotencyKey")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String idempotencyKey() {
@@ -124,6 +128,8 @@ public final class TransactionInput {
   /**
    * Public (straight to the base ledger) or private (masked through a domain), or {@code null} if
    * unset.
+   *
+   * @return the transaction type, or {@code null} if unset
    */
   @JsonProperty("type")
   @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -134,6 +140,8 @@ public final class TransactionInput {
   /**
    * Domain name; required only for private deploy transactions (inferred from {@code to} for
    * invoke).
+   *
+   * @return the domain name, or an empty string when unset
    */
   @JsonProperty("domain")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
@@ -144,6 +152,8 @@ public final class TransactionInput {
   /**
    * Function name; inferred from the ABI if not supplied, then resolved to a full signature and
    * stored.
+   *
+   * @return the function name, or an empty string when unset
    */
   @JsonProperty("function")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
@@ -151,84 +161,132 @@ public final class TransactionInput {
     return function;
   }
 
-  /** Reference to a stored ABI; calculated and stored for you if not supplied. */
+  /**
+   * Reference to a stored ABI; calculated and stored for you if not supplied.
+   *
+   * @return the ABI reference, or {@code null} when unset
+   */
   @JsonProperty("abiReference")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Bytes32 abiReference() {
     return abiReference;
   }
 
-  /** Locator for a local signing identity used to submit this transaction. */
+  /**
+   * Locator for a local signing identity used to submit this transaction.
+   *
+   * @return the signing identity locator, or an empty string when unset
+   */
   @JsonProperty("from")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String from() {
     return from;
   }
 
-  /** Target contract address, or {@code null} for a deploy. */
+  /**
+   * Target contract address, or {@code null} for a deploy.
+   *
+   * @return the target contract address, or {@code null} for a deploy
+   */
   @JsonProperty("to")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public EthAddress to() {
     return to;
   }
 
-  /** Pre-encoded call inputs — an array (with or without the function selector) or an object. */
+  /**
+   * Pre-encoded call inputs — an array (with or without the function selector) or an object.
+   *
+   * @return the call inputs, or {@code null} when unset
+   */
   @JsonProperty("data")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public JsonNode data() {
     return data;
   }
 
-  /** Gas limit, or {@code null} to let the node estimate. */
+  /**
+   * Gas limit, or {@code null} to let the node estimate.
+   *
+   * @return the gas limit, or {@code null} to let the node estimate
+   */
   @JsonProperty("gas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint64 gas() {
     return gas;
   }
 
-  /** Native value to transfer with the transaction, or {@code null} for none. */
+  /**
+   * Native value to transfer with the transaction, or {@code null} for none.
+   *
+   * @return the native value to transfer, or {@code null} for none
+   */
   @JsonProperty("value")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 value() {
     return value;
   }
 
-  /** EIP-1559 max priority fee per gas; supplying it fixes gas pricing for this transaction. */
+  /**
+   * EIP-1559 max priority fee per gas; supplying it fixes gas pricing for this transaction.
+   *
+   * @return the max priority fee per gas, or {@code null} when unset
+   */
   @JsonProperty("maxPriorityFeePerGas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 maxPriorityFeePerGas() {
     return maxPriorityFeePerGas;
   }
 
-  /** EIP-1559 max fee per gas; supplying it fixes gas pricing for this transaction. */
+  /**
+   * EIP-1559 max fee per gas; supplying it fixes gas pricing for this transaction.
+   *
+   * @return the max fee per gas, or {@code null} when unset
+   */
   @JsonProperty("maxFeePerGas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 maxFeePerGas() {
     return maxFeePerGas;
   }
 
-  /** Transactions that must be mined (or deleted) before this one submits. Never null. */
+  /**
+   * Transactions that must be mined (or deleted) before this one submits. Never null.
+   *
+   * @return the dependency transaction ids (never null, empty when there are none)
+   */
   @JsonProperty("dependsOn")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<UUID> dependsOn() {
     return dependsOn;
   }
 
-  /** Inline ABI; required if {@link #abiReference()} is not supplied. Never null. */
+  /**
+   * Inline ABI; required if {@link #abiReference()} is not supplied. Never null.
+   *
+   * @return the inline ABI entries (never null, empty when there are none)
+   */
   @JsonProperty("abi")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<AbiEntry> abi() {
     return abi;
   }
 
-  /** Deploy bytecode, prepended to the encoded data inputs; {@code null} for an invoke. */
+  /**
+   * Deploy bytecode, prepended to the encoded data inputs; {@code null} for an invoke.
+   *
+   * @return the deploy bytecode, or {@code null} for an invoke
+   */
   @JsonProperty("bytecode")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexBytes bytecode() {
     return bytecode;
   }
 
-  /** Starts an empty builder. */
+  /**
+   * Starts an empty builder.
+   *
+   * @return a new builder
+   */
   public static Builder builder() {
     return new Builder();
   }
@@ -309,95 +367,198 @@ public final class TransactionInput {
 
     private Builder() {}
 
+    /**
+     * Sets the idempotency key.
+     *
+     * @param idempotencyKey the externally supplied unique identifier
+     * @return this builder
+     */
     public Builder idempotencyKey(String idempotencyKey) {
       this.idempotencyKey = idempotencyKey;
       return this;
     }
 
+    /**
+     * Sets the transaction type.
+     *
+     * @param type public or private
+     * @return this builder
+     */
     public Builder type(TransactionType type) {
       this.type = type;
       return this;
     }
 
+    /**
+     * Sets the domain name.
+     *
+     * @param domain the domain name (private deploys only)
+     * @return this builder
+     */
     public Builder domain(String domain) {
       this.domain = domain;
       return this;
     }
 
+    /**
+     * Sets the function name.
+     *
+     * @param function the function name or signature
+     * @return this builder
+     */
     public Builder function(String function) {
       this.function = function;
       return this;
     }
 
+    /**
+     * Sets the stored ABI reference.
+     *
+     * @param abiReference reference to a stored ABI
+     * @return this builder
+     */
     public Builder abiReference(Bytes32 abiReference) {
       this.abiReference = abiReference;
       return this;
     }
 
+    /**
+     * Sets the signing identity locator.
+     *
+     * @param from the local signing identity used to submit the transaction
+     * @return this builder
+     */
     public Builder from(String from) {
       this.from = from;
       return this;
     }
 
+    /**
+     * Sets the target contract address.
+     *
+     * @param to the target contract address, or {@code null} for a deploy
+     * @return this builder
+     */
     public Builder to(EthAddress to) {
       this.to = to;
       return this;
     }
 
+    /**
+     * Sets the pre-encoded call inputs.
+     *
+     * @param data the call inputs as an array or object
+     * @return this builder
+     */
     public Builder data(JsonNode data) {
       this.data = data;
       return this;
     }
 
+    /**
+     * Sets the gas limit.
+     *
+     * @param gas the gas limit, or {@code null} to let the node estimate
+     * @return this builder
+     */
     public Builder gas(HexUint64 gas) {
       this.gas = gas;
       return this;
     }
 
+    /**
+     * Sets the native value to transfer.
+     *
+     * @param value the native value to transfer
+     * @return this builder
+     */
     public Builder value(HexUint256 value) {
       this.value = value;
       return this;
     }
 
+    /**
+     * Sets the EIP-1559 max priority fee per gas.
+     *
+     * @param maxPriorityFeePerGas the max priority fee per gas; supplying it fixes gas pricing
+     * @return this builder
+     */
     public Builder maxPriorityFeePerGas(HexUint256 maxPriorityFeePerGas) {
       this.maxPriorityFeePerGas = maxPriorityFeePerGas;
       return this;
     }
 
+    /**
+     * Sets the EIP-1559 max fee per gas.
+     *
+     * @param maxFeePerGas the max fee per gas; supplying it fixes gas pricing
+     * @return this builder
+     */
     public Builder maxFeePerGas(HexUint256 maxFeePerGas) {
       this.maxFeePerGas = maxFeePerGas;
       return this;
     }
 
-    /** Adds a transaction this one depends on. */
+    /**
+     * Adds a transaction this one depends on.
+     *
+     * @param dependency the id of a transaction that must be mined (or deleted) first
+     * @return this builder
+     */
     public Builder dependsOn(UUID dependency) {
       this.dependsOn.add(dependency);
       return this;
     }
 
-    /** Adds transactions this one depends on. */
+    /**
+     * Adds transactions this one depends on.
+     *
+     * @param dependencies the ids of transactions that must be mined (or deleted) first
+     * @return this builder
+     */
     public Builder dependsOn(List<UUID> dependencies) {
       this.dependsOn.addAll(dependencies);
       return this;
     }
 
-    /** Adds an entry to the inline ABI. */
+    /**
+     * Adds an entry to the inline ABI.
+     *
+     * @param entry the ABI entry to add
+     * @return this builder
+     */
     public Builder abiEntry(AbiEntry entry) {
       this.abi.add(entry);
       return this;
     }
 
-    /** Adds entries to the inline ABI. */
+    /**
+     * Adds entries to the inline ABI.
+     *
+     * @param abi the ABI entries to add
+     * @return this builder
+     */
     public Builder abi(List<AbiEntry> abi) {
       this.abi.addAll(abi);
       return this;
     }
 
+    /**
+     * Sets the deploy bytecode.
+     *
+     * @param bytecode the deploy bytecode, or {@code null} for an invoke
+     * @return this builder
+     */
     public Builder bytecode(HexBytes bytecode) {
       this.bytecode = bytecode;
       return this;
     }
 
+    /**
+     * Builds the immutable {@link TransactionInput}.
+     *
+     * @return a new {@link TransactionInput} with the configured values
+     */
     public TransactionInput build() {
       return new TransactionInput(
           idempotencyKey,

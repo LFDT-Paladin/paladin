@@ -48,6 +48,10 @@ public final class HexUint64 {
   /**
    * Wraps a non-negative {@code long}. Use {@link #fromString(String)} for values above {@code
    * Long.MAX_VALUE}.
+   *
+   * @param value the non-negative value to wrap
+   * @return a {@code HexUint64} holding {@code value}
+   * @throws IllegalArgumentException if {@code value} is negative
    */
   public static HexUint64 of(long value) {
     if (value < 0) {
@@ -56,7 +60,14 @@ public final class HexUint64 {
     return new HexUint64(value);
   }
 
-  /** Parses a hex ({@code 0x}-prefixed) or decimal string in the range {@code [0, 2^64 - 1]}. */
+  /**
+   * Parses a hex ({@code 0x}-prefixed) or decimal string in the range {@code [0, 2^64 - 1]}.
+   *
+   * @param s the hex or decimal string to parse
+   * @return the parsed {@code HexUint64}
+   * @throws IllegalArgumentException if {@code s} is not valid or is outside the unsigned 64-bit
+   *     range
+   */
   public static HexUint64 fromString(String s) {
     return fromBigInteger(Hex.parseBigInteger(s), s);
   }
@@ -71,21 +82,36 @@ public final class HexUint64 {
   /**
    * The value as a {@code long} with unsigned bit semantics (may be negative for values {@code >
    * Long.MAX_VALUE}).
+   *
+   * @return the raw {@code long} value with unsigned bit semantics
    */
   public long asUnsignedLong() {
     return value;
   }
 
+  /**
+   * The value as a non-negative {@link BigInteger}.
+   *
+   * @return the unsigned value as a {@code BigInteger}
+   */
   public BigInteger bigIntegerValue() {
     return new BigInteger(Long.toUnsignedString(value));
   }
 
-  /** Lower-case hex without a {@code 0x} prefix. */
+  /**
+   * Lower-case hex without a {@code 0x} prefix.
+   *
+   * @return the value as lower-case hex characters
+   */
   public String toHex() {
     return Long.toUnsignedString(value, 16);
   }
 
-  /** Lower-case hex with a {@code 0x} prefix — the JSON representation. */
+  /**
+   * Lower-case hex with a {@code 0x} prefix — the JSON representation.
+   *
+   * @return the value as {@code 0x}-prefixed lower-case hex
+   */
   public String to0xHex() {
     return "0x" + Long.toUnsignedString(value, 16);
   }

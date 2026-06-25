@@ -51,12 +51,23 @@ public final class Timestamp {
     this.unixNano = unixNano;
   }
 
-  /** Creates a timestamp from a raw nanoseconds-since-epoch value. */
+  /**
+   * Creates a timestamp from a raw nanoseconds-since-epoch value.
+   *
+   * @param unixNano nanoseconds since the Unix epoch
+   * @return the timestamp, or {@link #ZERO} when {@code unixNano} is {@code 0}
+   */
   public static Timestamp ofUnixNano(long unixNano) {
     return unixNano == 0L ? ZERO : new Timestamp(unixNano);
   }
 
-  /** Creates a timestamp from an {@link Instant}. */
+  /**
+   * Creates a timestamp from an {@link Instant}.
+   *
+   * @param instant the instant to convert
+   * @return the equivalent timestamp
+   * @throws ArithmeticException if the instant overflows nanosecond representation
+   */
   public static Timestamp ofInstant(Instant instant) {
     return ofUnixNano(
         Math.addExact(
@@ -66,6 +77,9 @@ public final class Timestamp {
   /**
    * Creates a timestamp from a Unix value whose resolution is inferred from its magnitude: seconds,
    * milliseconds, or nanoseconds (matching {@code pldtypes.TimestampFromUnix}).
+   *
+   * @param unixTime the Unix time in seconds, milliseconds, or nanoseconds (inferred by magnitude)
+   * @return the timestamp
    */
   public static Timestamp fromUnix(long unixTime) {
     long t = unixTime;
@@ -78,7 +92,13 @@ public final class Timestamp {
     return ofUnixNano(t);
   }
 
-  /** Parses an RFC 3339 string or a numeric (seconds/millis/nanos) string. */
+  /**
+   * Parses an RFC 3339 string or a numeric (seconds/millis/nanos) string.
+   *
+   * @param s the RFC 3339 or numeric string to parse
+   * @return the parsed timestamp
+   * @throws IllegalArgumentException if {@code s} is neither a valid RFC 3339 time nor a number
+   */
   public static Timestamp fromString(String s) {
     String t = s.trim();
     try {
@@ -98,16 +118,29 @@ public final class Timestamp {
     }
   }
 
-  /** Nanoseconds since the Unix epoch. */
+  /**
+   * Nanoseconds since the Unix epoch.
+   *
+   * @return the raw nanoseconds-since-epoch value
+   */
   public long unixNano() {
     return unixNano;
   }
 
+  /**
+   * Reports whether this is the zero timestamp (Unix epoch).
+   *
+   * @return {@code true} if the value is {@code 0} nanoseconds since the epoch
+   */
   public boolean isZero() {
     return unixNano == 0L;
   }
 
-  /** Converts to an {@link Instant}. */
+  /**
+   * Converts to an {@link Instant}.
+   *
+   * @return the equivalent {@link Instant}
+   */
   public Instant toInstant() {
     return Instant.ofEpochSecond(
         Math.floorDiv(unixNano, NANOS_PER_SECOND), Math.floorMod(unixNano, NANOS_PER_SECOND));
@@ -115,6 +148,8 @@ public final class Timestamp {
 
   /**
    * RFC 3339 / ISO-8601 UTC representation with nanosecond precision; empty for a zero timestamp.
+   *
+   * @return the RFC 3339 UTC string, or an empty string for the zero timestamp
    */
   public String toRfc3339() {
     return unixNano == 0L ? "" : DateTimeFormatter.ISO_INSTANT.format(toInstant());

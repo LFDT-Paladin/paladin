@@ -56,7 +56,12 @@ public final class QueryBuilder {
 
   QueryBuilder() {}
 
-  /** Sets the maximum number of items to return. */
+  /**
+   * Sets the maximum number of items to return.
+   *
+   * @param limit the maximum number of items to return
+   * @return this builder
+   */
   public QueryBuilder limit(int limit) {
     this.limit = limit;
     return this;
@@ -64,6 +69,9 @@ public final class QueryBuilder {
 
   /**
    * Appends one or more sort fields (each optionally suffixed with {@code " DESC"}/{@code " ASC"}).
+   *
+   * @param fields the sort fields to append
+   * @return this builder
    */
   public QueryBuilder sort(String... fields) {
     for (String field : fields) {
@@ -72,73 +80,147 @@ public final class QueryBuilder {
     return this;
   }
 
-  /** Adds an equality filter ({@code eq}). */
+  /**
+   * Adds an equality filter ({@code eq}).
+   *
+   * @param field the field to filter on
+   * @param value the value to compare against
+   * @param modifiers optional modifiers (e.g. {@link QueryModifier#NOT}, case sensitivity)
+   * @return this builder
+   */
   public QueryBuilder equal(String field, Object value, QueryModifier... modifiers) {
     eq.add(singleVal(field, value, modifiers));
     return this;
   }
 
-  /** Adds a not-equal filter ({@code neq}). */
+  /**
+   * Adds a not-equal filter ({@code neq}).
+   *
+   * @param field the field to filter on
+   * @param value the value to compare against
+   * @param modifiers optional modifiers (e.g. {@link QueryModifier#NOT}, case sensitivity)
+   * @return this builder
+   */
   public QueryBuilder notEqual(String field, Object value, QueryModifier... modifiers) {
     neq.add(singleVal(field, value, modifiers));
     return this;
   }
 
-  /** Adds a greater-than filter ({@code gt}). */
+  /**
+   * Adds a greater-than filter ({@code gt}).
+   *
+   * @param field the field to filter on
+   * @param value the value to compare against
+   * @return this builder
+   */
   public QueryBuilder greaterThan(String field, Object value) {
     gt.add(singleVal(field, value));
     return this;
   }
 
-  /** Adds a greater-than-or-equal filter ({@code gte}). */
+  /**
+   * Adds a greater-than-or-equal filter ({@code gte}).
+   *
+   * @param field the field to filter on
+   * @param value the value to compare against
+   * @return this builder
+   */
   public QueryBuilder greaterThanOrEqual(String field, Object value) {
     gte.add(singleVal(field, value));
     return this;
   }
 
-  /** Adds a less-than filter ({@code lt}). */
+  /**
+   * Adds a less-than filter ({@code lt}).
+   *
+   * @param field the field to filter on
+   * @param value the value to compare against
+   * @return this builder
+   */
   public QueryBuilder lessThan(String field, Object value) {
     lt.add(singleVal(field, value));
     return this;
   }
 
-  /** Adds a less-than-or-equal filter ({@code lte}). */
+  /**
+   * Adds a less-than-or-equal filter ({@code lte}).
+   *
+   * @param field the field to filter on
+   * @param value the value to compare against
+   * @return this builder
+   */
   public QueryBuilder lessThanOrEqual(String field, Object value) {
     lte.add(singleVal(field, value));
     return this;
   }
 
-  /** Adds a membership filter ({@code in}). */
+  /**
+   * Adds a membership filter ({@code in}).
+   *
+   * @param field the field to filter on
+   * @param values the set of values to match against
+   * @param modifiers optional modifiers (e.g. {@link QueryModifier#NOT}, case sensitivity)
+   * @return this builder
+   */
   public QueryBuilder in(String field, List<?> values, QueryModifier... modifiers) {
     in.add(multiVal(field, values, modifiers));
     return this;
   }
 
-  /** Adds a not-in filter ({@code nin}). */
+  /**
+   * Adds a not-in filter ({@code nin}).
+   *
+   * @param field the field to filter on
+   * @param values the set of values to exclude
+   * @param modifiers optional modifiers (e.g. {@link QueryModifier#NOT}, case sensitivity)
+   * @return this builder
+   */
   public QueryBuilder notIn(String field, List<?> values, QueryModifier... modifiers) {
     nin.add(multiVal(field, values, modifiers));
     return this;
   }
 
-  /** Adds an is-null filter. */
+  /**
+   * Adds an is-null filter.
+   *
+   * @param field the field that must be null
+   * @return this builder
+   */
   public QueryBuilder isNull(String field) {
     isNull.add(new Op(field, false, false));
     return this;
   }
 
-  /** Adds an is-not-null filter (a {@code null} operand carrying {@code not: true}). */
+  /**
+   * Adds an is-not-null filter (a {@code null} operand carrying {@code not: true}).
+   *
+   * @param field the field that must not be null
+   * @return this builder
+   */
   public QueryBuilder isNotNull(String field) {
     isNull.add(new Op(field, true, false));
     return this;
   }
 
-  /** Adds a pattern-match filter ({@code like}). */
+  /**
+   * Adds a pattern-match filter ({@code like}).
+   *
+   * @param field the field to filter on
+   * @param value the pattern to match against
+   * @return this builder
+   */
   public QueryBuilder like(String field, Object value) {
     like.add(singleVal(field, value));
     return this;
   }
 
-  /** Adds a negated pattern-match filter (a {@code like} operand carrying {@code not: true}). */
+  /**
+   * Adds a negated pattern-match filter (a {@code like} operand carrying {@code not: true}).
+   *
+   * @param field the field to filter on
+   * @param value the pattern that must not match
+   * @return this builder
+   */
   public QueryBuilder notLike(String field, Object value) {
     like.add(singleVal(field, value, QueryModifier.NOT));
     return this;
@@ -148,6 +230,9 @@ public final class QueryBuilder {
    * Adds OR branches. Each child builder's filter statements become one branch; the children's
    * {@code limit}/{@code sort} are ignored (only the root query paginates), mirroring the Go
    * builder.
+   *
+   * @param branches the child builders whose statements become OR branches
+   * @return this builder
    */
   public QueryBuilder or(QueryBuilder... branches) {
     for (QueryBuilder branch : branches) {
@@ -156,7 +241,11 @@ public final class QueryBuilder {
     return this;
   }
 
-  /** Builds the immutable {@link QueryJSON}. */
+  /**
+   * Builds the immutable {@link QueryJSON}.
+   *
+   * @return a new {@link QueryJSON} with the configured filters, sort, and limit
+   */
   public QueryJSON build() {
     return new QueryJSON(limit, sort, or, eq, neq, like, lt, lte, gt, gte, in, nin, isNull);
   }

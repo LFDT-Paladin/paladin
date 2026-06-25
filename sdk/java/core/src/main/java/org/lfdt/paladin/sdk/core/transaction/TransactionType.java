@@ -35,13 +35,23 @@ public enum TransactionType {
     this.jsonValue = jsonValue;
   }
 
-  /** The JSON token for this transaction type. */
+  /**
+   * The JSON token for this transaction type.
+   *
+   * @return the lower-case JSON token
+   */
   @JsonValue
   public String jsonValue() {
     return jsonValue;
   }
 
-  /** Resolves a transaction type from its JSON token, case-insensitively. */
+  /**
+   * Resolves a transaction type from its JSON token, case-insensitively.
+   *
+   * @param s the JSON token to resolve
+   * @return the matching transaction type
+   * @throws IllegalArgumentException if {@code s} is null or not a known transaction type
+   */
   @JsonCreator
   public static TransactionType fromJson(String s) {
     if (s != null) {

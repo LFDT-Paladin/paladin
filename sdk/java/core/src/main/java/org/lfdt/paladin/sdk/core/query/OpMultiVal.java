@@ -38,6 +38,14 @@ public final class OpMultiVal {
   private final boolean caseInsensitive;
   private final List<JsonNode> values;
 
+  /**
+   * Creates a multi-value operand.
+   *
+   * @param field the field the operand applies to
+   * @param not whether the operand is negated
+   * @param caseInsensitive whether the comparison is case-insensitive
+   * @param values the values to compare against, as raw JSON nodes
+   */
   @JsonCreator
   public OpMultiVal(
       @JsonProperty("field") String field,
@@ -50,28 +58,44 @@ public final class OpMultiVal {
     this.values = values == null ? List.of() : List.copyOf(values);
   }
 
-  /** The field the operand applies to. */
+  /**
+   * The field the operand applies to.
+   *
+   * @return the field name
+   */
   @JsonProperty("field")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String field() {
     return field;
   }
 
-  /** Whether the operand is negated. */
+  /**
+   * Whether the operand is negated.
+   *
+   * @return {@code true} if the operand is negated
+   */
   @JsonProperty("not")
   @JsonInclude(JsonInclude.Include.NON_DEFAULT)
   public boolean not() {
     return not;
   }
 
-  /** Whether the comparison is case-insensitive. */
+  /**
+   * Whether the comparison is case-insensitive.
+   *
+   * @return {@code true} if the comparison is case-insensitive
+   */
   @JsonProperty("caseInsensitive")
   @JsonInclude(JsonInclude.Include.NON_DEFAULT)
   public boolean caseInsensitive() {
     return caseInsensitive;
   }
 
-  /** The set of values to compare against, as raw JSON nodes. Never null. */
+  /**
+   * The set of values to compare against, as raw JSON nodes. Never null.
+   *
+   * @return the comparison values (never null, empty when unset)
+   */
   @JsonProperty("values")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<JsonNode> values() {

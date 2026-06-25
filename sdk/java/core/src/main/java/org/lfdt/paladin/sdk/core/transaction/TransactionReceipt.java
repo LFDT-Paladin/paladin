@@ -99,97 +99,153 @@ public final class TransactionReceipt {
     this.contractAddress = contractAddress;
   }
 
-  /** The transaction ID this receipt belongs to. */
+  /**
+   * The transaction ID this receipt belongs to.
+   *
+   * @return the transaction id, or {@code null} if unset
+   */
   @JsonProperty("id")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public UUID id() {
     return id;
   }
 
-  /** The time this receipt was indexed, or {@code null} if unset. */
+  /**
+   * The time this receipt was indexed, or {@code null} if unset.
+   *
+   * @return the indexed timestamp, or {@code null} if unset
+   */
   @JsonProperty("indexed")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Timestamp indexed() {
     return indexed;
   }
 
-  /** Local ordering sequence, used by receipt listeners. Always present. */
+  /**
+   * Local ordering sequence, used by receipt listeners. Always present.
+   *
+   * @return the local ordering sequence
+   */
   @JsonProperty("sequence")
   public long sequence() {
     return sequence;
   }
 
-  /** Domain name; set only on private-transaction receipts. */
+  /**
+   * Domain name; set only on private-transaction receipts.
+   *
+   * @return the domain name, or an empty string for public-transaction receipts
+   */
   @JsonProperty("domain")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String domain() {
     return domain;
   }
 
-  /** Whether the transaction succeeded. */
+  /**
+   * Whether the transaction succeeded.
+   *
+   * @return {@code true} if the transaction succeeded
+   */
   @JsonProperty("success")
   @JsonInclude(JsonInclude.Include.NON_DEFAULT)
   public boolean success() {
     return success;
   }
 
-  /** Base-ledger transaction hash; set only once finalized on-chain. */
+  /**
+   * Base-ledger transaction hash; set only once finalized on-chain.
+   *
+   * @return the transaction hash, or {@code null} if not yet finalized on-chain
+   */
   @JsonProperty("transactionHash")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Bytes32 transactionHash() {
     return transactionHash;
   }
 
-  /** Block number; set only once finalized on-chain. */
+  /**
+   * Block number; set only once finalized on-chain.
+   *
+   * @return the block number, or {@code null} if not yet finalized on-chain
+   */
   @JsonProperty("blockNumber")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Long blockNumber() {
     return blockNumber;
   }
 
-  /** Index of the transaction within its block; set only once finalized on-chain. */
+  /**
+   * Index of the transaction within its block; set only once finalized on-chain.
+   *
+   * @return the transaction index, or {@code null} if not yet finalized on-chain
+   */
   @JsonProperty("transactionIndex")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Long transactionIndex() {
     return transactionIndex;
   }
 
-  /** Log index of the finalizing event; set only when finalized by a blockchain event. */
+  /**
+   * Log index of the finalizing event; set only when finalized by a blockchain event.
+   *
+   * @return the log index, or {@code null} if not finalized by a blockchain event
+   */
   @JsonProperty("logIndex")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Long logIndex() {
     return logIndex;
   }
 
-  /** Emitting contract of the finalizing event; set only when finalized by a blockchain event. */
+  /**
+   * Emitting contract of the finalizing event; set only when finalized by a blockchain event.
+   *
+   * @return the emitting contract address, or {@code null} if not finalized by a blockchain event
+   */
   @JsonProperty("source")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public EthAddress source() {
     return source;
   }
 
-  /** Detail of why the transaction reverted; non-empty only on failure. */
+  /**
+   * Detail of why the transaction reverted; non-empty only on failure.
+   *
+   * @return the failure message, or an empty string on success
+   */
   @JsonProperty("failureMessage")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String failureMessage() {
     return failureMessage;
   }
 
-  /** Encoded revert data, if available. */
+  /**
+   * Encoded revert data, if available.
+   *
+   * @return the encoded revert data, or {@code null} if unavailable
+   */
   @JsonProperty("revertData")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexBytes revertData() {
     return revertData;
   }
 
-  /** Address of a newly deployed contract; {@code null} when this transaction was an invoke. */
+  /**
+   * Address of a newly deployed contract; {@code null} when this transaction was an invoke.
+   *
+   * @return the deployed contract address, or {@code null} for an invoke
+   */
   @JsonProperty("contractAddress")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public EthAddress contractAddress() {
     return contractAddress;
   }
 
-  /** Starts an empty builder. */
+  /**
+   * Starts an empty builder.
+   *
+   * @return a new builder
+   */
   public static Builder builder() {
     return new Builder();
   }
@@ -261,71 +317,154 @@ public final class TransactionReceipt {
 
     private Builder() {}
 
+    /**
+     * Sets the transaction id this receipt belongs to.
+     *
+     * @param id the transaction id
+     * @return this builder
+     */
     public Builder id(UUID id) {
       this.id = id;
       return this;
     }
 
+    /**
+     * Sets the indexed timestamp.
+     *
+     * @param indexed the time the receipt was indexed
+     * @return this builder
+     */
     public Builder indexed(Timestamp indexed) {
       this.indexed = indexed;
       return this;
     }
 
+    /**
+     * Sets the local ordering sequence.
+     *
+     * @param sequence the local ordering sequence
+     * @return this builder
+     */
     public Builder sequence(long sequence) {
       this.sequence = sequence;
       return this;
     }
 
+    /**
+     * Sets the domain name.
+     *
+     * @param domain the domain name (private-transaction receipts only)
+     * @return this builder
+     */
     public Builder domain(String domain) {
       this.domain = domain;
       return this;
     }
 
+    /**
+     * Sets whether the transaction succeeded.
+     *
+     * @param success {@code true} if the transaction succeeded
+     * @return this builder
+     */
     public Builder success(boolean success) {
       this.success = success;
       return this;
     }
 
+    /**
+     * Sets the base-ledger transaction hash.
+     *
+     * @param transactionHash the on-chain transaction hash
+     * @return this builder
+     */
     public Builder transactionHash(Bytes32 transactionHash) {
       this.transactionHash = transactionHash;
       return this;
     }
 
+    /**
+     * Sets the block number.
+     *
+     * @param blockNumber the on-chain block number
+     * @return this builder
+     */
     public Builder blockNumber(Long blockNumber) {
       this.blockNumber = blockNumber;
       return this;
     }
 
+    /**
+     * Sets the index of the transaction within its block.
+     *
+     * @param transactionIndex the on-chain transaction index
+     * @return this builder
+     */
     public Builder transactionIndex(Long transactionIndex) {
       this.transactionIndex = transactionIndex;
       return this;
     }
 
+    /**
+     * Sets the log index of the finalizing event.
+     *
+     * @param logIndex the finalizing event's log index
+     * @return this builder
+     */
     public Builder logIndex(Long logIndex) {
       this.logIndex = logIndex;
       return this;
     }
 
+    /**
+     * Sets the emitting contract of the finalizing event.
+     *
+     * @param source the finalizing event's emitting contract address
+     * @return this builder
+     */
     public Builder source(EthAddress source) {
       this.source = source;
       return this;
     }
 
+    /**
+     * Sets the failure message.
+     *
+     * @param failureMessage detail of why the transaction reverted
+     * @return this builder
+     */
     public Builder failureMessage(String failureMessage) {
       this.failureMessage = failureMessage;
       return this;
     }
 
+    /**
+     * Sets the encoded revert data.
+     *
+     * @param revertData the encoded revert data
+     * @return this builder
+     */
     public Builder revertData(HexBytes revertData) {
       this.revertData = revertData;
       return this;
     }
 
+    /**
+     * Sets the deployed contract address.
+     *
+     * @param contractAddress the address of a newly deployed contract
+     * @return this builder
+     */
     public Builder contractAddress(EthAddress contractAddress) {
       this.contractAddress = contractAddress;
       return this;
     }
 
+    /**
+     * Builds the immutable {@link TransactionReceipt}.
+     *
+     * @return a new {@link TransactionReceipt} with the configured values
+     */
     public TransactionReceipt build() {
       return new TransactionReceipt(
           id,

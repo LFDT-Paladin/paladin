@@ -34,7 +34,13 @@ public final class EthAddress {
     this.value = value;
   }
 
-  /** Wraps a copy of exactly {@value #SIZE} bytes. */
+  /**
+   * Wraps a copy of exactly {@value #SIZE} bytes.
+   *
+   * @param bytes the {@value #SIZE}-byte address to copy
+   * @return an {@code EthAddress} holding a defensive copy of {@code bytes}
+   * @throws IllegalArgumentException if {@code bytes} is null or not exactly {@value #SIZE} bytes
+   */
   public static EthAddress wrap(byte[] bytes) {
     if (bytes == null || bytes.length != SIZE) {
       throw new IllegalArgumentException(
@@ -46,7 +52,14 @@ public final class EthAddress {
     return new EthAddress(bytes.clone());
   }
 
-  /** Parses a 20-byte address from hex (with or without {@code 0x}). */
+  /**
+   * Parses a 20-byte address from hex (with or without {@code 0x}).
+   *
+   * @param s the hex string to parse, with or without a {@code 0x} prefix, in any case
+   * @return the parsed {@code EthAddress}
+   * @throws IllegalArgumentException if {@code s} is not valid hex or does not decode to exactly
+   *     {@value #SIZE} bytes
+   */
   @JsonCreator
   public static EthAddress fromString(String s) {
     byte[] bytes = Hex.decode(s);
@@ -63,12 +76,20 @@ public final class EthAddress {
     return new EthAddress(bytes);
   }
 
-  /** Returns a copy of the underlying bytes. */
+  /**
+   * Returns a copy of the underlying bytes.
+   *
+   * @return a defensive copy of the {@value #SIZE} backing bytes
+   */
   public byte[] toByteArray() {
     return value.clone();
   }
 
-  /** True if every byte is zero. */
+  /**
+   * Reports whether every byte is zero (the zero address).
+   *
+   * @return {@code true} if all {@value #SIZE} bytes are zero
+   */
   public boolean isZero() {
     for (byte b : value) {
       if (b != 0) {
@@ -78,12 +99,20 @@ public final class EthAddress {
     return true;
   }
 
-  /** Lower-case hex without a {@code 0x} prefix. */
+  /**
+   * Lower-case hex without a {@code 0x} prefix.
+   *
+   * @return the address as lower-case hex characters
+   */
   public String toHex() {
     return Hex.FORMAT.formatHex(value);
   }
 
-  /** Lower-case hex with a {@code 0x} prefix — the JSON representation. */
+  /**
+   * Lower-case hex with a {@code 0x} prefix — the JSON representation.
+   *
+   * @return the address as {@code 0x}-prefixed lower-case hex
+   */
   @JsonValue
   public String to0xHex() {
     return "0x" + Hex.FORMAT.formatHex(value);

@@ -42,13 +42,23 @@ public enum EntryType {
     this.jsonValue = jsonValue;
   }
 
-  /** The JSON token for this entry type. */
+  /**
+   * The JSON token for this entry type.
+   *
+   * @return the lower-case JSON token
+   */
   @JsonValue
   public String jsonValue() {
     return jsonValue;
   }
 
-  /** Resolves an entry type from its JSON token, case-insensitively. */
+  /**
+   * Resolves an entry type from its JSON token, case-insensitively.
+   *
+   * @param s the JSON token to resolve
+   * @return the matching entry type
+   * @throws IllegalArgumentException if {@code s} is null or not a known entry type
+   */
   @JsonCreator
   public static EntryType fromJson(String s) {
     if (s != null) {
