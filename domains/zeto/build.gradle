@@ -13,6 +13,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import org.gradle.api.file.RelativePath
+
 plugins {
     id "de.undercouch.download" version "5.6.0"
 }
@@ -33,10 +35,48 @@ ext {
         "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner",
     ]
 
-    zetoVersion = "v0.2.2"
-    zetoHost = "hyperledger-labs"
     zkpOut = "${projectDir}/zkp"
     toolsOut = "${projectDir}/tools"
+
+    // Each zeto release version: wasm + test proving keys + contracts downloaded into tools/ (distinct archiveFile names),
+    // merged extract under ${zkpOut}/${zkpRoot}. First entry is primary (Paladin default circuits path).
+    //
+    // copyRenamedAbiArtifacts: LFDT-style artifacts layout → flattened *_V1 JSON under internal/zeto/abis and pkg/types/abis.
+    // Primary (hyperledger-labs v0.2.x) uses legacy paths; copySolidity reads those from the extracted tree (no renamed ABI task).
+    zetoVersions = [
+        [
+            id                     : 'v0_2_2',
+            zkpRoot                : 'v0.2.2',
+            wasmUrl                : 'https://github.com/LFDT-Paladin/zeto/releases/download/v0.2.2/zeto-wasm-v0.2.2.tar.gz',
+            wasmFile               : 'zeto-wasm-v0.2.2.tar.gz',
+            provingKeysUrl         : 'https://github.com/LFDT-Paladin/zeto/releases/download/v0.2.2/zeto-test-proving-keys-v0.2.2.tar.gz',
+            provingKeysFile        : 'zeto-test-proving-keys-v0.2.2.tar.gz',
+            contractsUrl           : 'https://github.com/LFDT-Paladin/zeto/releases/download/v0.2.2/zeto-contracts-v0.2.2.tar.gz',
+            contractsFile          : 'zeto-contracts-v0.2.2.tar.gz',
+            copyRenamedAbiArtifacts: false,
+        ],
+        [
+            id                     : 'v0_5_1',
+            zkpRoot                : 'v0.5.1',
+            wasmUrl                : 'https://github.com/LFDT-Paladin/zeto/releases/download/v0.5.1/zeto-wasm.tar.gz',
+            wasmFile               : 'zeto-wasm-v0.5.1-lfdt.tar.gz',
+            provingKeysUrl         : 'https://github.com/LFDT-Paladin/zeto/releases/download/v0.5.1/zeto-test-proving-keys.tar.gz',
+            provingKeysFile        : 'zeto-test-proving-keys-v0.5.1-lfdt.tar.gz',
+            contractsUrl           : 'https://github.com/LFDT-Paladin/zeto/releases/download/v0.5.1/zeto-contracts.tar.gz',
+            contractsFile          : 'zeto-contracts-v0.5.1-lfdt.tar.gz',
+            outputSuffix           : '_V1',
+            copyRenamedAbiArtifacts: true,
+        ],
+    ]
+
+    zetoPrimaryVersionId = zetoVersions[0].id
+    zetoPrimaryZkpRoot = zetoVersions[0].zkpRoot
+    // Same as zetoPrimaryZkpRoot; kept for root build.gradle / examples that key paths by release tag.
+    zetoVersion = zetoPrimaryZkpRoot // sync with domains/integration-test/helpers/zeto_zkp_versions.go ZetoZKArtifactRootLatest when running integration tests
+    zkpVersionRoot = "${zkpOut}/${zetoPrimaryZkpRoot}"
+
+    // Consumable configuration name for a release tree under zkp/<zkpRoot>/ (e.g. zetoArtifacts_v0_2_2).
+    zetoArtifactConfigurationName = { String zkpRoot -> "zetoArtifacts_${zkpRoot.replace('.', '_')}" }
 }
 
 configurations {
@@ -63,6 +103,11 @@ configurations {
         canBeConsumed = true
         canBeResolved = false
     }
+    // Primary release only (default for operator e2e ABI copy); same layout as zetoArtifacts_<tag>.
+    zetoPrimaryArtifacts {
+        canBeConsumed = true
+        canBeResolved = false
+    }
     poseidonArtifacts {
         canBeConsumed = true
         canBeResolved = false
@@ -75,28 +120,25 @@ dependencies {
     coreGo project(path: ":core:go", configuration: "goSource")
 }
 
-task downloadZetoProver(type: Download) {
-    def outname = "zeto-wasm-${zetoVersion}.tar.gz"
-    src "https://github.com/${zetoHost}/zeto/releases/download/${zetoVersion}/${outname}"
-    dest new File(toolsOut, outname)
-    overwrite false
-    onlyIfModified true
-}
-
-task downloadZetoTestProvingKeys(type: Download) {
-    def outname = "zeto-test-proving-keys-${zetoVersion}.tar.gz"
-    src "https://github.com/${zetoHost}/zeto/releases/download/${zetoVersion}/${outname}"
-    dest new File(toolsOut, outname)
-    overwrite false
-    onlyIfModified true
-}
-
-task downloadZetoCompiledContracts(type: Download) {
-    def outname = "zeto-contracts-${zetoVersion}.tar.gz"
-    src "https://github.com/${zetoHost}/zeto/releases/download/${zetoVersion}/${outname}"
-    dest new File(toolsOut, outname)
-    overwrite false
-    onlyIfModified true
+zetoVersions.each { variant ->
+    task "downloadZetoWasm_${variant.id}"(type: Download) {
+        src variant.wasmUrl
+        dest new File(toolsOut, variant.wasmFile)
+        overwrite false
+        onlyIfModified true
+    }
+    task "downloadZetoProvingKeys_${variant.id}"(type: Download) {
+        src variant.provingKeysUrl
+        dest new File(toolsOut, variant.provingKeysFile)
+        overwrite false
+        onlyIfModified true
+    }
+    task "downloadZetoContracts_${variant.id}"(type: Download) {
+        src variant.contractsUrl
+        dest new File(toolsOut, variant.contractsFile)
+        overwrite false
+        onlyIfModified true
+    }
 }
 
 task installPoseidonDependencies(type: Exec) {
@@ -126,6 +168,27 @@ task protoc(type: ProtoCompile, dependsOn: [
     }
 }
 
+// Per-release exports for consumers that target one zkp/<tag>/ tree (operator, etc.).
+zetoVersions.each { variant ->
+    configurations.create(zetoArtifactConfigurationName(variant.zkpRoot)) {
+        canBeConsumed = true
+        canBeResolved = false
+    }
+}
+
+zetoVersions.each { variant ->
+    task "extractZetoZkp_${variant.id}"(type: Copy, dependsOn: [protoc]) {
+        dependsOn tasks.getByName("downloadZetoWasm_${variant.id}")
+        dependsOn tasks.getByName("downloadZetoProvingKeys_${variant.id}")
+        dependsOn tasks.getByName("downloadZetoContracts_${variant.id}")
+
+        from tarTree("${toolsOut}/${variant.wasmFile}")
+        from tarTree("${toolsOut}/${variant.provingKeysFile}")
+        from tarTree("${toolsOut}/${variant.contractsFile}")
+        into "${zkpOut}/${variant.zkpRoot}"
+    }
+}
+
 task copyPoseidonBuildScript(type: Copy, dependsOn: protoc) {
     from file("${projectDir}/scripts/build-poseidon.js")
     into "${toolsOut}/solidity"
@@ -140,23 +203,20 @@ task generatePoseidonArtifacts(type: Exec, dependsOn: [installPoseidonDependenci
     args "build-poseidon.js"
 }
 
-task extractZetoArtifacts(type: Copy, dependsOn: [protoc, downloadZetoProver, downloadZetoTestProvingKeys, downloadZetoCompiledContracts]) {
-    from tarTree("${toolsOut}/zeto-wasm-${zetoVersion}.tar.gz")
-    from tarTree("${toolsOut}/zeto-test-proving-keys-${zetoVersion}.tar.gz")
-    from tarTree("${toolsOut}/zeto-contracts-${zetoVersion}.tar.gz")
-    into zkpOut
+task extractZetoPrimaryZkp {
+    dependsOn tasks.getByName("extractZetoZkp_${zetoPrimaryVersionId}")
 }
 
-task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", extractZetoArtifacts]) {
+task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", extractZetoPrimaryZkp]) {
     inputs.files(configurations.contractCompile)
     from fileTree(configurations.contractCompile.asPath) {
         include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
+        include 'contracts/domains/zeto/ZetoFactoryV1.sol/ZetoFactoryV1.json'
     }
-    from fileTree("${zkpOut}/artifacts/contracts") {
+    from fileTree("${zkpVersionRoot}/artifacts/contracts") {
         include 'lib/interfaces/izeto.sol/IZeto.json'
         include 'lib/interfaces/izeto_kyc.sol/IZetoKyc.json'
         include 'lib/interfaces/izeto_lockable.sol/IZetoLockable.json'
-        include 'lib/interfaces/izeto_kyc.sol/IZetoKyc.json'
         include 'lib/interfaces/zeto_fungible_initializable.sol/IZetoFungibleInitializable.json'
         include 'lib/interfaces/zeto_nf_initializable.sol/IZetoNonFungibleInitializable.json'
     }
@@ -167,12 +227,69 @@ task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", extractZe
     includeEmptyDirs = false
 }
 
+// Paladin ZetoFactory / ZetoFactoryV1 wrappers (go:embed factoryabis/*); not checked into git.
+task copyFactoryAbis(type: Copy, dependsOn: [":solidity:compile"]) {
+    inputs.files(configurations.contractCompile)
+    from fileTree(configurations.contractCompile.asPath) {
+        include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
+        include 'contracts/domains/zeto/ZetoFactoryV1.sol/ZetoFactoryV1.json'
+    }
+    into 'internal/zeto/factoryabis'
+    eachFile { path = name }
+    includeEmptyDirs = false
+}
+
+// ABI JSON from release layouts that differ from primary (e.g. LFDT v0.5.x): flattened JSON with outputSuffix for Go embeds.
+zetoVersions.findAll { it.copyRenamedAbiArtifacts }.each { variant ->
+    task "copyZetoSolidityAbi_${variant.id}"(type: Copy, dependsOn: [protoc]) {
+        dependsOn tasks.getByName("downloadZetoContracts_${variant.id}")
+        duplicatesStrategy = DuplicatesStrategy.FAIL
+        into "${projectDir}/internal/zeto/abis"
+        includeEmptyDirs = false
+        def suf = variant.outputSuffix
+
+        from(tarTree("${toolsOut}/${variant.contractsFile}")) {
+            include 'artifacts/contracts/lib/interfaces/IZeto.sol/IZeto.json'
+            include 'artifacts/contracts/lib/interfaces/IZetoKyc.sol/IZetoKyc.json'
+            include 'artifacts/contracts/lib/interfaces/IZetoLockable.sol/IZetoLockable.json'
+            include 'artifacts/contracts/lib/interfaces/IZetoLockableCapability.sol/IZetoLockableCapability.json'
+        }
+        eachFile { details ->
+            switch (details.name) {
+                case 'IZeto.json':
+                    details.relativePath = new RelativePath(true, "IZeto${suf}.json")
+                    break
+                case 'IZetoKyc.json':
+                    details.relativePath = new RelativePath(true, "IZetoKyc${suf}.json")
+                    break
+                case 'IZetoLockable.json':
+                    details.relativePath = new RelativePath(true, "IZetoLockable${suf}.json")
+                    break
+                case 'IZetoLockableCapability.json':
+                    details.relativePath = new RelativePath(true, "IZetoLockableCapability${suf}.json")
+                    break
+                default:
+                    throw new GradleException("Unexpected file in zeto Solidity ABI copy: ${details.name}")
+            }
+        }
+    }
+}
+
+task copyZetoSolidityAbis {
+    dependsOn zetoVersions.findAll { it.copyRenamedAbiArtifacts }.collect { tasks.getByName("copyZetoSolidityAbi_${it.id}") }
+}
+
+task extractZetoZkpVariants {
+    dependsOn zetoVersions.collect { tasks.getByName("extractZetoZkp_${it.id}") }
+}
+
 task copyPkgSolidity(type: Copy) {
     inputs.files(configurations.contractCompile)
 
     into 'pkg/types/abis'
     from fileTree(configurations.contractCompile.asPath) {
         include 'contracts/domains/interfaces/IZetoFungible.sol/IZetoFungible.json'
+        include 'contracts/domains/interfaces/IZetoFungible_V1.sol/IZetoFungibleV1.json'
         include 'contracts/domains/interfaces/IZetoNonFungible.sol/IZetoNonFungible.json'
     }
 
@@ -184,8 +301,10 @@ task copyPkgSolidity(type: Copy) {
 task unitTests(type: Exec, dependsOn: [
         protoc,
         ":core:go:makeMocks",
-        downloadZetoCompiledContracts,
+        extractZetoZkpVariants,
         copySolidity,
+        copyFactoryAbis,
+        copyZetoSolidityAbis,
         copyPkgSolidity,
         ":domains:integration-test:copySolidity" // TODO: find a better way to share this
     ]) {
@@ -221,7 +340,14 @@ task test {
     finalizedBy checkCoverage
 }
 
-task buildGo(type: GoLib, dependsOn: [":toolkit:go:protoc", copySolidity, copyPkgSolidity]) {
+task buildGo(type: GoLib, dependsOn: [
+        ":toolkit:go:protoc",
+        copySolidity,
+        copyFactoryAbis,
+        copyZetoSolidityAbis,
+        copyPkgSolidity,
+        // copyZetoPkgSolidityAbis,
+    ]) {
     inputs.files(configurations.coreGo)
     inputs.files(configurations.toolkitGo)
     baseName "zeto"
@@ -236,6 +362,7 @@ task build {
 task clean(type: Delete) {
     delete 'coverage'
     delete 'internal/zeto/abis'
+    delete 'internal/zeto/factoryabis'
     delete 'pkg/types/abis'
     delete zkpOut
     delete toolsOut
@@ -246,7 +373,13 @@ task assemble {
 }
 
 dependencies {
-    goSource files(goFiles, copySolidity, copyPkgSolidity)
-    zetoArtifacts files(extractZetoArtifacts)
+    goSource files(goFiles, copySolidity, copyFactoryAbis, copyZetoSolidityAbis, copyPkgSolidity)
+    // All release trees (e.g. sdk/typescript). Each root is zkp/<tag>/ — use includes like artifacts/contracts/**/*.json.
+    zetoArtifacts files(zetoVersions.collect { tasks.named("extractZetoZkp_${it.id}") })
+    // Primary release only.
+    zetoPrimaryArtifacts files(tasks.named("extractZetoZkp_${zetoPrimaryVersionId}"))
+    zetoVersions.each { variant ->
+        add(zetoArtifactConfigurationName(variant.zkpRoot), files(tasks.named("extractZetoZkp_${variant.id}")))
+    }
     poseidonArtifacts files(generatePoseidonArtifacts)
 }

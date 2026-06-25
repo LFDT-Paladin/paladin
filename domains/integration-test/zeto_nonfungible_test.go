@@ -17,16 +17,28 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func TestZetoNonFungibleSuite(t *testing.T) {
-	contractsFile = "./zeto/config-for-deploy-non-fungible.yaml"
-	suite.Run(t, new(nonFungibleTestSuiteHelper))
+func TestNonFungibleZetoSuite(t *testing.T) {
+	for _, root := range helpers.ZetoZKArtifactRootsForTestRun() {
+		root := root
+		t.Run(root, func(t *testing.T) {
+			if !helpers.ZetoZKArtifactsRootPresent(root) {
+				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
+			}
+			suite.Run(t, &nonFungibleTestSuiteHelper{
+				zetoDomainTestSuite: zetoDomainTestSuite{
+					zkpArtifactRoot: root,
+					contractsFile:   "./zeto/config-for-deploy-non-fungible.yaml",
+				},
+			})
+		})
+	}
 }
 
 type nonFungibleTestSuiteHelper struct {
 	zetoDomainTestSuite
 }
 
-func (s *nonFungibleTestSuiteHelper) TestZeto_NfAnon() {
+func (s *nonFungibleTestSuiteHelper) Test_Zeto_NfAnon() {
 	s.testZeto(s.T(), constants.TOKEN_NF_ANON, false)
 }
 

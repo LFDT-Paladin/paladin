@@ -1,0 +1,141 @@
+# AnonNullifier-only deploy config for TestZetoDualVersionSuite (two Paladin domain instances, one testbed).
+# Each variant is deployed via helpers.DeployZetoContractsDualVariant with the matching zkp root.
+variants:
+  v0_2_2:
+    contracts:
+      factory:
+        abiAndBytecode:
+          path: ./helpers/abis/ZetoFactory.json
+      implementations:
+        - name: Groth16Verifier_Deposit
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_Deposit.json
+        - name: Groth16Verifier_Withdraw
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_Withdraw.json
+        - name: Groth16Verifier_WithdrawBatch
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_WithdrawBatch.json
+        - name: PoseidonUnit2L
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Poseidon2.json
+        - name: PoseidonUnit3L
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Poseidon3.json
+        - name: SmtLib
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/SmtLib.json
+        - name: Groth16Verifier_WithdrawNullifier
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_WithdrawNullifier.json
+        - name: Groth16Verifier_WithdrawNullifierBatch
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_WithdrawNullifierBatch.json
+        - name: Groth16Verifier_AnonNullifierTransfer
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierTransfer.json
+        - name: Groth16Verifier_AnonNullifierTransferBatch
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierTransferBatch.json
+        - name: Groth16Verifier_AnonNullifierTransferLocked
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierTransferLocked.json
+        - name: Groth16Verifier_AnonNullifierTransferLockedBatch
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_AnonNullifierTransferLockedBatch.json
+        - name: Zeto_AnonNullifier
+          verifier: Groth16Verifier_AnonNullifierTransfer
+          batchVerifier: Groth16Verifier_AnonNullifierTransferBatch
+          depositVerifier: Groth16Verifier_Deposit
+          withdrawVerifier: Groth16Verifier_WithdrawNullifier
+          batchWithdrawVerifier: Groth16Verifier_WithdrawNullifierBatch
+          lockVerifier: Groth16Verifier_AnonNullifierTransferLocked
+          batchLockVerifier: Groth16Verifier_AnonNullifierTransferLockedBatch
+          circuits:
+            deposit:
+              name: deposit
+            withdraw:
+              name: withdraw_nullifier
+              usesNullifiers: true
+              fungible: true
+            transfer:
+              name: anon_nullifier_transfer
+              usesNullifiers: true
+              fungible: true
+            transferLocked:
+              name: anon_nullifier_transferLocked
+              usesNullifiers: true
+              fungible: true
+          cloneable: true
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.2.2/Zeto_AnonNullifier.json
+  v1:
+    contracts:
+      factory:
+        abiAndBytecode:
+          path: ./helpers/abis/ZetoFactoryV1.json
+      implementations:
+        - name: Groth16Verifier_Deposit
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Groth16Verifier_Deposit.json
+        - name: Groth16Verifier_Withdraw
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Groth16Verifier_Withdraw.json
+        - name: Groth16Verifier_WithdrawBatch
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Groth16Verifier_WithdrawBatch.json
+        - name: PoseidonUnit2L
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Poseidon2.json
+        - name: PoseidonUnit3L
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Poseidon3.json
+        - name: SmtLib
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/SmtLib.json
+        - name: ZetoLockableLib
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/ZetoLockableLib.json
+        - name: Groth16Verifier_WithdrawNullifier
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Groth16Verifier_WithdrawNullifier.json
+        - name: Groth16Verifier_WithdrawNullifierBatch
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Groth16Verifier_WithdrawNullifierBatch.json
+        - name: Groth16Verifier_AnonNullifierTransfer
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Groth16Verifier_AnonNullifierTransfer.json
+        - name: Groth16Verifier_AnonNullifierTransferBatch
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Groth16Verifier_AnonNullifierTransferBatch.json
+        - name: Groth16Verifier_Anon
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Groth16Verifier_Anon.json
+        - name: Groth16Verifier_AnonBatch
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Groth16Verifier_AnonBatch.json
+        - name: Zeto_AnonNullifier
+          verifier: Groth16Verifier_AnonNullifierTransfer
+          batchVerifier: Groth16Verifier_AnonNullifierTransferBatch
+          depositVerifier: Groth16Verifier_Deposit
+          withdrawVerifier: Groth16Verifier_WithdrawNullifier
+          batchWithdrawVerifier: Groth16Verifier_WithdrawNullifierBatch
+          lockVerifier: Groth16Verifier_Anon
+          batchLockVerifier: Groth16Verifier_AnonBatch
+          circuits:
+            deposit:
+              name: deposit
+            withdraw:
+              name: withdraw_nullifier
+              usesNullifiers: true
+              fungible: true
+            transfer:
+              name: anon_nullifier_transfer
+              usesNullifiers: true
+              fungible: true
+            transferLocked:
+              name: anon
+              fungible: true
+          cloneable: true
+          abiAndBytecode:
+            path: ./helpers/abis/zkp/v0.5.1/Zeto_AnonNullifier.json

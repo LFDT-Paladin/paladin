@@ -12,11 +12,10 @@
   "devDependencies": {
     "@iden3/contracts": "git+https://github.com/kaleido-io/contracts.git#keccak256",
     "@iden3/js-merkletree": "file://./js-merkletree",
-    "@lfdecentralizedtrust/zeto-contracts": "v0.2.2",
     "@nomicfoundation/hardhat-network-helpers": "^1.0.10",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "@openzeppelin/contracts": "^5.1.0",
-    "@openzeppelin/contracts-upgradeable": "^5.1.0",
+    "@openzeppelin/contracts": "^5.4.0",
+    "@openzeppelin/contracts-upgradeable": "^5.4.0",
     "@openzeppelin/hardhat-upgrades": "^3.2.1",
     "@typechain/hardhat": "^9.1.0",
     "@types/chai": "^4.3.11",
@@ -25,6 +24,8 @@
     "chai": "^4.2.0",
     "ethers": "^6.13.1",
     "hardhat": "^2.19.4",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "zeto-contracts-0.2.2": "npm:@lfdecentralizedtrust/zeto-contracts@0.2.2",
+    "zeto-contracts-0.5.1": "npm:@lfdecentralizedtrust/zeto-contracts@0.5.1"
   }
 }

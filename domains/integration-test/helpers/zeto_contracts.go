@@ -20,6 +20,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/go-resty/resty/v2"
@@ -82,6 +83,8 @@ type zetoDomainContract struct {
 	BatchWithdrawVerifier string                  `yaml:"batchWithdrawVerifier"`
 	LockVerifier          string                  `yaml:"lockVerifier"`
 	BatchLockVerifier     string                  `yaml:"batchLockVerifier"`
+	BurnVerifier          string                  `yaml:"burnVerifier,omitempty"`
+	BatchBurnVerifier     string                  `yaml:"batchBurnVerifier,omitempty"`
 	Circuits              *zetosignerapi.Circuits `yaml:"circuits"`
 	AbiAndBytecode        abiAndBytecode          `yaml:"abiAndBytecode"`
 	Libraries             []string                `yaml:"libraries"`
@@ -114,7 +117,61 @@ type verifiersInfo struct {
 	BatchBurnVerifier     string `json:"batchBurnVerifier"`
 }
 
-func DeployZetoContracts(t *testing.T, hdWalletSeed *testbed.UTInitFunction, configFile string, controller string) *ZetoDomainContracts {
+// Zeto dual-variant deploy keys (config-for-deploy-anon-nullifier-dual.yaml).
+const (
+	ZetoDualDeployVariantV0 = "v0_2_2"
+	ZetoDualDeployVariantV1 = "v1"
+)
+
+type zetoDualDeployConfig struct {
+	Variants map[string]zetoDualDeployVariant `yaml:"variants"`
+}
+
+type zetoDualDeployVariant struct {
+	Contracts zetoDomainContracts `yaml:"contracts"`
+}
+
+func DeployZetoContracts(t *testing.T, hdWalletSeed *testbed.UTInitFunction, configFile string, controller string, zkpArtifactRoot string) *ZetoDomainContracts {
+	config, err := loadZetoDomainConfig(configFile)
+	require.NoError(t, err)
+	return deployZetoContractsFromConfig(t, hdWalletSeed, config, controller, zkpArtifactRoot)
+}
+
+// DeployZetoContractsDualVariant deploys one variant from config-for-deploy-anon-nullifier-dual.yaml.
+func DeployZetoContractsDualVariant(t *testing.T, hdWalletSeed *testbed.UTInitFunction, dualConfigFile, variant, controller, zkpArtifactRoot string) *ZetoDomainContracts {
+	dual, err := loadZetoDualDeployConfig(dualConfigFile)
+	require.NoError(t, err)
+	v, ok := dual.Variants[variant]
+	require.True(t, ok, "unknown dual deploy variant %q", variant)
+	config := &ZetoDomainConfig{DomainContracts: v.Contracts}
+	return deployZetoContractsFromConfig(t, hdWalletSeed, config, controller, zkpArtifactRoot)
+}
+
+func loadZetoDomainConfig(configFile string) (*ZetoDomainConfig, error) {
+	testZetoConfigYaml, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, err
+	}
+	var config ZetoDomainConfig
+	if err := yaml.Unmarshal(testZetoConfigYaml, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+func loadZetoDualDeployConfig(dualConfigFile string) (*zetoDualDeployConfig, error) {
+	raw, err := os.ReadFile(dualConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	var dual zetoDualDeployConfig
+	if err := yaml.Unmarshal(raw, &dual); err != nil {
+		return nil, err
+	}
+	return &dual, nil
+}
+
+func deployZetoContractsFromConfig(t *testing.T, hdWalletSeed *testbed.UTInitFunction, config *ZetoDomainConfig, controller, zkpArtifactRoot string) *ZetoDomainContracts {
 	ctx := context.Background()
 	log.L(ctx).Infof("Deploy Zeto Contracts")
 
@@ -124,19 +181,26 @@ func DeployZetoContracts(t *testing.T, hdWalletSeed *testbed.UTInitFunction, con
 	defer done()
 	rpc := rpcclient.WrapRestyClient(resty.New().SetBaseURL(httpURL))
 
-	var config ZetoDomainConfig
-	testZetoConfigYaml, err := os.ReadFile(configFile)
-	require.NoError(t, err)
-	err = yaml.Unmarshal(testZetoConfigYaml, &config)
-	require.NoError(t, err)
+	zkpRoot := strings.TrimSpace(zkpArtifactRoot)
+	if zkpRoot == "" {
+		zkpRoot = EffectiveZetoZKArtifactRoot()
+	}
+	rewriteZetoDeployAbiPaths(config, zkpRoot)
 
-	deployedContracts, err := deployDomainContracts(ctx, rpc, controller, &config)
+	deployedContracts, err := deployDomainContracts(ctx, rpc, controller, config, zkpRoot)
 	require.NoError(t, err)
 
 	err = configureFactoryContract(ctx, tb, controller, deployedContracts)
 	require.NoError(t, err)
 
 	return deployedContracts
+}
+
+func rewriteZetoDeployAbiPaths(config *ZetoDomainConfig, zkpRoot string) {
+	config.DomainContracts.Factory.AbiAndBytecode.Path = ResolveZetoImplementationAbiPath(config.DomainContracts.Factory.AbiAndBytecode.Path, zkpRoot)
+	for i := range config.DomainContracts.Implementations {
+		config.DomainContracts.Implementations[i].AbiAndBytecode.Path = ResolveZetoImplementationAbiPath(config.DomainContracts.Implementations[i].AbiAndBytecode.Path, zkpRoot)
+	}
 }
 
 func PrepareZetoConfig(t *testing.T, domainContracts *ZetoDomainContracts, zkpDir string) *zetotypes.DomainFactoryConfig {
@@ -168,7 +232,7 @@ func newZetoDomainContracts() *ZetoDomainContracts {
 	}
 }
 
-func deployDomainContracts(ctx context.Context, rpc rpcclient.Client, deployer string, config *ZetoDomainConfig) (*ZetoDomainContracts, error) {
+func deployDomainContracts(ctx context.Context, rpc rpcclient.Client, deployer string, config *ZetoDomainConfig, zkpRoot string) (*ZetoDomainContracts, error) {
 	if len(config.DomainContracts.Implementations) == 0 {
 		return nil, fmt.Errorf("no implementations specified for factory contract")
 	}
@@ -178,37 +242,48 @@ func deployDomainContracts(ctx context.Context, rpc rpcclient.Client, deployer s
 	cloneableContracts := findCloneableContracts(config)
 
 	// deploy the implementation contracts
-	deployedContracts, deployedContractAbis, err := deployImplementations(ctx, rpc, deployer, config.DomainContracts.Implementations)
+	deployedContracts, deployedContractAbis, err := deployImplementations(ctx, rpc, deployer, zkpRoot, config.DomainContracts.Implementations)
 	if err != nil {
 		return nil, err
 	}
 
-	// deploy the factory implementation contract
-	factoryImplAddr, _, err := deployContract(ctx, rpc, deployer, &config.DomainContracts.Factory, deployedContracts)
+	// deploy the factory contract
+	factoryDeployAddr, factoryABI, err := deployContract(ctx, rpc, deployer, zkpRoot, &config.DomainContracts.Factory, deployedContracts)
 	if err != nil {
 		return nil, err
 	}
-	log.L(ctx).Infof("Deployed factory implementation to %s", factoryImplAddr.String())
 
-	// deploy ERC1967Proxy with factory impl and initialize() calldata
-	zetoFactoryABI := solutils.MustParseBuildABI(zetoFactoryJSON)
-	initCalldata, err := zetoFactoryABI.Functions()["initialize"].EncodeCallDataJSON([]byte(`[]`))
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode initialize calldata: %s", err)
-	}
+	var factoryAddr *pldtypes.EthAddress
+	if isZetoFactoryV1Deploy(&config.DomainContracts.Factory) {
+		// V1 factories deploy their own ERC1967 proxy inside deployContract (see
+		// deployZetoFactoryV1WithProxy) and already return the proxy address.
+		factoryAddr = factoryDeployAddr
+		log.L(ctx).Infof("Using ZetoFactoryV1 proxy at %s", factoryAddr.String())
+	} else {
+		// V0 factories return the implementation address, so we wrap it in an
+		// ERC1967Proxy with initialize() calldata.
+		log.L(ctx).Infof("Deployed factory implementation to %s", factoryDeployAddr.String())
 
-	proxyBuild := solutils.MustLoadBuild(erc1967ProxyJSON)
-	proxyParams := fmt.Sprintf(`["%s", "%s"]`, factoryImplAddr.String(), pldtypes.HexBytes(initCalldata))
-	var proxyAddrStr string
-	rpcerr := rpc.CallRPC(ctx, &proxyAddrStr, "testbed_deployBytecode",
-		deployer, proxyBuild.ABI, proxyBuild.Bytecode.String(), pldtypes.RawJSON(proxyParams))
-	if rpcerr != nil {
-		return nil, fmt.Errorf("failed to deploy factory proxy: %s", rpcerr)
+		zetoFactoryABI := solutils.MustParseBuildABI(zetoFactoryJSON)
+		initCalldata, err := zetoFactoryABI.Functions()["initialize"].EncodeCallDataJSON([]byte(`[]`))
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode initialize calldata: %s", err)
+		}
+
+		proxyBuild := solutils.MustLoadBuild(erc1967ProxyJSON)
+		proxyParams := fmt.Sprintf(`["%s", "%s"]`, factoryDeployAddr.String(), pldtypes.HexBytes(initCalldata))
+		var proxyAddrStr string
+		rpcerr := rpc.CallRPC(ctx, &proxyAddrStr, "testbed_deployBytecode",
+			deployer, proxyBuild.ABI, proxyBuild.Bytecode.String(), pldtypes.RawJSON(proxyParams))
+		if rpcerr != nil {
+			return nil, fmt.Errorf("failed to deploy factory proxy: %s", rpcerr)
+		}
+		factoryAddr = pldtypes.MustEthAddress(proxyAddrStr)
+		log.L(ctx).Infof("Deployed factory proxy to %s", factoryAddr.String())
 	}
-	factoryAddr := pldtypes.MustEthAddress(proxyAddrStr)
-	log.L(ctx).Infof("Deployed factory proxy to %s", factoryAddr.String())
 
 	ctrs := newZetoDomainContracts()
+	ctrs.factoryAbi = factoryABI
 	ctrs.FactoryAddress = factoryAddr
 	ctrs.deployedContracts = deployedContracts
 	ctrs.DeployedContractAbis = deployedContractAbis
@@ -229,17 +304,19 @@ func findCloneableContracts(config *ZetoDomainConfig) map[string]cloneableContra
 				batchWithdrawVerifier: contract.BatchWithdrawVerifier,
 				lockVerifier:          contract.LockVerifier,
 				batchLockVerifier:     contract.BatchLockVerifier,
+				burnVerifier:          contract.BurnVerifier,
+				batchBurnVerifier:     contract.BatchBurnVerifier,
 			}
 		}
 	}
 	return cloneableContracts
 }
 
-func deployImplementations(ctx context.Context, rpc rpcclient.Client, deployer string, contracts []zetoDomainContract) (map[string]*pldtypes.EthAddress, map[string]abi.ABI, error) {
+func deployImplementations(ctx context.Context, rpc rpcclient.Client, deployer, zkpRoot string, contracts []zetoDomainContract) (map[string]*pldtypes.EthAddress, map[string]abi.ABI, error) {
 	deployedContracts := make(map[string]*pldtypes.EthAddress)
 	deployedContractAbis := make(map[string]abi.ABI)
 	for _, contract := range contracts {
-		addr, abi, err := deployContract(ctx, rpc, deployer, &contract, deployedContracts)
+		addr, abi, err := deployContract(ctx, rpc, deployer, zkpRoot, &contract, deployedContracts)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -251,14 +328,16 @@ func deployImplementations(ctx context.Context, rpc rpcclient.Client, deployer s
 	return deployedContracts, deployedContractAbis, nil
 }
 
-func deployContract(ctx context.Context, rpc rpcclient.Client, deployer string, contract *zetoDomainContract, deployedContracts map[string]*pldtypes.EthAddress) (*pldtypes.EthAddress, abi.ABI, error) {
+func deployContract(ctx context.Context, rpc rpcclient.Client, deployer, zkpRoot string, contract *zetoDomainContract, deployedContracts map[string]*pldtypes.EthAddress) (*pldtypes.EthAddress, abi.ABI, error) {
 	if contract.AbiAndBytecode.Path == "" {
 		return nil, nil, fmt.Errorf("no path or JSON specified for the abi and bytecode for contract %s", contract.Name)
 	}
-	// deploy the contract
 	build, err := getContractSpec(contract, deployedContracts)
 	if err != nil {
 		return nil, nil, err
+	}
+	if isZetoFactoryV1Deploy(contract) {
+		return deployZetoFactoryV1WithProxy(ctx, rpc, deployer, build)
 	}
 	addr, err := deployBytecode(ctx, rpc, deployer, build)
 	if err != nil {
@@ -335,7 +414,7 @@ func registerImpl(ctx context.Context, name string, domainContracts *ZetoDomainC
 	}
 	params.Implementation.Verifiers.Verifier = verifierAddr.String()
 	if params.Implementation.Verifiers.Verifier == "" {
-		return nil
+		return fmt.Errorf("resolved verifier address for %s is empty", verifierName)
 	}
 
 	if batchVerifierName != "" {
@@ -400,6 +479,16 @@ func registerImpl(ctx context.Context, name string, domainContracts *ZetoDomainC
 			return fmt.Errorf("batch lock verifier contract not found among the deployed contracts")
 		}
 		params.Implementation.Verifiers.BatchBurnVerifier = batchBurnVerifierAddr.String()
+	}
+
+	// Match zeto/solidity/scripts/tokens/Zeto_Anon.ts (and Hardhat tests): non-burnable tokens still pass explicit
+	// zero addresses for burn verifiers so IZetoInitializable.VerifiersInfo matches the factory ABI tuple.
+	const zeroVerifierAddress = "0x0000000000000000000000000000000000000000"
+	if params.Implementation.Verifiers.BurnVerifier == "" {
+		params.Implementation.Verifiers.BurnVerifier = zeroVerifierAddress
+	}
+	if params.Implementation.Verifiers.BatchBurnVerifier == "" {
+		params.Implementation.Verifiers.BatchBurnVerifier = zeroVerifierAddress
 	}
 
 	_, err := tb.ExecTransactionSync(ctx, &pldapi.TransactionInput{

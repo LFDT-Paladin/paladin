@@ -17,7 +17,6 @@ package integrationtest
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
 	"math/big"
 	"testing"
@@ -38,52 +37,56 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func TestZetoFungibleSuite(t *testing.T) {
-	contractsFile = "./zeto/config-for-deploy-fungible.yaml"
-	suite.Run(t, new(fungibleTestSuiteHelper))
+func TestFungibleZetoSuite(t *testing.T) {
+	for _, root := range helpers.ZetoZKArtifactRootsForTestRun() {
+		t.Run(root, func(t *testing.T) {
+			if !helpers.ZetoZKArtifactsRootPresent(root) {
+				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
+			}
+			helper := &fungibleTestSuiteHelper{
+				zetoDomainTestSuite: zetoDomainTestSuite{
+					zkpArtifactRoot: root,
+					contractsFile:   "./zeto/config-for-deploy-fungible.yaml",
+				},
+			}
+			suite.Run(t, helper)
+		})
+	}
 }
 
 type fungibleTestSuiteHelper struct {
 	zetoDomainTestSuite
 }
 
-func (s *fungibleTestSuiteHelper) TestZeto_Anon() {
-	// s.T().Skip()
+func (s *fungibleTestSuiteHelper) Test_Zeto_Anon() {
 	s.testZeto(s.T(), constants.TOKEN_ANON, false, false)
 }
 
-func (s *fungibleTestSuiteHelper) TestZeto_AnonBatch() {
-	// s.T().Skip()
+func (s *fungibleTestSuiteHelper) Test_Zeto_AnonBatch() {
 	s.testZeto(s.T(), constants.TOKEN_ANON, true, false)
 }
 
-func (s *fungibleTestSuiteHelper) TestZeto_AnonEnc() {
-	// s.T().Skip()
+func (s *fungibleTestSuiteHelper) Test_Zeto_AnonEnc() {
 	s.testZeto(s.T(), constants.TOKEN_ANON_ENC, false, false)
 }
 
-func (s *fungibleTestSuiteHelper) TestZeto_AnonEncBatch() {
-	// s.T().Skip()
+func (s *fungibleTestSuiteHelper) Test_Zeto_AnonEncBatch() {
 	s.testZeto(s.T(), constants.TOKEN_ANON_ENC, true, false)
 }
 
-func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifier() {
-	// s.T().Skip()
+func (s *fungibleTestSuiteHelper) Test_Zeto_AnonNullifier() {
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER, false, true)
 }
 
-func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierBatch() {
-	// s.T().Skip()
+func (s *fungibleTestSuiteHelper) Test_Zeto_AnonNullifierBatch() {
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER, true, true)
 }
 
-func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierKyc() {
-	// s.T().Skip()
+func (s *fungibleTestSuiteHelper) Test_Zeto_AnonNullifierKyc() {
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, false, true, true)
 }
 
-func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierKycBatch() {
-	// s.T().Skip()
+func (s *fungibleTestSuiteHelper) Test_Zeto_AnonNullifierKycBatch() {
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, true, true, true)
 }
 
@@ -94,7 +97,11 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Info("*************************************")
 	s.setupContractsAbi(t, ctx, tokenName)
 
-	zeto := helpers.DeployZetoFungible(ctx, t, s.rpc, s.domainName, controllerName, tokenName)
+	zkpRoot := s.zkpArtifactRoot
+	if zkpRoot == "" {
+		zkpRoot = helpers.EffectiveZetoZKArtifactRoot()
+	}
+	zeto := helpers.DeployZetoFungible(ctx, t, s.rpc, s.domainName, controllerName, tokenName, zkpRoot)
 	zetoAddress := zeto.Address
 	log.L(ctx).Infof("Zeto instance deployed to %s", zetoAddress.String())
 

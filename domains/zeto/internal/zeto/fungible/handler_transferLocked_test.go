@@ -403,7 +403,7 @@ func TestTransferLockedLoadCoinsLeadingZeroID(t *testing.T) {
 				return &prototk.FindAvailableStatesResponse{
 					States: []*prototk.StoredState{
 						{
-							Id:       "0x" + expectedID,
+							Id:       expectedID,
 							SchemaId: "coin",
 							DataJson: "{\"salt\":\"0x042fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec\",\"owner\":\"0x19d2ee6b9770a4f8d7c3b7906bc7595684509166fa42d718d1d880b62bcb7922\",\"amount\":\"0x0a\",\"locked\":true}",
 						},

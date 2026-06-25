@@ -2,10 +2,10 @@
 pragma solidity ^0.8.20;
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-contract Atom is Initializable, ReentrancyGuardUpgradeable {
+contract Atom is Initializable, ReentrancyGuard {
     using Address for address;
 
     enum Status {
@@ -44,7 +44,6 @@ contract Atom is Initializable, ReentrancyGuardUpgradeable {
      * Initialize the Atom with a list of operations.
      */
     function initialize(Operation[] memory operations) external initializer {
-        __ReentrancyGuard_init();
         status = Status.Pending;
         _operationCount = operations.length;
         for (uint256 i = 0; i < _operationCount; i++) {
