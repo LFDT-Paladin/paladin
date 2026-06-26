@@ -12,25 +12,36 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.client.exception;
 
 /**
- * Thrown when a request does not complete within the configured deadline — either the connect timeout
- * while establishing the TCP/TLS connection, or the per-request timeout while awaiting the response.
+ * Thrown when a request does not complete within the configured deadline — either the connect
+ * timeout while establishing the TCP/TLS connection, or the per-request timeout while awaiting the
+ * response.
  *
  * <p>Timeouts are treated as transient by the transport and are retried according to the configured
  * retry policy; this exception surfaces only once retries are exhausted.
  */
 public class PaladinTimeoutException extends PaladinException {
 
-    private static final long serialVersionUID = 1L;
+  private static final long serialVersionUID = 1L;
 
-    public PaladinTimeoutException(String message) {
-        super(message);
-    }
+  /**
+   * Creates an exception with the given detail message.
+   *
+   * @param message the detail message
+   */
+  public PaladinTimeoutException(String message) {
+    super(message);
+  }
 
-    public PaladinTimeoutException(String message, Throwable cause) {
-        super(message, cause);
-    }
+  /**
+   * Creates an exception with the given detail message and underlying cause.
+   *
+   * @param message the detail message
+   * @param cause the underlying timeout cause
+   */
+  public PaladinTimeoutException(String message, Throwable cause) {
+    super(message, cause);
+  }
 }

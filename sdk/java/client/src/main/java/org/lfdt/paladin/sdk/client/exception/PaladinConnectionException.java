@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.client.exception;
 
 /**
@@ -20,18 +19,29 @@ package org.lfdt.paladin.sdk.client.exception;
  * transport-level failure: connection refused, DNS resolution failure, socket reset, TLS handshake
  * failure, or a malformed/unparseable response body.
  *
- * <p>Like timeouts, connection failures are treated as transient and retried per the configured retry
- * policy; this exception surfaces only once retries are exhausted.
+ * <p>Like timeouts, connection failures are treated as transient and retried per the configured
+ * retry policy; this exception surfaces only once retries are exhausted.
  */
 public class PaladinConnectionException extends PaladinException {
 
-    private static final long serialVersionUID = 1L;
+  private static final long serialVersionUID = 1L;
 
-    public PaladinConnectionException(String message) {
-        super(message);
-    }
+  /**
+   * Creates an exception with the given detail message.
+   *
+   * @param message the detail message
+   */
+  public PaladinConnectionException(String message) {
+    super(message);
+  }
 
-    public PaladinConnectionException(String message, Throwable cause) {
-        super(message, cause);
-    }
+  /**
+   * Creates an exception with the given detail message and underlying cause.
+   *
+   * @param message the detail message
+   * @param cause the underlying transport-level cause
+   */
+  public PaladinConnectionException(String message, Throwable cause) {
+    super(message, cause);
+  }
 }

@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.client.rpc;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -24,66 +23,83 @@ import java.util.List;
 /**
  * A JSON-RPC 2.0 request envelope, mirroring Go's {@code rpcclient.RPCRequest}.
  *
- * <p>Immutable and self-serializing. The {@code params} list holds arbitrary argument objects that are
- * serialized through the SDK-wide mapper, so SDK value types serialize through their own representation.
- * Following Go's {@code omitempty} convention, {@code params} is omitted from the wire form when empty.
+ * <p>Immutable and self-serializing. The {@code params} list holds arbitrary argument objects that
+ * are serialized through the SDK-wide mapper, so SDK value types serialize through their own
+ * representation. Following Go's {@code omitempty} convention, {@code params} is omitted from the
+ * wire form when empty.
  */
 @JsonPropertyOrder({"jsonrpc", "id", "method", "params"})
 public final class JsonRpcRequest {
 
-    /** The JSON-RPC protocol version string, always {@code "2.0"}. */
-    public static final String JSON_RPC_VERSION = "2.0";
+  /** The JSON-RPC protocol version string, always {@code "2.0"}. */
+  public static final String JSON_RPC_VERSION = "2.0";
 
-    private final String jsonrpc;
-    private final String id;
-    private final String method;
-    private final List<Object> params;
+  private final String jsonrpc;
+  private final String id;
+  private final String method;
+  private final List<Object> params;
 
-    @JsonCreator
-    JsonRpcRequest(
-            @JsonProperty("jsonrpc") String jsonrpc,
-            @JsonProperty("id") String id,
-            @JsonProperty("method") String method,
-            @JsonProperty("params") List<Object> params) {
-        this.jsonrpc = jsonrpc == null ? JSON_RPC_VERSION : jsonrpc;
-        this.id = id;
-        this.method = method;
-        this.params = params == null ? List.of() : List.copyOf(params);
-    }
+  @JsonCreator
+  JsonRpcRequest(
+      @JsonProperty("jsonrpc") String jsonrpc,
+      @JsonProperty("id") String id,
+      @JsonProperty("method") String method,
+      @JsonProperty("params") List<Object> params) {
+    this.jsonrpc = jsonrpc == null ? JSON_RPC_VERSION : jsonrpc;
+    this.id = id;
+    this.method = method;
+    this.params = params == null ? List.of() : List.copyOf(params);
+  }
 
-    /**
-     * Builds a request with the protocol version defaulted to {@code "2.0"}.
-     *
-     * @param id the request id (the transport allocates a monotonic, zero-padded value)
-     * @param method the JSON-RPC method name
-     * @param params the positional parameters; may be empty
-     */
-    public JsonRpcRequest(String id, String method, List<Object> params) {
-        this(JSON_RPC_VERSION, id, method, params);
-    }
+  /**
+   * Builds a request with the protocol version defaulted to {@code "2.0"}.
+   *
+   * @param id the request id (the transport allocates a monotonic, zero-padded value)
+   * @param method the JSON-RPC method name
+   * @param params the positional parameters; may be empty
+   */
+  public JsonRpcRequest(String id, String method, List<Object> params) {
+    this(JSON_RPC_VERSION, id, method, params);
+  }
 
-    /** The JSON-RPC protocol version, always {@code "2.0"}. */
-    @JsonProperty("jsonrpc")
-    public String jsonrpc() {
-        return jsonrpc;
-    }
+  /**
+   * The JSON-RPC protocol version, always {@code "2.0"}.
+   *
+   * @return the protocol version
+   */
+  @JsonProperty("jsonrpc")
+  public String jsonrpc() {
+    return jsonrpc;
+  }
 
-    /** The request id echoed back by the node in its response. */
-    @JsonProperty("id")
-    public String id() {
-        return id;
-    }
+  /**
+   * The request id echoed back by the node in its response.
+   *
+   * @return the request id
+   */
+  @JsonProperty("id")
+  public String id() {
+    return id;
+  }
 
-    /** The JSON-RPC method name. */
-    @JsonProperty("method")
-    public String method() {
-        return method;
-    }
+  /**
+   * The JSON-RPC method name.
+   *
+   * @return the method name
+   */
+  @JsonProperty("method")
+  public String method() {
+    return method;
+  }
 
-    /** The positional parameters; never null, omitted from the wire form when empty. */
-    @JsonProperty("params")
-    @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    public List<Object> params() {
-        return params;
-    }
+  /**
+   * The positional parameters; never null, omitted from the wire form when empty.
+   *
+   * @return the positional parameters
+   */
+  @JsonProperty("params")
+  @JsonInclude(JsonInclude.Include.NON_EMPTY)
+  public List<Object> params() {
+    return params;
+  }
 }

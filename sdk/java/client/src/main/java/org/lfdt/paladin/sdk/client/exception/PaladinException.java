@@ -12,34 +12,46 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.client.exception;
 
 /**
  * Base of the Paladin SDK's <em>unchecked</em> exception hierarchy.
  *
  * <p>Every failure surfaced by the transport layer is a subclass of this type, so callers can catch
- * {@code PaladinException} to handle everything the SDK throws without being forced to declare checked
- * exceptions on each call. Because the public API is asynchronous, these are most often observed wrapped
- * in a {@link java.util.concurrent.CompletionException} when a {@link java.util.concurrent.CompletableFuture}
- * is joined — unwrap with {@link Throwable#getCause()} to recover the concrete subtype:
+ * {@code PaladinException} to handle everything the SDK throws without being forced to declare
+ * checked exceptions on each call. Because the public API is asynchronous, these are most often
+ * observed wrapped in a {@link java.util.concurrent.CompletionException} when a {@link
+ * java.util.concurrent.CompletableFuture} is joined — unwrap with {@link Throwable#getCause()} to
+ * recover the concrete subtype:
  *
  * <ul>
- *   <li>{@link PaladinRpcException} — the node returned a JSON-RPC error object, or a non-2xx HTTP status.</li>
- *   <li>{@link PaladinTimeoutException} — the connect or request deadline elapsed.</li>
- *   <li>{@link PaladinConnectionException} — the request never reached the node (connection refused, DNS
- *       failure, socket reset, or other transport-level I/O error).</li>
+ *   <li>{@link PaladinRpcException} — the node returned a JSON-RPC error object, or a non-2xx HTTP
+ *       status.
+ *   <li>{@link PaladinTimeoutException} — the connect or request deadline elapsed.
+ *   <li>{@link PaladinConnectionException} — the request never reached the node (connection
+ *       refused, DNS failure, socket reset, or other transport-level I/O error).
  * </ul>
  */
 public class PaladinException extends RuntimeException {
 
-    private static final long serialVersionUID = 1L;
+  private static final long serialVersionUID = 1L;
 
-    public PaladinException(String message) {
-        super(message);
-    }
+  /**
+   * Creates an exception with the given detail message.
+   *
+   * @param message the detail message
+   */
+  public PaladinException(String message) {
+    super(message);
+  }
 
-    public PaladinException(String message, Throwable cause) {
-        super(message, cause);
-    }
+  /**
+   * Creates an exception with the given detail message and underlying cause.
+   *
+   * @param message the detail message
+   * @param cause the underlying cause
+   */
+  public PaladinException(String message, Throwable cause) {
+    super(message, cause);
+  }
 }

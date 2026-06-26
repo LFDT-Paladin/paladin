@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.client.exception;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,42 +26,44 @@ import org.junit.jupiter.api.Test;
 
 class PaladinExceptionTest {
 
-    @Test
-    void wholeHierarchyIsUncheckedAndRootedAtPaladinException() {
-        // Every SDK exception must be unchecked (extends RuntimeException) and catchable as PaladinException.
-        for (PaladinException ex : new PaladinException[] {
-                new PaladinException("base"),
-                new PaladinRpcException(-32603, "rpc", null, 200),
-                new PaladinTimeoutException("timeout"),
-                new PaladinConnectionException("connection")
+  @Test
+  void wholeHierarchyIsUncheckedAndRootedAtPaladinException() {
+    // Every SDK exception must be unchecked (extends RuntimeException) and catchable as
+    // PaladinException.
+    for (PaladinException ex :
+        new PaladinException[] {
+          new PaladinException("base"),
+          new PaladinRpcException(-32603, "rpc", null, 200),
+          new PaladinTimeoutException("timeout"),
+          new PaladinConnectionException("connection")
         }) {
-            assertInstanceOf(RuntimeException.class, ex);
-        }
+      assertInstanceOf(RuntimeException.class, ex);
     }
+  }
 
-    @Test
-    void carriesMessageAndCause() {
-        Throwable cause = new IllegalStateException("boom");
-        PaladinConnectionException ex = new PaladinConnectionException("refused", cause);
-        assertEquals("refused", ex.getMessage());
-        assertSame(cause, ex.getCause());
-    }
+  @Test
+  void carriesMessageAndCause() {
+    Throwable cause = new IllegalStateException("boom");
+    PaladinConnectionException ex = new PaladinConnectionException("refused", cause);
+    assertEquals("refused", ex.getMessage());
+    assertSame(cause, ex.getCause());
+  }
 
-    @Test
-    void rpcExceptionExposesCodeStatusAndData() {
-        JsonNode data = JsonNodeFactory.instance.numberNode(42);
-        PaladinRpcException ex = new PaladinRpcException(-32000, "unauthorized", data, 401);
-        assertEquals(-32000, ex.code());
-        assertEquals(401, ex.httpStatus());
-        assertTrue(ex.data().isPresent());
-        assertEquals(data, ex.data().get());
-    }
+  @Test
+  void rpcExceptionExposesCodeStatusAndData() {
+    JsonNode data = JsonNodeFactory.instance.numberNode(42);
+    PaladinRpcException ex = new PaladinRpcException(-32000, "unauthorized", data, 401);
+    assertEquals(-32000, ex.code());
+    assertEquals(401, ex.httpStatus());
+    assertTrue(ex.data().isPresent());
+    assertEquals(data, ex.data().get());
+  }
 
-    @Test
-    void rpcExceptionWithoutDataReportsEmpty() {
-        PaladinRpcException ex = new PaladinRpcException(0, "bad gateway", null, 502);
-        assertEquals(0, ex.code());
-        assertEquals(502, ex.httpStatus());
-        assertFalse(ex.data().isPresent());
-    }
+  @Test
+  void rpcExceptionWithoutDataReportsEmpty() {
+    PaladinRpcException ex = new PaladinRpcException(0, "bad gateway", null, 502);
+    assertEquals(0, ex.code());
+    assertEquals(502, ex.httpStatus());
+    assertFalse(ex.data().isPresent());
+  }
 }

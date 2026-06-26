@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.client.rpc;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -24,42 +23,55 @@ import com.fasterxml.jackson.databind.JsonNode;
 /**
  * The {@code error} member of a JSON-RPC 2.0 response, mirroring Go's {@code rpcclient.RPCError}.
  *
- * <p>Immutable and self-serializing. {@link #data()} carries any structured detail the node attached and is
- * omitted from the wire form when absent. See {@link JsonRpcErrorCode} for the codes Paladin uses.
+ * <p>Immutable and self-serializing. {@link #data()} carries any structured detail the node
+ * attached and is omitted from the wire form when absent. See {@link JsonRpcErrorCode} for the
+ * codes Paladin uses.
  */
 @JsonPropertyOrder({"code", "message", "data"})
 public final class JsonRpcError {
 
-    private final long code;
-    private final String message;
-    private final JsonNode data;
+  private final long code;
+  private final String message;
+  private final JsonNode data;
 
-    @JsonCreator
-    public JsonRpcError(
-            @JsonProperty("code") long code,
-            @JsonProperty("message") String message,
-            @JsonProperty("data") JsonNode data) {
-        this.code = code;
-        this.message = message;
-        this.data = data;
-    }
+  @JsonCreator
+  JsonRpcError(
+      @JsonProperty("code") long code,
+      @JsonProperty("message") String message,
+      @JsonProperty("data") JsonNode data) {
+    this.code = code;
+    this.message = message;
+    this.data = data;
+  }
 
-    /** The JSON-RPC error code; see {@link JsonRpcErrorCode}. */
-    @JsonProperty("code")
-    public long code() {
-        return code;
-    }
+  /**
+   * The JSON-RPC error code; see {@link JsonRpcErrorCode}.
+   *
+   * @return the error code
+   */
+  @JsonProperty("code")
+  public long code() {
+    return code;
+  }
 
-    /** The human-readable error message. */
-    @JsonProperty("message")
-    public String message() {
-        return message;
-    }
+  /**
+   * The human-readable error message.
+   *
+   * @return the error message
+   */
+  @JsonProperty("message")
+  public String message() {
+    return message;
+  }
 
-    /** Structured error detail attached by the node, or {@code null} if none. */
-    @JsonProperty("data")
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public JsonNode data() {
-        return data;
-    }
+  /**
+   * Structured error detail attached by the node, or {@code null} if none.
+   *
+   * @return the error detail node, or {@code null}
+   */
+  @JsonProperty("data")
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public JsonNode data() {
+    return data;
+  }
 }
