@@ -32,16 +32,16 @@ import java.util.concurrent.atomic.AtomicInteger;
  * each request, keyed by the 1-based request number, so retry scenarios can return different
  * statuses per attempt.
  */
-final class MockJsonRpcServer implements AutoCloseable {
+public final class MockJsonRpcServer implements AutoCloseable {
 
   /** Decides the canned reply for a single request. */
   @FunctionalInterface
-  interface Responder {
+  public interface Responder {
     Response respond(int requestNumber, JsonNode requestBody) throws IOException;
   }
 
   /** A canned HTTP reply: status, body, and an optional artificial delay (to provoke timeouts). */
-  static final class Response {
+  public static final class Response {
     private final int status;
     private final String body;
     private final long delayMillis;
@@ -52,11 +52,11 @@ final class MockJsonRpcServer implements AutoCloseable {
       this.delayMillis = delayMillis;
     }
 
-    static Response of(final int status, final String body) {
+    public static Response of(final int status, final String body) {
       return new Response(status, body, 0);
     }
 
-    Response withDelayMillis(final long millis) {
+    public Response withDelayMillis(final long millis) {
       return new Response(this.status, this.body, millis);
     }
   }
@@ -67,7 +67,7 @@ final class MockJsonRpcServer implements AutoCloseable {
   private final List<JsonNode> requests = new CopyOnWriteArrayList<>();
   private volatile Headers lastRequestHeaders;
 
-  MockJsonRpcServer(final Responder responder) throws IOException {
+  public MockJsonRpcServer(final Responder responder) throws IOException {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         "/",
@@ -110,19 +110,19 @@ final class MockJsonRpcServer implements AutoCloseable {
     server.start();
   }
 
-  String baseUrl() {
+  public String baseUrl() {
     return "http://127.0.0.1:" + server.getAddress().getPort();
   }
 
-  int requestCount() {
+  public int requestCount() {
     return requestCount.get();
   }
 
-  List<JsonNode> requests() {
+  public List<JsonNode> requests() {
     return requests;
   }
 
-  String requestHeader(final String name) {
+  public String requestHeader(final String name) {
     final Headers headers = lastRequestHeaders;
     return headers == null ? null : headers.getFirst(name);
   }
