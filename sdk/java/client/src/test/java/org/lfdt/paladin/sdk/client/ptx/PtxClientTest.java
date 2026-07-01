@@ -33,10 +33,15 @@ import org.lfdt.paladin.sdk.client.exception.PaladinRpcException;
 import org.lfdt.paladin.sdk.client.rpc.HttpRpcClient;
 import org.lfdt.paladin.sdk.client.rpc.MockJsonRpcServer;
 import org.lfdt.paladin.sdk.core.query.QueryJSON;
+import org.lfdt.paladin.sdk.core.transaction.PreparedTransaction;
+import org.lfdt.paladin.sdk.core.transaction.PublicTxWithBinding;
 import org.lfdt.paladin.sdk.core.transaction.Transaction;
 import org.lfdt.paladin.sdk.core.transaction.TransactionCall;
 import org.lfdt.paladin.sdk.core.transaction.TransactionFull;
 import org.lfdt.paladin.sdk.core.transaction.TransactionInput;
+import org.lfdt.paladin.sdk.core.transaction.TransactionReceipt;
+import org.lfdt.paladin.sdk.core.transaction.TransactionReceiptFull;
+import org.lfdt.paladin.sdk.core.transaction.TransactionStates;
 import org.lfdt.paladin.sdk.core.transaction.TransactionType;
 
 class PtxClientTest {
@@ -240,6 +245,154 @@ class PtxClientTest {
       assertEquals(1, result.size());
       assertTrue(result.get(0).receipt().success());
       assertEquals("ptx_queryTransactionsFull", server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void getTransactionReceipt() throws IOException {
+    String receipt = "{\"id\":\"" + UUID1 + "\",\"success\":true,\"sequence\":5}";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(receipt)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      TransactionReceipt result =
+          new PtxClient(rpc).getTransactionReceipt(UUID.fromString(UUID1)).join();
+      assertEquals(UUID.fromString(UUID1), result.id());
+      assertTrue(result.success());
+      assertEquals(5, result.sequence());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_getTransactionReceipt", req.get("method").asText());
+      assertEquals(UUID1, req.get("params").get(0).asText());
+    }
+  }
+
+  @Test
+  void getTransactionReceiptFull() throws IOException {
+    String receipt =
+        "{\"id\":\""
+            + UUID1
+            + "\",\"success\":true,\"states\":{\"confirmed\":[{\"id\":\"0x01\"}]},"
+            + "\"domainReceipt\":{\"noto\":{\"burn\":true}},\"domainReceiptError\":\"\","
+            + "\"public\":[{\"nonce\":\"0x1\"}]}";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(receipt)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      TransactionReceiptFull result =
+          new PtxClient(rpc).getTransactionReceiptFull(UUID.fromString(UUID1)).join();
+      assertEquals(UUID.fromString(UUID1), result.id());
+      assertTrue(result.success());
+      assertEquals(1, result.states().confirmed().size());
+      assertTrue(result.domainReceipt().get("noto").get("burn").asBoolean());
+      assertEquals(1, result.publicTransactions().size());
+      assertEquals(
+          "ptx_getTransactionReceiptFull", server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void getDomainReceipt() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer(
+                (n, req) -> MockJsonRpcServer.Response.of(200, success("{\"transfers\":[]}")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      JsonNode result =
+          new PtxClient(rpc).getDomainReceipt("noto", UUID.fromString(UUID1)).join();
+      assertTrue(result.get("transfers").isArray());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_getDomainReceipt", req.get("method").asText());
+      assertEquals(2, req.get("params").size());
+      assertEquals("noto", req.get("params").get(0).asText());
+      assertEquals(UUID1, req.get("params").get(1).asText());
+    }
+  }
+
+  @Test
+  void getStateReceipt() throws IOException {
+    String states = "{\"none\":false,\"spent\":[{\"id\":\"0x01\"}],\"read\":[{\"id\":\"0x02\"}]}";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(states)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      TransactionStates result =
+          new PtxClient(rpc).getStateReceipt(UUID.fromString(UUID1)).join();
+      assertEquals(1, result.spent().size());
+      assertEquals(1, result.read().size());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_getStateReceipt", req.get("method").asText());
+      assertEquals(UUID1, req.get("params").get(0).asText());
+    }
+  }
+
+  @Test
+  void queryTransactionReceipts() throws IOException {
+    String receipts = "[{\"id\":\"" + UUID1 + "\",\"success\":true}]";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(receipts)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      List<TransactionReceipt> result =
+          new PtxClient(rpc)
+              .queryTransactionReceipts(QueryJSON.builder().limit(5).build())
+              .join();
+      assertEquals(1, result.size());
+      assertTrue(result.get(0).success());
+      assertEquals("ptx_queryTransactionReceipts", server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void getPreparedTransaction() throws IOException {
+    String prepared =
+        "{\"id\":\""
+            + UUID1
+            + "\",\"domain\":\"noto\",\"transaction\":{\"type\":\"private\",\"from\":\"alice\"},"
+            + "\"states\":{\"confirmed\":[{\"id\":\"0x01\"}]}}";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(prepared)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      PreparedTransaction result =
+          new PtxClient(rpc).getPreparedTransaction(UUID.fromString(UUID1)).join();
+      assertEquals(UUID.fromString(UUID1), result.id());
+      assertEquals("noto", result.domain());
+      assertEquals(TransactionType.PRIVATE, result.transaction().type());
+      assertEquals(1, result.states().confirmed().size());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_getPreparedTransaction", req.get("method").asText());
+      assertEquals(UUID1, req.get("params").get(0).asText());
+    }
+  }
+
+  @Test
+  void queryPreparedTransactions() throws IOException {
+    String prepared = "[{\"id\":\"" + UUID1 + "\",\"domain\":\"noto\"}]";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(prepared)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      List<PreparedTransaction> result =
+          new PtxClient(rpc)
+              .queryPreparedTransactions(QueryJSON.builder().limit(5).build())
+              .join();
+      assertEquals(1, result.size());
+      assertEquals("noto", result.get(0).domain());
+      assertEquals(
+          "ptx_queryPreparedTransactions", server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void getPublicTransaction() throws IOException {
+    String publicTx =
+        "{\"from\":\"0x0000000000000000000000000000000000000001\",\"nonce\":\"0x2a\","
+            + "\"transaction\":\""
+            + UUID1
+            + "\",\"transactionType\":\"private\",\"sender\":\"alice\"}";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(publicTx)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      PublicTxWithBinding result = new PtxClient(rpc).getPublicTransaction(42L).join();
+      assertEquals(UUID.fromString(UUID1), result.transaction());
+      assertEquals(TransactionType.PRIVATE, result.transactionType());
+      assertEquals("alice", result.sender());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_getPublicTransaction", req.get("method").asText());
+      assertEquals(42, req.get("params").get(0).asLong());
     }
   }
 

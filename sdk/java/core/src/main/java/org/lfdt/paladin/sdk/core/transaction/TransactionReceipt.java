@@ -41,7 +41,7 @@ import org.lfdt.paladin.sdk.core.types.Timestamp;
     "id", "indexed", "sequence", "domain", "success", "transactionHash", "blockNumber", "transactionIndex",
     "logIndex", "source", "failureMessage", "revertData", "contractAddress"
 })
-public final class TransactionReceipt {
+public class TransactionReceipt {
 
     private final UUID id;
     private final Timestamp indexed;

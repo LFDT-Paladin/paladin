@@ -23,16 +23,22 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.lfdt.paladin.sdk.client.rpc.RpcClient;
 import org.lfdt.paladin.sdk.core.query.QueryJSON;
+import org.lfdt.paladin.sdk.core.transaction.PreparedTransaction;
+import org.lfdt.paladin.sdk.core.transaction.PublicTxWithBinding;
 import org.lfdt.paladin.sdk.core.transaction.Transaction;
 import org.lfdt.paladin.sdk.core.transaction.TransactionCall;
 import org.lfdt.paladin.sdk.core.transaction.TransactionFull;
 import org.lfdt.paladin.sdk.core.transaction.TransactionInput;
+import org.lfdt.paladin.sdk.core.transaction.TransactionReceipt;
+import org.lfdt.paladin.sdk.core.transaction.TransactionReceiptFull;
+import org.lfdt.paladin.sdk.core.transaction.TransactionStates;
 
 // Client for the ptx_* RPC namespace (private transaction manager), mirroring Go's pldclient.PTX
 // (sdk/go/pkg/pldclient/ptx.go). Each method maps one-to-one to a JSON-RPC call on the underlying
 // RpcClient and returns a CompletableFuture; failures complete it exceptionally with a
 // PaladinException subtype. This part covers the transaction lifecycle (send/prepare/update/call,
-// get and query); receipts, ABI, listeners and dispatches are added in later parts.
+// get and query) plus receipts, state, prepared transactions and public transactions; ABI, decode,
+// listeners and dispatches are added in later parts.
 public final class PtxClient {
 
   private final RpcClient rpc;
@@ -86,5 +92,39 @@ public final class PtxClient {
   public CompletableFuture<List<TransactionFull>> queryTransactionsFull(QueryJSON query) {
     return rpc.callRpc(
         new TypeReference<List<TransactionFull>>() {}, "ptx_queryTransactionsFull", query);
+  }
+
+  public CompletableFuture<TransactionReceipt> getTransactionReceipt(UUID id) {
+    return rpc.callRpc(TransactionReceipt.class, "ptx_getTransactionReceipt", id);
+  }
+
+  public CompletableFuture<TransactionReceiptFull> getTransactionReceiptFull(UUID id) {
+    return rpc.callRpc(TransactionReceiptFull.class, "ptx_getTransactionReceiptFull", id);
+  }
+
+  public CompletableFuture<JsonNode> getDomainReceipt(String domain, UUID id) {
+    return rpc.callRpc(JsonNode.class, "ptx_getDomainReceipt", domain, id);
+  }
+
+  public CompletableFuture<TransactionStates> getStateReceipt(UUID id) {
+    return rpc.callRpc(TransactionStates.class, "ptx_getStateReceipt", id);
+  }
+
+  public CompletableFuture<List<TransactionReceipt>> queryTransactionReceipts(QueryJSON query) {
+    return rpc.callRpc(
+        new TypeReference<List<TransactionReceipt>>() {}, "ptx_queryTransactionReceipts", query);
+  }
+
+  public CompletableFuture<PreparedTransaction> getPreparedTransaction(UUID id) {
+    return rpc.callRpc(PreparedTransaction.class, "ptx_getPreparedTransaction", id);
+  }
+
+  public CompletableFuture<List<PreparedTransaction>> queryPreparedTransactions(QueryJSON query) {
+    return rpc.callRpc(
+        new TypeReference<List<PreparedTransaction>>() {}, "ptx_queryPreparedTransactions", query);
+  }
+
+  public CompletableFuture<PublicTxWithBinding> getPublicTransaction(long id) {
+    return rpc.callRpc(PublicTxWithBinding.class, "ptx_getPublicTransaction", id);
   }
 }
