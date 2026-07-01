@@ -51,7 +51,7 @@ import org.lfdt.paladin.sdk.core.types.Timestamp;
   "revertData",
   "contractAddress"
 })
-public final class TransactionReceipt {
+public class TransactionReceipt {
 
   private final UUID id;
   private final Timestamp indexed;
