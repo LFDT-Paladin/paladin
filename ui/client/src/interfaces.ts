@@ -31,6 +31,16 @@ export interface IPaladinTransactionPagingReference {
   created: string;
 }
 
+export interface IStatePagingReference {
+  sortValue: any;
+  id: string;
+}
+
+export interface IPagedResult<T> {
+  items: T[];
+  hasMore: boolean;
+}
+
 export interface ITransaction {
   hash: string;
   blockNumber: number;
@@ -144,6 +154,7 @@ export type ABIUploadResponse = string;
 export interface ITransportPeer {
   name: string;
   stats: {
+    createdAt: string;
     sentMsgs: number;
     receivedMsgs: number;
     sentBytes: number;
@@ -151,7 +162,6 @@ export interface ITransportPeer {
     lastSend: string;
     lastReceive: string | null;
     reliableHighestSent: number;
-    reliableAckBase: number;
   };
   activated: string;
   outboundTransport: string;
@@ -191,14 +201,19 @@ export interface IKeyMappingAndVerifier {
 export interface IFilterField {
   label: string;
   name: string;
-  type: 'string' | 'number' | 'boolean';
-  emun?: string[];
+  type: 'string' | 'number' | 'boolean' | 'enum' | 'timestamp';
+  enum?: string[];
+  isHexValue?: boolean
+  isUUID?: boolean
+  isSeconds?: boolean
+  isNanoSeconds?: boolean
+  isCustom?: boolean
 }
 
 export interface IFilter {
   field: IFilterField;
   operator: string;
-  value: string;
+  value: string | boolean | number;
   caseSensitive?: boolean;
 }
 
@@ -300,4 +315,24 @@ export interface IMessage {
   ack?: {
     time: string
   }
+}
+
+export type RegistryEntryFilter = 'active' | 'inactive' | 'any';
+
+export interface IDomain {
+  name: string
+  registryAddress: string
+  config: any
+}
+
+export interface IPrivacyGroupMessage {
+  id: string
+  localSequence: number
+  sent: string
+  received?: string
+  node: string
+  domain: string
+  group: string
+  topic: string
+  data: any
 }

@@ -121,10 +121,19 @@ export const AddFilterDialog: React.FC<Props> = ({
     }
   };
 
+  let valueHelperText: string | undefined = undefined;
+  if (selectedOperator !== undefined && ['equal', 'notEqual'].includes(selectedOperator)) {
+    if (selectedFilterField?.isUUID) {
+      valueHelperText = t('mustBeAValidUUID')
+    } else if (selectedFilterField?.isHexValue) {
+      valueHelperText = t('mustBeAValidHex')
+    }
+  }
 
   const canSubmit = selectedFilterField !== undefined
     && selectedOperator !== undefined
-    && (selectedFilterField.type === 'boolean' || value.length > 0);
+    && (selectedFilterField.type === 'boolean' || value.length > 0)
+    && valueHelperText === undefined;
 
   return (
     <Dialog
@@ -179,6 +188,7 @@ export const AddFilterDialog: React.FC<Props> = ({
                   label={t('value')}
                   autoComplete="off"
                   fullWidth
+                  helperText={valueHelperText}
                   disabled={selectedFilterField === undefined}
                   value={value}
                   onChange={event => setValue(event.target.value)}

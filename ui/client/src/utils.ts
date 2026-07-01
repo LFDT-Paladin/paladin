@@ -16,17 +16,27 @@
 
 import { NavigateOptions, To } from 'react-router-dom';
 import React from 'react';
-import { IFilter } from './interfaces';
+import { IFilter, IPagedResult } from './interfaces';
+
+export const toPagedResult = <T>(results: T[], limit: number): IPagedResult<T> => {
+  const hasMore = results.length > limit;
+  return {
+    items: hasMore ? results.slice(0, limit) : results,
+    hasMore,
+  };
+};
 
 export const CONSTANTS = {
   NAVIGATION_DRAWER_WIDTH: 240
 }
 
-export const formatJSONWhenApplicable = (value: any) => {
-  if (typeof value === 'object') {
+export const formatJSONWhenApplicable = (value: unknown) => {
+  if (typeof value === 'object' && value !== null) {
     try {
       return JSON.stringify(value, null, 2);
-    } catch (err) { }
+    } catch {
+      return String(value);
+    }
   }
   return String(value);
 };
@@ -74,10 +84,34 @@ export const translateFilters = (filters: IFilter[]) => {
         entry.not = true;
         entry.value = `%${entry.value}`;
         break;
+
+      case 'on':
+        operator = 'equal';
+        break;
+      case 'onOrAfter':
+        operator = 'gte';
+        break;
+      case 'onOrBefore':
+        operator = 'lte';
+        break;
+      case 'after':
+        operator = 'gt';
+        break;
+      case 'before':
+        operator = 'lt';
+        break;
     }
 
-    if(filter.field.type === 'boolean') {
+    if (filter.field.type === 'boolean') {
       entry.value = Boolean(entry.value);
+    }
+
+    if (filter.field.type === 'timestamp') {
+      if (filter.field.isSeconds) {
+        entry.value = entry.value / 1000;
+      } else if (filter.field.isNanoSeconds) {
+        entry.value = entry.value * 1000000;
+      }
     }
 
     let group = result[operator] ?? [];
@@ -92,6 +126,9 @@ export const isValidUUID = (uuid: string) =>
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(
     uuid
   );
+
+export const isValidHex = (hex: string) =>
+  /^(0[xX])?([0-9a-fA-F]{2})+$/.test(hex);
 
 export const encodeHex = (str: string) =>
   '0x' +
@@ -146,3 +183,35 @@ export const customNavigate = (destination: string, mouseEvent: React.MouseEvent
     navigate(destination);
   }
 };
+
+type AnyObject = Record<string, any>;
+
+function isObject(item: any): item is AnyObject {
+  return item && typeof item === 'object' && !Array.isArray(item);
+}
+
+export function deepMerge<T extends AnyObject, U extends AnyObject>(target: T, source: U): T & U {
+  const output = { ...target } as any;
+  if (!isObject(target) || !isObject(source)) {
+    return source as any;
+  }
+  Object.keys(source).forEach((key) => {
+    const targetValue = target[key];
+    const sourceValue = source[key];
+    if (Array.isArray(targetValue) && Array.isArray(sourceValue)) {
+      output[key] = [...targetValue, ...sourceValue];
+    } else if (isObject(targetValue) && isObject(sourceValue)) {
+      output[key] = deepMerge(targetValue, sourceValue);
+    } else {
+      output[key] = sourceValue;
+    }
+  });
+
+  return output;
+}
+
+export const isValidPrivacyGroupName = (value: string) =>
+  /^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,126}[a-zA-Z0-9])?$/.test(value);
+
+export const isValidPrivacyGroupMemberName = (value: string) =>
+  /^(?=.{1,128}$)[a-zA-Z0-9][a-zA-Z0-9._-]*@[a-zA-Z0-9._-]*[a-zA-Z0-9]$/.test(value);

@@ -32,7 +32,10 @@ export const RpcMethods = {
   keymgr_reverseKeyLookup: 'keymgr_reverseKeyLookup',
   pgroup_getGroupByAddress: 'pgroup_getGroupByAddress',
   pgroup_getGroupById: 'pgroup_getGroupById',
+  pgroup_queryMessages: 'pgroup_queryMessages',
   pgroup_queryGroups: 'pgroup_queryGroups',
+  pgroup_sendMessage: 'pgroup_sendMessage',
+  pgroup_createGroup: 'pgroup_createGroup',
   pstate_listSchemas: 'pstate_listSchemas',
   pstate_queryStates: 'pstate_queryStates',
   pstate_transferPrivateState: 'pstate_transferPrivateState',
@@ -57,5 +60,6 @@ export const RpcMethods = {
   transport_localTransportDetails: 'transport_localTransportDetails',
   transport_nodeName: 'transport_nodeName',
   transport_peers: 'transport_peers',
-  transport_queryReliableMessages: 'transport_queryReliableMessages'
+  transport_queryReliableMessages: 'transport_queryReliableMessages',
+  transport_queryPeers: 'transport_queryPeers'
 };

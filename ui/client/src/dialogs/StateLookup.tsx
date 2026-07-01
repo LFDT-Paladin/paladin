@@ -27,67 +27,55 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { customNavigate } from '../utils';
+import { isValidHex } from '../utils';
 import { useNavigate } from 'react-router-dom';
-import { IState } from '../interfaces';
-import { pushState } from '../queries/states';
+import { getState } from '../queries/states';
 
 type Props = {
-  state: IState
+  domain: string
+  schemaId: string
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
 }
 
-export const SendStateDialog: React.FC<Props> = ({
-  state,
+export const StateLookupDialog: React.FC<Props> = ({
+  domain,
+  schemaId,
   dialogOpen,
   setDialogOpen,
 }) => {
 
   const { t } = useTranslation();
-  const [errorMessage, setErrorMessage] = useState<string>();
-  const [recipient, setRecipient] = useState('');
-  const [messageId, setMessageId] = useState<string>();
-  const [lastRecipient, setLastRecipient] = useState<string>();
+  const [notFound, setNotFound] = useState(false);
+  const [stateId, setStateId] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
     if (dialogOpen) {
-      setRecipient('');
+      setStateId('');
     }
   }, [dialogOpen]);
 
-  const { refetch: pushMessage } = useQuery({
-    queryKey: ['push-state', state, recipient],
-    queryFn: () => pushState(state.domain, state.id, recipient),
+  const { refetch: state } = useQuery({
+    queryKey: [`state-${domain}-${schemaId}-${stateId}`],
+    queryFn: () => getState(domain, schemaId, stateId!),
     retry: false,
     enabled: false
   });
 
-  useEffect(() => {
-    if (dialogOpen) {
-      setErrorMessage(undefined);
-      setMessageId(undefined);
-      setLastRecipient(undefined);
-    }
-  }, [dialogOpen]);
 
   const handleSubmit = () => {
-    setErrorMessage(undefined);
-    setMessageId(undefined);
-    pushMessage().then(result => {
-      if (result.isError) {
-        setErrorMessage(t('failedToPushMessageCheckRecipientNode'));
-      } else if (result.data !== undefined && result.data.replace(/[0-]/g, '').length === 0) {
-        setErrorMessage(t('mustPushStateToAccountInDifferentNode'));
+    setNotFound(false);
+    state().then(result => {
+      if (result.data !== null) {
+        navigate(`/ui/states/${domain}/${schemaId}/${stateId}`);
       } else {
-        setMessageId(result.data);
-        setLastRecipient(recipient);
+        setNotFound(true);
       }
     });
   };
 
-  const canSubmit = /.+@.+/.test(recipient) && lastRecipient !== recipient;
+  const canSubmit = isValidHex(stateId);
 
   return (
     <Dialog
@@ -102,33 +90,19 @@ export const SendStateDialog: React.FC<Props> = ({
         handleSubmit();
       }}>
         <DialogTitle>
-          {t('sendPrivateState')}
-          {errorMessage !== undefined &&
-            <Alert sx={{ marginTop: '15px' }} variant="filled" severity="warning">{errorMessage}</Alert>}
+          {t('lookup')}
+          {notFound &&
+            <Alert sx={{ marginTop: '15px' }} variant="filled" severity="warning">{t('stateNotFound')}</Alert>}
         </DialogTitle>
         <DialogContent>
-          {messageId !== undefined &&
-            <Alert variant="filled" severity="success" sx={{ marginBottom: '20px' }}
-              action={
-                <Button variant="outlined" color="inherit" size="small"
-                  onClick={event => customNavigate(`/ui/transports/messages/${messageId}`, event, navigate)}
-                >{t('view')}</Button>
-              }
-            >
-              {t('messageValue', { value: messageId })}
-            </Alert>}
-          {messageId === undefined &&
-            <Alert sx={{ marginBottom: '25px' }} variant="filled" severity="warning">
-              {t('sendPrivateStateWarning')}
-            </Alert>}
           <Box sx={{ marginTop: '6px' }}>
             <TextField
-              label={t('recipient')}
+              label={t('stateId')}
               autoComplete="off"
               sx={{ marginBottom: '20px' }}
               fullWidth
-              value={recipient}
-              onChange={event => setRecipient(event.target.value)}
+              value={stateId}
+              onChange={event => setStateId(event.target.value)}
             />
           </Box>
         </DialogContent>
@@ -140,7 +114,7 @@ export const SendStateDialog: React.FC<Props> = ({
             disableElevation
             disabled={!canSubmit}
             type="submit">
-            {t('send')}
+            {t('lookup')}
           </Button>
           <Button
             sx={{ minWidth: '100px' }}
@@ -149,7 +123,7 @@ export const SendStateDialog: React.FC<Props> = ({
             disableElevation
             onClick={() => setDialogOpen(false)}
           >
-            {t(lastRecipient !== undefined ? 'close' : 'cancel')}
+            {t('cancel')}
           </Button>
         </DialogActions>
       </form>

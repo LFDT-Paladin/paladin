@@ -27,16 +27,10 @@ import { useState } from 'react';
 import logoDark from '../../public/paladin-title-dark.svg';
 import logoLight from '../../public/paladin-title-light.svg';
 import { SettingsMenu } from '../menus/Settings';
+import { useApplicationContext } from '../contexts/ApplicationContext';
 
-interface Props {
-  navigationVisible: boolean;
-  setNavigationVisible: React.Dispatch<React.SetStateAction<boolean>>;
-}
-
-export const Header: React.FC<Props> = ({
-  navigationVisible,
-  setNavigationVisible
-}) => {
+export const Header: React.FC = () => {
+  const { navigationVisible, setNavigationVisible } = useApplicationContext();
 
   const theme = useTheme();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);

@@ -20,30 +20,33 @@ import { useNavigate, useParams } from "react-router-dom";
 import { getShortId } from "../utils";
 import { useTranslation } from "react-i18next";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { getDomainContractByAddress } from "../queries/domains";
 import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { DomainButtons } from "../components/DomainButtons";
+import { getState } from "../queries/states";
+import { StateActions } from "../components/StateActions";
 
-export const DomainContract: React.FC = () => {
+export const StateEntry: React.FC = () => {
 
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { address } = useParams();
+  const { domain, schema, id } = useParams();
 
-  const { data: domainContract, error } = useQuery({
-    queryKey: [`domain-contract-${address}`],
-    queryFn: () => getDomainContractByAddress(address!),
-    enabled: address !== undefined,
-    retry: false
+  const { data: state, error } = useQuery({
+    queryKey: [`state-${domain}-${schema}-${id}`],
+    queryFn: () => getState(domain!, schema!, id!),
+    enabled: domain !== undefined && schema !== undefined && id !== undefined
   });
+
+  if (state === undefined) {
+    return <></>;
+  }
+
+  if(state === null) {
+    return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{t('stateNotFound')}</Alert>
+  }
 
   if (error) {
     return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{error?.message}</Alert>
-  }
-
-  if (domainContract === undefined) {
-    return <></>;
   }
 
   return (
@@ -59,12 +62,12 @@ export const DomainContract: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate('/ui/domains')}
+            onClick={() => navigate('/ui/states')}
           >
-            {t('backToDomains')}
+            {t('backToStates')}
           </Button>
         </Box>
-        <Typography variant="h6" sx={{ marginBottom: '15px' }}>{t('domainSmartContract')}</Typography>
+        <Typography variant="h6" sx={{ marginBottom: '15px' }}>{t('state')}</Typography>
         <Tabs value="contract"
           TabIndicatorProps={{ style: { display: 'none' } }}
         >
@@ -76,8 +79,7 @@ export const DomainContract: React.FC = () => {
             }}
             label={
               <Box>
-                <span style={{ fontWeight: 600, marginRight: '6px' }}>{t(domainContract.domainName ?? 'public')}</span>
-                {getShortId(domainContract.address)}
+                {getShortId(state.id)}
               </Box>
             } />
         </Tabs>
@@ -87,20 +89,17 @@ export const DomainContract: React.FC = () => {
           paddingBottom: '5px',
           backgroundColor: theme => theme.palette.background.paper,
         }}>
-        <DomainButtons
-          domainName={domainContract.domainName}
-          contractAddress={domainContract.address} />
+          <StateActions state={state} />
         </Box>
         <Accordion elevation={0} disableGutters defaultExpanded>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             {t('details')}
           </AccordionSummary>
           <AccordionDetails >
-            <JSONBox data={domainContract} />
+            <JSONBox data={state} />
           </AccordionDetails>
         </Accordion>
       </Box>
     </Fade>
   );
-
 }

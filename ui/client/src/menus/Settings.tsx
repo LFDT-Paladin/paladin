@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -17,8 +17,6 @@
 import { Box, Button, Grid2, Menu, ToggleButton, ToggleButtonGroup, Typography, useTheme } from "@mui/material";
 import { useContext, useState } from "react";
 import { ApplicationContext } from "../contexts/ApplicationContext";
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import PauseIcon from '@mui/icons-material/Pause';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import { ABIUploadDialog } from "../dialogs/ABIUpload";
@@ -34,18 +32,11 @@ export const SettingsMenu: React.FC<Props> = ({
   setAnchorEl
 }) => {
 
-  const { colorMode, autoRefreshEnabled, setAutoRefreshEnabled } = useContext(ApplicationContext);
+  const { colorMode } = useContext(ApplicationContext);
   const [abiUploadDialogOpen, setAbiUploadDialogOpen] = useState(false);
 
   const theme = useTheme();
   const { t } = useTranslation();
-
-  const handleAutoRefreshChange = (value: 'play' | 'pause' | null) => {
-    switch (value) {
-      case 'play': setAutoRefreshEnabled(true); break;
-      case 'pause': setAutoRefreshEnabled(false); break;
-    }
-  };
 
   const handleColorChange = (mode: 'light' | 'dark' | null) => {
     if (mode !== null && mode !== theme.palette.mode) {
@@ -65,17 +56,6 @@ export const SettingsMenu: React.FC<Props> = ({
       >
         <Grid2 container>
           <Grid2>
-            <Box sx={{ borderBottom: `solid 1px ${theme.palette.divider}`, padding: '8px 12px 8px 20px', display: 'flex', alignItems: 'center' }}>
-              <Typography sx={{ minWidth: '150px', whiteSpace: 'nowrap', marginRight: '8px' }}>{t('autoRefreshValue', { value: t(autoRefreshEnabled ? 'on' : 'off') })}</Typography>
-              <ToggleButtonGroup exclusive onChange={(_event, value) => handleAutoRefreshChange(value)} value={autoRefreshEnabled ? 'play' : 'pause'}>
-                <ToggleButton color="primary" value="play">
-                  <PlayArrowIcon fontSize="small" />
-                </ToggleButton>
-                <ToggleButton color="primary" value="pause">
-                  <PauseIcon fontSize="small" />
-                </ToggleButton>
-              </ToggleButtonGroup>
-            </Box>
             <Box sx={{ borderBottom: `solid 1px ${theme.palette.divider}`, padding: '8px 12px 8px 20px', display: 'flex', alignItems: 'center' }}>
               <Typography sx={{ minWidth: '150px', whiteSpace: 'nowrap', marginRight: '8px' }}>{t('themeValue', { value: t(theme.palette.mode === 'light' ? 'light' : 'dark') })}</Typography>
               <ToggleButtonGroup exclusive onChange={(_event, value) => handleColorChange(value)} value={theme.palette.mode}>

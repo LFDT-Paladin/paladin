@@ -22,27 +22,26 @@ import { useTranslation } from "react-i18next";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { getState } from "../queries/states";
-import { StateActions } from "../components/StateActions";
+import { getPrivacyGroupMessage } from "../queries/privacyGroups";
 
-export const State: React.FC = () => {
+export const PrivateGroupMessageEntry: React.FC = () => {
 
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { domain, schema, id } = useParams();
+  const { privacyGroupId, messageId } = useParams();
 
-  const { data: state, error } = useQuery({
-    queryKey: [`state-${domain}-${schema}-${id}`],
-    queryFn: () => getState(domain!, schema!, id!),
-    enabled: domain !== undefined && schema !== undefined && id !== undefined
+  const { data: privateGroupMessage, error } = useQuery({
+    queryKey: ['private-group-message', privacyGroupId, messageId],
+    queryFn: () => getPrivacyGroupMessage(privacyGroupId!, messageId!),
+    enabled: privacyGroupId !== undefined && messageId !== undefined
   });
 
-  if (state === undefined) {
+  if (privateGroupMessage === undefined) {
     return <></>;
   }
 
-  if(state === null) {
-    return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{t('stateNotFound')}</Alert>
+  if (privateGroupMessage === null) {
+    return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{t('messageNotFound')}</Alert>
   }
 
   if (error) {
@@ -62,12 +61,12 @@ export const State: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate('/ui/states')}
+            onClick={() => navigate(`/ui/privacy-groups/${privacyGroupId}`)}
           >
-            {t('backToStates')}
+            {t('backToPrivacyGroup')}
           </Button>
         </Box>
-        <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('state')}</Typography>
+        <Typography variant="h6" sx={{ marginBottom: '15px' }}>{t('privacyGroupMessage')}</Typography>
         <Tabs value="contract"
           TabIndicatorProps={{ style: { display: 'none' } }}
         >
@@ -79,7 +78,7 @@ export const State: React.FC = () => {
             }}
             label={
               <Box>
-                {getShortId(state.id)}
+                {getShortId(privateGroupMessage.id)}
               </Box>
             } />
         </Tabs>
@@ -89,14 +88,13 @@ export const State: React.FC = () => {
           paddingBottom: '5px',
           backgroundColor: theme => theme.palette.background.paper,
         }}>
-          <StateActions state={state} />
         </Box>
         <Accordion elevation={0} disableGutters defaultExpanded>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             {t('details')}
           </AccordionSummary>
           <AccordionDetails >
-            <JSONBox data={state} />
+            <JSONBox data={privateGroupMessage} />
           </AccordionDetails>
         </Accordion>
       </Box>

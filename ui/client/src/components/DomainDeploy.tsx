@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotoDeployDialog } from '../dialogs/domains/noto/NotoDeploy';
 import { ZetoDeployDialog } from '../dialogs/domains/zeto/ZetoDeploy';
+import UploadIcon from '@mui/icons-material/Upload';
 
 type Props = {
   domainName: string;
@@ -57,11 +58,12 @@ export const DomainDeploy: React.FC<Props> = ({ domainName }) => {
       <Grid2>
         {button && (
           <Button
-            size="large"
+            size="small"
             variant="outlined"
-            sx={{ borderRadius: '20px' }}
+            sx={{ borderRadius: '20px', minWidth: '120px' }}
             onClick={button.action}
             disabled={domainName === 'pente'}
+            startIcon={<UploadIcon />}
           >
             {t('deployNew')}
           </Button>

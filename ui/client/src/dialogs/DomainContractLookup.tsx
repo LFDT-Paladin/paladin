@@ -94,7 +94,7 @@ export const DomainContractLookupDialog: React.FC<Props> = ({
           <Box sx={{ marginTop: '6px' }}>
             <TextField
               label={t('contractAddress')}
-              autoComplete="OFF"
+              autoComplete="off"
               sx={{ marginBottom: '20px' }}
               fullWidth
               value={address}

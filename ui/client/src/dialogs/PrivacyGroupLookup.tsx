@@ -110,7 +110,7 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
           <Box sx={{ marginTop: '6px' }}>
             <TextField
               label={t('privacyGroupIdOrContractAddress')}
-              autoComplete="OFF"
+              autoComplete="off"
               sx={{ marginBottom: '20px' }}
               fullWidth
               value={idOrContractAddress}

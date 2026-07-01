@@ -14,11 +14,11 @@
  */
 
 task install(type: Exec) {
-    executable 'npm'
-    args 'install'
+    // npm bug: optional native deps for rolldown aren't installed on first pass (https://github.com/npm/cli/issues/4828)
+    executable 'bash'
+    args '-c', 'npm install && npm install'
 
-    inputs.files("package.json")
-    outputs.files("package-lock.json")
+    inputs.files("package.json", "package-lock.json")
     outputs.dir("node_modules")
 }
 

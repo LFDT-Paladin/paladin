@@ -28,7 +28,7 @@ import { PaladinTransactionSection } from "../components/PaladinTransactionSecti
 import { ReceiptlessPaladinTransaction } from "../components/ReceiptlessPaladinTransaction";
 import { PaladinTransactionsDetails } from "../components/TransactionDetails";
 
-export const TransactionDetails: React.FC = () => {
+export const TransactionEntry: React.FC = () => {
 
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -108,13 +108,13 @@ export const TransactionDetails: React.FC = () => {
           <Grid2 container spacing={3}>
             <Grid2 size={{ xs: 12, sm: 12, md: 4, lg: 3 }}>
               <Box>
-                <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('blockchainTransaction')}</Typography>
+                <Typography variant="h6" sx={{ marginBottom: '5px' }}>{t('blockchainTransaction')}</Typography>
                 <TransactionOverview
                   transaction={enrichedTransaction}
                 />
                 {enrichedTransaction.events.length > 0 &&
                   <>
-                    <Typography align="center" variant="h6" sx={{ marginTop: '20px', marginBottom: '5px' }}>{t('events')}</Typography>
+                    <Typography variant="h6" sx={{ marginTop: '20px', marginBottom: '5px' }}>{t('events')}</Typography>
                     <EventsOverview
                       events={enrichedTransaction.events} />
                   </>}
@@ -123,14 +123,14 @@ export const TransactionDetails: React.FC = () => {
             <Grid2 size={{ xs: 12, sm: 12, md: 8, lg: 9 }}>
               {enrichedTransaction.receipts.length > 0 &&
                 <Box>
-                  <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>
+                  <Typography variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>
                   <PaladinTransactionSection receipts={enrichedTransaction.receipts} />
                 </Box>}
             </Grid2>
           </Grid2>}
         {enrichedTransaction === undefined && receipt &&
           <>
-            <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>
+            <Typography variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>
             <Tabs
               value="paladin-transaction"
               TabIndicatorProps={{ style: { display: 'none' } }}

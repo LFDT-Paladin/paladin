@@ -15,11 +15,10 @@
 // limitations under the License.
 
 import i18next from "i18next";
-import { constants } from "../components/config";
-import { IFilter, IRegistryEntry } from "../interfaces";
+import { IFilter, IPagedResult, IRegistryEntry } from "../interfaces";
 import { generatePostReq, returnResponse } from "./common";
 import { RpcEndpoint, RpcMethods } from "./rpcMethods";
-import { translateFilters } from "../utils";
+import { deepMerge, toPagedResult, translateFilters } from "../utils";
 
 export const fetchRegistries = async (): Promise<string[]> => {
   const requestPayload = {
@@ -40,10 +39,19 @@ export const fetchRegistryEntries = async (
   registryName: string,
   filters: IFilter[],
   tab: 'active' | 'inactive' | 'any',
-  pageParam?: IRegistryEntry
-): Promise<IRegistryEntry[]> => {
-
-  let translatedFilters = translateFilters(filters);
+  limit: number,
+  pageParam?: string,
+  sortAscending?: boolean,
+  excludeRoot?: boolean
+): Promise<IPagedResult<IRegistryEntry>> => {
+  const translatedFilters = translateFilters(filters);
+  let customFilters: any = {};
+  if(excludeRoot === true) {
+    customFilters.neq = [{
+      field: '.name',
+      value: 'root'
+    }]
+  }
 
   let requestPayload: any = {
     jsonrpc: "2.0",
@@ -52,27 +60,56 @@ export const fetchRegistryEntries = async (
     params: [
       registryName,
       {
-        ...translatedFilters,
-        limit: constants.REGISTRY_ENTRIES_QUERY_LIMIT,
-        sort: ['.name ASC']
+        ...deepMerge(translatedFilters, customFilters),
+        limit: limit + 1,
+        sort: [`.name ${sortAscending ? 'ASC' : 'DESC'}`]
       },
-      tab,
-    ],
+      tab
+    ]
   };
-
-  if(pageParam !== undefined) {
+  if (pageParam !== undefined) {
     requestPayload.params[1].greaterThan = [
       {
         "field": ".name",
-        "value": pageParam.name
+        "value": pageParam
       }
     ];
   }
+  const results = await returnResponse(
+    () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
+    i18next.t("errorFetchingRegistryEntries")
+  );
+  return toPagedResult(results, limit);
+};
 
-  return <Promise<IRegistryEntry[]>>(
+export const fetchRegistryEntry = async (
+  registryName: string,
+  id: string
+) => {
+  let requestPayload: any = {
+    jsonrpc: "2.0",
+    id: Date.now(),
+    method: RpcMethods.reg_QueryEntriesWithProps,
+    params: [
+      registryName,
+      {
+        equal: [{
+          field: '.id',
+          value: id
+        }],
+        limit: 1
+      },
+      'all'
+    ]
+  };
+  const result = await <Promise<IRegistryEntry[]>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
-      i18next.t("errorFetchingRegistryEntries")
+      i18next.t("errorFetchingRegistryEntry")
     )
   );
+  if(result.length === 1) {
+    return result[0];
+  }
+  return null;
 };

@@ -20,30 +20,33 @@ import { useNavigate, useParams } from "react-router-dom";
 import { getShortId } from "../utils";
 import { useTranslation } from "react-i18next";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { getDomainContractByAddress } from "../queries/domains";
 import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { DomainButtons } from "../components/DomainButtons";
+import { getMessage } from "../queries/transport";
+import { AppRoutes } from "../routes";
 
-export const DomainContract: React.FC = () => {
+export const MessageEntry: React.FC = () => {
 
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { address } = useParams();
+  const { id } = useParams();
 
-  const { data: domainContract, error } = useQuery({
-    queryKey: [`domain-contract-${address}`],
-    queryFn: () => getDomainContractByAddress(address!),
-    enabled: address !== undefined,
-    retry: false
+  const { data: message, error } = useQuery({
+    queryKey: [`message-by-id-${id}`],
+    queryFn: () => getMessage(id!),
+    enabled: id !== undefined
   });
+
+  if (message === undefined) {
+    return <></>;
+  }
+
+  if (message === null) {
+    return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{t('messageNotFound')}</Alert>
+  }
 
   if (error) {
     return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{error?.message}</Alert>
-  }
-
-  if (domainContract === undefined) {
-    return <></>;
   }
 
   return (
@@ -59,12 +62,12 @@ export const DomainContract: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate('/ui/domains')}
+            onClick={() => navigate(AppRoutes.Transports)}
           >
-            {t('backToDomains')}
+            {t('backToTransports')}
           </Button>
         </Box>
-        <Typography variant="h6" sx={{ marginBottom: '15px' }}>{t('domainSmartContract')}</Typography>
+        <Typography variant="h6" sx={{ marginBottom: '15px' }}>{t('reliableMessage')}</Typography>
         <Tabs value="contract"
           TabIndicatorProps={{ style: { display: 'none' } }}
         >
@@ -76,31 +79,19 @@ export const DomainContract: React.FC = () => {
             }}
             label={
               <Box>
-                <span style={{ fontWeight: 600, marginRight: '6px' }}>{t(domainContract.domainName ?? 'public')}</span>
-                {getShortId(domainContract.address)}
+                {getShortId(message.id)}
               </Box>
             } />
         </Tabs>
-        <Box sx={{
-          paddingLeft: '5px',
-          paddingTop: '15px',
-          paddingBottom: '5px',
-          backgroundColor: theme => theme.palette.background.paper,
-        }}>
-        <DomainButtons
-          domainName={domainContract.domainName}
-          contractAddress={domainContract.address} />
-        </Box>
         <Accordion elevation={0} disableGutters defaultExpanded>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             {t('details')}
           </AccordionSummary>
           <AccordionDetails >
-            <JSONBox data={domainContract} />
+            <JSONBox data={message} />
           </AccordionDetails>
         </Accordion>
       </Box>
     </Fade>
   );
-
 }

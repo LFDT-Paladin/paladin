@@ -30,7 +30,7 @@ type Props = {
   prefix?: string
 };
 
-export const EllapsedTime: React.FC<Props> = ({
+export const ElapsedTime: React.FC<Props> = ({
   timestamp,
   icon = <AccessTimeIcon />,
   prefix
@@ -40,11 +40,12 @@ export const EllapsedTime: React.FC<Props> = ({
   const [timestampDialogOpen, setTimestampDialogOpen] = useState(false);
 
   useEffect(() => {
+    setDisplayValue(daysjs(timestamp).fromNow());
     const intervalId = setInterval(() => {
       setDisplayValue(daysjs(timestamp).fromNow())
-    }, constants.ELLAPSED_TIME_AUTO_REFRESH_FREQUENCY_SECONDS * 1000);
+    }, constants.ELAPSED_TIME_AUTO_REFRESH_FREQUENCY_SECONDS * 1000);
     return () => clearInterval(intervalId);
-  }, []);
+  }, [timestamp]);
 
   return (
     <>

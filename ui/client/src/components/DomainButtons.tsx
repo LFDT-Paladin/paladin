@@ -56,7 +56,7 @@ export const DomainButtons: React.FC<Props> = ({
     switch (domainName) {
       case 'noto': {
         tmpButtons.push({
-          name: 'balance',
+          name: 'checkBalance',
           action: () => setNotoCheckBalanceDialogOpen(true),
         });
         tmpButtons.push({
@@ -99,7 +99,7 @@ export const DomainButtons: React.FC<Props> = ({
         {buttons.map((button) => (
           <Button
             key={button.name}
-            sx={{ fontWeight: '400' }}
+            sx={{ fontWeight: '400', whiteSpace: 'nowrap' }}
             size="small"
             onClick={button.action}
           >

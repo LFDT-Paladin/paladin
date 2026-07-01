@@ -22,26 +22,26 @@ import { useTranslation } from "react-i18next";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { getMessage } from "../queries/transport";
+import { fetchRegistryEntry } from "../queries/registry";
 
-export const Message: React.FC = () => {
+export const RegistryEntry: React.FC = () => {
 
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { id } = useParams();
+  const { registry, id } = useParams();
 
-  const { data: message, error } = useQuery({
-    queryKey: [`message-by-id-${id}`],
-    queryFn: () => getMessage(id!),
-    enabled: id !== undefined
+  const { data: registryEntry, error } = useQuery({
+    queryKey: ['registry-entry', registry, id],
+    queryFn: () => fetchRegistryEntry(registry!, id!),
+    enabled: registry !== undefined && id !== undefined
   });
 
-  if (message === undefined) {
+  if (registryEntry === undefined) {
     return <></>;
   }
 
-  if (message === null) {
-    return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{t('messageNotFound')}</Alert>
+  if (registryEntry === null) {
+    return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{t('registryEntryNotFound')}</Alert>
   }
 
   if (error) {
@@ -61,12 +61,12 @@ export const Message: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate('/ui/messages')}
+            onClick={() => navigate('/ui/registry')}
           >
-            {t('backToMessages')}
+            {t('backToRegistry')}
           </Button>
         </Box>
-        <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('message')}</Typography>
+        <Typography variant="h6" sx={{ marginBottom: '15px' }}>{t('registryEntry')}</Typography>
         <Tabs value="contract"
           TabIndicatorProps={{ style: { display: 'none' } }}
         >
@@ -78,7 +78,7 @@ export const Message: React.FC = () => {
             }}
             label={
               <Box>
-                {getShortId(message.id)}
+                {getShortId(registryEntry.id)}
               </Box>
             } />
         </Tabs>
@@ -94,7 +94,7 @@ export const Message: React.FC = () => {
             {t('details')}
           </AccordionSummary>
           <AccordionDetails >
-            <JSONBox data={message} />
+            <JSONBox data={registryEntry} />
           </AccordionDetails>
         </Accordion>
       </Box>

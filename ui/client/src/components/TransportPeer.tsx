@@ -19,7 +19,7 @@ import { ITransportPeer } from "../interfaces";
 import byteSize from "pretty-bytes";
 import UploadIcon from '@mui/icons-material/Upload';
 import DownloadIcon from '@mui/icons-material/Download';
-import { EllapsedTime } from "./EllapsedTime";
+import { ElapsedTime } from "./ElapsedTime";
 import { useTranslation } from "react-i18next";
 
 type Props = {
@@ -74,17 +74,17 @@ export const TransportPeer: React.FC<Props> = ({ transportPeer }) => {
       </Box>
       <Box sx={{ padding: '10px' }}>
         <Box sx={{ justifyContent: 'right', display: 'flex', gap: '50px' }}>
-          <EllapsedTime
+          <ElapsedTime
             timestamp={transportPeer.activated}
             prefix={t('activated')}
           />
-          <EllapsedTime
+          <ElapsedTime
             timestamp={transportPeer.stats.lastSend}
             icon={<UploadIcon />}
             prefix={t('lastSend')}
           />
           {transportPeer.stats.lastReceive !== null &&
-          <EllapsedTime
+          <ElapsedTime
             timestamp={transportPeer.stats.lastReceive}
             icon={<DownloadIcon />}
             prefix={t('lastReceive')}

@@ -18,48 +18,44 @@ import {
   Alert,
   Box,
   Button,
+  Collapse,
   Fade,
-  Grid2,
   MenuItem,
   TextField,
   Typography
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { t } from 'i18next';
-import { Captions } from 'lucide-react';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useApplicationContext } from '../contexts/ApplicationContext';
 import { DomainDeploy } from '../components/DomainDeploy';
 import { Hash } from '../components/Hash';
 import { SmartContractsTable } from '../components/SmartContractsTable';
 import { getDomainByName, listDomains } from '../queries/domains';
 import SearchIcon from '@mui/icons-material/Search';
-import { DomainContractLookupDialog } from '../dialogs/DomainContractLookp';
+import { DomainContractLookupDialog } from '../dialogs/DomainContractLookup';
+import { Captions } from "lucide-react";
+import { FiltersButton } from '../components/FiltersButton';
+import { Filters } from '../components/Filters';
 
-type Props = {
-  sortAscending: boolean
-  setSortAscending: Dispatch<SetStateAction<boolean>>
-  page: number
-  setPage: Dispatch<SetStateAction<number>>
-  rowsPerPage: number
-  setRowsPerPage: Dispatch<SetStateAction<number>>
-  refTimestamps: string[]
-  setRefTimestamps: Dispatch<SetStateAction<string[]>>
-  selectedDomain: string | undefined
-  setSelectedDomain: Dispatch<SetStateAction<string | undefined>>
-};
-
-export const Domains: React.FC<Props> = ({
-  sortAscending,
-  setSortAscending,
-  page,
-  setPage,
-  rowsPerPage,
-  setRowsPerPage,
-  refTimestamps,
-  setRefTimestamps,
-  selectedDomain,
-  setSelectedDomain
-}) => {
+export const Domains: React.FC = () => {
+  const { domains: domainsViewState } = useApplicationContext();
+  const {
+    sortAscending,
+    setSortAscending,
+    page,
+    setPage,
+    rowsPerPage,
+    setRowsPerPage,
+    refTimestamps,
+    setRefTimestamps,
+    selectedDomain,
+    setSelectedDomain,
+    filters,
+    setFilters,
+    filtersVisible,
+    setFiltersVisible,
+  } = domainsViewState;
 
   const [lookupDomainContractDialogOpen, setLookupDomainContractDialogOpen] = useState(false);
 
@@ -68,13 +64,13 @@ export const Domains: React.FC<Props> = ({
     error,
   } = useQuery({
     queryKey: ['domains'],
-    queryFn: () => listDomains(),
+    queryFn: () => listDomains()
   });
 
   const { data: domain } = useQuery({
     queryKey: ['domain', selectedDomain],
     queryFn: () => getDomainByName(selectedDomain ?? ''),
-    enabled: !!selectedDomain,
+    enabled: !!selectedDomain
   });
 
   useEffect(() => {
@@ -82,6 +78,10 @@ export const Domains: React.FC<Props> = ({
       setSelectedDomain(domains[0]);
     }
   }, [selectedDomain, domains]);
+
+  useEffect(() => {
+    setFilters([]);
+  }, [selectedDomain]);
 
   if (error) {
     return (
@@ -102,101 +102,79 @@ export const Domains: React.FC<Props> = ({
             marginRight: 'auto',
           }}
         >
-          <Grid2 container alignItems="center" spacing={2}>
-            <Grid2 size={{ md: 4 }}>
-              <TextField
-                size="small"
-                color="secondary"
-                slotProps={{
-                  input: {
-                    sx: {
-                      color: (theme) => theme.palette.text.secondary,
-                      borderRadius: '30px',
-                    },
-                  },
-                }}
-                select={domains !== undefined && domains.length > 0}
-                value={selectedDomain ?? ''}
-                onChange={(event) => setSelectedDomain(event.target.value)}
-              >
-                {domains?.map((domain) => (
-                  <MenuItem key={domain} value={domain}>
-                    {domain}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Grid2>
-            <Grid2 size={{ xs: 12, md: 4 }}>
-              <Typography align="center" variant="h5">
-                {t('domainDetails')}
-              </Typography>
-            </Grid2>
-            <Grid2
-              size={{ xs: 12, md: 4 }}
-              container
-              justifyContent={{ xs: 'center', sm: 'center', md: 'right' }}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <Typography variant="h5">
+              {t('domainSmartContracts')}
+            </Typography>
+            <TextField
+              size="small"
+              color="secondary"
+              slotProps={{
+                input: {
+                  sx: {
+                    color: (theme) => theme.palette.text.secondary,
+                    fontWeight: 500,
+                    height: '28px',
+                    fontSize: '15px'
+                  }
+                }
+              }}
+              select={domains !== undefined && domains.length > 0}
+              value={selectedDomain ?? ''}
+              onChange={(event) => setSelectedDomain(event.target.value)}
             >
+              {domains?.map((domain) => (
+                <MenuItem key={domain} value={domain}>
+                  {domain}
+                </MenuItem>
+              ))}
+            </TextField>
+            {domain !== undefined &&
+              <Box>
+                <Hash Icon={<Captions size="18px" />} hideTitle title={t('domainRegistryAddress')} hash={domain.registryAddress} />
+              </Box>
+            }
+            <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
               <DomainDeploy domainName={selectedDomain ?? ''} />
-            </Grid2>
-          </Grid2>
-          <Box sx={{ height: '10px' }} />
-          <Box
-            sx={{
-              backgroundColor: (theme) => theme.palette.background.paper,
-              marginBottom: '20px',
-              borderRadius: '4px',
-              padding: '20px',
-            }}
-          >
-            <Grid2
-              container
-              justifyContent="space-between"
-              alignItems="center"
-              spacing={2}
-            >
-              <Grid2 size={{ md: 4 }}>
-                <Typography align="center" variant="h6" color="textPrimary">
-                  {selectedDomain ?? '--'}
-                </Typography>
-                <Typography
-                  align="center"
-                  variant="body2"
-                  color="textSecondary"
-                >
-                  {t('domain')}
-                </Typography>
-              </Grid2>
-              <Grid2 size={{ md: 4 }} textAlign="center">
-                <Hash
-                  Icon={<Captions size="18px" />}
-                  hash={domain?.registryAddress ?? '--'}
-                  title={t('registry')}
-                />
-              </Grid2>
-            </Grid2>
+
+              <Button
+                sx={{ borderRadius: '20px', minWidth: '120px' }}
+                size="small"
+                variant="outlined"
+                startIcon={<SearchIcon />}
+                onClick={() => setLookupDomainContractDialogOpen(true)}
+              >
+                {t('lookup')}
+              </Button>
+
+              <FiltersButton
+                filtersVisible={filtersVisible}
+                setFiltersVisible={setFiltersVisible}
+              />
+            </Box>
           </Box>
-          <Grid2 container alignItems="center" spacing={2}>
-            <Grid2 sx={{ display: { xs: 'none', sm: 'none', md: 'block' } }} size={{ md: 4 }} />
-            <Grid2 size={{ xs: 12, md: 4 }}>
-              <Typography align="center" variant="h5">
-                {t('smartContracts')}
-              </Typography>
-            </Grid2>
-            <Grid2 size={{ xs: 12, md: 4 }} container justifyContent="right">
-              <Grid2>
-                <Button
-                  sx={{ borderRadius: '20px', minWidth: '180px' }}
-                  size="large"
-                  variant="outlined"
-                  startIcon={<SearchIcon />}
-                  onClick={() => setLookupDomainContractDialogOpen(true)}
-                >
-                  {t('lookup')}
-                </Button>
-              </Grid2>
-            </Grid2>
-          </Grid2>
-          <Box sx={{ height: '10px' }} />
+          <Collapse in={filtersVisible}>
+            <Box sx={{ marginBottom: '20px' }}>
+              <Filters
+                filterFields={[
+                  {
+                    label: t('deployed'),
+                    name: 'created',
+                    type: 'timestamp',
+                    isNanoSeconds: true
+                  },
+                  {
+                    label: t('contractAddress'),
+                    name: 'address',
+                    type: 'string',
+                    isHexValue: true
+                  }
+                ]}
+                filters={filters}
+                setFilters={setFilters}
+              />
+            </Box>
+          </Collapse>
           {domain?.registryAddress && (
             <SmartContractsTable
               domainAddress={domain.registryAddress}
@@ -209,6 +187,7 @@ export const Domains: React.FC<Props> = ({
               refTimestamps={refTimestamps}
               setRefTimestamps={setRefTimestamps}
               selectedDomain={selectedDomain}
+              filters={filters}
             />
           )}
         </Box>

@@ -30,7 +30,7 @@ export const ReceiptlessPaladinTransaction: React.FC<Props> = ({ paladinTransact
 
   return (
     <>
-      <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>
+      <Typography variant="h6" sx={{ marginBottom: '15px' }}>{t('paladinTransaction')}</Typography>
       <Tabs
         value="paladin-transaction"
         TabIndicatorProps={{ style: { display: 'none' } }}

@@ -89,7 +89,7 @@ export const ReverseKeyLookupDialog: React.FC<Props> = ({
       if (result.status === 'success') {
         const path = result.data.path.map(segment => segment.name).join('.');
         const index = path.lastIndexOf('.');
-        if(index !== -1 && mode === 'explorer') {
+        if (index !== -1 && mode === 'explorer') {
           setParent(path.substring(0, index));
         }
         setFilters([{
@@ -143,8 +143,12 @@ export const ReverseKeyLookupDialog: React.FC<Props> = ({
               value={isEthereum ? 'ethereum' : 'other'}
               onChange={event => setIsEthereum(event.target.value === 'ethereum')}
             >
-              <FormControlLabel value="ethereum" control={<Radio />} label={t('ethereum')} />
-              <FormControlLabel value="other" control={<Radio />} label={t('other')} />
+              <Box>
+                <FormControlLabel value="ethereum" control={<Radio />} label={t('ethereum')} />
+              </Box>
+              <Box>
+                <FormControlLabel value="other" control={<Radio />} label={t('other')} />
+              </Box>
             </RadioGroup>
             <Box sx={{ marginTop: '15px', marginLeft: '30px' }}>
               <TextField

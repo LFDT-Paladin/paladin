@@ -114,7 +114,6 @@ export const ZetoMintDialog: React.FC<Props> = ({
   useEffect(() => {
     if (error !== null) {
       setErrorMessage(t('mintFailed'));
-      console.log(error)
     }
   }, [error]);
 
