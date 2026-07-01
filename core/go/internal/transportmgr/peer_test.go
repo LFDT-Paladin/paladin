@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright contributors to Paladin, an LFDT project
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -33,6 +33,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -336,6 +337,55 @@ func TestNameSortedPeers(t *testing.T) {
 		{PeerInfo: pldapi.PeerInfo{Name: "ddd"}},
 	}, peerList)
 
+}
+
+func TestQueryPeers(t *testing.T) {
+	ctx := context.Background()
+	tm := &transportManager{
+		peers: map[string]*peer{
+			"node1": {PeerInfo: pldapi.PeerInfo{Name: "node1"}},
+			"node2": {PeerInfo: pldapi.PeerInfo{Name: "node2"}},
+			"node3": {PeerInfo: pldapi.PeerInfo{Name: "node3"}},
+		},
+	}
+
+	peers, err := tm.QueryPeers(ctx, query.NewQueryBuilder().
+		In("name", []any{"node1", "node3"}).
+		Limit(10).
+		Query())
+	require.NoError(t, err)
+	require.Len(t, peers, 2)
+	require.Equal(t, "node1", peers[0].Name)
+	require.Equal(t, "node3", peers[1].Name)
+
+	peers, err = tm.QueryPeers(ctx, query.NewQueryBuilder().
+		Equal("name", "node2").
+		Limit(10).
+		Query())
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	require.Equal(t, "node2", peers[0].Name)
+
+	peers, err = tm.QueryPeers(ctx, query.NewQueryBuilder().Limit(1).Query())
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	require.Equal(t, "node1", peers[0].Name)
+
+	peers, err = tm.QueryPeers(ctx, query.NewQueryBuilder().Sort("-name").Limit(10).Query())
+	require.NoError(t, err)
+	require.Len(t, peers, 3)
+	require.Equal(t, "node3", peers[0].Name)
+	require.Equal(t, "node2", peers[1].Name)
+	require.Equal(t, "node1", peers[2].Name)
+
+	_, err = tm.QueryPeers(ctx, query.NewQueryBuilder().Equal("wrong", "node1").Limit(1).Query())
+	require.Regexp(t, "PD010700.*wrong", err)
+
+	_, err = tm.QueryPeers(ctx, query.NewQueryBuilder().Limit(1).Sort("wrong").Query())
+	require.Regexp(t, "PD010700.*wrong", err)
+
+	_, err = tm.QueryPeers(ctx, query.NewQueryBuilder().Query())
+	require.Regexp(t, "PD010721", err)
 }
 
 func TestConnectionRace(t *testing.T) {
