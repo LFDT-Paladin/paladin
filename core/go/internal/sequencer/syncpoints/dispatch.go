@@ -60,14 +60,14 @@ type DispatchBatch struct {
 
 // PersistDispatches persists the dispatches to the database and coordinates with the public transaction manager
 // to submit public transactions.
-func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error {
+func (s *syncPoints) PersistDispatchBatch(ctx context.Context, dsw components.DomainStateWriter, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error {
 
 	preparedReliableMsgs := make([]*pldapi.ReliableMessage, 0,
 		len(dispatchBatch.PreparedTransactions)+len(stateDistributions))
 
 	var localPreparedTxns []*components.PreparedTransactionWithRefs
 	for _, preparedTxnDistribution := range preparedTxnDistributions {
-		node, _ := pldtypes.PrivateIdentityLocator(preparedTxnDistribution.Transaction.From).Node(dCtx.Ctx(), false)
+		node, _ := pldtypes.PrivateIdentityLocator(preparedTxnDistribution.Transaction.From).Node(ctx, false)
 		if node != s.transportMgr.LocalNodeName() {
 			preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 				Node:        node,
@@ -80,7 +80,7 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 	}
 
 	for _, stateDistribution := range stateDistributions {
-		node, _ := pldtypes.PrivateIdentityLocator(stateDistribution.IdentityLocator).Node(dCtx.Ctx(), false)
+		node, _ := pldtypes.PrivateIdentityLocator(stateDistribution.IdentityLocator).Node(ctx, false)
 		preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 			Node:        node,
 			MessageType: pldapi.RMTState.Enum(),
@@ -111,7 +111,7 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 			localNodePersisted := false
 
 			for _, binding := range publicDispatch.PublicTxs[i].Bindings {
-				node, _ := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(dCtx.Ctx(), false)
+				node, _ := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(ctx, false)
 				if binding.TransactionID.String() != privateTx.TransactionID {
 					continue
 				}
@@ -120,7 +120,7 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 					localNodePersisted = true
 				}
 				if node != s.transportMgr.LocalNodeName() {
-					log.L(dCtx.Ctx()).Tracef("Sending sequencer dispatch activity for TX %s to node %s", binding.TransactionID.String(), binding.TransactionSender)
+					log.L(ctx).Tracef("Sending sequencer dispatch activity for TX %s to node %s", binding.TransactionID.String(), binding.TransactionSender)
 					preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 						Node:        node,
 						MessageType: pldapi.RMTSequencingActivity.Enum(),
@@ -142,11 +142,11 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 			TransactionID:  privateDispatch.OriginalTransaction,
 		}
 
-		node, _ := pldtypes.PrivateIdentityLocator(privateDispatch.OriginalSenderLocator).Node(dCtx.Ctx(), false)
+		node, _ := pldtypes.PrivateIdentityLocator(privateDispatch.OriginalSenderLocator).Node(ctx, false)
 		if node == s.transportMgr.LocalNodeName() {
 			localSequencerActivities = append(localSequencerActivities, sequencingProgress)
 		} else {
-			log.L(dCtx.Ctx()).Tracef("Sending sequencer chained-dispatch activity for TX %s to node %s", privateDispatch.OriginalTransaction, privateDispatch.OriginalSenderLocator)
+			log.L(ctx).Tracef("Sending sequencer chained-dispatch activity for TX %s to node %s", privateDispatch.OriginalTransaction, privateDispatch.OriginalSenderLocator)
 			preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 				Node:        node,
 				MessageType: pldapi.RMTSequencingActivity.Enum(),
@@ -156,9 +156,9 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 	}
 
 	// Send the write operation with all of the batch sequence operations to the flush worker
-	op := s.writer.Queue(dCtx.Ctx(), &syncPointOperation{
-		domainContext:   dCtx,
-		contractAddress: contractAddress,
+	op := s.writer.Queue(ctx, &syncPointOperation{
+		domainStateWriter: dsw,
+		contractAddress:   contractAddress,
 		dispatchOperation: &dispatchOperation{
 			transactionID:           transactionID,
 			publicDispatches:        dispatchBatch.PublicDispatches,
@@ -170,7 +170,7 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 	})
 
 	//wait for the flush to complete
-	_, err := op.WaitFlushed(dCtx.Ctx())
+	_, err := op.WaitFlushed(ctx)
 	return err
 }
 

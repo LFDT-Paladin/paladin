@@ -243,8 +243,7 @@ func Test_action_CleanUpTransaction_RemovesFromMap(t *testing.T) {
 	txID := uuid.New()
 	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	txn.EXPECT().GetID().Return(txID)
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
-	mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Once()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
 	err := action_CleanUpTransaction(t.Context(), c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txID,
 		ToState:       transaction.State_Final,
@@ -258,8 +257,7 @@ func Test_action_CleanUpTransaction_RemovesFromPool(t *testing.T) {
 	txID := uuid.New()
 	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	txn.EXPECT().GetID().Return(txID)
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
-	mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Once()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
 	c.addTransactionToBackOfPool(txn)
 	require.Len(t, c.pooledTransactions, 1)
 	err := action_CleanUpTransaction(t.Context(), c, &common.TransactionStateTransitionEvent[transaction.State]{
@@ -308,8 +306,7 @@ func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *test
 	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	txn.EXPECT().GetID().Return(txID)
 
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
-	mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Once()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
 	err := action_CleanUpTransaction(t.Context(), c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txID,
 		ToState:       transaction.State_Final,
@@ -969,8 +966,7 @@ func Test_action_CleanUpTransactionsNotYetDispatched_DrainsPendingDispatchQueueI
 	txPooled.EXPECT().GetID().Return(idPooled)
 	txPooled.EXPECT().GetCurrentState().Return(transaction.State_Pooled)
 
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txPooled).Build()
-	mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Once()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txPooled).Build()
 
 	// Pre-populate the dispatch queue with a transaction reference to exercise the drain path.
 	c.dispatchQueue <- txPooled
@@ -998,9 +994,8 @@ func Test_action_CleanUpTransactionsNotYetDispatched_RemovesNonDispatchedTransac
 	txConfirmed.EXPECT().GetID().Return(idConfirmed)
 	txConfirmed.EXPECT().GetCurrentState().Return(transaction.State_Confirmed)
 
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txPooled, txAssembling, txConfirmed).Build()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txPooled, txAssembling, txConfirmed).Build()
 	// cleanUpTransaction is called once for each non-dispatched, non-confirmed transaction (Pooled + Assembling).
-	mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Times(2)
 
 	err := action_CleanUpTransactionsNotYetDispatched(ctx, c, nil)
 	require.NoError(t, err)

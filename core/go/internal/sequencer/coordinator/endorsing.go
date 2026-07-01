@@ -17,6 +17,7 @@ package coordinator
 
 import (
 	"context"
+
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
@@ -191,10 +192,10 @@ func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *Endorseme
 		VerifierType: e.AttestationRequest.VerifierType,
 	}
 
-	dCtx := c.components.StateManager().NewDomainContext(ctx, c.domainAPI.Domain(), c.domainAPI.Address())
-	defer dCtx.Close()
+	dc := c.components.StateManager().NewDomainQueryContext(ctx, c.domainAPI.Domain(), c.domainAPI.Address())
+	defer dc.Close(ctx)
 
-	endorsementResult, err := c.domainAPI.EndorseTransaction(dCtx, c.components.Persistence().NOTX(), endorsementRequest)
+	endorsementResult, err := c.domainAPI.EndorseTransaction(ctx, dc, c.components.Persistence().NOTX(), endorsementRequest)
 	if err != nil {
 		sendErr(err.Error())
 		return

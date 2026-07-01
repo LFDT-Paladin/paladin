@@ -841,11 +841,11 @@ func (sMgr *sequencerManager) CallPrivateSmartContract(ctx context.Context, call
 	}
 
 	// Create a throwaway domain context for this call
-	dCtx := sMgr.components.StateManager().NewDomainContext(ctx, psc.Domain(), psc.Address())
-	defer dCtx.Close()
+	dc := sMgr.components.StateManager().NewDomainQueryContext(ctx, psc.Domain(), psc.Address())
+	defer dc.Close(ctx)
 
 	// Do the actual call
-	return psc.ExecCall(dCtx, sMgr.components.Persistence().NOTX(), call, verifiers)
+	return psc.ExecCall(ctx, dc, sMgr.components.Persistence().NOTX(), call, verifiers)
 }
 
 func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {

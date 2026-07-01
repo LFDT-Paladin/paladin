@@ -43,7 +43,7 @@ type SyncPoints interface {
 	// to the PrivateTxnManager's persistence store in the same database transaction
 	// Although the actual persistence is offloaded to the flushwriter, this method is synchronous and will block until the
 	// dispatch sequence is written to the database
-	PersistDispatchBatch(dCtx components.DomainContext, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error
+	PersistDispatchBatch(ctx context.Context, dsw components.DomainStateWriter, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error
 
 	// Deploy is a special case of dispatch batch, where there are no private states, so no domain context is required
 	PersistDeployDispatchBatch(ctx context.Context, transactionID uuid.UUID, dispatchBatch *DispatchBatch) error

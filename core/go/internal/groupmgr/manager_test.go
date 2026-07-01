@@ -703,9 +703,9 @@ func mockGetPrivateSmartContract(t *testing.T, mc *mockComponents, schemaID pldt
 	psc := componentsmocks.NewDomainSmartContract(t)
 	mc.domainManager.On("GetSmartContractByAddress", mock.Anything, mock.Anything, *contractAddr).Return(psc, nil)
 	psc.On("Domain").Return(mc.domain).Maybe()
-	mdc := componentsmocks.NewDomainContext(t)
-	mc.stateManager.On("NewDomainContext", mock.Anything, mc.domain, *contractAddr).Return(mdc)
-	mdc.On("Close").Return()
+	mdc := componentsmocks.NewDomainQueryContext(t)
+	mc.stateManager.On("NewDomainQueryContext", mock.Anything, mc.domain, *contractAddr).Return(mdc)
+	mdc.On("Close", mock.Anything).Return()
 	return psc
 }
 

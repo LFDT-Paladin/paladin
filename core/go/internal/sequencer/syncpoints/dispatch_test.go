@@ -54,11 +54,8 @@ func TestPersistDispatchBatch_EmptyBatch(t *testing.T) {
 	sp.Start()
 	defer sp.Close()
 
-	dCtx := componentsmocks.NewDomainContext(t)
-	dCtx.On("Ctx").Return(ctx).Maybe()
-	dCtxID := uuid.New()
-	dCtx.On("Info").Return(components.DomainContextInfo{ID: dCtxID}).Maybe()
-	dCtx.On("Flush", mock.Anything).Return(nil).Maybe()
+	dsw := componentsmocks.NewDomainStateWriter(t)
+	dsw.On("Flush", mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	mp.Mock.ExpectBegin()
 	mp.Mock.ExpectCommit()
@@ -70,7 +67,7 @@ func TestPersistDispatchBatch_EmptyBatch(t *testing.T) {
 		PreparedTransactions: []*components.PreparedTransactionWithRefs{},
 	}
 
-	err = sp.PersistDispatchBatch(dCtx, *contractAddr, uuid.New(), dispatchBatch, []*components.StateDistribution{}, []*components.PreparedTransactionWithRefs{})
+	err = sp.PersistDispatchBatch(ctx, dsw, *contractAddr, uuid.New(), dispatchBatch, []*components.StateDistribution{}, []*components.PreparedTransactionWithRefs{})
 	require.NoError(t, err)
 	require.NoError(t, mp.Mock.ExpectationsWereMet())
 }
@@ -95,11 +92,8 @@ func TestPersistDispatchBatch_WithPreparedTxnDistributions_LocalNode(t *testing.
 	sp.Start()
 	defer sp.Close()
 
-	dCtx := componentsmocks.NewDomainContext(t)
-	dCtx.On("Ctx").Return(ctx).Maybe()
-	dCtxID := uuid.New()
-	dCtx.On("Info").Return(components.DomainContextInfo{ID: dCtxID}).Maybe()
-	dCtx.On("Flush", mock.Anything).Return(nil).Maybe()
+	dsw := componentsmocks.NewDomainStateWriter(t)
+	dsw.On("Flush", mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Create a prepared transaction distribution for local node
 	preparedTxn := &components.PreparedTransactionWithRefs{
@@ -126,7 +120,7 @@ func TestPersistDispatchBatch_WithPreparedTxnDistributions_LocalNode(t *testing.
 		return len(txns) == 1 && txns[0] == preparedTxn
 	})).Return(nil)
 
-	err = sp.PersistDispatchBatch(dCtx, *contractAddr, uuid.New(), dispatchBatch, []*components.StateDistribution{}, []*components.PreparedTransactionWithRefs{preparedTxn})
+	err = sp.PersistDispatchBatch(ctx, dsw, *contractAddr, uuid.New(), dispatchBatch, []*components.StateDistribution{}, []*components.PreparedTransactionWithRefs{preparedTxn})
 	require.NoError(t, err)
 	require.NoError(t, mp.Mock.ExpectationsWereMet())
 	txMgr.AssertExpectations(t)
@@ -154,19 +148,17 @@ func newTestSyncPoints(t *testing.T, localNode string) (*syncPoints, *mockpersis
 	return sp, mp, txMgr, pubTxMgr, transportMgr
 }
 
-func newTestDomainContext(t *testing.T, ctx context.Context) *componentsmocks.DomainContext {
+func newTestDomainStateWriter(t *testing.T) *componentsmocks.DomainStateWriter {
 	t.Helper()
-	dCtx := componentsmocks.NewDomainContext(t)
-	dCtx.On("Ctx").Return(ctx).Maybe()
-	dCtx.On("Info").Return(components.DomainContextInfo{ID: uuid.New()}).Maybe()
-	dCtx.On("Flush", mock.Anything).Return(nil).Maybe()
-	return dCtx
+	dsw := componentsmocks.NewDomainStateWriter(t)
+	dsw.On("Flush", mock.Anything, mock.Anything).Return(nil).Maybe()
+	return dsw
 }
 
 func TestPersistDispatchBatch_WithRemotePreparedTxnDistribution(t *testing.T) {
 	ctx := context.Background()
 	sp, mp, _, _, transportMgr := newTestSyncPoints(t, "node1")
-	dCtx := newTestDomainContext(t, ctx)
+	dsw := newTestDomainStateWriter(t)
 
 	remotePreparedTxn := &components.PreparedTransactionWithRefs{
 		PreparedTransactionBase: &pldapi.PreparedTransactionBase{
@@ -182,14 +174,14 @@ func TestPersistDispatchBatch_WithRemotePreparedTxnDistribution(t *testing.T) {
 	mp.Mock.ExpectBegin()
 	mp.Mock.ExpectCommit()
 
-	err := sp.PersistDispatchBatch(dCtx, *pldtypes.RandAddress(), uuid.New(), &DispatchBatch{}, []*components.StateDistribution{}, []*components.PreparedTransactionWithRefs{remotePreparedTxn})
+	err := sp.PersistDispatchBatch(ctx, dsw, *pldtypes.RandAddress(), uuid.New(), &DispatchBatch{}, []*components.StateDistribution{}, []*components.PreparedTransactionWithRefs{remotePreparedTxn})
 	require.NoError(t, err)
 }
 
 func TestPersistDispatchBatch_WithStateDistributions(t *testing.T) {
 	ctx := context.Background()
 	sp, mp, _, _, transportMgr := newTestSyncPoints(t, "node1")
-	dCtx := newTestDomainContext(t, ctx)
+	dsw := newTestDomainStateWriter(t)
 
 	stateDistribution := &components.StateDistribution{
 		IdentityLocator: "identity@node2",
@@ -199,14 +191,14 @@ func TestPersistDispatchBatch_WithStateDistributions(t *testing.T) {
 	mp.Mock.ExpectBegin()
 	mp.Mock.ExpectCommit()
 
-	err := sp.PersistDispatchBatch(dCtx, *pldtypes.RandAddress(), uuid.New(), &DispatchBatch{}, []*components.StateDistribution{stateDistribution}, []*components.PreparedTransactionWithRefs{})
+	err := sp.PersistDispatchBatch(ctx, dsw, *pldtypes.RandAddress(), uuid.New(), &DispatchBatch{}, []*components.StateDistribution{stateDistribution}, []*components.PreparedTransactionWithRefs{})
 	require.NoError(t, err)
 }
 
 func TestPersistDispatchBatch_WithPublicDispatch_LocalBinding(t *testing.T) {
 	ctx := context.Background()
 	sp, mp, _, pubTxMgr, _ := newTestSyncPoints(t, "node1")
-	dCtx := newTestDomainContext(t, ctx)
+	dsw := newTestDomainStateWriter(t)
 
 	txID := uuid.New()
 	localID := uint64(42)
@@ -240,14 +232,14 @@ func TestPersistDispatchBatch_WithPublicDispatch_LocalBinding(t *testing.T) {
 		},
 	}
 
-	err := sp.PersistDispatchBatch(dCtx, *pldtypes.RandAddress(), uuid.New(), dispatchBatch, nil, nil)
+	err := sp.PersistDispatchBatch(ctx, dsw, *pldtypes.RandAddress(), uuid.New(), dispatchBatch, nil, nil)
 	require.NoError(t, err)
 }
 
 func TestPersistDispatchBatch_WithPublicDispatch_RemoteBinding(t *testing.T) {
 	ctx := context.Background()
 	sp, mp, _, pubTxMgr, transportMgr := newTestSyncPoints(t, "node1")
-	dCtx := newTestDomainContext(t, ctx)
+	dsw := newTestDomainStateWriter(t)
 
 	txID := uuid.New()
 	localID := uint64(43)
@@ -274,14 +266,14 @@ func TestPersistDispatchBatch_WithPublicDispatch_RemoteBinding(t *testing.T) {
 		},
 	}
 
-	err := sp.PersistDispatchBatch(dCtx, *pldtypes.RandAddress(), uuid.New(), dispatchBatch, nil, nil)
+	err := sp.PersistDispatchBatch(ctx, dsw, *pldtypes.RandAddress(), uuid.New(), dispatchBatch, nil, nil)
 	require.NoError(t, err)
 }
 
 func TestPersistDispatchBatch_WithPrivateDispatch_Local(t *testing.T) {
 	ctx := context.Background()
 	sp, mp, txMgr, _, _ := newTestSyncPoints(t, "node1")
-	dCtx := newTestDomainContext(t, ctx)
+	dsw := newTestDomainStateWriter(t)
 
 	originalTxID := uuid.New()
 	txMgr.On("ChainPrivateTransactions", mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -297,14 +289,14 @@ func TestPersistDispatchBatch_WithPrivateDispatch_Local(t *testing.T) {
 		}},
 	}
 
-	err := sp.PersistDispatchBatch(dCtx, *pldtypes.RandAddress(), uuid.New(), dispatchBatch, nil, nil)
+	err := sp.PersistDispatchBatch(ctx, dsw, *pldtypes.RandAddress(), uuid.New(), dispatchBatch, nil, nil)
 	require.NoError(t, err)
 }
 
 func TestPersistDispatchBatch_WithPrivateDispatch_Remote(t *testing.T) {
 	ctx := context.Background()
 	sp, mp, txMgr, _, transportMgr := newTestSyncPoints(t, "node1")
-	dCtx := newTestDomainContext(t, ctx)
+	dsw := newTestDomainStateWriter(t)
 
 	originalTxID := uuid.New()
 	txMgr.On("ChainPrivateTransactions", mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -320,7 +312,7 @@ func TestPersistDispatchBatch_WithPrivateDispatch_Remote(t *testing.T) {
 		}},
 	}
 
-	err := sp.PersistDispatchBatch(dCtx, *pldtypes.RandAddress(), uuid.New(), dispatchBatch, nil, nil)
+	err := sp.PersistDispatchBatch(ctx, dsw, *pldtypes.RandAddress(), uuid.New(), dispatchBatch, nil, nil)
 	require.NoError(t, err)
 }
 
@@ -394,7 +386,7 @@ func TestPersistDeployDispatchBatch_DBInsertError(t *testing.T) {
 func TestPersistDispatchBatch_SequencerActivitiesError(t *testing.T) {
 	ctx := context.Background()
 	sp, mp, _, pubTxMgr, _ := newTestSyncPoints(t, "node1")
-	dCtx := newTestDomainContext(t, ctx)
+	dsw := newTestDomainStateWriter(t)
 
 	txID := uuid.New()
 	localID := uint64(44)
@@ -420,7 +412,7 @@ func TestPersistDispatchBatch_SequencerActivitiesError(t *testing.T) {
 		}},
 	}
 
-	err := sp.PersistDispatchBatch(dCtx, *pldtypes.RandAddress(), uuid.New(), dispatchBatch, nil, nil)
+	err := sp.PersistDispatchBatch(ctx, dsw, *pldtypes.RandAddress(), uuid.New(), dispatchBatch, nil, nil)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "sequencer_activities insert failed")
 }

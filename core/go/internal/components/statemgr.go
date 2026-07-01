@@ -31,14 +31,14 @@ import (
 type StateManager interface {
 	ManagerLifecycle
 
-	// Get a list of all active domain contexts
-	ListDomainContexts() []DomainContextInfo
+	// Create a new domain query context - caller is responsible for closing it.
+	NewDomainQueryContext(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress) DomainQueryContext
 
-	// Create a new domain context - caller is responsible for closing it
-	NewDomainContext(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress) DomainContext
+	// Create a new domain state writer
+	NewDomainStateWriter(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress) DomainStateWriter
 
-	// Get a previously created domain context
-	GetDomainContext(ctx context.Context, id uuid.UUID) DomainContext
+	// Get a previously created domain query context
+	GetDomainQueryContext(ctx context.Context, id uuid.UUID) DomainQueryContext
 
 	// Ensure ABI schemas upserts all the specified schemas, using the given DB transaction
 	EnsureABISchemas(ctx context.Context, dbTX persistence.DBTX, domainName string, defs []*abi.Parameter) ([]Schema, error)
@@ -48,6 +48,9 @@ type StateManager interface {
 
 	// State finalizations are written on the DB context of the block indexer, by the domain manager.
 	WriteStateFinalizations(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord, reads []*pldapi.StateReadRecord, confirms []*pldapi.StateConfirmRecord, infoRecords []*pldapi.StateInfoRecord) (err error)
+
+	// Validate a set of state upserts against their schemas
+	ValidateStates(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, stateUpserts ...*StateUpsert) ([]*pldapi.StateBase, error)
 
 	// MUST NOT be called for states received over a network from another node.
 	// Writes a batch of states that have been pre-verified BY THIS NODE so can bypass domain hash verification.
@@ -87,126 +90,57 @@ type StateQueryOptions struct {
 	QueryModifier   func(db persistence.DBTX, query *gorm.DB) *gorm.DB
 }
 
-type DomainContextInfo struct {
-	ID              uuid.UUID           `json:"id"`
-	DomainName      string              `json:"domain"`
-	ContractAddress pldtypes.EthAddress `json:"contractAddress"`
-}
-
-// The DSI is the state interface that is exposed outside of the statestore package, for the
-// transaction engine to use to safely query and update the state in the context of a particular
-// domain.
-//
-// A single locked execution context is available per domain private contract, per paladin runtime.
-// In the future we may consider more granular execution contexts to increase parallelism.
-//
-// The locked execution context works only in-memory until explicitly committed, at which point
-// all the operations queued up are flushed to the DB asynchronously.
-//
-// We can then continue to build the next set of flushable operations, while the first set is
-// still flushing (a simple pipeline approach).
-type DomainContext interface {
-	Ctx() context.Context // easier to mock than embedding the context.Context interface
-
-	// Get the ID, domain and address of this domain context
-	Info() DomainContextInfo
-
-	// FindAvailableStates is the main query function, only returning states that are available.
-	// Note this does not lock these states in any way, you must call that afterwards as:
-	// 1) We don't know which will be selected as important by the domain - some might be un-used
-	// 2) We deliberately return states that are locked to a transaction (but not spent yet) - which means the
-	//    result of the any assemble that uses those states, will be a transaction that must
-	//    be on the same transaction where those states are locked.
-	//
-	// The dbTX is passed in to allow re-use of a connection during read operations.
-	FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
-
-	// GetStatesByID retrieves a set of states by ID - regardless of whether they are:
-	// - Written to the DB or not (or just pending in the domain context)
-	// - Confirmed or not
-	// - Spent or not
-	GetStatesByID(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, ids []string) (Schema, []*pldapi.State, error)
-
-	// Return a snapshot of all currently known state locks
-	ExportSnapshot(ctx context.Context) ([]byte, error)
-
-	// ImportSnapshot is used to restore the state of the domain context, by adding a set of locks
-	ImportSnapshot(ctx context.Context, stateLocksJSON []byte) error
-
-	// FindAvailableNullifiers is similar to FindAvailableStates, but for domains that leverage
-	// nullifiers to record spending.
-	//
-	// The dbTX is passed in to allow re-use of a connection during read operations.
-	FindAvailableNullifiers(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
-
-	// AddStateLocks updates the in-memory state of the domain context, to record a set of locks
-	// that affect queries on available states and nullifiers.
-	//
-	// - Spend locks mark the states unavailable
-	// - Create locks make un-confirmed states available for selection (also automatically added in UpsertStates with non-nil transaction)
-	// - Read locks just mark the relationship for later processing
-	//
-	// This is an in-memory record that will be lost on Reset, and can be deleted using ClearTransaction
-	AddStateLocks(locks ...*pldapi.StateLock) (err error)
-
-	// ValidateStates performs the processing to verify states against their schema, without inserting them into the database.
-	//
-	// In the common case that a domain delegates hash generation to the server, this allows a domain to
-	// request early generation of the ID from the server in-line in processing.
-	//
-	// The dbTX is passed in to allow re-use of a connection during read operations.
-	ValidateStates(dbTX persistence.DBTX, stateUpserts ...*StateUpsert) (states []*pldapi.StateBase, err error)
-
-	// UpsertStates creates or updates states.
-	// They are available immediately within the domain for return in FindAvailableStates
-	// on the domain (even before the flush).
-	// If a non-nil transaction ID is supplied, then the states are marked as being created by
-	// the specified transaction using an in-memory lock.
-	//
-	// States will be written to the DB on the next flush (the associated lock is not)
-	// The dbTX is passed in to allow re-use of a connection during read operations.
-	UpsertStates(dbTX persistence.DBTX, states ...*StateUpsert) (s []*pldapi.State, err error)
+// DomainStateWriter is a long-lived write buffer used for flushing domain states and nullifiers to the DB.
+type DomainStateWriter interface {
+	// UpsertStates creates or updates states in the in-memory write buffer.
+	// States are visible immediately for queries on this writer (even before flush).
+	// If a non-nil CreatedBy is set on a state, an in-memory create lock is registered.
+	UpsertStates(ctx context.Context, dbTX persistence.DBTX, states ...*StateUpsert) (s []*pldapi.State, err error)
 
 	// UpsertNullifiers creates nullifier records associated with states.
-	// Nullifiers are an alternate state identifier (separate from the state ID) that can be used
-	// when recording spent states.
-	//
-	// Nullifiers will be written to the DB on the next flush
-	UpsertNullifiers(nullifiers ...*NullifierUpsert) error
+	// Nullifiers will be written to the DB on the next flush.
+	UpsertNullifiers(ctx context.Context, nullifiers ...*NullifierUpsert) error
 
-	// Call this to remove all locks associated with individual transactions without clearing the whole state.
-	// For example if a notification has been received that the transaction is either confirmed, or rejected.
-	//
-	// This only affects in memory state.
-	//
-	// No dependency analysis is done by this function call - that is the responsibility of the caller.
-	ResetTransactions(transactionID ...uuid.UUID)
+	// Flush writes all pending states and nullifiers to the database within the given transaction.
+	// Must be called within an active DB transaction. Returns an error if a flush is already in
+	// progress or if the write fails.
+	Flush(ctx context.Context, dbTX persistence.DBTX) error
 
-	// Return a complete copy of the current set of locks being managed in this context
-	// Mainly for debugging (lots of memory is copied) so any case this function is used on a critical path
-	// should be considered as a requirement for a new function on this interface that can be performed
-	// safely under the mutex of the domain context.
-	StateLocksByTransaction() map[uuid.UUID][]pldapi.StateLock
-
-	// Reset restores the world to the current state of the database, clearing any errors
-	// from failed flush, all un-flushed writes, and all in-memory state locks.
-	// It does not wait for an in-progress flush to complete
+	// Reset clears all un-flushed writes and in-memory locks, restoring to DB state.
+	// Used for error recovery after a failed flush.
 	Reset()
+}
 
-	// Flush moves the un-flushed set into flushing status, queueing to a DB writer to batch write
-	// to the database.
-	//
-	// The domain context needs to know when the flush has completed for success or failure, as it needs to
-	// clear the flushing state from the in-memory context. This can only be done after the DB transaction
-	// commits, as only then is it assured that the states will be returned by the DB and do not need
-	// to be held in memory any longer. So the returned callback function must be called on commit OR ROLLBACK
-	// of the database transaction.
-	//
-	// If an error is returned by this function, then the postDBTx callback will be nil
-	Flush(dbTX persistence.DBTX) error
+// DomainQueryContext is the state query interface exposed outside of the statestore package. It may
+// optionally import a snapshot representing a domain instance's ahead of chain view, allowing queries
+// to be executed in context of this view.
+//
+// A DomainQueryContext is typically short-lived and must be closed by its consumer when no longer needed
+// to avoid leaking resources.
+type DomainQueryContext interface {
+	// ID returns the UUID that identifies this context in the state manager registry.
+	ID() uuid.UUID
 
-	// Removes the domain context from the state manager, and prevents any further use
-	Close()
+	// ImportSnapshot hydrates this context with a domain instance's ahead of chain view.
+	ImportSnapshot(ctx context.Context, stateLocksJSON []byte) error
+
+	// FindAvailableStates is the primary query function, returning only available states.
+	// For snapshot-loaded contexts, results include in-memory creating states and respect locks.
+	// The dbTX is passed to allow connection re-use during read operations.
+	FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
+
+	// FindAvailableNullifiers is similar to FindAvailableStates for nullifier-based domains.
+	FindAvailableNullifiers(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
+
+	// GetStatesByID retrieves states by ID regardless of confirmation/spend status,
+	// including states pending in memory.
+	GetStatesByID(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, ids []string) (Schema, []*pldapi.State, error)
+
+	// ContractAddress returns the contract address this context was opened for.
+	ContractAddress() pldtypes.EthAddress
+
+	// Close deregisters the context from the state manager and prevents further use.
+	Close(ctx context.Context)
 }
 
 type StateUpsert struct {
