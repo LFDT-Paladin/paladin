@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -47,10 +47,6 @@ func TestHexBytesField(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, nv)
 
-	assert.True(t, HexBytesField("test").SupportsLIKE())
-
-	v, err = resolveLikeValue(ctx, "test", (pldtypes.RawJSON)(`"a%"`))
-	require.NoError(t, err)
-	assert.Equal(t, "a%", v)
+	assert.False(t, HexBytesField("test").SupportsLIKE())
 
 }
