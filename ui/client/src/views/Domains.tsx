@@ -107,6 +107,7 @@ export const Domains: React.FC = () => {
               {t('domainSmartContracts')}
             </Typography>
             <TextField
+              sx={{ minWidth: '120px' }}
               size="small"
               color="secondary"
               slotProps={{
@@ -136,7 +137,6 @@ export const Domains: React.FC = () => {
             }
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
               <DomainDeploy domainName={selectedDomain ?? ''} />
-
               <Button
                 sx={{ borderRadius: '20px', minWidth: '120px' }}
                 size="small"
@@ -146,7 +146,6 @@ export const Domains: React.FC = () => {
               >
                 {t('lookup')}
               </Button>
-
               <FiltersButton
                 filtersVisible={filtersVisible}
                 setFiltersVisible={setFiltersVisible}

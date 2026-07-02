@@ -62,7 +62,7 @@ export const MessageEntry: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate(AppRoutes.Transports)}
+            onClick={() => navigate(AppRoutes.TransportMessages)}
           >
             {t('backToTransports')}
           </Button>

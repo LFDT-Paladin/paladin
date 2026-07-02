@@ -101,8 +101,8 @@ export const Navigation: React.FC = () => {
         </ListItem>
         <ListItem>
           <ListItemButton
-            onClick={event => customNavigate(AppRoutes.Transports, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.Transports)}>
+            onClick={event => customNavigate(AppRoutes.TransportConnections, event, navigate)}
+            selected={pathname.startsWith('/ui/transports')}>
             <ListItemText primary={t('transports')} />
           </ListItemButton>
         </ListItem>

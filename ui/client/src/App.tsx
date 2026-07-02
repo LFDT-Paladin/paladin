@@ -45,7 +45,8 @@ import { MessageEntry } from "./views/ReliableMessageEntry";
 import { StateEntry } from "./views/StateEntry";
 import { RegistryEntry } from "./views/RegistryEntry";
 import { PrivateGroupMessageEntry } from "./views/PrivateGroupMessageEntry";
-import { Transports } from "./views/Transports";
+import { TransportConnections } from "./views/TransportsConnections";
+import { TransportMessages } from "./views/TransportMessages";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({}),
@@ -129,7 +130,8 @@ function App() {
                   <Route path={AppRoutes.RegistryEntry} element={<RegistryEntry />} />
                   <Route path={AppRoutes.ReliableMessage} element={<MessageEntry />} />
                   <Route path={AppRoutes.PrivacyGroupMessageEntry} element={<PrivateGroupMessageEntry />} />
-                  <Route path={AppRoutes.Transports} element={<Transports />} />
+                  <Route path={AppRoutes.TransportConnections} element={<TransportConnections />} />
+                  <Route path={AppRoutes.TransportMessages} element={<TransportMessages />} />
                   <Route path="*" element={<Navigate to={AppRoutes.Transactions} replace />} />
                 </Routes>
               </Box>

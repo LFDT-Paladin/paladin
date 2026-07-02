@@ -29,5 +29,6 @@ export const AppRoutes = {
   State: '/ui/states/:domain/:schema/:id',
   RegistryEntry: '/ui/registry/:registry/:id',
   PrivacyGroupMessageEntry: '/ui/privacy-groups/:privacyGroupId/messages/:messageId',
-  Transports: '/ui/transports'
+  TransportConnections: '/ui/transports/connections',
+  TransportMessages: '/ui/transports/messages'
 };

@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Collapse, Fade, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, Typography } from "@mui/material";
+import { Alert, Box, Button, Collapse, Fade, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -26,9 +26,10 @@ import { FiltersButton } from "../components/FiltersButton";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import prettyBytes from "pretty-bytes";
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { ReliableMessages } from "../components/ReliableMessages";
+import { useLocation, useNavigate } from "react-router-dom";
+import { AppRoutes } from "../routes";
 
-export const Transports: React.FC = () => {
+export const TransportConnections: React.FC = () => {
   const { transports: transportsViewState } = useApplicationContext();
   const {
     sortAscending,
@@ -47,6 +48,8 @@ export const Transports: React.FC = () => {
 
   const [count, setCount] = useState(-1);
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const { data, error, refetch, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['transports', page, rowsPerPage, sortAscending, filters, refNames],
@@ -100,7 +103,7 @@ export const Transports: React.FC = () => {
 
   return (
     <>
-      <Fade timeout={600} in={true}>
+      <Fade timeout={location.state?.skipFade === true? 0 : 600} in={true}>
         <Box
           sx={{
             padding: "20px",
@@ -111,8 +114,12 @@ export const Transports: React.FC = () => {
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
             <Typography variant="h5">
-              {t("transportActivePeerConnections")}
+              {t("transports")}
             </Typography>
+            <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive onChange={() => navigate(AppRoutes.TransportMessages, { state: { skipFade: true } })} value="connections">
+              <ToggleButton color="primary" value="connections" sx={{ width: '120px' }}>{t('connections')}</ToggleButton>
+              <ToggleButton color="primary" value="messages" sx={{ width: '120px' }}>{t('messages')}</ToggleButton>
+            </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
               <Button
                 sx={{ borderRadius: '20px', minWidth: '120px' }}
@@ -326,9 +333,6 @@ export const Transports: React.FC = () => {
               <Typography>{t('peersEmptyState')}</Typography>
             </Box>
           }
-          <Box sx={{ marginTop: '40px' }}>
-            <ReliableMessages />
-          </Box>
         </Box>
       </Fade>
     </>
