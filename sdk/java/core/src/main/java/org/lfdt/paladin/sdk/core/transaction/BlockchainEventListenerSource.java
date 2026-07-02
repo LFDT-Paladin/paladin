@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -25,9 +24,11 @@ import java.util.List;
 import org.lfdt.paladin.sdk.core.abi.AbiEntry;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 
-// Immutable; mirrors pldapi.BlockchainEventListenerSource (an ABI, optionally scoped to a single
-// contract address, that a blockchain-event listener matches against). Build one with the fluent
-// builder to configure a listener.
+/**
+ * An ABI, optionally scoped to a single contract address, that a blockchain-event listener matches
+ * against, mirroring {@code pldapi.BlockchainEventListenerSource}. Immutable; build one with the
+ * {@linkplain #builder() fluent builder} to configure a listener.
+ */
 @JsonPropertyOrder({"abi", "address"})
 public final class BlockchainEventListenerSource {
 
@@ -41,18 +42,33 @@ public final class BlockchainEventListenerSource {
     this.address = address;
   }
 
+  /**
+   * The ABI entries whose events the listener matches.
+   *
+   * @return the ABI entries, never {@code null} (empty when unset)
+   */
   @JsonProperty("abi")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<AbiEntry> abi() {
     return abi;
   }
 
+  /**
+   * The contract address the source is scoped to, or {@code null} to match any address.
+   *
+   * @return the contract address, or {@code null} if unscoped
+   */
   @JsonProperty("address")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public EthAddress address() {
     return address;
   }
 
+  /**
+   * Starts an empty builder.
+   *
+   * @return a new builder
+   */
   public static Builder builder() {
     return new Builder();
   }
@@ -69,23 +85,44 @@ public final class BlockchainEventListenerSource {
 
     private Builder() {}
 
-    /** Adds an entry to the source ABI. */
+    /**
+     * Adds an entry to the source ABI.
+     *
+     * @param entry the ABI entry to add
+     * @return this builder
+     */
     public Builder abiEntry(AbiEntry entry) {
       this.abi.add(entry);
       return this;
     }
 
-    /** Adds entries to the source ABI. */
+    /**
+     * Adds entries to the source ABI.
+     *
+     * @param abi the ABI entries to add
+     * @return this builder
+     */
     public Builder abi(List<AbiEntry> abi) {
       this.abi.addAll(abi);
       return this;
     }
 
+    /**
+     * Scopes the source to a single contract address.
+     *
+     * @param address the contract address
+     * @return this builder
+     */
     public Builder address(EthAddress address) {
       this.address = address;
       return this;
     }
 
+    /**
+     * Builds the immutable {@link BlockchainEventListenerSource}.
+     *
+     * @return a new {@link BlockchainEventListenerSource} with the configured values
+     */
     public BlockchainEventListenerSource build() {
       return new BlockchainEventListenerSource(abi, address);
     }

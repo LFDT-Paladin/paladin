@@ -12,15 +12,16 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
-// Immutable; mirrors pldapi.BlockchainEventListenerCheckpoint (the block a blockchain-event listener
-// has processed up to).
+/**
+ * The block a blockchain-event listener has processed up to, mirroring {@code
+ * pldapi.BlockchainEventListenerCheckpoint}. Immutable.
+ */
 @JsonPropertyOrder({"blockNumber"})
 public final class BlockchainEventListenerCheckpoint {
 
@@ -31,6 +32,11 @@ public final class BlockchainEventListenerCheckpoint {
     this.blockNumber = blockNumber;
   }
 
+  /**
+   * The block number the listener has processed up to.
+   *
+   * @return the checkpoint block number
+   */
   @JsonProperty("blockNumber")
   public long blockNumber() {
     return blockNumber;

@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -21,10 +20,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
-// Immutable; mirrors pldapi.TransactionReceiptListener (a named, filtered stream of transaction
-// receipts). Used both as the input to ptx_createReceiptListener and as the result of
-// ptx_getReceiptListener / ptx_queryReceiptListeners; build one with the fluent builder to create a
-// listener (created is server-assigned).
+/**
+ * A named, filtered stream of transaction receipts, mirroring {@code
+ * pldapi.TransactionReceiptListener}. Immutable.
+ *
+ * <p>Used both as the input to {@code ptx_createReceiptListener} and as the result of {@code
+ * ptx_getReceiptListener} / {@code ptx_queryReceiptListeners}; build one with the {@linkplain
+ * #builder() fluent builder} to create a listener ({@link #created()} is server-assigned).
+ */
 @JsonPropertyOrder({"name", "created", "started", "filters", "options"})
 public final class TransactionReceiptListener {
 
@@ -49,36 +52,66 @@ public final class TransactionReceiptListener {
     this.options = options;
   }
 
+  /**
+   * The unique name of the listener.
+   *
+   * @return the listener name, or an empty string when unset
+   */
   @JsonProperty("name")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String name() {
     return name;
   }
 
+  /**
+   * The time the listener was created (server-assigned).
+   *
+   * @return the created timestamp, or {@code null} if unset
+   */
   @JsonProperty("created")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Timestamp created() {
     return created;
   }
 
+  /**
+   * Whether the listener is currently started.
+   *
+   * @return the started flag, or {@code null} if unset
+   */
   @JsonProperty("started")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Boolean started() {
     return started;
   }
 
+  /**
+   * The filters that select which receipts the listener streams.
+   *
+   * @return the filters, or {@code null} if unset
+   */
   @JsonProperty("filters")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public TransactionReceiptFilters filters() {
     return filters;
   }
 
+  /**
+   * The delivery options for the listener.
+   *
+   * @return the options, or {@code null} if unset
+   */
   @JsonProperty("options")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public TransactionReceiptListenerOptions options() {
     return options;
   }
 
+  /**
+   * Starts an empty builder.
+   *
+   * @return a new builder
+   */
   public static Builder builder() {
     return new Builder();
   }
@@ -97,26 +130,55 @@ public final class TransactionReceiptListener {
 
     private Builder() {}
 
+    /**
+     * Sets the unique listener name.
+     *
+     * @param name the listener name
+     * @return this builder
+     */
     public Builder name(String name) {
       this.name = name;
       return this;
     }
 
+    /**
+     * Sets whether the listener starts in the started state.
+     *
+     * @param started the started flag
+     * @return this builder
+     */
     public Builder started(Boolean started) {
       this.started = started;
       return this;
     }
 
+    /**
+     * Sets the filters that select which receipts the listener streams.
+     *
+     * @param filters the filters
+     * @return this builder
+     */
     public Builder filters(TransactionReceiptFilters filters) {
       this.filters = filters;
       return this;
     }
 
+    /**
+     * Sets the delivery options for the listener.
+     *
+     * @param options the options
+     * @return this builder
+     */
     public Builder options(TransactionReceiptListenerOptions options) {
       this.options = options;
       return this;
     }
 
+    /**
+     * Builds the immutable {@link TransactionReceiptListener}.
+     *
+     * @return a new {@link TransactionReceiptListener} with the configured values
+     */
     public TransactionReceiptListener build() {
       return new TransactionReceiptListener(name, null, started, filters, options);
     }

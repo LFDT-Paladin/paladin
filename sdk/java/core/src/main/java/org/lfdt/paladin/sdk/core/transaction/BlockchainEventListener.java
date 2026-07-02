@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -24,10 +23,15 @@ import java.util.Collections;
 import java.util.List;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
-// Immutable; mirrors pldapi.BlockchainEventListener (a named stream of matched blockchain events).
-// Used both as the input to ptx_createBlockchainEventListener and as the result of
-// ptx_getBlockchainEventListener / ptx_queryBlockchainEventListeners; build one with the fluent
-// builder to create a listener (created is server-assigned).
+/**
+ * A named stream of matched blockchain events, mirroring {@code pldapi.BlockchainEventListener}.
+ * Immutable.
+ *
+ * <p>Used both as the input to {@code ptx_createBlockchainEventListener} and as the result of
+ * {@code ptx_getBlockchainEventListener} / {@code ptx_queryBlockchainEventListeners}; build one
+ * with the {@linkplain #builder() fluent builder} to create a listener ({@link #created()} is
+ * server-assigned).
+ */
 @JsonPropertyOrder({"name", "created", "started", "sources", "options"})
 public final class BlockchainEventListener {
 
@@ -52,44 +56,79 @@ public final class BlockchainEventListener {
     this.options = options;
   }
 
+  /**
+   * The unique name of the listener.
+   *
+   * @return the listener name, or an empty string when unset
+   */
   @JsonProperty("name")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String name() {
     return name;
   }
 
+  /**
+   * The time the listener was created (server-assigned).
+   *
+   * @return the created timestamp, or {@code null} if unset
+   */
   @JsonProperty("created")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Timestamp created() {
     return created;
   }
 
+  /**
+   * Whether the listener is currently started.
+   *
+   * @return the started flag, or {@code null} if unset
+   */
   @JsonProperty("started")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Boolean started() {
     return started;
   }
 
+  /**
+   * The sources whose events the listener matches against.
+   *
+   * @return the sources, never {@code null} (empty when unset)
+   */
   @JsonProperty("sources")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<BlockchainEventListenerSource> sources() {
     return sources;
   }
 
+  /**
+   * The delivery options for the listener.
+   *
+   * @return the options, or {@code null} if unset
+   */
   @JsonProperty("options")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public BlockchainEventListenerOptions options() {
     return options;
   }
 
+  /**
+   * Starts an empty builder.
+   *
+   * @return a new builder
+   */
   public static Builder builder() {
     return new Builder();
   }
 
   @Override
   public String toString() {
-    return "BlockchainEventListener{name=" + name + ", started=" + started + ", sources="
-        + sources.size() + "}";
+    return "BlockchainEventListener{name="
+        + name
+        + ", started="
+        + started
+        + ", sources="
+        + sources.size()
+        + "}";
   }
 
   /** Fluent builder for {@link BlockchainEventListener}. */
@@ -101,33 +140,66 @@ public final class BlockchainEventListener {
 
     private Builder() {}
 
+    /**
+     * Sets the unique listener name.
+     *
+     * @param name the listener name
+     * @return this builder
+     */
     public Builder name(String name) {
       this.name = name;
       return this;
     }
 
+    /**
+     * Sets whether the listener starts in the started state.
+     *
+     * @param started the started flag
+     * @return this builder
+     */
     public Builder started(Boolean started) {
       this.started = started;
       return this;
     }
 
-    /** Adds a source to match events against. */
+    /**
+     * Adds a source to match events against.
+     *
+     * @param source the source to add
+     * @return this builder
+     */
     public Builder source(BlockchainEventListenerSource source) {
       this.sources.add(source);
       return this;
     }
 
-    /** Adds sources to match events against. */
+    /**
+     * Adds sources to match events against.
+     *
+     * @param sources the sources to add
+     * @return this builder
+     */
     public Builder sources(List<BlockchainEventListenerSource> sources) {
       this.sources.addAll(sources);
       return this;
     }
 
+    /**
+     * Sets the delivery options for the listener.
+     *
+     * @param options the options
+     * @return this builder
+     */
     public Builder options(BlockchainEventListenerOptions options) {
       this.options = options;
       return this;
     }
 
+    /**
+     * Builds the immutable {@link BlockchainEventListener}.
+     *
+     * @return a new {@link BlockchainEventListener} with the configured values
+     */
     public BlockchainEventListener build() {
       return new BlockchainEventListener(name, null, started, sources, options);
     }

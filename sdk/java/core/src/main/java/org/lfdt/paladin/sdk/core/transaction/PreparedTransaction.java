@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -23,9 +22,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.UUID;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 
-// Immutable; mirrors pldapi.PreparedTransaction (the embedded PreparedTransactionBase — id, domain,
-// to, the assembled TransactionInput and optional metadata — plus the states it will produce). The
-// metadata mirrors Go pldtypes.RawJSON and is surfaced as raw JSON.
+/**
+ * A transaction that has been assembled and prepared for submission, mirroring {@code
+ * pldapi.PreparedTransaction} — the embedded {@code PreparedTransactionBase} ({@code id}, {@code
+ * domain}, {@code to}, the assembled {@link TransactionInput}, and optional metadata) plus the
+ * states it will produce. Immutable.
+ *
+ * <p>The {@link #metadata()} mirrors Go's {@code pldtypes.RawJSON} and is surfaced as raw JSON.
+ */
 @JsonPropertyOrder({"id", "domain", "to", "transaction", "metadata", "states"})
 public final class PreparedTransaction {
 
@@ -52,36 +56,66 @@ public final class PreparedTransaction {
     this.states = states;
   }
 
+  /**
+   * The id of the original transaction that was prepared.
+   *
+   * @return the transaction id, or {@code null} if unset
+   */
   @JsonProperty("id")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public UUID id() {
     return id;
   }
 
+  /**
+   * The domain that prepared the transaction.
+   *
+   * @return the domain name, or an empty string when unset
+   */
   @JsonProperty("domain")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String domain() {
     return domain;
   }
 
+  /**
+   * The target contract address the prepared transaction will be submitted to.
+   *
+   * @return the target contract address, or {@code null} if unset
+   */
   @JsonProperty("to")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public EthAddress to() {
     return to;
   }
 
+  /**
+   * The assembled transaction ready for submission.
+   *
+   * @return the assembled transaction input, or {@code null} if unset
+   */
   @JsonProperty("transaction")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public TransactionInput transaction() {
     return transaction;
   }
 
+  /**
+   * Optional domain-supplied metadata, surfaced as raw JSON.
+   *
+   * @return the metadata, or {@code null} if unset
+   */
   @JsonProperty("metadata")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public JsonNode metadata() {
     return metadata;
   }
 
+  /**
+   * The states the prepared transaction will produce.
+   *
+   * @return the transaction states, or {@code null} if unset
+   */
   @JsonProperty("states")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public TransactionStates states() {

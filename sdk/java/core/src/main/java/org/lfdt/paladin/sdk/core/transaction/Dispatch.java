@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -20,8 +19,11 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
-// Immutable; mirrors pldapi.Dispatch (the binding of a paladin transaction to the public transaction
-// it was dispatched as). Returned by ptx_getDispatch / ptx_queryDispatches.
+/**
+ * The binding of a Paladin transaction to the public transaction it was dispatched as, mirroring
+ * {@code pldapi.Dispatch}. Immutable. Returned by {@code ptx_getDispatch} and {@code
+ * ptx_queryDispatches}.
+ */
 @JsonPropertyOrder({"id", "transactionID", "publicTransactionID"})
 public final class Dispatch {
 
@@ -39,18 +41,33 @@ public final class Dispatch {
     this.publicTransactionID = publicTransactionID;
   }
 
+  /**
+   * The id of the dispatch record.
+   *
+   * @return the dispatch id, or an empty string when unset
+   */
   @JsonProperty("id")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String id() {
     return id;
   }
 
+  /**
+   * The id of the Paladin transaction that was dispatched.
+   *
+   * @return the transaction id, or an empty string when unset
+   */
   @JsonProperty("transactionID")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String transactionID() {
     return transactionID;
   }
 
+  /**
+   * The node-local id of the public transaction it was dispatched as.
+   *
+   * @return the public transaction id
+   */
   @JsonProperty("publicTransactionID")
   public long publicTransactionID() {
     return publicTransactionID;

@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -23,11 +22,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Collections;
 import java.util.List;
 
-// Immutable; mirrors pldapi.TransactionStates (the spent/read/confirmed/info state buckets a
-// transaction touched, plus an unavailable block listing states whose data we don't hold). The
-// individual states mirror Go []*pldapi.StateBase and the unavailable block mirrors
-// *pldapi.UnavailableStates; neither is ported yet, so both are surfaced as raw JSON to keep
-// round-trips exact.
+/**
+ * The state buckets a transaction touched — spent, read, confirmed, and info — plus an unavailable
+ * block listing states whose data the node does not hold, mirroring {@code
+ * pldapi.TransactionStates}. Immutable.
+ *
+ * <p>The individual states mirror Go's {@code []*pldapi.StateBase} and the {@link #unavailable()}
+ * block mirrors {@code *pldapi.UnavailableStates}; neither is ported yet, so both are surfaced as
+ * raw JSON to keep round-trips exact.
+ */
 @JsonPropertyOrder({"none", "spent", "read", "confirmed", "info", "unavailable"})
 public final class TransactionStates {
 
@@ -54,36 +57,66 @@ public final class TransactionStates {
     this.unavailable = unavailable;
   }
 
+  /**
+   * Whether the transaction touched no states.
+   *
+   * @return {@code true} if there are no states
+   */
   @JsonProperty("none")
   @JsonInclude(JsonInclude.Include.NON_DEFAULT)
   public boolean none() {
     return none;
   }
 
+  /**
+   * The states spent by the transaction, surfaced as raw JSON.
+   *
+   * @return the spent states, never {@code null} (empty when unset)
+   */
   @JsonProperty("spent")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<JsonNode> spent() {
     return spent;
   }
 
+  /**
+   * The states read by the transaction, surfaced as raw JSON.
+   *
+   * @return the read states, never {@code null} (empty when unset)
+   */
   @JsonProperty("read")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<JsonNode> read() {
     return read;
   }
 
+  /**
+   * The states confirmed by the transaction, surfaced as raw JSON.
+   *
+   * @return the confirmed states, never {@code null} (empty when unset)
+   */
   @JsonProperty("confirmed")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<JsonNode> confirmed() {
     return confirmed;
   }
 
+  /**
+   * The info states recorded by the transaction, surfaced as raw JSON.
+   *
+   * @return the info states, never {@code null} (empty when unset)
+   */
   @JsonProperty("info")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<JsonNode> info() {
     return info;
   }
 
+  /**
+   * States whose data the node does not hold, surfaced as raw JSON.
+   *
+   * @return the unavailable states block, or {@code null} if unset
+   */
   @JsonProperty("unavailable")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public JsonNode unavailable() {

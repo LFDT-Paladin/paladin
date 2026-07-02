@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -20,8 +19,11 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
-// Immutable; mirrors pldapi.BlockchainEventListenerStatus (whether the listener is catching up and
-// its current checkpoint). Returned by ptx_getBlockchainEventListenerStatus.
+/**
+ * The runtime status of a blockchain-event listener — whether it is catching up and its current
+ * checkpoint, mirroring {@code pldapi.BlockchainEventListenerStatus}. Immutable. Returned by {@code
+ * ptx_getBlockchainEventListenerStatus}.
+ */
 @JsonPropertyOrder({"catchup", "checkpoint"})
 public final class BlockchainEventListenerStatus {
 
@@ -36,11 +38,21 @@ public final class BlockchainEventListenerStatus {
     this.checkpoint = checkpoint;
   }
 
+  /**
+   * Whether the listener is still catching up to the head of the chain.
+   *
+   * @return {@code true} if the listener is catching up
+   */
   @JsonProperty("catchup")
   public boolean catchup() {
     return catchup;
   }
 
+  /**
+   * The listener's current checkpoint.
+   *
+   * @return the checkpoint, or {@code null} if unset
+   */
   @JsonProperty("checkpoint")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public BlockchainEventListenerCheckpoint checkpoint() {

@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.key;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -20,8 +19,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.util.Objects;
 
-// Immutable; mirrors pldapi.KeyPathSegment. One named, indexed segment of the hierarchical path
-// that resolves to a key.
+/**
+ * One named, indexed segment of the hierarchical path that resolves to a key. Immutable; mirrors
+ * {@code pldapi.KeyPathSegment}.
+ */
 @JsonPropertyOrder({"name", "index"})
 public final class KeyPathSegment {
 
@@ -34,11 +35,21 @@ public final class KeyPathSegment {
     this.index = index;
   }
 
+  /**
+   * The segment name.
+   *
+   * @return the segment name
+   */
   @JsonProperty("name")
   public String name() {
     return name;
   }
 
+  /**
+   * The zero-based index allocated to this segment within its parent.
+   *
+   * @return the segment index
+   */
   @JsonProperty("index")
   public long index() {
     return index;

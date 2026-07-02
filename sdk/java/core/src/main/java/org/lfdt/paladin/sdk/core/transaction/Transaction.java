@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -27,9 +26,14 @@ import org.lfdt.paladin.sdk.core.types.HexUint256;
 import org.lfdt.paladin.sdk.core.types.HexUint64;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
-// Immutable; mirrors pldapi.Transaction (server-generated id/created/submitMode plus the embedded
-// TransactionBase fields). The base fields are flattened here to match the flat JSON wire form, as
-// in TransactionInput. Subclassed by TransactionFull, so this type is not final.
+/**
+ * A transaction as recorded by the node, mirroring {@code pldapi.Transaction} — the
+ * server-generated {@code id}/{@code created}/{@code submitMode} plus the embedded {@code
+ * TransactionBase} fields. Immutable.
+ *
+ * <p>The base fields are flattened here to match the flat JSON wire form, as in {@link
+ * TransactionInput}. Subclassed by {@link TransactionFull}, so this type is not {@code final}.
+ */
 @JsonPropertyOrder({
   "id",
   "created",
@@ -100,90 +104,168 @@ public class Transaction {
     this.maxFeePerGas = maxFeePerGas;
   }
 
+  /**
+   * The server-assigned transaction id.
+   *
+   * @return the transaction id, or {@code null} if unset
+   */
   @JsonProperty("id")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public UUID id() {
     return id;
   }
 
+  /**
+   * The time the transaction was created.
+   *
+   * @return the created timestamp, or {@code null} if unset
+   */
   @JsonProperty("created")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Timestamp created() {
     return created;
   }
 
+  /**
+   * How the transaction was submitted (for example, auto, external, or prepared).
+   *
+   * @return the submit mode, or {@code null} if unset
+   */
   @JsonProperty("submitMode")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public SubmitMode submitMode() {
     return submitMode;
   }
 
+  /**
+   * Caller-supplied key that makes submission idempotent.
+   *
+   * @return the idempotency key, or an empty string when unset
+   */
   @JsonProperty("idempotencyKey")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String idempotencyKey() {
     return idempotencyKey;
   }
 
+  /**
+   * Public (straight to the base ledger) or private (masked through a domain), or {@code null} if
+   * unset.
+   *
+   * @return the transaction type, or {@code null} if unset
+   */
   @JsonProperty("type")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public TransactionType type() {
     return type;
   }
 
+  /**
+   * Domain name; required only for private deploy transactions (inferred from {@code to} for
+   * invoke).
+   *
+   * @return the domain name, or an empty string when unset
+   */
   @JsonProperty("domain")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String domain() {
     return domain;
   }
 
+  /**
+   * Function name; inferred from the ABI if not supplied, then resolved to a full signature and
+   * stored.
+   *
+   * @return the function name, or an empty string when unset
+   */
   @JsonProperty("function")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String function() {
     return function;
   }
 
+  /**
+   * Reference to a stored ABI; calculated and stored for you if not supplied.
+   *
+   * @return the ABI reference, or {@code null} when unset
+   */
   @JsonProperty("abiReference")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Bytes32 abiReference() {
     return abiReference;
   }
 
+  /**
+   * Locator for a local signing identity used to submit this transaction.
+   *
+   * @return the signing identity locator, or an empty string when unset
+   */
   @JsonProperty("from")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String from() {
     return from;
   }
 
+  /**
+   * Target contract address, or {@code null} for a deploy.
+   *
+   * @return the target contract address, or {@code null} for a deploy
+   */
   @JsonProperty("to")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public EthAddress to() {
     return to;
   }
 
+  /**
+   * Pre-encoded call inputs — an array (with or without the function selector) or an object.
+   *
+   * @return the call inputs, or {@code null} when unset
+   */
   @JsonProperty("data")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public JsonNode data() {
     return data;
   }
 
+  /**
+   * Gas limit, or {@code null} to let the node estimate.
+   *
+   * @return the gas limit, or {@code null} to let the node estimate
+   */
   @JsonProperty("gas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint64 gas() {
     return gas;
   }
 
+  /**
+   * Native value to transfer with the transaction, or {@code null} for none.
+   *
+   * @return the native value to transfer, or {@code null} for none
+   */
   @JsonProperty("value")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 value() {
     return value;
   }
 
+  /**
+   * EIP-1559 max priority fee per gas; supplying it fixes gas pricing for this transaction.
+   *
+   * @return the max priority fee per gas, or {@code null} when unset
+   */
   @JsonProperty("maxPriorityFeePerGas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 maxPriorityFeePerGas() {
     return maxPriorityFeePerGas;
   }
 
+  /**
+   * EIP-1559 max fee per gas; supplying it fixes gas pricing for this transaction.
+   *
+   * @return the max fee per gas, or {@code null} when unset
+   */
   @JsonProperty("maxFeePerGas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 maxFeePerGas() {

@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -29,10 +28,15 @@ import org.lfdt.paladin.sdk.core.types.HexUint256;
 import org.lfdt.paladin.sdk.core.types.HexUint64;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
-// Immutable; mirrors pldapi.TransactionFull (a Transaction enriched with dependencies, receipt and
-// associated public/history/sequencer detail). The dependsOn list and the receipt are typed; the
-// public, history and sequencerActivity blocks are surfaced as raw JSON for now (they mirror Go
-// []*PublicTx / []*TransactionHistory / []*SequencerActivity, which are not yet ported).
+/**
+ * A {@link Transaction} enriched with dependencies, receipt, and associated
+ * public/history/sequencer detail, mirroring {@code pldapi.TransactionFull}. Immutable.
+ *
+ * <p>The {@link #dependsOn()} list and the {@link #receipt()} are typed; the {@link
+ * #publicTransactions()}, {@link #history()}, and {@link #sequencerActivity()} blocks are surfaced
+ * as raw JSON for now (they mirror Go's {@code []*PublicTx} / {@code []*TransactionHistory} /
+ * {@code []*SequencerActivity}, which are not yet ported).
+ */
 @JsonPropertyOrder({
   "id",
   "created",
@@ -110,30 +114,55 @@ public final class TransactionFull extends Transaction {
         sequencerActivity == null ? Collections.emptyList() : List.copyOf(sequencerActivity);
   }
 
+  /**
+   * The ids of transactions this one depends on.
+   *
+   * @return the dependency ids, never {@code null} (empty when unset)
+   */
   @JsonProperty("dependsOn")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<UUID> dependsOn() {
     return dependsOn;
   }
 
+  /**
+   * The receipt for this transaction, if it has reached a final state.
+   *
+   * @return the receipt, or {@code null} if not yet available
+   */
   @JsonProperty("receipt")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public TransactionReceipt receipt() {
     return receipt;
   }
 
+  /**
+   * The associated public transactions, surfaced as raw JSON (mirrors Go's {@code []*PublicTx}).
+   *
+   * @return the public transactions, never {@code null} (empty when unset)
+   */
   @JsonProperty("public")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<JsonNode> publicTransactions() {
     return publicTransactions;
   }
 
+  /**
+   * The transaction history, surfaced as raw JSON (mirrors Go's {@code []*TransactionHistory}).
+   *
+   * @return the history entries, never {@code null} (empty when unset)
+   */
   @JsonProperty("history")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<JsonNode> history() {
     return history;
   }
 
+  /**
+   * The sequencer activity, surfaced as raw JSON (mirrors Go's {@code []*SequencerActivity}).
+   *
+   * @return the sequencer activity entries, never {@code null} (empty when unset)
+   */
   @JsonProperty("sequencerActivity")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<JsonNode> sequencerActivity() {
@@ -142,7 +171,12 @@ public final class TransactionFull extends Transaction {
 
   @Override
   public String toString() {
-    return "TransactionFull{id=" + id() + ", type=" + type() + ", dependsOn=" + dependsOn.size()
+    return "TransactionFull{id="
+        + id()
+        + ", type="
+        + type()
+        + ", dependsOn="
+        + dependsOn.size()
         + "}";
   }
 }

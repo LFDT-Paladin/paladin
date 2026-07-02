@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.key;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -20,8 +19,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.util.Objects;
 
-// Immutable; mirrors pldapi.KeyVerifier. A resolved verifier (e.g. an address) for a key, together
-// with the algorithm and verifier type it was produced under.
+/**
+ * A resolved verifier (for example, an address) for a key, together with the algorithm and verifier
+ * type it was produced under. Immutable; mirrors {@code pldapi.KeyVerifier}.
+ */
 @JsonPropertyOrder({"verifier", "type", "algorithm"})
 public final class KeyVerifier {
 
@@ -39,16 +40,31 @@ public final class KeyVerifier {
     this.algorithm = algorithm;
   }
 
+  /**
+   * The resolved verifier value, such as an address or public key.
+   *
+   * @return the verifier value
+   */
   @JsonProperty("verifier")
   public String verifier() {
     return verifier;
   }
 
+  /**
+   * The verifier type the value was produced under.
+   *
+   * @return the verifier type
+   */
   @JsonProperty("type")
   public String type() {
     return type;
   }
 
+  /**
+   * The signing algorithm the verifier was produced under.
+   *
+   * @return the algorithm
+   */
   @JsonProperty("algorithm")
   public String algorithm() {
     return algorithm;

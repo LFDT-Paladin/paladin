@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.key;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -22,8 +21,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-// Immutable; mirrors pldapi.KeyQueryEntry. One node returned by keymgr_queryKeys — either a key
-// (isKey) or an intermediate path node (hasChildren). The verifiers list is never null.
+/**
+ * One node returned by {@code keymgr_queryKeys} — either a key (when {@link #isKey()}) or an
+ * intermediate path node (when {@link #hasChildren()}). Immutable; mirrors {@code
+ * pldapi.KeyQueryEntry}. The verifiers list is never {@code null}.
+ */
 @JsonPropertyOrder({
   "isKey",
   "hasChildren",
@@ -69,46 +71,91 @@ public final class KeyQueryEntry {
     this.verifiers = verifiers == null ? Collections.emptyList() : List.copyOf(verifiers);
   }
 
+  /**
+   * Whether this node is a key (as opposed to an intermediate path node).
+   *
+   * @return {@code true} if this node is a key
+   */
   @JsonProperty("isKey")
   public boolean isKey() {
     return isKey;
   }
 
+  /**
+   * Whether this node has child nodes beneath it.
+   *
+   * @return {@code true} if this node has children
+   */
   @JsonProperty("hasChildren")
   public boolean hasChildren() {
     return hasChildren;
   }
 
+  /**
+   * The full path of this node's parent.
+   *
+   * @return the parent path
+   */
   @JsonProperty("parent")
   public String parent() {
     return parent;
   }
 
+  /**
+   * The full path of this node.
+   *
+   * @return the node path
+   */
   @JsonProperty("path")
   public String path() {
     return path;
   }
 
+  /**
+   * The name of this node within its parent.
+   *
+   * @return the node name
+   */
   @JsonProperty("name")
   public String name() {
     return name;
   }
 
+  /**
+   * The zero-based index allocated to this node within its parent.
+   *
+   * @return the node index
+   */
   @JsonProperty("index")
   public long index() {
     return index;
   }
 
+  /**
+   * The name of the wallet that holds the key, when this node is a key.
+   *
+   * @return the wallet name, or {@code null} if this node is not a key
+   */
   @JsonProperty("wallet")
   public String wallet() {
     return wallet;
   }
 
+  /**
+   * The signing-module handle for the key, when this node is a key.
+   *
+   * @return the key handle, or {@code null} if this node is not a key
+   */
   @JsonProperty("keyHandle")
   public String keyHandle() {
     return keyHandle;
   }
 
+  /**
+   * The verifiers resolved for the key, when this node is a key.
+   *
+   * @return the verifiers, never {@code null} (empty when unset)
+   */
   @JsonProperty("verifiers")
   public List<KeyVerifier> verifiers() {
     return verifiers;

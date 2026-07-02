@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -28,12 +27,15 @@ import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
-// Immutable; mirrors pldapi.TransactionReceiptFull (a TransactionReceipt enriched with the states
-// it
-// touched, the domain receipt and any associated public transactions). The base receipt fields are
-// re-declared and flattened here to match the flat JSON wire form, exactly as TransactionFull does
-// over Transaction. The domainReceipt mirrors Go pldtypes.RawJSON and the public block mirrors Go
-// []*PublicTx (not yet ported); both are surfaced as raw JSON.
+/**
+ * A {@link TransactionReceipt} enriched with the states it touched, the domain receipt, and any
+ * associated public transactions, mirroring {@code pldapi.TransactionReceiptFull}. Immutable.
+ *
+ * <p>The base receipt fields are re-declared and flattened here to match the flat JSON wire form,
+ * exactly as {@link TransactionFull} does over {@link Transaction}. The {@link #domainReceipt()}
+ * mirrors Go's {@code pldtypes.RawJSON} and the {@link #publicTransactions()} block mirrors Go's
+ * {@code []*PublicTx} (not yet ported); both are surfaced as raw JSON.
+ */
 @JsonPropertyOrder({
   "id",
   "indexed",
@@ -100,24 +102,44 @@ public final class TransactionReceiptFull extends TransactionReceipt {
         publicTransactions == null ? Collections.emptyList() : List.copyOf(publicTransactions);
   }
 
+  /**
+   * The states touched by the transaction.
+   *
+   * @return the transaction states, or {@code null} if unset
+   */
   @JsonProperty("states")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public TransactionStates states() {
     return states;
   }
 
+  /**
+   * The domain-specific receipt, surfaced as raw JSON.
+   *
+   * @return the domain receipt, or {@code null} if unset
+   */
   @JsonProperty("domainReceipt")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public JsonNode domainReceipt() {
     return domainReceipt;
   }
 
+  /**
+   * The error encountered while building the domain receipt, if any.
+   *
+   * @return the domain receipt error, or an empty string when none
+   */
   @JsonProperty("domainReceiptError")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String domainReceiptError() {
     return domainReceiptError;
   }
 
+  /**
+   * The associated public transactions, surfaced as raw JSON (mirrors Go's {@code []*PublicTx}).
+   *
+   * @return the public transactions, never {@code null} (empty when unset)
+   */
   @JsonProperty("public")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<JsonNode> publicTransactions() {

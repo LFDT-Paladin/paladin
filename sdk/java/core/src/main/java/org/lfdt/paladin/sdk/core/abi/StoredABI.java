@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.abi;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -23,9 +22,11 @@ import java.util.Collections;
 import java.util.List;
 import org.lfdt.paladin.sdk.core.types.Bytes32;
 
-// Immutable; mirrors pldapi.StoredABI (the thin record automatically stored for any ABI used in a
-// transaction — a deterministic hash of the ABI and the ABI itself). Returned by ptx_getStoredABI /
-// ptx_queryStoredABIs.
+/**
+ * The thin record automatically stored for any ABI used in a transaction — a deterministic hash of
+ * the ABI together with the ABI itself. Immutable; mirrors {@code pldapi.StoredABI}. Returned by
+ * {@code ptx_getStoredABI} and {@code ptx_queryStoredABIs}.
+ */
 @JsonPropertyOrder({"hash", "abi"})
 public final class StoredABI {
 
@@ -38,12 +39,22 @@ public final class StoredABI {
     this.abi = abi == null ? Collections.emptyList() : List.copyOf(abi);
   }
 
+  /**
+   * The deterministic hash that identifies the stored ABI.
+   *
+   * @return the ABI hash, or {@code null} if unset
+   */
   @JsonProperty("hash")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Bytes32 hash() {
     return hash;
   }
 
+  /**
+   * The ABI entries.
+   *
+   * @return the ABI entries, never {@code null} (empty when unset)
+   */
   @JsonProperty("abi")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public List<AbiEntry> abi() {

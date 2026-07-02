@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -20,8 +19,11 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
-// Immutable; mirrors pldapi.TransactionReceiptFilters (the receipts a listener delivers). All fields
-// follow the Go omitempty convention. Build with the fluent builder to configure a receipt listener.
+/**
+ * The filters that select which receipts a listener delivers, mirroring {@code
+ * pldapi.TransactionReceiptFilters}. Immutable; build one with the {@linkplain #builder() fluent
+ * builder} to configure a receipt listener. All fields follow the Go {@code omitempty} convention.
+ */
 @JsonPropertyOrder({"sequenceAbove", "type", "domain"})
 public final class TransactionReceiptFilters {
 
@@ -39,24 +41,44 @@ public final class TransactionReceiptFilters {
     this.domain = domain;
   }
 
+  /**
+   * Delivers only receipts with a sequence above this value.
+   *
+   * @return the sequence lower bound, or {@code null} if unset
+   */
   @JsonProperty("sequenceAbove")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Long sequenceAbove() {
     return sequenceAbove;
   }
 
+  /**
+   * Delivers only receipts for transactions of this type.
+   *
+   * @return the transaction type, or {@code null} if unset
+   */
   @JsonProperty("type")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public TransactionType type() {
     return type;
   }
 
+  /**
+   * Delivers only receipts for transactions in this domain.
+   *
+   * @return the domain name, or an empty string when unset
+   */
   @JsonProperty("domain")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String domain() {
     return domain;
   }
 
+  /**
+   * Starts an empty builder.
+   *
+   * @return a new builder
+   */
   public static Builder builder() {
     return new Builder();
   }
@@ -80,21 +102,44 @@ public final class TransactionReceiptFilters {
 
     private Builder() {}
 
+    /**
+     * Delivers only receipts with a sequence above this value.
+     *
+     * @param sequenceAbove the sequence lower bound
+     * @return this builder
+     */
     public Builder sequenceAbove(Long sequenceAbove) {
       this.sequenceAbove = sequenceAbove;
       return this;
     }
 
+    /**
+     * Delivers only receipts for transactions of this type.
+     *
+     * @param type the transaction type
+     * @return this builder
+     */
     public Builder type(TransactionType type) {
       this.type = type;
       return this;
     }
 
+    /**
+     * Delivers only receipts for transactions in this domain.
+     *
+     * @param domain the domain name
+     * @return this builder
+     */
     public Builder domain(String domain) {
       this.domain = domain;
       return this;
     }
 
+    /**
+     * Builds the immutable {@link TransactionReceiptFilters}.
+     *
+     * @return a new {@link TransactionReceiptFilters} with the configured values
+     */
     public TransactionReceiptFilters build() {
       return new TransactionReceiptFilters(sequenceAbove, type, domain);
     }

@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -20,9 +19,15 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
-// Immutable; mirrors pldapi.TransactionReceiptListenerOptions (delivery options for a receipt
-// listener). incompleteStateReceiptBehavior mirrors the Go Enum[IncompleteStateReceiptBehavior] and
-// is one of "block_contract" (default), "process" or "complete_only".
+/**
+ * The delivery options for a receipt listener, mirroring {@code
+ * pldapi.TransactionReceiptListenerOptions}. Immutable; build one with the {@linkplain #builder()
+ * fluent builder}.
+ *
+ * <p>{@link #incompleteStateReceiptBehavior()} mirrors the Go {@code
+ * Enum[IncompleteStateReceiptBehavior]} and is one of {@code "block_contract"} (default), {@code
+ * "process"}, or {@code "complete_only"}.
+ */
 @JsonPropertyOrder({"domainReceipts", "incompleteStateReceiptBehavior"})
 public final class TransactionReceiptListenerOptions {
 
@@ -37,17 +42,32 @@ public final class TransactionReceiptListenerOptions {
     this.incompleteStateReceiptBehavior = incompleteStateReceiptBehavior;
   }
 
+  /**
+   * Whether domain receipts are included in the delivered receipts.
+   *
+   * @return {@code true} if domain receipts are included
+   */
   @JsonProperty("domainReceipts")
   public boolean domainReceipts() {
     return domainReceipts;
   }
 
+  /**
+   * How the listener behaves when a state receipt is incomplete.
+   *
+   * @return the incomplete-state-receipt behavior, or an empty string when unset
+   */
   @JsonProperty("incompleteStateReceiptBehavior")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String incompleteStateReceiptBehavior() {
     return incompleteStateReceiptBehavior;
   }
 
+  /**
+   * Starts an empty builder.
+   *
+   * @return a new builder
+   */
   public static Builder builder() {
     return new Builder();
   }
@@ -68,16 +88,34 @@ public final class TransactionReceiptListenerOptions {
 
     private Builder() {}
 
+    /**
+     * Sets whether domain receipts are included in the delivered receipts.
+     *
+     * @param domainReceipts whether to include domain receipts
+     * @return this builder
+     */
     public Builder domainReceipts(boolean domainReceipts) {
       this.domainReceipts = domainReceipts;
       return this;
     }
 
+    /**
+     * Sets how the listener behaves when a state receipt is incomplete.
+     *
+     * @param incompleteStateReceiptBehavior one of {@code "block_contract"}, {@code "process"}, or
+     *     {@code "complete_only"}
+     * @return this builder
+     */
     public Builder incompleteStateReceiptBehavior(String incompleteStateReceiptBehavior) {
       this.incompleteStateReceiptBehavior = incompleteStateReceiptBehavior;
       return this;
     }
 
+    /**
+     * Builds the immutable {@link TransactionReceiptListenerOptions}.
+     *
+     * @return a new {@link TransactionReceiptListenerOptions} with the configured values
+     */
     public TransactionReceiptListenerOptions build() {
       return new TransactionReceiptListenerOptions(domainReceipts, incompleteStateReceiptBehavior);
     }

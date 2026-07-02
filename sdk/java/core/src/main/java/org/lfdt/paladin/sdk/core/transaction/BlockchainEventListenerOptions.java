@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -21,10 +20,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.databind.JsonNode;
 
-// Immutable; mirrors pldapi.BlockchainEventListenerOptions (batching and start-block options for a
-// blockchain-event listener). fromBlock mirrors Go json.RawMessage (a block number or a special
-// string such as "latest") and is surfaced as raw JSON. All fields follow the Go omitempty
-// convention.
+/**
+ * The batching and start-block options for a blockchain-event listener, mirroring {@code
+ * pldapi.BlockchainEventListenerOptions}. Immutable; build one with the {@linkplain #builder()
+ * fluent builder}. All fields follow the Go {@code omitempty} convention.
+ *
+ * <p>{@link #fromBlock()} mirrors Go's {@code json.RawMessage} (a block number or a special string
+ * such as {@code "latest"}) and is surfaced as raw JSON.
+ */
 @JsonPropertyOrder({"batchSize", "batchTimeout", "fromBlock"})
 public final class BlockchainEventListenerOptions {
 
@@ -42,24 +45,45 @@ public final class BlockchainEventListenerOptions {
     this.fromBlock = fromBlock;
   }
 
+  /**
+   * The maximum number of events delivered per batch.
+   *
+   * @return the batch size, or {@code null} if unset
+   */
   @JsonProperty("batchSize")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Integer batchSize() {
     return batchSize;
   }
 
+  /**
+   * The maximum time to wait before delivering a partial batch.
+   *
+   * @return the batch timeout, or an empty string when unset
+   */
   @JsonProperty("batchTimeout")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String batchTimeout() {
     return batchTimeout;
   }
 
+  /**
+   * The block to start listening from — a block number or a special string such as {@code
+   * "latest"}, surfaced as raw JSON.
+   *
+   * @return the start block, or {@code null} if unset
+   */
   @JsonProperty("fromBlock")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public JsonNode fromBlock() {
     return fromBlock;
   }
 
+  /**
+   * Starts an empty builder.
+   *
+   * @return a new builder
+   */
   public static Builder builder() {
     return new Builder();
   }
@@ -81,21 +105,44 @@ public final class BlockchainEventListenerOptions {
 
     private Builder() {}
 
+    /**
+     * Sets the maximum number of events delivered per batch.
+     *
+     * @param batchSize the batch size
+     * @return this builder
+     */
     public Builder batchSize(Integer batchSize) {
       this.batchSize = batchSize;
       return this;
     }
 
+    /**
+     * Sets the maximum time to wait before delivering a partial batch.
+     *
+     * @param batchTimeout the batch timeout
+     * @return this builder
+     */
     public Builder batchTimeout(String batchTimeout) {
       this.batchTimeout = batchTimeout;
       return this;
     }
 
+    /**
+     * Sets the block to start listening from.
+     *
+     * @param fromBlock a block number or a special string such as {@code "latest"}
+     * @return this builder
+     */
     public Builder fromBlock(JsonNode fromBlock) {
       this.fromBlock = fromBlock;
       return this;
     }
 
+    /**
+     * Builds the immutable {@link BlockchainEventListenerOptions}.
+     *
+     * @return a new {@link BlockchainEventListenerOptions} with the configured values
+     */
     public BlockchainEventListenerOptions build() {
       return new BlockchainEventListenerOptions(batchSize, batchTimeout, fromBlock);
     }

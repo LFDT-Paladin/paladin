@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -20,8 +19,11 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
-// Immutable; mirrors pldapi.ChainedDispatch (the binding of a paladin transaction to a chained
-// transaction it triggered). Returned by ptx_getChainedDispatch / ptx_queryChainedDispatches.
+/**
+ * The binding of a Paladin transaction to a chained transaction it triggered, mirroring {@code
+ * pldapi.ChainedDispatch}. Immutable. Returned by {@code ptx_getChainedDispatch} and {@code
+ * ptx_queryChainedDispatches}.
+ */
 @JsonPropertyOrder({"id", "transactionID", "chainedTransactionID"})
 public final class ChainedDispatch {
 
@@ -39,18 +41,33 @@ public final class ChainedDispatch {
     this.chainedTransactionID = chainedTransactionID;
   }
 
+  /**
+   * The id of the chained-dispatch record.
+   *
+   * @return the dispatch id, or an empty string when unset
+   */
   @JsonProperty("id")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String id() {
     return id;
   }
 
+  /**
+   * The id of the Paladin transaction that triggered the chained transaction.
+   *
+   * @return the transaction id, or an empty string when unset
+   */
   @JsonProperty("transactionID")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String transactionID() {
     return transactionID;
   }
 
+  /**
+   * The id of the chained transaction that was triggered.
+   *
+   * @return the chained transaction id, or an empty string when unset
+   */
   @JsonProperty("chainedTransactionID")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String chainedTransactionID() {

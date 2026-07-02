@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.abi;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -21,9 +20,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.databind.JsonNode;
 
-// Immutable; mirrors pldapi.ABIDecodedData (the result of decoding revert/call/event data against a
-// stored ABI). The decoded data mirrors Go pldtypes.RawJSON and is surfaced as raw JSON; the matched
-// definition is a typed AbiEntry. Returned by ptx_decodeError / ptx_decodeCall / ptx_decodeEvent.
+/**
+ * The result of decoding revert, call, or event data against a stored ABI, mirroring {@code
+ * pldapi.ABIDecodedData}. Immutable. Returned by {@code ptx_decodeError}, {@code ptx_decodeCall},
+ * and {@code ptx_decodeEvent}.
+ *
+ * <p>The decoded {@link #data()} mirrors Go's {@code pldtypes.RawJSON} and is surfaced as raw JSON;
+ * the matched {@link #definition()} is a typed {@link AbiEntry}.
+ */
 @JsonPropertyOrder({"data", "summary", "definition", "signature"})
 public final class ABIDecodedData {
 
@@ -44,24 +48,44 @@ public final class ABIDecodedData {
     this.signature = signature;
   }
 
+  /**
+   * The decoded data as raw JSON.
+   *
+   * @return the decoded data, or {@code null} if unset
+   */
   @JsonProperty("data")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public JsonNode data() {
     return data;
   }
 
+  /**
+   * A human-readable summary of the decoded data (for example, a formatted error message).
+   *
+   * @return the summary, or {@code null} if unset
+   */
   @JsonProperty("summary")
   @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public String summary() {
     return summary;
   }
 
+  /**
+   * The ABI entry that matched and was used to decode the data.
+   *
+   * @return the matched definition, or {@code null} if unset
+   */
   @JsonProperty("definition")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public AbiEntry definition() {
     return definition;
   }
 
+  /**
+   * The canonical signature of the matched definition.
+   *
+   * @return the signature, or {@code null} if unset
+   */
   @JsonProperty("signature")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public String signature() {

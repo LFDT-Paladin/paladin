@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.client.keymgr;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -164,9 +163,7 @@ class KeyManagerClientTest {
         HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
       HexBytes payload = HexBytes.fromString("0x0011");
       HexBytes signature =
-          new KeyManagerClient(rpc)
-              .sign("key1", "ecdsa", "eth_address", "opaque", payload)
-              .join();
+          new KeyManagerClient(rpc).sign("key1", "ecdsa", "eth_address", "opaque", payload).join();
       assertEquals(HexBytes.fromString("0xdeadbeef"), signature);
       JsonNode req = server.requests().get(0);
       assertEquals("keymgr_sign", req.get("method").asText());
