@@ -17,11 +17,16 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
+
+// jsonMarshalFn is a package-level variable so tests can inject errors.
+var jsonMarshalFn = json.Marshal
 
 func action_SendHeartbeat(ctx context.Context, c *coordinator, _ common.Event) error {
 	return c.sendHeartbeat(ctx, false)
@@ -73,7 +78,18 @@ func (c *coordinator) sendHeartbeat(ctx context.Context, includeLocks bool) erro
 				OutputStates:           statesAndLocks.OutputState,
 			}
 		}
-		if sendErr := c.transportWriter.SendHeartbeat(ctx, node, c.contractAddress, snapshot); sendErr != nil {
+		snapshotBytes, jsonErr := jsonMarshalFn(snapshot)
+		if jsonErr != nil {
+			log.L(ctx).Errorf("error marshalling heartbeat snapshot for node %s: %v", node, jsonErr)
+			err = jsonErr
+			continue
+		}
+		heartbeatMsg := &engineProto.CoordinatorHeartbeatNotification{
+			From:                c.nodeName,
+			ContractAddress:     c.contractAddress.HexString(),
+			CoordinatorSnapshot: snapshotBytes,
+		}
+		if sendErr := c.transportWriter.SendHeartbeat(ctx, node, heartbeatMsg); sendErr != nil {
 			log.L(ctx).Errorf("error sending heartbeat to %s: %v", node, sendErr)
 			err = sendErr
 		}

@@ -239,6 +239,246 @@ func TestSend_WriterContextCancelled_LoopbackQueueFull(t *testing.T) {
 	assert.Equal(t, context.Canceled, err)
 }
 
+// ===== Proto message builder helpers =====
+
+func testTransactionSubmittedMsg(txID uuid.UUID, contractAddress *pldtypes.EthAddress, txHash *pldtypes.Bytes32) *engineProto.TransactionSubmitted {
+	return &engineProto.TransactionSubmitted{
+		Id:              uuid.New().String(),
+		TransactionId:   txID.String(),
+		ContractAddress: contractAddress.HexString(),
+		Hash:            txHash.Bytes(),
+	}
+}
+
+func testDelegationRequestMsg(coordinatorNode string, transactions []*components.PrivateTransaction, blockHeight uint64) (*engineProto.DelegationRequest, error) {
+	allTxBytes := make([][]byte, 0, len(transactions))
+	for _, transaction := range transactions {
+		transactionBytes, err := json.Marshal(transaction)
+		if err != nil {
+			return nil, err
+		}
+		allTxBytes = append(allTxBytes, transactionBytes)
+	}
+	return &engineProto.DelegationRequest{
+		DelegateNodeId:        coordinatorNode,
+		OriginatorBlockHeight: int64(blockHeight),
+		PrivateTransactions:   allTxBytes,
+	}, nil
+}
+
+func testDelegationResponseMsg(delegatingNodeName, delegationId string, transactionIDs []string, contractAddress *pldtypes.EthAddress, errors []int64) *engineProto.DelegationResponse {
+	return &engineProto.DelegationResponse{
+		DelegationId:    delegationId,
+		TransactionIds:  transactionIDs,
+		DelegateNodeId:  delegatingNodeName,
+		ContractAddress: contractAddress.String(),
+		Errors:          errors,
+	}
+}
+
+func testDelegationRejectionMsg(delegatingNodeName, delegationId string, contractAddress *pldtypes.EthAddress, rejectionReason engineProto.RejectionReason, activeCoordinator string, originatorBlockHeight, coordinatorBlockHeight, blockHeightTolerance int64) *engineProto.DelegationRejection {
+	return &engineProto.DelegationRejection{
+		DelegationId:           delegationId,
+		DelegateNodeId:         delegatingNodeName,
+		ContractAddress:        contractAddress.String(),
+		RejectionReason:        rejectionReason,
+		ActiveCoordinator:      activeCoordinator,
+		OriginatorBlockHeight:  originatorBlockHeight,
+		CoordinatorBlockHeight: coordinatorBlockHeight,
+		BlockHeightTolerance:   blockHeightTolerance,
+	}
+}
+
+func testEndorsementRequestMsg(txID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates, readStates, outputStates, infoStates []*prototk.EndorsableState, expiry time.Time, coordinatorBlockHeight, blockHeightTolerance int64) *engineProto.EndorsementRequest {
+	return &engineProto.EndorsementRequest{
+		IdempotencyKey:           idempotencyKey.String(),
+		ContractAddress:          transactionSpecification.ContractInfo.ContractAddress,
+		TransactionId:            txID.String(),
+		AttestationRequest:       attRequest,
+		Party:                    party,
+		TransactionSpecification: transactionSpecification,
+		Verifiers:                verifiers,
+		Signatures:               signatures,
+		InputStates:              inputStates,
+		ReadStates:               readStates,
+		OutputStates:             outputStates,
+		InfoStates:               infoStates,
+		ExpiryTimeUnixMs:         expiry.UnixMilli(),
+		CoordinatorBlockHeight:   coordinatorBlockHeight,
+		BlockHeightTolerance:     blockHeightTolerance,
+	}
+}
+
+func testEndorsementResponseMsg(transactionId, idempotencyKey, contractAddress, endorsementName, party string, attResult *prototk.AttestationResult, revertReason string) *engineProto.EndorsementResponse {
+	msg := &engineProto.EndorsementResponse{
+		Endorsement:            attResult,
+		TransactionId:          transactionId,
+		IdempotencyKey:         idempotencyKey,
+		AttestationRequestName: endorsementName,
+		Party:                  party,
+		ContractAddress:        contractAddress,
+	}
+	if revertReason != "" {
+		msg.RevertReason = &revertReason
+	}
+	return msg
+}
+
+func testEndorsementRejectionMsg(transactionId, idempotencyKey, contractAddress, endorsementName, party string, reason engineProto.RejectionReason, coordinatorBlockHeight, endorserBlockHeight, blockHeightTolerance int64) *engineProto.EndorsementRejection {
+	return &engineProto.EndorsementRejection{
+		TransactionId:          transactionId,
+		IdempotencyKey:         idempotencyKey,
+		ContractAddress:        contractAddress,
+		AttestationRequestName: endorsementName,
+		Party:                  party,
+		RejectionReason:        reason,
+		CoordinatorBlockHeight: coordinatorBlockHeight,
+		EndorserBlockHeight:    endorserBlockHeight,
+		BlockHeightTolerance:   blockHeightTolerance,
+	}
+}
+
+func testEndorsementErrorMsg(transactionId, idempotencyKey, contractAddress, errorMessage, party, attestationRequestName string) *engineProto.EndorsementError {
+	return &engineProto.EndorsementError{
+		TransactionId:          transactionId,
+		IdempotencyKey:         idempotencyKey,
+		ContractAddress:        contractAddress,
+		ErrorMessage:           errorMessage,
+		Party:                  party,
+		AttestationRequestName: attestationRequestName,
+	}
+}
+
+func testAssembleRequestMsg(txID, idempotencyId uuid.UUID, contractAddress *pldtypes.EthAddress, preAssembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64, expiry time.Time, blockHeightTolerance int64) (*engineProto.AssembleRequest, error) {
+	preAssemblyBytes, err := json.Marshal(preAssembly)
+	if err != nil {
+		return nil, err
+	}
+	stateLocksJSON, err := json.Marshal(stateLocks)
+	if err != nil {
+		return nil, err
+	}
+	return &engineProto.AssembleRequest{
+		TransactionId:          txID.String(),
+		AssembleRequestId:      idempotencyId.String(),
+		ContractAddress:        contractAddress.HexString(),
+		PreAssembly:            preAssemblyBytes,
+		StateLocks:             stateLocksJSON,
+		CoordinatorBlockHeight: blockHeight,
+		ExpiryTimeUnixMs:       expiry.UnixMilli(),
+		BlockHeightTolerance:   blockHeightTolerance,
+	}, nil
+}
+
+func testAssembleResponseMsg(txID, assembleRequestId uuid.UUID, contractAddress *pldtypes.EthAddress, postAssembly *components.TransactionPostAssembly, preAssembly *components.TransactionPreAssembly) (*engineProto.AssembleResponse, error) {
+	postAssemblyBytes, err := json.Marshal(postAssembly)
+	if err != nil {
+		return nil, err
+	}
+	preAssemblyBytes, err := json.Marshal(preAssembly)
+	if err != nil {
+		return nil, err
+	}
+	return &engineProto.AssembleResponse{
+		TransactionId:     txID.String(),
+		AssembleRequestId: assembleRequestId.String(),
+		ContractAddress:   contractAddress.HexString(),
+		PostAssembly:      postAssemblyBytes,
+		PreAssembly:       preAssemblyBytes,
+	}, nil
+}
+
+func testAssembleErrorMsg(txID, assembleRequestId uuid.UUID, contractAddress *pldtypes.EthAddress) *engineProto.AssembleError {
+	return &engineProto.AssembleError{
+		TransactionId:     txID.String(),
+		AssembleRequestId: assembleRequestId.String(),
+		ContractAddress:   contractAddress.HexString(),
+	}
+}
+
+func testAssembleRejectionMsg(txID, assembleRequestId uuid.UUID, contractAddress *pldtypes.EthAddress, reason engineProto.RejectionReason, coordinatorBlockHeight, assemblerBlockHeight int64) *engineProto.AssembleRejection {
+	return &engineProto.AssembleRejection{
+		TransactionId:          txID.String(),
+		AssembleRequestId:      assembleRequestId.String(),
+		ContractAddress:        contractAddress.HexString(),
+		RejectionReason:        reason,
+		CoordinatorBlockHeight: coordinatorBlockHeight,
+		AssemblerBlockHeight:   assemblerBlockHeight,
+	}
+}
+
+func testNonceAssignedMsg(txID uuid.UUID, contractAddress *pldtypes.EthAddress, nonce uint64) *engineProto.NonceAssigned {
+	return &engineProto.NonceAssigned{
+		Id:              uuid.New().String(),
+		TransactionId:   txID.String(),
+		ContractAddress: contractAddress.HexString(),
+		Nonce:           int64(nonce),
+	}
+}
+
+func testTransactionConfirmedMsg(txID uuid.UUID, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engineProto.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool) *engineProto.TransactionConfirmed {
+	msg := &engineProto.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   txID.String(),
+		ContractAddress: contractAddress.HexString(),
+		Outcome:         outcome,
+		RevertReason:    revertReason,
+		FailureMessage:  failureMessage,
+		WillRetry:       willRetry,
+	}
+	if nonce != nil {
+		msg.Nonce = int64(*nonce)
+	}
+	return msg
+}
+
+func testHeartbeatMsg(from string, contractAddress *pldtypes.EthAddress, coordinatorSnapshot *common.CoordinatorSnapshot) (*engineProto.CoordinatorHeartbeatNotification, error) {
+	coordinatorSnapshotBytes, err := json.Marshal(coordinatorSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	return &engineProto.CoordinatorHeartbeatNotification{
+		From:                from,
+		ContractAddress:     contractAddress.HexString(),
+		CoordinatorSnapshot: coordinatorSnapshotBytes,
+	}, nil
+}
+
+func testPreDispatchRequestMsg(idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification, contractAddress *pldtypes.EthAddress, hash *pldtypes.Bytes32) *engineProto.PreDispatchRequest {
+	return &engineProto.PreDispatchRequest{
+		Id:               idempotencyKey.String(),
+		TransactionId:    transactionSpecification.TransactionId,
+		ContractAddress:  contractAddress.HexString(),
+		PostAssembleHash: hash.Bytes(),
+	}
+}
+
+func testPreDispatchResponseMsg(idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification, contractAddress *pldtypes.EthAddress) *engineProto.PreDispatchResponse {
+	return &engineProto.PreDispatchResponse{
+		Id:              idempotencyKey.String(),
+		TransactionId:   transactionSpecification.TransactionId,
+		ContractAddress: contractAddress.HexString(),
+	}
+}
+
+func testDispatchedMsg(idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification, contractAddress *pldtypes.EthAddress, transactionOriginator string) *engineProto.TransactionDispatched {
+	return &engineProto.TransactionDispatched{
+		Id:              idempotencyKey.String(),
+		TransactionId:   transactionSpecification.TransactionId,
+		ContractAddress: contractAddress.HexString(),
+		Signer:          transactionOriginator,
+	}
+}
+
+func testPreDispatchRejectionMsg(txID, requestID uuid.UUID, contractAddress *pldtypes.EthAddress, reason engineProto.RejectionReason) *engineProto.PreDispatchRejection {
+	return &engineProto.PreDispatchRejection{
+		TransactionId:   txID.String(),
+		RequestId:       requestID.String(),
+		ContractAddress: contractAddress.HexString(),
+		RejectionReason: reason,
+	}
+}
+
 func TestSendTransactionSubmitted_Success(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
@@ -296,7 +536,7 @@ func TestSendTransactionSubmitted_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionSubmitted(ctx, txID, originatorNode, contractAddress, txHash)
+	err := tw.SendTransactionSubmitted(ctx, originatorNode, testTransactionSubmittedMsg(txID, contractAddress, txHash))
 	require.NoError(t, err)
 }
 
@@ -322,7 +562,7 @@ func TestSendTransactionSubmitted_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionSubmitted(ctx, txID, originatorNode, contractAddress, txHash)
+	err := tw.SendTransactionSubmitted(ctx, originatorNode, testTransactionSubmittedMsg(txID, contractAddress, txHash))
 	require.NoError(t, err)
 
 	// Verify message was sent to loopback queue
@@ -343,10 +583,10 @@ func TestSendTransactionSubmitted_Loopback(t *testing.T) {
 
 }
 
-func TestSendTransactionSubmitted_NilContractAddress(t *testing.T) {
+func TestSendTransactionSubmitted_EmptyNode(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
-	originatorNode := "originator-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	txHashVal := pldtypes.MustParseBytes32("0x00000000000000000000000000000000000000000000000000000000000000ab")
 	txHash := &txHashVal
 
@@ -357,12 +597,11 @@ func TestSendTransactionSubmitted_NilContractAddress(t *testing.T) {
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
-		contractAddress:   nil,
+		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionSubmitted(ctx, txID, originatorNode, nil, txHash)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "contract address")
+	err := tw.SendTransactionSubmitted(ctx, "", testTransactionSubmittedMsg(txID, contractAddress, txHash))
+	require.NoError(t, err)
 
 	// Verify no messages were sent
 	mockTransportManager.AssertNotCalled(t, "Send")
@@ -389,7 +628,7 @@ func TestSendTransactionSubmitted_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionSubmitted(ctx, txID, originatorNode, contractAddress, txHash)
+	err := tw.SendTransactionSubmitted(ctx, originatorNode, testTransactionSubmittedMsg(txID, contractAddress, txHash))
 	require.NoError(t, err)
 }
 
@@ -419,7 +658,7 @@ func TestSendTransactionSubmitted_VerifyProtoFields(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionSubmitted(ctx, txID, originatorNode, contractAddress, txHash)
+	err := tw.SendTransactionSubmitted(ctx, originatorNode, testTransactionSubmittedMsg(txID, contractAddress, txHash))
 	require.NoError(t, err)
 
 	// Unmarshal and verify all fields
@@ -450,7 +689,6 @@ func TestSendTransactionSubmitted_ProtoMarshalError(t *testing.T) {
 	mockTM := componentsmocks.NewTransportManager(t)
 	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
 	mockTM.On("LocalNodeName").Return("local-node").Maybe()
-	mockTM.On("Send", ctx, mock.Anything).Return(nil)
 
 	tw := &transportWriter{
 		ctx:               ctx,
@@ -460,11 +698,10 @@ func TestSendTransactionSubmitted_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	// SendTransactionSubmitted logs but does NOT return the proto.Marshal error; it continues.
-	err := tw.SendTransactionSubmitted(ctx, uuid.New(), "originator-node", contractAddress, &txHashVal)
-	require.NoError(t, err)
+	err := tw.SendTransactionSubmitted(ctx, "originator-node", testTransactionSubmittedMsg(uuid.New(), contractAddress, &txHashVal))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendDelegationRequest Tests =====
 
@@ -515,7 +752,9 @@ func TestSendDelegationRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationRequest(ctx, coordinatorNode, transactions, blockHeight)
+	delegationMsg, err := testDelegationRequestMsg(coordinatorNode, transactions, blockHeight)
+	require.NoError(t, err)
+	err = tw.SendDelegationRequest(ctx, coordinatorNode, delegationMsg)
 	require.NoError(t, err)
 
 	assert.Equal(t, coordinatorNode, capturedRequest.DelegateNodeId)
@@ -549,7 +788,7 @@ func TestSendDelegationRequest_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationRequest(ctx, coordinatorNode, nil, 0)
+	err := tw.SendDelegationRequest(ctx, coordinatorNode, &engineProto.DelegationRequest{})
 	require.NoError(t, err) // send errors are logged but not propagated
 }
 
@@ -577,35 +816,11 @@ func TestSendDelegationRequest_EmptyTransactions(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationRequest(ctx, coordinatorNode, []*components.PrivateTransaction{}, blockHeight)
+	delegationMsg, err := testDelegationRequestMsg(coordinatorNode, []*components.PrivateTransaction{}, blockHeight)
+	require.NoError(t, err)
+	err = tw.SendDelegationRequest(ctx, coordinatorNode, delegationMsg)
 	require.NoError(t, err)
 	assert.Empty(t, capturedRequest.PrivateTransactions)
-}
-
-func TestSendDelegationRequest_JSONMarshalError(t *testing.T) {
-	ctx := context.Background()
-	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-
-	orig := jsonMarshalFn
-	jsonMarshalFn = func(_ any) ([]byte, error) { return nil, errors.New("forced JSON error") }
-	defer func() { jsonMarshalFn = orig }()
-
-	mockTM := componentsmocks.NewTransportManager(t)
-	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
-
-	tw := &transportWriter{
-		ctx:               ctx,
-		nodeID:            "local-node",
-		transportManager:  mockTM,
-		loopbackTransport: mockLT,
-		contractAddress:   contractAddress,
-	}
-
-	// Need at least one transaction so the json.Marshal in the loop is executed.
-	txns := []*components.PrivateTransaction{{ID: uuid.New()}}
-	err := tw.SendDelegationRequest(ctx, "coordinator-node", txns, 0)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "forced JSON error")
 }
 
 func TestSendDelegationRequest_ProtoMarshalError(t *testing.T) {
@@ -627,11 +842,10 @@ func TestSendDelegationRequest_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationRequest(ctx, "coordinator-node", nil, 0)
+	err := tw.SendDelegationRequest(ctx, "coordinator-node", &engineProto.DelegationRequest{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendDelegationResponse Tests =====
 
@@ -686,7 +900,7 @@ func TestSendDelegationResponse_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationResponse(ctx, delegatingNodeName, delegationId, transactionIDs, []int64{0}, uint64(100))
+	err := tw.SendDelegationResponse(ctx, delegatingNodeName, testDelegationResponseMsg(delegatingNodeName, delegationId, transactionIDs, contractAddress, []int64{0}))
 	require.NoError(t, err)
 }
 
@@ -710,7 +924,7 @@ func TestSendDelegationResponse_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationResponse(ctx, delegatingNodeName, delegationId, []string{transactionID}, []int64{0}, uint64(100))
+	err := tw.SendDelegationResponse(ctx, delegatingNodeName, testDelegationResponseMsg(delegatingNodeName, delegationId, []string{transactionID}, contractAddress, []int64{0}))
 	require.NoError(t, err)
 }
 
@@ -733,11 +947,10 @@ func TestSendDelegationResponse_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationResponse(ctx, "delegating-node", "del-id", nil, nil, 0)
+	err := tw.SendDelegationResponse(ctx, "delegating-node", &engineProto.DelegationResponse{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendDelegationRejection Tests =====
 
@@ -775,7 +988,7 @@ func TestSendDelegationRejection_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationRejection(ctx, delegatingNodeName, delegationId, engineProto.RejectionReason_NOT_CURRENT_DELEGATE, "active-coordinator", int64(blockHeight), int64(90), int64(0))
+	err := tw.SendDelegationRejection(ctx, delegatingNodeName, testDelegationRejectionMsg(delegatingNodeName, delegationId, contractAddress, engineProto.RejectionReason_NOT_CURRENT_DELEGATE, "active-coordinator", int64(blockHeight), int64(90), int64(0)))
 	require.NoError(t, err)
 }
 
@@ -798,7 +1011,7 @@ func TestSendDelegationRejection_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationRejection(ctx, delegatingNodeName, delegationId, engineProto.RejectionReason_NOT_CURRENT_DELEGATE, "node1", int64(100), int64(90), int64(0))
+	err := tw.SendDelegationRejection(ctx, delegatingNodeName, testDelegationRejectionMsg(delegatingNodeName, delegationId, contractAddress, engineProto.RejectionReason_NOT_CURRENT_DELEGATE, "node1", int64(100), int64(90), int64(0)))
 	require.NoError(t, err)
 }
 
@@ -821,11 +1034,10 @@ func TestSendDelegationRejection_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationRejection(ctx, "node", "del-id", engineProto.RejectionReason_NOT_CURRENT_DELEGATE, "", 0, 0, 0)
+	err := tw.SendDelegationRejection(ctx, "node", &engineProto.DelegationRejection{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendHandoverRequest Tests =====
 
@@ -856,7 +1068,10 @@ func TestSendHandoverRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendHandoverRequest(ctx, targetNode, contractAddress)
+	err := tw.SendHandoverRequest(ctx, targetNode, &engineProto.CoordinatorHandoverRequest{
+		FromNode:        "local-node",
+		ContractAddress: contractAddress.String(),
+	})
 	require.NoError(t, err)
 }
 
@@ -878,7 +1093,7 @@ func TestSendHandoverRequest_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendHandoverRequest(ctx, targetNode, contractAddress)
+	err := tw.SendHandoverRequest(ctx, targetNode, &engineProto.CoordinatorHandoverRequest{})
 	require.NoError(t, err) // send errors are logged but not propagated
 }
 
@@ -901,7 +1116,7 @@ func TestSendHandoverRequest_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendHandoverRequest(ctx, "target-node", contractAddress)
+	err := tw.SendHandoverRequest(ctx, "target-node", &engineProto.CoordinatorHandoverRequest{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
@@ -991,7 +1206,7 @@ func TestSendEndorsementRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendEndorsementRequest(ctx, txID, idempotencyKey, party, attRequest, transactionSpecification, verifiers, signatures, inputStates, readStates, outputStates, infoStates, time.Time{}, 0, 0)
+	err := tw.SendEndorsementRequest(ctx, "node1", testEndorsementRequestMsg(txID, idempotencyKey, party, attRequest, transactionSpecification, verifiers, signatures, inputStates, readStates, outputStates, infoStates, time.Time{}, 0, 0))
 	require.NoError(t, err)
 }
 
@@ -1027,45 +1242,16 @@ func TestSendEndorsementRequest_SerialisesExpiryTimeIntoProto(t *testing.T) {
 		loopbackTransport: mockLoopbackTransport,
 		contractAddress:   contractAddress,
 	}
-	err := tw.SendEndorsementRequest(ctx, txID, idempotencyKey, party, nil, transactionSpecification, nil, nil, nil, nil, nil, nil, expiry, 0, 0)
+	err := tw.SendEndorsementRequest(ctx, "node1", testEndorsementRequestMsg(txID, idempotencyKey, party, nil, transactionSpecification, nil, nil, nil, nil, nil, nil, expiry, 0, 0))
 	require.NoError(t, err)
 	assert.Equal(t, expiry.UnixMilli(), capturedExpiry, "ExpiryTimeUnixMs should match expiry.UnixMilli()")
 }
 
-func TestSendEndorsementRequest_SendError(t *testing.T) {
+func TestSendEndorsementRequest_EmptyNode(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
 	idempotencyKey := uuid.New()
 	party := "party1@node1"
-	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-
-	transactionSpecification := &prototk.TransactionSpecification{
-		TransactionId: txID.String(),
-		ContractInfo:  &prototk.ContractInfo{ContractAddress: contractAddress.HexString()},
-	}
-
-	mockTransportManager := componentsmocks.NewTransportManager(t)
-	mockLoopbackTransport := sequencertransportmocks.NewLoopbackTransportManager(t)
-	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
-	mockTransportManager.On("Send", ctx, mock.Anything).Return(errors.New("transport send error"))
-
-	tw := &transportWriter{
-		ctx:               ctx,
-		nodeID:            "local-node",
-		transportManager:  mockTransportManager,
-		loopbackTransport: mockLoopbackTransport,
-		contractAddress:   contractAddress,
-	}
-
-	err := tw.SendEndorsementRequest(ctx, txID, idempotencyKey, party, nil, transactionSpecification, nil, nil, nil, nil, nil, nil, time.Time{}, 0, 0)
-	require.NoError(t, err) // send errors are logged but not propagated
-}
-
-func TestSendEndorsementRequest_NodeLookupError(t *testing.T) {
-	ctx := context.Background()
-	txID := uuid.New()
-	idempotencyKey := uuid.New()
-	party := "invalid-party" // No @node, will fail Node lookup
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 
 	attRequest := &prototk.AttestationRequest{
@@ -1090,15 +1276,14 @@ func TestSendEndorsementRequest_NodeLookupError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendEndorsementRequest(ctx, txID, idempotencyKey, party, attRequest, transactionSpecification, nil, nil, nil, nil, nil, nil, time.Time{}, 0, 0)
-	require.Error(t, err)
+	err := tw.SendEndorsementRequest(ctx, "", testEndorsementRequestMsg(txID, idempotencyKey, party, attRequest, transactionSpecification, nil, nil, nil, nil, nil, nil, time.Time{}, 0, 0))
+	require.NoError(t, err)
 	mockTransportManager.AssertNotCalled(t, "Send")
 }
 
 func TestSendEndorsementRequest_ProtoMarshalError(t *testing.T) {
 	ctx := context.Background()
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	txID := uuid.New()
 
 	orig := protoMarshalFn
 	protoMarshalFn = func(_ proto.Message) ([]byte, error) { return nil, errors.New("forced proto error") }
@@ -1115,15 +1300,10 @@ func TestSendEndorsementRequest_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	txSpec := &prototk.TransactionSpecification{
-		TransactionId: txID.String(),
-		ContractInfo:  &prototk.ContractInfo{ContractAddress: contractAddress.HexString()},
-	}
-	err := tw.SendEndorsementRequest(ctx, txID, uuid.New(), "party@node1", nil, txSpec, nil, nil, nil, nil, nil, nil, time.Time{}, 0, 0)
+	err := tw.SendEndorsementRequest(ctx, "node1", &engineProto.EndorsementRequest{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendEndorsementResponse Tests =====
 
@@ -1139,10 +1319,6 @@ func TestSendEndorsementResponse_Success(t *testing.T) {
 
 	attResult := &prototk.AttestationResult{
 		Name: "test-result",
-	}
-
-	endorsementResult := &components.EndorsementResult{
-		Result: prototk.EndorseTransactionResponse_SIGN,
 	}
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
@@ -1191,7 +1367,7 @@ func TestSendEndorsementResponse_Success(t *testing.T) {
 		contractAddress:   pldtypes.MustEthAddress(contractAddress),
 	}
 
-	err := tw.SendEndorsementResponse(ctx, transactionId, idempotencyKey, contractAddress, attResult, endorsementResult, revertReason, endorsementName, party, node)
+	err := tw.SendEndorsementResponse(ctx, node, testEndorsementResponseMsg(transactionId, idempotencyKey, contractAddress, endorsementName, party, attResult, revertReason))
 	require.NoError(t, err)
 }
 
@@ -1207,10 +1383,6 @@ func TestSendEndorsementResponse_WithRevertReason(t *testing.T) {
 
 	attResult := &prototk.AttestationResult{
 		Name: "test-result",
-	}
-
-	endorsementResult := &components.EndorsementResult{
-		Result: prototk.EndorseTransactionResponse_REVERT,
 	}
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
@@ -1235,7 +1407,7 @@ func TestSendEndorsementResponse_WithRevertReason(t *testing.T) {
 		contractAddress:   pldtypes.MustEthAddress(contractAddress),
 	}
 
-	err := tw.SendEndorsementResponse(ctx, transactionId, idempotencyKey, contractAddress, attResult, endorsementResult, revertReason, endorsementName, party, node)
+	err := tw.SendEndorsementResponse(ctx, node, testEndorsementResponseMsg(transactionId, idempotencyKey, contractAddress, endorsementName, party, attResult, revertReason))
 	require.NoError(t, err)
 }
 
@@ -1252,8 +1424,6 @@ func TestSendEndorsementResponse_SendError(t *testing.T) {
 		Name: "test-result",
 	}
 
-	endorsementResult := &components.EndorsementResult{}
-
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := sequencertransportmocks.NewLoopbackTransportManager(t)
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
@@ -1266,7 +1436,7 @@ func TestSendEndorsementResponse_SendError(t *testing.T) {
 		contractAddress:   pldtypes.MustEthAddress(contractAddress),
 	}
 
-	err := tw.SendEndorsementResponse(ctx, transactionId, idempotencyKey, contractAddress, attResult, endorsementResult, "", endorsementName, party, node)
+	err := tw.SendEndorsementResponse(ctx, node, testEndorsementResponseMsg(transactionId, idempotencyKey, contractAddress, endorsementName, party, attResult, ""))
 	require.NoError(t, err)
 }
 
@@ -1281,7 +1451,6 @@ func TestSendEndorsementResponse_ProtoMarshalError(t *testing.T) {
 	mockTM := componentsmocks.NewTransportManager(t)
 	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
 	mockTM.On("LocalNodeName").Return("local-node").Maybe()
-	mockTM.On("Send", ctx, mock.Anything).Return(nil)
 
 	tw := &transportWriter{
 		ctx:               ctx,
@@ -1291,11 +1460,10 @@ func TestSendEndorsementResponse_ProtoMarshalError(t *testing.T) {
 		contractAddress:   pldtypes.MustEthAddress(contractAddress),
 	}
 
-	// SendEndorsementResponse does NOT return the proto.Marshal error - it logs it and continues.
-	err := tw.SendEndorsementResponse(ctx, uuid.New().String(), uuid.New().String(), contractAddress, nil, &components.EndorsementResult{}, "", "att1", "party", "node")
-	require.NoError(t, err)
+	err := tw.SendEndorsementResponse(ctx, "node", &engineProto.EndorsementResponse{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendEndorsementRejection Tests =====
 
@@ -1343,7 +1511,7 @@ func TestSendEndorsementRejection_Success(t *testing.T) {
 		contractAddress:   pldtypes.MustEthAddress(contractAddress),
 	}
 
-	err := tw.SendEndorsementRejection(ctx, transactionId, idempotencyKey, contractAddress, endorsementName, party, node, engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, coordinatorBlockHeight, endorserBlockHeight, blockHeightTolerance)
+	err := tw.SendEndorsementRejection(ctx, node, testEndorsementRejectionMsg(transactionId, idempotencyKey, contractAddress, endorsementName, party, engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, coordinatorBlockHeight, endorserBlockHeight, blockHeightTolerance))
 	require.NoError(t, err)
 }
 
@@ -1363,7 +1531,7 @@ func TestSendEndorsementRejection_SendError(t *testing.T) {
 		contractAddress:   pldtypes.MustEthAddress(contractAddress),
 	}
 
-	err := tw.SendEndorsementRejection(ctx, uuid.New().String(), uuid.New().String(), contractAddress, "att1", "party1@node2", "node2", engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, 100, 95, 10)
+	err := tw.SendEndorsementRejection(ctx, "node2", testEndorsementRejectionMsg(uuid.New().String(), uuid.New().String(), contractAddress, "att1", "party1@node2", engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, 100, 95, 10))
 	require.NoError(t, err)
 }
 
@@ -1386,11 +1554,10 @@ func TestSendEndorsementRejection_ProtoMarshalError(t *testing.T) {
 		contractAddress:   pldtypes.MustEthAddress(contractAddress),
 	}
 
-	err := tw.SendEndorsementRejection(ctx, uuid.New().String(), uuid.New().String(), contractAddress, "att", "party@node", "node", engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, 100, 90, 10)
+	err := tw.SendEndorsementRejection(ctx, "node", &engineProto.EndorsementRejection{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendEndorsementError Tests =====
 
@@ -1433,7 +1600,7 @@ func TestSendEndorsementError_Success(t *testing.T) {
 		contractAddress:   pldtypes.MustEthAddress(contractAddress),
 	}
 
-	err := tw.SendEndorsementError(ctx, transactionId, idempotencyKey, contractAddress, errorMessage, party, attestationRequestName, node)
+	err := tw.SendEndorsementError(ctx, node, testEndorsementErrorMsg(transactionId, idempotencyKey, contractAddress, errorMessage, party, attestationRequestName))
 	require.NoError(t, err)
 }
 
@@ -1453,7 +1620,7 @@ func TestSendEndorsementError_SendError(t *testing.T) {
 		contractAddress:   pldtypes.MustEthAddress(contractAddress),
 	}
 
-	err := tw.SendEndorsementError(ctx, uuid.New().String(), uuid.New().String(), contractAddress, "some error", "party1@node2", "att1", "node2")
+	err := tw.SendEndorsementError(ctx, "node2", testEndorsementErrorMsg(uuid.New().String(), uuid.New().String(), contractAddress, "some error", "party1@node2", "att1"))
 	require.NoError(t, err)
 }
 
@@ -1476,11 +1643,10 @@ func TestSendEndorsementError_ProtoMarshalError(t *testing.T) {
 		contractAddress:   pldtypes.MustEthAddress(contractAddress),
 	}
 
-	err := tw.SendEndorsementError(ctx, uuid.New().String(), uuid.New().String(), contractAddress, "err", "party@node", "att", "node")
+	err := tw.SendEndorsementError(ctx, "node", &engineProto.EndorsementError{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendAssembleRequest Tests =====
 
@@ -1541,7 +1707,9 @@ func TestSendAssembleRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocks, blockHeight, time.Time{}, 0)
+	assembleMsg, err := testAssembleRequestMsg(txID, idempotencyId, contractAddress, preAssembly, stateLocks, blockHeight, time.Time{}, 0)
+	require.NoError(t, err)
+	err = tw.SendAssembleRequest(ctx, assemblingNode, assembleMsg)
 	require.NoError(t, err)
 }
 
@@ -1578,7 +1746,9 @@ func TestSendAssembleRequest_SerialisesExpiryTimeIntoProto(t *testing.T) {
 		loopbackTransport: mockLoopbackTransport,
 		contractAddress:   contractAddress,
 	}
-	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocks, blockHeight, expiry, 0)
+	assembleMsg, err := testAssembleRequestMsg(txID, idempotencyId, contractAddress, preAssembly, stateLocks, blockHeight, expiry, 0)
+	require.NoError(t, err)
+	err = tw.SendAssembleRequest(ctx, assemblingNode, assembleMsg)
 	require.NoError(t, err)
 	assert.Equal(t, expiry.UnixMilli(), capturedExpiry, "ExpiryTimeUnixMs should match expiry.UnixMilli()")
 }
@@ -1612,77 +1782,15 @@ func TestSendAssembleRequest_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocks, blockHeight, time.Time{}, 0)
+	assembleMsg, err := testAssembleRequestMsg(txID, idempotencyId, contractAddress, preAssembly, stateLocks, blockHeight, time.Time{}, 0)
 	require.NoError(t, err)
-}
-
-func TestSendAssembleRequest_PreAssemblyJSONMarshalError(t *testing.T) {
-	ctx := context.Background()
-	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	txID := uuid.New()
-
-	orig := jsonMarshalFn
-	jsonMarshalFn = func(_ any) ([]byte, error) { return nil, errors.New("forced JSON error") }
-	defer func() { jsonMarshalFn = orig }()
-
-	mockTM := componentsmocks.NewTransportManager(t)
-	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
-
-	tw := &transportWriter{
-		ctx:               ctx,
-		nodeID:            "local-node",
-		transportManager:  mockTM,
-		loopbackTransport: mockLT,
-		contractAddress:   contractAddress,
-	}
-
-	preAssembly := &components.TransactionPreAssembly{
-		TransactionSpecification: &prototk.TransactionSpecification{TransactionId: txID.String()},
-	}
-	err := tw.SendAssembleRequest(ctx, "node", txID, uuid.New(), preAssembly, grapher.ExportableStates{}, 0, time.Time{}, 0)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "forced JSON error")
-}
-
-func TestSendAssembleRequest_StateLocksJSONMarshalError(t *testing.T) {
-	ctx := context.Background()
-	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	txID := uuid.New()
-
-	callCount := 0
-	orig := jsonMarshalFn
-	jsonMarshalFn = func(v any) ([]byte, error) {
-		callCount++
-		if callCount == 1 {
-			return json.Marshal(v) // first call (preAssembly) succeeds
-		}
-		return nil, errors.New("forced JSON error on stateLocks")
-	}
-	defer func() { jsonMarshalFn = orig }()
-
-	mockTM := componentsmocks.NewTransportManager(t)
-	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
-
-	tw := &transportWriter{
-		ctx:               ctx,
-		nodeID:            "local-node",
-		transportManager:  mockTM,
-		loopbackTransport: mockLT,
-		contractAddress:   contractAddress,
-	}
-
-	preAssembly := &components.TransactionPreAssembly{
-		TransactionSpecification: &prototk.TransactionSpecification{TransactionId: txID.String()},
-	}
-	err := tw.SendAssembleRequest(ctx, "node", txID, uuid.New(), preAssembly, grapher.ExportableStates{}, 0, time.Time{}, 0)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "forced JSON error on stateLocks")
+	err = tw.SendAssembleRequest(ctx, assemblingNode, assembleMsg)
+	require.NoError(t, err)
 }
 
 func TestSendAssembleRequest_ProtoMarshalError(t *testing.T) {
 	ctx := context.Background()
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	txID := uuid.New()
 
 	orig := protoMarshalFn
 	protoMarshalFn = func(_ proto.Message) ([]byte, error) { return nil, errors.New("forced proto error") }
@@ -1699,14 +1807,10 @@ func TestSendAssembleRequest_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	preAssembly := &components.TransactionPreAssembly{
-		TransactionSpecification: &prototk.TransactionSpecification{TransactionId: txID.String()},
-	}
-	err := tw.SendAssembleRequest(ctx, "node", txID, uuid.New(), preAssembly, grapher.ExportableStates{}, 0, time.Time{}, 0)
+	err := tw.SendAssembleRequest(ctx, "node", &engineProto.AssembleRequest{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendAssembleResponse Tests =====
 
@@ -1765,7 +1869,9 @@ func TestSendAssembleResponse_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleResponse(ctx, txID, assembleRequestId, postAssembly, preAssembly, recipient)
+	assembleResponseMsg, err := testAssembleResponseMsg(txID, assembleRequestId, contractAddress, postAssembly, preAssembly)
+	require.NoError(t, err)
+	err = tw.SendAssembleResponse(ctx, recipient, assembleResponseMsg)
 	require.NoError(t, err)
 }
 
@@ -1798,71 +1904,15 @@ func TestSendAssembleResponse_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleResponse(ctx, txID, assembleRequestId, postAssembly, preAssembly, recipient)
+	assembleResponseMsg, err := testAssembleResponseMsg(txID, assembleRequestId, contractAddress, postAssembly, preAssembly)
 	require.NoError(t, err)
-}
-
-func TestSendAssembleResponse_PostAssemblyJSONMarshalError(t *testing.T) {
-	ctx := context.Background()
-	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	txID := uuid.New()
-
-	orig := jsonMarshalFn
-	jsonMarshalFn = func(_ any) ([]byte, error) { return nil, errors.New("forced JSON error") }
-	defer func() { jsonMarshalFn = orig }()
-
-	mockTM := componentsmocks.NewTransportManager(t)
-	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
-
-	tw := &transportWriter{
-		ctx:               ctx,
-		nodeID:            "local-node",
-		transportManager:  mockTM,
-		loopbackTransport: mockLT,
-		contractAddress:   contractAddress,
-	}
-
-	err := tw.SendAssembleResponse(ctx, txID, uuid.New(), &components.TransactionPostAssembly{}, &components.TransactionPreAssembly{}, "recipient")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "forced JSON error")
-}
-
-func TestSendAssembleResponse_PreAssemblyJSONMarshalError(t *testing.T) {
-	ctx := context.Background()
-	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	txID := uuid.New()
-
-	callCount := 0
-	orig := jsonMarshalFn
-	jsonMarshalFn = func(v any) ([]byte, error) {
-		callCount++
-		if callCount == 1 {
-			return json.Marshal(v) // first call (postAssembly) succeeds
-		}
-		return nil, errors.New("forced JSON error on preAssembly")
-	}
-	defer func() { jsonMarshalFn = orig }()
-
-	mockTM := componentsmocks.NewTransportManager(t)
-	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
-
-	tw := &transportWriter{
-		ctx:               ctx,
-		nodeID:            "local-node",
-		transportManager:  mockTM,
-		loopbackTransport: mockLT,
-		contractAddress:   contractAddress,
-	}
-
-	err := tw.SendAssembleResponse(ctx, txID, uuid.New(), &components.TransactionPostAssembly{}, &components.TransactionPreAssembly{}, "recipient")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "forced JSON error on preAssembly")
+	err = tw.SendAssembleResponse(ctx, recipient, assembleResponseMsg)
+	require.NoError(t, err)
 }
 
 func TestSendAssembleResponse_ProtoMarshalError(t *testing.T) {
 	ctx := context.Background()
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	txID := uuid.New()
 
 	orig := protoMarshalFn
 	protoMarshalFn = func(_ proto.Message) ([]byte, error) { return nil, errors.New("forced proto error") }
@@ -1879,11 +1929,10 @@ func TestSendAssembleResponse_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleResponse(ctx, txID, uuid.New(), &components.TransactionPostAssembly{}, &components.TransactionPreAssembly{}, "recipient")
+	err := tw.SendAssembleResponse(ctx, "recipient", &engineProto.AssembleResponse{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendAssembleError Tests =====
 
@@ -1932,7 +1981,7 @@ func TestSendAssembleError_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleError(ctx, txID, assembleRequestId, recipient)
+	err := tw.SendAssembleError(ctx, recipient, testAssembleErrorMsg(txID, assembleRequestId, contractAddress))
 	require.NoError(t, err)
 }
 
@@ -1956,7 +2005,7 @@ func TestSendAssembleError_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleError(ctx, txID, assembleRequestId, recipient)
+	err := tw.SendAssembleError(ctx, recipient, testAssembleErrorMsg(txID, assembleRequestId, contractAddress))
 	require.NoError(t, err)
 }
 
@@ -1981,7 +2030,7 @@ func TestSendAssembleError_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleError(ctx, txID, assembleRequestId, recipient)
+	err := tw.SendAssembleError(ctx, recipient, testAssembleErrorMsg(txID, assembleRequestId, contractAddress))
 	require.NoError(t, err)
 
 	select {
@@ -2019,11 +2068,10 @@ func TestSendAssembleError_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleError(ctx, uuid.New(), uuid.New(), "recipient-node")
+	err := tw.SendAssembleError(ctx, "recipient-node", &engineProto.AssembleError{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendAssembleRejection Tests =====
 
@@ -2066,7 +2114,7 @@ func TestSendAssembleRejection_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleRejection(ctx, txID, assembleRequestId, recipient, engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, coordinatorBlockHeight, assemblerBlockHeight)
+	err := tw.SendAssembleRejection(ctx, recipient, testAssembleRejectionMsg(txID, assembleRequestId, contractAddress, engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, coordinatorBlockHeight, assemblerBlockHeight))
 	require.NoError(t, err)
 }
 
@@ -2090,7 +2138,7 @@ func TestSendAssembleRejection_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleRejection(ctx, txID, assembleRequestId, recipient, engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, 100, 95)
+	err := tw.SendAssembleRejection(ctx, recipient, testAssembleRejectionMsg(txID, assembleRequestId, contractAddress, engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, 100, 95))
 	require.NoError(t, err)
 }
 
@@ -2113,11 +2161,10 @@ func TestSendAssembleRejection_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleRejection(ctx, uuid.New(), uuid.New(), "recipient-node", engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, 100, 90)
+	err := tw.SendAssembleRejection(ctx, "recipient-node", &engineProto.AssembleRejection{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendNonceAssigned Tests =====
 
@@ -2168,14 +2215,14 @@ func TestSendNonceAssigned_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendNonceAssigned(ctx, txID, originatorNode, contractAddress, nonce)
+	err := tw.SendNonceAssigned(ctx, originatorNode, testNonceAssignedMsg(txID, contractAddress, nonce))
 	require.NoError(t, err)
 }
 
-func TestSendNonceAssigned_NilContractAddress(t *testing.T) {
+func TestSendNonceAssigned_EmptyNode(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
-	originatorNode := "originator-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	nonce := uint64(42)
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
@@ -2185,12 +2232,11 @@ func TestSendNonceAssigned_NilContractAddress(t *testing.T) {
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
-		contractAddress:   nil,
+		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendNonceAssigned(ctx, txID, originatorNode, nil, nonce)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "contract address")
+	err := tw.SendNonceAssigned(ctx, "", testNonceAssignedMsg(txID, contractAddress, nonce))
+	require.NoError(t, err)
 	mockTransportManager.AssertNotCalled(t, "Send")
 }
 
@@ -2213,7 +2259,7 @@ func TestSendNonceAssigned_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendNonceAssigned(ctx, txID, originatorNode, contractAddress, nonce)
+	err := tw.SendNonceAssigned(ctx, originatorNode, testNonceAssignedMsg(txID, contractAddress, nonce))
 	require.NoError(t, err)
 }
 
@@ -2241,7 +2287,7 @@ func TestSendNonceAssigned_VerifyGeneratedId(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendNonceAssigned(ctx, txID, originatorNode, contractAddress, nonce)
+	err := tw.SendNonceAssigned(ctx, originatorNode, testNonceAssignedMsg(txID, contractAddress, nonce))
 	require.NoError(t, err)
 
 	var nonceAssigned engineProto.NonceAssigned
@@ -2265,7 +2311,6 @@ func TestSendNonceAssigned_ProtoMarshalError(t *testing.T) {
 	mockTM := componentsmocks.NewTransportManager(t)
 	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
 	mockTM.On("LocalNodeName").Return("local-node").Maybe()
-	mockTM.On("Send", ctx, mock.Anything).Return(nil)
 
 	tw := &transportWriter{
 		ctx:               ctx,
@@ -2275,11 +2320,10 @@ func TestSendNonceAssigned_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	// SendNonceAssigned logs but does NOT return the proto.Marshal error; it continues.
-	err := tw.SendNonceAssigned(ctx, uuid.New(), "originator-node", contractAddress, 42)
-	require.NoError(t, err)
+	err := tw.SendNonceAssigned(ctx, "originator-node", &engineProto.NonceAssigned{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendTransactionConfirmed Tests =====
 
@@ -2335,7 +2379,7 @@ func TestSendTransactionConfirmed_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
+	err := tw.SendTransactionConfirmed(ctx, originatorNode, testTransactionConfirmedMsg(txID, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false))
 	require.NoError(t, err)
 }
 
@@ -2369,14 +2413,14 @@ func TestSendTransactionConfirmed_WithoutNonce(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nil, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
+	err := tw.SendTransactionConfirmed(ctx, originatorNode, testTransactionConfirmedMsg(txID, contractAddress, nil, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false))
 	require.NoError(t, err)
 }
 
-func TestSendTransactionConfirmed_NilContractAddress(t *testing.T) {
+func TestSendTransactionConfirmed_EmptyNode(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
-	originatorNode := "originator-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	nonceVal := pldtypes.HexUint64(42)
 	nonce := &nonceVal
 	revertReason := pldtypes.HexBytes([]byte("revert reason"))
@@ -2388,12 +2432,11 @@ func TestSendTransactionConfirmed_NilContractAddress(t *testing.T) {
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
-		contractAddress:   nil,
+		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, nil, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "contract address")
+	err := tw.SendTransactionConfirmed(ctx, "", testTransactionConfirmedMsg(txID, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false))
+	require.NoError(t, err)
 	mockTransportManager.AssertNotCalled(t, "Send")
 }
 
@@ -2418,7 +2461,7 @@ func TestSendTransactionConfirmed_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
+	err := tw.SendTransactionConfirmed(ctx, originatorNode, testTransactionConfirmedMsg(txID, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false))
 	require.NoError(t, err)
 }
 
@@ -2445,7 +2488,7 @@ func TestSendTransactionConfirmed_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", true)
+	err := tw.SendTransactionConfirmed(ctx, originatorNode, testTransactionConfirmedMsg(txID, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", true))
 	require.NoError(t, err)
 
 	// Verify message was sent to loopback queue
@@ -2505,7 +2548,7 @@ func TestSendTransactionConfirmed_WillRetryTrue(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", true)
+	err := tw.SendTransactionConfirmed(ctx, originatorNode, testTransactionConfirmedMsg(txID, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", true))
 	require.NoError(t, err)
 }
 
@@ -2540,7 +2583,7 @@ func TestSendTransactionConfirmed_WillRetryFalse(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
+	err := tw.SendTransactionConfirmed(ctx, originatorNode, testTransactionConfirmedMsg(txID, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false))
 	require.NoError(t, err)
 }
 
@@ -2580,7 +2623,7 @@ func TestSendTransactionConfirmed_NilRevertReason(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_SUCCESS, nil, "", false)
+	err := tw.SendTransactionConfirmed(ctx, originatorNode, testTransactionConfirmedMsg(txID, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_SUCCESS, nil, "", false))
 	require.NoError(t, err)
 }
 
@@ -2607,7 +2650,7 @@ func TestSendTransactionConfirmed_Loopback_WillRetryFalse(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
+	err := tw.SendTransactionConfirmed(ctx, originatorNode, testTransactionConfirmedMsg(txID, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false))
 	require.NoError(t, err)
 
 	select {
@@ -2626,7 +2669,6 @@ func TestSendTransactionConfirmed_Loopback_WillRetryFalse(t *testing.T) {
 func TestSendTransactionConfirmed_ProtoMarshalError(t *testing.T) {
 	ctx := context.Background()
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	nonceVal := pldtypes.HexUint64(42)
 
 	orig := protoMarshalFn
 	protoMarshalFn = func(_ proto.Message) ([]byte, error) { return nil, errors.New("forced proto error") }
@@ -2635,7 +2677,6 @@ func TestSendTransactionConfirmed_ProtoMarshalError(t *testing.T) {
 	mockTM := componentsmocks.NewTransportManager(t)
 	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
 	mockTM.On("LocalNodeName").Return("local-node").Maybe()
-	mockTM.On("Send", ctx, mock.Anything).Return(nil)
 
 	tw := &transportWriter{
 		ctx:               ctx,
@@ -2645,11 +2686,10 @@ func TestSendTransactionConfirmed_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	// SendTransactionConfirmed logs but does NOT return the proto.Marshal error; it continues.
-	err := tw.SendTransactionConfirmed(ctx, uuid.New(), "originator-node", contractAddress, &nonceVal, engineProto.TransactionConfirmed_OUTCOME_SUCCESS, nil, "", false)
-	require.NoError(t, err)
+	err := tw.SendTransactionConfirmed(ctx, "originator-node", &engineProto.TransactionConfirmed{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendHeartbeat Tests =====
 
@@ -2711,7 +2751,9 @@ func TestSendHeartbeat_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendHeartbeat(ctx, targetNode, contractAddress, coordinatorSnapshot)
+	heartbeatMsg, err := testHeartbeatMsg("local-node", contractAddress, coordinatorSnapshot)
+	require.NoError(t, err)
+	err = tw.SendHeartbeat(ctx, targetNode, heartbeatMsg)
 	require.NoError(t, err)
 }
 
@@ -2736,7 +2778,9 @@ func TestSendHeartbeat_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendHeartbeat(ctx, targetNode, contractAddress, coordinatorSnapshot)
+	heartbeatMsg, err := testHeartbeatMsg("local-node", contractAddress, coordinatorSnapshot)
+	require.NoError(t, err)
+	err = tw.SendHeartbeat(ctx, targetNode, heartbeatMsg)
 	require.NoError(t, err)
 }
 
@@ -2763,7 +2807,9 @@ func TestSendHeartbeat_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendHeartbeat(ctx, targetNode, contractAddress, coordinatorSnapshot)
+	heartbeatMsg, err := testHeartbeatMsg("local-node", contractAddress, coordinatorSnapshot)
+	require.NoError(t, err)
+	err = tw.SendHeartbeat(ctx, targetNode, heartbeatMsg)
 	require.NoError(t, err)
 
 	// Verify message was sent to loopback queue
@@ -2781,30 +2827,6 @@ func TestSendHeartbeat_Loopback(t *testing.T) {
 		t.Fatal("Expected message in loopback queue")
 	}
 
-}
-
-func TestSendHeartbeat_JSONMarshalError(t *testing.T) {
-	ctx := context.Background()
-	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-
-	orig := jsonMarshalFn
-	jsonMarshalFn = func(_ any) ([]byte, error) { return nil, errors.New("forced JSON error") }
-	defer func() { jsonMarshalFn = orig }()
-
-	mockTM := componentsmocks.NewTransportManager(t)
-	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
-
-	tw := &transportWriter{
-		ctx:               ctx,
-		nodeID:            "local-node",
-		transportManager:  mockTM,
-		loopbackTransport: mockLT,
-		contractAddress:   contractAddress,
-	}
-
-	err := tw.SendHeartbeat(ctx, "target-node", contractAddress, &common.CoordinatorSnapshot{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "forced JSON error")
 }
 
 func TestSendHeartbeat_ProtoMarshalError(t *testing.T) {
@@ -2827,11 +2849,10 @@ func TestSendHeartbeat_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendHeartbeat(ctx, "target-node", contractAddress, &common.CoordinatorSnapshot{})
+	err := tw.SendHeartbeat(ctx, "target-node", &engineProto.CoordinatorHeartbeatNotification{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendPreDispatchRequest Tests =====
 
@@ -2887,7 +2908,7 @@ func TestSendPreDispatchRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchRequest(ctx, originatorNode, idempotencyKey, transactionSpecification, hash)
+	err := tw.SendPreDispatchRequest(ctx, originatorNode, testPreDispatchRequestMsg(idempotencyKey, transactionSpecification, contractAddress, hash))
 	require.NoError(t, err)
 }
 
@@ -2915,7 +2936,7 @@ func TestSendPreDispatchRequest_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchRequest(ctx, originatorNode, idempotencyKey, transactionSpecification, hash)
+	err := tw.SendPreDispatchRequest(ctx, originatorNode, testPreDispatchRequestMsg(idempotencyKey, transactionSpecification, contractAddress, hash))
 	require.NoError(t, err)
 }
 
@@ -2945,7 +2966,7 @@ func TestSendPreDispatchRequest_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchRequest(ctx, originatorNode, idempotencyKey, transactionSpecification, hash)
+	err := tw.SendPreDispatchRequest(ctx, originatorNode, testPreDispatchRequestMsg(idempotencyKey, transactionSpecification, contractAddress, hash))
 	require.NoError(t, err)
 
 	// Verify message was sent to loopback queue
@@ -2970,8 +2991,6 @@ func TestSendPreDispatchRequest_Loopback(t *testing.T) {
 func TestSendPreDispatchRequest_ProtoMarshalError(t *testing.T) {
 	ctx := context.Background()
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	txID := uuid.New()
-	hashVal := pldtypes.MustParseBytes32("0x00000000000000000000000000000000000000000000000000000000000000ab")
 
 	orig := protoMarshalFn
 	protoMarshalFn = func(_ proto.Message) ([]byte, error) { return nil, errors.New("forced proto error") }
@@ -2980,7 +2999,6 @@ func TestSendPreDispatchRequest_ProtoMarshalError(t *testing.T) {
 	mockTM := componentsmocks.NewTransportManager(t)
 	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
 	mockTM.On("LocalNodeName").Return("local-node").Maybe()
-	mockTM.On("Send", ctx, mock.Anything).Return(nil)
 
 	tw := &transportWriter{
 		ctx:               ctx,
@@ -2990,12 +3008,10 @@ func TestSendPreDispatchRequest_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	txSpec := &prototk.TransactionSpecification{TransactionId: txID.String()}
-	// SendPreDispatchRequest logs but does NOT return the proto.Marshal error; it continues.
-	err := tw.SendPreDispatchRequest(ctx, "originator-node", uuid.New(), txSpec, &hashVal)
-	require.NoError(t, err)
+	err := tw.SendPreDispatchRequest(ctx, "originator-node", &engineProto.PreDispatchRequest{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendPreDispatchResponse Tests =====
 
@@ -3046,7 +3062,7 @@ func TestSendPreDispatchResponse_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchResponse(ctx, transactionOriginatorNode, idempotencyKey, transactionSpecification)
+	err := tw.SendPreDispatchResponse(ctx, transactionOriginatorNode, testPreDispatchResponseMsg(idempotencyKey, transactionSpecification, contractAddress))
 	require.NoError(t, err)
 }
 
@@ -3072,7 +3088,7 @@ func TestSendPreDispatchResponse_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchResponse(ctx, transactionOriginatorNode, idempotencyKey, transactionSpecification)
+	err := tw.SendPreDispatchResponse(ctx, transactionOriginatorNode, testPreDispatchResponseMsg(idempotencyKey, transactionSpecification, contractAddress))
 	require.NoError(t, err)
 }
 
@@ -3100,7 +3116,7 @@ func TestSendPreDispatchResponse_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchResponse(ctx, transactionOriginatorNode, idempotencyKey, transactionSpecification)
+	err := tw.SendPreDispatchResponse(ctx, transactionOriginatorNode, testPreDispatchResponseMsg(idempotencyKey, transactionSpecification, contractAddress))
 	require.NoError(t, err)
 
 	// Verify message was sent to loopback queue
@@ -3124,7 +3140,6 @@ func TestSendPreDispatchResponse_Loopback(t *testing.T) {
 func TestSendPreDispatchResponse_ProtoMarshalError(t *testing.T) {
 	ctx := context.Background()
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	txID := uuid.New()
 
 	orig := protoMarshalFn
 	protoMarshalFn = func(_ proto.Message) ([]byte, error) { return nil, errors.New("forced proto error") }
@@ -3133,7 +3148,6 @@ func TestSendPreDispatchResponse_ProtoMarshalError(t *testing.T) {
 	mockTM := componentsmocks.NewTransportManager(t)
 	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
 	mockTM.On("LocalNodeName").Return("local-node").Maybe()
-	mockTM.On("Send", ctx, mock.Anything).Return(nil)
 
 	tw := &transportWriter{
 		ctx:               ctx,
@@ -3143,12 +3157,10 @@ func TestSendPreDispatchResponse_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	txSpec := &prototk.TransactionSpecification{TransactionId: txID.String()}
-	// SendPreDispatchResponse logs but does NOT return the proto.Marshal error; it continues.
-	err := tw.SendPreDispatchResponse(ctx, "originator-node", uuid.New(), txSpec)
-	require.NoError(t, err)
+	err := tw.SendPreDispatchResponse(ctx, "originator-node", &engineProto.PreDispatchResponse{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendDispatched Tests =====
 
@@ -3202,13 +3214,13 @@ func TestSendDispatched_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDispatched(ctx, transactionOriginator, idempotencyKey, transactionSpecification)
+	err := tw.SendDispatched(ctx, "originator-node", testDispatchedMsg(idempotencyKey, transactionSpecification, contractAddress, transactionOriginator))
 	require.NoError(t, err)
 }
 
-func TestSendDispatched_NodeLookupError(t *testing.T) {
+func TestSendDispatched_EmptyNode(t *testing.T) {
 	ctx := context.Background()
-	transactionOriginator := "invalid-originator" // No @node, will fail Node lookup
+	transactionOriginator := "originator@originator-node"
 	idempotencyKey := uuid.New()
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	txID := uuid.New()
@@ -3226,8 +3238,8 @@ func TestSendDispatched_NodeLookupError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDispatched(ctx, transactionOriginator, idempotencyKey, transactionSpecification)
-	require.Error(t, err)
+	err := tw.SendDispatched(ctx, "", testDispatchedMsg(idempotencyKey, transactionSpecification, contractAddress, transactionOriginator))
+	require.NoError(t, err)
 	mockTransportManager.AssertNotCalled(t, "Send")
 }
 
@@ -3253,7 +3265,7 @@ func TestSendDispatched_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDispatched(ctx, transactionOriginator, idempotencyKey, transactionSpecification)
+	err := tw.SendDispatched(ctx, "originator-node", testDispatchedMsg(idempotencyKey, transactionSpecification, contractAddress, transactionOriginator))
 	require.NoError(t, err)
 }
 
@@ -3281,7 +3293,7 @@ func TestSendDispatched_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDispatched(ctx, transactionOriginator, idempotencyKey, transactionSpecification)
+	err := tw.SendDispatched(ctx, "local-node", testDispatchedMsg(idempotencyKey, transactionSpecification, contractAddress, transactionOriginator))
 	require.NoError(t, err)
 
 	// Verify message was sent to loopback queue
@@ -3306,7 +3318,6 @@ func TestSendDispatched_Loopback(t *testing.T) {
 func TestSendDispatched_ProtoMarshalError(t *testing.T) {
 	ctx := context.Background()
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	txID := uuid.New()
 
 	orig := protoMarshalFn
 	protoMarshalFn = func(_ proto.Message) ([]byte, error) { return nil, errors.New("forced proto error") }
@@ -3315,7 +3326,6 @@ func TestSendDispatched_ProtoMarshalError(t *testing.T) {
 	mockTM := componentsmocks.NewTransportManager(t)
 	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
 	mockTM.On("LocalNodeName").Return("local-node").Maybe()
-	mockTM.On("Send", ctx, mock.Anything).Return(nil)
 
 	tw := &transportWriter{
 		ctx:               ctx,
@@ -3325,12 +3335,10 @@ func TestSendDispatched_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	txSpec := &prototk.TransactionSpecification{TransactionId: txID.String()}
-	// SendDispatched logs but does NOT return the proto.Marshal error; it continues.
-	err := tw.SendDispatched(ctx, "originator@originator-node", uuid.New(), txSpec)
-	require.NoError(t, err)
+	err := tw.SendDispatched(ctx, "originator-node", &engineProto.TransactionDispatched{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forced proto error")
 }
-
 
 // ===== SendPreDispatchRejection Tests =====
 
@@ -3369,15 +3377,15 @@ func TestSendPreDispatchRejection_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchRejection(ctx, txID, requestID, coordinatorNode, engineProto.RejectionReason_NOT_CURRENT_DELEGATE)
+	err := tw.SendPreDispatchRejection(ctx, coordinatorNode, testPreDispatchRejectionMsg(txID, requestID, contractAddress, engineProto.RejectionReason_NOT_CURRENT_DELEGATE))
 	require.NoError(t, err)
 }
 
-func TestSendPreDispatchRejection_NilContractAddress(t *testing.T) {
+func TestSendPreDispatchRejection_EmptyNode(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
 	requestID := uuid.New()
-	coordinatorNode := "coordinator-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := sequencertransportmocks.NewLoopbackTransportManager(t)
@@ -3387,12 +3395,12 @@ func TestSendPreDispatchRejection_NilContractAddress(t *testing.T) {
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
-		contractAddress:   nil,
+		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchRejection(ctx, txID, requestID, coordinatorNode, engineProto.RejectionReason_NOT_CURRENT_DELEGATE)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "attempt to send pre-dispatch rejection without specifying contract address")
+	err := tw.SendPreDispatchRejection(ctx, "", testPreDispatchRejectionMsg(txID, requestID, contractAddress, engineProto.RejectionReason_NOT_CURRENT_DELEGATE))
+	require.NoError(t, err)
+	mockTransportManager.AssertNotCalled(t, "Send")
 }
 
 func TestSendPreDispatchRejection_SendError(t *testing.T) {
@@ -3414,7 +3422,7 @@ func TestSendPreDispatchRejection_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchRejection(ctx, txID, requestID, coordinatorNode, engineProto.RejectionReason_TRANSACTION_UNKNOWN)
+	err := tw.SendPreDispatchRejection(ctx, coordinatorNode, testPreDispatchRejectionMsg(txID, requestID, contractAddress, engineProto.RejectionReason_TRANSACTION_UNKNOWN))
 	require.NoError(t, err)
 }
 
@@ -3437,8 +3445,7 @@ func TestSendPreDispatchRejection_ProtoMarshalError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchRejection(ctx, uuid.New(), uuid.New(), "coordinator-node", engineProto.RejectionReason_NOT_CURRENT_DELEGATE)
+	err := tw.SendPreDispatchRejection(ctx, "coordinator-node", &engineProto.PreDispatchRejection{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
-

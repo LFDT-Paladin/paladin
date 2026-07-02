@@ -42,13 +42,12 @@ func (t *coordinatorTransaction) sendPreDispatchRequest(ctx context.Context) err
 			return err
 		}
 		t.pendingPreDispatchRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-			return t.transportWriter.SendPreDispatchRequest(
-				ctx,
-				t.originatorNode,
-				idempotencyKey,
-				t.pt.PreAssembly.TransactionSpecification,
-				hash,
-			)
+			return t.transportWriter.SendPreDispatchRequest(ctx, t.originatorNode, &engineProto.PreDispatchRequest{
+				Id:               idempotencyKey.String(),
+				TransactionId:    t.pt.ID.String(),
+				ContractAddress:  t.pt.Address.HexString(),
+				PostAssembleHash: hash.Bytes(),
+			})
 		})
 		t.scheduleRequestTimeout(ctx)
 	}

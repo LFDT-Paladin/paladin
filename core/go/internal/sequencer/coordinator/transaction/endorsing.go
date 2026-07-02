@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 )
 
+
 type endorsementRequirement struct {
 	attRequest *prototk.AttestationRequest
 	party      string
@@ -206,23 +207,27 @@ func (t *coordinatorTransaction) resetEndorsementRequests(ctx context.Context) {
 }
 
 func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest) error {
-	err := t.transportWriter.SendEndorsementRequest(
-		ctx,
-		t.pt.ID,
-		idempotencyKey,
-		party,
-		attRequest,
-		t.pt.PreAssembly.TransactionSpecification,
-		t.pt.PostAssembly.ResolvedVerifiers,
-		t.pt.PostAssembly.Signatures,
-		toEndorsableList(t.pt.PostAssembly.InputStates),
-		toEndorsableList(t.pt.PostAssembly.ReadStates),
-		toEndorsableList(t.pt.PostAssembly.OutputStates),
-		toEndorsableList(t.pt.PostAssembly.InfoStates),
-		t.clock.Now().Add(t.stateTimeout),
-		t.getBlockHeight(),
-		int64(t.blockHeightTolerance),
-	)
+	partyNode, err := pldtypes.PrivateIdentityLocator(party).Node(ctx, false)
+	if err != nil {
+		return err
+	}
+	err = t.transportWriter.SendEndorsementRequest(ctx, partyNode, &engineProto.EndorsementRequest{
+		IdempotencyKey:           idempotencyKey.String(),
+		ContractAddress:          t.pt.Address.HexString(),
+		TransactionId:            t.pt.ID.String(),
+		AttestationRequest:       attRequest,
+		Party:                    party,
+		TransactionSpecification: t.pt.PreAssembly.TransactionSpecification,
+		Verifiers:                t.pt.PostAssembly.ResolvedVerifiers,
+		Signatures:               t.pt.PostAssembly.Signatures,
+		InputStates:              toEndorsableList(t.pt.PostAssembly.InputStates),
+		ReadStates:               toEndorsableList(t.pt.PostAssembly.ReadStates),
+		OutputStates:             toEndorsableList(t.pt.PostAssembly.OutputStates),
+		InfoStates:               toEndorsableList(t.pt.PostAssembly.InfoStates),
+		ExpiryTimeUnixMs:         t.clock.Now().Add(t.stateTimeout).UnixMilli(),
+		CoordinatorBlockHeight:   t.getBlockHeight(),
+		BlockHeightTolerance:     int64(t.blockHeightTolerance),
+	})
 	if err != nil {
 		log.L(ctx).Errorf("failed to send endorsement request to party %s: %s", party, err)
 	}

@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -719,12 +718,8 @@ func TestHandleDispatchedEvent_Success(t *testing.T) {
 	contractAddr := pldtypes.RandAddress()
 
 	txID := uuid.New()
-	// TransactionId format is "0x" + 32 hex characters (16 bytes)
-	// UUID is 16 bytes, convert to hex without dashes
-	txIDBytes := [16]byte(txID)
-	txIDHex := "0x" + fmt.Sprintf("%032x", txIDBytes)
 	dispatchedEvent := &engineProto.TransactionDispatched{
-		TransactionId:   txIDHex,
+		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
 	}
 	payload, _ := proto.Marshal(dispatchedEvent)
@@ -742,8 +737,7 @@ func TestHandleDispatchedEvent_Success(t *testing.T) {
 
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.DispatchedEvent)
-		// Note: TransactionID parsing from hex string may not match exactly due to format conversion
-		return ok && event.TransactionID != uuid.Nil
+		return ok && event.TransactionID == txID
 	})).Once()
 
 	sm.handleDispatchedEvent(ctx, message)
@@ -847,13 +841,10 @@ func TestHandlePreDispatchRequest_Success(t *testing.T) {
 	txID := uuid.New()
 	requestID := uuid.New()
 	hash := pldtypes.RandBytes32()
-	// TransactionId format is "0x" + 32 hex characters (16 bytes)
-	txIDBytes := [16]byte(txID)
-	txIDHex := "0x" + fmt.Sprintf("%032x", txIDBytes)
 
 	preDispatchRequest := &engineProto.PreDispatchRequest{
 		Id:               requestID.String(),
-		TransactionId:    txIDHex,
+		TransactionId:    txID.String(),
 		ContractAddress:  contractAddr.String(),
 		PostAssembleHash: hash[:],
 	}
@@ -888,13 +879,10 @@ func TestHandlePreDispatchResponse_Success(t *testing.T) {
 
 	txID := uuid.New()
 	requestID := uuid.New()
-	// TransactionId format is "0x" + 32 hex characters (16 bytes)
-	txIDBytes := [16]byte(txID)
-	txIDHex := "0x" + fmt.Sprintf("%032x", txIDBytes)
 
 	preDispatchResponse := &engineProto.PreDispatchResponse{
 		Id:              requestID.String(),
-		TransactionId:   txIDHex,
+		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
 	}
 	payload, _ := proto.Marshal(preDispatchResponse)
@@ -2392,7 +2380,7 @@ func TestHandlePreDispatchRequest_InvalidContractAddress(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	payload, _ := proto.Marshal(&engineProto.PreDispatchRequest{ContractAddress: "invalid", Id: uuid.New().String(), TransactionId: "0x00000000000000000000000000000001"})
+	payload, _ := proto.Marshal(&engineProto.PreDispatchRequest{ContractAddress: "invalid", Id: uuid.New().String(), TransactionId: uuid.New().String()})
 	sm.handlePreDispatchRequest(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_PreDispatchRequest, Payload: payload})
 }
 
@@ -2401,7 +2389,7 @@ func TestHandlePreDispatchRequest_SequencerNotLoaded(t *testing.T) {
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
-	payload, _ := proto.Marshal(&engineProto.PreDispatchRequest{ContractAddress: contractAddr.String(), Id: uuid.New().String(), TransactionId: "0x00000000000000000000000000000001"})
+	payload, _ := proto.Marshal(&engineProto.PreDispatchRequest{ContractAddress: contractAddr.String(), Id: uuid.New().String(), TransactionId: uuid.New().String()})
 	sm.handlePreDispatchRequest(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_PreDispatchRequest, Payload: payload})
 }
 
@@ -2409,7 +2397,7 @@ func TestHandlePreDispatchResponse_InvalidContractAddress(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	payload, _ := proto.Marshal(&engineProto.PreDispatchResponse{ContractAddress: "invalid", Id: uuid.New().String(), TransactionId: "0x00000000000000000000000000000001"})
+	payload, _ := proto.Marshal(&engineProto.PreDispatchResponse{ContractAddress: "invalid", Id: uuid.New().String(), TransactionId: uuid.New().String()})
 	sm.handlePreDispatchResponse(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_PreDispatchResponse, Payload: payload})
 }
 
@@ -2418,7 +2406,7 @@ func TestHandlePreDispatchResponse_SequencerNotLoaded(t *testing.T) {
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
-	payload, _ := proto.Marshal(&engineProto.PreDispatchResponse{ContractAddress: contractAddr.String(), Id: uuid.New().String(), TransactionId: "0x00000000000000000000000000000001"})
+	payload, _ := proto.Marshal(&engineProto.PreDispatchResponse{ContractAddress: contractAddr.String(), Id: uuid.New().String(), TransactionId: uuid.New().String()})
 	sm.handlePreDispatchResponse(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_PreDispatchResponse, Payload: payload})
 }
 
@@ -2426,7 +2414,7 @@ func TestHandleDispatchedEvent_InvalidContractAddress(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	payload, _ := proto.Marshal(&engineProto.TransactionDispatched{ContractAddress: "invalid", TransactionId: "0x00000000000000000000000000000001"})
+	payload, _ := proto.Marshal(&engineProto.TransactionDispatched{ContractAddress: "invalid", TransactionId: uuid.New().String()})
 	sm.handleDispatchedEvent(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_Dispatched, Payload: payload})
 }
 

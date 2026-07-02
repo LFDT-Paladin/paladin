@@ -23,6 +23,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -401,14 +402,83 @@ func Test_action_SendAssembleError_TransportError(t *testing.T) {
 	expectedError := errors.New("transport error")
 	mocks.TransportWriter.EXPECT().SendAssembleError(
 		mock.Anything,
-		txn.GetID(),
-		requestID,
 		coordinator,
+		mock.MatchedBy(func(msg *engineProto.AssembleError) bool {
+			return msg.TransactionId == txn.GetID().String() && msg.AssembleRequestId == requestID.String()
+		}),
 	).Return(expectedError)
 
 	err := action_SendAssembleError(ctx, txn, nil)
 	assert.Error(t, err)
 	assert.Equal(t, expectedError, err)
+}
+
+func Test_action_SendAssembleRevertResponse_JSONMarshalError(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).BuildWithMocks()
+	txn.currentDelegate = "coordinator@node1"
+
+	originalFn := jsonMarshalFn
+	defer func() { jsonMarshalFn = originalFn }()
+	jsonMarshalFn = func(_ any) ([]byte, error) {
+		return nil, errors.New("marshal error")
+	}
+
+	err := action_SendAssembleRevertResponse(ctx, txn, nil)
+	require.Error(t, err)
+	assert.Equal(t, "marshal error", err.Error())
+}
+
+func Test_action_SendAssembleParkResponse_JSONMarshalError(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).BuildWithMocks()
+	txn.currentDelegate = "coordinator@node1"
+
+	originalFn := jsonMarshalFn
+	defer func() { jsonMarshalFn = originalFn }()
+	jsonMarshalFn = func(_ any) ([]byte, error) {
+		return nil, errors.New("marshal error")
+	}
+
+	err := action_SendAssembleParkResponse(ctx, txn, nil)
+	require.Error(t, err)
+	assert.Equal(t, "marshal error", err.Error())
+}
+
+func Test_action_SendAssembleSuccessResponse_JSONMarshalError(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).BuildWithMocks()
+	txn.currentDelegate = "coordinator@node1"
+
+	originalFn := jsonMarshalFn
+	defer func() { jsonMarshalFn = originalFn }()
+	jsonMarshalFn = func(_ any) ([]byte, error) {
+		return nil, errors.New("marshal error")
+	}
+
+	err := action_SendAssembleSuccessResponse(ctx, txn, nil)
+	require.Error(t, err)
+	assert.Equal(t, "marshal error", err.Error())
+}
+
+func Test_buildAssembleResponse_PreAssemblyMarshalError(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).BuildWithMocks()
+
+	callCount := 0
+	originalFn := jsonMarshalFn
+	jsonMarshalFn = func(v any) ([]byte, error) {
+		callCount++
+		if callCount == 2 {
+			return nil, errors.New("pre-assembly marshal error")
+		}
+		return originalFn(v)
+	}
+	defer func() { jsonMarshalFn = originalFn }()
+
+	_, err := buildAssembleResponse(ctx, txn)
+	require.Error(t, err)
+	assert.Equal(t, "pre-assembly marshal error", err.Error())
 }
 
 func Test_handleAssembleAndSign_AbandonsSilently_WhenContextExpired(t *testing.T) {

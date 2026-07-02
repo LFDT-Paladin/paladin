@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -28,6 +29,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
+
+// jsonMarshalFn is a package-level variable so tests can inject errors.
+var jsonMarshalFn = json.Marshal
 
 func (t *coordinatorTransaction) revertTransactionFailedAssembly(ctx context.Context, revertReason string) {
 	var tryFinalize func()
@@ -121,8 +125,27 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 			log.L(ctx).Errorf("failed to export grapher state locks: %s", err)
 			return err
 		}
-
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStatesAndLocks, t.getBlockHeight(), t.clock.Now().Add(t.stateTimeout), int64(t.blockHeightTolerance))
+		preAssemblyBytes, err := jsonMarshalFn(t.pt.PreAssembly)
+		if err != nil {
+			log.L(ctx).Errorf("failed to marshal pre-assembly: %s", err)
+			return err
+		}
+		stateLocksBytes, err := jsonMarshalFn(grapherStatesAndLocks)
+		if err != nil {
+			log.L(ctx).Errorf("failed to marshal state locks: %s", err)
+			return err
+		}
+		log.L(ctx).Debugf("assemble request state locks for tx %s: %s", t.pt.ID, string(stateLocksBytes))
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, &engineProto.AssembleRequest{
+			TransactionId:          t.pt.ID.String(),
+			AssembleRequestId:      idempotencyKey.String(),
+			ContractAddress:        t.pt.Address.HexString(),
+			PreAssembly:            preAssemblyBytes,
+			StateLocks:             stateLocksBytes,
+			CoordinatorBlockHeight: t.getBlockHeight(),
+			ExpiryTimeUnixMs:       t.clock.Now().Add(t.stateTimeout).UnixMilli(),
+			BlockHeightTolerance:   int64(t.blockHeightTolerance),
+		})
 	})
 
 	t.scheduleRequestTimeout(ctx)

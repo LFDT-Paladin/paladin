@@ -17,7 +17,9 @@ package transaction
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +39,28 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// matchSendAssembleRequestMsg returns a mock.MatchedBy matcher that inspects the
+// AssembleRequest proto struct, equivalent to the previous per-argument assertions.
+// Pass a non-nil idempotencyKey only when the idempotency key should be asserted (e.g. nudge calls).
+func matchSendAssembleRequestMsg(txn *coordinatorTransaction, blockHeight int64, idempotencyKey *uuid.UUID) interface{} {
+	return mock.MatchedBy(func(msg *engineProto.AssembleRequest) bool {
+		if msg.TransactionId != txn.pt.ID.String() {
+			return false
+		}
+		if msg.CoordinatorBlockHeight != blockHeight {
+			return false
+		}
+		if idempotencyKey != nil && msg.AssembleRequestId != idempotencyKey.String() {
+			return false
+		}
+		var pa components.TransactionPreAssembly
+		if err := json.Unmarshal(msg.PreAssembly, &pa); err != nil {
+			return false
+		}
+		return reflect.DeepEqual(&pa, txn.pt.PreAssembly)
+	})
+}
 
 func Test_revertTransactionFailedAssembly_Success(t *testing.T) {
 	ctx := t.Context()
@@ -238,9 +262,9 @@ func Test_sendAssembleRequest_Success(t *testing.T) {
 		WithCurrentBlockHeight(100).
 		Build()
 
-	// Mock transport writer - use mock.Anything for idempotency key since it's generated dynamically
+	// Mock transport writer - idempotency key is generated dynamically so only assert proto struct fields
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -262,6 +286,39 @@ func Test_sendAssembleRequest_ExportStatesAndLocksError(t *testing.T) {
 	require.ErrorContains(t, err, "export states and locks failed")
 }
 
+func Test_sendAssembleRequest_PreAssemblyMarshalError(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
+
+	originalFn := jsonMarshalFn
+	defer func() { jsonMarshalFn = originalFn }()
+	jsonMarshalFn = func(_ any) ([]byte, error) {
+		return nil, errors.New("pre-assembly marshal error")
+	}
+
+	err := txn.sendAssembleRequest(ctx)
+	require.ErrorContains(t, err, "pre-assembly marshal error")
+}
+
+func Test_sendAssembleRequest_StateLocksJSONMarshalError(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
+
+	callCount := 0
+	originalFn := jsonMarshalFn
+	defer func() { jsonMarshalFn = originalFn }()
+	jsonMarshalFn = func(v any) ([]byte, error) {
+		callCount++
+		if callCount == 2 {
+			return nil, errors.New("state locks marshal error")
+		}
+		return json.Marshal(v)
+	}
+
+	err := txn.sendAssembleRequest(ctx)
+	require.ErrorContains(t, err, "state locks marshal error")
+}
+
 func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -269,9 +326,9 @@ func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
 		WithCurrentBlockHeight(100).
 		Build()
 
-	// Mock transport writer to return error - use mock.Anything for idempotency key
+	// Mock transport writer to return error - idempotency key is generated dynamically
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(errors.New("send error"))
 
 	err := txn.sendAssembleRequest(ctx)
@@ -296,15 +353,16 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 
 	// Create a pending request first
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
 	require.NoError(t, err)
 
-	// Now nudge it - should succeed since request exists
+	// Now nudge it - should succeed since request exists; nudge reuses the same idempotency key
+	idempotencyKey := txn.pendingAssembleRequest.IdempotencyKey()
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), &idempotencyKey),
 	).Return(nil)
 
 	err = txn.nudgeAssembleRequest(ctx)
@@ -340,7 +398,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *
 
 	// Create a pending request
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -365,7 +423,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_NoMatch(t
 
 	// Create a pending request
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -402,7 +460,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleRevertEvent_Match(t *t
 
 	// Create a pending request
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -427,7 +485,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorEvent_Match(t *te
 
 	// Create a pending request
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -453,7 +511,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorEvent_NoMatch(t *
 
 	// Create a pending request
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -502,7 +560,7 @@ func Test_action_SendAssembleRequest_Success(t *testing.T) {
 		Build()
 
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := action_SendAssembleRequest(ctx, txn, nil)
@@ -521,15 +579,16 @@ func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
 
 	// Create a pending request first
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
 	require.NoError(t, err)
 
-	// Now nudge it
+	// Now nudge it - nudge reuses the same idempotency key
+	idempotencyKey := txn.pendingAssembleRequest.IdempotencyKey()
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, txn.pendingAssembleRequest.IdempotencyKey(), txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), &idempotencyKey),
 	).Return(nil)
 
 	err = action_NudgeAssembleRequest(ctx, txn, nil)
@@ -607,7 +666,7 @@ func Test_sendAssembleRequest_schedulesTimer(t *testing.T) {
 	})
 
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)

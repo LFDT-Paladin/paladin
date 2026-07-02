@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -94,11 +95,11 @@ func TestAction_ResendAssembleSuccessResponse_TransportError(t *testing.T) {
 	expectedError := errors.New("transport error")
 	mocks.TransportWriter.EXPECT().SendAssembleResponse(
 		mock.Anything,
-		txn.GetID(),
-		requestID,
-		txn.pt.PostAssembly,
-		txn.pt.PreAssembly,
 		coordinator,
+		mock.MatchedBy(func(msg *engineProto.AssembleResponse) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.AssembleRequestId == requestID.String()
+		}),
 	).Return(expectedError)
 
 	// Execute the action
@@ -173,11 +174,11 @@ func TestAction_ResendAssembleRevertResponse_TransportError(t *testing.T) {
 	expectedError := errors.New("transport error")
 	mocks.TransportWriter.EXPECT().SendAssembleResponse(
 		mock.Anything,
-		txn.GetID(),
-		requestID,
-		txn.pt.PostAssembly,
-		txn.pt.PreAssembly,
 		coordinator,
+		mock.MatchedBy(func(msg *engineProto.AssembleResponse) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.AssembleRequestId == requestID.String()
+		}),
 	).Return(expectedError)
 
 	// Execute the action
@@ -250,11 +251,11 @@ func TestAction_ResendAssembleParkResponse_TransportError(t *testing.T) {
 	expectedError := errors.New("transport error")
 	mocks.TransportWriter.EXPECT().SendAssembleResponse(
 		mock.Anything,
-		txn.GetID(),
-		requestID,
-		txn.pt.PostAssembly,
-		txn.pt.PreAssembly,
 		coordinator,
+		mock.MatchedBy(func(msg *engineProto.AssembleResponse) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.AssembleRequestId == requestID.String()
+		}),
 	).Return(expectedError)
 
 	// Execute the action

@@ -113,13 +113,13 @@ func Test_ChainedDependencyFailed_AllStates_TransitionToReverted(t *testing.T) {
 
 			expectedFailureMessage := i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, depID).Error()
 			mocks.TransportWriter.EXPECT().
-				SendTransactionConfirmed(mock.Anything, txn.pt.ID, txn.originatorNode, &txn.pt.Address,
-					(*pldtypes.HexUint64)(nil),
-					engineProto.TransactionConfirmed_OUTCOME_REVERTED,
-					pldtypes.HexBytes(nil),
-					expectedFailureMessage,
-					false,
-				).Return(nil)
+				SendTransactionConfirmed(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionConfirmed) bool {
+					return msg.TransactionId == txn.pt.ID.String() &&
+						msg.ContractAddress == txn.pt.Address.HexString() &&
+						msg.Outcome == engineProto.TransactionConfirmed_OUTCOME_REVERTED &&
+						msg.FailureMessage == expectedFailureMessage &&
+						!msg.WillRetry
+				})).Return(nil)
 
 			err := txn.HandleEvent(ctx, &ChainedDependencyFailedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -303,13 +303,13 @@ func TestCoordinatorTransaction_Initial_ToReverted_OnDelegated_IfHasRevertedChai
 
 	expectedFailureMessage := i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, depID).Error()
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(mock.Anything, txn.pt.ID, txn.originatorNode, &txn.pt.Address,
-			(*pldtypes.HexUint64)(nil),
-			engineProto.TransactionConfirmed_OUTCOME_REVERTED,
-			pldtypes.HexBytes(nil),
-			expectedFailureMessage,
-			false,
-		).Return(nil)
+		SendTransactionConfirmed(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionConfirmed) bool {
+			return msg.TransactionId == txn.pt.ID.String() &&
+				msg.ContractAddress == txn.pt.Address.HexString() &&
+				msg.Outcome == engineProto.TransactionConfirmed_OUTCOME_REVERTED &&
+				msg.FailureMessage == expectedFailureMessage &&
+				!msg.WillRetry
+		})).Return(nil)
 
 	err := txn.HandleEvent(ctx, &DelegatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},

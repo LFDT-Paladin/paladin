@@ -19,16 +19,18 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/google/uuid"
 )
 
 func action_NotifyDispatched(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	var txSpec *prototk.TransactionSpecification
-	if t.pt.PreAssembly != nil {
-		txSpec = t.pt.PreAssembly.TransactionSpecification
+	msg := &engineProto.TransactionDispatched{
+		Id:              uuid.New().String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Signer:          t.originator,
+		TransactionId:   t.pt.ID.String(),
 	}
-	return t.transportWriter.SendDispatched(ctx, t.originator, uuid.New(), txSpec)
+	return t.transportWriter.SendDispatched(ctx, t.originatorNode, msg)
 }
 
 // action_CleanUpAssemblyPayload releases the heavy post-assembly and prepared-dispatch
@@ -50,12 +52,22 @@ func action_NotifyCollected(_ context.Context, t *coordinatorTransaction, event 
 func action_NotifyNonceAllocated(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*NonceAllocatedEvent)
 	t.nonce = &e.Nonce
-	return t.transportWriter.SendNonceAssigned(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce)
+	return t.transportWriter.SendNonceAssigned(ctx, t.originatorNode, &engineProto.NonceAssigned{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Nonce:           int64(e.Nonce),
+	})
 }
 
 func action_NotifySubmitted(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*SubmittedEvent)
 	log.L(ctx).Infof("coordinator transaction applying SubmittedEvent for transaction %s submitted with hash %s", t.pt.ID.String(), e.SubmissionHash.HexString())
 	t.latestSubmissionHash = &e.SubmissionHash
-	return t.transportWriter.SendTransactionSubmitted(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, &e.SubmissionHash)
+	return t.transportWriter.SendTransactionSubmitted(ctx, t.originatorNode, &engineProto.TransactionSubmitted{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Hash:            e.SubmissionHash.Bytes(),
+	})
 }

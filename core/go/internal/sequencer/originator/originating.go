@@ -17,6 +17,7 @@ package originator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"slices"
@@ -30,6 +31,9 @@ import (
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/google/uuid"
 )
+
+// jsonMarshalFn is a package-level variable so tests can inject errors.
+var jsonMarshalFn = json.Marshal
 
 func validator_IsDelegationBlockHeightRejection(_ context.Context, _ *originator, event common.Event) (bool, error) {
 	return event.(*DelegationRequestRejectedEvent).RejectionReason == engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, nil
@@ -118,7 +122,19 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 
 	log.L(ctx).Debugf("sending delegation request for %d transactions", len(o.transactionsOrdered))
 
-	return o.transportWriter.SendDelegationRequest(ctx, o.currentActiveCoordinator, transactionsToDelegate, uint64(o.currentBlockHeight))
+	allTxBytes := make([][]byte, 0, len(transactionsToDelegate))
+	for _, tx := range transactionsToDelegate {
+		txBytes, err := jsonMarshalFn(tx)
+		if err != nil {
+			return fmt.Errorf("error marshalling transaction for delegation request: %w", err)
+		}
+		allTxBytes = append(allTxBytes, txBytes)
+	}
+	return o.transportWriter.SendDelegationRequest(ctx, o.currentActiveCoordinator, &engineProto.DelegationRequest{
+		DelegateNodeId:        o.currentActiveCoordinator,
+		OriginatorBlockHeight: int64(o.currentBlockHeight),
+		PrivateTransactions:   allTxBytes,
+	})
 }
 
 func action_SendDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {

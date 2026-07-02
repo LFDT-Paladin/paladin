@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -58,7 +59,10 @@ func action_NudgeHandoverRequest(ctx context.Context, c *coordinator, _ common.E
 func (c *coordinator) sendHandoverRequest(ctx context.Context) error {
 	if c.pendingHandoverRequest == nil {
 		c.pendingHandoverRequest = common.NewIdempotentRequest(ctx, c.clock, c.requestTimeout, func(ctx context.Context, _ uuid.UUID) error {
-			return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, c.contractAddress)
+			return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, &engineProto.CoordinatorHandoverRequest{
+				FromNode:        c.nodeName,
+				ContractAddress: c.contractAddress.HexString(),
+			})
 		})
 		c.scheduleRequestTimeout(ctx)
 	}
@@ -390,7 +394,13 @@ func (c *coordinator) addToDelegatedTransactions(
 	}
 
 	// Acknowledge the delegate request. Optionally errors can be returned which the originator may use to base re-delegate decisions on
-	err = c.transportWriter.SendDelegationResponse(ctx, originatorNode, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementErrors, uint64(c.currentBlockHeight))
+	err = c.transportWriter.SendDelegationResponse(ctx, originatorNode, &engineProto.DelegationResponse{
+		DelegationId:    delegationID,
+		TransactionIds:  delegateAcknowledgementIDs,
+		DelegateNodeId:  originatorNode,
+		ContractAddress: c.contractAddress.HexString(),
+		Errors:          delegateAcknowledgementErrors,
+	})
 	if err != nil {
 		return err
 	}

@@ -234,7 +234,7 @@ func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	mocks.stateManager.EXPECT().NewDomainContext(ctx, mockDomain, *contractAddr).Return(componentsmocks.NewDomainContext(t)).Once()
 
 	// Setup transport writer creation
-	mocks.transportWriter.EXPECT().SendDispatched(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	mocks.transportWriter.EXPECT().SendDispatched(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Setup originator creation expectations
 

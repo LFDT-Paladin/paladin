@@ -89,7 +89,7 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 }
 
 func (sMgr *sequencerManager) logPaladinMessageUnmarshalError(ctx context.Context, message *components.ReceivedMessage, err error) {
-	log.L(ctx).Errorf("<< ERROR unmarshalling proto message%s from %s: %s", message.MessageType, message.FromNode, err)
+	log.L(ctx).Errorf("<< ERROR unmarshalling proto message %s from %s: %s", message.MessageType, message.FromNode, err)
 }
 
 func (sMgr *sequencerManager) logPaladinMessageFieldMissingError(ctx context.Context, message *components.ReceivedMessage, field string) {
@@ -342,7 +342,7 @@ func (sMgr *sequencerManager) handlePreDispatchRequest(ctx context.Context, mess
 		Coordinator:      message.FromNode,
 		PostAssemblyHash: &postAssemblyHash,
 	}
-	preDispatchRequestReceivedEvent.TransactionID = uuid.MustParse(preDispatchRequest.TransactionId[2:34])
+	preDispatchRequestReceivedEvent.TransactionID = uuid.MustParse(preDispatchRequest.TransactionId)
 	preDispatchRequestReceivedEvent.EventTime = time.Now()
 
 	// TODO - not sure where we should make the decision as to whether or not to approve dispatch.
@@ -379,7 +379,7 @@ func (sMgr *sequencerManager) handlePreDispatchResponse(ctx context.Context, mes
 	dispatchRequestApprovedEvent := &coordTransaction.DispatchRequestApprovedEvent{
 		RequestID: uuid.MustParse(preDispatchResponse.Id),
 	}
-	dispatchRequestApprovedEvent.TransactionID = uuid.MustParse(preDispatchResponse.TransactionId[2:34])
+	dispatchRequestApprovedEvent.TransactionID = uuid.MustParse(preDispatchResponse.TransactionId)
 	dispatchRequestApprovedEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, dispatchRequestApprovedEvent)
 }
@@ -407,7 +407,7 @@ func (sMgr *sequencerManager) handleDispatchedEvent(ctx context.Context, message
 	}
 
 	dispatchConfirmedEvent := &originatorTransaction.DispatchedEvent{}
-	dispatchConfirmedEvent.TransactionID = uuid.MustParse(dispatchedEvent.TransactionId[2:34])
+	dispatchConfirmedEvent.TransactionID = uuid.MustParse(dispatchedEvent.TransactionId)
 	dispatchConfirmedEvent.Coordinator = message.FromNode
 	dispatchConfirmedEvent.EventTime = time.Now()
 

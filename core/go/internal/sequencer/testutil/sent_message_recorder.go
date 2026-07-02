@@ -17,19 +17,15 @@ package testutil
 
 import (
 	"context"
-	"time"
+	"encoding/json"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
 // SentMessageRecorder implements TransportWriter for use in tests.
-// TODO: add test coverage- or consider moving to its own package which we exclude from coverage
 // It records outgoing messages (both coordinator-side and originator-side) so tests can assert on what was sent.
 type SentMessageRecorder struct {
 	// Coordinator-side tracking
@@ -60,7 +56,7 @@ type SentMessageRecorder struct {
 	hasSentPreDispatchRejection    bool
 	preDispatchRejectionReason     engineProto.RejectionReason
 	hasSentDelegationRequest       bool
-	delegatedTransactions          []*components.PrivateTransaction
+	delegatedTransactionIDs        []uuid.UUID
 }
 
 func NewSentMessageRecorder() *SentMessageRecorder {
@@ -94,9 +90,8 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.hasSentPreDispatchRejection = false
 	r.preDispatchRejectionReason = 0
 	r.hasSentDelegationRequest = false
-	r.delegatedTransactions = nil
+	r.delegatedTransactionIDs = nil
 	// per-tx maps are NOT reset — they accumulate across the full test
-
 }
 
 func (r *SentMessageRecorder) StartLoopbackWriter() {}
@@ -162,41 +157,20 @@ func (r *SentMessageRecorder) HasSentHeartbeat() bool {
 	return r.sentHeartbeatCount > 0
 }
 
-func (r *SentMessageRecorder) SendAssembleRequest(
-	ctx context.Context,
-	assemblingNode string,
-	transactionID uuid.UUID,
-	idempotencyKey uuid.UUID,
-	transactionPreassembly *components.TransactionPreAssembly,
-	stateLocks grapher.ExportableStates,
-	coordinatorBlockHeight int64,
-	expiryTime time.Time,
-	blockHeightTolerance int64,
-) error {
+func (r *SentMessageRecorder) SendAssembleRequest(ctx context.Context, node string, msg *engineProto.AssembleRequest) error {
 	r.hasSentAssembleRequest = true
+	idempotencyKey, _ := uuid.Parse(msg.AssembleRequestId)
+	txID, _ := uuid.Parse(msg.TransactionId)
 	r.sentAssembleRequestIdempotencyKey = idempotencyKey
 	r.numberOfSentAssembleRequests++
-	r.assembleKeyByTxID[transactionID] = idempotencyKey
+	r.assembleKeyByTxID[txID] = idempotencyKey
 	return nil
 }
 
-func (r *SentMessageRecorder) SendEndorsementRequest(
-	ctx context.Context,
-	txID uuid.UUID,
-	idempotencyKey uuid.UUID,
-	party string,
-	attRequest *prototk.AttestationRequest,
-	transactionSpecification *prototk.TransactionSpecification,
-	verifiers []*prototk.ResolvedVerifier,
-	signatures []*prototk.AttestationResult,
-	inputStates []*prototk.EndorsableState,
-	readStates []*prototk.EndorsableState,
-	outputStates []*prototk.EndorsableState,
-	infoStates []*prototk.EndorsableState,
-	expiryTime time.Time,
-	coordinatorBlockHeight int64,
-	blockHeightTolerance int64,
-) error {
+func (r *SentMessageRecorder) SendEndorsementRequest(ctx context.Context, node string, msg *engineProto.EndorsementRequest) error {
+	party := msg.Party
+	idempotencyKey, _ := uuid.Parse(msg.IdempotencyKey)
+	txID, _ := uuid.Parse(msg.TransactionId)
 	r.numberOfSentEndorsementRequests++
 	if _, ok := r.numberOfEndorsementRequestsForParty[party]; ok {
 		r.numberOfEndorsementRequestsForParty[party]++
@@ -211,37 +185,33 @@ func (r *SentMessageRecorder) SendEndorsementRequest(
 	return nil
 }
 
-func (r *SentMessageRecorder) SendPreDispatchRequest(
-	ctx context.Context,
-	transactionOriginator string,
-	idempotencyKey uuid.UUID,
-	transactionSpecification *prototk.TransactionSpecification,
-	hash *pldtypes.Bytes32,
-) error {
+func (r *SentMessageRecorder) SendPreDispatchRequest(ctx context.Context, node string, msg *engineProto.PreDispatchRequest) error {
 	r.hasSentDispatchConfirmationRequest = true
+	idempotencyKey, _ := uuid.Parse(msg.Id)
 	r.sentDispatchConfirmationRequestIdempotencyKey = idempotencyKey
 	r.numberOfSentDispatchConfirmationRequests++
-	if transactionSpecification != nil {
-		if txID, err := uuid.Parse(transactionSpecification.TransactionId); err == nil {
-			r.dispatchConfirmKeyByTxID[txID] = idempotencyKey
-		}
+	if txID, err := uuid.Parse(msg.TransactionId); err == nil {
+		r.dispatchConfirmKeyByTxID[txID] = idempotencyKey
 	}
 	return nil
 }
 
-func (r *SentMessageRecorder) SendHeartbeat(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress, coordinatorSnapshot *common.CoordinatorSnapshot) error {
+func (r *SentMessageRecorder) SendHeartbeat(ctx context.Context, node string, msg *engineProto.CoordinatorHeartbeatNotification) error {
 	r.sentHeartbeatCount++
 	return nil
 }
 
-func (r *SentMessageRecorder) SendAssembleResponse(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, postAssembly *components.TransactionPostAssembly, preAssembly *components.TransactionPreAssembly, recipient string) error {
-	switch postAssembly.AssemblyResult {
-	case prototk.AssembleTransactionResponse_OK:
-		r.hasSentAssembleSuccessResponse = true
-	case prototk.AssembleTransactionResponse_REVERT:
-		r.hasSentAssembleRevertResponse = true
-	case prototk.AssembleTransactionResponse_PARK:
-		r.hasSentAssembleParkResponse = true
+func (r *SentMessageRecorder) SendAssembleResponse(ctx context.Context, node string, msg *engineProto.AssembleResponse) error {
+	var postAssembly components.TransactionPostAssembly
+	if err := json.Unmarshal(msg.PostAssembly, &postAssembly); err == nil {
+		switch postAssembly.AssemblyResult {
+		case prototk.AssembleTransactionResponse_OK:
+			r.hasSentAssembleSuccessResponse = true
+		case prototk.AssembleTransactionResponse_REVERT:
+			r.hasSentAssembleRevertResponse = true
+		case prototk.AssembleTransactionResponse_PARK:
+			r.hasSentAssembleParkResponse = true
+		}
 	}
 	return nil
 }
@@ -258,19 +228,19 @@ func (r *SentMessageRecorder) HasSentAssembleParkResponse() bool {
 	return r.hasSentAssembleParkResponse
 }
 
-func (r *SentMessageRecorder) SendAssembleError(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, recipient string) error {
+func (r *SentMessageRecorder) SendAssembleError(ctx context.Context, node string, msg *engineProto.AssembleError) error {
 	r.hasSentAssembleError = true
 	return nil
 }
 
-func (r *SentMessageRecorder) SendAssembleRejection(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, recipient string, reason engineProto.RejectionReason, coordinatorBlockHeight, assemblerBlockHeight int64) error {
+func (r *SentMessageRecorder) SendAssembleRejection(ctx context.Context, node string, msg *engineProto.AssembleRejection) error {
 	r.hasSentAssembleRejection = true
 	return nil
 }
 
-func (r *SentMessageRecorder) SendPreDispatchRejection(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, coordinatorNode string, reason engineProto.RejectionReason) error {
+func (r *SentMessageRecorder) SendPreDispatchRejection(ctx context.Context, node string, msg *engineProto.PreDispatchRejection) error {
 	r.hasSentPreDispatchRejection = true
-	r.preDispatchRejectionReason = reason
+	r.preDispatchRejectionReason = msg.RejectionReason
 	return nil
 }
 
@@ -290,7 +260,7 @@ func (r *SentMessageRecorder) HasSentAssembleError() bool {
 	return r.hasSentAssembleError
 }
 
-func (r *SentMessageRecorder) SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
+func (r *SentMessageRecorder) SendPreDispatchResponse(ctx context.Context, node string, msg *engineProto.PreDispatchResponse) error {
 	r.hasSentConfirmationResponse = true
 	return nil
 }
@@ -299,21 +269,26 @@ func (r *SentMessageRecorder) HasSentPreDispatchResponse() bool {
 	return r.hasSentConfirmationResponse
 }
 
-func (r *SentMessageRecorder) SendNonceAssigned(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce uint64) error {
+func (r *SentMessageRecorder) SendNonceAssigned(ctx context.Context, node string, msg *engineProto.NonceAssigned) error {
 	return nil
 }
 
-func (r *SentMessageRecorder) SendTransactionSubmitted(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, txHash *pldtypes.Bytes32) error {
+func (r *SentMessageRecorder) SendTransactionSubmitted(ctx context.Context, node string, msg *engineProto.TransactionSubmitted) error {
 	return nil
 }
 
-func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engineProto.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool) error {
+func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, node string, msg *engineProto.TransactionConfirmed) error {
 	return nil
 }
 
-func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, blockHeight uint64) error {
+func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, node string, msg *engineProto.DelegationRequest) error {
 	r.hasSentDelegationRequest = true
-	r.delegatedTransactions = transactions
+	for _, txBytes := range msg.PrivateTransactions {
+		var tx components.PrivateTransaction
+		if err := json.Unmarshal(txBytes, &tx); err == nil {
+			r.delegatedTransactionIDs = append(r.delegatedTransactionIDs, tx.ID)
+		}
+	}
 	return nil
 }
 
@@ -322,27 +297,23 @@ func (r *SentMessageRecorder) HasSentDelegationRequest() bool {
 }
 
 func (r *SentMessageRecorder) HasDelegatedTransaction(txid uuid.UUID) bool {
-	for _, tx := range r.delegatedTransactions {
-		if tx.ID == txid {
+	for _, id := range r.delegatedTransactionIDs {
+		if id == txid {
 			return true
 		}
 	}
 	return false
 }
 
-func (r *SentMessageRecorder) GetDelegatedTransactions() []*components.PrivateTransaction {
-	return r.delegatedTransactions
-}
-
-func (r *SentMessageRecorder) SendDelegationResponse(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64, blockHeight uint64) error {
+func (r *SentMessageRecorder) SendDelegationResponse(ctx context.Context, node string, msg *engineProto.DelegationResponse) error {
 	return nil
 }
 
-func (r *SentMessageRecorder) SendDelegationRejection(ctx context.Context, delegatingNodeName string, delegationId string, rejectionReason engineProto.RejectionReason, activeCoordinator string, originatorBlockHeight, coordinatorBlockHeight, blockHeightTolerance int64) error {
+func (r *SentMessageRecorder) SendDelegationRejection(ctx context.Context, node string, msg *engineProto.DelegationRejection) error {
 	return nil
 }
 
-func (r *SentMessageRecorder) SendHandoverRequest(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress) error {
+func (r *SentMessageRecorder) SendHandoverRequest(ctx context.Context, node string, msg *engineProto.CoordinatorHandoverRequest) error {
 	r.hasSentHandoverRequest = true
 	return nil
 }
@@ -351,18 +322,18 @@ func (r *SentMessageRecorder) HasSentHandoverRequest() bool {
 	return r.hasSentHandoverRequest
 }
 
-func (r *SentMessageRecorder) SendDispatched(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
+func (r *SentMessageRecorder) SendDispatched(ctx context.Context, node string, msg *engineProto.TransactionDispatched) error {
 	return nil
 }
 
-func (r *SentMessageRecorder) SendEndorsementResponse(ctx context.Context, transactionId, idempotencyKey, contractAddress string, attResult *prototk.AttestationResult, endorsementResult *components.EndorsementResult, revertReason, endorsementName, party, node string) error {
+func (r *SentMessageRecorder) SendEndorsementResponse(ctx context.Context, node string, msg *engineProto.EndorsementResponse) error {
 	return nil
 }
 
-func (r *SentMessageRecorder) SendEndorsementError(ctx context.Context, transactionId, idempotencyKey, contractAddress, errorMessage, party, attestationRequestName, node string) error {
+func (r *SentMessageRecorder) SendEndorsementError(ctx context.Context, node string, msg *engineProto.EndorsementError) error {
 	return nil
 }
 
-func (r *SentMessageRecorder) SendEndorsementRejection(ctx context.Context, transactionId, idempotencyKey, contractAddress, endorsementName, party, node string, reason engineProto.RejectionReason, coordinatorBlockHeight, endorserBlockHeight, blockHeightTolerance int64) error {
+func (r *SentMessageRecorder) SendEndorsementRejection(ctx context.Context, node string, msg *engineProto.EndorsementRejection) error {
 	return nil
 }

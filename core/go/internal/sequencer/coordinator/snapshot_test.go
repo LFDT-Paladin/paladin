@@ -125,9 +125,9 @@ func TestSendHeartbeat_HandlesError(t *testing.T) {
 		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
 		WithMockTransportWriter().
 		Build()
-	mocks.TransportWriter.EXPECT().SendHeartbeat(mock.Anything, "node1", mock.Anything, mock.Anything).
+	mocks.TransportWriter.EXPECT().SendHeartbeat(mock.Anything, "node1", mock.Anything).
 		Return(nil)
-	mocks.TransportWriter.EXPECT().SendHeartbeat(mock.Anything, "node2", mock.Anything, mock.Anything).
+	mocks.TransportWriter.EXPECT().SendHeartbeat(mock.Anything, "node2", mock.Anything).
 		Return(fmt.Errorf("transport error"))
 
 	err := c.sendHeartbeat(ctx, false)
@@ -225,4 +225,23 @@ func TestSendHeartbeat_ExportStatesAndLocksError_ReturnsError(t *testing.T) {
 	err := c.sendHeartbeat(ctx, true)
 	assert.Error(t, err)
 	assert.Equal(t, "export error", err.Error())
+}
+
+func TestSendHeartbeat_JSONMarshalError_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1").
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Build()
+
+	originalFn := jsonMarshalFn
+	defer func() { jsonMarshalFn = originalFn }()
+	jsonMarshalFn = func(_ any) ([]byte, error) {
+		return nil, fmt.Errorf("json marshal error")
+	}
+
+	err := c.sendHeartbeat(ctx, false)
+	require.Error(t, err)
+	assert.Equal(t, "json marshal error", err.Error())
 }

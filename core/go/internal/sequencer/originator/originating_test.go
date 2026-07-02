@@ -398,12 +398,35 @@ func Test_sendDelegationRequest_TransportError_ReturnsError(t *testing.T) {
 	o, mocks := builder.Transactions(mockTxn).CurrentActiveCoordinator("coordinator@node1").Build()
 
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, mock.Anything, mock.Anything).
 		Return(fmt.Errorf("transport error"))
 
 	err := sendDelegationRequest(ctx, o)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "transport error")
+}
+
+func Test_sendDelegationRequest_JSONMarshalError_ReturnsError(t *testing.T) {
+	ctx := t.Context()
+	txn := testutil.NewPrivateTransactionBuilderForTesting().Build()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txn.ID)
+	mockTxn.On("GetPrivateTransaction").Return(txn)
+	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(mockTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	originalFn := jsonMarshalFn
+	defer func() { jsonMarshalFn = originalFn }()
+	jsonMarshalFn = func(_ any) ([]byte, error) {
+		return nil, fmt.Errorf("json marshal error")
+	}
+
+	err := sendDelegationRequest(ctx, o)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "json marshal error")
 }
 
 func Test_action_UpdateEndorserCandidates_DoesNotChangeCurrentActiveCoordinator(t *testing.T) {
@@ -613,7 +636,7 @@ func Test_action_FailoverToNextCoordinator_WithPriorityList_AdvancesCoordinatorA
 		Build()
 
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "B", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "B", mock.Anything).
 		Return(nil).Once()
 
 	err := action_FailoverToNextCoordinator(ctx, o, nil)
@@ -641,7 +664,7 @@ func Test_action_FailoverToNextCoordinator_WrapAround_CyclesBackToStart(t *testi
 		Build()
 
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "C", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "C", mock.Anything).
 		Return(nil).Once()
 
 	err := action_FailoverToNextCoordinator(ctx, o, nil)
@@ -668,7 +691,7 @@ func Test_action_FailoverToNextCoordinator_EmptyPriorityList_DelegatesWithoutRes
 		Build()
 
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "static-coordinator", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "static-coordinator", mock.Anything).
 		Return(nil).Once()
 
 	err := action_FailoverToNextCoordinator(ctx, o, nil)

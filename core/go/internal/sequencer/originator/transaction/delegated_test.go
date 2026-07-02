@@ -116,7 +116,6 @@ func TestAction_SendPreDispatchResponse_TransportError(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
-		mock.Anything,
 	).Return(expectedError)
 
 	// Execute the action
@@ -448,7 +447,11 @@ func TestAction_SendAssembleRejectionNotCurrentDelegate_Success(t *testing.T) {
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendAssembleRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE, int64(0), int64(0)).
+		SendAssembleRejection(mock.Anything, "other@node2", mock.MatchedBy(func(msg *engineProto.AssembleRejection) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.AssembleRequestId == reqID.String() &&
+				msg.RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE
+		})).
 		Return(nil)
 
 	err := action_SendAssembleRejectionNotCurrentDelegate(ctx, txn, event)
@@ -469,7 +472,11 @@ func TestAction_SendAssembleRejectionNotCurrentDelegate_TransportError_LogsWarnA
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendAssembleRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE, int64(0), int64(0)).
+		SendAssembleRejection(mock.Anything, "other@node2", mock.MatchedBy(func(msg *engineProto.AssembleRejection) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.AssembleRequestId == reqID.String() &&
+				msg.RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE
+		})).
 		Return(errors.New("transport error"))
 
 	err := action_SendAssembleRejectionNotCurrentDelegate(ctx, txn, event)
@@ -491,7 +498,11 @@ func TestAction_SendPreDispatchRejectionNotCurrentDelegate_Success(t *testing.T)
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendPreDispatchRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE).
+		SendPreDispatchRejection(mock.Anything, "other@node2", mock.MatchedBy(func(msg *engineProto.PreDispatchRejection) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.RequestId == reqID.String() &&
+				msg.RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE
+		})).
 		Return(nil)
 
 	err := action_SendPreDispatchRejectionNotCurrentDelegate(ctx, txn, event)
@@ -513,7 +524,11 @@ func TestAction_SendPreDispatchRejectionNotCurrentDelegate_TransportError_LogsWa
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendPreDispatchRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE).
+		SendPreDispatchRejection(mock.Anything, "other@node2", mock.MatchedBy(func(msg *engineProto.PreDispatchRejection) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.RequestId == reqID.String() &&
+				msg.RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE
+		})).
 		Return(errors.New("transport error"))
 
 	err := action_SendPreDispatchRejectionNotCurrentDelegate(ctx, txn, event)

@@ -91,7 +91,6 @@ func TestAction_ResendPreDispatchResponse_TransportError(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
-		mock.Anything,
 	).Return(expectedError)
 
 	// Execute the action
