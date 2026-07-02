@@ -32,7 +32,15 @@ import org.lfdt.paladin.sdk.client.config.RpcClientConfig;
 import org.lfdt.paladin.sdk.client.exception.PaladinRpcException;
 import org.lfdt.paladin.sdk.client.rpc.HttpRpcClient;
 import org.lfdt.paladin.sdk.client.rpc.MockJsonRpcServer;
+import org.lfdt.paladin.sdk.core.abi.ABIDecodedData;
+import org.lfdt.paladin.sdk.core.abi.AbiEntry;
+import org.lfdt.paladin.sdk.core.abi.StoredABI;
 import org.lfdt.paladin.sdk.core.query.QueryJSON;
+import org.lfdt.paladin.sdk.core.transaction.BlockchainEventListener;
+import org.lfdt.paladin.sdk.core.transaction.BlockchainEventListenerSource;
+import org.lfdt.paladin.sdk.core.transaction.BlockchainEventListenerStatus;
+import org.lfdt.paladin.sdk.core.transaction.ChainedDispatch;
+import org.lfdt.paladin.sdk.core.transaction.Dispatch;
 import org.lfdt.paladin.sdk.core.transaction.PreparedTransaction;
 import org.lfdt.paladin.sdk.core.transaction.PublicTxWithBinding;
 import org.lfdt.paladin.sdk.core.transaction.Transaction;
@@ -41,8 +49,11 @@ import org.lfdt.paladin.sdk.core.transaction.TransactionFull;
 import org.lfdt.paladin.sdk.core.transaction.TransactionInput;
 import org.lfdt.paladin.sdk.core.transaction.TransactionReceipt;
 import org.lfdt.paladin.sdk.core.transaction.TransactionReceiptFull;
+import org.lfdt.paladin.sdk.core.transaction.TransactionReceiptListener;
 import org.lfdt.paladin.sdk.core.transaction.TransactionStates;
 import org.lfdt.paladin.sdk.core.transaction.TransactionType;
+import org.lfdt.paladin.sdk.core.types.Bytes32;
+import org.lfdt.paladin.sdk.core.types.HexBytes;
 
 class PtxClientTest {
 
@@ -393,6 +404,336 @@ class PtxClientTest {
       JsonNode req = server.requests().get(0);
       assertEquals("ptx_getPublicTransaction", req.get("method").asText());
       assertEquals(42, req.get("params").get(0).asLong());
+    }
+  }
+
+  private static final String HASH =
+      "0x1111111111111111111111111111111111111111111111111111111111111111";
+
+  @Test
+  void storeABI() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer(
+                (n, req) -> MockJsonRpcServer.Response.of(200, success("\"" + HASH + "\"")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      Bytes32 hash =
+          new PtxClient(rpc).storeABI(List.of(AbiEntry.function("foo").build())).join();
+      assertEquals(Bytes32.fromString(HASH), hash);
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_storeABI", req.get("method").asText());
+      assertEquals("foo", req.get("params").get(0).get(0).get("name").asText());
+    }
+  }
+
+  @Test
+  void getStoredABI() throws IOException {
+    String stored = "{\"hash\":\"" + HASH + "\",\"abi\":[{\"type\":\"function\",\"name\":\"foo\"}]}";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(stored)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      StoredABI result = new PtxClient(rpc).getStoredABI(Bytes32.fromString(HASH)).join();
+      assertEquals(Bytes32.fromString(HASH), result.hash());
+      assertEquals(1, result.abi().size());
+      assertEquals("foo", result.abi().get(0).name());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_getStoredABI", req.get("method").asText());
+      assertEquals(HASH, req.get("params").get(0).asText());
+    }
+  }
+
+  @Test
+  void queryStoredABIs() throws IOException {
+    String stored = "[{\"hash\":\"" + HASH + "\"}]";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(stored)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      List<StoredABI> result =
+          new PtxClient(rpc).queryStoredABIs(QueryJSON.builder().limit(5).build()).join();
+      assertEquals(1, result.size());
+      assertEquals(Bytes32.fromString(HASH), result.get(0).hash());
+      assertEquals("ptx_queryStoredABIs", server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void decodeError() throws IOException {
+    String decoded =
+        "{\"signature\":\"Error(string)\",\"summary\":\"boom\","
+            + "\"definition\":{\"type\":\"error\",\"name\":\"Error\"}}";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(decoded)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      ABIDecodedData result =
+          new PtxClient(rpc).decodeError(HexBytes.fromString("0xdead"), "mode=array").join();
+      assertEquals("Error(string)", result.signature());
+      assertEquals("boom", result.summary());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_decodeError", req.get("method").asText());
+      assertEquals("0xdead", req.get("params").get(0).asText());
+      assertEquals("mode=array", req.get("params").get(1).asText());
+    }
+  }
+
+  @Test
+  void decodeCall() throws IOException {
+    String decoded = "{\"signature\":\"foo()\"}";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(decoded)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      ABIDecodedData result =
+          new PtxClient(rpc).decodeCall(HexBytes.fromString("0xbeef"), "").join();
+      assertEquals("foo()", result.signature());
+      assertEquals("ptx_decodeCall", server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void decodeEvent() throws IOException {
+    String decoded = "{\"signature\":\"Transfer(address,address,uint256)\"}";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(decoded)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      ABIDecodedData result =
+          new PtxClient(rpc)
+              .decodeEvent(List.of(Bytes32.fromString(HASH)), HexBytes.fromString("0x01"), "")
+              .join();
+      assertEquals("Transfer(address,address,uint256)", result.signature());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_decodeEvent", req.get("method").asText());
+      assertEquals(3, req.get("params").size());
+      assertEquals(HASH, req.get("params").get(0).get(0).asText());
+    }
+  }
+
+  @Test
+  void resolveVerifier() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer(
+                (n, req) -> MockJsonRpcServer.Response.of(200, success("\"0xabc\"")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      String verifier =
+          new PtxClient(rpc)
+              .resolveVerifier("alice", "ecdsa:secp256k1", "eth_address")
+              .join();
+      assertEquals("0xabc", verifier);
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_resolveVerifier", req.get("method").asText());
+      assertEquals(3, req.get("params").size());
+      assertEquals("alice", req.get("params").get(0).asText());
+      assertEquals("eth_address", req.get("params").get(2).asText());
+    }
+  }
+
+  @Test
+  void createReceiptListener() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success("true")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      TransactionReceiptListener listener =
+          TransactionReceiptListener.builder().name("l1").started(true).build();
+      Boolean ok = new PtxClient(rpc).createReceiptListener(listener).join();
+      assertTrue(ok);
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_createReceiptListener", req.get("method").asText());
+      assertEquals("l1", req.get("params").get(0).get("name").asText());
+    }
+  }
+
+  @Test
+  void queryReceiptListeners() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer(
+                (n, req) -> MockJsonRpcServer.Response.of(200, success("[{\"name\":\"l1\"}]")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      List<TransactionReceiptListener> result =
+          new PtxClient(rpc).queryReceiptListeners(QueryJSON.builder().limit(5).build()).join();
+      assertEquals(1, result.size());
+      assertEquals("l1", result.get(0).name());
+      assertEquals("ptx_queryReceiptListeners", server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void getReceiptListener() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer(
+                (n, req) ->
+                    MockJsonRpcServer.Response.of(
+                        200, success("{\"name\":\"l1\",\"started\":true}")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      TransactionReceiptListener result = new PtxClient(rpc).getReceiptListener("l1").join();
+      assertEquals("l1", result.name());
+      assertTrue(result.started());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_getReceiptListener", req.get("method").asText());
+      assertEquals("l1", req.get("params").get(0).asText());
+    }
+  }
+
+  @Test
+  void startStopDeleteReceiptListener() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success("true")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      PtxClient client = new PtxClient(rpc);
+      assertTrue(client.startReceiptListener("l1").join());
+      assertTrue(client.stopReceiptListener("l1").join());
+      assertTrue(client.deleteReceiptListener("l1").join());
+      assertEquals("ptx_startReceiptListener", server.requests().get(0).get("method").asText());
+      assertEquals("ptx_stopReceiptListener", server.requests().get(1).get("method").asText());
+      assertEquals("ptx_deleteReceiptListener", server.requests().get(2).get("method").asText());
+    }
+  }
+
+  @Test
+  void createBlockchainEventListener() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success("true")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      BlockchainEventListener listener =
+          BlockchainEventListener.builder()
+              .name("be1")
+              .source(
+                  BlockchainEventListenerSource.builder()
+                      .abiEntry(AbiEntry.event("Transfer").build())
+                      .build())
+              .build();
+      Boolean ok = new PtxClient(rpc).createBlockchainEventListener(listener).join();
+      assertTrue(ok);
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_createBlockchainEventListener", req.get("method").asText());
+      assertEquals("be1", req.get("params").get(0).get("name").asText());
+      assertEquals(
+          "Transfer", req.get("params").get(0).get("sources").get(0).get("abi").get(0).get("name").asText());
+    }
+  }
+
+  @Test
+  void queryBlockchainEventListeners() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer(
+                (n, req) -> MockJsonRpcServer.Response.of(200, success("[{\"name\":\"be1\"}]")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      List<BlockchainEventListener> result =
+          new PtxClient(rpc)
+              .queryBlockchainEventListeners(QueryJSON.builder().limit(5).build())
+              .join();
+      assertEquals(1, result.size());
+      assertEquals("be1", result.get(0).name());
+      assertEquals(
+          "ptx_queryBlockchainEventListeners", server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void getBlockchainEventListener() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer(
+                (n, req) -> MockJsonRpcServer.Response.of(200, success("{\"name\":\"be1\"}")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      BlockchainEventListener result = new PtxClient(rpc).getBlockchainEventListener("be1").join();
+      assertEquals("be1", result.name());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_getBlockchainEventListener", req.get("method").asText());
+      assertEquals("be1", req.get("params").get(0).asText());
+    }
+  }
+
+  @Test
+  void startStopDeleteBlockchainEventListener() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success("true")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      PtxClient client = new PtxClient(rpc);
+      assertTrue(client.startBlockchainEventListener("be1").join());
+      assertTrue(client.stopBlockchainEventListener("be1").join());
+      assertTrue(client.deleteBlockchainEventListener("be1").join());
+      assertEquals(
+          "ptx_startBlockchainEventListener", server.requests().get(0).get("method").asText());
+      assertEquals(
+          "ptx_stopBlockchainEventListener", server.requests().get(1).get("method").asText());
+      assertEquals(
+          "ptx_deleteBlockchainEventListener", server.requests().get(2).get("method").asText());
+    }
+  }
+
+  @Test
+  void getBlockchainEventListenerStatus() throws IOException {
+    String status = "{\"catchup\":true,\"checkpoint\":{\"blockNumber\":100}}";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(status)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      BlockchainEventListenerStatus result =
+          new PtxClient(rpc).getBlockchainEventListenerStatus("be1").join();
+      assertTrue(result.catchup());
+      assertEquals(100, result.checkpoint().blockNumber());
+      assertEquals(
+          "ptx_getBlockchainEventListenerStatus",
+          server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void queryDispatches() throws IOException {
+    String dispatches =
+        "[{\"id\":\"d1\",\"transactionID\":\"t1\",\"publicTransactionID\":5}]";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer(
+                (n, req) -> MockJsonRpcServer.Response.of(200, success(dispatches)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      List<Dispatch> result =
+          new PtxClient(rpc).queryDispatches(QueryJSON.builder().limit(5).build()).join();
+      assertEquals(1, result.size());
+      assertEquals("d1", result.get(0).id());
+      assertEquals(5, result.get(0).publicTransactionID());
+      assertEquals("ptx_queryDispatches", server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void getDispatch() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer(
+                (n, req) ->
+                    MockJsonRpcServer.Response.of(
+                        200, success("{\"id\":\"d1\",\"transactionID\":\"t1\"}")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      Dispatch result = new PtxClient(rpc).getDispatch("d1").join();
+      assertEquals("d1", result.id());
+      assertEquals("t1", result.transactionID());
+      JsonNode req = server.requests().get(0);
+      assertEquals("ptx_getDispatch", req.get("method").asText());
+      assertEquals("d1", req.get("params").get(0).asText());
+    }
+  }
+
+  @Test
+  void queryChainedDispatches() throws IOException {
+    String chained =
+        "[{\"id\":\"c1\",\"transactionID\":\"t1\",\"chainedTransactionID\":\"t2\"}]";
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(chained)));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      List<ChainedDispatch> result =
+          new PtxClient(rpc).queryChainedDispatches(QueryJSON.builder().limit(5).build()).join();
+      assertEquals(1, result.size());
+      assertEquals("t2", result.get(0).chainedTransactionID());
+      assertEquals("ptx_queryChainedDispatches", server.requests().get(0).get("method").asText());
+    }
+  }
+
+  @Test
+  void getChainedDispatch() throws IOException {
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer(
+                (n, req) ->
+                    MockJsonRpcServer.Response.of(
+                        200, success("{\"id\":\"c1\",\"chainedTransactionID\":\"t2\"}")));
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      ChainedDispatch result = new PtxClient(rpc).getChainedDispatch("c1").join();
+      assertEquals("c1", result.id());
+      assertEquals("t2", result.chainedTransactionID());
+      assertEquals("ptx_getChainedDispatch", server.requests().get(0).get("method").asText());
     }
   }
 

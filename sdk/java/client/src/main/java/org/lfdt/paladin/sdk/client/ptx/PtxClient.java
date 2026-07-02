@@ -22,7 +22,14 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.lfdt.paladin.sdk.client.rpc.RpcClient;
+import org.lfdt.paladin.sdk.core.abi.ABIDecodedData;
+import org.lfdt.paladin.sdk.core.abi.AbiEntry;
+import org.lfdt.paladin.sdk.core.abi.StoredABI;
 import org.lfdt.paladin.sdk.core.query.QueryJSON;
+import org.lfdt.paladin.sdk.core.transaction.BlockchainEventListener;
+import org.lfdt.paladin.sdk.core.transaction.BlockchainEventListenerStatus;
+import org.lfdt.paladin.sdk.core.transaction.ChainedDispatch;
+import org.lfdt.paladin.sdk.core.transaction.Dispatch;
 import org.lfdt.paladin.sdk.core.transaction.PreparedTransaction;
 import org.lfdt.paladin.sdk.core.transaction.PublicTxWithBinding;
 import org.lfdt.paladin.sdk.core.transaction.Transaction;
@@ -31,14 +38,18 @@ import org.lfdt.paladin.sdk.core.transaction.TransactionFull;
 import org.lfdt.paladin.sdk.core.transaction.TransactionInput;
 import org.lfdt.paladin.sdk.core.transaction.TransactionReceipt;
 import org.lfdt.paladin.sdk.core.transaction.TransactionReceiptFull;
+import org.lfdt.paladin.sdk.core.transaction.TransactionReceiptListener;
 import org.lfdt.paladin.sdk.core.transaction.TransactionStates;
+import org.lfdt.paladin.sdk.core.types.Bytes32;
+import org.lfdt.paladin.sdk.core.types.HexBytes;
 
 // Client for the ptx_* RPC namespace (private transaction manager), mirroring Go's pldclient.PTX
 // (sdk/go/pkg/pldclient/ptx.go). Each method maps one-to-one to a JSON-RPC call on the underlying
 // RpcClient and returns a CompletableFuture; failures complete it exceptionally with a
-// PaladinException subtype. This part covers the transaction lifecycle (send/prepare/update/call,
-// get and query) plus receipts, state, prepared transactions and public transactions; ABI, decode,
-// listeners and dispatches are added in later parts.
+// PaladinException subtype. This covers the full HTTP method surface: the transaction lifecycle
+// (send/prepare/update/call, get and query), receipts, state, prepared and public transactions,
+// stored ABIs, decode, verifier resolution, receipt and blockchain-event listeners, and dispatch
+// queries. The WebSocket-only subscribe/unsubscribe methods are added with the WS transport.
 public final class PtxClient {
 
   private final RpcClient rpc;
@@ -126,5 +137,113 @@ public final class PtxClient {
 
   public CompletableFuture<PublicTxWithBinding> getPublicTransaction(long id) {
     return rpc.callRpc(PublicTxWithBinding.class, "ptx_getPublicTransaction", id);
+  }
+
+  public CompletableFuture<Bytes32> storeABI(List<AbiEntry> abi) {
+    return rpc.callRpc(Bytes32.class, "ptx_storeABI", abi);
+  }
+
+  public CompletableFuture<StoredABI> getStoredABI(Bytes32 hashRef) {
+    return rpc.callRpc(StoredABI.class, "ptx_getStoredABI", hashRef);
+  }
+
+  public CompletableFuture<List<StoredABI>> queryStoredABIs(QueryJSON query) {
+    return rpc.callRpc(new TypeReference<List<StoredABI>>() {}, "ptx_queryStoredABIs", query);
+  }
+
+  public CompletableFuture<ABIDecodedData> decodeError(HexBytes revertData, String dataFormat) {
+    return rpc.callRpc(ABIDecodedData.class, "ptx_decodeError", revertData, dataFormat);
+  }
+
+  public CompletableFuture<ABIDecodedData> decodeCall(HexBytes callData, String dataFormat) {
+    return rpc.callRpc(ABIDecodedData.class, "ptx_decodeCall", callData, dataFormat);
+  }
+
+  public CompletableFuture<ABIDecodedData> decodeEvent(
+      List<Bytes32> topics, HexBytes data, String dataFormat) {
+    return rpc.callRpc(ABIDecodedData.class, "ptx_decodeEvent", topics, data, dataFormat);
+  }
+
+  public CompletableFuture<String> resolveVerifier(
+      String keyIdentifier, String algorithm, String verifierType) {
+    return rpc.callRpc(
+        String.class, "ptx_resolveVerifier", keyIdentifier, algorithm, verifierType);
+  }
+
+  public CompletableFuture<Boolean> createReceiptListener(TransactionReceiptListener listener) {
+    return rpc.callRpc(Boolean.class, "ptx_createReceiptListener", listener);
+  }
+
+  public CompletableFuture<List<TransactionReceiptListener>> queryReceiptListeners(QueryJSON query) {
+    return rpc.callRpc(
+        new TypeReference<List<TransactionReceiptListener>>() {}, "ptx_queryReceiptListeners", query);
+  }
+
+  public CompletableFuture<TransactionReceiptListener> getReceiptListener(String listenerName) {
+    return rpc.callRpc(TransactionReceiptListener.class, "ptx_getReceiptListener", listenerName);
+  }
+
+  public CompletableFuture<Boolean> startReceiptListener(String listenerName) {
+    return rpc.callRpc(Boolean.class, "ptx_startReceiptListener", listenerName);
+  }
+
+  public CompletableFuture<Boolean> stopReceiptListener(String listenerName) {
+    return rpc.callRpc(Boolean.class, "ptx_stopReceiptListener", listenerName);
+  }
+
+  public CompletableFuture<Boolean> deleteReceiptListener(String listenerName) {
+    return rpc.callRpc(Boolean.class, "ptx_deleteReceiptListener", listenerName);
+  }
+
+  public CompletableFuture<Boolean> createBlockchainEventListener(BlockchainEventListener listener) {
+    return rpc.callRpc(Boolean.class, "ptx_createBlockchainEventListener", listener);
+  }
+
+  public CompletableFuture<List<BlockchainEventListener>> queryBlockchainEventListeners(
+      QueryJSON query) {
+    return rpc.callRpc(
+        new TypeReference<List<BlockchainEventListener>>() {},
+        "ptx_queryBlockchainEventListeners",
+        query);
+  }
+
+  public CompletableFuture<BlockchainEventListener> getBlockchainEventListener(String listenerName) {
+    return rpc.callRpc(
+        BlockchainEventListener.class, "ptx_getBlockchainEventListener", listenerName);
+  }
+
+  public CompletableFuture<Boolean> startBlockchainEventListener(String listenerName) {
+    return rpc.callRpc(Boolean.class, "ptx_startBlockchainEventListener", listenerName);
+  }
+
+  public CompletableFuture<Boolean> stopBlockchainEventListener(String listenerName) {
+    return rpc.callRpc(Boolean.class, "ptx_stopBlockchainEventListener", listenerName);
+  }
+
+  public CompletableFuture<Boolean> deleteBlockchainEventListener(String listenerName) {
+    return rpc.callRpc(Boolean.class, "ptx_deleteBlockchainEventListener", listenerName);
+  }
+
+  public CompletableFuture<BlockchainEventListenerStatus> getBlockchainEventListenerStatus(
+      String listenerName) {
+    return rpc.callRpc(
+        BlockchainEventListenerStatus.class, "ptx_getBlockchainEventListenerStatus", listenerName);
+  }
+
+  public CompletableFuture<List<Dispatch>> queryDispatches(QueryJSON query) {
+    return rpc.callRpc(new TypeReference<List<Dispatch>>() {}, "ptx_queryDispatches", query);
+  }
+
+  public CompletableFuture<Dispatch> getDispatch(String id) {
+    return rpc.callRpc(Dispatch.class, "ptx_getDispatch", id);
+  }
+
+  public CompletableFuture<List<ChainedDispatch>> queryChainedDispatches(QueryJSON query) {
+    return rpc.callRpc(
+        new TypeReference<List<ChainedDispatch>>() {}, "ptx_queryChainedDispatches", query);
+  }
+
+  public CompletableFuture<ChainedDispatch> getChainedDispatch(String id) {
+    return rpc.callRpc(ChainedDispatch.class, "ptx_getChainedDispatch", id);
   }
 }
