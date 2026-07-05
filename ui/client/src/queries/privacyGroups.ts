@@ -17,7 +17,7 @@
 import i18next from 'i18next';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
-import { IFilter, IPagedResult, IPrivacyGroup, IPrivacyGroupMessage } from '../interfaces';
+import { IFilter, IPagedResult, IPrivacyGroup, IPrivacyGroupListener, IPrivacyGroupMessage } from '../interfaces';
 import { deepMerge, toPagedResult, translateFilters } from '../utils';
 
 export const listPrivacyGroups = async (
@@ -216,4 +216,73 @@ export const sendPrivacyGroupMessage = async (
   );
 };
 
+export const listPrivacyGroupListeners = async (
+  limit: number,
+  filters: IFilter[],
+  sortBy: string,
+  sortAscending: boolean,
+  paginationRef?: string
+): Promise<IPagedResult<IPrivacyGroupListener>> => {
+  let translatedFilters = translateFilters(filters);
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.pgroup_queryMessageListeners,
+    params: [{
+      ...translatedFilters,
+      limit: limit + 1,
+      sort: [`${sortBy} ${sortAscending ? 'ASC' : 'DESC'}`],
+      greaterThan: paginationRef !== undefined && sortAscending ? [
+        {
+          field: sortBy,
+          value: paginationRef
+        }
+      ] : undefined,
+      lessThan: paginationRef !== undefined && !sortAscending ? [
+        {
+          field: sortBy,
+          value: paginationRef
+        }
+      ] : undefined
+    }]
+  };
+  const results = await returnResponse(
+    () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+    i18next.t('errorFetchingPrivacyGroups')
+  );
+  return toPagedResult(results, limit);
+};
 
+export const startPrivacyGroupListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.pgroup_startMessageListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStartingPrivacyGroupListener')
+    )
+  );
+};
+
+export const stopPrivacyGroupListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.pgroup_stopMessageListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStoppingPrivacyGroupListener')
+    )
+  );
+};

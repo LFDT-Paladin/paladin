@@ -123,8 +123,8 @@ export const TransportMessages: React.FC = () => {
             <Typography variant="h5">
               {t('transports')}
             </Typography>
-            <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive onChange={() => navigate(AppRoutes.TransportConnections, { state: { skipFade: true } })} value="messages">
-              <ToggleButton color="primary" value="connections" sx={{ width: '120px' }}>{t('connections')}</ToggleButton>
+            <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive value="messages">
+              <ToggleButton color="primary" value="connections" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.TransportConnections, { state: { skipFade: true } })}>{t('connections')}</ToggleButton>
               <ToggleButton color="primary" value="messages" sx={{ width: '120px' }}>{t('messages')}</ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>

@@ -336,3 +336,11 @@ export interface IPrivacyGroupMessage {
   topic: string
   data: any
 }
+
+export interface IPrivacyGroupListener {
+  name: string
+  created: string
+  started: boolean
+  filters: any
+  options: any
+}

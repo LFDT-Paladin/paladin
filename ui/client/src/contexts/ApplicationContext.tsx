@@ -93,6 +93,23 @@ export interface PrivacyGroupsViewState {
   setFiltersVisible: Dispatch<SetStateAction<boolean>>;
 }
 
+export interface PrivacyGroupListenersViewState {
+  sortAscending: boolean;
+  setSortAscending: Dispatch<SetStateAction<boolean>>;
+  paginationRefs: string[];
+  setPaginationRefs: Dispatch<SetStateAction<string[]>>;
+  sortBy: string;
+  setSortBy: Dispatch<SetStateAction<string>>;
+  page: number;
+  setPage: Dispatch<SetStateAction<number>>;
+  rowsPerPage: number;
+  setRowsPerPage: Dispatch<SetStateAction<number>>;
+  filters: IFilter[];
+  setFilters: Dispatch<SetStateAction<IFilter[]>>;
+  filtersVisible: boolean;
+  setFiltersVisible: Dispatch<SetStateAction<boolean>>;
+}
+
 export interface StatesViewState {
   selectedDomain: string | undefined;
   setSelectedDomain: Dispatch<SetStateAction<string | undefined>>;
@@ -201,6 +218,7 @@ interface IApplicationContext {
   submissions: SubmissionsViewState;
   domains: DomainsViewState;
   privacyGroups: PrivacyGroupsViewState;
+  privacyGroupListeners: PrivacyGroupListenersViewState;
   privateGroupMessages: PrivateGroupMessagesViewState;
   states: StatesViewState;
   messages: MessagesViewState;
@@ -256,6 +274,15 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   const [privacyGroupsRefTimestamps, setPrivacyGroupsRefTimestamps] = useState<string[]>([]);
   const [privacyGroupsSortAscending, setPrivacyGroupsSortAscending] = useState(false);
   const [privacyGroupsFiltersVisible, setPrivacyGroupsFiltersVisible] = useState(false);
+
+  // Privacy group listeners view state
+  const [privacyGroupListenersFilters, setPrivacyGroupListenersFilters] = useState<IFilter[]>([]);
+  const [privacyGroupListenersPage, setPrivacyGroupListenersPage] = useState(0);
+  const [privacyGroupListenersRowsPerPage, setPrivacyGroupListenersRowsPerPage] = useState(10);
+  const [privacyGroupListenersPaginationRefs, setPrivacyGroupListenersPaginationRefs] = useState<string[]>([]);
+  const [privacyGroupListenersSortBy, setPrivacyGroupListenerssortBy] = useState('name');
+  const [privacyGroupListenersSortAscending, setPrivacyGroupListenersSortAscending] = useState(false);
+  const [privacyGroupListenersFiltersVisible, setPrivacyGroupListenersFiltersVisible] = useState(false);
 
   // States view state
   const [statesSelectedDomain, setStatesSelectedDomain] = useState<string | undefined>();
@@ -412,6 +439,34 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
       privacyGroupsRowsPerPage,
       privacyGroupsFilters,
       privacyGroupsFiltersVisible,
+    ]
+  );
+
+  const privacyGroupListeners = useMemo(
+    (): PrivacyGroupListenersViewState => ({
+      sortAscending: privacyGroupListenersSortAscending,
+      setSortAscending: setPrivacyGroupListenersSortAscending,
+      paginationRefs: privacyGroupsRefTimestamps,
+      setPaginationRefs: setPrivacyGroupsRefTimestamps,
+      sortBy: privacyGroupListenersSortBy,
+      setSortBy: setPrivacyGroupListenerssortBy,
+      page: privacyGroupListenersPage,
+      setPage: setPrivacyGroupListenersPage,
+      rowsPerPage: privacyGroupListenersRowsPerPage,
+      setRowsPerPage: setPrivacyGroupListenersRowsPerPage,
+      filters: privacyGroupListenersFilters,
+      setFilters: setPrivacyGroupListenersFilters,
+      filtersVisible: privacyGroupListenersFiltersVisible,
+      setFiltersVisible: setPrivacyGroupListenersFiltersVisible,
+    }),
+    [
+      privacyGroupListenersSortAscending,
+      privacyGroupListenersPaginationRefs,
+      privacyGroupListenersSortBy,
+      privacyGroupListenersPage,
+      privacyGroupListenersRowsPerPage,
+      privacyGroupListenersFilters,
+      privacyGroupListenersFiltersVisible,
     ]
   );
 
@@ -587,6 +642,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
         submissions,
         domains,
         privacyGroups,
+        privacyGroupListeners,
         states,
         messages,
         transports,

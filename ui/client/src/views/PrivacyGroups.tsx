@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { useTranslation } from "react-i18next";
@@ -25,7 +25,7 @@ import { Timestamp } from "../components/Timestamp";
 import { Hash } from "../components/Hash";
 import { customNavigate } from "../utils";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { PrivacyGroupMembers } from "../components/PrivacyGroupMembers";
 import { Captions, Tag } from "lucide-react";
 import { PrivacyGroupLookupDialog } from "../dialogs/PrivacyGroupLookup";
@@ -34,6 +34,7 @@ import { FiltersButton } from "../components/FiltersButton";
 import { Filters } from "../components/Filters";
 import AddIcon from '@mui/icons-material/Add';
 import { CreatePrivacyGroupDialog } from "../dialogs/CreatePrivacyGroup";
+import { AppRoutes } from "../routes";
 
 export const PrivacyGroups: React.FC = () => {
   const { privacyGroups: privacyGroupsViewState } = useApplicationContext();
@@ -57,6 +58,7 @@ export const PrivacyGroups: React.FC = () => {
   const navigate = useNavigate();
   const [count, setCount] = useState(-1);
   const { t } = useTranslation();
+  const location = useLocation();
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['privacyGroups', page, rowsPerPage, filters, sortAscending],
@@ -112,7 +114,7 @@ export const PrivacyGroups: React.FC = () => {
 
   return (
     <>
-      <Fade timeout={600} in={true}>
+      <Fade timeout={location.state?.skipFade === true? 0 : 600} in={true}>
         <Box
           sx={{
             padding: "20px",
@@ -125,6 +127,10 @@ export const PrivacyGroups: React.FC = () => {
             <Typography align="center" variant="h5">
               {t("privacyGroups")}
             </Typography>
+            <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive value="groups">
+              <ToggleButton color="primary" value="groups" sx={{ width: '120px' }}>{t('groups')}</ToggleButton>
+              <ToggleButton color="primary" value="listeners" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.PrivacyGroupListeners, { state: { skipFade: true } })}>{t('listeners')}</ToggleButton>
+            </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
               <Button
                 sx={{ borderRadius: '20px', minWidth: '120px' }}
@@ -295,7 +301,7 @@ export const PrivacyGroups: React.FC = () => {
                           <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                             <Tooltip title={t('open')} arrow>
                               <IconButton
-                                onClick={mouseEvent => customNavigate(`/ui/privacy-groups/${privacyGroup.id}`, mouseEvent, navigate)}>
+                                onClick={mouseEvent => customNavigate(`/ui/privacy-groups/groups/${privacyGroup.id}`, mouseEvent, navigate)}>
                                 <OpenInNewIcon color="secondary" fontSize="medium" />
                               </IconButton>
                             </Tooltip>
