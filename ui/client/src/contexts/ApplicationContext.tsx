@@ -447,7 +447,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
       sortAscending: privacyGroupListenersSortAscending,
       setSortAscending: setPrivacyGroupListenersSortAscending,
       paginationRefs: privacyGroupsRefTimestamps,
-      setPaginationRefs: setPrivacyGroupsRefTimestamps,
+      setPaginationRefs: setPrivacyGroupListenersPaginationRefs,
       sortBy: privacyGroupListenersSortBy,
       setSortBy: setPrivacyGroupListenerssortBy,
       page: privacyGroupListenersPage,
