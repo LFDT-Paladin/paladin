@@ -25,6 +25,7 @@ export const AppRoutes = {
   PrivacyGroups: '/ui/privacy-groups/groups',
   PrivacyGroup: '/ui/privacy-groups/groups/:idOrAddress',
   PrivacyGroupListeners: '/ui/privacy-groups/listeners',
+  PrivacyGroupListenerEntry: '/ui/privacy-groups/listeners/:name',
   States: '/ui/states',
   ReliableMessage: '/ui/transports/messages/:id',
   State: '/ui/states/:domain/:schema/:id',

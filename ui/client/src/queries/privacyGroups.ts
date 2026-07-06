@@ -286,3 +286,20 @@ export const stopPrivacyGroupListener = async (
     )
   );
 };
+
+export const getPrivacyGroupListener = async (
+  listenerName: string
+): Promise<IPrivacyGroupListener> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.pgroup_getMessageListener,
+    params: [listenerName],
+  };
+  return <Promise<IPrivacyGroupListener>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStoppingPrivacyGroupListener')
+    )
+  );
+};

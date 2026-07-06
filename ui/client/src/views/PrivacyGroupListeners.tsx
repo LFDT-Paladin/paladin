@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Collapse, Fade, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { useTranslation } from "react-i18next";
@@ -27,6 +27,8 @@ import { FiltersButton } from "../components/FiltersButton";
 import { Filters } from "../components/Filters";
 import { AppRoutes } from "../routes";
 import CircleIcon from '@mui/icons-material/Circle';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import { customNavigate } from "../utils";
 
 export const PrivacyGroupListeners: React.FC = () => {
   const { privacyGroupListeners: privacyGroupListenersViewState } = useApplicationContext();
@@ -116,7 +118,7 @@ export const PrivacyGroupListeners: React.FC = () => {
 
   return (
     <>
-      <Fade timeout={location.state?.skipFade === true? 0 : 600} in={true}>
+      <Fade timeout={location.state?.skipFade === true ? 0 : 600} in={true}>
         <Box
           sx={{
             padding: "20px",
@@ -198,7 +200,6 @@ export const PrivacyGroupListeners: React.FC = () => {
                             {t('name')}
                           </TableSortLabel>
                         </TableCell>
-
                         <TableCell
                           width={1}
                           sx={{
@@ -234,11 +235,17 @@ export const PrivacyGroupListeners: React.FC = () => {
                           sx={{
                             backgroundColor: (theme) => theme.palette.background.paper,
                             whiteSpace: 'nowrap',
-                            width: '100%'
+                            width: '1'
                           }}
                         >
                           {t('actions')}
                         </TableCell>
+                        <TableCell 
+                        sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            width: '100%'
+                          }}
+                        />
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -289,6 +296,14 @@ export const PrivacyGroupListeners: React.FC = () => {
                               >{t('stop')}
                               </Button>
                             </Box>
+                          </TableCell>
+                          <TableCell sx={{ padding: '8px'}}>
+                            <Tooltip title={t('open')} arrow>
+                              <IconButton
+                                onClick={mouseEvent => customNavigate(`/ui/privacy-groups/listeners/${privacyGroupListener.name}`, mouseEvent, navigate)}>
+                                <OpenInNewIcon color="secondary" fontSize="medium" />
+                              </IconButton>
+                            </Tooltip>
                           </TableCell>
                         </TableRow>
                       )}
