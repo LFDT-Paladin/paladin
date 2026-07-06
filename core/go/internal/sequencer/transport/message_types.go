@@ -15,7 +15,6 @@
 
 package transport
 
-
 const (
 	MessageType_AssembleRequest                  = "AssembleRequest"
 	MessageType_AssembleResponse                 = "AssembleResponse"
@@ -39,4 +38,3 @@ const (
 	MessageType_TransactionSubmitted             = "TransactionSubmitted"
 	MessageType_TransactionConfirmed             = "TransactionConfirmed"
 )
-

@@ -195,12 +195,12 @@ func (b *TransactionBuilderForTesting) NumberOfOutputStates(num int) *Transactio
 	return b
 }
 
-func (b *TransactionBuilderForTesting) InputStateIDs(stateIDs ...pldtypes.HexBytes) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) InputStateIDs(stateIDs ...string) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.InputStateIDs(stateIDs...)
 	return b
 }
 
-func (b *TransactionBuilderForTesting) ReadStateIDs(stateIDs ...pldtypes.HexBytes) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) ReadStateIDs(stateIDs ...string) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.ReadStateIDs(stateIDs...)
 	return b
 }
@@ -405,7 +405,7 @@ func (b *TransactionBuilderForTesting) Address(address pldtypes.EthAddress) *Tra
 	return b
 }
 
-func (b *TransactionBuilderForTesting) PreAssembly(preAssembly *components.TransactionPreAssembly) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) PreAssembly(preAssembly *prototk.TransactionPreAssembly) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.PreAssembly(preAssembly)
 	return b
 }
@@ -604,7 +604,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 
 	if privateTransaction.PostAssembly != nil {
 		for _, state := range privateTransaction.PostAssembly.OutputStates {
-			err := b.grapher.AddMinter(ctx, []*components.FullState{state}, txn.pt.ID)
+			err := b.grapher.AddMinter(ctx, []*prototk.EndorsableState{state}, txn.pt.ID)
 			require.NoError(b.t, err)
 		}
 	}
@@ -620,7 +620,7 @@ func (b *TransactionBuilderForTesting) BuildAssembleSuccessEvent() *AssembleSucc
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: b.txn.pt.ID,
 		},
-		PostAssembly: b.BuildPostAssembly(),
+		PostAssembly: b.BuildPostAssembly().AssembleResponse,
 		RequestID:    b.txn.pendingAssembleRequest.IdempotencyKey(),
 	}
 }
@@ -630,7 +630,7 @@ func (b *TransactionBuilderForTesting) BuildAssembleRevertEvent() *AssembleRever
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: b.txn.pt.ID,
 		},
-		PostAssembly: b.BuildPostAssembly(),
+		PostAssembly: b.BuildPostAssembly().AssembleResponse,
 		RequestID:    b.txn.pendingAssembleRequest.IdempotencyKey(),
 	}
 }
@@ -693,6 +693,6 @@ func (b *TransactionBuilderForTesting) BuildPostAssembly() *components.Transacti
 	return b.privateTransactionBuilder.BuildPostAssembly()
 }
 
-func (b *TransactionBuilderForTesting) BuildPreAssembly() *components.TransactionPreAssembly {
+func (b *TransactionBuilderForTesting) BuildPreAssembly() *prototk.TransactionPreAssembly {
 	return b.privateTransactionBuilder.BuildPreAssembly()
 }

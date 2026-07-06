@@ -18,7 +18,6 @@ import (
 	"context"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -42,7 +41,7 @@ func (t *coordinatorTransaction) applyEndorsement(ctx context.Context, endorseme
 		if pendingRequest.IdempotencyKey() == requestID {
 			log.L(ctx).Debugf("endorsement '%s' received for transaction %s from %s", endorsement.Name, t.pt.ID, endorsement.Verifier.Lookup)
 			delete(t.pendingEndorsementRequests[endorsement.Name], endorsement.Verifier.Lookup)
-			t.pt.PostAssembly.Endorsements = append(t.pt.PostAssembly.Endorsements, endorsement)
+			t.pt.PostAssembly.CollectedEndorsements = append(t.pt.PostAssembly.CollectedEndorsements, endorsement)
 
 			// MRW TODO - Hashing the TX for dispatch confirmation requires that there is > 0 signatures. Need to follow up where an endorsed TX populates the signatures. Temporarily put this workaround in.
 			// log.L(ctx).Infof("Applying endorsement. Appending %+v to list of endorsements received for transaction %s from %s", endorsement, t.pt.ID, endorsement.Verifier.Lookup)
@@ -55,7 +54,7 @@ func (t *coordinatorTransaction) applyEndorsement(ctx context.Context, endorseme
 	}
 
 	// Log complete list of current endorsements
-	for _, endorsement := range t.pt.PostAssembly.Endorsements {
+	for _, endorsement := range t.pt.PostAssembly.CollectedEndorsements {
 		log.L(ctx).Debugf("completed endorsement: %+v", endorsement)
 	}
 	return nil
@@ -71,7 +70,7 @@ func (t *coordinatorTransaction) unfulfilledEndorsementRequirements(ctx context.
 		log.L(ctx).Debug("PostAssembly is nil so there are no outstanding endorsement requirements")
 		return unfulfilledEndorsementRequirements
 	}
-	for _, attRequest := range t.pt.PostAssembly.AttestationPlan {
+	for _, attRequest := range t.pt.PostAssembly.AssembleResponse.GetAttestationPlan() {
 		if attRequest.AttestationType == prototk.AttestationType_ENDORSE {
 			// When threshold is unset (0) every party must endorse, which is equivalent to a
 			// threshold equal to the total party count.
@@ -81,7 +80,7 @@ func (t *coordinatorTransaction) unfulfilledEndorsementRequirements(ctx context.
 			}
 
 			receivedCount := 0
-			for _, endorsement := range t.pt.PostAssembly.Endorsements {
+			for _, endorsement := range t.pt.PostAssembly.CollectedEndorsements {
 				if endorsement.Name == attRequest.Name &&
 					attRequest.VerifierType == endorsement.Verifier.VerifierType {
 					receivedCount++
@@ -96,8 +95,7 @@ func (t *coordinatorTransaction) unfulfilledEndorsementRequirements(ctx context.
 			for _, party := range attRequest.Parties {
 				log.L(ctx).Debugf("party %s may endorse this request. Checking for endorsement", party)
 				found := false
-				for _, endorsement := range t.pt.PostAssembly.Endorsements {
-					log.L(ctx).Debugf("existing endorsement from party %s", endorsement.Verifier.Lookup)
+				for _, endorsement := range t.pt.PostAssembly.CollectedEndorsements {
 					log.L(ctx).Debugf("existing endorsement from party %s", endorsement.Verifier.Lookup)
 					found = endorsement.Name == attRequest.Name &&
 						party == endorsement.Verifier.Lookup &&
@@ -132,7 +130,7 @@ func (t *coordinatorTransaction) unfulfilledEndorsementRequirements(ctx context.
 // it is safe to call this function multiple times and on a frequent basis (e.g. every heartbeat interval while in the endorsement gathering state) as it will not send duplicate requests unless they have timedout
 func (t *coordinatorTransaction) sendEndorsementRequests(ctx context.Context) error {
 
-	log.L(ctx).Debugf("sendEndorsementRequests: number of verifiers %d", len(t.pt.PostAssembly.ResolvedVerifiers))
+	log.L(ctx).Debugf("sendEndorsementRequests: number of verifiers %d", len(t.pt.PostAssembly.AssembleResponse.GetResolvedVerifiers()))
 
 	if t.pendingEndorsementRequests == nil {
 		//we are starting a new round of endorsement requests so set an interval to remind us to resend any requests that have not been fulfilled on a periodic basis
@@ -178,7 +176,7 @@ func (t *coordinatorTransaction) extractEndorserNodes(ctx context.Context) []str
 	if t.pt.PostAssembly == nil {
 		return nodes
 	}
-	for _, attRequest := range t.pt.PostAssembly.AttestationPlan {
+	for _, attRequest := range t.pt.PostAssembly.AssembleResponse.GetAttestationPlan() {
 		if attRequest.AttestationType != prototk.AttestationType_ENDORSE {
 			continue
 		}
@@ -206,39 +204,32 @@ func (t *coordinatorTransaction) resetEndorsementRequests(ctx context.Context) {
 }
 
 func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest) error {
-	err := t.transportWriter.SendEndorsementRequest(
-		ctx,
-		t.pt.ID,
-		idempotencyKey,
-		party,
-		attRequest,
-		t.pt.PreAssembly.TransactionSpecification,
-		t.pt.PostAssembly.ResolvedVerifiers,
-		t.pt.PostAssembly.Signatures,
-		toEndorsableList(t.pt.PostAssembly.InputStates),
-		toEndorsableList(t.pt.PostAssembly.ReadStates),
-		toEndorsableList(t.pt.PostAssembly.OutputStates),
-		toEndorsableList(t.pt.PostAssembly.InfoStates),
-		t.clock.Now().Add(t.stateTimeout),
-		t.getBlockHeight(),
-		int64(t.blockHeightTolerance),
-	)
+	partyNode, err := pldtypes.PrivateIdentityLocator(party).Node(ctx, false)
+	if err != nil {
+		return err
+	}
+	err = t.transportWriter.SendEndorsementRequest(ctx, partyNode, &engineProto.EndorsementRequest{
+		IdempotencyKey:           idempotencyKey.String(),
+		ContractAddress:          t.pt.Address.HexString(),
+		TransactionId:            t.pt.ID.String(),
+		AttestationRequest:       attRequest,
+		Party:                    party,
+		TransactionSpecification: t.pt.PreAssembly.TransactionSpecification,
+		BlockContext:             t.pt.PostAssembly.AssembleResponse.GetBlockContext(),
+		Verifiers:                t.pt.PostAssembly.AssembleResponse.GetResolvedVerifiers(),
+		Signatures:               t.pt.PostAssembly.AssembleResponse.GetSignatures(),
+		InputStates:              t.pt.PostAssembly.AssembleResponse.GetInputStates(),
+		ReadStates:               t.pt.PostAssembly.AssembleResponse.GetReadStates(),
+		OutputStates:             t.pt.PostAssembly.OutputStates,
+		InfoStates:               t.pt.PostAssembly.InfoStates,
+		ExpiryTimeUnixMs:         t.clock.Now().Add(t.stateTimeout).UnixMilli(),
+		CoordinatorBlockHeight:   t.getBlockHeight(),
+		BlockHeightTolerance:     int64(t.blockHeightTolerance),
+	})
 	if err != nil {
 		log.L(ctx).Errorf("failed to send endorsement request to party %s: %s", party, err)
 	}
 	return err
-}
-
-func toEndorsableList(states []*components.FullState) []*prototk.EndorsableState {
-	endorsableList := make([]*prototk.EndorsableState, len(states))
-	for i, input := range states {
-		endorsableList[i] = &prototk.EndorsableState{
-			Id:            input.ID.String(),
-			SchemaId:      input.Schema.String(),
-			StateDataJson: string(input.Data),
-		}
-	}
-	return endorsableList
 }
 
 func action_Endorsed(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
@@ -327,7 +318,7 @@ func action_RecordEndorseFailure(ctx context.Context, t *coordinatorTransaction,
 func action_ComputeEndorseTolerances(_ context.Context, t *coordinatorTransaction, _ common.Event) error {
 	tolerances := make(map[string]int)
 	if t.pt.PostAssembly != nil {
-		for _, attRequest := range t.pt.PostAssembly.AttestationPlan {
+		for _, attRequest := range t.pt.PostAssembly.AssembleResponse.GetAttestationPlan() {
 			if attRequest.AttestationType != prototk.AttestationType_ENDORSE {
 				continue
 			}

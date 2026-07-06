@@ -232,17 +232,17 @@ func (t *coordinatorTransaction) mapPreparedTransaction() *components.PreparedTr
 			Metadata: tx.PreparedMetadata,
 		},
 	}
-	for _, s := range tx.PostAssembly.InputStates {
-		preparedTransaction.StateRefs.Spent = append(preparedTransaction.StateRefs.Spent, s.ID)
+	for _, s := range tx.PostAssembly.AssembleResponse.GetInputStates() {
+		preparedTransaction.StateRefs.Spent = append(preparedTransaction.StateRefs.Spent, pldtypes.MustParseHexBytes(s.GetId()))
 	}
-	for _, s := range tx.PostAssembly.ReadStates {
-		preparedTransaction.StateRefs.Read = append(preparedTransaction.StateRefs.Read, s.ID)
+	for _, s := range tx.PostAssembly.AssembleResponse.GetReadStates() {
+		preparedTransaction.StateRefs.Read = append(preparedTransaction.StateRefs.Read, pldtypes.MustParseHexBytes(s.GetId()))
 	}
 	for _, s := range tx.PostAssembly.OutputStates {
-		preparedTransaction.StateRefs.Confirmed = append(preparedTransaction.StateRefs.Confirmed, s.ID)
+		preparedTransaction.StateRefs.Confirmed = append(preparedTransaction.StateRefs.Confirmed, pldtypes.MustParseHexBytes(s.GetId()))
 	}
 	for _, s := range tx.PostAssembly.InfoStates {
-		preparedTransaction.StateRefs.Info = append(preparedTransaction.StateRefs.Info, s.ID)
+		preparedTransaction.StateRefs.Info = append(preparedTransaction.StateRefs.Info, pldtypes.MustParseHexBytes(s.GetId()))
 	}
 	if tx.PreparedPublicTransaction != nil {
 		preparedTransaction.Transaction = *tx.PreparedPublicTransaction

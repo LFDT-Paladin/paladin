@@ -104,7 +104,6 @@ var allTypes = []interface{}{
 	pldapi.State{},
 	pldapi.StateConfirmRecord{},
 	pldapi.StateSpendRecord{},
-	pldapi.StateLock{},
 	pldapi.Schema{},
 	pldapi.RegistryEntry{OnChainLocation: &pldapi.OnChainLocation{}},
 	pldapi.RegistryEntryWithProperties{

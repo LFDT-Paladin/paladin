@@ -18,6 +18,8 @@ syntax = "proto3";
 package io.kaleido.paladin.kata.engine;
 option go_package = "pkg/proto/engine";
 import "to_domain.proto";
+import "private_tx.proto";
+import "states.proto";
 
 message NonceAssigned {
     string id = 1;
@@ -81,6 +83,7 @@ message EndorsementRequest {
     int64 expiry_time_unix_ms = 13;
     int64 coordinator_block_height = 14;
     int64 block_height_tolerance = 15;
+    io.kaleido.paladin.toolkit.BlockContext block_context = 16;
 }
 
 message EndorsementResponse {
@@ -109,7 +112,17 @@ message DelegationRequest {
     string delegate_node_id = 1;
     string delegation_id = 2; //this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
     int64 originator_block_height = 3; // the originator's block height upon which this delegation was calculated
-    repeated bytes private_transactions = 4; // json serialized copies of all in-memory private transaction objects, batched into a single message
+    repeated PrivateTransactionDelegation transactions = 4; // typed delegation descriptors, one per delegated transaction
+    string contract_address = 5; // hex EthAddress — all transactions in this request share the same contract
+}
+
+// PrivateTransactionDelegation is the minimal wire descriptor sent when an originator
+// delegates a transaction to a coordinator
+message PrivateTransactionDelegation {
+    string id = 1;
+    string domain = 2;
+    io.kaleido.paladin.toolkit.TransactionSpecification.Intent intent = 3;
+    io.kaleido.paladin.toolkit.TransactionPreAssembly pre_assembly = 4;
 }
 
 message DelegationResponse {
@@ -140,8 +153,7 @@ message AssembleRequest {
     string transaction_id = 1;
     string assemble_request_id = 2;
     string contract_address = 3;
-    bytes pre_assembly = 5;
-    bytes state_locks = 6;
+    io.kaleido.paladin.toolkit.StateSnapshot state_snapshot = 6;
     int64 coordinator_block_height = 7;
     int64 expiry_time_unix_ms = 8;
     int64 block_height_tolerance = 9;
@@ -151,8 +163,7 @@ message AssembleResponse {
     string transaction_id = 1;
     string assemble_request_id = 2;
     string contract_address = 3;
-    bytes post_assembly = 4;
-    bytes pre_assembly = 5;
+    io.kaleido.paladin.toolkit.TransactionPostAssembly post_assembly = 4;
 }
 
 message AssembleError {
@@ -203,5 +214,43 @@ message PreDispatchRejection {
 message CoordinatorHeartbeatNotification {
     string from = 1;
     string contract_address = 2; // Represent as hex address?
-    bytes coordinator_snapshot = 3;
+    CoordinatorSnapshot coordinator_snapshot = 3;
+}
+
+// The snapshot transaction types are flattened (no embedding) — each carries the transaction id plus
+// the lifecycle-specific fields. Only information that is, or will eventually be, known on the base
+// ledger is included (hash, nonce, signer, revert reason).
+message SnapshotPooledTransaction {
+    string id = 1;
+}
+message SnapshotDispatchedTransaction {
+    string id = 1;
+    string signer = 2;
+    optional string latest_submission_hash = 3;
+    optional uint64 nonce = 4;
+}
+message SnapshotConfirmedTransaction {
+    string id = 1;
+    string signer = 2;
+    optional string latest_submission_hash = 3;
+    optional uint64 nonce = 4;
+    string hash = 5;
+}
+message SnapshotRevertedTransaction {
+    string id = 1;
+    string revert_reason = 2;
+}
+
+// CoordinatorSnapshot is the payload of a coordinator heartbeat. state_snapshot is only populated in
+// Flush/Closing (handover) heartbeats. coordinator_state is the raw int value of the coordinator
+// top-level state machine (common.CoordinatorState) — cast on each side rather than mirroring the enum.
+message CoordinatorSnapshot {
+    repeated SnapshotDispatchedTransaction dispatched_transactions = 1;
+    repeated SnapshotPooledTransaction pooled_transactions = 2;
+    repeated SnapshotConfirmedTransaction confirmed_transactions = 3;
+    repeated SnapshotRevertedTransaction reverted_transactions = 4;
+    int32 coordinator_state = 5;
+    uint64 block_height = 6;
+    repeated string endorser_candidates = 7;
+    io.kaleido.paladin.toolkit.StateSnapshot state_snapshot = 8; // handover only
 }

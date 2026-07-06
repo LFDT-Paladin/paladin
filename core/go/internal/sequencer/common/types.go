@@ -15,17 +15,20 @@
 package common
 
 import (
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
+	"context"
+
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 )
 
+// The CoordinatorSnapshot proto is converted wholesale to native types (uuid.UUID / pldtypes.EthAddress / Bytes32 /
+// HexBytes) once at the transport boundary, rather than per-field on demand: the state-machine
+// consumers would otherwise repeat those conversions on every pass over the snapshot.
+
 // CoordinatorSnapshot must only contain information about transactions which is (or will eventually be)
 // known on the base ledger (e.g. hash, nonce, signer, revert reason). It must not contain information
 // such as the transaction originator.
-// The exception to this is OutputStates, since this is already filtered to only include output states
-// that the receiver is allowed to see.
 type CoordinatorSnapshot struct {
 	DispatchedTransactions []*SnapshotDispatchedTransaction `json:"dispatchedTransactions"`
 	PooledTransactions     []*SnapshotPooledTransaction     `json:"pooledTransactions"`
@@ -34,14 +37,6 @@ type CoordinatorSnapshot struct {
 	CoordinatorState       CoordinatorState                 `json:"coordinatorState"`
 	BlockHeight            uint64                           `json:"blockHeight"`
 	EndorserCandidates     []string                         `json:"endorserCandidates,omitempty"` // (COORDINATOR_ENDORSER selection mode only)
-	// Locks and OutputStates are only populated in Flush and Closing heartbeats, for coordinator handover.
-	// Locks contain only on-chain metadata (state IDs, types, block numbers) — no privacy protection needed,
-	// as this data ends up on the base ledger. All locks are sent to every recipient node.
-	// OutputStates carry private state data and are filtered per node: each recipient only receives
-	// the OutputStates where it appears in AllowedNodes. A receiving coordinator can cross-reference the
-	// create locks against its OutputStates to validate it has all the private data it needs.
-	Locks        []*grapher.StateLock                  `json:"locks,omitempty"`
-	OutputStates []*statevisibilitytracker.OutputState `json:"outputStates,omitempty"`
 }
 
 type SnapshotPooledTransaction struct {
@@ -67,4 +62,87 @@ type SnapshotConfirmedTransaction struct {
 type SnapshotRevertedTransaction struct {
 	SnapshotPooledTransaction
 	RevertReason pldtypes.HexBytes
+}
+
+func CoordinatorSnapshotFromProto(ctx context.Context, p *engineProto.CoordinatorSnapshot) (*CoordinatorSnapshot, error) {
+	if p == nil {
+		return nil, nil
+	}
+	s := &CoordinatorSnapshot{
+		CoordinatorState:   CoordinatorState(int(p.GetCoordinatorState())),
+		BlockHeight:        p.GetBlockHeight(),
+		EndorserCandidates: p.GetEndorserCandidates(),
+	}
+	for _, pt := range p.GetPooledTransactions() {
+		id, err := uuid.Parse(pt.GetId())
+		if err != nil {
+			return nil, err
+		}
+		s.PooledTransactions = append(s.PooledTransactions, &SnapshotPooledTransaction{ID: id})
+	}
+	for _, pt := range p.GetDispatchedTransactions() {
+		dt, err := dispatchedFromProto(ctx, pt.GetId(), pt.GetSigner(), pt.LatestSubmissionHash, pt.Nonce)
+		if err != nil {
+			return nil, err
+		}
+		s.DispatchedTransactions = append(s.DispatchedTransactions, dt)
+	}
+	for _, pt := range p.GetConfirmedTransactions() {
+		dt, err := dispatchedFromProto(ctx, pt.GetId(), pt.GetSigner(), pt.LatestSubmissionHash, pt.Nonce)
+		if err != nil {
+			return nil, err
+		}
+		hash, err := pldtypes.ParseBytes32Ctx(ctx, pt.GetHash())
+		if err != nil {
+			return nil, err
+		}
+		s.ConfirmedTransactions = append(s.ConfirmedTransactions, &SnapshotConfirmedTransaction{
+			SnapshotDispatchedTransaction: *dt,
+			Hash:                          hash,
+		})
+	}
+	for _, pt := range p.GetRevertedTransactions() {
+		id, err := uuid.Parse(pt.GetId())
+		if err != nil {
+			return nil, err
+		}
+		revertReason, err := pldtypes.ParseHexBytes(ctx, pt.GetRevertReason())
+		if err != nil {
+			return nil, err
+		}
+		s.RevertedTransactions = append(s.RevertedTransactions, &SnapshotRevertedTransaction{
+			SnapshotPooledTransaction: SnapshotPooledTransaction{ID: id},
+			RevertReason:              revertReason,
+		})
+	}
+	return s, nil
+}
+
+func dispatchedFromProto(ctx context.Context, id, signer string, latestSubmissionHash *string, nonce *uint64) (*SnapshotDispatchedTransaction, error) {
+	txID, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	dt := &SnapshotDispatchedTransaction{
+		SnapshotPooledTransaction: SnapshotPooledTransaction{ID: txID},
+		Nonce:                     nonce,
+	}
+	// A transaction can be in Ready_For_Dispatch before the dispatcher thread has collected it and
+	// assigned a signer, so the snapshot legitimately carries an empty signer. Leave the zero address
+	// in that case rather than failing to parse the whole snapshot.
+	if signer != "" {
+		signerAddr, err := pldtypes.ParseEthAddress(signer)
+		if err != nil {
+			return nil, err
+		}
+		dt.Signer = *signerAddr
+	}
+	if latestSubmissionHash != nil {
+		h, err := pldtypes.ParseBytes32Ctx(ctx, *latestSubmissionHash)
+		if err != nil {
+			return nil, err
+		}
+		dt.LatestSubmissionHash = &h
+	}
+	return dt, nil
 }

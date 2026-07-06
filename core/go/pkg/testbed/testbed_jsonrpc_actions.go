@@ -244,7 +244,7 @@ func (tb *testbed) resolveFunction(invocation *pldapi.TransactionInput) (*abi.En
 func (tb *testbed) resolveTXSigner(tx *testbedTransaction) error {
 	// The testbed implements much simpler checking here than the full private TX manager
 	// on whether the ENDORSER_MUST_SUBMIT constraint clashes with the config on the contract.
-	for _, ar := range tx.ptx.PostAssembly.Endorsements {
+	for _, ar := range tx.ptx.PostAssembly.AssembleResponse.GetEndorsements() {
 		for _, c := range ar.Constraints {
 			if c == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
 				if tx.ptx.Signer != "" {
@@ -298,20 +298,24 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	// Now call assemble
-	if err := tx.psc.AssembleTransaction(ctx, dqc, tb.c.Persistence().NOTX(), tx.ptx, tx.localTx, resolvedVerifiers); err != nil {
-		return err
+	assembleResponse, assembleErr := tx.psc.AssembleTransaction(ctx, dqc, tb.c.Persistence().NOTX(), tx.ptx.ID, tx.ptx.PreAssembly, tx.localTx, resolvedVerifiers)
+	if assembleErr != nil {
+		return assembleErr
 	}
-	tx.ptx.PostAssembly.ResolvedVerifiers = resolvedVerifiers
+	assembleResponse.ResolvedVerifiers = resolvedVerifiers
+	tx.ptx.PostAssembly = &components.TransactionPostAssembly{
+		AssembleResponse: assembleResponse,
+	}
 
 	// The testbed only handles the OK result
-	switch tx.ptx.PostAssembly.AssemblyResult {
+	switch tx.ptx.PostAssembly.AssembleResponse.GetAssemblyResult() {
 	case prototk.AssembleTransactionResponse_OK:
 	default:
 		revertReason := "(no revert reason)"
-		if tx.ptx.PostAssembly.RevertReason != nil {
-			revertReason = *tx.ptx.PostAssembly.RevertReason
+		if tx.ptx.PostAssembly.AssembleResponse.RevertReason != nil {
+			revertReason = *tx.ptx.PostAssembly.AssembleResponse.RevertReason
 		}
-		return fmt.Errorf("assemble result was %s (reason: %s)", tx.ptx.PostAssembly.AssemblyResult, revertReason)
+		return fmt.Errorf("assemble result was %s (reason: %s)", tx.ptx.PostAssembly.AssembleResponse.GetAssemblyResult(), revertReason)
 	}
 
 	// The testbed always chooses to take the assemble output and progress to endorse
@@ -332,7 +336,7 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	log.L(ctx).Infof("Assembled and endorsed inputs=%d outputs=%d signatures=%d endorsements=%d",
-		len(tx.ptx.PostAssembly.InputStates), len(tx.ptx.PostAssembly.OutputStates), len(tx.ptx.PostAssembly.Signatures), len(tx.ptx.PostAssembly.Endorsements))
+		len(tx.ptx.PostAssembly.AssembleResponse.GetInputStates()), len(tx.ptx.PostAssembly.OutputStates), len(tx.ptx.PostAssembly.AssembleResponse.GetSignatures()), len(tx.ptx.PostAssembly.AssembleResponse.GetEndorsements()))
 
 	// Pick the signer for the base ledger transaction (we are always the coordinator in the testbed so this logic is much simplified from the private TX manager)
 	if err := tb.resolveTXSigner(tx); err != nil {
@@ -386,59 +390,59 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 }
 
-func mapToBaseState(state *components.FullState, tx *testbedTransaction) *pldapi.StateBase {
+func mapEndorsableToBaseState(state *prototk.EndorsableState, tx *testbedTransaction) *pldapi.StateBase {
 	return &pldapi.StateBase{
 		DomainName:      tx.ptx.Domain,
 		ContractAddress: &tx.ptx.Address,
-		ID:              state.ID,
-		Schema:          state.Schema,
-		Data:            state.Data.Bytes(),
+		ID:              pldtypes.MustParseHexBytes(state.GetId()),
+		Schema:          pldtypes.MustParseBytes32(state.GetSchemaId()),
+		Data:            []byte(state.GetStateDataJson()),
 	}
 }
 
-func mapToEncodedState(state *components.FullState, tx *testbedTransaction) *pldapi.StateEncoded {
+func mapEndorsableToEncodedState(state *prototk.EndorsableState, tx *testbedTransaction) *pldapi.StateEncoded {
 	return &pldapi.StateEncoded{
 		DomainName:      tx.ptx.Domain,
 		ContractAddress: &tx.ptx.Address,
-		ID:              state.ID,
-		Schema:          state.Schema,
-		Data:            state.Data.Bytes(),
+		ID:              pldtypes.MustParseHexBytes(state.GetId()),
+		Schema:          pldtypes.MustParseBytes32(state.GetSchemaId()),
+		Data:            []byte(state.GetStateDataJson()),
 	}
 }
 
 func mapStatesForReceipt(tx *testbedTransaction) *pldapi.TransactionStates {
 	states := &pldapi.TransactionStates{}
-	for _, state := range tx.ptx.PostAssembly.InputStates {
-		states.Spent = append(states.Spent, mapToBaseState(state, tx))
+	for _, state := range tx.ptx.PostAssembly.AssembleResponse.GetInputStates() {
+		states.Spent = append(states.Spent, mapEndorsableToBaseState(state, tx))
 	}
 	for _, state := range tx.ptx.PostAssembly.OutputStates {
-		states.Confirmed = append(states.Confirmed, mapToBaseState(state, tx))
+		states.Confirmed = append(states.Confirmed, mapEndorsableToBaseState(state, tx))
 	}
-	for _, state := range tx.ptx.PostAssembly.ReadStates {
-		states.Read = append(states.Read, mapToBaseState(state, tx))
+	for _, state := range tx.ptx.PostAssembly.AssembleResponse.GetReadStates() {
+		states.Read = append(states.Read, mapEndorsableToBaseState(state, tx))
 	}
 	for _, state := range tx.ptx.PostAssembly.InfoStates {
-		states.Info = append(states.Info, mapToBaseState(state, tx))
+		states.Info = append(states.Info, mapEndorsableToBaseState(state, tx))
 	}
 	return states
 }
 
 func (tb *testbed) mapTransaction(ctx context.Context, tx *testbedTransaction) (*TransactionResult, error) {
-	inputStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.InputStates))
-	for i, state := range tx.ptx.PostAssembly.InputStates {
-		inputStates[i] = mapToEncodedState(state, tx)
+	inputStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.AssembleResponse.GetInputStates()))
+	for i, state := range tx.ptx.PostAssembly.AssembleResponse.GetInputStates() {
+		inputStates[i] = mapEndorsableToEncodedState(state, tx)
 	}
 	outputStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.OutputStates))
 	for i, state := range tx.ptx.PostAssembly.OutputStates {
-		outputStates[i] = mapToEncodedState(state, tx)
+		outputStates[i] = mapEndorsableToEncodedState(state, tx)
 	}
-	readStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.ReadStates))
-	for i, state := range tx.ptx.PostAssembly.ReadStates {
-		readStates[i] = mapToEncodedState(state, tx)
+	readStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.AssembleResponse.GetReadStates()))
+	for i, state := range tx.ptx.PostAssembly.AssembleResponse.GetReadStates() {
+		readStates[i] = mapEndorsableToEncodedState(state, tx)
 	}
 	infoStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.InfoStates))
 	for i, state := range tx.ptx.PostAssembly.InfoStates {
-		infoStates[i] = mapToEncodedState(state, tx)
+		infoStates[i] = mapEndorsableToEncodedState(state, tx)
 	}
 
 	preparedTransaction := tx.ptx.PreparedPublicTransaction

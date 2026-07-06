@@ -222,8 +222,10 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		txn.latestFulfilledAssembleRequestID = b.latestFulfilledAssembleRequestID
 
 		txn.pt.PostAssembly = &components.TransactionPostAssembly{
-			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-			RevertReason:   ptrTo("test revert reason"),
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+				RevertReason:   ptrTo("test revert reason"),
+			},
 		}
 	case State_Parked:
 		txn.currentDelegate = b.currentDelegate
@@ -231,7 +233,9 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		txn.latestFulfilledAssembleRequestID = b.latestFulfilledAssembleRequestID
 
 		txn.pt.PostAssembly = &components.TransactionPostAssembly{
-			AssemblyResult: prototk.AssembleTransactionResponse_PARK,
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AssemblyResult: prototk.AssembleTransactionResponse_PARK,
+			},
 		}
 	case State_Prepared:
 		txn.currentDelegate = b.currentDelegate
@@ -261,10 +265,10 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestOK() *mock.Cal
 		"AssembleAndSign",
 		mock.Anything, //ctx context.Contex
 		m.transactionBuilder.txn.pt.ID,
-		mock.Anything, //preAssembly *components.TransactionPreAssembly
+		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
-	).Return(&components.TransactionPostAssembly{
+	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
 }
@@ -275,10 +279,10 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestRevert() *mock
 		"AssembleAndSign",
 		mock.Anything, //ctx context.Contex
 		m.transactionBuilder.txn.pt.ID,
-		mock.Anything, //preAssembly *components.TransactionPreAssembly
+		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
-	).Return(&components.TransactionPostAssembly{
+	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 		RevertReason:   ptrTo("test revert reason"),
 	}, nil)
@@ -290,10 +294,10 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestPark() *mock.C
 		"AssembleAndSign",
 		mock.Anything, //ctx context.Contex
 		m.transactionBuilder.txn.pt.ID,
-		mock.Anything, //preAssembly *components.TransactionPreAssembly
+		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
-	).Return(&components.TransactionPostAssembly{
+	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_PARK,
 		RevertReason:   ptrTo("test revert reason"),
 	}, nil)

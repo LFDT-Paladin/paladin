@@ -28,6 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -38,7 +39,7 @@ type CoordinatorTransaction interface {
 	GetID() uuid.UUID
 	GetCurrentState() State
 	HasDispatchedPublicTransaction() bool
-	GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction, *common.SnapshotRevertedTransaction)
+	GetSnapshot(ctx context.Context) (*engineProto.SnapshotPooledTransaction, *engineProto.SnapshotDispatchedTransaction, *engineProto.SnapshotConfirmedTransaction, *engineProto.SnapshotRevertedTransaction)
 	GetOriginatorNode() string
 }
 
@@ -240,7 +241,12 @@ func newTransaction(
 	// Set up chained dependencies carried from the parent coordinator's grapher.
 	// Only retain dependencies that are still known in the grapher; unknown = assumed finalized.
 	if pt.PreAssembly != nil && len(pt.PreAssembly.ChainedDependsOn) > 0 {
-		for _, depID := range pt.PreAssembly.ChainedDependsOn {
+		for _, depIDStr := range pt.PreAssembly.ChainedDependsOn {
+			depID, err := uuid.Parse(depIDStr)
+			if err != nil {
+				log.L(txCtx).Warnf("Skipping invalid chained dependency ID %q for TX %s: %v", depIDStr, pt.ID, err)
+				continue
+			}
 			state, ok := txn.getCoordinatorTransactionState(txCtx, depID)
 			if !ok {
 				// It is possible for a chained transaction to be created referencing dependencies that the original
