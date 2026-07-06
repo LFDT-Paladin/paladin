@@ -408,6 +408,7 @@ func Test_sendDelegationRequest_TransportError_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "transport error")
 }
 
+
 func Test_action_UpdateEndorserCandidates_DoesNotChangeCurrentActiveCoordinator(t *testing.T) {
 	ctx := context.Background()
 	o, _ := NewOriginatorBuilderForTesting(t, State_Idle).
