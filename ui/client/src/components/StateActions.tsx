@@ -33,7 +33,7 @@ export const StateActions: React.FC<Props> = ({ state }) => {
     <>
       <Box sx={{ display: 'flex', gap: '20px' }}>
         <Button
-          sx={{ fontWeight: '400' }}
+          sx={{ fontWeight: '400', minWidth: '70px' }}
           size="small"
           onClick={() => setSendStateDialogOpen(true)}
         >

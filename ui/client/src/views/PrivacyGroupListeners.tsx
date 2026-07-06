@@ -276,8 +276,7 @@ export const PrivacyGroupListeners: React.FC = () => {
                             }}>
                               <Button
                                 disabled={privacyGroupListener.started === true}
-                                variant="outlined"
-                                sx={{ fontWeight: 400 }}
+                                sx={{ fontWeight: 400, minWidth: '70px' }}
                                 size="small"
                                 onClick={() => {
                                   startListener(privacyGroupListener.name)
@@ -287,8 +286,7 @@ export const PrivacyGroupListeners: React.FC = () => {
                               </Button>
                               <Button
                                 disabled={privacyGroupListener.started !== true}
-                                variant="outlined"
-                                sx={{ fontWeight: 400 }}
+                                sx={{ fontWeight: 400, minWidth: '70px' }}
                                 size="small"
                                 onClick={() => {
                                   stopListener(privacyGroupListener.name)
