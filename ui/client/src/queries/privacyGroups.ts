@@ -303,3 +303,20 @@ export const getPrivacyGroupListener = async (
     )
   );
 };
+
+export const deletePrivacyGroupListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.pgroup_deleteMessageListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorDeletingPrivacyGroupListener')
+    )
+  );
+};

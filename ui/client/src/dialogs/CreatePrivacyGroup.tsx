@@ -62,6 +62,7 @@ export const CreatePrivacyGroupDialog: React.FC<Props> = ({
       setMember('');
       setMembers([]);
       setShowMemberNameError(false);
+      setErrorMessage(undefined);
     }
   }, [dialogOpen]);
 

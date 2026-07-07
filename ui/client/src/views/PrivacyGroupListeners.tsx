@@ -29,6 +29,7 @@ import { AppRoutes } from "../routes";
 import CircleIcon from '@mui/icons-material/Circle';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { customNavigate } from "../utils";
+import { DeletePrivacyGroupListenerDialog } from "../dialogs/DeletePrivacyGroupListener";
 
 export const PrivacyGroupListeners: React.FC = () => {
   const { privacyGroupListeners: privacyGroupListenersViewState } = useApplicationContext();
@@ -49,7 +50,9 @@ export const PrivacyGroupListeners: React.FC = () => {
     setFiltersVisible,
   } = privacyGroupListenersViewState;
 
+  const [deletePrivacyGroupListenerDialogOpen, setDeletePrivacyGroupDialogOpen] = useState(false);
   const navigate = useNavigate();
+  const [selectedListenerName, setSelectedListenerName] = useState<string>();
   const [count, setCount] = useState(-1);
   const { t } = useTranslation();
   const location = useLocation();
@@ -240,8 +243,8 @@ export const PrivacyGroupListeners: React.FC = () => {
                         >
                           {t('actions')}
                         </TableCell>
-                        <TableCell 
-                        sx={{
+                        <TableCell
+                          sx={{
                             backgroundColor: (theme) => theme.palette.background.paper,
                             width: '100%'
                           }}
@@ -293,9 +296,19 @@ export const PrivacyGroupListeners: React.FC = () => {
                                 }}
                               >{t('stop')}
                               </Button>
+                              <Button
+                                color="error"
+                                sx={{ fontWeight: 400, minWidth: '70px' }}
+                                size="small"
+                                onClick={() => {
+                                  setSelectedListenerName(privacyGroupListener.name)
+                                  setDeletePrivacyGroupDialogOpen(true);
+                                }}
+                              >{t('delete')}
+                              </Button>
                             </Box>
                           </TableCell>
-                          <TableCell sx={{ padding: '8px'}}>
+                          <TableCell sx={{ padding: '8px' }}>
                             <Tooltip title={t('open')} arrow>
                               <IconButton
                                 onClick={mouseEvent => customNavigate(`/ui/privacy-groups/listeners/${privacyGroupListener.name}`, mouseEvent, navigate)}>
@@ -338,6 +351,13 @@ export const PrivacyGroupListeners: React.FC = () => {
           </Box>
         </Box>
       </Fade>
+      {selectedListenerName &&
+        <DeletePrivacyGroupListenerDialog
+          listenerName={selectedListenerName}
+          refetch={refetch}
+          dialogOpen={deletePrivacyGroupListenerDialogOpen}
+          setDialogOpen={setDeletePrivacyGroupDialogOpen}
+        />}
     </>
   );
 
