@@ -344,3 +344,14 @@ export interface IPrivacyGroupListener {
   filters: any
   options: any
 }
+
+export interface IPrivacyGroupMessageListenerFilters {
+  sequenceAbove?: number
+  domain?: string
+  group?: string
+  topic?: string
+}
+
+export interface IPrivacyGroupMessageListenerOptions {
+  excludeLocal?: boolean
+}

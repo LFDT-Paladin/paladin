@@ -215,3 +215,7 @@ export const isValidPrivacyGroupName = (value: string) =>
 
 export const isValidPrivacyGroupMemberName = (value: string) =>
   /^(?=.{1,128}$)[a-zA-Z0-9][a-zA-Z0-9._-]*@[a-zA-Z0-9._-]*[a-zA-Z0-9]$/.test(value);
+
+
+export const isValidPrivacyGroupListenerName = (value: string) =>
+  /^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,126}[a-zA-Z0-9])?$/.test(value);

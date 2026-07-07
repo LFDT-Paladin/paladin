@@ -17,7 +17,7 @@
 import i18next from 'i18next';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
-import { IFilter, IPagedResult, IPrivacyGroup, IPrivacyGroupListener, IPrivacyGroupMessage } from '../interfaces';
+import { IFilter, IPagedResult, IPrivacyGroup, IPrivacyGroupListener, IPrivacyGroupMessage, IPrivacyGroupMessageListenerFilters, IPrivacyGroupMessageListenerOptions } from '../interfaces';
 import { deepMerge, toPagedResult, translateFilters } from '../utils';
 
 export const listPrivacyGroups = async (
@@ -300,6 +300,31 @@ export const getPrivacyGroupListener = async (
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
       i18next.t('errorStoppingPrivacyGroupListener')
+    )
+  );
+};
+
+export const createPrivacyGroupListener = async (
+  name: string,
+  started: boolean,
+  filters: IPrivacyGroupMessageListenerFilters,
+  options: IPrivacyGroupMessageListenerOptions
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.pgroup_createMessageListener,
+    params: [{
+      name,
+      started,
+      filters,
+      options
+    }],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorDeletingPrivacyGroupListener')
     )
   );
 };

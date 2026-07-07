@@ -40,6 +40,7 @@ export const RpcMethods = {
   pgroup_startMessageListener: 'pgroup_startMessageListener',
   pgroup_stopMessageListener: 'pgroup_stopMessageListener',
   pgroup_getMessageListener: 'pgroup_getMessageListener',
+  pgroup_createMessageListener: 'pgroup_createMessageListener',
   pgroup_deleteMessageListener: 'pgroup_deleteMessageListener',
   pstate_listSchemas: 'pstate_listSchemas',
   pstate_queryStates: 'pstate_queryStates',

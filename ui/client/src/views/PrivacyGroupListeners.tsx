@@ -30,6 +30,8 @@ import CircleIcon from '@mui/icons-material/Circle';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { customNavigate } from "../utils";
 import { DeletePrivacyGroupListenerDialog } from "../dialogs/DeletePrivacyGroupListener";
+import AddIcon from '@mui/icons-material/Add';
+import { CreatePrivacyGroupListenerDialog } from "../dialogs/CreatePrivacyGroupListener";
 
 export const PrivacyGroupListeners: React.FC = () => {
   const { privacyGroupListeners: privacyGroupListenersViewState } = useApplicationContext();
@@ -50,6 +52,7 @@ export const PrivacyGroupListeners: React.FC = () => {
     setFiltersVisible,
   } = privacyGroupListenersViewState;
 
+  const [createPrivacyGroupListenerDialogOpen, setCreatePrivacyGroupListenerDialogOpen] = useState(false);
   const [deletePrivacyGroupListenerDialogOpen, setDeletePrivacyGroupDialogOpen] = useState(false);
   const navigate = useNavigate();
   const [selectedListenerName, setSelectedListenerName] = useState<string>();
@@ -139,6 +142,15 @@ export const PrivacyGroupListeners: React.FC = () => {
               <ToggleButton color="primary" value="listeners" sx={{ width: '120px' }}>{t('listeners')}</ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
+              <Button
+                sx={{ borderRadius: '20px', minWidth: '120px' }}
+                size="small"
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={() => setCreatePrivacyGroupListenerDialogOpen(true)}
+              >
+                {t('create')}
+              </Button>
               <FiltersButton
                 filtersVisible={filtersVisible}
                 setFiltersVisible={setFiltersVisible}
@@ -351,6 +363,11 @@ export const PrivacyGroupListeners: React.FC = () => {
           </Box>
         </Box>
       </Fade>
+      <CreatePrivacyGroupListenerDialog
+        refetch={refetch}
+        dialogOpen={createPrivacyGroupListenerDialogOpen}
+        setDialogOpen={setCreatePrivacyGroupListenerDialogOpen}
+      />
       {selectedListenerName &&
         <DeletePrivacyGroupListenerDialog
           listenerName={selectedListenerName}
