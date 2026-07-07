@@ -79,6 +79,43 @@ func (*CreatedEvent) TypeString() string {
 	return "Event_Created"
 }
 
+type VerifiersResolvedEvent struct {
+	BaseEvent
+	ResolvedVerifiers []*prototk.ResolvedVerifier
+}
+
+func (*VerifiersResolvedEvent) Type() EventType {
+	return Event_VerifiersResolved
+}
+
+func (*VerifiersResolvedEvent) TypeString() string {
+	return "Event_VerifiersResolved"
+}
+
+type VerifierResolutionFailedEvent struct {
+	BaseEvent
+}
+
+func (*VerifierResolutionFailedEvent) Type() EventType {
+	return Event_VerifierResolutionFailed
+}
+
+func (*VerifierResolutionFailedEvent) TypeString() string {
+	return "Event_VerifierResolutionFailed"
+}
+
+type VerifierResolutionRetryEvent struct {
+	BaseEvent
+}
+
+func (*VerifierResolutionRetryEvent) Type() EventType {
+	return Event_VerifierResolutionRetry
+}
+
+func (*VerifierResolutionRetryEvent) TypeString() string {
+	return "Event_VerifierResolutionRetry"
+}
+
 type DelegatedEvent struct {
 	BaseEvent
 	Coordinator string

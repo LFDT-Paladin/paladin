@@ -44,6 +44,7 @@ func TestCoordinatorState_String(t *testing.T) {
 
 func TestOriginatorTransactionState_String(t *testing.T) {
 	assert.Equal(t, "Initial", OriginatorTransactionState_Initial.String())
+	assert.Equal(t, "Resolving", OriginatorTransactionState_Resolving.String())
 	assert.Equal(t, "Pending", OriginatorTransactionState_Pending.String())
 	assert.Equal(t, "Delegated", OriginatorTransactionState_Delegated.String())
 	assert.Equal(t, "Assembling", OriginatorTransactionState_Assembling.String())

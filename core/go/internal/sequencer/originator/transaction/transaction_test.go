@@ -33,7 +33,7 @@ import (
 
 func TestNewTransaction_NilPrivateTransaction_ReturnsError(t *testing.T) {
 	ctx := context.Background()
-	_, err := NewTransaction(ctx, nil, nil, nil, nil, nil, func(_ context.Context) {}, func() int64 { return 0 })
+	_, err := NewTransaction(ctx, nil, nil, nil, nil, nil, func(_ context.Context) {}, func() int64 { return 0 }, common.RealClock(), time.Second)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot create transaction without private tx")
 }
@@ -46,7 +46,7 @@ func TestNewTransaction_Success_ReturnsOriginatorTransaction(t *testing.T) {
 	queue := func(context.Context, common.Event) {}
 	m := metrics.InitMetrics(context.Background(), prometheus.NewRegistry())
 
-	ot, err := NewTransaction(ctx, pt, recorder, queue, engine, m, func(_ context.Context) {}, func() int64 { return 0 })
+	ot, err := NewTransaction(ctx, pt, recorder, queue, engine, m, func(_ context.Context) {}, func() int64 { return 0 }, common.RealClock(), time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, ot)
 	assert.Equal(t, pt.ID, ot.GetID())

@@ -21,6 +21,7 @@ import (
 	"context"
 	"math/rand/v2"
 	"testing"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
@@ -63,6 +64,12 @@ type TransactionBuilderForTesting struct {
 
 	checkStateComplete bool
 	checkStateErr      error
+
+	clock                  common.Clock
+	mockClock              *sequencercommonmocks.Clock
+	resolveRetryBackoff    time.Duration
+	resolveVerifiersResult []*prototk.ResolvedVerifier
+	resolveVerifiersErr    error
 }
 
 // Function NewTransactionBuilderForTesting creates a TransactionBuilderForTesting with random values for all fields.
@@ -77,6 +84,8 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		sentMessageRecorder:       testutil.NewSentMessageRecorder(),
 		metrics:                   metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
 		checkStateComplete:        true, // default: state is complete
+		clock:                     common.RealClock(),
+		resolveRetryBackoff:       time.Second,
 	}
 
 	switch state {
@@ -149,10 +158,31 @@ func (b *TransactionBuilderForTesting) WithCheckPendingPrivateStateDataError(err
 	return b
 }
 
+// WithMockClock swaps the real clock for a mock so tests can assert on scheduled retry timers.
+func (b *TransactionBuilderForTesting) WithMockClock() *TransactionBuilderForTesting {
+	b.mockClock = sequencercommonmocks.NewClock(b.t)
+	b.clock = b.mockClock
+	return b
+}
+
+func (b *TransactionBuilderForTesting) WithResolveRetryBackoff(backoff time.Duration) *TransactionBuilderForTesting {
+	b.resolveRetryBackoff = backoff
+	return b
+}
+
+// WithResolveVerifiersResult configures what the engine integration's ResolveVerifiers mock returns when
+// the transaction's resolution goroutine runs.
+func (b *TransactionBuilderForTesting) WithResolveVerifiersResult(resolved []*prototk.ResolvedVerifier, err error) *TransactionBuilderForTesting {
+	b.resolveVerifiersResult = resolved
+	b.resolveVerifiersErr = err
+	return b
+}
+
 type TransactionDependencyFakes struct {
 	SentMessageRecorder *testutil.SentMessageRecorder
 	TransportWriter     *sequencertransportmocks.TransportWriter
 	EngineIntegration   *sequencercommonmocks.EngineIntegration
+	Clock               *sequencercommonmocks.Clock
 	transactionBuilder  *TransactionBuilderForTesting
 	Events              chan common.Event
 }
@@ -164,6 +194,7 @@ func (b *TransactionBuilderForTesting) BuildWithMocks() (*originatorTransaction,
 	mocks := &TransactionDependencyFakes{
 		SentMessageRecorder: b.sentMessageRecorder,
 		EngineIntegration:   b.fakeEngineIntegration,
+		Clock:               b.mockClock,
 		transactionBuilder:  b,
 		Events:              make(chan common.Event, 16),
 	}
@@ -178,6 +209,11 @@ func (b *TransactionBuilderForTesting) BuildWithMocks() (*originatorTransaction,
 }
 
 func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
+
+	// Resolution result so transitions through State_Resolving don't fail on an unexpected mock call.
+	// Defaults to an empty success; tests that assert on resolution configure it via WithResolveVerifiersResult.
+	b.fakeEngineIntegration.On("ResolveVerifiers", mock.Anything, mock.Anything).
+		Return(b.resolveVerifiersResult, b.resolveVerifiersErr).Maybe()
 
 	privateTransaction := b.privateTransactionBuilder.Build()
 	if b.queueEventForOriginator == nil {
@@ -195,7 +231,9 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		b.queueEventForOriginator,
 		b.metrics,
 		func(_ context.Context) {},
-		func() int64 { return b.currentBlockHeight })
+		func() int64 { return b.currentBlockHeight },
+		b.clock,
+		b.resolveRetryBackoff)
 
 	txn.stateMachine.SetCurrentState(b.state)
 
@@ -266,6 +304,7 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestOK() *mock.Cal
 		mock.Anything, //ctx context.Contex
 		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
+		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
 	).Return(&prototk.TransactionPostAssembly{
@@ -280,6 +319,7 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestRevert() *mock
 		mock.Anything, //ctx context.Contex
 		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
+		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
 	).Return(&prototk.TransactionPostAssembly{
@@ -295,6 +335,7 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestPark() *mock.C
 		mock.Anything, //ctx context.Contex
 		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
+		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
 	).Return(&prototk.TransactionPostAssembly{

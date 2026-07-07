@@ -29,6 +29,7 @@ type State = common.OriginatorTransactionState
 
 const (
 	State_Initial               = common.OriginatorTransactionState_Initial               // Transaction state machine created
+	State_Resolving             = common.OriginatorTransactionState_Resolving             // The required verifiers are being resolved before the transaction becomes eligible for delegation
 	State_Pending               = common.OriginatorTransactionState_Pending               // The transaction has not yet been delegated to a coordinator
 	State_Delegated             = common.OriginatorTransactionState_Delegated             // The transaction has been sent to the current active coordinator
 	State_Assembling            = common.OriginatorTransactionState_Assembling            // The coordinator has sent an assemble request to us and we have not yet sent the assembled transaction back to the coordinator
@@ -61,6 +62,9 @@ const (
 	Event_NonceAssigned                               // the public transaction manager has assigned a nonce to the transaction
 	Event_Submitted                                   // the transaction has been submitted to the blockchain
 	Event_Finalize                                    // internal event to trigger transition from terminal states (Confirmed/Reverted) to State_Final for cleanup
+	Event_VerifiersResolved                           // background resolution of the required verifiers completed successfully
+	Event_VerifierResolutionFailed                    // background resolution of the required verifiers failed; a retry will be scheduled
+	Event_VerifierResolutionRetry                     // scheduled retry timer fired; re-attempt verifier resolution
 )
 
 // Type aliases for the generic statemachine types, specialized for Transaction
@@ -92,10 +96,54 @@ var stateDefinitionsMap = StateDefinitions{
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
 					Transitions: []Transition{
-						{
-							To: State_Pending,
-						},
+						// Resolve the required verifiers before the transaction can be delegated.
+						{If: guard_HasRequiredVerifiers, To: State_Resolving},
+						// No verifiers to resolve: become eligible for delegation immediately.
+						{To: State_Pending},
 					},
+				}},
+			},
+		},
+	},
+	State_Resolving: {
+		OnTransitionTo:   []ActionRule{{Action: action_ResolveVerifiers}},
+		OnTransitionFrom: []ActionRule{{Action: action_CancelResolveRetry}},
+		Events: map[EventType]EventHandlers{
+			Event_ConfirmedSuccess: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{{
+						To: State_Confirmed,
+					}},
+				}},
+			},
+			Event_ConfirmedReverted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator:   statemachine.ValidatorNot(validator_WillRetry),
+					Transitions: []Transition{{To: State_Confirmed}},
+				}},
+			},
+			Event_VerifiersResolved: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_VerifiersResolved}},
+					Transitions: []Transition{{
+						To: State_Pending,
+					}},
+				}},
+			},
+			Event_VerifierResolutionFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_ScheduleResolveRetry}},
+				}},
+			},
+			Event_VerifierResolutionRetry: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					// Release the fired retry timer's context before re-arming resolution.
+					Actions: []ActionRule{{Action: action_CancelResolveRetry}, {Action: action_ResolveVerifiers}},
 				}},
 			},
 		},

@@ -222,9 +222,10 @@ func TestEngineIntegration_CheckPendingPrivateStateData_DomainOptedIn(t *testing
 
 // ─── AssembleAndSign ──────────────────────────────────────────────────
 
-// TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath verifies that a successful AssembleAndSign
-// call does not mutate preAssembly and delivers resolved verifiers via PostAssembly.ResolvedVerifiers.
-func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
+// TestAssembleAndSign_UsesStoredVerifiers verifies that when the verifiers have been resolved
+// before delegation and passed in, AssembleAndSign consumes them directly — with zero identity resolver
+// calls — and delivers them via PostAssembly.ResolvedVerifiers without mutating preAssembly.
+func TestAssembleAndSign_UsesStoredVerifiers(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
@@ -232,6 +233,7 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 	contractAddr := *pldtypes.RandAddress()
 	domainName := "test-domain"
 
+	resolvedVerifierStr := pldtypes.RandAddress().String()
 	preAssembly := &prototk.TransactionPreAssembly{
 		RequiredVerifiers: []*prototk.ResolveVerifierRequest{
 			{
@@ -239,6 +241,14 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 				Algorithm:    algorithms.ECDSA_SECP256K1,
 				VerifierType: verifiers.ETH_ADDRESS,
 			},
+		},
+	}
+	resolvedVerifiers := []*prototk.ResolvedVerifier{
+		{
+			Lookup:       "alice@node1",
+			Algorithm:    algorithms.ECDSA_SECP256K1,
+			VerifierType: verifiers.ETH_ADDRESS,
+			Verifier:     resolvedVerifierStr,
 		},
 	}
 
@@ -256,9 +266,7 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 	mockDqc.On("Close", mock.Anything).Return().Once()
 
-	resolvedVerifierStr := pldtypes.RandAddress().String()
-	m.identityResolver.On("ResolveVerifier", mock.Anything, "alice@node1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS).
-		Return(resolvedVerifierStr, nil).Once()
+	// No identity resolver expectation: the golden path must not resolve at assembly time.
 
 	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -279,7 +287,7 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 	beforeJSON, err := json.Marshal(preAssembly)
 	require.NoError(t, err)
 
-	postAssembly, err := ei.AssembleAndSign(ctx, txID, preAssembly, &prototk.StateSnapshot{}, 100)
+	postAssembly, err := ei.AssembleAndSign(ctx, txID, preAssembly, resolvedVerifiers, &prototk.StateSnapshot{}, 100)
 
 	require.NoError(t, err)
 	require.NotNil(t, postAssembly)
@@ -290,46 +298,6 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 	require.Len(t, postAssembly.GetResolvedVerifiers(), 1)
 	assert.Equal(t, "alice@node1", postAssembly.GetResolvedVerifiers()[0].Lookup)
 	assert.Equal(t, resolvedVerifierStr, postAssembly.GetResolvedVerifiers()[0].Verifier)
-}
-
-// TestAssembleAndSign_DoesNotMutatePreAssembly_ResolverError verifies that when the identity resolver
-// fails, preAssembly is not mutated.
-func TestAssembleAndSign_DoesNotMutatePreAssembly_ResolverError(t *testing.T) {
-	ctx := context.Background()
-	ei, m := newTestEngineIntegration(t)
-
-	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &prototk.TransactionPreAssembly{
-		RequiredVerifiers: []*prototk.ResolveVerifierRequest{
-			{
-				Lookup:       "bob@node2",
-				Algorithm:    algorithms.ECDSA_SECP256K1,
-				VerifierType: verifiers.ETH_ADDRESS,
-			},
-		},
-	}
-
-	m.domainSmartContract.On("Domain").Return(m.domain)
-	m.domainSmartContract.On("Address").Return(contractAddr)
-
-	mockDqc := componentsmocks.NewDomainQueryContext(t)
-	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, contractAddr).
-		Return(mockDqc).Once()
-	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
-
-	m.identityResolver.On("ResolveVerifier", mock.Anything, "bob@node2", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS).
-		Return("", errors.New("resolver unavailable")).Once()
-
-	beforeJSON, err := json.Marshal(preAssembly)
-	require.NoError(t, err)
-
-	_, err = ei.AssembleAndSign(ctx, uuid.New(), preAssembly, &prototk.StateSnapshot{}, 100)
-	assert.Error(t, err)
-
-	afterJSON, marshalErr := json.Marshal(preAssembly)
-	require.NoError(t, marshalErr)
-	assert.JSONEq(t, string(beforeJSON), string(afterJSON), "preAssembly must not be mutated")
 }
 
 func TestEngineIntegration_AssembleAndSign_ImportSnapshotError(t *testing.T) {
@@ -348,33 +316,70 @@ func TestEngineIntegration_AssembleAndSign_ImportSnapshotError(t *testing.T) {
 	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).
 		Return(fmt.Errorf("snapshot error")).Once()
 
-	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, &prototk.StateSnapshot{}, 100)
+	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, &prototk.StateSnapshot{}, 100)
 	require.ErrorContains(t, err, "snapshot error")
 }
 
-func TestEngineIntegration_AssembleAndSign_ResolveVerifierError(t *testing.T) {
+// ─── ResolveVerifiers ─────────────────────────────────────────────────
+
+func TestEngineIntegration_ResolveVerifiers_Empty(t *testing.T) {
+	ctx := context.Background()
+	ei, _ := newTestEngineIntegration(t)
+	// No resolver expectation: an empty request list must not touch the identity resolver.
+	resolved, err := ei.ResolveVerifiers(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, resolved)
+}
+
+func TestEngineIntegration_ResolveVerifiers_ConcurrentSuccessInOrder(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
-	txID := uuid.New()
-	preAssembly := &prototk.TransactionPreAssembly{
-		RequiredVerifiers: []*prototk.ResolveVerifierRequest{
-			{Lookup: "alice@node1", Algorithm: "algo1", VerifierType: "type1"},
-		},
+	required := []*prototk.ResolveVerifierRequest{
+		{Lookup: "alice@node1", Algorithm: "algo1", VerifierType: "type1"},
+		{Lookup: "bob@node2", Algorithm: "algo2", VerifierType: "type2"},
 	}
 
-	m.domainSmartContract.On("Domain").Return(m.domain)
-	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	mockDqc := componentsmocks.NewDomainQueryContext(t)
-	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
-		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
-	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-	m.identityResolver.On("ResolveVerifier", mock.Anything, "alice@node1", "algo1", "type1").
-		Return("", fmt.Errorf("resolve error")).Once()
+	m.identityResolver.On("ResolveVerifierAsync", mock.Anything, "alice@node1", "algo1", "type1", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			args.Get(4).(func(context.Context, string))(ctx, "verifier-alice")
+		}).Return().Once()
+	m.identityResolver.On("ResolveVerifierAsync", mock.Anything, "bob@node2", "algo2", "type2", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			args.Get(4).(func(context.Context, string))(ctx, "verifier-bob")
+		}).Return().Once()
 
-	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
-	require.ErrorContains(t, err, "resolve error")
+	resolved, err := ei.ResolveVerifiers(ctx, required)
+	require.NoError(t, err)
+	require.Len(t, resolved, 2)
+	// Results are returned in request order regardless of resolution completion order.
+	assert.Equal(t, "alice@node1", resolved[0].Lookup)
+	assert.Equal(t, "verifier-alice", resolved[0].Verifier)
+	assert.Equal(t, "bob@node2", resolved[1].Lookup)
+	assert.Equal(t, "verifier-bob", resolved[1].Verifier)
+}
+
+func TestEngineIntegration_ResolveVerifiers_FirstErrorReturned(t *testing.T) {
+	ctx := context.Background()
+	ei, m := newTestEngineIntegration(t)
+
+	required := []*prototk.ResolveVerifierRequest{
+		{Lookup: "alice@node1", Algorithm: "algo1", VerifierType: "type1"},
+		{Lookup: "bob@node2", Algorithm: "algo2", VerifierType: "type2"},
+	}
+
+	m.identityResolver.On("ResolveVerifierAsync", mock.Anything, "alice@node1", "algo1", "type1", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			args.Get(4).(func(context.Context, string))(ctx, "verifier-alice")
+		}).Return().Once()
+	m.identityResolver.On("ResolveVerifierAsync", mock.Anything, "bob@node2", "algo2", "type2", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			args.Get(5).(func(context.Context, error))(ctx, errors.New("bob offline"))
+		}).Return().Once()
+
+	resolved, err := ei.ResolveVerifiers(ctx, required)
+	require.ErrorContains(t, err, "bob offline")
+	assert.Nil(t, resolved)
 }
 
 func TestEngineIntegration_AssembleAndSign_TxNotFound(t *testing.T) {
@@ -395,7 +400,7 @@ func TestEngineIntegration_AssembleAndSign_TxNotFound(t *testing.T) {
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).
 		Return(nil, nil).Once()
 
-	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.Error(t, err)
 }
 
@@ -417,7 +422,7 @@ func TestEngineIntegration_AssembleAndSign_TxLookupError(t *testing.T) {
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).
 		Return(nil, fmt.Errorf("db error")).Once()
 
-	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.ErrorContains(t, err, "db error")
 }
 
@@ -449,7 +454,7 @@ func TestEngineIntegration_AssembleAndSign_WrongDomain(t *testing.T) {
 		},
 	}, nil).Once()
 
-	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.Error(t, err)
 }
 
@@ -487,7 +492,7 @@ func TestEngineIntegration_AssembleAndSign_AssembleTransactionError(t *testing.T
 	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, fmt.Errorf("assemble failed")).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.ErrorContains(t, err, "assemble failed")
 }
 
@@ -523,7 +528,7 @@ func TestEngineIntegration_AssembleAndSign_NilPostAssembly(t *testing.T) {
 	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, nil).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.Error(t, err)
 }
 
@@ -562,7 +567,7 @@ func TestEngineIntegration_AssembleAndSign_UnsupportedAttestationType(t *testing
 			},
 		}, nil).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.Error(t, err)
 }
 
@@ -618,7 +623,7 @@ func TestEngineIntegration_AssembleAndSign_SignAttestationLocalParty(t *testing.
 	m.keyManager.On("Sign", mock.Anything, resolvedKey, "bytes", []byte("payload")).
 		Return([]byte("signature"), nil).Once()
 
-	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Len(t, result.GetSignatures(), 1)
@@ -665,7 +670,7 @@ func TestEngineIntegration_AssembleAndSign_SignAttestationRemoteParty(t *testing
 			},
 		}, nil).Once()
 
-	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.NoError(t, err)
 	assert.Empty(t, result.GetSignatures()) // remote party not signed locally
 }
@@ -707,7 +712,7 @@ func TestEngineIntegration_AssembleAndSign_EndorseAttestationType(t *testing.T) 
 			},
 		}, nil).Once()
 
-	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 }
@@ -755,7 +760,7 @@ func TestEngineIntegration_AssembleAndSign_ResolveKeyError(t *testing.T) {
 	m.keyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, "alice", "ecdsa", "eth_address").
 		Return(nil, fmt.Errorf("key error")).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.ErrorContains(t, err, "key error")
 }
 
@@ -801,7 +806,7 @@ func TestEngineIntegration_AssembleAndSign_InvalidSigningPartyLocator(t *testing
 			},
 		}, nil).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.Error(t, err)
 }
 
@@ -843,7 +848,7 @@ func TestEngineIntegration_AssembleAndSign_DebugLogging(t *testing.T) {
 			AttestationPlan: []*prototk.AttestationRequest{},
 		}, nil).Once()
 
-	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 }
@@ -898,6 +903,6 @@ func TestEngineIntegration_AssembleAndSign_SignError(t *testing.T) {
 	m.keyManager.On("Sign", mock.Anything, resolvedKey, "bytes", []byte("data")).
 		Return(nil, fmt.Errorf("sign error")).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, nil, 100)
 	require.ErrorContains(t, err, "sign error")
 }

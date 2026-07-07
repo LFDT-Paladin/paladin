@@ -71,10 +71,11 @@ func Test_handleAssembleAndSign_EngineIntegrationError(t *testing.T) {
 		preAssembly,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(nil, expectedError)
 
 	// Execute the method
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly, nil)
 
 	// Verify AssembleErrorEvent was emitted so coordinator can park or discard the transaction
 	event := <-mocks.Events
@@ -110,10 +111,11 @@ func Test_handleAssembleAndSign_Success_OK(t *testing.T) {
 		preAssembly,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly, nil)
 
 	// Verify AssembleAndSignSuccessEvent was emitted
 	event := <-mocks.Events
@@ -153,10 +155,11 @@ func Test_handleAssembleAndSign_Success_REVERT(t *testing.T) {
 		preAssembly,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly, nil)
 
 	// Verify AssembleRevertEvent was emitted
 	event := <-mocks.Events
@@ -194,10 +197,11 @@ func Test_handleAssembleAndSign_PARK(t *testing.T) {
 		preAssembly,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly, nil)
 
 	// Verify AssembleParkEvent was emitted
 	event := <-mocks.Events
@@ -226,6 +230,8 @@ func Test_handleAssembleAndSign_CalledWithCorrectParameters(t *testing.T) {
 		},
 	}
 
+	resolvedVerifiers := []*prototk.ResolvedVerifier{{Lookup: "alice@node1"}}
+
 	// Create expected assembly response
 	expectedResponse := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
@@ -237,12 +243,13 @@ func Test_handleAssembleAndSign_CalledWithCorrectParameters(t *testing.T) {
 		ctx,
 		txn.pt.ID,
 		preAssembly,
+		resolvedVerifiers,
 		req.stateSnapshot,
 		req.coordinatorsBlockHeight,
 	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly, resolvedVerifiers)
 
 	// Verify AssembleAndSign was called with correct parameters
 	mocks.EngineIntegration.AssertExpectations(t)
@@ -266,6 +273,7 @@ func Test_action_AssembleAndSign_SpawnsGoroutineThatQueuesEvent(t *testing.T) {
 		"AssembleAndSign",
 		mock.Anything,
 		txn.pt.ID,
+		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
@@ -433,9 +441,10 @@ func Test_handleAssembleAndSign_AbandonsSilently_WhenContextExpired(t *testing.T
 		preAssembly,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(nil, context.Canceled)
 
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly, nil)
 
 	// No event should have been queued — the mock will fail if any unexpected call happens
 	select {
@@ -463,6 +472,7 @@ func Test_action_AssembleAndSign_UsesDeadlineContext_WhenExpirySet(t *testing.T)
 		"AssembleAndSign",
 		mock.Anything,
 		txn.pt.ID,
+		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
@@ -540,7 +550,7 @@ func Test_action_AssembleAndSign_NilCancelIsNoOp(t *testing.T) {
 
 	builder.fakeEngineIntegration.On(
 		"AssembleAndSign",
-		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -579,7 +589,7 @@ func Test_action_AssembleAndSign_CancelsPreviousGoroutine(t *testing.T) {
 
 	builder.fakeEngineIntegration.On(
 		"AssembleAndSign",
-		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Once().Run(func(args mock.Arguments) {
 		assembleCtx := args.Get(0).(context.Context)
 		close(blocked)
@@ -591,7 +601,7 @@ func Test_action_AssembleAndSign_CancelsPreviousGoroutine(t *testing.T) {
 
 	builder.fakeEngineIntegration.On(
 		"AssembleAndSign",
-		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Once().Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -639,7 +649,7 @@ func Test_action_AssembleAndSign_SetsCurrentAssemblyRequestID(t *testing.T) {
 
 	builder.fakeEngineIntegration.On(
 		"AssembleAndSign",
-		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -672,7 +682,7 @@ func Test_action_AssembleAndSign_NudgeDoesNotCancelInFlightAssembly(t *testing.T
 	var firstCancelCalled bool
 	builder.fakeEngineIntegration.On(
 		"AssembleAndSign",
-		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Once().Run(func(_ mock.Arguments) {
 		close(blocked)
 		<-unblock

@@ -85,6 +85,7 @@ type OriginatorTransactionState int
 
 const (
 	OriginatorTransactionState_Initial OriginatorTransactionState = iota
+	OriginatorTransactionState_Resolving
 	OriginatorTransactionState_Pending
 	OriginatorTransactionState_Delegated
 	OriginatorTransactionState_Assembling
@@ -103,6 +104,8 @@ func (s OriginatorTransactionState) String() string {
 	switch s {
 	case OriginatorTransactionState_Initial:
 		return "Initial"
+	case OriginatorTransactionState_Resolving:
+		return "Resolving"
 	case OriginatorTransactionState_Pending:
 		return "Pending"
 	case OriginatorTransactionState_Delegated:

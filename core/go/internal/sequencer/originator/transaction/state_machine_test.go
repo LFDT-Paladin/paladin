@@ -146,7 +146,7 @@ func TestOriginatorTransaction_InitializeOK(t *testing.T) {
 	assert.Equal(t, State_Initial, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestOriginatorTransaction_Initial_ToPending_OnCreated(t *testing.T) {
+func TestOriginatorTransaction_Initial_ToResolving_OnCreated(t *testing.T) {
 	ctx := context.Background()
 
 	txn := NewTransactionBuilderForTesting(t, State_Initial).Build()
@@ -158,7 +158,149 @@ func TestOriginatorTransaction_Initial_ToPending_OnCreated(t *testing.T) {
 		},
 	})
 	assert.NoError(t, err)
+	assert.Equal(t, State_Resolving, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Initial_ToPending_OnCreated_NoRequiredVerifiers(t *testing.T) {
+	ctx := context.Background()
+
+	txn := NewTransactionBuilderForTesting(t, State_Initial).Build()
+	// A transaction with no verifiers to resolve skips State_Resolving entirely.
+	txn.pt.PreAssembly = &prototk.TransactionPreAssembly{}
+	assert.Equal(t, State_Initial, txn.GetCurrentState())
+
+	err := txn.HandleEvent(ctx, &CreatedEvent{
+		BaseEvent: BaseEvent{
+			TransactionID: txn.GetID(),
+		},
+	})
+	assert.NoError(t, err)
 	assert.Equal(t, State_Pending, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Resolving_ConfirmedSuccess_ToConfirmed(t *testing.T) {
+	ctx := context.Background()
+	txn := NewTransactionBuilderForTesting(t, State_Resolving).Build()
+
+	require.NoError(t, txn.HandleEvent(ctx, &ConfirmedSuccessEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.GetID()},
+	}))
+
+	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+}
+
+func TestOriginatorTransaction_Resolving_ConfirmedReverted_ToConfirmed(t *testing.T) {
+	ctx := context.Background()
+	txn := NewTransactionBuilderForTesting(t, State_Resolving).Build()
+
+	require.NoError(t, txn.HandleEvent(ctx, &ConfirmedRevertedEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.GetID()},
+		WillRetry: false,
+	}))
+
+	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+}
+
+func TestOriginatorTransaction_Resolving_ConfirmedReverted_WillRetry_StaysResolving(t *testing.T) {
+	ctx := context.Background()
+	txn := NewTransactionBuilderForTesting(t, State_Resolving).Build()
+
+	// The only ConfirmedReverted handler in State_Resolving requires a non-retryable revert. A retryable
+	// revert is inherently being retried by the fact we're progressing a newly loaded transaction in State_Resolving.
+	require.NoError(t, txn.HandleEvent(ctx, &ConfirmedRevertedEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.GetID()},
+		WillRetry: true,
+	}))
+
+	assert.Equal(t, State_Resolving, txn.GetCurrentState())
+}
+
+func TestOriginatorTransaction_Resolving_ToPending_OnVerifiersResolved(t *testing.T) {
+	ctx := context.Background()
+	txn := NewTransactionBuilderForTesting(t, State_Resolving).Build()
+	resolved := []*prototk.ResolvedVerifier{{Lookup: "alice@node1", Verifier: "0xabc"}}
+
+	require.NoError(t, txn.HandleEvent(ctx, &VerifiersResolvedEvent{
+		BaseEvent:         BaseEvent{TransactionID: txn.GetID()},
+		ResolvedVerifiers: resolved,
+	}))
+
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
+	assert.Equal(t, resolved, txn.pt.ResolvedVerifiers)
+}
+
+func TestOriginatorTransaction_Resolving_LeavingStateCancelsRetry(t *testing.T) {
+	ctx := context.Background()
+	txn := NewTransactionBuilderForTesting(t, State_Resolving).Build()
+	cancelled := false
+	txn.cancelResolveRetry = func() { cancelled = true }
+
+	require.NoError(t, txn.HandleEvent(ctx, &VerifiersResolvedEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.GetID()},
+	}))
+
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
+	assert.True(t, cancelled, "leaving State_Resolving must cancel any pending retry timer")
+	assert.Nil(t, txn.cancelResolveRetry)
+}
+
+func TestOriginatorTransaction_Resolving_StaysResolving_OnFailure_SchedulesRetry(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Resolving).WithMockClock()
+	txn, mocks := builder.BuildWithMocks()
+
+	mocks.Clock.On("ScheduleTimer", mock.Anything, mock.Anything, mock.Anything).
+		Return(func() {}).Once()
+
+	require.NoError(t, txn.HandleEvent(ctx, &VerifierResolutionFailedEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.GetID()},
+	}))
+
+	assert.Equal(t, State_Resolving, txn.GetCurrentState())
+	assert.NotNil(t, txn.cancelResolveRetry)
+}
+
+func TestOriginatorTransaction_Resolving_OnRetry_ReResolves(t *testing.T) {
+	ctx := context.Background()
+	resolved := []*prototk.ResolvedVerifier{{Lookup: "alice@node1", Verifier: "0xabc"}}
+	builder := NewTransactionBuilderForTesting(t, State_Resolving).WithResolveVerifiersResult(resolved, nil)
+	txn, mocks := builder.BuildWithMocks()
+	cancelled := false
+	txn.cancelResolveRetry = func() { cancelled = true }
+
+	require.NoError(t, txn.HandleEvent(ctx, &VerifierResolutionRetryEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.GetID()},
+	}))
+
+	assert.Equal(t, State_Resolving, txn.GetCurrentState(), "a retry re-resolves but stays in Resolving until it succeeds")
+	assert.True(t, cancelled, "the retry must release the fired timer's context before re-arming")
+	assert.Nil(t, txn.cancelResolveRetry)
+	event := <-mocks.Events
+	_, ok := event.(*VerifiersResolvedEvent)
+	assert.True(t, ok, "the retry must re-run resolution")
+}
+
+// An assemble request must be silently dropped in any state before the transaction has been delegated,
+// so verifiers are guaranteed resolved by the time assembly runs. There is no handler for
+// Event_AssembleRequestReceived in State_Initial, State_Resolving or State_Pending: the event is ignored
+// and the transaction does not change state or invoke assembly.
+func TestOriginatorTransaction_AssembleRequestIgnoredBeforeDelegation(t *testing.T) {
+	ctx := context.Background()
+	for _, state := range []State{State_Initial, State_Resolving, State_Pending} {
+		t.Run(state.String(), func(t *testing.T) {
+			builder := NewTransactionBuilderForTesting(t, state)
+			txn, mocks := builder.BuildWithMocks()
+
+			err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+				BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+				RequestID:   uuid.New(),
+				Coordinator: builder.GetCoordinator(),
+			})
+			assert.NoError(t, err)
+			assert.Equal(t, state, txn.GetCurrentState(), "assemble request must not change state")
+			mocks.EngineIntegration.AssertNotCalled(t, "AssembleAndSign")
+		})
+	}
 }
 
 func TestOriginatorTransaction_Pending_ToDelegated_OnDelegated(t *testing.T) {
@@ -344,7 +486,7 @@ func Test_Delegated_PrivateStateComplete_ProceedsToAssembly(t *testing.T) {
 
 	// Builder default already returns true, nil; no override needed for the complete path.
 	mocks.EngineIntegration.On(
-		"AssembleAndSign", mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything,
+		"AssembleAndSign", mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil).Maybe()
@@ -552,7 +694,7 @@ func TestOriginatorTransaction_Assembling_StaysInAssembling_OnAssembleRequestRec
 	// Allow any number of calls (goroutine is async) and return quickly.
 	mocks.EngineIntegration.On(
 		"AssembleAndSign",
-		mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Maybe().Return(nil, context.Canceled)
 
 	newRequestID := uuid.New()

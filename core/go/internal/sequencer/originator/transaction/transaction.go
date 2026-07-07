@@ -70,6 +70,9 @@ type originatorTransaction struct {
 	getBlockHeight                   func() int64
 	cancelCurrentAssembly            context.CancelFunc
 	currentAssemblyRequestID         uuid.UUID
+	clock                            common.Clock
+	resolveRetryBackoff              time.Duration
+	cancelResolveRetry               func() // cancels a pending verifier-resolution retry timer; nil when none is scheduled
 }
 
 func NewTransaction(
@@ -81,6 +84,8 @@ func NewTransaction(
 	metrics metrics.DistributedSequencerMetrics,
 	refreshBlockHeight func(context.Context),
 	getBlockHeight func() int64,
+	clock common.Clock,
+	resolveRetryBackoff time.Duration,
 ) (OriginatorTransaction, error) {
 	if pt == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "cannot create transaction without private tx")
@@ -94,6 +99,8 @@ func NewTransaction(
 		metrics,
 		refreshBlockHeight,
 		getBlockHeight,
+		clock,
+		resolveRetryBackoff,
 	), nil
 }
 
@@ -105,6 +112,8 @@ func newTransaction(
 	metrics metrics.DistributedSequencerMetrics,
 	refreshBlockHeight func(context.Context),
 	getBlockHeight func() int64,
+	clock common.Clock,
+	resolveRetryBackoff time.Duration,
 ) *originatorTransaction {
 	txn := &originatorTransaction{
 		pt:                      pt,
@@ -114,6 +123,8 @@ func newTransaction(
 		metrics:                 metrics,
 		refreshBlockHeight:      refreshBlockHeight,
 		getBlockHeight:          getBlockHeight,
+		clock:                   clock,
+		resolveRetryBackoff:     resolveRetryBackoff,
 	}
 	txn.initializeStateMachine(State_Initial)
 	return txn

@@ -18,6 +18,7 @@ package originator
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
@@ -77,11 +78,13 @@ type originator struct {
 	blockRange          uint64
 	contractAddress     *pldtypes.EthAddress
 	inactiveGracePeriod int // expressed as a multiple of heartbeat intervals
+	resolveRetryBackoff time.Duration
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
+	clock             common.Clock
 }
 
 func NewOriginator(
@@ -102,6 +105,8 @@ func NewOriginator(
 		engineIntegration:   engineIntegration,
 		metrics:             metrics,
 		inactiveGracePeriod: confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod),
+		resolveRetryBackoff: confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout),
+		clock:               common.RealClock(),
 	}
 
 	switch selectionConfig.Mode {

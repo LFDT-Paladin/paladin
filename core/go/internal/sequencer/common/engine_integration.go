@@ -46,7 +46,10 @@ type EngineIntegration interface {
 	// assumes that the coordinator will not assemble any transactions while it is waiting for a signed post assembly for one transaction
 	// . e.g. it might make sense to split out the assembling and gatheringSignatures into separate states on the coordinator side so that it can
 	// single thread assembly and still tolerate latency in the signing phase.
-	AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, stateSnapshot *prototk.StateSnapshot, blockHeight int64) (*prototk.TransactionPostAssembly, error)
+	AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, stateSnapshot *prototk.StateSnapshot, blockHeight int64) (*prototk.TransactionPostAssembly, error)
+	// ResolveVerifiers resolves every required verifier concurrently. It is used before delegation so
+	// that assembly reads the results from PreAssembly with zero resolution work on the critical path.
+	ResolveVerifiers(ctx context.Context, requiredVerifiers []*prototk.ResolveVerifierRequest) ([]*prototk.ResolvedVerifier, error)
 }
 
 func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract, domainStateWriter components.DomainStateWriter) EngineIntegration {
@@ -110,7 +113,7 @@ func (e *engineIntegration) CheckPendingPrivateStateData(ctx context.Context, bl
 // assemble a transaction that we are not coordinating, using the provided state locks
 // all errors are assumed to be transient and the request should be retried
 // if the domain as deemed the request as invalid then it will communicate the `revert` directive via the AssembleTransactionResponse_REVERT result without any error
-func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, stateSnapshot *prototk.StateSnapshot, blockHeight int64) (*prototk.TransactionPostAssembly, error) {
+func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, stateSnapshot *prototk.StateSnapshot, blockHeight int64) (*prototk.TransactionPostAssembly, error) {
 
 	log.L(ctx).Debugf("Assembling transaction %s. Creating domain context with coordinator state snapshot", transactionID)
 
@@ -123,27 +126,57 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 		return nil, err
 	}
 
-	resolvedVerifiers := make([]*prototk.ResolvedVerifier, 0, len(preAssembly.GetRequiredVerifiers()))
-	for _, v := range preAssembly.GetRequiredVerifiers() {
+	// Verifiers were resolved before delegation and passed in, so assembly reads them directly with zero
+	// resolution work. The state machine drops assemble requests until State_Delegated, which a transaction
+	// cannot reach without first resolving its verifiers, so they are always present here.
+	return e.assembleAndSign(ctx, transactionID, preAssembly, resolvedVerifiers, dqc)
+}
+
+// ResolveVerifiers resolves every required verifier concurrently via the async identity resolver and
+// returns them in request order. Any single failure aborts with the first error observed.
+func (e *engineIntegration) ResolveVerifiers(ctx context.Context, requiredVerifiers []*prototk.ResolveVerifierRequest) ([]*prototk.ResolvedVerifier, error) {
+	if len(requiredVerifiers) == 0 {
+		return nil, nil
+	}
+	type resolution struct {
+		index    int
+		verifier string
+		err      error
+	}
+	results := make(chan resolution, len(requiredVerifiers))
+	for i, v := range requiredVerifiers {
 		log.L(ctx).Debugf("resolving required verifier %s", v.Lookup)
-		verifier, err := e.components.IdentityResolver().ResolveVerifier(
-			ctx,
-			v.Lookup,
-			v.Algorithm,
-			v.VerifierType,
+		e.components.IdentityResolver().ResolveVerifierAsync(ctx, v.Lookup, v.Algorithm, v.VerifierType,
+			func(_ context.Context, verifier string) {
+				results <- resolution{index: i, verifier: verifier}
+			},
+			func(_ context.Context, err error) {
+				results <- resolution{index: i, err: err}
+			},
 		)
-		if err != nil {
-			return nil, err
+	}
+	resolvedVerifiers := make([]*prototk.ResolvedVerifier, len(requiredVerifiers))
+	var firstErr error
+	for range requiredVerifiers {
+		r := <-results
+		if r.err != nil {
+			if firstErr == nil {
+				firstErr = r.err
+			}
+			continue
 		}
-		resolvedVerifiers = append(resolvedVerifiers, &prototk.ResolvedVerifier{
+		v := requiredVerifiers[r.index]
+		resolvedVerifiers[r.index] = &prototk.ResolvedVerifier{
 			Lookup:       v.Lookup,
 			Algorithm:    v.Algorithm,
 			VerifierType: v.VerifierType,
-			Verifier:     verifier,
-		})
+			Verifier:     r.verifier,
+		}
 	}
-
-	return e.assembleAndSign(ctx, transactionID, preAssembly, resolvedVerifiers, dqc)
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return resolvedVerifiers, nil
 }
 
 func (e *engineIntegration) resolveLocalTransaction(ctx context.Context, transactionID uuid.UUID) (*components.ResolvedTransaction, error) {

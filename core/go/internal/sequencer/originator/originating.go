@@ -73,6 +73,8 @@ func (o *originator) newOriginatorTransaction(ctx context.Context, pt *component
 		o.metrics,
 		func(ctx context.Context) { o.refreshBlockHeight(ctx) },
 		func() int64 { return o.currentBlockHeight },
+		o.clock,
+		o.resolveRetryBackoff,
 	)
 }
 
@@ -100,9 +102,17 @@ func (o *originator) addToTransactions(
 }
 
 func sendDelegationRequest(ctx context.Context, o *originator) error {
-	// Re-delegate all transactions in the order they were created on the originating node.
+	// Delegate the contiguous resolved prefix of transactions in the order they were created on the
+	// originating node. A still-resolving transaction blocks all later transactions so the coordinator
+	// receives them in creation order and never sees a transaction whose verifiers are unresolved.
 	transactionsToDelegate := make([]*components.PrivateTransaction, 0)
 	for _, txn := range o.transactionsOrdered {
+		// A transaction has advanced past verifier resolution, and so is eligible for delegation, only
+		// once it has left State_Initial and State_Resolving.
+		state := txn.GetCurrentState()
+		if state == transaction.State_Initial || state == transaction.State_Resolving {
+			break
+		}
 		transactionsToDelegate = append(transactionsToDelegate, txn.GetPrivateTransaction())
 		err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
 			BaseEvent: transaction.BaseEvent{
@@ -116,7 +126,12 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 		}
 	}
 
-	log.L(ctx).Debugf("sending delegation request for %d transactions", len(o.transactionsOrdered))
+	if len(transactionsToDelegate) == 0 {
+		log.L(ctx).Debugf("no resolved transactions to delegate")
+		return nil
+	}
+
+	log.L(ctx).Debugf("sending delegation request for %d transactions", len(transactionsToDelegate))
 
 	delegations := make([]*engineProto.PrivateTransactionDelegation, 0, len(transactionsToDelegate))
 	for _, tx := range transactionsToDelegate {
@@ -271,6 +286,13 @@ func validator_OriginatorTransactionStateTransitionToConfirmed(ctx context.Conte
 func validator_OriginatorTransactionStateTransitionToReverted(ctx context.Context, _ *originator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	return e.ToState == transaction.State_Reverted, nil
+}
+
+// validator_OriginatorTransactionStateTransitionFromResolving matches a transaction advancing out of
+// verifier resolution, i.e. it has just become eligible for delegation.
+func validator_OriginatorTransactionStateTransitionFromResolving(_ context.Context, _ *originator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.FromState == transaction.State_Resolving, nil
 }
 
 func action_FinalizeTransaction(ctx context.Context, o *originator, event common.Event) error {
