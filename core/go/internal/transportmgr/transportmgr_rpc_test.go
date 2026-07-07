@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright contributors to Paladin, an LFDT project
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -67,7 +67,12 @@ func TestRPCLocalDetails(t *testing.T) {
 	_, err := tm.getPeer(ctx, "node2", false)
 	require.NoError(t, err)
 
-	peers, rpcErr := transportRPC.Peers(ctx)
+	peers, rpcErr := transportRPC.QueryPeers(ctx, query.NewQueryBuilder().Limit(100).Query())
+	require.NoError(t, rpcErr)
+	require.Len(t, peers, 1)
+	require.Equal(t, "node2", peers[0].Name)
+
+	peers, rpcErr = transportRPC.Peers(ctx)
 	require.NoError(t, rpcErr)
 	require.Len(t, peers, 1)
 	require.Equal(t, "node2", peers[0].Name)
