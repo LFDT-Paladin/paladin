@@ -25,8 +25,8 @@ require (
 	github.com/tyler-smith/go-bip39 v1.1.0
 	golang.org/x/crypto v0.53.0
 	golang.org/x/text v0.38.0
-	google.golang.org/grpc v1.72.1
-	google.golang.org/protobuf v1.36.8
+	google.golang.org/grpc v1.79.3
+	google.golang.org/protobuf v1.36.10
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
@@ -58,8 +58,8 @@ require (
 	github.com/hyperledger/firefly-common v1.5.9 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.6.0 // indirect
-	github.com/jackc/puddle/v2 v2.2.1 // indirect
+	github.com/jackc/pgx/v5 v5.9.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
@@ -81,7 +81,7 @@ require (
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/term v0.44.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 
