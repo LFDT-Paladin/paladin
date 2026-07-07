@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -104,27 +104,18 @@ func (t *gormTraverser) IsEqual(e *query.OpSingleVal, fieldName string, field Fi
 	return t
 }
 
-func likeSQLColumn(field FieldResolver) string {
-	col := field.SQLColumn()
-	if _, ok := field.(UUIDField); ok {
-		return fmt.Sprintf("CAST(%s AS TEXT)", col)
-	}
-	return col
-}
-
 func (t *gormTraverser) IsLike(e *query.OpSingleVal, fieldName string, field FieldResolver, testValue driver.Value) Traverser[*gormTraverser] {
-	col := likeSQLColumn(field)
 	if e.CaseInsensitive {
 		if e.Not {
-			t.db = t.db.Where(fmt.Sprintf("%s NOT ILIKE ?", col), testValue)
+			t.db = t.db.Where(fmt.Sprintf("%s NOT ILIKE ?", field.SQLColumn()), testValue)
 		} else {
-			t.db = t.db.Where(fmt.Sprintf("%s ILIKE ?", col), testValue)
+			t.db = t.db.Where(fmt.Sprintf("%s ILIKE ?", field.SQLColumn()), testValue)
 		}
 	} else {
 		if e.Not {
-			t.db = t.db.Where(fmt.Sprintf("%s NOT LIKE ?", col), testValue)
+			t.db = t.db.Where(fmt.Sprintf("%s NOT LIKE ?", field.SQLColumn()), testValue)
 		} else {
-			t.db = t.db.Where(fmt.Sprintf("%s LIKE ?", col), testValue)
+			t.db = t.db.Where(fmt.Sprintf("%s LIKE ?", field.SQLColumn()), testValue)
 		}
 	}
 	return t

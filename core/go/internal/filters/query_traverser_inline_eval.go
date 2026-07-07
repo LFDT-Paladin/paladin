@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -26,7 +26,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
-	"github.com/google/uuid"
 )
 
 type ValueSet interface {
@@ -154,7 +153,7 @@ func (t *inlineEval) doCompare(e *query.Op, fieldName string, field FieldResolve
 		// REMEMBER - if you update this function you must update BuildQueryCompareLessFunc() too
 		switch testValueTyped := testValue.(type) {
 		case string:
-			strValue, ok := valueAsString(actualValue)
+			strValue, ok := actualValue.(string)
 			if !ok {
 				return t.withError(i18n.NewError(t.ctx, msgs.MsgFiltersUnexpectedResolvedValueType, actualValue, testValue))
 			}
@@ -177,17 +176,6 @@ func (t *inlineEval) doCompare(e *query.Op, fieldName string, field FieldResolve
 		t.matches = t.matches && valMatches
 	}
 	return t
-}
-
-func valueAsString(actualValue driver.Value) (string, bool) {
-	switch v := actualValue.(type) {
-	case string:
-		return v, true
-	case uuid.UUID:
-		return v.String(), true
-	default:
-		return "", false
-	}
 }
 
 func (t *inlineEval) IsEqual(e *query.OpSingleVal, fieldName string, field FieldResolver, testValue driver.Value) Traverser[*inlineEval] {

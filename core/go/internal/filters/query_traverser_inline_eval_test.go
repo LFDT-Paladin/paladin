@@ -1,4 +1,4 @@
-// Copyright © 2021 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -678,60 +678,6 @@ func TestEvalQueryMatchLike(t *testing.T) {
 	assert.True(t, match)
 	match, err = EvalQuery(context.Background(), qf, allTypesFieldMap, ResolvingValueSet{
 		"stringField": pldtypes.RawJSON(`"Hello"`),
-	})
-	require.NoError(t, err)
-	assert.False(t, match)
-}
-
-func TestEvalQueryMatchLikeHexFields(t *testing.T) {
-
-	hexFieldMap := FieldMap{
-		"contractAddress": HexBytesField("contract_address"),
-		"schema":          Bytes32Field("schema"),
-	}
-
-	var qf *query.QueryJSON
-	err := json.Unmarshal([]byte(`{"like": [{"field": "contractAddress", "value": "a%"}]}`), &qf)
-	require.NoError(t, err)
-	match, err := EvalQuery(context.Background(), qf, hexFieldMap, ResolvingValueSet{
-		"contractAddress": pldtypes.RawJSON(`"0xabcdef1234567890"`),
-	})
-	require.NoError(t, err)
-	assert.True(t, match)
-
-	match, err = EvalQuery(context.Background(), qf, hexFieldMap, ResolvingValueSet{
-		"contractAddress": pldtypes.RawJSON(`"0x1234567890abcdef"`),
-	})
-	require.NoError(t, err)
-	assert.False(t, match)
-
-	err = json.Unmarshal([]byte(`{"like": [{"field": "schema", "value": "00%"}]}`), &qf)
-	require.NoError(t, err)
-	match, err = EvalQuery(context.Background(), qf, hexFieldMap, PassthroughValueSet{
-		"schema": "0001020304050607080910111213141516171819202122232425262728293031",
-	})
-	require.NoError(t, err)
-	assert.True(t, match)
-}
-
-func TestEvalQueryLikeUUIDField(t *testing.T) {
-
-	uuidFieldMap := FieldMap{
-		"id": UUIDField("id"),
-	}
-
-	var qf *query.QueryJSON
-	err := json.Unmarshal([]byte(`{"like": [{"field": "id", "value": "%2ef2-4b91-8f73%"}]}`), &qf)
-	require.NoError(t, err)
-
-	match, err := EvalQuery(context.Background(), qf, uuidFieldMap, ResolvingValueSet{
-		"id": pldtypes.RawJSON(`"00002ef2-4b91-8f73-0000-000000000000"`),
-	})
-	require.NoError(t, err)
-	assert.True(t, match)
-
-	match, err = EvalQuery(context.Background(), qf, uuidFieldMap, ResolvingValueSet{
-		"id": pldtypes.RawJSON(`"F9E01529-6551-4C8E-8ACE-F1C4A6A1943F"`),
 	})
 	require.NoError(t, err)
 	assert.False(t, match)
