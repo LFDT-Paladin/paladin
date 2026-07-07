@@ -37,7 +37,7 @@ import { CreatePrivacyGroupDialog } from "../dialogs/CreatePrivacyGroup";
 import { AppRoutes } from "../routes";
 
 export const PrivacyGroups: React.FC = () => {
-  const { privacyGroups: privacyGroupsViewState } = useApplicationContext();
+  const { privacyGroups: privacyGroupsViewState, readOnly } = useApplicationContext();
   const {
     sortAscending,
     setSortAscending,
@@ -132,6 +132,7 @@ export const PrivacyGroups: React.FC = () => {
               <ToggleButton color="primary" value="listeners" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.PrivacyGroupListeners, { state: { skipFade: true } })}>{t('listeners')}</ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
+              {!readOnly &&
               <Button
                 sx={{ borderRadius: '20px', minWidth: '120px' }}
                 size="small"
@@ -140,7 +141,7 @@ export const PrivacyGroups: React.FC = () => {
                 onClick={() => setCreatePrivacyGroupDialogOpen(true)}
               >
                 {t('create')}
-              </Button>
+              </Button>}
               <Button
                 sx={{ borderRadius: '20px', minWidth: '120px' }}
                 size="small"

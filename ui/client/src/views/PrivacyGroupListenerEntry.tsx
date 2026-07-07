@@ -24,6 +24,7 @@ import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { AppRoutes } from "../routes";
 import { getPrivacyGroupListener } from "../queries/privacyGroups";
+import { PrivacyGroupListenerActions } from "../components/PrivacyGroupListenerActions";
 
 export const PrivacyGroupListenerEntry: React.FC = () => {
 
@@ -31,7 +32,7 @@ export const PrivacyGroupListenerEntry: React.FC = () => {
   const { t } = useTranslation();
   const { name } = useParams();
 
-  const { data: listener, error } = useQuery({
+  const { data: listener, error, refetch } = useQuery({
     queryKey: ['privacy-group-message-listener', name],
     queryFn: () => getPrivacyGroupListener(name!),
     enabled: name !== undefined
@@ -83,6 +84,18 @@ export const PrivacyGroupListenerEntry: React.FC = () => {
               </Box>
             } />
         </Tabs>
+        <Box sx={{
+          paddingLeft: '5px',
+          paddingTop: '15px',
+          paddingBottom: '5px',
+          backgroundColor: theme => theme.palette.background.paper,
+        }}>
+          <PrivacyGroupListenerActions
+            privacyGroupListener={listener}
+            refetch={refetch}
+            deleteRefetch={() => navigate(AppRoutes.PrivacyGroupListeners)}
+          />
+        </Box>
         <Accordion elevation={0} disableGutters defaultExpanded>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             {t('details')}

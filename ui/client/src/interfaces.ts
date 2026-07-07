@@ -337,14 +337,6 @@ export interface IPrivacyGroupMessage {
   data: any
 }
 
-export interface IPrivacyGroupListener {
-  name: string
-  created: string
-  started: boolean
-  filters: any
-  options: any
-}
-
 export interface IPrivacyGroupMessageListenerFilters {
   sequenceAbove?: number
   domain?: string
@@ -354,4 +346,12 @@ export interface IPrivacyGroupMessageListenerFilters {
 
 export interface IPrivacyGroupMessageListenerOptions {
   excludeLocal?: boolean
+}
+
+export interface IPrivacyGroupListener {
+  name: string
+  created: string
+  started: boolean
+  filters: IPrivacyGroupMessageListenerFilters
+  options: IPrivacyGroupMessageListenerOptions
 }

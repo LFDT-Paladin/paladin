@@ -32,20 +32,20 @@ import { useMutation } from '@tanstack/react-query';
 import { createPrivacyGroupListener } from '../queries/privacyGroups';
 import CircleIcon from '@mui/icons-material/Circle';
 import { isValidHex, isValidPrivacyGroupListenerName } from '../utils';
+import { useNavigate } from 'react-router-dom';
 
 type Props = {
-  refetch: () => any
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
-  refetch,
   dialogOpen,
   setDialogOpen,
 }) => {
 
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [listenerName, setListenerName] = useState('');
   const [started, setStarted] = useState(true);
   const [sequenceAbove, setSequenceAbove] = useState(0);
@@ -83,8 +83,7 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
       }
     ),
     onSuccess: () => {
-      refetch();
-      setDialogOpen(false);
+      navigate(`/ui/privacy-groups/listeners/${listenerName}`);
     },
     onError: error => {
       setErrorMessage(error.message);

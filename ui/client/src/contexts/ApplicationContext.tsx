@@ -214,6 +214,8 @@ interface IApplicationContext {
   };
   navigationVisible: boolean;
   setNavigationVisible: Dispatch<SetStateAction<boolean>>;
+  readOnly: boolean;
+  setReadOnly: Dispatch<SetStateAction<boolean>>;
   transactions: TransactionsViewState;
   submissions: SubmissionsViewState;
   domains: DomainsViewState;
@@ -240,6 +242,7 @@ interface Props {
 
 export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   const [navigationVisible, setNavigationVisible] = useState(false);
+  const [readOnly, setReadOnly] = useState(true);
 
   // Transactions view state
   const [txRefEntries, setTxRefEntries] = useState<ITransactionPagingReference[]>([]);
@@ -638,6 +641,8 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
         colorMode,
         navigationVisible,
         setNavigationVisible,
+        readOnly,
+        setReadOnly,
         transactions,
         submissions,
         domains,

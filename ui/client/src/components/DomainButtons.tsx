@@ -24,6 +24,7 @@ import { ZetoTransferDialog } from '../dialogs/domains/zeto/ZetoTransfer';
 import { NotoCheckBalanceDialog } from '../dialogs/domains/noto/NotoCheckBalance';
 import { ZetoCheckBalanceDialog } from '../dialogs/domains/zeto/ZetoCheckBalance';
 import { NotoBurnDialog } from '../dialogs/domains/noto/NotoBurn';
+import { useApplicationContext } from '../contexts/ApplicationContext';
 
 type Props = {
   domainName: string;
@@ -39,6 +40,7 @@ export const DomainButtons: React.FC<Props> = ({
   domainName,
   contractAddress,
 }) => {
+  const { readOnly } = useApplicationContext();
   const { t } = useTranslation();
   const [buttons, setButtons] = useState<DomainButton[]>([]);
   const [notoMintDialogOpen, setNotoMintDialogOpen] = useState(false);
@@ -59,18 +61,20 @@ export const DomainButtons: React.FC<Props> = ({
           name: 'balance',
           action: () => setNotoCheckBalanceDialogOpen(true),
         });
-        tmpButtons.push({
-          name: 'mint',
-          action: () => setNotoMintDialogOpen(true),
-        });
-        tmpButtons.push({
-          name: 'transfer',
-          action: () => setNotoTransferDialogOpen(true),
-        });
-        tmpButtons.push({
-          name: 'burn',
-          action: () => setNotoBurnDialogOpen(true),
-        });
+        if (!readOnly) {
+          tmpButtons.push({
+            name: 'mint',
+            action: () => setNotoMintDialogOpen(true),
+          });
+          tmpButtons.push({
+            name: 'transfer',
+            action: () => setNotoTransferDialogOpen(true),
+          });
+          tmpButtons.push({
+            name: 'burn',
+            action: () => setNotoBurnDialogOpen(true),
+          });
+        }
         break;
       }
       case 'zeto': {
@@ -78,20 +82,22 @@ export const DomainButtons: React.FC<Props> = ({
           name: 'balance',
           action: () => setZetoCheckBalanceDialogOpen(true),
         });
-        tmpButtons.push({
-          name: 'mint',
-          action: () => setZetoMintDialogOpen(true),
-        });
-        tmpButtons.push({
-          name: 'transfer',
-          action: () => setZetoTransferDialogOpen(true),
-        });
+        if (!readOnly) {
+          tmpButtons.push({
+            name: 'mint',
+            action: () => setZetoMintDialogOpen(true),
+          });
+          tmpButtons.push({
+            name: 'transfer',
+            action: () => setZetoTransferDialogOpen(true),
+          });
+        }
         break;
       }
     }
 
     setButtons(tmpButtons);
-  }, [domainName]);
+  }, [domainName, readOnly]);
 
   return (
     <>

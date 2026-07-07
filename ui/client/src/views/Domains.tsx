@@ -29,17 +29,15 @@ import { t } from 'i18next';
 import { useEffect, useState } from 'react';
 import { useApplicationContext } from '../contexts/ApplicationContext';
 import { DomainDeploy } from '../components/DomainDeploy';
-import { Hash } from '../components/Hash';
 import { SmartContractsTable } from '../components/SmartContractsTable';
 import { getDomainByName, listDomains } from '../queries/domains';
 import SearchIcon from '@mui/icons-material/Search';
 import { DomainContractLookupDialog } from '../dialogs/DomainContractLookup';
-import { Captions } from "lucide-react";
 import { FiltersButton } from '../components/FiltersButton';
 import { Filters } from '../components/Filters';
 
 export const Domains: React.FC = () => {
-  const { domains: domainsViewState } = useApplicationContext();
+  const { domains: domainsViewState, readOnly } = useApplicationContext();
   const {
     sortAscending,
     setSortAscending,
@@ -130,13 +128,9 @@ export const Domains: React.FC = () => {
                 </MenuItem>
               ))}
             </TextField>
-            {domain !== undefined &&
-              <Box>
-                <Hash Icon={<Captions size="18px" />} hideTitle title={t('domainRegistryAddress')} hash={domain.registryAddress} />
-              </Box>
-            }
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
-              <DomainDeploy domainName={selectedDomain ?? ''} />
+              {!readOnly &&
+                <DomainDeploy domainName={selectedDomain ?? ''} />}
               <Button
                 sx={{ borderRadius: '20px', minWidth: '120px' }}
                 size="small"

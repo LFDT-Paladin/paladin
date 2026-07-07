@@ -18,8 +18,8 @@ import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody
 import { useEffect, useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { useTranslation } from "react-i18next";
-import { listPrivacyGroupListeners, startPrivacyGroupListener, stopPrivacyGroupListener } from "../queries/privacyGroups";
-import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
+import { listPrivacyGroupListeners } from "../queries/privacyGroups";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Timestamp } from "../components/Timestamp";
 import { useLocation, useNavigate } from "react-router-dom";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
@@ -29,12 +29,14 @@ import { AppRoutes } from "../routes";
 import CircleIcon from '@mui/icons-material/Circle';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { customNavigate } from "../utils";
-import { DeletePrivacyGroupListenerDialog } from "../dialogs/DeletePrivacyGroupListener";
 import AddIcon from '@mui/icons-material/Add';
 import { CreatePrivacyGroupListenerDialog } from "../dialogs/CreatePrivacyGroupListener";
+import { PrivacyGroupListenerActions } from "../components/PrivacyGroupListenerActions";
+import { Hash } from "../components/Hash";
+import { Captions } from "lucide-react";
 
 export const PrivacyGroupListeners: React.FC = () => {
-  const { privacyGroupListeners: privacyGroupListenersViewState } = useApplicationContext();
+  const { privacyGroupListeners: privacyGroupListenersViewState, readOnly } = useApplicationContext();
   const {
     sortAscending,
     setSortAscending,
@@ -53,9 +55,7 @@ export const PrivacyGroupListeners: React.FC = () => {
   } = privacyGroupListenersViewState;
 
   const [createPrivacyGroupListenerDialogOpen, setCreatePrivacyGroupListenerDialogOpen] = useState(false);
-  const [deletePrivacyGroupListenerDialogOpen, setDeletePrivacyGroupDialogOpen] = useState(false);
   const navigate = useNavigate();
-  const [selectedListenerName, setSelectedListenerName] = useState<string>();
   const [count, setCount] = useState(-1);
   const { t } = useTranslation();
   const location = useLocation();
@@ -68,16 +68,6 @@ export const PrivacyGroupListeners: React.FC = () => {
 
   const privacyGroupListeners = data?.items;
   const hasMore = data?.hasMore ?? false;
-
-  const { mutate: startListener } = useMutation({
-    mutationFn: (listenerName: string) => startPrivacyGroupListener(listenerName),
-    onSuccess: () => refetch()
-  });
-
-  const { mutate: stopListener } = useMutation({
-    mutationFn: (listenerName: string) => stopPrivacyGroupListener(listenerName),
-    onSuccess: () => refetch()
-  });
 
   useEffect(() => {
     if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
@@ -142,15 +132,16 @@ export const PrivacyGroupListeners: React.FC = () => {
               <ToggleButton color="primary" value="listeners" sx={{ width: '120px' }}>{t('listeners')}</ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
-              <Button
-                sx={{ borderRadius: '20px', minWidth: '120px' }}
-                size="small"
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={() => setCreatePrivacyGroupListenerDialogOpen(true)}
-              >
-                {t('create')}
-              </Button>
+              {!readOnly &&
+                <Button
+                  sx={{ borderRadius: '20px', minWidth: '120px' }}
+                  size="small"
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={() => setCreatePrivacyGroupListenerDialogOpen(true)}
+                >
+                  {t('create')}
+                </Button>}
               <FiltersButton
                 filtersVisible={filtersVisible}
                 setFiltersVisible={setFiltersVisible}
@@ -246,6 +237,38 @@ export const PrivacyGroupListeners: React.FC = () => {
                         >
                           {t('status')}
                         </TableCell>
+
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap',
+                            minWidth: '120px'
+                          }}
+                        >
+                          {t('domain')}
+                        </TableCell>
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap',
+                            minWidth: '120px'
+                          }}
+                        >
+                          {t('group')}
+                        </TableCell>
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap',
+                            minWidth: '120px'
+                          }}
+                        >
+                          {t('topic')}
+                        </TableCell>
+
                         <TableCell
                           sx={{
                             backgroundColor: (theme) => theme.palette.background.paper,
@@ -253,7 +276,7 @@ export const PrivacyGroupListeners: React.FC = () => {
                             width: '1'
                           }}
                         >
-                          {t('actions')}
+                          {readOnly ? '' : t('actions')}
                         </TableCell>
                         <TableCell
                           sx={{
@@ -285,40 +308,22 @@ export const PrivacyGroupListeners: React.FC = () => {
                             </Box>
                           </TableCell>
                           <TableCell>
-                            <Box sx={{
-                              display: 'flex',
-                              gap: '10px'
-                            }}>
-                              <Button
-                                disabled={privacyGroupListener.started === true}
-                                sx={{ fontWeight: 400, minWidth: '70px' }}
-                                size="small"
-                                onClick={() => {
-                                  startListener(privacyGroupListener.name)
-                                }}
-                              >
-                                {t('start')}
-                              </Button>
-                              <Button
-                                disabled={privacyGroupListener.started !== true}
-                                sx={{ fontWeight: 400, minWidth: '70px' }}
-                                size="small"
-                                onClick={() => {
-                                  stopListener(privacyGroupListener.name)
-                                }}
-                              >{t('stop')}
-                              </Button>
-                              <Button
-                                color="error"
-                                sx={{ fontWeight: 400, minWidth: '70px' }}
-                                size="small"
-                                onClick={() => {
-                                  setSelectedListenerName(privacyGroupListener.name)
-                                  setDeletePrivacyGroupDialogOpen(true);
-                                }}
-                              >{t('delete')}
-                              </Button>
-                            </Box>
+                            {privacyGroupListener.filters.domain ?? '--'}
+                          </TableCell>
+                          <TableCell>
+                            {privacyGroupListener.filters.group?
+                            <Hash Icon={<Captions size="18px" />} title={t('group')} hideTitle hash={privacyGroupListener.filters.group} />
+                            :
+                            '--'}
+                          </TableCell>
+                          <TableCell>
+                            {privacyGroupListener.filters.topic ?? '--'}
+                          </TableCell>
+                          <TableCell sx={{ padding: '8px' }}>
+                            <PrivacyGroupListenerActions
+                              privacyGroupListener={privacyGroupListener}
+                              refetch={refetch}
+                            />
                           </TableCell>
                           <TableCell sx={{ padding: '8px' }}>
                             <Tooltip title={t('open')} arrow>
@@ -364,17 +369,9 @@ export const PrivacyGroupListeners: React.FC = () => {
         </Box>
       </Fade>
       <CreatePrivacyGroupListenerDialog
-        refetch={refetch}
         dialogOpen={createPrivacyGroupListenerDialogOpen}
         setDialogOpen={setCreatePrivacyGroupListenerDialogOpen}
       />
-      {selectedListenerName &&
-        <DeletePrivacyGroupListenerDialog
-          listenerName={selectedListenerName}
-          refetch={refetch}
-          dialogOpen={deletePrivacyGroupListenerDialogOpen}
-          setDialogOpen={setDeletePrivacyGroupDialogOpen}
-        />}
     </>
   );
 

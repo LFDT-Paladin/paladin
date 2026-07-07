@@ -36,7 +36,7 @@ import { StateLookupDialog } from "../dialogs/StateLookup";
 import SearchIcon from '@mui/icons-material/Search';
 
 export const States: React.FC = () => {
-  const { states: statesViewState } = useApplicationContext();
+  const { states: statesViewState, readOnly } = useApplicationContext();
   const {
     sortAscending,
     setSortAscending,
@@ -428,7 +428,7 @@ export const States: React.FC = () => {
                           whiteSpace: 'nowrap'
                         }}
                       >
-                        {t('actions')}
+                        {readOnly ? '' : t('actions')}
                       </TableCell>
                       <TableCell
                         width={'100%'}
@@ -461,7 +461,8 @@ export const States: React.FC = () => {
                           </TableCell>
                         )}
                         <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
-                          <StateActions state={state} />
+                          {!readOnly &&
+                            <StateActions state={state} />}
                         </TableCell>
                         <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                           <Tooltip title={t('open')} arrow>

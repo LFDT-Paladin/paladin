@@ -21,6 +21,8 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import { ABIUploadDialog } from "../dialogs/ABIUpload";
 import { useTranslation } from "react-i18next";
+import EditOffIcon from '@mui/icons-material/EditOff';
+import EditIcon from '@mui/icons-material/Edit';
 
 export type Props = {
   anchorEl: HTMLElement | null;
@@ -32,7 +34,7 @@ export const SettingsMenu: React.FC<Props> = ({
   setAnchorEl
 }) => {
 
-  const { colorMode } = useContext(ApplicationContext);
+  const { colorMode, readOnly, setReadOnly } = useContext(ApplicationContext);
   const [abiUploadDialogOpen, setAbiUploadDialogOpen] = useState(false);
 
   const theme = useTheme();
@@ -56,6 +58,17 @@ export const SettingsMenu: React.FC<Props> = ({
       >
         <Grid2 container>
           <Grid2>
+            <Box sx={{ borderBottom: `solid 1px ${theme.palette.divider}`, padding: '8px 12px 8px 20px', display: 'flex', alignItems: 'center' }}>
+              <Typography sx={{ minWidth: '150px', whiteSpace: 'nowrap', marginRight: '8px' }}>{t('modeValue', { value: t(readOnly ? 'readOnly' : 'edit') })}</Typography>
+              <ToggleButtonGroup exclusive onChange={(_event, value) => setReadOnly(value === 'readOnly')} value={readOnly ? 'readOnly' : 'edit'}>
+                <ToggleButton color="primary" value="readOnly">
+                  <EditOffIcon fontSize="small" />
+                </ToggleButton>
+                <ToggleButton color="primary" value="edit">
+                  <EditIcon fontSize="small" />
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
             <Box sx={{ borderBottom: `solid 1px ${theme.palette.divider}`, padding: '8px 12px 8px 20px', display: 'flex', alignItems: 'center' }}>
               <Typography sx={{ minWidth: '150px', whiteSpace: 'nowrap', marginRight: '8px' }}>{t('themeValue', { value: t(theme.palette.mode === 'light' ? 'light' : 'dark') })}</Typography>
               <ToggleButtonGroup exclusive onChange={(_event, value) => handleColorChange(value)} value={theme.palette.mode}>
