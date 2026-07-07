@@ -90,3 +90,27 @@ func TestWSCheckOrigin_CORSEnabledWildcard(t *testing.T) {
 	req.Header.Set("Origin", "http://localhost:3000")
 	assert.True(t, check(req))
 }
+
+func TestWSCheckOrigin_InvalidOriginURL(t *testing.T) {
+	check := newWSCheckOrigin(&pldconf.CORSConfig{
+		Enabled:        false,
+		AllowedOrigins: []string{"http://localhost:31549"},
+	})
+
+	req := httptest.NewRequest("GET", "http://localhost:31549/", nil)
+	req.Host = "localhost:31549"
+	req.Header.Set("Origin", "://invalid")
+	assert.False(t, check(req))
+}
+
+func TestWSCheckOrigin_SameOriginCaseInsensitive(t *testing.T) {
+	check := newWSCheckOrigin(&pldconf.CORSConfig{
+		Enabled:        false,
+		AllowedOrigins: []string{"http://localhost:31549"},
+	})
+
+	req := httptest.NewRequest("GET", "http://localhost:31549/", nil)
+	req.Host = "LOCALHOST:31549"
+	req.Header.Set("Origin", "http://localhost:31549")
+	assert.True(t, check(req))
+}
