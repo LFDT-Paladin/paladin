@@ -21,6 +21,7 @@ import { IFilter, IFilterField } from "../interfaces";
 import AddIcon from '@mui/icons-material/Add';
 import ClearAllIcon from '@mui/icons-material/ClearAll';
 import { FilterDialog } from "../dialogs/Filter";
+import { getShortHash, getShortId } from "../utils";
 
 type Props = {
   filterFields: IFilterField[]
@@ -67,6 +68,10 @@ export const Filters: React.FC<Props> = ({
       return t(filter.value as string);
     } else if(filter.field.type === 'timestamp') {
       return new Date(filter.value as number).toLocaleString();
+    } else if (filter.field.isHexValue) {
+      return getShortHash(filter.value as string);
+    } else if(filter.field.isUUID) {
+      return getShortId(filter.value as string);
     }
     return filter.value;
   }
