@@ -54,6 +54,7 @@ type originatorTransaction struct {
 	sync.RWMutex
 	stateMachine                     *StateMachine
 	pt                               *components.PrivateTransaction
+	nodeName                         string
 	engineIntegration                common.EngineIntegration
 	transportWriter                  transport.TransportWriter
 	queueEventForOriginator          func(context.Context, common.Event)
@@ -70,6 +71,7 @@ type originatorTransaction struct {
 	getBlockHeight                   func() int64
 	cancelCurrentAssembly            context.CancelFunc
 	currentAssemblyRequestID         uuid.UUID
+	cancelCurrentSign                context.CancelFunc
 	clock                            common.Clock
 	resolveRetryBackoff              time.Duration
 	cancelResolveRetry               func() // cancels a pending verifier-resolution retry timer; nil when none is scheduled
@@ -78,6 +80,7 @@ type originatorTransaction struct {
 func NewTransaction(
 	ctx context.Context,
 	pt *components.PrivateTransaction,
+	nodeName string,
 	transportWriter transport.TransportWriter,
 	queueEventForOriginator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
@@ -93,6 +96,7 @@ func NewTransaction(
 
 	return newTransaction(
 		pt,
+		nodeName,
 		engineIntegration,
 		transportWriter,
 		queueEventForOriginator,
@@ -106,6 +110,7 @@ func NewTransaction(
 
 func newTransaction(
 	pt *components.PrivateTransaction,
+	nodeName string,
 	engineIntegration common.EngineIntegration,
 	transportWriter transport.TransportWriter,
 	queueEventForOriginator func(context.Context, common.Event),
@@ -117,6 +122,7 @@ func newTransaction(
 ) *originatorTransaction {
 	txn := &originatorTransaction{
 		pt:                      pt,
+		nodeName:                nodeName,
 		engineIntegration:       engineIntegration,
 		transportWriter:         transportWriter,
 		queueEventForOriginator: queueEventForOriginator,

@@ -129,6 +129,33 @@ func (*AssembleErrorEvent) TypeString() string {
 	return "Event_AssembleError"
 }
 
+type SignedEvent struct {
+	BaseCoordinatorEvent
+	AttestationResult *prototk.AttestationResult
+	RequestID         uuid.UUID
+}
+
+func (*SignedEvent) Type() EventType {
+	return Event_Signed
+}
+
+func (*SignedEvent) TypeString() string {
+	return "Event_Signed"
+}
+
+type SignErrorEvent struct {
+	BaseCoordinatorEvent
+	RequestID uuid.UUID
+}
+
+func (*SignErrorEvent) Type() EventType {
+	return Event_SignError
+}
+
+func (*SignErrorEvent) TypeString() string {
+	return "Event_SignError"
+}
+
 type EndorsedEvent struct {
 	BaseCoordinatorEvent
 	Endorsement *prototk.AttestationResult

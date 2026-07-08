@@ -70,7 +70,7 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 	txn := transactionBuilder.BuildSparse()
 	postAssembly, postAssemblyHash := transactionBuilder.BuildPostAssemblyAndHash()
 	mocks.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,

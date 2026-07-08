@@ -278,78 +278,65 @@ func TestAction_ResendAssembleParkResponse_TransportError(t *testing.T) {
 	assert.Equal(t, expectedError, err)
 }
 
-func TestGuard_AssembleRequestMatchesPreviousResponse_Matches(t *testing.T) {
-	// Test that guard_AssembleRequestMatchesPreviousResponse returns true when request IDs match
+func TestValidator_AssembleRequestMatchesPreviousResponse_Matches(t *testing.T) {
+	// Returns true when the event's request ID matches the most recently fulfilled request
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn, _ := builder.BuildWithMocks()
 
-	// Set up matching request IDs
 	requestID := uuid.New()
 	txn.latestFulfilledAssembleRequestID = requestID
-	txn.latestAssembleRequest = &assembleRequestFromCoordinator{
-		requestID: requestID,
-	}
 
-	matches := guard_AssembleRequestMatchesPreviousResponse(ctx, txn)
+	matches, err := validator_AssembleRequestMatchesPreviousResponse(ctx, txn, &AssembleRequestReceivedEvent{RequestID: requestID})
 
+	assert.NoError(t, err)
 	assert.True(t, matches, "Should return true when request IDs match")
 }
 
-func TestGuard_AssembleRequestMatchesPreviousResponse_DoesNotMatch(t *testing.T) {
-	// Test that guard_AssembleRequestMatchesPreviousResponse returns false when request IDs do not match
+func TestValidator_AssembleRequestMatchesPreviousResponse_DoesNotMatch(t *testing.T) {
+	// Returns false when the event's request ID differs from the most recently fulfilled request
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn, _ := builder.BuildWithMocks()
 
-	// Set up different request IDs
 	fulfilledRequestID := uuid.New()
 	newRequestID := uuid.New()
-	// Ensure they're different
 	for newRequestID == fulfilledRequestID {
 		newRequestID = uuid.New()
 	}
 
 	txn.latestFulfilledAssembleRequestID = fulfilledRequestID
-	txn.latestAssembleRequest = &assembleRequestFromCoordinator{
-		requestID: newRequestID,
-	}
 
-	matches := guard_AssembleRequestMatchesPreviousResponse(ctx, txn)
+	matches, err := validator_AssembleRequestMatchesPreviousResponse(ctx, txn, &AssembleRequestReceivedEvent{RequestID: newRequestID})
 
+	assert.NoError(t, err)
 	assert.False(t, matches, "Should return false when request IDs do not match")
 }
 
-func TestGuard_AssembleRequestMatchesPreviousResponse_NilUUID(t *testing.T) {
-	// Test that guard_AssembleRequestMatchesPreviousResponse handles nil UUID (uuid.Nil) correctly
+func TestValidator_AssembleRequestMatchesPreviousResponse_NilUUID(t *testing.T) {
+	// Handles nil UUID (uuid.Nil) correctly
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn, _ := builder.BuildWithMocks()
 
-	// Set up both as nil UUID
 	txn.latestFulfilledAssembleRequestID = uuid.Nil
-	txn.latestAssembleRequest = &assembleRequestFromCoordinator{
-		requestID: uuid.Nil,
-	}
 
-	matches := guard_AssembleRequestMatchesPreviousResponse(ctx, txn)
+	matches, err := validator_AssembleRequestMatchesPreviousResponse(ctx, txn, &AssembleRequestReceivedEvent{RequestID: uuid.Nil})
 
+	assert.NoError(t, err)
 	assert.True(t, matches, "Should return true when both request IDs are uuid.Nil")
 }
 
-func TestGuard_AssembleRequestMatchesPreviousResponse_OneNilUUID(t *testing.T) {
-	// Test that guard_AssembleRequestMatchesPreviousResponse returns false when one is nil and other is not
+func TestValidator_AssembleRequestMatchesPreviousResponse_OneNilUUID(t *testing.T) {
+	// Returns false when one is nil and the other is not
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn, _ := builder.BuildWithMocks()
 
-	// Set up one as nil UUID and one as a real UUID
 	txn.latestFulfilledAssembleRequestID = uuid.Nil
-	txn.latestAssembleRequest = &assembleRequestFromCoordinator{
-		requestID: uuid.New(),
-	}
 
-	matches := guard_AssembleRequestMatchesPreviousResponse(ctx, txn)
+	matches, err := validator_AssembleRequestMatchesPreviousResponse(ctx, txn, &AssembleRequestReceivedEvent{RequestID: uuid.New()})
 
+	assert.NoError(t, err)
 	assert.False(t, matches, "Should return false when one request ID is nil and the other is not")
 }

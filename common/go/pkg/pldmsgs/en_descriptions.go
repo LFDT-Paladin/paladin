@@ -731,7 +731,7 @@ var (
 	// SequencerConfig field descriptions
 	SequencerConfigStateTimeout                      = pdm("SequencerConfig.stateTimeout", "Timeout for request-driven transaction states before repooling")
 	SequencerConfigRequestTimeout                    = pdm("SequencerConfig.requestTimeout", "Timeout for sequencer requests")
-	SequencerConfigAssembleErrorRetryThreshold       = pdm("SequencerConfig.assembleErrorRetryThreshold", "Maximum number of times a transaction can error on assembly before being evicted")
+	SequencerConfigAssembleErrorRetryThreshold       = pdm("SequencerConfig.assembleErrorRetryThreshold", "Maximum number of times a transaction can error on assembly (or on the signing of its assembled attestations) before being evicted")
 	SequencerConfigBlockHeightTolerance              = pdm("SequencerConfig.blockHeightTolerance", "Tolerance for block height differences. Must be the same for all nodes participating in a domain instance.")
 	SequencerConfigBlockRange                        = pdm("SequencerConfig.blockRange", "Block range size for sequencer operations. Must be the same for all nodes participating in a domain instance.")
 	SequencerConfigCoordinatorEventQueueSize         = pdm("SequencerConfig.coordinatorEventQueueSize", "Queue size for coordinator state machine events")

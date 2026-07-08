@@ -151,18 +151,48 @@ func (*AssembleRequestReceivedEvent) TypeString() string {
 	return "Event_AssembleRequestReceived"
 }
 
-type AssembleAndSignSuccessEvent struct {
+type AssembleSuccessEvent struct {
 	BaseEvent
 	PostAssembly *components.TransactionPostAssembly
 	RequestID    uuid.UUID
 }
 
-func (*AssembleAndSignSuccessEvent) Type() EventType {
-	return Event_AssembleAndSignSuccess
+func (*AssembleSuccessEvent) Type() EventType {
+	return Event_AssembleSuccess
 }
 
-func (*AssembleAndSignSuccessEvent) TypeString() string {
-	return "Event_AssembleAndSignSuccess"
+func (*AssembleSuccessEvent) TypeString() string {
+	return "Event_AssembleSuccess"
+}
+
+// SignSuccessEvent is queued by the background sign goroutine once it has signed all local SIGN
+// attestations of the assembled plan. RequestID is the assemble-request-id the signatures correspond to.
+type SignSuccessEvent struct {
+	BaseEvent
+	Results   []*prototk.AttestationResult
+	RequestID uuid.UUID
+}
+
+func (*SignSuccessEvent) Type() EventType {
+	return Event_SignSuccess
+}
+
+func (*SignSuccessEvent) TypeString() string {
+	return "Event_SignSuccess"
+}
+
+// SignErrorEvent is queued by the background sign goroutine when signing a SIGN attestation failed.
+type SignErrorEvent struct {
+	BaseEvent
+	RequestID uuid.UUID
+}
+
+func (*SignErrorEvent) Type() EventType {
+	return Event_SignError
+}
+
+func (*SignErrorEvent) TypeString() string {
+	return "Event_SignError"
 }
 
 type AssembleRevertEvent struct {

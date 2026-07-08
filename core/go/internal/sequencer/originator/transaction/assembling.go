@@ -41,8 +41,8 @@ func action_AssembleRequestReceived(ctx context.Context, t *originatorTransactio
 	return nil
 }
 
-func action_AssembleAndSignSuccess(_ context.Context, t *originatorTransaction, event common.Event) error {
-	e := event.(*AssembleAndSignSuccessEvent)
+func action_AssembleSuccess(_ context.Context, t *originatorTransaction, event common.Event) error {
+	e := event.(*AssembleSuccessEvent)
 	t.pt.PostAssembly = e.PostAssembly
 	t.latestFulfilledAssembleRequestID = e.RequestID
 	return nil
@@ -76,18 +76,18 @@ func action_CancelCurrentAssembly(_ context.Context, txn *originatorTransaction,
 	return nil
 }
 
-// action_AssembleAndSign spawns a background goroutine to perform the domain-level
+// action_Assemble spawns a background goroutine to perform the domain-level
 // assembly work and queue the result event back to the originator. This keeps the
-// transaction event loop unblocked while allowing the potentially slow AssembleAndSign
+// transaction event loop unblocked while allowing the potentially slow Assemble
 // call to run concurrently.
 //
 // If a previous assembly goroutine is still in flight (from a superseded request), its
 // context is cancelled before the new goroutine is started.
 //
-// handleAssembleAndSign does not modify the private transaction or the latest assembly
+// handleAssemble does not modify the private transaction or the latest assembly
 // request, making it safe to call in a separate goroutine. This is enforced via unit tests
 // in the engine integration component.
-func action_AssembleAndSign(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
+func action_Assemble(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
 	if txn.latestAssembleRequest == nil {
 		//This should never happen unless there is a bug in the state machine logic
 		log.L(ctx).Errorf("no assemble request found")
@@ -114,13 +114,13 @@ func action_AssembleAndSign(ctx context.Context, txn *originatorTransaction, _ c
 
 	go func() {
 		defer cancel()
-		txn.handleAssembleAndSign(assembleCtx, txID, req, preAssembly, resolvedVerifiers)
+		txn.handleAssemble(assembleCtx, txID, req, preAssembly, resolvedVerifiers)
 	}()
 	return nil
 }
 
-func (txn *originatorTransaction) handleAssembleAndSign(ctx context.Context, txID uuid.UUID, req assembleRequestFromCoordinator, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier) {
-	assembleResponse, err := txn.engineIntegration.AssembleAndSign(ctx, txID, preAssembly, resolvedVerifiers, req.stateSnapshot, req.coordinatorsBlockHeight)
+func (txn *originatorTransaction) handleAssemble(ctx context.Context, txID uuid.UUID, req assembleRequestFromCoordinator, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier) {
+	assembleResponse, err := txn.engineIntegration.Assemble(ctx, txID, preAssembly, resolvedVerifiers, req.stateSnapshot, req.coordinatorsBlockHeight)
 	if err != nil {
 		if ctx.Err() != nil {
 			log.L(ctx).Debugf("abandoning assembly for transaction %s: request expired", txID)
@@ -141,8 +141,8 @@ func (txn *originatorTransaction) handleAssembleAndSign(ctx context.Context, txI
 	postAssembly := &components.TransactionPostAssembly{AssembleResponse: assembleResponse}
 	switch assembleResponse.GetAssemblyResult() {
 	case prototk.AssembleTransactionResponse_OK:
-		log.L(ctx).Debugf("emitting AssembleAndSignSuccessEvent: %s", txID.String())
-		txn.queueEventForOriginator(ctx, &AssembleAndSignSuccessEvent{
+		log.L(ctx).Debugf("emitting AssembleSuccessEvent: %s", txID.String())
+		txn.queueEventForOriginator(ctx, &AssembleSuccessEvent{
 			BaseEvent: BaseEvent{
 				TransactionID: txID,
 			},
@@ -258,20 +258,21 @@ func action_SendAssembleBlockHeightRejection(ctx context.Context, t *originatorT
 	})
 }
 
-func validator_AssembleAndSignSuccessMatchesCurrentRequest(_ context.Context, t *originatorTransaction, event common.Event) (bool, error) {
-	e := event.(*AssembleAndSignSuccessEvent)
+func validator_AssembleSuccessMatchesCurrentRequest(_ context.Context, t *originatorTransaction, event common.Event) (bool, error) {
+	e := event.(*AssembleSuccessEvent)
 	if t.latestAssembleRequest == nil {
 		return false, nil
 	}
 	return t.latestAssembleRequest.requestID == e.RequestID, nil
 }
 
-// guard_AssembleRequestMatchesInProgressAssembly returns true when the most recent assemble request
+// validator_AssembleRequestMatchesInProgressAssembly returns true when the incoming assemble request
 // has the same idempotency key as the assembly goroutine currently in flight.
 // This detects a coordinator nudge arriving while the originator is still assembling the original
 // request: the nudge carries the same idempotency key, so there is no need to cancel and restart.
-func guard_AssembleRequestMatchesInProgressAssembly(_ context.Context, txn *originatorTransaction) bool {
-	return txn.cancelCurrentAssembly != nil && txn.latestAssembleRequest.requestID == txn.currentAssemblyRequestID
+func validator_AssembleRequestMatchesInProgressAssembly(_ context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
+	e := event.(*AssembleRequestReceivedEvent)
+	return txn.cancelCurrentAssembly != nil && e.RequestID == txn.currentAssemblyRequestID, nil
 }
 
 // action_SendAssembleRejectionNotCurrentDelegate sends an AssembleRejection indicating the

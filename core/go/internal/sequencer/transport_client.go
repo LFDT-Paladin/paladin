@@ -50,6 +50,10 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 		go sMgr.handleAssembleError(sMgr.ctx, message)
 	case transport.MessageType_AssembleRejection:
 		go sMgr.handleAssembleRejection(sMgr.ctx, message)
+	case transport.MessageType_SignResponse:
+		go sMgr.handleSignResponse(sMgr.ctx, message)
+	case transport.MessageType_SignError:
+		go sMgr.handleSignError(sMgr.ctx, message)
 	case transport.MessageType_CoordinatorHeartbeatNotification:
 		go sMgr.handleCoordinatorHeartbeatNotification(sMgr.ctx, message)
 	case transport.MessageType_DelegationRequest:
@@ -218,6 +222,68 @@ func (sMgr *sequencerManager) handleAssembleError(ctx context.Context, message *
 	assembleErrorEvent.TransactionID = uuid.MustParse(assembleError.TransactionId)
 	assembleErrorEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, assembleErrorEvent)
+}
+
+func (sMgr *sequencerManager) handleSignResponse(ctx context.Context, message *components.ReceivedMessage) {
+	signResponse := &engineProto.SignResponse{}
+
+	err := proto.Unmarshal(message.Payload, signResponse)
+	if err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, signResponse.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	if signResponse.AttestationResult == nil {
+		sMgr.logPaladinMessageFieldMissingError(ctx, message, "attestation_result")
+		return
+	}
+
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: sign response for transaction %s cannot be processed unless already in memory",
+			contractAddress, signResponse.TransactionId)
+		return
+	}
+
+	signedEvent := &coordTransaction.SignedEvent{}
+	signedEvent.TransactionID = uuid.MustParse(signResponse.TransactionId)
+	signedEvent.RequestID = uuid.MustParse(signResponse.AssembleRequestId)
+	signedEvent.AttestationResult = signResponse.AttestationResult
+	signedEvent.EventTime = time.Now()
+	seq.GetCoordinator().QueueEvent(ctx, signedEvent)
+}
+
+func (sMgr *sequencerManager) handleSignError(ctx context.Context, message *components.ReceivedMessage) {
+	signError := &engineProto.SignError{}
+
+	err := proto.Unmarshal(message.Payload, signError)
+	if err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, signError.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: sign error for transaction %s cannot be processed unless already in memory",
+			contractAddress, signError.TransactionId)
+		return
+	}
+
+	signErrorEvent := &coordTransaction.SignErrorEvent{}
+	signErrorEvent.TransactionID = uuid.MustParse(signError.TransactionId)
+	signErrorEvent.RequestID = uuid.MustParse(signError.AssembleRequestId)
+	signErrorEvent.EventTime = time.Now()
+	seq.GetCoordinator().QueueEvent(ctx, signErrorEvent)
 }
 
 func (sMgr *sequencerManager) handleAssembleRejection(ctx context.Context, message *components.ReceivedMessage) {

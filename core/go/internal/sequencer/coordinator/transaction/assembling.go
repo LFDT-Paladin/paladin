@@ -189,15 +189,23 @@ func (t *coordinatorTransaction) writeStates(ctx context.Context) error {
 }
 
 func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
+	if txn.pendingAssembleRequest == nil {
+		return false, nil
+	}
+	var requestID uuid.UUID
 	switch event := event.(type) {
 	case *AssembleSuccessEvent:
-		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
+		requestID = event.RequestID
 	case *AssembleRevertEvent:
-		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
+		requestID = event.RequestID
 	case *AssembleErrorEvent:
-		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
+		requestID = event.RequestID
+	case *SignedEvent:
+		requestID = event.RequestID
+	case *SignErrorEvent:
+		requestID = event.RequestID
 	}
-	return false, nil
+	return txn.pendingAssembleRequest.IdempotencyKey() == requestID, nil
 }
 
 func action_AssembleSuccess(ctx context.Context, t *coordinatorTransaction, event common.Event) error {

@@ -226,6 +226,7 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 	}
 
 	txn := newTransaction(privateTransaction,
+		"node1",
 		b.fakeEngineIntegration,
 		transportWriter,
 		b.queueEventForOriginator,
@@ -254,6 +255,15 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		txn.currentDelegate = b.currentDelegate
 		b.latestFulfilledAssembleRequestID = uuid.New()
 		txn.latestFulfilledAssembleRequestID = b.latestFulfilledAssembleRequestID
+	case State_Signing:
+		txn.currentDelegate = b.currentDelegate
+		b.latestFulfilledAssembleRequestID = uuid.New()
+		txn.latestFulfilledAssembleRequestID = b.latestFulfilledAssembleRequestID
+		txn.pt.PostAssembly = &components.TransactionPostAssembly{
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AssemblyResult: prototk.AssembleTransactionResponse_OK,
+			},
+		}
 	case State_Reverted:
 		txn.currentDelegate = b.currentDelegate
 		b.latestFulfilledAssembleRequestID = uuid.New()
@@ -297,10 +307,10 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 
 }
 
-func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestOK() *mock.Call {
+func (m *TransactionDependencyFakes) MockForAssembleRequestOK() *mock.Call {
 
 	return m.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything, //ctx context.Contex
 		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
@@ -312,10 +322,10 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestOK() *mock.Cal
 	}, nil)
 }
 
-func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestRevert() *mock.Call {
+func (m *TransactionDependencyFakes) MockForAssembleRequestRevert() *mock.Call {
 
 	return m.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything, //ctx context.Contex
 		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
@@ -328,10 +338,10 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestRevert() *mock
 	}, nil)
 }
 
-func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestPark() *mock.Call {
+func (m *TransactionDependencyFakes) MockForAssembleRequestPark() *mock.Call {
 
 	return m.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything, //ctx context.Contex
 		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *prototk.TransactionPreAssembly

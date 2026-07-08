@@ -298,7 +298,7 @@ func TestOriginatorTransaction_AssembleRequestIgnoredBeforeDelegation(t *testing
 			})
 			assert.NoError(t, err)
 			assert.Equal(t, state, txn.GetCurrentState(), "assemble request must not change state")
-			mocks.EngineIntegration.AssertNotCalled(t, "AssembleAndSign")
+			mocks.EngineIntegration.AssertNotCalled(t, "Assemble")
 		})
 	}
 }
@@ -323,7 +323,7 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 	builder := NewTransactionBuilderForTesting(t, State_Delegated)
 	txn, mocks := builder.BuildWithMocks()
 
-	mocks.MockForAssembleAndSignRequestOK().Once()
+	mocks.MockForAssembleRequestOK().Once()
 	requestID := uuid.New()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
@@ -339,7 +339,7 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 	e1 := <-mocks.Events
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
+	require.IsType(t, &AssembleSuccessEvent{}, e1)
 
 	//We haven't fed that event back into the state machine yet, so the state should still be Assembling
 	currentState := txn.GetCurrentState()
@@ -351,7 +351,7 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 	builder := NewTransactionBuilderForTesting(t, State_Delegated)
 	txn, mocks := builder.BuildWithMocks()
 
-	mocks.MockForAssembleAndSignRequestRevert().Once()
+	mocks.MockForAssembleRequestRevert().Once()
 	requestID := uuid.New()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
@@ -378,7 +378,7 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 	builder := NewTransactionBuilderForTesting(t, State_Delegated)
 	txn, mocks := builder.BuildWithMocks()
 
-	mocks.MockForAssembleAndSignRequestPark().Once()
+	mocks.MockForAssembleRequestPark().Once()
 	requestID := uuid.New()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
@@ -486,7 +486,7 @@ func Test_Delegated_PrivateStateComplete_ProceedsToAssembly(t *testing.T) {
 
 	// Builder default already returns true, nil; no override needed for the complete path.
 	mocks.EngineIntegration.On(
-		"AssembleAndSign", mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		"Assemble", mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil).Maybe()
@@ -516,12 +516,12 @@ func TestOriginatorTransaction_Assembling_ToDelegated_OnDelegated_IfDifferentCoo
 	assert.Equal(t, State_Delegated, txn.GetCurrentState())
 }
 
-func TestOriginatorTransaction_Assembling_ToEndorsement_Gathering_OnAssembleAndSignSuccess(t *testing.T) {
+func TestOriginatorTransaction_Assembling_ToEndorsement_Gathering_OnAssembleSuccess(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, mocks := builder.BuildWithMocks()
 
-	err := txn.HandleEvent(ctx, &AssembleAndSignSuccessEvent{
+	err := txn.HandleEvent(ctx, &AssembleSuccessEvent{
 		BaseEvent: BaseEvent{
 			TransactionID: txn.GetID(),
 		},
@@ -538,8 +538,8 @@ func TestOriginatorTransaction_Assembling_ToEndorsement_Gathering_OnAssembleAndS
 	assert.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestOriginatorTransaction_Assembling_StaysInAssembling_OnAssembleAndSignSuccess_StaleRequestID(t *testing.T) {
-	// When an AssembleAndSignSuccessEvent arrives with a request ID that does not match the
+func TestOriginatorTransaction_Assembling_StaysInAssembling_OnAssembleSuccess_StaleRequestID(t *testing.T) {
+	// When an AssembleSuccessEvent arrives with a request ID that does not match the
 	// current outstanding assemble request, the validator must reject it so the state machine
 	// stays in State_Assembling and no assemble response is sent to the coordinator.
 	ctx := context.Background()
@@ -549,7 +549,7 @@ func TestOriginatorTransaction_Assembling_StaysInAssembling_OnAssembleAndSignSuc
 	staleRequestID := uuid.New() // different from builder.GetAssembleRequestID()
 	assert.NotEqual(t, builder.GetAssembleRequestID(), staleRequestID)
 
-	err := txn.HandleEvent(ctx, &AssembleAndSignSuccessEvent{
+	err := txn.HandleEvent(ctx, &AssembleSuccessEvent{
 		BaseEvent: BaseEvent{TransactionID: txn.GetID()},
 		RequestID: staleRequestID,
 		PostAssembly: &components.TransactionPostAssembly{
@@ -690,10 +690,10 @@ func TestOriginatorTransaction_Assembling_StaysInAssembling_OnAssembleRequestRec
 	previousCancelCalled := make(chan struct{})
 	txn.cancelCurrentAssembly = func() { close(previousCancelCalled) }
 
-	// The new goroutine spawned by action_AssembleAndSign will call AssembleAndSign.
+	// The new goroutine spawned by action_Assemble will call Assemble.
 	// Allow any number of calls (goroutine is async) and return quickly.
 	mocks.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Maybe().Return(nil, context.Canceled)
 
@@ -707,7 +707,7 @@ func TestOriginatorTransaction_Assembling_StaysInAssembling_OnAssembleRequestRec
 	})
 	assert.NoError(t, err)
 
-	// action_AssembleAndSign is synchronous within HandleEvent, so the old cancel was called
+	// action_Assemble is synchronous within HandleEvent, so the old cancel was called
 	// before HandleEvent returned — this receive completes immediately.
 	<-previousCancelCalled
 
@@ -722,7 +722,7 @@ func TestOriginatorTransaction_Delegated_ToReverted_OnAssembleRequestReceived_Af
 	builder := NewTransactionBuilderForTesting(t, State_Delegated)
 	txn, mocks := builder.BuildWithMocks()
 
-	mocks.MockForAssembleAndSignRequestRevert().Once()
+	mocks.MockForAssembleRequestRevert().Once()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
@@ -750,7 +750,7 @@ func TestOriginatorTransaction_Delegated_ToParked_OnAssembleRequestReceived_Afte
 	builder := NewTransactionBuilderForTesting(t, State_Delegated)
 	txn, mocks := builder.BuildWithMocks()
 
-	mocks.MockForAssembleAndSignRequestPark().Once()
+	mocks.MockForAssembleRequestPark().Once()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
@@ -805,7 +805,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnAssembleRequ
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn, mocks := builder.BuildWithMocks()
 
-	// NOTE we do not mock AssembleAndSign function because we expect to resend the previous response
+	// NOTE we do not mock Assemble function because we expect to resend the previous response
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
@@ -817,6 +817,25 @@ func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnAssembleRequ
 	assert.NoError(t, err)
 
 	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleSuccessResponse(), "assemble success response was not sent back to coordinator")
+	assert.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Endorsement_Gathering_RejectsOnly_OnAssembleRequest_IfMatchesPreviousRequestButStaleDelegate(t *testing.T) {
+	// The resend handler requires the request to be from the current delegate, so a matches-previous request
+	// from a stale delegate is not resent to - it falls through to the not-current-delegate rejection.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   builder.GetLatestFulfilledAssembleRequestID(),
+		Coordinator: uuid.New().String(), // different from builder.GetCoordinator()
+	})
+	assert.NoError(t, err)
+
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent for a matches-previous request from a stale delegate")
+	assert.False(t, mocks.SentMessageRecorder.HasSentAssembleSuccessResponse(), "assemble success response was unexpectedly resent to a stale delegate")
 	assert.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
@@ -939,7 +958,7 @@ func TestOriginatorTransaction_Parked_DoResendAssembleResponse_OnAssembleRequest
 	builder := NewTransactionBuilderForTesting(t, State_Parked)
 	txn, mocks := builder.BuildWithMocks()
 
-	// NOTE we do not mock AssembleAndSign function because we expect to resend the previous response
+	// NOTE we do not mock Assemble function because we expect to resend the previous response
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
@@ -1033,7 +1052,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_ToAssembling_OnAssembleRequ
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn, mocks := builder.BuildWithMocks()
 	// This should trigger a re-assembly
-	mocks.MockForAssembleAndSignRequestOK().Once()
+	mocks.MockForAssembleRequestOK().Once()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
@@ -1048,7 +1067,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_ToAssembling_OnAssembleRequ
 	e1 := <-mocks.Events
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
+	require.IsType(t, &AssembleSuccessEvent{}, e1)
 
 	//We haven't fed that event back into the state machine yet, so the state should still be Assembling
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
@@ -1208,7 +1227,7 @@ func TestOriginatorTransaction_Prepared_ToAssembling_OnAssembleRequest_IfNotMatc
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Prepared)
 	txn, mocks := builder.BuildWithMocks()
-	mocks.MockForAssembleAndSignRequestOK().Once()
+	mocks.MockForAssembleRequestOK().Once()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
@@ -1223,7 +1242,7 @@ func TestOriginatorTransaction_Prepared_ToAssembling_OnAssembleRequest_IfNotMatc
 	e1 := <-mocks.Events
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
+	require.IsType(t, &AssembleSuccessEvent{}, e1)
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
@@ -1382,7 +1401,7 @@ func TestOriginatorTransaction_Dispatched_ToAssembling_OnAssembleRequest(t *test
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Dispatched)
 	txn, mocks := builder.BuildWithMocks()
-	mocks.MockForAssembleAndSignRequestOK().Once()
+	mocks.MockForAssembleRequestOK().Once()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
@@ -1397,7 +1416,7 @@ func TestOriginatorTransaction_Dispatched_ToAssembling_OnAssembleRequest(t *test
 	e1 := <-mocks.Events
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
+	require.IsType(t, &AssembleSuccessEvent{}, e1)
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
@@ -1540,7 +1559,7 @@ func TestOriginatorTransaction_Sequenced_ToAssembling_OnAssembleRequest(t *testi
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Sequenced)
 	txn, mocks := builder.BuildWithMocks()
-	mocks.MockForAssembleAndSignRequestOK().Once()
+	mocks.MockForAssembleRequestOK().Once()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
@@ -1555,7 +1574,7 @@ func TestOriginatorTransaction_Sequenced_ToAssembling_OnAssembleRequest(t *testi
 	e1 := <-mocks.Events
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
+	require.IsType(t, &AssembleSuccessEvent{}, e1)
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
@@ -1727,7 +1746,7 @@ func TestOriginatorTransaction_Submitted_ToAssembling_OnAssembleRequest(t *testi
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Submitted)
 	txn, mocks := builder.BuildWithMocks()
-	mocks.MockForAssembleAndSignRequestOK().Once()
+	mocks.MockForAssembleRequestOK().Once()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
 		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
@@ -1740,7 +1759,7 @@ func TestOriginatorTransaction_Submitted_ToAssembling_OnAssembleRequest(t *testi
 	e1 := <-mocks.Events
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
-	require.IsType(t, &AssembleAndSignSuccessEvent{}, e1)
+	require.IsType(t, &AssembleSuccessEvent{}, e1)
 	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 

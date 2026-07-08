@@ -67,6 +67,7 @@ func (o *originator) newOriginatorTransaction(ctx context.Context, pt *component
 	return transaction.NewTransaction(
 		ctx,
 		pt,
+		o.nodeName,
 		o.transportWriter,
 		o.queueEventInternal,
 		o.engineIntegration,
