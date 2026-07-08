@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright contributors to Paladin, an LFDT project
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -27,10 +27,12 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"gorm.io/gorm/clause"
 )
@@ -109,6 +111,63 @@ func (tm *transportManager) listActivePeerInfo() []*pldapi.PeerInfo {
 		peerInfo[i] = &p.PeerInfo
 	}
 	return peerInfo
+}
+
+type peerWithValueSet struct {
+	info *pldapi.PeerInfo
+	vs   filters.PassthroughValueSet
+}
+
+func (p *peerWithValueSet) ValueSet() filters.ValueSet {
+	return p.vs
+}
+
+func peerInfoValueSet(p *pldapi.PeerInfo) filters.PassthroughValueSet {
+	return filters.PassthroughValueSet{
+		"name": p.Name,
+	}
+}
+
+func (tm *transportManager) queryPeers(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.PeerInfo, error) {
+	if err := filters.CheckLimitSet(ctx, jq); err != nil {
+		return nil, err
+	}
+
+	sortInstructions := jq.Sort
+	if len(sortInstructions) == 0 {
+		sortInstructions = []string{"name"}
+	}
+
+	peers := tm.listActivePeers()
+	matches := make([]*peerWithValueSet, 0, len(peers))
+	for _, p := range peers {
+		pws := &peerWithValueSet{
+			info: &p.PeerInfo,
+			vs:   peerInfoValueSet(&p.PeerInfo),
+		}
+		match, err := filters.EvalQuery(ctx, jq, peerInfoFilters, pws.vs)
+		if err != nil {
+			return nil, err
+		}
+		if match {
+			matches = append(matches, pws)
+		}
+	}
+
+	if err := filters.SortValueSetInPlace(ctx, peerInfoFilters, matches, sortInstructions...); err != nil {
+		return nil, err
+	}
+
+	limit := *jq.Limit
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+
+	result := make([]*pldapi.PeerInfo, len(matches))
+	for i, p := range matches {
+		result[i] = p.info
+	}
+	return result, nil
 }
 
 func (tm *transportManager) getPeerInfo(nodeName string) *pldapi.PeerInfo {
