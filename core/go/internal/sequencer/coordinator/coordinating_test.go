@@ -650,6 +650,41 @@ func Test_addToDelegatedTransactions_PreviousTransactionInPreAssemblyState_Estab
 	require.NoError(t, err)
 }
 
+// A partial delegation request from an originator carries only the un-assembled (Pending/Delegated)
+// FIFO suffix; already-assembled predecessors are omitted. This test confirms that such a partial
+// batch still establishes the new transaction's preassembly dependency on its immediate predecessor,
+// because the predecessor is the first element of the suffix and is already coordinated (Pooled).
+func Test_addToDelegatedTransactions_PartialSuffixBatch_EstablishesDependencyOnKnownPredecessor(t *testing.T) {
+	ctx := t.Context()
+	originator := "sender@senderNode"
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, mocks := builder.Build()
+	mocks.Domain.On("FixedSigningIdentity").Return("")
+	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
+
+	// The predecessor is already coordinated and still in a pre-assembly state (Pooled).
+	mockPreviousTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	previousTxnID := uuid.New()
+	mockPreviousTxn.EXPECT().GetCurrentState().Return(transaction.State_Pooled)
+	mockPreviousTxn.EXPECT().GetID().Return(previousTxnID)
+	c.transactionsByID[previousTxnID] = mockPreviousTxn
+
+	// Partial suffix batch: [knownPredecessor, newTxn]. The predecessor's own (assembled) predecessor
+	// is deliberately absent from the batch.
+	existingTxn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
+	existingTxn.ID = previousTxnID
+	newTxn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
+
+	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{existingTxn, newTxn}, "", c.newCoordinatorTransaction)
+	require.NoError(t, err)
+
+	prereq, ok := c.dependencyTracker.GetPreassemblyDeps().GetPrerequisite(ctx, newTxn.ID)
+	require.True(t, ok, "new transaction must depend on its predecessor even in a partial batch")
+	assert.Equal(t, previousTxnID, prereq, "dependency must point at the immediate predecessor in the suffix")
+}
+
 func Test_addToDelegatedTransactions_PreviousTransactionInPreAssemblyState_DoesNotRequireHandleEvent(t *testing.T) {
 	ctx := t.Context()
 	originator := "sender@senderNode"

@@ -570,6 +570,63 @@ func TestStateMachine_Sending_TransactionCreated_DuplicateID_NoDelegation(t *tes
 	assert.Len(t, o.transactionsByID, 1, "duplicate must not be tracked twice")
 }
 
+// TransactionCreated in Sending is the golden path and delegates partially: an already-assembled
+// in-flight transaction is skipped (no DelegatedEvent, no protobuf entry) while a still-Pending one is
+// re-sent. The freshly created transaction defers until its verifiers resolve.
+func TestStateMachine_Sending_TransactionCreated_PartialResend_SkipsAssembled(t *testing.T) {
+	ctx := context.Background()
+
+	assembledTxn, assembledID := newExcludedMockTxn(t, transaction.State_Assembling)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	builder := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Transactions(assembledTxn, pendingTxn)
+	o, mocks := builder.Build()
+	ca := builder.GetContractAddress()
+
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
+
+	newTxn := testutil.NewPrivateTransactionBuilderForTesting().Address(ca).Originator("sender@node1").Build()
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: newTxn}))
+
+	assert.Equal(t, State_Sending, o.GetCurrentState())
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID), "Pending txn must be re-delegated on the hot path")
+	assert.False(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "assembled txn must be skipped on the hot path")
+	// The new transaction defers delegation until its verifiers resolve.
+	assert.Equal(t, transaction.State_Resolving, o.transactionsByID[newTxn.ID].GetCurrentState())
+}
+
+// HeartbeatReceived reporting a dropped transaction is a recovery path and re-delegates the FULL
+// backlog, including already-assembled transactions, because the coordinator may be missing state.
+func TestStateMachine_Sending_HeartbeatReceived_DroppedTransaction_FullResendIncludesAssembled(t *testing.T) {
+	ctx := context.Background()
+
+	assembledTxn, assembledID := newDelegatableMockTxn(t, transaction.State_Assembling)
+	delegatedTxn, delegatedID := newDelegatableMockTxn(t, transaction.State_Delegated)
+
+	builder := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Transactions(assembledTxn, delegatedTxn)
+	o, mocks := builder.Build()
+	ca := builder.GetContractAddress()
+
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
+
+	// Empty snapshot from our coordinator ⇒ both transactions look dropped ⇒ full redelegate.
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatReceivedEvent{
+		FromNode:        "coordinator@node1",
+		ContractAddress: &ca,
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{
+			CoordinatorState: common.CoordinatorState_Active,
+		},
+	}))
+
+	assert.Equal(t, State_Sending, o.GetCurrentState())
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "dropped-transaction recovery must re-send the assembled txn")
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(delegatedID))
+}
+
 // HeartbeatReceived in Sending with dropped transaction → redelegate.
 func TestStateMachine_Sending_HeartbeatReceived_DroppedTransaction_Redelegates(t *testing.T) {
 	ctx := context.Background()

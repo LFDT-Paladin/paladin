@@ -190,7 +190,7 @@ var stateDefinitionsMap = StateDefinitions{
 			// If the coordinator is still in Elect or Prepared it will accept the delegation
 			// and manage the handover itself.
 			{Action: action_RefreshBlockHeight},
-			{Action: action_SendDelegationRequest},
+			{Action: action_DelegateAllTransactions},
 		},
 		Events: map[EventType]EventHandlers{
 			Event_TransactionCreated: {
@@ -200,7 +200,7 @@ var stateDefinitionsMap = StateDefinitions{
 					Actions: []ActionRule{
 						{Action: action_TransactionCreated},
 						{Action: action_RefreshBlockHeight},
-						{Action: action_SendDelegationRequest},
+						{Action: action_DelegateNewTransactions},
 					},
 				}},
 			},
@@ -245,7 +245,7 @@ var stateDefinitionsMap = StateDefinitions{
 					),
 					Actions: []ActionRule{
 						{Action: action_RefreshBlockHeight},
-						{Action: action_SendDelegationRequest},
+						{Action: action_DelegateAllTransactions},
 					},
 				}},
 			},
@@ -278,9 +278,10 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_IsDelegationNotActiveCoordinatorRejection,
 					Actions: []ActionRule{
 						{Action: action_HandleDelegationRejected},
-						// We always redelegate immediately, regardless of whether the current active coordinator has changed
+						// We always redelegate immediately, regardless of whether the current active coordinator has changed.
+						// Full resend: a redirect to a (possibly new) coordinator may need the complete backlog.
 						{Action: action_RefreshBlockHeight},
-						{Action: action_SendDelegationRequest},
+						{Action: action_DelegateAllTransactions},
 					},
 				}},
 			},
@@ -300,11 +301,13 @@ var stateDefinitionsMap = StateDefinitions{
 					Actions: []ActionRule{{Action: action_FinalizeTransaction}},
 				}, {
 					// A transaction has finished resolving its verifiers and is now eligible for delegation.
-					// Delegate immediately (the resolved contiguous prefix) rather than waiting for the next heartbeat.
+					// Delegate immediately (the newly-eligible un-assembled suffix) rather than waiting for
+					// the next heartbeat. This is a golden-path trigger that fires ~once per transaction, so
+					// it delegates partially to avoid re-sending the whole backlog.
 					Validator: validator_OriginatorTransactionStateTransitionFromResolving,
 					Actions: []ActionRule{
 						{Action: action_RefreshBlockHeight},
-						{Action: action_SendDelegationRequest},
+						{Action: action_DelegateNewTransactions},
 					},
 				}},
 			},

@@ -102,10 +102,21 @@ func (o *originator) addToTransactions(
 	return nil
 }
 
-func sendDelegationRequest(ctx context.Context, o *originator) error {
+// sendDelegationRequest delegates transactions to the current active coordinator in the order they
+// were created on the originating node.
+//
+// When full is true, every resolved transaction in the contiguous prefix is (re)delegated. This is
+// used by the recovery paths (entry to Sending, dropped transactions, silence/failover, and
+// delegation-rejected redirect) where the coordinator may be missing state, so we bias toward
+// over-sending.
+//
+// When full is false only transactions whose state is State_Pending or State_Delegated are included,
+// i.e. the minimal set required to ensure FIFO ordering until first assembly
+func sendDelegationRequest(ctx context.Context, o *originator, full bool) error {
 	// Delegate the contiguous resolved prefix of transactions in the order they were created on the
 	// originating node. A still-resolving transaction blocks all later transactions so the coordinator
 	// receives them in creation order and never sees a transaction whose verifiers are unresolved.
+	inFlight := 0
 	transactionsToDelegate := make([]*components.PrivateTransaction, 0)
 	for _, txn := range o.transactionsOrdered {
 		// A transaction has advanced past verifier resolution, and so is eligible for delegation, only
@@ -113,6 +124,13 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 		state := txn.GetCurrentState()
 		if state == transaction.State_Initial || state == transaction.State_Resolving {
 			break
+		}
+		inFlight++
+		// On the golden path skip any transaction the coordinator already knows about (it has been
+		// assembled at least once, so its ordering is locked in). We skip both the DelegatedEvent and
+		// the protobuf entry.
+		if !full && state != transaction.State_Pending && state != transaction.State_Delegated {
+			continue
 		}
 		transactionsToDelegate = append(transactionsToDelegate, txn.GetPrivateTransaction())
 		err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
@@ -132,7 +150,8 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 		return nil
 	}
 
-	log.L(ctx).Debugf("sending delegation request for %d transactions", len(transactionsToDelegate))
+	log.L(ctx).Debugf("sending delegation request for %d of %d in-flight transactions (full=%t)",
+		len(transactionsToDelegate), inFlight, full)
 
 	delegations := make([]*engineProto.PrivateTransactionDelegation, 0, len(transactionsToDelegate))
 	for _, tx := range transactionsToDelegate {
@@ -151,8 +170,15 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 	})
 }
 
-func action_SendDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
-	return sendDelegationRequest(ctx, o)
+// action_DelegateNewTransactions only delegates transactions State_Pending / State_Delegated to ensure
+// that FIFO ordering until first assembly is preserved for these transacrtions
+func action_DelegateNewTransactions(ctx context.Context, o *originator, _ common.Event) error {
+	return sendDelegationRequest(ctx, o, false)
+}
+
+// action_DelegateAllTransactions delegates all unconfirmed transactions
+func action_DelegateAllTransactions(ctx context.Context, o *originator, _ common.Event) error {
+	return sendDelegationRequest(ctx, o, true)
 }
 
 // action_RefreshBlockHeight queries the live block height and updates effectiveBlockHeight and the
@@ -193,7 +219,7 @@ func action_FailoverToNextCoordinator(ctx context.Context, o *originator, _ comm
 		log.L(ctx).Debugf("originator failing over from %s to %s (failoverIndex now %d)",
 			prev, o.currentActiveCoordinator, o.failoverIndex)
 	}
-	return sendDelegationRequest(ctx, o)
+	return sendDelegationRequest(ctx, o, true)
 }
 
 // action_ResetToTopPriorityCoordinator sets currentActiveCoordinator to the highest-priority

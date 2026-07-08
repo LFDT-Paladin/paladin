@@ -301,12 +301,138 @@ func Test_sendDelegationRequest_HandleEventError_ReturnsWrappedError(t *testing.
 		Transactions(mockTxn).
 		CurrentActiveCoordinator("coordinator@coordinatorNode").
 		Build()
-	err := sendDelegationRequest(ctx, o)
+	err := sendDelegationRequest(ctx, o, true)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "error handling delegated event for transaction")
 	assert.Contains(t, err.Error(), txnID.String())
 	assert.Contains(t, err.Error(), expectedErr.Error())
 }
+
+// newDelegatableMockTxn builds a mock originator transaction that expects to be included in a
+// delegation request: it will be asked for its state, private transaction and ID and will receive a
+// DelegatedEvent via HandleEvent.
+func newDelegatableMockTxn(t *testing.T, state transaction.State) (*originatortransactionmocks.OriginatorTransaction, uuid.UUID) {
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID)
+	mockTxn.On("GetCurrentState").Return(state)
+	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
+	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
+	return mockTxn, txID
+}
+
+// newExcludedMockTxn builds a mock originator transaction that must NOT be delegated on the partial
+// path. It only permits GetID/GetCurrentState; any GetPrivateTransaction or HandleEvent (DelegatedEvent)
+// call is an unexpected-call failure, which is exactly the assertion we want — an excluded transaction
+// receives no DelegatedEvent and contributes no protobuf entry.
+func newExcludedMockTxn(t *testing.T, state transaction.State) (*originatortransactionmocks.OriginatorTransaction, uuid.UUID) {
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID).Maybe()
+	mockTxn.On("GetCurrentState").Return(state)
+	return mockTxn, txID
+}
+
+// On the golden (partial) path, transactions that the coordinator already knows about (Assembling or
+// beyond) are skipped: they get neither a DelegatedEvent nor a protobuf entry. Only Pending/Delegated
+// transactions are (re)sent.
+func Test_sendDelegationRequest_Partial_ExcludesAssembledTransactions(t *testing.T) {
+	ctx := context.Background()
+	assembledTxn, assembledID := newExcludedMockTxn(t, transaction.State_Assembling)
+	delegatedTxn, delegatedID := newDelegatableMockTxn(t, transaction.State_Delegated)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	// Order matters: the un-assembled transactions form the contiguous FIFO suffix.
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembledTxn, delegatedTxn, pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := sendDelegationRequest(ctx, o, false)
+	require.NoError(t, err)
+
+	assert.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest())
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(delegatedID), "Delegated txn must be included")
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID), "Pending txn must be included")
+	assert.False(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "Assembling txn must be excluded on the partial path")
+}
+
+// The full (recovery) path re-delegates everything in the resolved prefix, including already-assembled
+// transactions, because the coordinator may be missing state.
+func Test_sendDelegationRequest_Full_IncludesAssembledTransactions(t *testing.T) {
+	ctx := context.Background()
+	assembledTxn, assembledID := newDelegatableMockTxn(t, transaction.State_Assembling)
+	delegatedTxn, delegatedID := newDelegatableMockTxn(t, transaction.State_Delegated)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembledTxn, delegatedTxn, pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := sendDelegationRequest(ctx, o, true)
+	require.NoError(t, err)
+
+	assert.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest())
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "full resend must include the assembled txn")
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(delegatedID))
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID))
+}
+
+// A partial delegation with nothing left to send (every resolved transaction is already assembled)
+// must not emit a delegation request at all.
+func Test_sendDelegationRequest_Partial_AllAssembled_DoesNotSend(t *testing.T) {
+	ctx := context.Background()
+	assembled1, _ := newExcludedMockTxn(t, transaction.State_Assembling)
+	assembled2, _ := newExcludedMockTxn(t, transaction.State_Dispatched)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembled1, assembled2).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := sendDelegationRequest(ctx, o, false)
+	require.NoError(t, err)
+
+	assert.False(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "partial resend with nothing to delegate must not send a request")
+}
+
+// action_DelegateNewTransactions is the golden-path action and must delegate partially.
+func Test_action_DelegateNewTransactions_IsPartial(t *testing.T) {
+	ctx := context.Background()
+	assembledTxn, assembledID := newExcludedMockTxn(t, transaction.State_Assembling)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembledTxn, pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := action_DelegateNewTransactions(ctx, o, nil)
+	require.NoError(t, err)
+
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID))
+	assert.False(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID))
+}
+
+// action_DelegateAllTransactions is the recovery-path action and must delegate the full backlog.
+func Test_action_DelegateAllTransactions_IsFull(t *testing.T) {
+	ctx := context.Background()
+	assembledTxn, assembledID := newDelegatableMockTxn(t, transaction.State_Assembling)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembledTxn, pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := action_DelegateAllTransactions(ctx, o, nil)
+	require.NoError(t, err)
+
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "recovery-path action must include the assembled txn")
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID))
+}
+
 func Test_validator_TransactionDoesNotExist_InvalidEventTypeReturnsFalse(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(t, State_Observing)
@@ -403,7 +529,7 @@ func Test_sendDelegationRequest_TransportError_ReturnsError(t *testing.T) {
 		SendDelegationRequest(mock.Anything, mock.Anything, mock.Anything).
 		Return(fmt.Errorf("transport error"))
 
-	err := sendDelegationRequest(ctx, o)
+	err := sendDelegationRequest(ctx, o, true)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "transport error")
 }
