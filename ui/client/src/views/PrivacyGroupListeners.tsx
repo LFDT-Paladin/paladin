@@ -61,7 +61,7 @@ export const PrivacyGroupListeners: React.FC = () => {
   const location = useLocation();
 
   const { data, error, isPlaceholderData, isFetching, refetch } = useQuery({
-    queryKey: ['privacyGroups', page, rowsPerPage, filters, sortBy, sortAscending, paginationRefs],
+    queryKey: ['privacy-group-listeners', page, rowsPerPage, filters, sortBy, sortAscending, paginationRefs],
     queryFn: () => listPrivacyGroupListeners(rowsPerPage, filters, sortBy, sortAscending, paginationRefs[paginationRefs.length - 1]),
     placeholderData: keepPreviousData
   });
@@ -290,7 +290,7 @@ export const PrivacyGroupListeners: React.FC = () => {
                     </TableHead>
                     <TableBody>
                       {privacyGroupListeners?.map(privacyGroupListener =>
-                        <TableRow key={privacyGroupListener.name}>
+                        <TableRow key={`${privacyGroupListener.name}${privacyGroupListener.created}`}>
                           <TableCell>
                             {privacyGroupListener.name}
                           </TableCell>
@@ -310,16 +310,16 @@ export const PrivacyGroupListeners: React.FC = () => {
                             </Box>
                           </TableCell>
                           <TableCell>
-                            {privacyGroupListener.filters.domain ?? '--'}
+                            {privacyGroupListener.filters?.domain ?? '--'}
                           </TableCell>
                           <TableCell>
-                            {privacyGroupListener.filters.group?
+                            {privacyGroupListener.filters?.group?
                             <Hash Icon={<Captions size="18px" />} title={t('group')} hideTitle hash={privacyGroupListener.filters.group} />
                             :
                             '--'}
                           </TableCell>
                           <TableCell>
-                            {privacyGroupListener.filters.topic ?? '--'}
+                            {privacyGroupListener.filters?.topic ?? '--'}
                           </TableCell>
                           <TableCell sx={{ padding: '8px' }}>
                             <PrivacyGroupListenerActions

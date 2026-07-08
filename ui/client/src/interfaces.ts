@@ -357,6 +357,6 @@ export interface IPrivacyGroupListener {
   name: string
   created: string
   started: boolean
-  filters: IPrivacyGroupMessageListenerFilters
-  options: IPrivacyGroupMessageListenerOptions
+  filters?: IPrivacyGroupMessageListenerFilters
+  options?: IPrivacyGroupMessageListenerOptions
 }
