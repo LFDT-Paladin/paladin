@@ -17,38 +17,70 @@
 import i18next from 'i18next';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
-import { IFilter, IPagedResult, IPrivacyGroup, IPrivacyGroupListener, IPrivacyGroupMessage, IPrivacyGroupMessageListenerFilters, IPrivacyGroupMessageListenerOptions } from '../interfaces';
+import { IFilter, IPagedResult, IPrivacyGroup, IPrivacyGroupListener, IPrivacyGroupMessage, IPrivacyGroupMessageListenerFilters, IPrivacyGroupMessageListenerOptions, IPrivacyGroupPagingReference } from '../interfaces';
 import { deepMerge, toPagedResult, translateFilters } from '../utils';
+
+export const getPrivacyGroupSortValue = (privacyGroup: IPrivacyGroup, sortBy: string): any => {
+  if (sortBy === 'created') {
+    return privacyGroup.created;
+  }
+  return privacyGroup.name;
+};
+
+export const buildPrivacyGroupPagingReference = (
+  privacyGroup: IPrivacyGroup,
+  sortBy: string,
+): IPrivacyGroupPagingReference => ({
+  sortValue: getPrivacyGroupSortValue(privacyGroup, sortBy),
+  id: privacyGroup.id,
+});
 
 export const listPrivacyGroups = async (
   limit: number,
   filters: IFilter[],
+  sortBy: string,
   sortAscending: boolean,
-  refTimestamp?: string
+  pageRef?: IPrivacyGroupPagingReference
 ): Promise<IPagedResult<IPrivacyGroup>> => {
   let translatedFilters = translateFilters(filters);
+  const sortDirection = sortAscending ? 'ASC' : 'DESC';
+
+  let queryParams: any = {
+    ...translatedFilters,
+    limit: limit + 1,
+    sort: [
+      `${sortBy} ${sortDirection}`,
+      `id ${sortDirection}`,
+    ],
+  };
+
+  if (pageRef !== undefined) {
+    const comparison = sortAscending ? 'greaterThan' : 'lessThan';
+    queryParams.or = [
+      {
+        [comparison]: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+      },
+      {
+        equal: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+        [comparison]: [{
+          field: 'id',
+          value: pageRef.id,
+        }],
+      },
+    ];
+  }
 
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
     method: RpcMethods.pgroup_queryGroups,
-    params: [{
-      ...translatedFilters,
-      limit: limit + 1,
-      sort: [`created ${sortAscending ? 'ASC' : 'DESC'}`],
-      greaterThan: refTimestamp !== undefined && sortAscending ? [
-        {
-          field: 'created',
-          value: refTimestamp
-        }
-      ] : undefined,
-      lessThan: refTimestamp !== undefined && !sortAscending ? [
-        {
-          field: 'created',
-          value: refTimestamp
-        }
-      ] : undefined
-    }]
+    params: [queryParams]
   };
   const results = await returnResponse(
     () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),

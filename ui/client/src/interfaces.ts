@@ -36,6 +36,11 @@ export interface IStatePagingReference {
   id: string;
 }
 
+export interface IPrivacyGroupPagingReference {
+  sortValue: any;
+  id: string;
+}
+
 export interface IPagedResult<T> {
   items: T[];
   hasMore: boolean;

@@ -26,6 +26,7 @@ import {
 import {
   IFilter,
   IPaladinTransactionPagingReference,
+  IPrivacyGroupPagingReference,
   IStatePagingReference,
   ITransactionPagingReference,
 } from "../interfaces";
@@ -83,8 +84,10 @@ export interface DomainsViewState {
 export interface PrivacyGroupsViewState {
   sortAscending: boolean;
   setSortAscending: Dispatch<SetStateAction<boolean>>;
-  refTimestamps: string[];
-  setRefTimestamps: Dispatch<SetStateAction<string[]>>;
+  sortBy: string;
+  setSortBy: Dispatch<SetStateAction<string>>;
+  refEntries: IPrivacyGroupPagingReference[];
+  setRefEntries: Dispatch<SetStateAction<IPrivacyGroupPagingReference[]>>;
   page: number;
   setPage: Dispatch<SetStateAction<number>>;
   rowsPerPage: number;
@@ -290,7 +293,8 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   const [privacyGroupsFilters, setPrivacyGroupsFilters] = useState<IFilter[]>([]);
   const [privacyGroupsPage, setPrivacyGroupsPage] = useState(0);
   const [privacyGroupsRowsPerPage, setPrivacyGroupsRowsPerPage] = useState(10);
-  const [privacyGroupsRefTimestamps, setPrivacyGroupsRefTimestamps] = useState<string[]>([]);
+  const [privacyGroupsRefEntries, setPrivacyGroupsRefEntries] = useState<IPrivacyGroupPagingReference[]>([]);
+  const [privacyGroupsSortBy, setPrivacyGroupsSortBy] = useState('created');
   const [privacyGroupsSortAscending, setPrivacyGroupsSortAscending] = useState(false);
   const [privacyGroupsFiltersVisible, setPrivacyGroupsFiltersVisible] = useState(false);
 
@@ -440,8 +444,10 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
     (): PrivacyGroupsViewState => ({
       sortAscending: privacyGroupsSortAscending,
       setSortAscending: setPrivacyGroupsSortAscending,
-      refTimestamps: privacyGroupsRefTimestamps,
-      setRefTimestamps: setPrivacyGroupsRefTimestamps,
+      sortBy: privacyGroupsSortBy,
+      setSortBy: setPrivacyGroupsSortBy,
+      refEntries: privacyGroupsRefEntries,
+      setRefEntries: setPrivacyGroupsRefEntries,
       page: privacyGroupsPage,
       setPage: setPrivacyGroupsPage,
       rowsPerPage: privacyGroupsRowsPerPage,
@@ -453,7 +459,8 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
     }),
     [
       privacyGroupsSortAscending,
-      privacyGroupsRefTimestamps,
+      privacyGroupsSortBy,
+      privacyGroupsRefEntries,
       privacyGroupsPage,
       privacyGroupsRowsPerPage,
       privacyGroupsFilters,
@@ -465,7 +472,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
     (): PrivacyGroupListenersViewState => ({
       sortAscending: privacyGroupListenersSortAscending,
       setSortAscending: setPrivacyGroupListenersSortAscending,
-      paginationRefs: privacyGroupsRefTimestamps,
+      paginationRefs: privacyGroupListenersPaginationRefs,
       setPaginationRefs: setPrivacyGroupListenersPaginationRefs,
       sortBy: privacyGroupListenersSortBy,
       setSortBy: setPrivacyGroupListenerssortBy,

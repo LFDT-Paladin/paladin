@@ -19,7 +19,7 @@ import { useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { useTranslation } from "react-i18next";
 import SearchIcon from '@mui/icons-material/Search';
-import { listPrivacyGroups } from "../queries/privacyGroups";
+import { listPrivacyGroups, buildPrivacyGroupPagingReference } from "../queries/privacyGroups";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Timestamp } from "../components/Timestamp";
 import { Hash } from "../components/Hash";
@@ -42,8 +42,10 @@ export const PrivacyGroups: React.FC = () => {
   const {
     sortAscending,
     setSortAscending,
-    refTimestamps,
-    setRefTimestamps,
+    sortBy,
+    setSortBy,
+    refEntries,
+    setRefEntries,
     page,
     setPage,
     rowsPerPage,
@@ -61,8 +63,8 @@ export const PrivacyGroups: React.FC = () => {
   const location = useLocation();
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
-    queryKey: ['privacyGroups', page, rowsPerPage, filters, sortAscending, refTimestamps],
-    queryFn: () => listPrivacyGroups(rowsPerPage, filters, sortAscending, refTimestamps[refTimestamps.length - 1]),
+    queryKey: ['privacyGroups', page, rowsPerPage, filters, sortBy, sortAscending, refEntries],
+    queryFn: () => listPrivacyGroups(rowsPerPage, filters, sortBy, sortAscending, refEntries[refEntries.length - 1]),
     placeholderData: keepPreviousData
   });
 
@@ -72,7 +74,7 @@ export const PrivacyGroups: React.FC = () => {
   const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
   useResetPaginationOnChange(() => {
-    setRefTimestamps([]);
+    setRefEntries([]);
     setPage(0);
   }, filters);
 
@@ -89,17 +91,17 @@ export const PrivacyGroups: React.FC = () => {
     newPage: number
   ) => {
     if (newPage === 0) {
-      setRefTimestamps([]);
+      setRefEntries([]);
     } else if (newPage > page) {
       if (privacyGroups !== undefined && !isPlaceholderData && privacyGroups.length > 0) {
-        const refEntriesCopy = [...refTimestamps];
-        refEntriesCopy.push(privacyGroups[privacyGroups.length - 1].created);
-        setRefTimestamps(refEntriesCopy);
+        const refEntriesCopy = [...refEntries];
+        refEntriesCopy.push(buildPrivacyGroupPagingReference(privacyGroups[privacyGroups.length - 1], sortBy));
+        setRefEntries(refEntriesCopy);
       }
     } else {
-      const refEntriesCopy = [...refTimestamps];
+      const refEntriesCopy = [...refEntries];
       refEntriesCopy.pop();
-      setRefTimestamps(refEntriesCopy);
+      setRefEntries(refEntriesCopy);
     }
     setPage(newPage);
   };
@@ -109,7 +111,7 @@ export const PrivacyGroups: React.FC = () => {
   ) => {
     const value = parseInt(event.target.value, 10);
     setRowsPerPage(value);
-    setRefTimestamps([]);
+    setRefEntries([]);
     setPage(0);
   };
 
@@ -214,15 +216,42 @@ export const PrivacyGroups: React.FC = () => {
                             backgroundColor: (theme) => theme.palette.background.paper,
                           }}>
                           <TableSortLabel
-                            active={true}
+                            active={sortBy === 'created'}
                             direction={sortAscending ? 'asc' : 'desc'}
                             onClick={() => {
-                              setSortAscending(!sortAscending);
-                              setRefTimestamps([]);
+                              if (sortBy === 'created') {
+                                setSortAscending(!sortAscending);
+                              } else {
+                                setSortBy('created');
+                              }
+                              setRefEntries([]);
                               setPage(0);
                             }}
                           >
                             {t('created')}
+                          </TableSortLabel>
+                        </TableCell>
+                                                <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          <TableSortLabel
+                            active={sortBy === 'name'}
+                            direction={sortAscending ? 'asc' : 'desc'}
+                            onClick={() => {
+                              if (sortBy === 'name') {
+                                setSortAscending(!sortAscending);
+                              } else {
+                                setSortBy('name');
+                              }
+                              setRefEntries([]);
+                              setPage(0);
+                            }}
+                          >
+                            {t('name')}
                           </TableSortLabel>
                         </TableCell>
                         <TableCell
@@ -233,15 +262,6 @@ export const PrivacyGroups: React.FC = () => {
                           }}
                         >
                           {t('id')}
-                        </TableCell>
-                        <TableCell
-                          width={1}
-                          sx={{
-                            backgroundColor: (theme) => theme.palette.background.paper,
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {t('name')}
                         </TableCell>
                         <TableCell
                           width={1}
@@ -286,11 +306,11 @@ export const PrivacyGroups: React.FC = () => {
                           <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                             <Timestamp timestamp={privacyGroup.created} />
                           </TableCell>
-                          <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
-                            <Hash Icon={<Tag size="18px" />} hideTitle title={t('id')} hash={privacyGroup.id} />
-                          </TableCell>
                           <TableCell>
                             {privacyGroup.name.length > 0 ? privacyGroup.name : '--'}
+                          </TableCell>
+                          <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
+                            <Hash Icon={<Tag size="18px" />} hideTitle title={t('id')} hash={privacyGroup.id} />
                           </TableCell>
                           <TableCell>
                             {t(privacyGroup.domain)}
