@@ -32,7 +32,7 @@ import { useNavigate } from 'react-router-dom';
 import { getPrivacyGroupMessage } from '../queries/privacyGroups';
 
 type Props = {
-  privacyGroupId: string
+  privacyGroupId?: string
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
 }
@@ -55,8 +55,8 @@ export const PrivacyGroupMessageLookupDialog: React.FC<Props> = ({
   }, [dialogOpen]);
 
   const { refetch: messageById } = useQuery({
-    queryKey: ['privacy-group-message', privacyGroupId, id],
-    queryFn: () => getPrivacyGroupMessage(privacyGroupId, id!),
+    queryKey: ['privacy-group-message', id],
+    queryFn: () => getPrivacyGroupMessage(id!),
     retry: false,
     enabled: false
   });

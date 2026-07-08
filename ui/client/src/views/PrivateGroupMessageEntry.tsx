@@ -28,12 +28,12 @@ export const PrivateGroupMessageEntry: React.FC = () => {
 
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { privacyGroupId, messageId } = useParams();
+  const { messageId } = useParams();
 
   const { data: privateGroupMessage, error } = useQuery({
-    queryKey: ['private-group-message', privacyGroupId, messageId],
-    queryFn: () => getPrivacyGroupMessage(privacyGroupId!, messageId!),
-    enabled: privacyGroupId !== undefined && messageId !== undefined
+    queryKey: ['private-group-message', messageId],
+    queryFn: () => getPrivacyGroupMessage(messageId!),
+    enabled: messageId !== undefined
   });
 
   if (privateGroupMessage === undefined) {
@@ -61,9 +61,9 @@ export const PrivateGroupMessageEntry: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate(`/ui/privacy-groups/groups/${privacyGroupId}`)}
+            onClick={() => navigate('/ui/privacy-groups/messages')}
           >
-            {t('backToPrivacyGroup')}
+            {t('backToMessages')}
           </Button>
         </Box>
         <Typography variant="h6" sx={{ marginBottom: '15px' }}>{t('privacyGroupMessage')}</Typography>

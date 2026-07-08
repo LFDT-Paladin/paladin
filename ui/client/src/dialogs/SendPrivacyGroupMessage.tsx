@@ -25,25 +25,26 @@ import {
   TextField} from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { isValidUUID } from '../utils';
+import { isValidHex, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { sendPrivacyGroupMessage } from '../queries/privacyGroups';
 import { IPrivacyGroup } from '../interfaces';
 
 type Props = {
-  privacyGroup: IPrivacyGroup
+  preSelectedPrivacyGroup?: IPrivacyGroup
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
-  privacyGroup,
+  preSelectedPrivacyGroup,
   dialogOpen,
   setDialogOpen,
 }) => {
 
   const { t } = useTranslation();
+  const [privacyGroupId, setPrivacyGroupId] = useState(preSelectedPrivacyGroup?.id ?? '');
   const [topic, setTopic] = useState('');
   const [correlationId, setCorrelationId] = useState('');
   const [data, setData] = useState('');
@@ -67,16 +68,18 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
   }
 
   const { mutate: handleSubmit } = useMutation({
-    mutationFn: () => sendPrivacyGroupMessage(privacyGroup.id, topic, getData(), correlationId.length > 0? correlationId : undefined),
-    onSuccess: data => {
-      navigate(`/ui/privacy-groups/${privacyGroup.id}/messages/${data}`);
+    mutationFn: () => sendPrivacyGroupMessage(privacyGroupId, topic, getData(), correlationId.length > 0? correlationId : undefined),
+    onSuccess: messageId => {
+      navigate(`/ui/privacy-groups/messages/${messageId}`);
     },
     onError: error => {
       setErrorMessage(error.message);
     }
   });
 
-  const canSubmit = topic.length > 0
+  const isValidPrivacyGroupId = isValidHex(privacyGroupId);
+
+  const canSubmit = privacyGroupId.length > 0 && isValidPrivacyGroupId && topic.length > 0
     && (correlationId.length === 0 || isValidUUID(correlationId))
     && data.length > 0;
 
@@ -101,6 +104,16 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
         </DialogTitle>
         <DialogContent>
           <Box sx={{ marginTop: '6px' }}>
+            <TextField
+              sx={{ marginBottom: '20px' }}
+              label={t('privacyGroupId')}
+              autoComplete="off"
+              fullWidth
+              value={privacyGroupId}
+              onChange={event => setPrivacyGroupId(event.target.value)}
+              helperText={privacyGroupId.length > 0 && !isValidPrivacyGroupId? t('mustBeAValidHex') : undefined}
+              error={privacyGroupId.length > 0 && !isValidPrivacyGroupId}
+            />
             <TextField
               sx={{ marginBottom: '20px' }}
               label={t('topic')}

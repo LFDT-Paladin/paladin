@@ -25,12 +25,13 @@ export const AppRoutes = {
   PrivacyGroups: '/ui/privacy-groups/groups',
   PrivacyGroup: '/ui/privacy-groups/groups/:idOrAddress',
   PrivacyGroupListeners: '/ui/privacy-groups/listeners',
+  PrivacyGroupMessages: '/ui/privacy-groups/messages',
   PrivacyGroupListenerEntry: '/ui/privacy-groups/listeners/:name',
   States: '/ui/states',
   ReliableMessage: '/ui/transports/messages/:id',
   State: '/ui/states/:domain/:schema/:id',
   RegistryEntry: '/ui/registry/:registry/:id',
-  PrivacyGroupMessageEntry: '/ui/privacy-groups/groups/:privacyGroupId/messages/:messageId',
+  PrivacyGroupMessageEntry: '/ui/privacy-groups/messages/:messageId',
   TransportConnections: '/ui/transports/connections',
   TransportMessages: '/ui/transports/messages'
 };

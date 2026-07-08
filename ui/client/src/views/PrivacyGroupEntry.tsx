@@ -24,7 +24,6 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { getPrivacyGroupByAddress, getPrivacyGroupById } from "../queries/privacyGroups";
 import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { PrivacyGroupMessages } from "../components/PrivacyGroupMessages";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 
 export const PrivacyGroupEntry: React.FC = () => {
@@ -120,7 +119,7 @@ export const PrivacyGroupEntry: React.FC = () => {
             }}
             label={
               <Box>
-                {getShortId(privacyGroup.id)}
+                {privacyGroup.name} {getShortId(privacyGroup.id)}
               </Box>
             } />
         </Tabs>
@@ -132,11 +131,6 @@ export const PrivacyGroupEntry: React.FC = () => {
             <JSONBox data={privacyGroup} />
           </AccordionDetails>
         </Accordion>
-        <Box sx={{ marginTop: '40px' }}>
-          <PrivacyGroupMessages
-            privacyGroup={privacyGroup}
-          />
-        </Box>
       </Box>
     </Fade>
   );

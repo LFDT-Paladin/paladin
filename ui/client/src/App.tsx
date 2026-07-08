@@ -49,6 +49,7 @@ import { TransportConnections } from "./views/TransportsConnections";
 import { TransportMessages } from "./views/TransportMessages";
 import { PrivacyGroupListeners } from "./views/PrivacyGroupListeners";
 import { PrivacyGroupListenerEntry } from "./views/PrivacyGroupListenerEntry";
+import { PrivacyGroupMessages } from "./views/PrivacyGroupMessages";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({}),
@@ -126,6 +127,7 @@ function App() {
                   <Route path={AppRoutes.Domains} element={<Domains />} />
                   <Route path={AppRoutes.DomainContract} element={<DomainContract />} />
                   <Route path={AppRoutes.PrivacyGroups} element={<PrivacyGroups />} />
+                  <Route path={AppRoutes.PrivacyGroupMessages} element={<PrivacyGroupMessages />} />
                   <Route path={AppRoutes.PrivacyGroupListeners} element={<PrivacyGroupListeners />} />
                   <Route path={AppRoutes.PrivacyGroup} element={<PrivacyGroupEntry />} />
                   <Route path={AppRoutes.PrivacyGroupMessageEntry} element={<PrivateGroupMessageEntry />} />

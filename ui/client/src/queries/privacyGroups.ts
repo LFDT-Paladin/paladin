@@ -138,23 +138,29 @@ export const getPrivacyGroupMessages = async (
 };
 
 export const getPrivacyGroupMessage = async (
-  privacyGroupId: string,
-  messageId: string
+  messageId: string,
+  privacyGroupId?: string
 ): Promise<IPrivacyGroupMessage | null> => {
-  const payload = {
-    jsonrpc: '2.0',
-    id: Date.now(),
-    method: RpcMethods.pgroup_queryMessages,
-    params: [{
+  let params: any = [
+    {
       equal: [{
-        field: 'group',
-        value: privacyGroupId
-      }, {
         field: 'id',
         value: messageId
       }],
       limit: 1
-    }],
+    }
+  ]
+  if (privacyGroupId !== undefined) {
+    params[0].equals.push({
+      field: 'group',
+      value: privacyGroupId
+    });
+  }
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.pgroup_queryMessages,
+    params
   };
   const response = await <Promise<IPrivacyGroupMessage[]>>(
     returnResponse(

@@ -269,6 +269,7 @@
 	"pendingTransactions": "Pending Transactions",
 	"pente": "Pente",
 	"privacyGroup": "Privacy Group",
+	"privacyGroupId": "Privacy Group ID",
 	"privacyGroupIdOrContractAddress": "Privacy Group ID or Contract Address",
 	"privacyGroupListenerNameRestrictions": "Must be 1-128 characters, including alphanumerics (a-zA-Z0-9), dot (.), dash (-) and underscore (_), and must start/end in an alphanumeric",
 	"privacyGroupListenersEmptyState": "No privacy group listeners",
