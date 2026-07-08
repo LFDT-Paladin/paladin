@@ -18,7 +18,7 @@ import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
-import { fetchSubmissions } from "../queries/transactions";
+import { fetchSubmissions, buildPaladinTransactionPagingReference } from "../queries/transactions";
 import { useTranslation } from "react-i18next";
 import { Filters } from "../components/Filters";
 import SearchIcon from '@mui/icons-material/Search';
@@ -81,7 +81,7 @@ export const Submissions: React.FC = () => {
     } else if (newPage > page) {
       if (transactions !== undefined && !isPlaceholderData && transactions.length > 0) {
         const refEntriesCopy = [...refEntries];
-        refEntriesCopy.push(transactions[transactions.length - 1]);
+        refEntriesCopy.push(buildPaladinTransactionPagingReference(transactions[transactions.length - 1]));
         setRefEntries(refEntriesCopy);
       }
     } else {

@@ -25,7 +25,7 @@ import { Tag } from "lucide-react";
 import { customNavigate } from "../utils";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { Hash } from "../components/Hash";
-import { queryMessages } from "../queries/transport";
+import { queryMessages, buildMessagePagingReference } from "../queries/transport";
 import { Filters } from "../components/Filters";
 import { FiltersButton } from "../components/FiltersButton";
 import { ReliableMessageLookupDialog } from "../dialogs/ReliableMessageLookup";
@@ -39,8 +39,8 @@ export const TransportMessages: React.FC = () => {
   const {
     sortAscending,
     setSortAscending,
-    refTimestamps,
-    setRefTimestamps,
+    refEntries,
+    setRefEntries,
     page,
     setPage,
     rowsPerPage,
@@ -59,8 +59,8 @@ export const TransportMessages: React.FC = () => {
   const location = useLocation();
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
-    queryKey: ['messages', page, rowsPerPage, sortBy, sortAscending, filters, refTimestamps],
-    queryFn: () => queryMessages(rowsPerPage, sortBy, sortAscending, filters, refTimestamps[refTimestamps.length - 1]),
+    queryKey: ['messages', page, rowsPerPage, sortBy, sortAscending, filters, refEntries],
+    queryFn: () => queryMessages(rowsPerPage, sortBy, sortAscending, filters, refEntries[refEntries.length - 1]),
     placeholderData: keepPreviousData
   });
 
@@ -70,7 +70,7 @@ export const TransportMessages: React.FC = () => {
   const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
   useResetPaginationOnChange(() => {
-    setRefTimestamps([]);
+    setRefEntries([]);
     setPage(0);
   }, filters);
 
@@ -85,17 +85,17 @@ export const TransportMessages: React.FC = () => {
     newPage: number
   ) => {
     if (newPage === 0) {
-      setRefTimestamps([]);
+      setRefEntries([]);
     } else if (newPage > page) {
       if (messages !== undefined && !isPlaceholderData && messages.length > 0) {
-        const refEntriesCopy = [...refTimestamps];
-        refEntriesCopy.push(messages[messages.length - 1].created);
-        setRefTimestamps(refEntriesCopy);
+        const refEntriesCopy = [...refEntries];
+        refEntriesCopy.push(buildMessagePagingReference(messages[messages.length - 1], sortBy));
+        setRefEntries(refEntriesCopy);
       }
     } else {
-      const refEntriesCopy = [...refTimestamps];
+      const refEntriesCopy = [...refEntries];
       refEntriesCopy.pop();
-      setRefTimestamps(refEntriesCopy);
+      setRefEntries(refEntriesCopy);
     }
     setPage(newPage);
   };
@@ -105,7 +105,7 @@ export const TransportMessages: React.FC = () => {
   ) => {
     const value = parseInt(event.target.value, 10);
     setRowsPerPage(value);
-    setRefTimestamps([]);
+    setRefEntries([]);
     setPage(0);
   };
 
@@ -202,7 +202,7 @@ export const TransportMessages: React.FC = () => {
                             } else {
                               setSortBy('created');
                             }
-                            setRefTimestamps([]);
+                            setRefEntries([]);
                             setPage(0);
                           }}
                         >

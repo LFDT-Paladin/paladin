@@ -41,6 +41,11 @@ export interface IPrivacyGroupPagingReference {
   id: string;
 }
 
+export interface ISortPagingReference {
+  sortValue: any;
+  tiebreaker: string;
+}
+
 export interface IPagedResult<T> {
   items: T[];
   hasMore: boolean;

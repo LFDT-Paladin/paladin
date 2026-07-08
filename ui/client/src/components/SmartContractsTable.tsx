@@ -32,10 +32,10 @@ import {
 } from '@mui/material';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { querySmartContractsByDomain } from '../queries/domains';
+import { querySmartContractsByDomain, buildDomainContractPagingReference } from '../queries/domains';
 import { DomainButtons } from './DomainButtons';
 import { Hash } from './Hash';
-import { IDomainContract, IFilter } from '../interfaces';
+import { IDomainContract, IFilter, ISortPagingReference } from '../interfaces';
 import { Timestamp } from './Timestamp';
 import { Dispatch, SetStateAction, useEffect } from 'react';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -53,8 +53,8 @@ type Props = {
   setPage: Dispatch<SetStateAction<number>>
   rowsPerPage: number
   setRowsPerPage: Dispatch<SetStateAction<number>>
-  refTimestamps: string[]
-  setRefTimestamps: Dispatch<SetStateAction<string[]>>
+  refEntries: ISortPagingReference[]
+  setRefEntries: Dispatch<SetStateAction<ISortPagingReference[]>>
   selectedDomain?: string,
   filters: IFilter[]
 };
@@ -67,8 +67,8 @@ export const SmartContractsTable: React.FC<Props> = ({
   setPage,
   rowsPerPage,
   setRowsPerPage,
-  refTimestamps,
-  setRefTimestamps,
+  refEntries,
+  setRefEntries,
   selectedDomain,
   filters
 }) => {
@@ -82,8 +82,8 @@ export const SmartContractsTable: React.FC<Props> = ({
     isPlaceholderData,
     isFetching
   } = useQuery({
-    queryKey: ['contracts', domainAddress, sortAscending, page, rowsPerPage, filters, refTimestamps],
-    queryFn: () => querySmartContractsByDomain(domainAddress, sortAscending, rowsPerPage, filters, refTimestamps[refTimestamps.length - 1]),
+    queryKey: ['contracts', domainAddress, sortAscending, page, rowsPerPage, filters, refEntries],
+    queryFn: () => querySmartContractsByDomain(domainAddress, sortAscending, rowsPerPage, filters, refEntries[refEntries.length - 1]),
     placeholderData: keepPreviousData
   });
 
@@ -93,7 +93,7 @@ export const SmartContractsTable: React.FC<Props> = ({
   const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
   useResetPaginationOnChange(() => {
-    setRefTimestamps([]);
+    setRefEntries([]);
     setPage(0);
   }, filters);
 
@@ -102,17 +102,17 @@ export const SmartContractsTable: React.FC<Props> = ({
     newPage: number
   ) => {
     if (newPage === 0) {
-      setRefTimestamps([]);
+      setRefEntries([]);
     } else if (newPage > page) {
       if (contracts !== undefined && !isPlaceholderData && contracts.length > 0) {
-        const refEntriesCopy = [...refTimestamps];
-        refEntriesCopy.push(contracts[contracts.length - 1].created);
-        setRefTimestamps(refEntriesCopy);
+        const refEntriesCopy = [...refEntries];
+        refEntriesCopy.push(buildDomainContractPagingReference(contracts[contracts.length - 1]));
+        setRefEntries(refEntriesCopy);
       }
     } else {
-      const refEntriesCopy = [...refTimestamps];
+      const refEntriesCopy = [...refEntries];
       refEntriesCopy.pop();
-      setRefTimestamps(refEntriesCopy);
+      setRefEntries(refEntriesCopy);
     }
     setPage(newPage);
   };
@@ -128,7 +128,7 @@ export const SmartContractsTable: React.FC<Props> = ({
   ) => {
     const value = parseInt(event.target.value, 10);
     setRowsPerPage(value);
-    setRefTimestamps([]);
+    setRefEntries([]);
     setPage(0);
   };
 
@@ -158,7 +158,7 @@ export const SmartContractsTable: React.FC<Props> = ({
                       direction={sortAscending ? 'asc' : 'desc'}
                       onClick={() => {
                         setSortAscending(!sortAscending);
-                        setRefTimestamps([]);
+                        setRefEntries([]);
                         setPage(0);
                       }}
                     >

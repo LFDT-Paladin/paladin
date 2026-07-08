@@ -110,6 +110,13 @@ export const fetchIndexedTransactions = async (
   return { items: enrichedTransactions, hasMore };
 };
 
+export const buildPaladinTransactionPagingReference = (
+  transaction: IPaladinTransaction
+): IPaladinTransactionPagingReference => ({
+  id: transaction.id,
+  created: transaction.created,
+});
+
 export const fetchSubmissions = async (
   type: 'pending' | 'failed' | 'successful',
   limit: number,
@@ -118,26 +125,40 @@ export const fetchSubmissions = async (
   pageParam?: IPaladinTransactionPagingReference
 ): Promise<IPagedResult<IPaladinTransaction>> => {
   let translatedFilters = translateFilters(filters);
+  const sortDirection = sortAscending ? 'ASC' : 'DESC';
 
-  let params: any = [
-    {
-      ...translatedFilters,
-      limit: limit + 1,
-      sort: [`created ${sortAscending ? 'ASC' : 'DESC'}`],
-      greaterThan: pageParam !== undefined && sortAscending ? [
-        {
+  let queryParams: any = {
+    ...translatedFilters,
+    limit: limit + 1,
+    sort: [
+      `created ${sortDirection}`,
+      `id ${sortDirection}`,
+    ],
+  };
+
+  if (pageParam !== undefined) {
+    const comparison = sortAscending ? 'greaterThan' : 'lessThan';
+    queryParams.or = [
+      {
+        [comparison]: [{
           field: 'created',
-          value: pageParam.created
-        }
-      ] : undefined,
-      lessThan: pageParam !== undefined && !sortAscending ? [
-        {
+          value: pageParam.created,
+        }],
+      },
+      {
+        equal: [{
           field: 'created',
-          value: pageParam.created
-        }
-      ] : undefined
-    },
-  ];
+          value: pageParam.created,
+        }],
+        [comparison]: [{
+          field: 'id',
+          value: pageParam.id,
+        }],
+      },
+    ];
+  }
+
+  let params: any = [queryParams];
 
   if (['failed', 'successful'].includes(type)) {
     if (params[0].equal === undefined) {

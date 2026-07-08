@@ -45,8 +45,8 @@ export const Domains: React.FC = () => {
     setPage,
     rowsPerPage,
     setRowsPerPage,
-    refTimestamps,
-    setRefTimestamps,
+    refEntries,
+    setRefEntries,
     selectedDomain,
     setSelectedDomain,
     filters,
@@ -177,8 +177,8 @@ export const Domains: React.FC = () => {
               setPage={setPage}
               rowsPerPage={rowsPerPage}
               setRowsPerPage={setRowsPerPage}
-              refTimestamps={refTimestamps}
-              setRefTimestamps={setRefTimestamps}
+              refEntries={refEntries}
+              setRefEntries={setRefEntries}
               selectedDomain={selectedDomain}
               filters={filters}
             />

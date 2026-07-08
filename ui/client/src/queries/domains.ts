@@ -17,7 +17,7 @@
 import i18next from 'i18next';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
-import { IDomain, IDomainContract, IFilter, IPagedResult } from '../interfaces';
+import { IDomain, IDomainContract, IFilter, IPagedResult, ISortPagingReference } from '../interfaces';
 import { toPagedResult, translateFilters } from '../utils';
 
 export const listDomains = async (): Promise<string[]> => {
@@ -52,43 +52,65 @@ export const getDomainByName = async (name: string): Promise<IDomain> => {
   );
 };
 
+export const buildDomainContractPagingReference = (
+  contract: IDomainContract,
+): ISortPagingReference => ({
+  sortValue: contract.created,
+  tiebreaker: contract.address,
+});
+
 export const querySmartContractsByDomain = async (
   domainAddress: string,
   sortAscending: boolean,
   rowsPerPage: number,
   filters: IFilter[],
-  refTimestamp?: string
+  pageRef?: ISortPagingReference
 ): Promise<IPagedResult<IDomainContract>> => {
   let translatedFilters = translateFilters(filters);
+  const sortDirection = sortAscending ? 'ASC' : 'DESC';
 
   if(translatedFilters.equal !== undefined) {
     translatedFilters.equal.push({ field: 'domainAddress', value: domainAddress });
   } else {
     translatedFilters.equal = [{ field: 'domainAddress', value: domainAddress }];
   }
+
+  let queryParams: any = {
+    ...translatedFilters,
+    limit: rowsPerPage + 1,
+    sort: [
+      `created ${sortDirection}`,
+      `address ${sortDirection}`,
+    ],
+  };
+
+  if (pageRef !== undefined) {
+    const comparison = sortAscending ? 'greaterThan' : 'lessThan';
+    queryParams.or = [
+      {
+        [comparison]: [{
+          field: 'created',
+          value: pageRef.sortValue,
+        }],
+      },
+      {
+        equal: [{
+          field: 'created',
+          value: pageRef.sortValue,
+        }],
+        [comparison]: [{
+          field: 'address',
+          value: pageRef.tiebreaker,
+        }],
+      },
+    ];
+  }
+
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
     method: RpcMethods.domain_querySmartContracts,
-    params: [
-      {
-        ...translatedFilters,
-        limit: rowsPerPage + 1,
-        sort: [`created ${sortAscending ? 'ASC' : 'DESC'}`],
-        greaterThan: refTimestamp !== undefined && sortAscending ? [
-          {
-            field: 'created',
-            value: refTimestamp
-          }
-        ] : undefined,
-        lessThan: refTimestamp !== undefined && !sortAscending ? [
-          {
-            field: 'created',
-            value: refTimestamp
-          }
-        ] : undefined
-      },
-    ],
+    params: [queryParams],
   };
   const results = await returnResponse(
     () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),

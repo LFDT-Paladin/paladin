@@ -16,7 +16,7 @@
 
 import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
-import { getPrivacyGroupMessages } from "../queries/privacyGroups";
+import { getPrivacyGroupMessages, buildPrivacyGroupMessagePagingReference } from "../queries/privacyGroups";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { FiltersButton } from "../components/FiltersButton";
@@ -46,8 +46,8 @@ export const PrivacyGroupMessages: React.FC = () => {
   const {
     sortAscending,
     setSortAscending,
-    refTimestamps,
-    setRefTimestamps,
+    refEntries,
+    setRefEntries,
     page,
     setPage,
     rowsPerPage,
@@ -60,8 +60,8 @@ export const PrivacyGroupMessages: React.FC = () => {
   const { t } = useTranslation();
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
-    queryKey: ['privacy-group-messages', rowsPerPage, filters, sortAscending, refTimestamps],
-    queryFn: () => getPrivacyGroupMessages(rowsPerPage, filters, sortAscending, refTimestamps[refTimestamps.length - 1]),
+    queryKey: ['privacy-group-messages', rowsPerPage, filters, sortAscending, refEntries],
+    queryFn: () => getPrivacyGroupMessages(rowsPerPage, filters, sortAscending, refEntries[refEntries.length - 1]),
     placeholderData: keepPreviousData
   });
 
@@ -71,7 +71,7 @@ export const PrivacyGroupMessages: React.FC = () => {
   const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
   useResetPaginationOnChange(() => {
-    setRefTimestamps([]);
+    setRefEntries([]);
     setPage(0);
   }, filters);
 
@@ -86,17 +86,17 @@ export const PrivacyGroupMessages: React.FC = () => {
     newPage: number
   ) => {
     if (newPage === 0) {
-      setRefTimestamps([]);
+      setRefEntries([]);
     } else if (newPage > page) {
       if (privacyGroupMessages !== undefined && !isPlaceholderData && privacyGroupMessages.length > 0) {
-        const refEntriesCopy = [...refTimestamps];
-        refEntriesCopy.push(privacyGroupMessages[privacyGroupMessages.length - 1].sent);
-        setRefTimestamps(refEntriesCopy);
+        const refEntriesCopy = [...refEntries];
+        refEntriesCopy.push(buildPrivacyGroupMessagePagingReference(privacyGroupMessages[privacyGroupMessages.length - 1]));
+        setRefEntries(refEntriesCopy);
       }
     } else {
-      const refEntriesCopy = [...refTimestamps];
+      const refEntriesCopy = [...refEntries];
       refEntriesCopy.pop();
-      setRefTimestamps(refEntriesCopy);
+      setRefEntries(refEntriesCopy);
     }
     setPage(newPage);
   };
@@ -106,7 +106,7 @@ export const PrivacyGroupMessages: React.FC = () => {
   ) => {
     const value = parseInt(event.target.value, 10);
     setRowsPerPage(value);
-    setRefTimestamps([]);
+    setRefEntries([]);
     setPage(0);
   };
 
@@ -224,7 +224,7 @@ export const PrivacyGroupMessages: React.FC = () => {
                           direction={sortAscending ? 'asc' : 'desc'}
                           onClick={() => {
                             setSortAscending(!sortAscending);
-                            setRefTimestamps([]);
+                            setRefEntries([]);
                             setPage(0);
                           }}
                         >

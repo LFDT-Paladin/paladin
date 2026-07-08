@@ -18,7 +18,7 @@ import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody
 import { useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { useTranslation } from "react-i18next";
-import { listPrivacyGroupListeners } from "../queries/privacyGroups";
+import { listPrivacyGroupListeners, buildPrivacyGroupListenerPagingReference } from "../queries/privacyGroups";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Timestamp } from "../components/Timestamp";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -41,8 +41,8 @@ export const PrivacyGroupListeners: React.FC = () => {
   const {
     sortAscending,
     setSortAscending,
-    paginationRefs,
-    setPaginationRefs,
+    refEntries,
+    setRefEntries,
     sortBy,
     setSortBy,
     page,
@@ -61,8 +61,8 @@ export const PrivacyGroupListeners: React.FC = () => {
   const location = useLocation();
 
   const { data, error, isPlaceholderData, isFetching, refetch } = useQuery({
-    queryKey: ['privacy-group-listeners', page, rowsPerPage, filters, sortBy, sortAscending, paginationRefs],
-    queryFn: () => listPrivacyGroupListeners(rowsPerPage, filters, sortBy, sortAscending, paginationRefs[paginationRefs.length - 1]),
+    queryKey: ['privacy-group-listeners', page, rowsPerPage, filters, sortBy, sortAscending, refEntries],
+    queryFn: () => listPrivacyGroupListeners(rowsPerPage, filters, sortBy, sortAscending, refEntries[refEntries.length - 1]),
     placeholderData: keepPreviousData
   });
 
@@ -72,7 +72,7 @@ export const PrivacyGroupListeners: React.FC = () => {
   const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
   useResetPaginationOnChange(() => {
-    setPaginationRefs([]);
+    setRefEntries([]);
     setPage(0);
   }, filters);
 
@@ -89,17 +89,17 @@ export const PrivacyGroupListeners: React.FC = () => {
     newPage: number
   ) => {
     if (newPage === 0) {
-      setPaginationRefs([]);
+      setRefEntries([]);
     } else if (newPage > page) {
       if (privacyGroupListeners !== undefined && !isPlaceholderData && privacyGroupListeners.length > 0) {
-        const refEntriesCopy = [...paginationRefs];
-        refEntriesCopy.push(privacyGroupListeners[privacyGroupListeners.length - 1].created);
-        setPaginationRefs(refEntriesCopy);
+        const refEntriesCopy = [...refEntries];
+        refEntriesCopy.push(buildPrivacyGroupListenerPagingReference(privacyGroupListeners[privacyGroupListeners.length - 1], sortBy));
+        setRefEntries(refEntriesCopy);
       }
     } else {
-      const refEntriesCopy = [...paginationRefs];
+      const refEntriesCopy = [...refEntries];
       refEntriesCopy.pop();
-      setPaginationRefs(refEntriesCopy);
+      setRefEntries(refEntriesCopy);
     }
     setPage(newPage);
   };
@@ -109,7 +109,7 @@ export const PrivacyGroupListeners: React.FC = () => {
   ) => {
     const value = parseInt(event.target.value, 10);
     setRowsPerPage(value);
-    setPaginationRefs([]);
+    setRefEntries([]);
     setPage(0);
   };
 
@@ -201,7 +201,7 @@ export const PrivacyGroupListeners: React.FC = () => {
                               } else {
                                 setSortBy('name');
                               }
-                              setPaginationRefs([]);
+                              setRefEntries([]);
                               setPage(0);
                             }}
                           >
@@ -222,7 +222,7 @@ export const PrivacyGroupListeners: React.FC = () => {
                               } else {
                                 setSortBy('created');
                               }
-                              setPaginationRefs([]);
+                              setRefEntries([]);
                               setPage(0);
                             }}
                           >

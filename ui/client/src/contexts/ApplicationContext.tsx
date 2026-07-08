@@ -27,6 +27,7 @@ import {
   IFilter,
   IPaladinTransactionPagingReference,
   IPrivacyGroupPagingReference,
+  ISortPagingReference,
   IStatePagingReference,
   ITransactionPagingReference,
 } from "../interfaces";
@@ -71,8 +72,8 @@ export interface DomainsViewState {
   setPage: Dispatch<SetStateAction<number>>;
   rowsPerPage: number;
   setRowsPerPage: Dispatch<SetStateAction<number>>;
-  refTimestamps: string[];
-  setRefTimestamps: Dispatch<SetStateAction<string[]>>;
+  refEntries: ISortPagingReference[];
+  setRefEntries: Dispatch<SetStateAction<ISortPagingReference[]>>;
   selectedDomain: string | undefined;
   setSelectedDomain: Dispatch<SetStateAction<string | undefined>>;
   filters: IFilter[];
@@ -101,8 +102,8 @@ export interface PrivacyGroupsViewState {
 export interface PrivacyGroupListenersViewState {
   sortAscending: boolean;
   setSortAscending: Dispatch<SetStateAction<boolean>>;
-  paginationRefs: string[];
-  setPaginationRefs: Dispatch<SetStateAction<string[]>>;
+  refEntries: ISortPagingReference[];
+  setRefEntries: Dispatch<SetStateAction<ISortPagingReference[]>>;
   sortBy: string;
   setSortBy: Dispatch<SetStateAction<string>>;
   page: number;
@@ -141,8 +142,8 @@ export interface MessagesViewState {
   setPage: Dispatch<SetStateAction<number>>;
   rowsPerPage: number;
   setRowsPerPage: Dispatch<SetStateAction<number>>;
-  refTimestamps: string[];
-  setRefTimestamps: Dispatch<SetStateAction<string[]>>;
+  refEntries: ISortPagingReference[];
+  setRefEntries: Dispatch<SetStateAction<ISortPagingReference[]>>;
   filters: IFilter[];
   setFilters: Dispatch<SetStateAction<IFilter[]>>;
   sortBy: string;
@@ -173,8 +174,8 @@ export interface PrivateGroupMessagesViewState {
   setPage: Dispatch<SetStateAction<number>>;
   rowsPerPage: number;
   setRowsPerPage: Dispatch<SetStateAction<number>>;
-  refTimestamps: string[];
-  setRefTimestamps: Dispatch<SetStateAction<string[]>>;
+  refEntries: ISortPagingReference[];
+  setRefEntries: Dispatch<SetStateAction<ISortPagingReference[]>>;
   filters: IFilter[];
   setFilters: Dispatch<SetStateAction<IFilter[]>>;
   filtersVisible: boolean;
@@ -285,7 +286,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   const [domainsPage, setDomainsPage] = useState(0);
   const [domainsFilters, setDomainsFilters] = useState<IFilter[]>([]);
   const [domainsRowsPerPage, setDomainsRowsPerPage] = useState(10);
-  const [domainsRefTimestamps, setDomainsRefTimestamps] = useState<string[]>([]);
+  const [domainsRefEntries, setDomainsRefEntries] = useState<ISortPagingReference[]>([]);
   const [domainsSelectedDomain, setDomainsSelectedDomain] = useState<string | undefined>();
   const [domainsFiltersVisible, setDomainsFiltersVisible] = useState(false);
 
@@ -302,7 +303,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   const [privacyGroupListenersFilters, setPrivacyGroupListenersFilters] = useState<IFilter[]>([]);
   const [privacyGroupListenersPage, setPrivacyGroupListenersPage] = useState(0);
   const [privacyGroupListenersRowsPerPage, setPrivacyGroupListenersRowsPerPage] = useState(10);
-  const [privacyGroupListenersPaginationRefs, setPrivacyGroupListenersPaginationRefs] = useState<string[]>([]);
+  const [privacyGroupListenersRefEntries, setPrivacyGroupListenersRefEntries] = useState<ISortPagingReference[]>([]);
   const [privacyGroupListenersSortBy, setPrivacyGroupListenerssortBy] = useState('name');
   const [privacyGroupListenersSortAscending, setPrivacyGroupListenersSortAscending] = useState(false);
   const [privacyGroupListenersFiltersVisible, setPrivacyGroupListenersFiltersVisible] = useState(false);
@@ -320,7 +321,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   // Messages view state
   const [messagesPage, setMessagesPage] = useState(0);
   const [messagesRowsPerPage, setMessagesRowsPerPage] = useState(10);
-  const [messagesRefTimestamps, setMessagesRefTimestamps] = useState<string[]>([]);
+  const [messagesRefEntries, setMessagesRefEntries] = useState<ISortPagingReference[]>([]);
   const [messagesSortAscending, setMessagesSortAscending] = useState(false);
   const [messagesFilters, setMessagesFilters] = useState<IFilter[]>([]);
   const [messagesSortBy, setMessagesSortBy] = useState("created");
@@ -337,7 +338,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   // Private Group Messages view state
   const [privateGroupMessagesPage, setPrivateGroupMessagesPage] = useState(0);
   const [privateGroupMessagesRowsPerPage, setPrivateGroupMessagesRowsPerPage] = useState(10);
-  const [privateGroupMessagesRefTimestamps, setPrivateGroupMessagesRefTimestamps] = useState<string[]>([]);
+  const [privateGroupMessagesRefEntries, setPrivateGroupMessagesRefEntries] = useState<ISortPagingReference[]>([]);
   const [privateGroupMessagesSortAscending, setPrivateGroupMessagesSortAscending] = useState(false);
   const [privateGroupMessagesFilters, setPrivateGroupMessagesFilters] = useState<IFilter[]>([]);
   const [privateGroupMessagesFiltersVisible, setPrivateGroupMessagesFiltersVisible] = useState(false);
@@ -420,8 +421,8 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
       setPage: setDomainsPage,
       rowsPerPage: domainsRowsPerPage,
       setRowsPerPage: setDomainsRowsPerPage,
-      refTimestamps: domainsRefTimestamps,
-      setRefTimestamps: setDomainsRefTimestamps,
+      refEntries: domainsRefEntries,
+      setRefEntries: setDomainsRefEntries,
       selectedDomain: domainsSelectedDomain,
       setSelectedDomain: setDomainsSelectedDomain,
       filters: domainsFilters,
@@ -433,7 +434,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
       domainSortAscending,
       domainsPage,
       domainsRowsPerPage,
-      domainsRefTimestamps,
+      domainsRefEntries,
       domainsSelectedDomain,
       domainsFilters,
       domainsFiltersVisible,
@@ -472,8 +473,8 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
     (): PrivacyGroupListenersViewState => ({
       sortAscending: privacyGroupListenersSortAscending,
       setSortAscending: setPrivacyGroupListenersSortAscending,
-      paginationRefs: privacyGroupListenersPaginationRefs,
-      setPaginationRefs: setPrivacyGroupListenersPaginationRefs,
+      refEntries: privacyGroupListenersRefEntries,
+      setRefEntries: setPrivacyGroupListenersRefEntries,
       sortBy: privacyGroupListenersSortBy,
       setSortBy: setPrivacyGroupListenerssortBy,
       page: privacyGroupListenersPage,
@@ -487,7 +488,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
     }),
     [
       privacyGroupListenersSortAscending,
-      privacyGroupListenersPaginationRefs,
+      privacyGroupListenersRefEntries,
       privacyGroupListenersSortBy,
       privacyGroupListenersPage,
       privacyGroupListenersRowsPerPage,
@@ -535,8 +536,8 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
       setPage: setMessagesPage,
       rowsPerPage: messagesRowsPerPage,
       setRowsPerPage: setMessagesRowsPerPage,
-      refTimestamps: messagesRefTimestamps,
-      setRefTimestamps: setMessagesRefTimestamps,
+      refEntries: messagesRefEntries,
+      setRefEntries: setMessagesRefEntries,
       filters: messagesFilters,
       setFilters: setMessagesFilters,
       sortBy: messagesSortBy,
@@ -548,7 +549,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
       messagesSortAscending,
       messagesPage,
       messagesRowsPerPage,
-      messagesRefTimestamps,
+      messagesRefEntries,
       messagesFilters,
       messagesSortBy,
       messagesFiltersVisible,
@@ -588,8 +589,8 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
       setPage: setPrivateGroupMessagesPage,
       rowsPerPage: privateGroupMessagesRowsPerPage,
       setRowsPerPage: setPrivateGroupMessagesRowsPerPage,
-      refTimestamps: privateGroupMessagesRefTimestamps,
-      setRefTimestamps: setPrivateGroupMessagesRefTimestamps,
+      refEntries: privateGroupMessagesRefEntries,
+      setRefEntries: setPrivateGroupMessagesRefEntries,
       filters: privateGroupMessagesFilters,
       setFilters: setPrivateGroupMessagesFilters,
       filtersVisible: privateGroupMessagesFiltersVisible,
@@ -599,7 +600,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
       privateGroupMessagesSortAscending,
       privateGroupMessagesPage,
       privateGroupMessagesRowsPerPage,
-      privateGroupMessagesRefTimestamps,
+      privateGroupMessagesRefEntries,
       privateGroupMessagesFilters,
       privateGroupMessagesFiltersVisible,
     ]
