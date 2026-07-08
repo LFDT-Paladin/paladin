@@ -167,7 +167,7 @@ export interface TransportsViewState {
   setFiltersVisible: Dispatch<SetStateAction<boolean>>;
 }
 
-export interface PrivateGroupMessagesViewState {
+export interface PrivacyGroupMessagesViewState {
   sortAscending: boolean;
   setSortAscending: Dispatch<SetStateAction<boolean>>;
   page: number;
@@ -227,7 +227,7 @@ interface IApplicationContext {
   domains: DomainsViewState;
   privacyGroups: PrivacyGroupsViewState;
   privacyGroupListeners: PrivacyGroupListenersViewState;
-  privateGroupMessages: PrivateGroupMessagesViewState;
+  privacyGroupMessages: PrivacyGroupMessagesViewState;
   states: StatesViewState;
   messages: MessagesViewState;
   transports: TransportsViewState;
@@ -335,13 +335,13 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   const [transportsFilters, setTransportsFilters] = useState<IFilter[]>([]);
   const [transportsFiltersVisible, setTransportsFiltersVisible] = useState(false);
 
-  // Private Group Messages view state
-  const [privateGroupMessagesPage, setPrivateGroupMessagesPage] = useState(0);
-  const [privateGroupMessagesRowsPerPage, setPrivateGroupMessagesRowsPerPage] = useState(10);
-  const [privateGroupMessagesRefEntries, setPrivateGroupMessagesRefEntries] = useState<ISortPagingReference[]>([]);
-  const [privateGroupMessagesSortAscending, setPrivateGroupMessagesSortAscending] = useState(false);
-  const [privateGroupMessagesFilters, setPrivateGroupMessagesFilters] = useState<IFilter[]>([]);
-  const [privateGroupMessagesFiltersVisible, setPrivateGroupMessagesFiltersVisible] = useState(false);
+  // Privacy Group Messages view state
+  const [privacyGroupMessagesPage, setPrivacyGroupMessagesPage] = useState(0);
+  const [privacyGroupMessagesRowsPerPage, setPrivacyGroupMessagesRowsPerPage] = useState(10);
+  const [privacyGroupMessagesRefEntries, setPrivacyGroupMessagesRefEntries] = useState<ISortPagingReference[]>([]);
+  const [privacyGroupMessagesSortAscending, setPrivacyGroupMessagesSortAscending] = useState(false);
+  const [privacyGroupMessagesFilters, setPrivacyGroupMessagesFilters] = useState<IFilter[]>([]);
+  const [privacyGroupMessagesFiltersVisible, setPrivacyGroupMessagesFiltersVisible] = useState(false);
 
   // Registry view state
   const [registryFilters, setRegistryFilters] = useState<IFilter[]>([]);
@@ -581,28 +581,28 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
     ]
   );
 
-  const privateGroupMessages = useMemo(
-    (): PrivateGroupMessagesViewState => ({
-      sortAscending: privateGroupMessagesSortAscending,
-      setSortAscending: setPrivateGroupMessagesSortAscending,
-      page: privateGroupMessagesPage,
-      setPage: setPrivateGroupMessagesPage,
-      rowsPerPage: privateGroupMessagesRowsPerPage,
-      setRowsPerPage: setPrivateGroupMessagesRowsPerPage,
-      refEntries: privateGroupMessagesRefEntries,
-      setRefEntries: setPrivateGroupMessagesRefEntries,
-      filters: privateGroupMessagesFilters,
-      setFilters: setPrivateGroupMessagesFilters,
-      filtersVisible: privateGroupMessagesFiltersVisible,
-      setFiltersVisible: setPrivateGroupMessagesFiltersVisible,
+  const privacyGroupMessages = useMemo(
+    (): PrivacyGroupMessagesViewState => ({
+      sortAscending: privacyGroupMessagesSortAscending,
+      setSortAscending: setPrivacyGroupMessagesSortAscending,
+      page: privacyGroupMessagesPage,
+      setPage: setPrivacyGroupMessagesPage,
+      rowsPerPage: privacyGroupMessagesRowsPerPage,
+      setRowsPerPage: setPrivacyGroupMessagesRowsPerPage,
+      refEntries: privacyGroupMessagesRefEntries,
+      setRefEntries: setPrivacyGroupMessagesRefEntries,
+      filters: privacyGroupMessagesFilters,
+      setFilters: setPrivacyGroupMessagesFilters,
+      filtersVisible: privacyGroupMessagesFiltersVisible,
+      setFiltersVisible: setPrivacyGroupMessagesFiltersVisible,
     }),
     [
-      privateGroupMessagesSortAscending,
-      privateGroupMessagesPage,
-      privateGroupMessagesRowsPerPage,
-      privateGroupMessagesRefEntries,
-      privateGroupMessagesFilters,
-      privateGroupMessagesFiltersVisible,
+      privacyGroupMessagesSortAscending,
+      privacyGroupMessagesPage,
+      privacyGroupMessagesRowsPerPage,
+      privacyGroupMessagesRefEntries,
+      privacyGroupMessagesFilters,
+      privacyGroupMessagesFiltersVisible,
     ]
   );
 
@@ -675,7 +675,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
         states,
         messages,
         transports,
-        privateGroupMessages,
+        privacyGroupMessages,
         registry,
         keys,
       }}

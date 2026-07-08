@@ -36,11 +36,11 @@ export const PrivacyGroupEntry: React.FC = () => {
   const [address, setAddress] = useState<string>();
   const [id, setId] = useState<string>();
 
-  const { privateGroupMessages: privateGroupMessagesViewStateState } = useApplicationContext();
+  const { privacyGroupMessages: privacyGroupMessagesViewStateState } = useApplicationContext();
   const {
     setFilters,
     setFiltersVisible
-  } = privateGroupMessagesViewStateState;
+  } = privacyGroupMessagesViewStateState;
 
   useEffect(() => {
     if (idOrAddress === undefined) {

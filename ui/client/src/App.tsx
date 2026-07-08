@@ -44,7 +44,7 @@ import { States } from "./views/States";
 import { MessageEntry } from "./views/ReliableMessageEntry";
 import { StateEntry } from "./views/StateEntry";
 import { RegistryEntry } from "./views/RegistryEntry";
-import { PrivateGroupMessageEntry } from "./views/PrivateGroupMessageEntry";
+import { PrivacyGroupMessageEntry } from "./views/PrivacyGroupMessageEntry";
 import { TransportConnections } from "./views/TransportsConnections";
 import { TransportMessages } from "./views/TransportMessages";
 import { PrivacyGroupListeners } from "./views/PrivacyGroupListeners";
@@ -130,7 +130,7 @@ function App() {
                   <Route path={AppRoutes.PrivacyGroupMessages} element={<PrivacyGroupMessages />} />
                   <Route path={AppRoutes.PrivacyGroupListeners} element={<PrivacyGroupListeners />} />
                   <Route path={AppRoutes.PrivacyGroup} element={<PrivacyGroupEntry />} />
-                  <Route path={AppRoutes.PrivacyGroupMessageEntry} element={<PrivateGroupMessageEntry />} />
+                  <Route path={AppRoutes.PrivacyGroupMessageEntry} element={<PrivacyGroupMessageEntry />} />
                   <Route path={AppRoutes.PrivacyGroupListenerEntry} element={<PrivacyGroupListenerEntry />} />
                   <Route path={AppRoutes.States} element={<States />} />
                   <Route path={AppRoutes.State} element={<StateEntry />} />

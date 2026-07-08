@@ -24,23 +24,23 @@ import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { getPrivacyGroupMessage } from "../queries/privacyGroups";
 
-export const PrivateGroupMessageEntry: React.FC = () => {
+export const PrivacyGroupMessageEntry: React.FC = () => {
 
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { messageId } = useParams();
 
-  const { data: privateGroupMessage, error } = useQuery({
-    queryKey: ['private-group-message', messageId],
+  const { data: privacyGroupMessage, error } = useQuery({
+    queryKey: ['privacy-group-message', messageId],
     queryFn: () => getPrivacyGroupMessage(messageId!),
     enabled: messageId !== undefined
   });
 
-  if (privateGroupMessage === undefined) {
+  if (privacyGroupMessage === undefined) {
     return <></>;
   }
 
-  if (privateGroupMessage === null) {
+  if (privacyGroupMessage === null) {
     return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{t('messageNotFound')}</Alert>
   }
 
@@ -78,7 +78,7 @@ export const PrivateGroupMessageEntry: React.FC = () => {
             }}
             label={
               <Box>
-                {getShortId(privateGroupMessage.id)}
+                {getShortId(privacyGroupMessage.id)}
               </Box>
             } />
         </Tabs>
@@ -94,7 +94,7 @@ export const PrivateGroupMessageEntry: React.FC = () => {
             {t('details')}
           </AccordionSummary>
           <AccordionDetails >
-            <JSONBox data={privateGroupMessage} />
+            <JSONBox data={privacyGroupMessage} />
           </AccordionDetails>
         </Accordion>
       </Box>

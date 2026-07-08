@@ -30,7 +30,7 @@ import { Hash } from "../components/Hash";
 import { customNavigate } from "../utils";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useLocation, useNavigate } from "react-router-dom";
-import { PrivacyGroupMessageLookupDialog } from "../dialogs/PrivateGroupMessageLookup";
+import { PrivacyGroupMessageLookupDialog } from "../dialogs/PrivacyGroupMessageLookup";
 import SendIcon from '@mui/icons-material/Send';
 import { SendPrivacyGroupMessageDialog } from "../dialogs/SendPrivacyGroupMessage";
 import { AppRoutes } from "../routes";
@@ -39,10 +39,10 @@ import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination
 export const PrivacyGroupMessages: React.FC = () => {
 
   const [sendMessageDialogOpen, setSendMessageDialogOpen] = useState(false);
-  const [lookupPrivateGroupMessageDialogOpen, setLookupPrivateGroupMessageDialogOpen] = useState(false);
+  const [lookupPrivacyGroupMessageDialogOpen, setLookupPrivacyGroupMessageDialogOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { privateGroupMessages: privateGroupMessagesViewStateState, readOnly } = useApplicationContext();
+  const { privacyGroupMessages: privacyGroupMessagesViewStateState, readOnly } = useApplicationContext();
   const {
     sortAscending,
     setSortAscending,
@@ -56,7 +56,7 @@ export const PrivacyGroupMessages: React.FC = () => {
     setFilters,
     filtersVisible,
     setFiltersVisible,
-  } = privateGroupMessagesViewStateState;
+  } = privacyGroupMessagesViewStateState;
   const { t } = useTranslation();
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
@@ -144,7 +144,7 @@ export const PrivacyGroupMessages: React.FC = () => {
                 size="small"
                 variant="outlined"
                 startIcon={<SearchIcon />}
-                onClick={() => setLookupPrivateGroupMessageDialogOpen(true)}
+                onClick={() => setLookupPrivacyGroupMessageDialogOpen(true)}
               >
                 {t('lookup')}
               </Button>
@@ -379,8 +379,8 @@ export const PrivacyGroupMessages: React.FC = () => {
             setDialogOpen={setSendMessageDialogOpen}
           />
           <PrivacyGroupMessageLookupDialog
-            dialogOpen={lookupPrivateGroupMessageDialogOpen}
-            setDialogOpen={setLookupPrivateGroupMessageDialogOpen}
+            dialogOpen={lookupPrivacyGroupMessageDialogOpen}
+            setDialogOpen={setLookupPrivacyGroupMessageDialogOpen}
           />
         </Box>
       </Fade>
