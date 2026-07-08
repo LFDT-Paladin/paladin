@@ -41,6 +41,7 @@ const (
 	Event_OriginatorCreated         EventType = iota + 300 // fired once by Start to drive the initial coordinator selection
 	Event_TransactionCreated                               // a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?
 	Event_DelegationRequestRejected                        // pushed by transport_client when a DelegationResponse arrives with Accepted == false
+	Event_DelegateFlush                                    // fired by the delegation batching goroutine when the batch timer coalesces one or more delegation requests
 )
 
 // Type aliases for the generic statemachine types, specialized for originator
@@ -186,11 +187,16 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Sending: {
 		OnTransitionTo: []ActionRule{
-			// Delegate immediately to the current active coordinator on entering Sending.
-			// If the coordinator is still in Elect or Prepared it will accept the delegation
-			// and manage the handover itself.
-			{Action: action_RefreshBlockHeight},
-			{Action: action_DelegateAllTransactions},
+			// Start the delegation batching goroutine, then raise a full delegation signal so the
+			// first flush (on the next batch tick) delegates everything to the current active
+			// coordinator. If the coordinator is still in Elect or Prepared it will accept the
+			// delegation and manage the handover itself.
+			{Action: action_StartDelegationLoop},
+			{Action: action_SignalDelegateAll},
+		},
+		OnTransitionFrom: []ActionRule{
+			// Stop the batching goroutine when leaving Sending (all transactions confirmed/reverted).
+			{Action: action_StopDelegationLoop},
 		},
 		Events: map[EventType]EventHandlers{
 			Event_TransactionCreated: {
@@ -199,9 +205,16 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_TransactionDoesNotExist,
 					Actions: []ActionRule{
 						{Action: action_TransactionCreated},
-						{Action: action_RefreshBlockHeight},
-						{Action: action_DelegateNewTransactions},
+						{Action: action_SignalDelegateNew},
 					},
+				}},
+			},
+			Event_DelegateFlush: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					// The batching goroutine has coalesced one or more delegation requests; send the
+					// single (full or partial) delegation now.
+					Actions: []ActionRule{{Action: action_FlushDelegation}},
 				}},
 			},
 			common.Event_HeartbeatReceived: {
@@ -244,8 +257,7 @@ var stateDefinitionsMap = StateDefinitions{
 						validator_HasDroppedTransactions,
 					),
 					Actions: []ActionRule{
-						{Action: action_RefreshBlockHeight},
-						{Action: action_DelegateAllTransactions},
+						{Action: action_SignalDelegateAll},
 					},
 				}},
 			},
@@ -278,10 +290,9 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_IsDelegationNotActiveCoordinatorRejection,
 					Actions: []ActionRule{
 						{Action: action_HandleDelegationRejected},
-						// We always redelegate immediately, regardless of whether the current active coordinator has changed.
+						// We always redelegate, regardless of whether the current active coordinator has changed.
 						// Full resend: a redirect to a (possibly new) coordinator may need the complete backlog.
-						{Action: action_RefreshBlockHeight},
-						{Action: action_DelegateAllTransactions},
+						{Action: action_SignalDelegateAll},
 					},
 				}},
 			},
@@ -301,13 +312,9 @@ var stateDefinitionsMap = StateDefinitions{
 					Actions: []ActionRule{{Action: action_FinalizeTransaction}},
 				}, {
 					// A transaction has finished resolving its verifiers and is now eligible for delegation.
-					// Delegate immediately (the newly-eligible un-assembled suffix) rather than waiting for
-					// the next heartbeat. This is a golden-path trigger that fires ~once per transaction, so
-					// it delegates partially to avoid re-sending the whole backlog.
 					Validator: validator_OriginatorTransactionStateTransitionFromResolving,
 					Actions: []ActionRule{
-						{Action: action_RefreshBlockHeight},
-						{Action: action_DelegateNewTransactions},
+						{Action: action_SignalDelegateNew},
 					},
 				}},
 			},

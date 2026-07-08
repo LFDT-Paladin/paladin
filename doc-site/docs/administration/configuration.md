@@ -796,13 +796,14 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| assembleErrorRetryThreshold | Maximum number of times a transaction can error on assembly before being evicted | `int` | `3` |
+| assembleErrorRetryThreshold | Maximum number of times a transaction can error on assembly (or on the signing of its assembled attestations) before being evicted | `int` | `3` |
 | baseLedgerRevertRetryThreshold | Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed | `int` | `3` |
 | blockHeightTolerance | Tolerance for block height differences. Must be the same for all nodes participating in a domain instance. | `uint64` | `5` |
 | blockRange | Block range size for sequencer operations. Must be the same for all nodes participating in a domain instance. | `uint64` | `100` |
 | closingGracePeriod | Grace period for closing operations | `int` | `2` |
 | coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
+| delegationBatchInterval | Interval over which originator delegation requests are coalesced into a single batched send while in the sending state | `string` | `"100ms"` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
 | idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
 | inactiveGracePeriod | Number of heartbeat intervals without activity before a node is considered inactive | `int` | `2` |

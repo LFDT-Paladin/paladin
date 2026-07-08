@@ -742,6 +742,7 @@ var (
 	SequencerConfigConfirmedLockRetentionGracePeriod = pdm("SequencerConfig.confirmedLockRetentionGracePeriod", "Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots")
 	SequencerConfigBaseLedgerRevertRetryThreshold    = pdm("SequencerConfig.baseLedgerRevertRetryThreshold", "Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed")
 	SequencerConfigDelegateTimeout                   = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
+	SequencerConfigDelegationBatchInterval           = pdm("SequencerConfig.delegationBatchInterval", "Interval over which originator delegation requests are coalesced into a single batched send while in the sending state")
 	SequencerConfigHeartbeatInterval                 = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
 	SequencerConfigIdleSequencerCleanupInterval      = pdm("SequencerConfig.idleSequencerCleanupInterval", "Interval for proactively removing sequencers where both the coordinator and originator are in idle state")
 	SequencerConfigInactiveGracePeriod               = pdm("SequencerConfig.inactiveGracePeriod", "Number of heartbeat intervals without activity before a node is considered inactive")

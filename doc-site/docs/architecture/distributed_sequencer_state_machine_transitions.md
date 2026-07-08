@@ -101,6 +101,7 @@ stateDiagram-v2
     Pooled --> PreAssembly_Blocked : DependencyConfirmedReverted
     Pooled --> Reverted : ChainedDependencyFailed
     Pooled --> Evicted : ChainedDependencyEvicted
+    Assembling --> Signing : AssembleSuccess [!SignRequirementsFulfilled]
     Assembling --> Endorsement_Gathering : AssembleSuccess [!AttestationPlanFulfilled]
     Assembling --> Confirming_Dispatchable : AssembleSuccess [AttestationPlanFulfilled && !HasDependenciesNotReady]
     Assembling --> Blocked : AssembleSuccess [AttestationPlanFulfilled && HasDependenciesNotReady]
@@ -116,39 +117,25 @@ stateDiagram-v2
     Assembling --> PreAssembly_Blocked : DependencyConfirmedReverted
     Assembling --> Reverted : ChainedDependencyFailed
     Assembling --> Evicted : ChainedDependencyEvicted
+    Signing --> Endorsement_Gathering : Signed [SignRequirementsFulfilled && !AttestationPlanFulfilled]
+    Signing --> Confirming_Dispatchable : Signed [SignRequirementsFulfilled && AttestationPlanFulfilled && !HasDependenciesNotReady]
+    Signing --> Blocked : Signed [SignRequirementsFulfilled && AttestationPlanFulfilled && HasDependenciesNotReady]
+    Signing --> Pooled : SignError [CanRetryErroredAssemble]
+    Signing --> Evicted : SignError [!CanRetryErroredAssemble]
+    Signing --> Pooled : StateTimeoutInterval
     Endorsement_Gathering --> Confirming_Dispatchable : Endorsed [AttestationPlanFulfilled && !HasDependenciesNotReady]
     Endorsement_Gathering --> Blocked : Endorsed [AttestationPlanFulfilled && HasDependenciesNotReady]
     Endorsement_Gathering --> Pooled : EndorseRevert [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --> Pooled : EndorseError [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --> Pooled : EndorseRequestRejected [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --> Pooled : StateTimeoutInterval
-    Endorsement_Gathering --> PreAssembly_Blocked : DependencyReset
-    Endorsement_Gathering --> Pooled : DependencyReset
-    Endorsement_Gathering --> PreAssembly_Blocked : DependencyConfirmedReverted
-    Endorsement_Gathering --> Pooled : DependencyConfirmedReverted
-    Endorsement_Gathering --> Reverted : ChainedDependencyFailed
     Blocked --> Confirming_Dispatchable : DependencyReady [!HasDependenciesNotReady]
-    Blocked --> PreAssembly_Blocked : DependencyReset
-    Blocked --> Pooled : DependencyReset
-    Blocked --> PreAssembly_Blocked : DependencyConfirmedReverted
-    Blocked --> Pooled : DependencyConfirmedReverted
-    Blocked --> Reverted : ChainedDependencyFailed
     Confirming_Dispatchable --> Ready_For_Dispatch : DispatchRequestApproved
     Confirming_Dispatchable --> Pooled : DispatchRequestRejected
     Confirming_Dispatchable --> Evicted : PreDispatchRequestRejected
     Confirming_Dispatchable --> Final : PreDispatchRequestRejected
     Confirming_Dispatchable --> Pooled : StateTimeoutInterval
-    Confirming_Dispatchable --> PreAssembly_Blocked : DependencyReset
-    Confirming_Dispatchable --> Pooled : DependencyReset
-    Confirming_Dispatchable --> PreAssembly_Blocked : DependencyConfirmedReverted
-    Confirming_Dispatchable --> Pooled : DependencyConfirmedReverted
-    Confirming_Dispatchable --> Reverted : ChainedDependencyFailed
     Ready_For_Dispatch --> Dispatched : Dispatched
-    Ready_For_Dispatch --> PreAssembly_Blocked : DependencyReset
-    Ready_For_Dispatch --> Pooled : DependencyReset
-    Ready_For_Dispatch --> PreAssembly_Blocked : DependencyConfirmedReverted
-    Ready_For_Dispatch --> Pooled : DependencyConfirmedReverted
-    Ready_For_Dispatch --> Reverted : ChainedDependencyFailed
     Dispatched --> Confirmed : ConfirmedSuccess
     Dispatched --> PreAssembly_Blocked : ConfirmedReverted [CanRetryRevert && HasUnassembledDependencies]
     Dispatched --> Pooled : ConfirmedReverted [CanRetryRevert && !HasUnassembledDependencies]
@@ -189,6 +176,8 @@ stateDiagram-v2
 | **PreAssembleDependencyTerminated** | |
 | **PreDispatchRequestRejected** | |
 | **Selected** | |
+| **SignError** | |
+| **Signed** | |
 | **StateTimeoutInterval** | |
 
 ---
@@ -229,7 +218,11 @@ stateDiagram-v2
     state "Endorsement Gathering" as Endorsement_Gathering
     [*] --> Initial
     Initial --> Confirmed : ConfirmedSuccess
+    Initial --> Resolving : Created [HasRequiredVerifiers]
     Initial --> Pending : Created
+    Resolving --> Confirmed : ConfirmedSuccess
+    Resolving --> Confirmed : ConfirmedReverted
+    Resolving --> Pending : VerifiersResolved
     Pending --> Confirmed : ConfirmedSuccess
     Pending --> Confirmed : ConfirmedReverted
     Pending --> Delegated : Delegated
@@ -240,20 +233,27 @@ stateDiagram-v2
     Assembling --> Confirmed : ConfirmedSuccess
     Assembling --> Confirmed : ConfirmedReverted
     Assembling --> Delegated : Delegated
-    Assembling --> Endorsement_Gathering : AssembleAndSignSuccess
+    Assembling --> Signing : AssembleSuccess [HasLocalSignRequirement]
+    Assembling --> Endorsement_Gathering : AssembleSuccess
     Assembling --> Reverted : AssembleRevert
     Assembling --> Parked : AssemblePark
     Assembling --> Delegated : AssembleError
+    Signing --> Confirmed : ConfirmedSuccess
+    Signing --> Confirmed : ConfirmedReverted
+    Signing --> Delegated : Delegated
+    Signing --> Endorsement_Gathering : SignSuccess
+    Signing --> Delegated : SignError
+    Signing --> Assembling : AssembleRequestReceived
     Endorsement_Gathering --> Confirmed : ConfirmedSuccess
     Endorsement_Gathering --> Confirmed : ConfirmedReverted
     Endorsement_Gathering --> Delegated : Delegated
-    Endorsement_Gathering --> Assembling : AssembleRequestReceived [!AssembleRequestMatchesPreviousResponse]
+    Endorsement_Gathering --> Assembling : AssembleRequestReceived
     Endorsement_Gathering --> Prepared : PreDispatchRequestReceived
     Prepared --> Confirmed : ConfirmedSuccess
     Prepared --> Confirmed : ConfirmedReverted
     Prepared --> Delegated : Delegated
     Prepared --> Dispatched : Dispatched
-    Prepared --> Assembling : AssembleRequestReceived [!AssembleRequestMatchesPreviousResponse]
+    Prepared --> Assembling : AssembleRequestReceived
     Dispatched --> Confirmed : ConfirmedSuccess
     Dispatched --> Delegated : ConfirmedReverted
     Dispatched --> Confirmed : ConfirmedReverted
@@ -285,11 +285,11 @@ stateDiagram-v2
 
 | Event | Description |
 | --- | --- |
-| **AssembleAndSignSuccess** | |
 | **AssembleError** | |
 | **AssemblePark** | |
 | **AssembleRequestReceived** | |
 | **AssembleRevert** | |
+| **AssembleSuccess** | |
 | **ConfirmedReverted** | |
 | **ConfirmedSuccess** | |
 | **Created** | |
@@ -299,4 +299,7 @@ stateDiagram-v2
 | **NonceAssigned** | |
 | **PreDispatchRequestReceived** | |
 | **Resumed** | |
+| **SignError** | |
+| **SignSuccess** | |
 | **Submitted** | |
+| **VerifiersResolved** | |

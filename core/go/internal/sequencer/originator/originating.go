@@ -170,15 +170,40 @@ func sendDelegationRequest(ctx context.Context, o *originator, full bool) error 
 	})
 }
 
-// action_DelegateNewTransactions only delegates transactions State_Pending / State_Delegated to ensure
-// that FIFO ordering until first assembly is preserved for these transacrtions
-func action_DelegateNewTransactions(ctx context.Context, o *originator, _ common.Event) error {
-	return sendDelegationRequest(ctx, o, false)
+// action_SignalDelegateNew raises the partial delegation dirty flag. The batching goroutine coalesces
+// this with any other signals in the current batch window and flushes a single partial delegation
+// (only transactions State_Pending / State_Delegated), preserving FIFO ordering until first assembly.
+func action_SignalDelegateNew(_ context.Context, o *originator, _ common.Event) error {
+	o.signalDelegate(false)
+	return nil
 }
 
-// action_DelegateAllTransactions delegates all unconfirmed transactions
-func action_DelegateAllTransactions(ctx context.Context, o *originator, _ common.Event) error {
-	return sendDelegationRequest(ctx, o, true)
+// action_SignalDelegateAll raises the full delegation dirty flag. The batching goroutine coalesces
+// this into a single full delegation (all unconfirmed transactions) on the next batch tick.
+func action_SignalDelegateAll(_ context.Context, o *originator, _ common.Event) error {
+	o.signalDelegate(true)
+	return nil
+}
+
+// action_FlushDelegation is the sole handler of Event_DelegateFlush, queued by the batching goroutine.
+// It refreshes the block height once per flush (rather than once per trigger) and sends the coalesced
+// delegation request.
+func action_FlushDelegation(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*DelegateFlushEvent)
+	o.refreshBlockHeight(ctx)
+	return sendDelegationRequest(ctx, o, e.Full)
+}
+
+// action_StartDelegationLoop starts the delegation batching goroutine on entry to State_Sending.
+func action_StartDelegationLoop(_ context.Context, o *originator, _ common.Event) error {
+	o.startDelegationLoop()
+	return nil
+}
+
+// action_StopDelegationLoop stops the delegation batching goroutine on exit from State_Sending.
+func action_StopDelegationLoop(_ context.Context, o *originator, _ common.Event) error {
+	o.stopDelegationLoop()
+	return nil
 }
 
 // action_RefreshBlockHeight queries the live block height and updates effectiveBlockHeight and the
@@ -219,7 +244,8 @@ func action_FailoverToNextCoordinator(ctx context.Context, o *originator, _ comm
 		log.L(ctx).Debugf("originator failing over from %s to %s (failoverIndex now %d)",
 			prev, o.currentActiveCoordinator, o.failoverIndex)
 	}
-	return sendDelegationRequest(ctx, o, true)
+	o.signalDelegate(true)
+	return nil
 }
 
 // action_ResetToTopPriorityCoordinator sets currentActiveCoordinator to the highest-priority

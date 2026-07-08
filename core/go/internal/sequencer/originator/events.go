@@ -66,3 +66,16 @@ func (*DelegationRequestRejectedEvent) Type() EventType {
 func (*DelegationRequestRejectedEvent) TypeString() string {
 	return "Event_DelegationRequestRejected"
 }
+
+type DelegateFlushEvent struct {
+	common.BaseEvent
+	Full bool
+}
+
+func (*DelegateFlushEvent) Type() EventType {
+	return Event_DelegateFlush
+}
+
+func (*DelegateFlushEvent) TypeString() string {
+	return "Event_DelegateFlush"
+}
