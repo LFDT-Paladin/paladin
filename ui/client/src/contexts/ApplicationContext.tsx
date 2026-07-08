@@ -19,6 +19,7 @@ import {
   Dispatch,
   SetStateAction,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -28,6 +29,7 @@ import {
   IStatePagingReference,
   ITransactionPagingReference,
 } from "../interfaces";
+import { constants } from "../components/config";
 
 export interface TransactionsViewState {
   refEntries: ITransactionPagingReference[];
@@ -240,9 +242,23 @@ interface Props {
   children: JSX.Element;
 }
 
+const getReadOnlyModeFromLocalStorage = () => {
+  const value = window.localStorage.getItem(constants.MODE_STORAGE_KEY);
+  return constants.EDIT_MODE_STORAGE_VALUE !== value;
+}
+
 export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
+
   const [navigationVisible, setNavigationVisible] = useState(false);
-  const [readOnly, setReadOnly] = useState(true);
+  const [readOnly, setReadOnly] = useState(getReadOnlyModeFromLocalStorage());
+
+  useEffect(() => {
+    if(readOnly === true) {
+      window.localStorage.removeItem(constants.MODE_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(constants.MODE_STORAGE_KEY, constants.EDIT_MODE_STORAGE_VALUE);
+    }
+  }, [readOnly]);
 
   // Transactions view state
   const [txRefEntries, setTxRefEntries] = useState<ITransactionPagingReference[]>([]);
