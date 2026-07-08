@@ -150,6 +150,7 @@
 	"evmPrivateTransaction": "EVM Private Transaction",
 	"evmVersion": "EVM Version",
 	"exclude": "Exclude",
+	"exploreGroupMessages": "Explore Group Messages",
 	"explorerView": "Explorer View",
 	"externalCallsEnabled": "External Calls Enabled",
 	"failed": "Failed",

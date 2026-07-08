@@ -18,13 +18,15 @@ import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Fade
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getShortId, isValidAddress, isValidPrivacyGroupId } from "../utils";
+import { customNavigate, getShortId, isValidAddress, isValidPrivacyGroupId } from "../utils";
 import { useTranslation } from "react-i18next";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { getPrivacyGroupByAddress, getPrivacyGroupById } from "../queries/privacyGroups";
 import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useApplicationContext } from "../contexts/ApplicationContext";
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import { AppRoutes } from "../routes";
 
 export const PrivacyGroupEntry: React.FC = () => {
 
@@ -36,24 +38,9 @@ export const PrivacyGroupEntry: React.FC = () => {
 
   const { privateGroupMessages: privateGroupMessagesViewStateState } = useApplicationContext();
   const {
-    setSortAscending,
-    setRefTimestamps,
-    setPage,
-    setRowsPerPage,
     setFilters,
-    setFiltersVisible,
+    setFiltersVisible
   } = privateGroupMessagesViewStateState;
-
-  useEffect(() => {
-    return () => {
-      setSortAscending(false);
-      setRefTimestamps([]);
-      setPage(0);
-      setRowsPerPage(10);
-      setFilters([]);
-      setFiltersVisible(false);
-    }
-  }, []);
 
   useEffect(() => {
     if (idOrAddress === undefined) {
@@ -102,7 +89,7 @@ export const PrivacyGroupEntry: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate('/ui/privacy-groups/groups')}
+            onClick={() => navigate(AppRoutes.PrivacyGroups)}
           >
             {t('backToPrivacyGroups')}
           </Button>
@@ -123,6 +110,33 @@ export const PrivacyGroupEntry: React.FC = () => {
               </Box>
             } />
         </Tabs>
+        <Box sx={{
+          paddingLeft: '5px',
+          paddingTop: '15px',
+          paddingBottom: '5px',
+          backgroundColor: theme => theme.palette.background.paper,
+        }}>
+          <Button size="small"
+            endIcon={<OpenInNewIcon />}
+            sx={{ fontWeight: '400', minWidth: '70px' }}
+            onClick={event => {
+              setFilters([
+                {
+                  operator: 'equal',
+                  value: privacyGroup.id,
+                  field: {
+                    label: t('group'),
+                    name: 'group',
+                    type: 'string',
+                    isHexValue: true
+                  }
+                }
+              ]);
+              setFiltersVisible(true);
+              customNavigate(AppRoutes.PrivacyGroupMessages, event, navigate)
+            }}
+          >{t('exploreGroupMessages')}</Button>
+        </Box>
         <Accordion elevation={0} disableGutters defaultExpanded>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             {t('details')}

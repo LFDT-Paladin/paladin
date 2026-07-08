@@ -109,6 +109,7 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
               label={t('privacyGroupId')}
               autoComplete="off"
               fullWidth
+              disabled={preSelectedPrivacyGroup !== undefined}
               value={privacyGroupId}
               onChange={event => setPrivacyGroupId(event.target.value)}
               helperText={privacyGroupId.length > 0 && !isValidPrivacyGroupId? t('mustBeAValidHex') : undefined}
