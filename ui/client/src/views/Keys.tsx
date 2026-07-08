@@ -102,7 +102,9 @@ export const Keys: React.FC = () => {
   }, [parent, page]);
 
   useEffect(() => {
+    setPage(0);
     setCount(-1);
+    setRefEntries([]);
   }, [filters]);
 
   useEffect(() => {

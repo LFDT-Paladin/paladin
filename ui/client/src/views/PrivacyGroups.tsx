@@ -75,6 +75,12 @@ export const PrivacyGroups: React.FC = () => {
     }
   }, [data, rowsPerPage, page, isPlaceholderData]);
 
+  useEffect(() => {
+    setRefTimestamps([]);
+    setPage(0);
+    setCount(-1);
+  }, [filters]);
+
   if (error) {
     return (
       <Alert sx={{ margin: '30px' }} severity="error" variant="filled">

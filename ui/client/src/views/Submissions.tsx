@@ -71,6 +71,12 @@ export const Submissions: React.FC = () => {
     }
   }, [data, rowsPerPage, page, isPlaceholderData]);
 
+  useEffect(() => {
+    setRefEntries([]);
+    setPage(0);
+    setCount(-1);
+  }, [filters]);
+
   const handleChangePage = (
     _event: React.MouseEvent<HTMLButtonElement> | null,
     newPage: number

@@ -96,6 +96,12 @@ export const SmartContractsTable: React.FC<Props> = ({
     }
   }, [data, rowsPerPage, page, isPlaceholderData]);
 
+  useEffect(() => {
+    setRefTimestamps([]);
+    setPage(0);
+    setCount(-1);
+  }, [filters]);
+
   const handleChangePage = (
     _event: React.MouseEvent<HTMLButtonElement> | null,
     newPage: number

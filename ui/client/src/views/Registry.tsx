@@ -83,6 +83,12 @@ export const Registry: React.FC = () => {
     }
   }, [data, rowsPerPage, page, isPlaceholderData]);
 
+  useEffect(() => {
+    setRefNames([]);
+    setPage(0);
+    setCount(-1);
+  }, [filters, activeFilter]);
+
   if (registriesError !== null || registryError !== null) {
     return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{registriesError?.message ?? registryError?.message}</Alert>
   }

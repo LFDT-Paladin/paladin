@@ -75,6 +75,12 @@ export const PrivacyGroupListeners: React.FC = () => {
     }
   }, [data, rowsPerPage, page, isPlaceholderData]);
 
+  useEffect(() => {
+    setPaginationRefs([]);
+    setPage(0);
+    setCount(-1);
+  }, [filters]);
+
   if (error) {
     return (
       <Alert sx={{ margin: '30px' }} severity="error" variant="filled">

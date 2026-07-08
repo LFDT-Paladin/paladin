@@ -68,6 +68,12 @@ export const Transactions: React.FC = () => {
     setCount(-1);
   }, [showTxsWithReceipt]);
 
+  useEffect(() => {
+    setPage(0);
+    setRefEntries([]);
+    setCount(-1);
+  }, [filters]);
+
   if (error) {
     return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{error.message}</Alert>
   }
