@@ -18,7 +18,7 @@ import { Alert, Box, Button, Collapse, Fade, TablePagination, ToggleButton, Togg
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { fetchIndexedTransactions } from "../queries/transactions";
 import { EnrichedTransaction } from "../components/EnrichedTransaction";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import SearchIcon from '@mui/icons-material/Search';
 import { TransactionLookupDialog } from "../dialogs/TransactionLookup";
@@ -26,6 +26,7 @@ import { useApplicationContext } from "../contexts/ApplicationContext";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { Filters } from "../components/Filters";
 import { FiltersButton } from "../components/FiltersButton";
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const Transactions: React.FC = () => {
   const { transactions } = useApplicationContext();
@@ -44,7 +45,6 @@ export const Transactions: React.FC = () => {
     setFiltersVisible,
   } = transactions;
   const [lookupTransactionDialogOpen, setLookupTransactionDialogOpen] = useState(false);
-  const [count, setCount] = useState(-1);
   const { t } = useTranslation();
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
@@ -56,23 +56,17 @@ export const Transactions: React.FC = () => {
   const enrichedTransactions = data?.items;
   const hasMore = data?.hasMore ?? false;
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setPage(0);
     setRefEntries([]);
-    setCount(-1);
-  }, [showTxsWithReceipt]);
+  }, showTxsWithReceipt);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setPage(0);
     setRefEntries([]);
-    setCount(-1);
-  }, [filters]);
+  }, filters);
 
   if (error) {
     return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{error.message}</Alert>

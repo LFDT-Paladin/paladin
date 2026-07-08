@@ -18,7 +18,7 @@ import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { Timestamp } from "../components/Timestamp";
 import { Tag } from "lucide-react";
@@ -32,6 +32,7 @@ import { ReliableMessageLookupDialog } from "../dialogs/ReliableMessageLookup";
 import SearchIcon from '@mui/icons-material/Search';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { AppRoutes } from "../routes";
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const TransportMessages: React.FC = () => {
   const { messages: messagesViewState } = useApplicationContext();
@@ -53,7 +54,6 @@ export const TransportMessages: React.FC = () => {
   } = messagesViewState;
 
   const [lookupMessageDialogOpen, setLookupMessageDialogOpen] = useState(false);
-  const [count, setCount] = useState(-1);
   const navigate = useNavigate();
   const { t } = useTranslation();
   const location = useLocation();
@@ -67,17 +67,12 @@ export const TransportMessages: React.FC = () => {
   const messages = data?.items;
   const hasMore = data?.hasMore ?? false;
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setRefTimestamps([]);
     setPage(0);
-    setCount(-1);
-  }, [filters]);
+  }, filters);
 
   if (error) {
     return (<Alert sx={{ margin: '30px' }} severity="error" variant="filled">

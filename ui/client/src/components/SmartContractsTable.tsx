@@ -37,12 +37,13 @@ import { DomainButtons } from './DomainButtons';
 import { Hash } from './Hash';
 import { IDomainContract, IFilter } from '../interfaces';
 import { Timestamp } from './Timestamp';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect } from 'react';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useNavigate } from 'react-router-dom';
 import { customNavigate } from '../utils';
 import { Captions } from 'lucide-react';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { pagedTableCount, useResetPaginationOnChange } from '../hooks/pagination';
 
 type Props = {
   domainAddress: string
@@ -72,7 +73,6 @@ export const SmartContractsTable: React.FC<Props> = ({
   filters
 }) => {
 
-  const [count, setCount] = useState(-1);
   const { t } = useTranslation();
   const navigate = useNavigate();
 
@@ -82,7 +82,7 @@ export const SmartContractsTable: React.FC<Props> = ({
     isPlaceholderData,
     isFetching
   } = useQuery({
-    queryKey: ['contracts', domainAddress, sortAscending, page, rowsPerPage, filters],
+    queryKey: ['contracts', domainAddress, sortAscending, page, rowsPerPage, filters, refTimestamps],
     queryFn: () => querySmartContractsByDomain(domainAddress, sortAscending, rowsPerPage, filters, refTimestamps[refTimestamps.length - 1]),
     placeholderData: keepPreviousData
   });
@@ -90,17 +90,12 @@ export const SmartContractsTable: React.FC<Props> = ({
   const contracts = data?.items;
   const hasMore = data?.hasMore ?? false;
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setRefTimestamps([]);
     setPage(0);
-    setCount(-1);
-  }, [filters]);
+  }, filters);
 
   const handleChangePage = (
     _event: React.MouseEvent<HTMLButtonElement> | null,

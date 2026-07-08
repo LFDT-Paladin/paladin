@@ -16,13 +16,12 @@
 
 import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
-import { IPrivacyGroup } from "../interfaces";
 import { getPrivacyGroupMessages } from "../queries/privacyGroups";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { FiltersButton } from "../components/FiltersButton";
 import SearchIcon from '@mui/icons-material/Search';
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Filters } from "../components/Filters";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { Tag } from "lucide-react";
@@ -35,12 +34,12 @@ import { PrivacyGroupMessageLookupDialog } from "../dialogs/PrivateGroupMessageL
 import SendIcon from '@mui/icons-material/Send';
 import { SendPrivacyGroupMessageDialog } from "../dialogs/SendPrivacyGroupMessage";
 import { AppRoutes } from "../routes";
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const PrivacyGroupMessages: React.FC = () => {
 
   const [sendMessageDialogOpen, setSendMessageDialogOpen] = useState(false);
   const [lookupPrivateGroupMessageDialogOpen, setLookupPrivateGroupMessageDialogOpen] = useState(false);
-  const [count, setCount] = useState(-1);
   const navigate = useNavigate();
   const location = useLocation();
   const { privateGroupMessages: privateGroupMessagesViewStateState, readOnly } = useApplicationContext();
@@ -69,17 +68,12 @@ export const PrivacyGroupMessages: React.FC = () => {
   const privacyGroupMessages = data?.items;
   const hasMore = data?.hasMore ?? false;
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setRefTimestamps([]);
     setPage(0);
-    setCount(-1);
-  }, [filters]);
+  }, filters);
 
   if (error) {
     return (<Alert sx={{ margin: '30px' }} severity="error" variant="filled">

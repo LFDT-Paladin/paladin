@@ -34,6 +34,7 @@ import { StateActions } from "../components/StateActions";
 import { FiltersButton } from "../components/FiltersButton";
 import { StateLookupDialog } from "../dialogs/StateLookup";
 import SearchIcon from '@mui/icons-material/Search';
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const States: React.FC = () => {
   const { states: statesViewState, readOnly } = useApplicationContext();
@@ -57,7 +58,6 @@ export const States: React.FC = () => {
   } = statesViewState;
 
   const [stateLookupDialogOpen, setStateLookupDialogOpen] = useState(false);
-  const [count, setCount] = useState(-1);
   const [sortBy, setSortBy] = useState('.created');
   const tableIndexedFieldsRef = useRef<ISchemaComponent[]>([]);
   const theme = useTheme();
@@ -85,6 +85,8 @@ export const States: React.FC = () => {
   const states = data?.items;
   const hasMore = data?.hasMore ?? false;
 
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
+
   useEffect(() => {
     if (selectedDomain === undefined && domains !== undefined && domains.length > 0) {
       setSelectedDomain(domains[0]);
@@ -97,17 +99,10 @@ export const States: React.FC = () => {
     }
   }, [selectedDomain, schemas]);
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
-
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setRefEntries([]);
     setPage(0);
-    setCount(-1);
-  }, [filters]);
+  }, filters);
 
   const selectedIndexedFields =
     schemas?.find(schema => schema.id === selectedSchemaId)
@@ -138,7 +133,6 @@ export const States: React.FC = () => {
   const resetPagination = () => {
     setRefEntries([]);
     setPage(0);
-    setCount(-1);
   };
 
   const handleChangePage = (

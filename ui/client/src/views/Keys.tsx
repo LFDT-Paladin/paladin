@@ -33,6 +33,7 @@ import { useTranslation } from "react-i18next";
 import { Filters } from "../components/Filters";
 import { FiltersButton } from "../components/FiltersButton";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const Keys: React.FC = () => {
   const { keys: keysViewState } = useApplicationContext();
@@ -55,7 +56,6 @@ export const Keys: React.FC = () => {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [refEntries, setRefEntries] = useState<IKeyEntry[]>([]);
-  const [count, setCount] = useState(-1);
   const [parent, setParent] = useState(searchParams.get('path') ?? '');
   const [reverseLookupDialogOpen, setReverseLookupDialogOpen] = useState(false);
   const [selectedVerifiers, setSelectedVerifiers] = useState<IVerifier[]>();
@@ -75,23 +75,18 @@ export const Keys: React.FC = () => {
   const keys = data?.items;
   const hasMore = data?.hasMore ?? false;
 
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
+
   useEffect(() => {
     if (count !== -1 && (page !== 0 && page * rowsPerPage === count)) {
       handleChangePage(null, page - 1);
     }
   }, [count, rowsPerPage, page]);
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
-
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setPage(0);
-    setCount(-1);
     setRefEntries([]);
-  }, [parent]);
+  }, parent);
 
   useEffect(() => {
     let value: any = {};
@@ -101,20 +96,18 @@ export const Keys: React.FC = () => {
     setSearchParams(value);
   }, [parent, page]);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setPage(0);
-    setCount(-1);
     setRefEntries([]);
-  }, [filters]);
+  }, filters);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     if (mode === 'list') {
       setParent('');
     }
     setPage(0);
-    setCount(-1);
     setRefEntries([]);
-  }, [mode]);
+  }, mode);
 
   if (error) {
     return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{error.message}</Alert>

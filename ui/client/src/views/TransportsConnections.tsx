@@ -17,7 +17,6 @@
 import { Alert, Box, Button, Collapse, Fade, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { Timestamp } from "../components/Timestamp";
 import { fetchTransportPeersWithQuery } from "../queries/transport";
@@ -28,6 +27,7 @@ import prettyBytes from "pretty-bytes";
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppRoutes } from "../routes";
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const TransportConnections: React.FC = () => {
   const { transports: transportsViewState } = useApplicationContext();
@@ -46,7 +46,6 @@ export const TransportConnections: React.FC = () => {
     setFiltersVisible,
   } = transportsViewState;
 
-  const [count, setCount] = useState(-1);
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -60,17 +59,12 @@ export const TransportConnections: React.FC = () => {
   const peers = data?.items;
   const hasMore = data?.hasMore ?? false;
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setRefNames([]);
     setPage(0);
-    setCount(-1);
-  }, [filters]);
+  }, filters);
 
   if (error) {
     return (<Alert sx={{ margin: '30px' }} severity="error" variant="filled">

@@ -31,6 +31,7 @@ import { Captions } from "lucide-react";
 import { FiltersButton } from "../components/FiltersButton";
 import { Filters } from "../components/Filters";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const Registry: React.FC = () => {
   const { registry } = useApplicationContext();
@@ -49,7 +50,6 @@ export const Registry: React.FC = () => {
     setFiltersVisible,
   } = registry;
 
-  const [count, setCount] = useState(-1);
   const [activeFilter, setActiveFilter] = useState<'active' | 'inactive' | 'any'>('any');
   const [resolveVerifierDialogOpen, setResolveVerifierDialogOpen] = useState(false);
   const [selectedRegistry, setSelectedRegistry] = useState<string>();
@@ -68,7 +68,7 @@ export const Registry: React.FC = () => {
   }, [registries]);
 
   const { data, error: registryError, isPlaceholderData, isFetching } = useQuery({
-    queryKey: ['registry', filters, activeFilter, refNames, sortAscending, rowsPerPage],
+    queryKey: ['registry', filters, activeFilter, refNames, sortAscending, rowsPerPage, page],
     queryFn: () => fetchRegistryEntries(selectedRegistry!, filters, activeFilter, rowsPerPage, refNames[refNames.length - 1], sortAscending),
     enabled: selectedRegistry !== undefined,
     placeholderData: keepPreviousData
@@ -77,17 +77,12 @@ export const Registry: React.FC = () => {
   const registryEntries = data?.items;
   const hasMore = data?.hasMore ?? false;
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setRefNames([]);
     setPage(0);
-    setCount(-1);
-  }, [filters, activeFilter]);
+  }, filters, activeFilter);
 
   if (registriesError !== null || registryError !== null) {
     return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{registriesError?.message ?? registryError?.message}</Alert>

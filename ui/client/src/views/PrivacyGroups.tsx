@@ -15,7 +15,7 @@
 // limitations under the License.
 
 import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { useTranslation } from "react-i18next";
 import SearchIcon from '@mui/icons-material/Search';
@@ -35,6 +35,7 @@ import { Filters } from "../components/Filters";
 import AddIcon from '@mui/icons-material/Add';
 import { CreatePrivacyGroupDialog } from "../dialogs/CreatePrivacyGroup";
 import { AppRoutes } from "../routes";
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const PrivacyGroups: React.FC = () => {
   const { privacyGroups: privacyGroupsViewState, readOnly } = useApplicationContext();
@@ -56,12 +57,11 @@ export const PrivacyGroups: React.FC = () => {
   const [createPrivacyGroupDialogOpen, setCreatePrivacyGroupDialogOpen] = useState(false);
   const [lookupPrivacyGroupDialogOpen, setLookupPrivacyGroupDialogOpen] = useState(false);
   const navigate = useNavigate();
-  const [count, setCount] = useState(-1);
   const { t } = useTranslation();
   const location = useLocation();
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
-    queryKey: ['privacyGroups', page, rowsPerPage, filters, sortAscending],
+    queryKey: ['privacyGroups', page, rowsPerPage, filters, sortAscending, refTimestamps],
     queryFn: () => listPrivacyGroups(rowsPerPage, filters, sortAscending, refTimestamps[refTimestamps.length - 1]),
     placeholderData: keepPreviousData
   });
@@ -69,17 +69,12 @@ export const PrivacyGroups: React.FC = () => {
   const privacyGroups = data?.items;
   const hasMore = data?.hasMore ?? false;
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setRefTimestamps([]);
     setPage(0);
-    setCount(-1);
-  }, [filters]);
+  }, filters);
 
   if (error) {
     return (

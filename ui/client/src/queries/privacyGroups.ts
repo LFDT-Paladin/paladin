@@ -93,8 +93,8 @@ export const getPrivacyGroupMessages = async (
   limit: number,
   filters: IFilter[],
   sortAscending: boolean,
-  privacyGroupId?: string,
-  refTimestamp?: string
+  refTimestamp?: string,
+  privacyGroupId?: string
 ): Promise<IPagedResult<IPrivacyGroupMessage>> => {
 
   let translatedFilters = translateFilters(filters);

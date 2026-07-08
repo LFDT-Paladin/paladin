@@ -22,7 +22,7 @@ import { useApplicationContext } from "../contexts/ApplicationContext";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { FiltersButton } from "./FiltersButton";
 import SearchIcon from '@mui/icons-material/Search';
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Filters } from "./Filters";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { Tag } from "lucide-react";
@@ -34,6 +34,7 @@ import { useNavigate } from "react-router-dom";
 import { PrivacyGroupMessageLookupDialog } from "../dialogs/PrivateGroupMessageLookup";
 import SendIcon from '@mui/icons-material/Send';
 import { SendPrivacyGroupMessageDialog } from "../dialogs/SendPrivacyGroupMessage";
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 type Props = {
   privacyGroup: IPrivacyGroup
@@ -43,7 +44,6 @@ export const PrivacyGroupMessages: React.FC<Props> = ({ privacyGroup }) => {
 
   const [sendMessageDialogOpen, setSendMessageDialogOpen] = useState(false);
   const [lookupPrivateGroupMessageDialogOpen, setLookupPrivateGroupMessageDialogOpen] = useState(false);
-  const [count, setCount] = useState(-1);
   const navigate = useNavigate();
   const { privateGroupMessages: privateGroupMessagesViewStateState } = useApplicationContext();
   const {
@@ -64,24 +64,19 @@ export const PrivacyGroupMessages: React.FC<Props> = ({ privacyGroup }) => {
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['privacy-group-messages', rowsPerPage, filters, sortAscending, privacyGroup.id, refTimestamps],
-    queryFn: () => getPrivacyGroupMessages(rowsPerPage, filters, sortAscending, privacyGroup.id, refTimestamps[refTimestamps.length - 1]),
+    queryFn: () => getPrivacyGroupMessages(rowsPerPage, filters, sortAscending, refTimestamps[refTimestamps.length - 1], privacyGroup.id),
     placeholderData: keepPreviousData
   });
 
   const privacyGroupMessages = data?.items;
   const hasMore = data?.hasMore ?? false;
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setRefTimestamps([]);
     setPage(0);
-    setCount(-1);
-  }, [filters]);
+  }, filters);
 
   if (error) {
     return (<Alert sx={{ margin: '30px' }} severity="error" variant="filled">
@@ -350,7 +345,7 @@ export const PrivacyGroupMessages: React.FC<Props> = ({ privacyGroup }) => {
         </Box>
       }
       <SendPrivacyGroupMessageDialog
-        privacyGroup={privacyGroup}
+        preSelectedPrivacyGroup={privacyGroup}
         dialogOpen={sendMessageDialogOpen}
         setDialogOpen={setSendMessageDialogOpen}
       />

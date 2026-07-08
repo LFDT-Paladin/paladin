@@ -16,7 +16,7 @@
 
 import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { fetchSubmissions } from "../queries/transactions";
 import { useTranslation } from "react-i18next";
@@ -31,6 +31,7 @@ import { Tag } from "lucide-react";
 import { customNavigate } from "../utils";
 import { useNavigate } from "react-router-dom";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const Submissions: React.FC = () => {
   const { submissions } = useApplicationContext();
@@ -53,7 +54,6 @@ export const Submissions: React.FC = () => {
 
   const navigate = useNavigate();
   const [lookupTransactionDialogOpen, setLookupTransactionDialogOpen] = useState(false);
-  const [count, setCount] = useState(-1);
   const { t } = useTranslation();
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
@@ -65,17 +65,12 @@ export const Submissions: React.FC = () => {
   const transactions = data?.items;
   const hasMore = data?.hasMore ?? false;
 
-  useEffect(() => {
-    if (data !== undefined && count === -1 && !isPlaceholderData && !data.hasMore) {
-      setCount(rowsPerPage * page + data.items.length);
-    }
-  }, [data, rowsPerPage, page, isPlaceholderData]);
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
 
-  useEffect(() => {
+  useResetPaginationOnChange(() => {
     setRefEntries([]);
     setPage(0);
-    setCount(-1);
-  }, [filters]);
+  }, filters);
 
   const handleChangePage = (
     _event: React.MouseEvent<HTMLButtonElement> | null,
@@ -127,8 +122,8 @@ export const Submissions: React.FC = () => {
             </Typography>
             <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive onChange={(_event, value) => {
               setPage(0);
-              setCount(-1);
               setSection(value);
+              setRefEntries([]);
             }} value={section}>
               <ToggleButton color="primary" value="pending" sx={{ width: '120px' }}>{t('pending')}</ToggleButton>
               <ToggleButton color="primary" value="failed" sx={{ width: '120px' }}>{t('failed')}</ToggleButton>
