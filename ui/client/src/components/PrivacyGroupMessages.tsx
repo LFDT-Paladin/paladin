@@ -306,7 +306,7 @@ export const PrivacyGroupMessages: React.FC<Props> = ({ privacyGroup }) => {
                     <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                       <Tooltip title={t('open')} arrow>
                         <IconButton
-                          onClick={mouseEvent => customNavigate(`/ui/privacy-groups/${privacyGroup.id}/messages/${privacyGroupMessage.id}`, mouseEvent, navigate)}>
+                          onClick={mouseEvent => customNavigate(`/ui/privacy-groups/groups/${privacyGroup.id}/messages/${privacyGroupMessage.id}`, mouseEvent, navigate)}>
                           <OpenInNewIcon color="secondary" fontSize="medium" />
                         </IconButton>
                       </Tooltip>

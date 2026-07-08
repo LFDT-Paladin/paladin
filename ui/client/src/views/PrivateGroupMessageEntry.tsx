@@ -61,7 +61,7 @@ export const PrivateGroupMessageEntry: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate(`/ui/privacy-groups/${privacyGroupId}`)}
+            onClick={() => navigate(`/ui/privacy-groups/groups/${privacyGroupId}`)}
           >
             {t('backToPrivacyGroup')}
           </Button>
