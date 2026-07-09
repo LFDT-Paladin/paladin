@@ -89,6 +89,7 @@ type originator struct {
 	inactiveGracePeriod     int // expressed as a multiple of heartbeat intervals
 	resolveRetryBackoff     time.Duration
 	delegationBatchInterval time.Duration
+	heartbeatInterval       time.Duration // grace before a delegated-but-unsnapshotted transaction counts as dropped
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
@@ -117,6 +118,7 @@ func NewOriginator(
 		inactiveGracePeriod:     confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod),
 		resolveRetryBackoff:     confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout),
 		delegationBatchInterval: confutil.DurationMin(configuration.DelegationBatchInterval, pldconf.SequencerMinimum.DelegationBatchInterval, *pldconf.SequencerDefaults.DelegationBatchInterval),
+		heartbeatInterval:       confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
 		clock:                   common.RealClock(),
 	}
 

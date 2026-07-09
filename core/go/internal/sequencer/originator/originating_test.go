@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
@@ -190,6 +191,7 @@ func Test_hasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *testing.T)
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		Transactions(mockTxn).
 		Build()
@@ -198,12 +200,32 @@ func Test_hasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *testing.T)
 	}
 	assert.True(t, o.hasDroppedTransactions(ctx, snapshot))
 }
+
+// A transaction delegated less than a heartbeat interval ago races the coordinator snapshot: the
+// snapshot may have been generated before the delegation arrived, so its absence is expected and must
+// not trigger a full redelegation of the backlog.
+func Test_hasDroppedTransactions_FalseWhenDelegatedTxnWithinGracePeriod(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID).Maybe()
+	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(ptrTo(time.Now()))
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(mockTxn).
+		Build()
+	snapshot := &common.CoordinatorSnapshot{
+		PooledTransactions: []*common.SnapshotPooledTransaction{},
+	}
+	assert.False(t, o.hasDroppedTransactions(ctx, snapshot), "a freshly-delegated transaction racing the snapshot must not be treated as dropped")
+}
 func Test_hasDroppedTransactions_FalseWhenDelegatedTxnInSnapshot(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		Transactions(mockTxn).
 		Build()
@@ -316,9 +338,17 @@ func newDelegatableMockTxn(t *testing.T, state transaction.State) (*originatortr
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(state)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime()).Maybe()
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	return mockTxn, txID
+}
+
+// staleDelegatedTime returns a delegation timestamp far enough in the past that the dropped-transaction
+// grace period has elapsed, so a transaction absent from the coordinator snapshot registers as dropped
+// rather than as merely racing a snapshot generated before it was delegated.
+func staleDelegatedTime() *time.Time {
+	return ptrTo(time.Now().Add(-time.Hour))
 }
 
 // newExcludedMockTxn builds a mock originator transaction that must NOT be delegated on the partial
@@ -330,6 +360,7 @@ func newExcludedMockTxn(t *testing.T, state transaction.State) (*originatortrans
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID).Maybe()
 	mockTxn.On("GetCurrentState").Return(state)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime()).Maybe()
 	return mockTxn, txID
 }
 

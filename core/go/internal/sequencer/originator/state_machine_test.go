@@ -655,6 +655,7 @@ func TestStateMachine_Sending_HeartbeatReceived_DroppedTransaction_Redelegates(t
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
@@ -689,6 +690,7 @@ func TestStateMachine_Sending_HeartbeatReceived_NoDroppedTransactions_NoRedelega
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
 		CurrentActiveCoordinator("coordinator@node1").
 		Transactions(mockTxn)
@@ -718,6 +720,7 @@ func TestStateMachine_Sending_HeartbeatReceived_HigherPriorityActiveNode_Redirec
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated) // called by validator_HasDroppedTransactions (step 5)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
@@ -1059,6 +1062,7 @@ func TestStateMachine_Sending_HeartbeatReceived_Step3_GraceExceeded_SwitchesCoor
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
