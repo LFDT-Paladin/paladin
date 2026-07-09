@@ -254,6 +254,7 @@ func (sMgr *sequencerManager) handleSignResponse(ctx context.Context, message *c
 	signedEvent.TransactionID = uuid.MustParse(signResponse.TransactionId)
 	signedEvent.RequestID = uuid.MustParse(signResponse.AssembleRequestId)
 	signedEvent.AttestationResult = signResponse.AttestationResult
+	signedEvent.PostAssembly = signResponse.PostAssembly
 	signedEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, signedEvent)
 }

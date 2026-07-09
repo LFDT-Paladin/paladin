@@ -196,6 +196,7 @@ message SignResponse {
     string assemble_request_id = 2;
     string contract_address = 3;
     io.kaleido.paladin.toolkit.AttestationResult attestation_result = 4;
+    io.kaleido.paladin.toolkit.TransactionPostAssembly post_assembly = 5;
 }
 
 message SignError {

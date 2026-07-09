@@ -110,6 +110,19 @@ func action_Signed(ctx context.Context, t *coordinatorTransaction, event common.
 	return nil
 }
 
+// action_AssembleAndSign handles an Event_Signed that wins the race against its preceding
+// AssembleResponse and arrives in State_Assembling. The SignResponse carries the assembled plan, so
+// apply it (t.pt.PostAssembly is nil in this state, so no double grapher/lock application) and then the
+// signature. validator_SignedCarriesAssembly guarantees a non-nil PostAssembly here.
+func action_AssembleAndSign(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*SignedEvent)
+	if err := t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID); err != nil {
+		return err
+	}
+	t.applySignature(ctx, e.AttestationResult)
+	return nil
+}
+
 // action_SignError increments the shared assemble error count so a pushed signing failure is bounded by the
 // same retry budget as an assemble failure (guard_CanRetryErroredAssemble).
 func action_SignError(_ context.Context, t *coordinatorTransaction, _ common.Event) error {

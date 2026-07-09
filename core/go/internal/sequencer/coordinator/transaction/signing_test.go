@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -223,4 +224,101 @@ func TestCoordinatorSignEvents_TypeStrings(t *testing.T) {
 	assert.Equal(t, "Event_Signed", (&SignedEvent{}).TypeString())
 	assert.Equal(t, Event_SignError, (&SignErrorEvent{}).Type())
 	assert.Equal(t, "Event_SignError", (&SignErrorEvent{}).TypeString())
+}
+
+// ─── Fast-forward: sign events arriving in State_Assembling ───────────────
+
+// twoSignPlan builds an assembled plan with two local SIGN requirements so a single applied signature
+// leaves one outstanding, keeping the transaction in State_Signing after the fast-forward.
+func twoSignPlan() *prototk.TransactionPostAssembly {
+	return &prototk.TransactionPostAssembly{
+		AssemblyResult: prototk.AssembleTransactionResponse_OK,
+		AttestationPlan: []*prototk.AttestationRequest{
+			{Name: "sig1", AttestationType: prototk.AttestationType_SIGN, Parties: []string{"alice@node1"}},
+			{Name: "sig2", AttestationType: prototk.AttestationType_SIGN, Parties: []string{"alice@node1"}},
+		},
+	}
+}
+
+func TestCoordinator_Assembling_SignedFastForward_AppliesAssemblyAndSignature(t *testing.T) {
+	ctx := context.Background()
+	b := NewTransactionBuilderForTesting(t, State_Assembling).AddPendingAssembleRequest()
+	txn, mocks := b.Build()
+	reqID := txn.pendingAssembleRequest.IdempotencyKey()
+	signedPlan := twoSignPlan()
+
+	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+
+	err := txn.HandleEvent(ctx, &SignedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            reqID,
+		AttestationResult:    &prototk.AttestationResult{Name: "sig1", Verifier: &prototk.ResolvedVerifier{Lookup: "alice@node1"}},
+		PostAssembly:         signedPlan,
+	})
+	require.NoError(t, err)
+	// One SIGN requirement still outstanding, so the tx waits passively in State_Signing.
+	assert.Equal(t, State_Signing, txn.GetCurrentState())
+	require.NotNil(t, txn.pt.PostAssembly)
+	// The piggybacked plan was applied and the pushed signature recorded against it.
+	assert.Same(t, signedPlan, txn.pt.PostAssembly.AssembleResponse)
+	assert.Len(t, txn.pt.PostAssembly.AssembleResponse.GetSignatures(), 1)
+
+	// A later AssembleSuccess for the same request lands in State_Signing (no handler) and is dropped.
+	err = txn.HandleEvent(ctx, &AssembleSuccessEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            reqID,
+		PostAssembly:         twoSignPlan(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Signing, txn.GetCurrentState())
+	assert.Len(t, txn.pt.PostAssembly.AssembleResponse.GetSignatures(), 1)
+}
+
+func TestCoordinator_Assembling_SignedFastForward_NilPostAssemblyDropped(t *testing.T) {
+	ctx := context.Background()
+	b := NewTransactionBuilderForTesting(t, State_Assembling).AddPendingAssembleRequest()
+	txn, _ := b.Build()
+	reqID := txn.pendingAssembleRequest.IdempotencyKey()
+	before := txn.pt.PostAssembly
+
+	// A payload-less SignResponse cannot fast-forward: the handler does not match, so the event is
+	// dropped and the tx stays in State_Assembling awaiting the separate AssembleSuccess.
+	err := txn.HandleEvent(ctx, &SignedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            reqID,
+		AttestationResult:    &prototk.AttestationResult{Name: "sig1"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Assembling, txn.GetCurrentState())
+	assert.Same(t, before, txn.pt.PostAssembly)
+}
+
+func TestCoordinator_Assembling_SignError_RepoolUnderThreshold(t *testing.T) {
+	ctx := context.Background()
+	b := NewTransactionBuilderForTesting(t, State_Assembling).AddPendingAssembleRequest().AssembleErrorRetryThreshold(3)
+	txn, _ := b.Build()
+	reqID := txn.pendingAssembleRequest.IdempotencyKey()
+
+	err := txn.HandleEvent(ctx, &SignErrorEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            reqID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Pooled, txn.GetCurrentState())
+}
+
+func TestCoordinator_Assembling_SignError_EvictOverThreshold(t *testing.T) {
+	ctx := context.Background()
+	b := NewTransactionBuilderForTesting(t, State_Assembling).AddPendingAssembleRequest().AssembleErrorRetryThreshold(0)
+	txn, _ := b.Build()
+	txn.assembleErrorCount = 1
+	reqID := txn.pendingAssembleRequest.IdempotencyKey()
+
+	err := txn.HandleEvent(ctx, &SignErrorEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            reqID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Evicted, txn.GetCurrentState())
 }

@@ -208,6 +208,13 @@ func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinat
 	return txn.pendingAssembleRequest.IdempotencyKey() == requestID, nil
 }
 
+// validator_SignedCarriesAssembly gates the State_Assembling Event_Signed fast-forward: the SignResponse
+// must carry the piggybacked assembly to advance assembly. A payload-less SignResponse (e.g. from an older
+// peer) is not matched, and is left for the separate AssembleSuccess to advance the transaction.
+func validator_SignedCarriesAssembly(_ context.Context, _ *coordinatorTransaction, event common.Event) (bool, error) {
+	return event.(*SignedEvent).PostAssembly != nil, nil
+}
+
 func action_AssembleSuccess(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*AssembleSuccessEvent)
 	return t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID)

@@ -232,6 +232,10 @@ func TestAction_SendSignResponse_PushesOnePerSignature(t *testing.T) {
 	assert.Equal(t, txn.latestFulfilledAssembleRequestID.String(), sent[0].AssembleRequestId)
 	assert.Equal(t, "sig1", sent[0].AttestationResult.Name)
 	assert.Equal(t, "sig2", sent[1].AttestationResult.Name)
+	// Each SignResponse carries the piggybacked assembly so the coordinator can fast-forward from
+	// State_Assembling if the SignResponse wins the race against the AssembleResponse.
+	assert.Same(t, txn.pt.PostAssembly.AssembleResponse, sent[0].PostAssembly)
+	assert.Same(t, txn.pt.PostAssembly.AssembleResponse, sent[1].PostAssembly)
 }
 
 func TestAction_SendSignError_Pushes(t *testing.T) {

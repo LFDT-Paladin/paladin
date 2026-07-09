@@ -132,6 +132,7 @@ func (*AssembleErrorEvent) TypeString() string {
 type SignedEvent struct {
 	BaseCoordinatorEvent
 	AttestationResult *prototk.AttestationResult
+	PostAssembly      *prototk.TransactionPostAssembly
 	RequestID         uuid.UUID
 }
 

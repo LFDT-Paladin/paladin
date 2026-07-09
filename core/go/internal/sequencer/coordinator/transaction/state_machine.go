@@ -293,11 +293,7 @@ var stateDefinitionsMap = StateDefinitions{
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
 					Validator: validator_MatchesPendingAssembleRequest,
-					Actions: []ActionRule{
-						{
-							Action: action_AssembleSuccess,
-						},
-					},
+					Actions:   []ActionRule{{Action: action_AssembleSuccess}},
 					Transitions: []Transition{
 						{
 							// The plan has an unfulfilled SIGN requirement on the originating node: wait passively in
@@ -316,6 +312,55 @@ var stateDefinitionsMap = StateDefinitions{
 						{
 							To: State_Blocked,
 							If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, guard_HasDependenciesNotReady),
+						},
+					},
+				}},
+			},
+			// A SignResponse can win the race against its preceding AssembleResponse and arrive while the
+			// transaction is still assembling. The SignResponse carries the assembled plan, so apply it and
+			// the signature together, then route with the same guards as Event_AssembleSuccess. A later
+			// AssembleSuccess for the same request lands in a state with no handler and is dropped harmlessly.
+			Event_Signed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: statemachine.ValidatorAnd(validator_MatchesPendingAssembleRequest, validator_SignedCarriesAssembly),
+					Actions:   []ActionRule{{Action: action_AssembleAndSign}},
+					Transitions: []Transition{
+						{
+							To: State_Signing,
+							If: statemachine.GuardNot(guard_SignRequirementsFulfilled),
+						},
+						{
+							To: State_Endorsement_Gathering,
+							If: statemachine.GuardNot(guard_AttestationPlanFulfilled),
+						},
+						{
+							To: State_Confirming_Dispatchable,
+							If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasDependenciesNotReady)),
+						},
+						{
+							To: State_Blocked,
+							If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, guard_HasDependenciesNotReady),
+						},
+					},
+				}},
+			},
+			// A SignError can likewise win the race. Abandon the in-flight assembly and repool or evict
+			// against the shared assemble retry budget, mirroring the State_Signing Event_SignError handler.
+			Event_SignError: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_MatchesPendingAssembleRequest,
+					Actions:   []ActionRule{{Action: action_SignError}},
+					Transitions: []Transition{
+						{
+							If:      guard_CanRetryErroredAssemble,
+							To:      State_Pooled,
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+						},
+						{
+							If: statemachine.GuardNot(guard_CanRetryErroredAssemble),
+							To: State_Evicted,
 						},
 					},
 				}},

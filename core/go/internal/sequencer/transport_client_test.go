@@ -2624,6 +2624,7 @@ func TestHandleSignResponse_Success(t *testing.T) {
 		AssembleRequestId: requestID.String(),
 		ContractAddress:   contractAddr.String(),
 		AttestationResult: &prototk.AttestationResult{Name: "sig"},
+		PostAssembly:      &prototk.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_OK},
 	})
 
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
@@ -2631,7 +2632,8 @@ func TestHandleSignResponse_Success(t *testing.T) {
 
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.SignedEvent)
-		return ok && event.TransactionID == txID && event.RequestID == requestID && event.AttestationResult.Name == "sig"
+		return ok && event.TransactionID == txID && event.RequestID == requestID && event.AttestationResult.Name == "sig" &&
+			event.PostAssembly != nil && event.PostAssembly.GetAssemblyResult() == prototk.AssembleTransactionResponse_OK
 	})).Once()
 
 	sm.handleSignResponse(ctx, &components.ReceivedMessage{

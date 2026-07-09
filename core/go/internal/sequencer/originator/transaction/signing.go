@@ -128,6 +128,7 @@ func action_SendSignResponse(ctx context.Context, txn *originatorTransaction, _ 
 			AssembleRequestId: txn.latestFulfilledAssembleRequestID.String(),
 			ContractAddress:   txn.pt.Address.HexString(),
 			AttestationResult: signature,
+			PostAssembly:      txn.pt.PostAssembly.AssembleResponse,
 		}); err != nil {
 			return err
 		}
