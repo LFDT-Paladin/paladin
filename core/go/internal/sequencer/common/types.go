@@ -92,9 +92,12 @@ func CoordinatorSnapshotFromProto(ctx context.Context, p *engineProto.Coordinato
 		if err != nil {
 			return nil, err
 		}
-		hash, err := pldtypes.ParseBytes32Ctx(ctx, pt.GetHash())
-		if err != nil {
-			return nil, err
+		var hash pldtypes.Bytes32
+		if pt.GetHash() != "" {
+			hash, err = pldtypes.ParseBytes32Ctx(ctx, pt.GetHash())
+			if err != nil {
+				return nil, err
+			}
 		}
 		s.ConfirmedTransactions = append(s.ConfirmedTransactions, &SnapshotConfirmedTransaction{
 			SnapshotDispatchedTransaction: *dt,
