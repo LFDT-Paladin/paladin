@@ -955,6 +955,19 @@ func (ptm *pubTxManager) MatchUpdateConfirmedTransactions(ctx context.Context, d
 		if err != nil {
 			return nil, err
 		}
+		// Denormalize the completion onto public_txns in the same dbTX, so the poll loop
+		// can filter on a partial index instead of anti-joining public_completions.
+		completedIDs := make([]uint64, len(completions))
+		for i, c := range completions {
+			completedIDs[i] = c.PublicTxnID
+		}
+		if err := dbTX.DB().
+			Table("public_txns").
+			Where(`"pub_txn_id" IN (?)`, completedIDs).
+			Update("completed", true).
+			Error; err != nil {
+			return nil, err
+		}
 		ptm.thMetrics.IncCompletedTransactionsByN(uint64(len(completions)))
 	}
 	return results, nil
