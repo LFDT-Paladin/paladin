@@ -291,6 +291,7 @@
 	"received": "Received",
 	"recipient": "Recipient",
 	"refresh": "Refresh",
+	"registries": "Registries",
 	"registry": "Registry",
 	"registryEntry": "Registry Entry",
 	"registryEntryNotFound": "Registry entry not found",

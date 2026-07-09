@@ -33,7 +33,7 @@ import { Filters } from "../components/Filters";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
-export const Registry: React.FC = () => {
+export const Registries: React.FC = () => {
   const { registry } = useApplicationContext();
   const {
     filters,
@@ -130,7 +130,7 @@ export const Registry: React.FC = () => {
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
             <Typography variant="h5">
-              {t('registry')}
+              {t('registries')}
             </Typography>
             <TextField
               size="small"
@@ -283,7 +283,7 @@ export const Registry: React.FC = () => {
                         <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                           <Tooltip title={t('open')} arrow>
                             <IconButton
-                              onClick={mouseEvent => customNavigate(`/ui/registry/${selectedRegistry}/${registryEntry.id}`, mouseEvent, navigate)}>
+                              onClick={mouseEvent => customNavigate(`/ui/registries/${selectedRegistry}/${registryEntry.id}`, mouseEvent, navigate)}>
                               <OpenInNewIcon color="secondary" fontSize="medium" />
                             </IconButton>
                           </Tooltip>

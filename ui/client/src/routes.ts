@@ -17,7 +17,7 @@
 export const AppRoutes = {
   Keys: '/ui/keys',
   Submissions: '/ui/submissions',
-  Registry: '/ui/registry',
+  Registies: '/ui/registries',
   Domains: '/ui/domains',
   Transactions: '/ui/transactions',
   Transaction: '/ui/transactions/:hashOrId',
@@ -30,7 +30,7 @@ export const AppRoutes = {
   States: '/ui/states',
   ReliableMessage: '/ui/transports/messages/:id',
   State: '/ui/states/:domain/:schema/:id',
-  RegistryEntry: '/ui/registry/:registry/:id',
+  RegistryEntry: '/ui/registries/:registry/:id',
   PrivacyGroupMessageEntry: '/ui/privacy-groups/messages/:messageId',
   TransportConnections: '/ui/transports/connections',
   TransportMessages: '/ui/transports/messages'
