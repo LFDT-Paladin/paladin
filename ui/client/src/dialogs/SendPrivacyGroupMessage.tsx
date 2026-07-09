@@ -29,22 +29,21 @@ import { isValidHex, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { sendPrivacyGroupMessage } from '../queries/privacyGroups';
-import { IPrivacyGroup } from '../interfaces';
 
 type Props = {
-  preSelectedPrivacyGroup?: IPrivacyGroup
+  preSelectedPrivacyGroupId?: string
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
-  preSelectedPrivacyGroup,
+  preSelectedPrivacyGroupId,
   dialogOpen,
   setDialogOpen,
 }) => {
 
   const { t } = useTranslation();
-  const [privacyGroupId, setPrivacyGroupId] = useState(preSelectedPrivacyGroup?.id ?? '');
+  const [privacyGroupId, setPrivacyGroupId] = useState(preSelectedPrivacyGroupId ?? '');
   const [topic, setTopic] = useState('');
   const [correlationId, setCorrelationId] = useState('');
   const [data, setData] = useState('');
@@ -109,7 +108,6 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
               label={t('privacyGroupId')}
               autoComplete="off"
               fullWidth
-              disabled={preSelectedPrivacyGroup !== undefined}
               value={privacyGroupId}
               onChange={event => setPrivacyGroupId(event.target.value)}
               helperText={privacyGroupId.length > 0 && !isValidPrivacyGroupId? t('mustBeAValidHex') : undefined}

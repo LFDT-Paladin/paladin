@@ -110,6 +110,13 @@ export const PrivacyGroupMessages: React.FC = () => {
     setPage(0);
   };
 
+  const getPreselectedPrivacyGroup = () => {
+    const filterEntry = filters.find(filter => filter.field.name === 'group' && filter.operator === 'equal');
+    if(filterEntry !== undefined) {
+      return filterEntry.value.toString();
+    }
+  };
+
   return (
     <>
       <Fade timeout={location.state?.skipFade === true ? 0 : 600} in={true}>
@@ -375,6 +382,7 @@ export const PrivacyGroupMessages: React.FC = () => {
             </Box>
           }
           <SendPrivacyGroupMessageDialog
+            preSelectedPrivacyGroupId={getPreselectedPrivacyGroup()}
             dialogOpen={sendMessageDialogOpen}
             setDialogOpen={setSendMessageDialogOpen}
           />
