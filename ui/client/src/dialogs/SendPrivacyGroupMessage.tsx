@@ -55,6 +55,7 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
       setTopic('');
       setCorrelationId('');
       setData('');
+      setPrivacyGroupId(preSelectedPrivacyGroupId ?? '');
     }
   }, [dialogOpen]);
 
