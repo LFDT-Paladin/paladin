@@ -22,9 +22,11 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/transports/grpc/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/transports/grpc/pkg/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding/gzip"
 )
 
 type outboundConn struct {
@@ -58,9 +60,13 @@ func (t *grpcTransport) newConnection(ctx context.Context, nodeName string, tran
 	// Create the gRPC connection (it's not actually connected until we use it)
 	individualNodeVerifier := oc.t.peerVerifier.Clone().(*tlsVerifier)
 	individualNodeVerifier.expectedNode = oc.nodeName
-	grpcConn, err := grpc.NewClient(transportDetails.Endpoint,
+	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(individualNodeVerifier),
-	)
+	}
+	if confutil.Bool(oc.t.conf.Compression, false) {
+		dialOpts = append(dialOpts, grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)))
+	}
+	grpcConn, err := grpc.NewClient(transportDetails.Endpoint, dialOpts...)
 	if err == nil {
 		oc.client = proto.NewPaladinGRPCTransportClient(grpcConn)
 		err = oc.ensureStream()

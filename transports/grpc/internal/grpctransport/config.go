@@ -38,6 +38,9 @@ type Config struct {
 	CertSubjectMatcher *string `json:"certSubjectMatcher,omitempty"`
 	// Graceful shutdown timeout. After this we will terminate connections forcibly
 	GracefulShutdownTimeout *string `json:"gracefulShutdownTimeout,omitempty"`
+	// If true, outbound messages to peers are gzip-compressed. Inbound
+	// gzip-compressed messages are always accepted regardless of this setting.
+	Compression *bool `json:"compression,omitempty"`
 }
 
 var ConfigDefaults = &Config{

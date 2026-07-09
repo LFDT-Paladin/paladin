@@ -284,6 +284,51 @@ func TestGRPCTransport_DirectCertVerificationWithKeyRotation_OK(t *testing.T) {
 
 }
 
+func TestGRPCTransport_Compression_OK(t *testing.T) {
+	ctx := context.Background()
+
+	received := make(chan *prototk.PaladinMsg)
+
+	// Sender (node1) has compression enabled; receiver (node2) is left at the
+	// default (off) to also prove server-side auto-decompression / interop.
+	node1Cert, node1Key := buildTestCertificate(t, pkix.Name{CommonName: "node1"}, nil, nil)
+	plugin1, transportDetails1, callbacks1, done1 := newTestGRPCTransport(t, node1Cert, node1Key, &Config{
+		Compression: confutil.P(true),
+	})
+	defer done1()
+
+	node2Cert, node2Key := buildTestCertificate(t, pkix.Name{CommonName: "node2"}, nil, nil)
+	_, transportDetails2, callbacks2, done2 := newTestGRPCTransport(t, node2Cert, node2Key, &Config{})
+	defer done2()
+
+	// Register nodes
+	ptds := map[string]*PublishedTransportDetails{"node1": transportDetails1, "node2": transportDetails2}
+	mockRegistry(callbacks1, ptds)
+	mockRegistry(callbacks2, ptds)
+
+	callbacks2.receiveMessage = func(ctx context.Context, rmr *prototk.ReceiveMessageRequest) (*prototk.ReceiveMessageResponse, error) {
+		received <- rmr.Message
+		return &prototk.ReceiveMessageResponse{}, nil
+	}
+
+	// Connect and send from plugin1 (compressed) to plugin2
+	deactivate := testActivatePeer(t, plugin1, "node2", transportDetails2)
+	defer deactivate()
+	payload := []byte("this is a reasonably sized payload that benefits from gzip compression on the wire")
+	sendRes, err := plugin1.SendMessage(ctx, &prototk.SendMessageRequest{
+		Node: "node2",
+		Message: &prototk.PaladinMsg{
+			Component: prototk.PaladinMsg_TRANSACTION_ENGINE,
+			Payload:   payload,
+		},
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, sendRes)
+
+	// Confirm the message round-trips intact through the gzip codec
+	require.Equal(t, payload, (<-received).Payload)
+}
+
 func TestGRPCTransport_CACertVerificationWithSubjectRegex_OK(t *testing.T) {
 
 	ctx := context.Background()

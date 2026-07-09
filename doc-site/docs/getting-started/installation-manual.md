@@ -459,6 +459,7 @@ transports:
 `configJSON` is the json/yaml configuration that is passed to the transport plugin. Specifically for the grpc transport plugin
 * `port`- this must match `targetPort` in the `ports` configuration
 * `externalHostname` - this can be set if the Paladin node needs to be accessible from outside the cluster. The value will depend on how ingress in configured, which is outside the scope of the Paladin project. If not set it defaults to the internal hostname, which is adequate if all Paladin nodes are running in the same cluster
+* `compression` - set to `true` to gzip-compress outbound messages sent to peers. Defaults to `false`. Inbound compressed messages are always accepted regardless of this setting, so it does not need to be enabled symmetrically across the network
 
 The certificates generated to match the `tls` configuration section is added in by the operator to the configuration for the transport plugin.
 
