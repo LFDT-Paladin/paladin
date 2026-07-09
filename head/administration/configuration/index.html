@@ -3938,6 +3938,12 @@
 <td><code>"127.0.0.1"</code></td>
 </tr>
 <tr>
+<td>blockProfileRate</td>
+<td>Rate for runtime block profiling exposed at /debug/pprof/block: 0 disables it, 1 records every blocking event, N samples one event in N</td>
+<td><code>int</code></td>
+<td><code>0</code></td>
+</tr>
+<tr>
 <td>cors</td>
 <td>CORS configuration</td>
 <td><a href="#debugservercors"><code>CORSConfig</code></a></td>
@@ -3960,6 +3966,12 @@
 <td>Maximum request timeout</td>
 <td><code>string</code></td>
 <td><code>"10m"</code></td>
+</tr>
+<tr>
+<td>mutexProfileFraction</td>
+<td>Fraction for runtime mutex profiling exposed at /debug/pprof/mutex: 0 disables it, 1 records every contention event, N samples one event in N</td>
+<td><code>int</code></td>
+<td><code>0</code></td>
 </tr>
 <tr>
 <td>port</td>
