@@ -60,7 +60,7 @@ npm run test:query
 
 E2E tests use a file-backed mock JSON-RPC server. List data lives in JSON files under `e2e/mock-server/store/data/`. RPC methods are mapped in `e2e/mock-server/methods.json` and query filtering/sorting is handled by the shared query engine in `e2e/mock-server/query/`.
 
-To regenerate fixture data (indexed transactions, receipts, events, Paladin submissions, and keys):
+To regenerate fixture data (indexed transactions, receipts, events, Paladin submissions, keys, domains, and registries):
 
 ```
 cd e2e
@@ -71,5 +71,7 @@ This writes:
 - `store/data/indexed-transactions.json`, `transaction-receipts.json`, `indexed-events.json` — Transactions page
 - `store/data/paladin-transactions.json` — Submissions page (25 pending / 5 failed)
 - `store/data/keys.json` — Keys page (folders + keys for list and explorer views)
+- `store/data/domains.json`, `smart-contracts.json` — Domains page (noto / pente / zeto + contracts)
+- `store/data/registries.json`, `registry-entries.json` — Registries page (default registry + entries)
 
 You can also edit the JSON files directly to change mock responses without changing server code.

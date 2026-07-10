@@ -2,6 +2,10 @@
 export const padHex = (value: number, length: number): string =>
   value.toString(16).padStart(length, '0');
 
+/** Pad a number as a decimal string to the given length. */
+export const padDecimal = (value: number, length: number): string =>
+  value.toString(10).padStart(length, '0');
+
 /**
  * Format a 0x-prefixed hex value.
  * @param n - numeric sequence value
@@ -15,8 +19,8 @@ export const formatHex = (
 ): string => `0x${leadingNibble}${padHex(n, totalHexLength - leadingNibble.length)}`;
 
 /**
- * Format a deterministic UUID-like id: `00000000-0000-1000-8000-{leadingNibble}{padded n}`.
- * The last 12 characters are `leadingNibble` plus `n` padded to fill the remainder.
+ * Format a deterministic UUID-like id: `00000000-0000-1000-8000-{leadingDigits}{padded n}`.
+ * The last 12 characters are `leadingDigits` plus `n` as a zero-padded decimal.
  */
-export const formatUuid = (n: number, leadingNibble = ''): string =>
-  `00000000-0000-1000-8000-${leadingNibble}${padHex(n, 12 - leadingNibble.length)}`;
+export const formatUuid = (n: number, leadingDigits = ''): string =>
+  `00000000-0000-1000-8000-${leadingDigits}${padDecimal(n, 12 - leadingDigits.length)}`;

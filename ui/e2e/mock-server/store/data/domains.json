@@ -1,1 +1,29 @@
-[]
+[
+  {
+    "name": "noto",
+    "registryAddress": "0xc000000000000000000000000000000000000001",
+    "config": {
+      "signingAlgorithms": {
+        "ecdsa:secp256k1": 1
+      }
+    }
+  },
+  {
+    "name": "pente",
+    "registryAddress": "0xc000000000000000000000000000000000000002",
+    "config": {
+      "signingAlgorithms": {
+        "ecdsa:secp256k1": 1
+      }
+    }
+  },
+  {
+    "name": "zeto",
+    "registryAddress": "0xc000000000000000000000000000000000000003",
+    "config": {
+      "signingAlgorithms": {
+        "ecdsa:secp256k1": 1
+      }
+    }
+  }
+]

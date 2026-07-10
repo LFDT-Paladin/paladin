@@ -46,7 +46,7 @@ export const submissionStatusForIndex = (n: number): SubmissionStatus =>
  * Builds Paladin transactions for the Submissions page (25 pending, 5 failed).
  *
  * Conventions (n = 1..30, newest first by created):
- * - id:        00000000-0000-1000-8000-4...n (pending/failed submission ids)
+ * - id:        00000000-0000-1000-8000-00000000000n (decimal-padded)
  * - from:      0x5...n
  * - to:        0x6...n
  * - created:   descending from 2026-01-01T12:00:00Z (n=1 newest)

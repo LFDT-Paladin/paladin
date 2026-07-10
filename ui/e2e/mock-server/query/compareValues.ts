@@ -86,8 +86,17 @@ export const likeToRegExp = (pattern: string, caseInsensitive: boolean): RegExp 
 };
 
 export const getFieldValue = (item: Record<string, unknown>, field: string): unknown => {
-  if (field.startsWith('.')) {
-    return item[field.slice(1)];
+  const key = field.startsWith('.') ? field.slice(1) : field;
+  if (Object.prototype.hasOwnProperty.call(item, key)) {
+    return item[key];
   }
-  return item[field];
+  const properties = item.properties;
+  if (
+    properties !== null &&
+    typeof properties === 'object' &&
+    !Array.isArray(properties)
+  ) {
+    return (properties as Record<string, unknown>)[key];
+  }
+  return undefined;
 };

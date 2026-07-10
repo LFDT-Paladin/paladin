@@ -3,6 +3,7 @@ import { formatHex, formatUuid } from './format-utils.js';
 export const TRANSACTION_COUNT = 100;
 
 export const formatTxHash = (n: number): string => formatHex(n, 64);
+export const formatAddress = (n: number): string => formatHex(n, 40);
 export const formatFromAddress = (n: number): string => formatHex(n, 40, '1');
 export const formatToAddress = (n: number): string => formatHex(n, 40, '2');
 export const formatReceiptId = (n: number): string => formatUuid(n);
@@ -122,10 +123,6 @@ export const buildEvents = (transactions: MockTransaction[]): MockEvent[] => {
 };
 
 export const EMPTY_COLLECTIONS = [
-  'registries',
-  'registry-entries',
-  'domains',
-  'smart-contracts',
   'privacy-groups',
   'privacy-group-messages',
   'privacy-group-listeners',

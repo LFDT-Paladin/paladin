@@ -9,10 +9,15 @@ export interface PreFilterConfig {
   sourceField?: string;
   /** Keep items where this field is null or undefined (e.g. pending submissions). */
   fieldMissing?: string;
+  /** Keep items where item[equalField] === params[equalParamIndex]. */
+  equalField?: string;
+  equalParamIndex?: number;
+  /** Apply active/inactive/any filter from params[activeParamIndex]. */
+  activeParamIndex?: number;
 }
 
 export interface MethodConfig {
-  type: 'query' | 'derivedQuery' | 'getByField' | 'static' | 'empty';
+  type: 'query' | 'derivedQuery' | 'getByField' | 'listField' | 'static' | 'empty';
   collection?: string;
   queryParamIndex?: number;
   field?: string;

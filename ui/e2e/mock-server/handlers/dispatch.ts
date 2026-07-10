@@ -1,6 +1,7 @@
 import { loadStatic } from '../store/dataStore.js';
 import { handleDerivedQuery } from './derivedQuery.js';
 import { handleGetByField } from './getByField.js';
+import { handleListField } from './listField.js';
 import { handleQueryList } from './queryList.js';
 import { getMethodConfig } from './registry.js';
 import type { MethodConfig } from './registry.js';
@@ -26,6 +27,8 @@ const dispatchMethod = (config: MethodConfig, params: unknown[]): unknown => {
       return handleDerivedQuery(config, params);
     case 'getByField':
       return handleGetByField(config, params);
+    case 'listField':
+      return handleListField(config);
     case 'static':
       return config.file !== undefined ? loadStatic(config.file) : config.returnValue ?? null;
     case 'empty':

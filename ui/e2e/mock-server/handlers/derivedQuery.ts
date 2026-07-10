@@ -36,6 +36,22 @@ export const handleDerivedQuery = (
     );
   }
 
+  if (preFilter.equalField !== undefined) {
+    const expected = params[preFilter.equalParamIndex ?? 0];
+    const field = preFilter.equalField;
+    filtered = filtered.filter((item) => item[field] === expected);
+  }
+
+  if (preFilter.activeParamIndex !== undefined) {
+    const activeFilter = String(params[preFilter.activeParamIndex] ?? 'any');
+    if (activeFilter === 'active') {
+      filtered = filtered.filter((item) => item.active !== false);
+    } else if (activeFilter === 'inactive') {
+      filtered = filtered.filter((item) => item.active === false);
+    }
+    // any / all → no active filter
+  }
+
   const query = (params[config.queryParamIndex ?? 0] ?? {}) as QueryJSON;
   return applyQuery(filtered, query, getFieldMap(collection));
 };

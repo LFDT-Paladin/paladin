@@ -38,3 +38,23 @@ export {
   ORG2_KEY_COUNT,
   SUBORG1_KEY_COUNT,
 } from '../mock-server/fixtures/key-data.js';
+
+export {
+  formatContractAddress,
+  formatNotoRegistryAddress,
+  formatPenteRegistryAddress,
+  formatZetoRegistryAddress,
+  DOMAIN_NAMES,
+  NOTO_CONTRACT_COUNT,
+  ZETO_CONTRACT_COUNT,
+  PENTE_CONTRACT_COUNT,
+  SMART_CONTRACT_COUNT,
+} from '../mock-server/fixtures/domain-data.js';
+
+export {
+  formatRegistryEntryId,
+  formatRegistryOwner,
+  REGISTRY_NAMES,
+  REGISTRY_ENTRY_COUNT,
+  REGISTRY_INACTIVE_COUNT,
+} from '../mock-server/fixtures/registry-data.js';

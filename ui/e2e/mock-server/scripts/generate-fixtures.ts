@@ -9,6 +9,8 @@ import {
 } from '../fixtures/transaction-data.js';
 import { buildPaladinTransactions } from '../fixtures/submission-data.js';
 import { buildKeys } from '../fixtures/key-data.js';
+import { buildDomains, buildSmartContracts } from '../fixtures/domain-data.js';
+import { buildRegistries, buildRegistryEntries } from '../fixtures/registry-data.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const dataDir = join(rootDir, '../store/data');
@@ -19,6 +21,10 @@ const receipts = buildReceipts(transactions);
 const events = buildEvents(transactions);
 const paladinTransactions = buildPaladinTransactions();
 const keys = buildKeys();
+const domains = buildDomains();
+const smartContracts = buildSmartContracts();
+const registries = buildRegistries();
+const registryEntries = buildRegistryEntries();
 
 writeFileSync(
   join(dataDir, 'indexed-transactions.json'),
@@ -40,6 +46,22 @@ writeFileSync(
   join(dataDir, 'keys.json'),
   `${JSON.stringify(keys, null, 2)}\n`
 );
+writeFileSync(
+  join(dataDir, 'domains.json'),
+  `${JSON.stringify(domains, null, 2)}\n`
+);
+writeFileSync(
+  join(dataDir, 'smart-contracts.json'),
+  `${JSON.stringify(smartContracts, null, 2)}\n`
+);
+writeFileSync(
+  join(dataDir, 'registries.json'),
+  `${JSON.stringify(registries, null, 2)}\n`
+);
+writeFileSync(
+  join(dataDir, 'registry-entries.json'),
+  `${JSON.stringify(registryEntries, null, 2)}\n`
+);
 
 for (const collection of EMPTY_COLLECTIONS) {
   writeFileSync(join(dataDir, `${collection}.json`), '[]\n');
@@ -49,6 +71,10 @@ const pendingCount = paladinTransactions.filter((tx) => tx.success === undefined
 const failedCount = paladinTransactions.filter((tx) => tx.success === false).length;
 const folderCount = keys.filter((key) => !key.isKey).length;
 const keyCount = keys.filter((key) => key.isKey).length;
+const notoCount = smartContracts.filter((c) => c.domainName === 'noto').length;
+const zetoCount = smartContracts.filter((c) => c.domainName === 'zeto').length;
+const penteCount = smartContracts.filter((c) => c.domainName === 'pente').length;
+const inactiveCount = registryEntries.filter((e) => e.active === false).length;
 
 console.log(
   `Generated ${transactions.length} indexed transactions, ${receipts.length} receipts, ${events.length} events`
@@ -58,4 +84,10 @@ console.log(
 );
 console.log(
   `Generated ${keys.length} key entries (${folderCount} folders, ${keyCount} keys)`
+);
+console.log(
+  `Generated ${domains.length} domains, ${smartContracts.length} smart contracts (${notoCount} noto, ${zetoCount} zeto, ${penteCount} pente)`
+);
+console.log(
+  `Generated ${registries.length} registries, ${registryEntries.length} registry entries (${inactiveCount} inactive)`
 );

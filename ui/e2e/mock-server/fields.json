@@ -48,16 +48,22 @@
   },
   "registry-entries": {
     "registry": "string",
-    "id": "string",
+    "id": "hex",
+    ".id": "hex",
     "name": "string",
-    "active": "bool"
+    ".name": "string",
+    "active": "bool",
+    "$owner": "hex"
   },
   "domains": {
-    "name": "string"
+    "name": "string",
+    "registryAddress": "hex"
   },
   "smart-contracts": {
     "address": "hex",
-    "domain": "string"
+    "domainAddress": "hex",
+    "domainName": "string",
+    "created": "timestamp"
   },
   "privacy-groups": {
     "id": "string",

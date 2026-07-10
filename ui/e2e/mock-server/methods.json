@@ -89,19 +89,24 @@
     "returnValue": null
   },
   "reg_registries": {
-    "type": "query",
+    "type": "listField",
     "collection": "registries",
-    "queryParamIndex": 0
+    "field": "name"
   },
   "reg_queryEntriesWithProps": {
-    "type": "query",
+    "type": "derivedQuery",
     "collection": "registry-entries",
-    "queryParamIndex": 0
+    "queryParamIndex": 1,
+    "preFilter": {
+      "equalField": "registry",
+      "equalParamIndex": 0,
+      "activeParamIndex": 2
+    }
   },
   "domain_listDomains": {
-    "type": "query",
+    "type": "listField",
     "collection": "domains",
-    "queryParamIndex": 0
+    "field": "name"
   },
   "domain_getDomain": {
     "type": "getByField",
@@ -191,7 +196,10 @@
   "ptx_decodeEvent": { "type": "empty", "returnValue": null },
   "ptx_getDomainReceipt": { "type": "empty", "returnValue": null },
   "ptx_getStateReceipt": { "type": "empty", "returnValue": null },
-  "ptx_resolveVerifier": { "type": "empty", "returnValue": null },
+  "ptx_resolveVerifier": {
+    "type": "static",
+    "returnValue": "0x0000000000000000000000000000000000000001"
+  },
   "ptx_sendTransaction": { "type": "empty", "returnValue": null },
   "ptx_storeABI": { "type": "empty", "returnValue": null },
   "pgroup_sendMessage": { "type": "empty", "returnValue": null },

@@ -62,7 +62,7 @@ export const Registries: React.FC = () => {
   });
 
   useEffect(() => {
-    if (registries?.length === 1) {
+    if (registries !== undefined && registries.length > 0) {
       setSelectedRegistry(registries[0]);
     }
   }, [registries]);
