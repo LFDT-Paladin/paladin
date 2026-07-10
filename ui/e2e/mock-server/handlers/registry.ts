@@ -3,9 +3,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export interface PreFilterConfig {
-  hasReceiptIn: string;
-  joinField: string;
-  sourceField: string;
+  /** Keep items whose sourceField value exists in the related collection's joinField. */
+  hasReceiptIn?: string;
+  joinField?: string;
+  sourceField?: string;
+  /** Keep items where this field is null or undefined (e.g. pending submissions). */
+  fieldMissing?: string;
 }
 
 export interface MethodConfig {

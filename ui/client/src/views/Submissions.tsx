@@ -121,9 +121,11 @@ export const Submissions: React.FC = () => {
               {t("submissions")}
             </Typography>
             <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive onChange={(_event, value) => {
-              setPage(0);
-              setSection(value);
-              setRefEntries([]);
+              if (value !== null) {
+                setPage(0);
+                setRefEntries([]);
+                setSection(value);
+              }
             }} value={section}>
               <ToggleButton color="primary" value="pending" sx={{ width: '120px' }}>{t('pending')}</ToggleButton>
               <ToggleButton color="primary" value="failed" sx={{ width: '120px' }}>{t('failed')}</ToggleButton>
@@ -275,10 +277,10 @@ export const Submissions: React.FC = () => {
                             <Timestamp timestamp={transaction.created} />
                           </TableCell>
                           <TableCell>
-                            {transaction.type}
+                            {t(transaction.type)}
                           </TableCell>
                           <TableCell>
-                            {transaction.domain ?? '--'}
+                            {transaction.domain ? t(transaction.domain) : '--'}
                           </TableCell>
                           <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                             <Hash Icon={<Tag size="18px" />} hideTitle title={t('id')} hash={transaction.id} />
@@ -335,6 +337,7 @@ export const Submissions: React.FC = () => {
         dialogOpen={lookupTransactionDialogOpen}
         setDialogOpen={setLookupTransactionDialogOpen}
         label={t('submissionId')}
+        backToSubmissions={true}
       />
     </>
   );

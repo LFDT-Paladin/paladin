@@ -13,15 +13,28 @@ export const handleDerivedQuery = (
     return [];
   }
 
-  const sourceItems = loadCollection(collection);
-  const relatedItems = loadCollection(preFilter.hasReceiptIn);
-  const relatedValues = new Set(
-    relatedItems.map((item) => String(item[preFilter.joinField] ?? ''))
-  );
+  let filtered = loadCollection(collection);
 
-  const filtered = sourceItems.filter((item) =>
-    relatedValues.has(String(item[preFilter.sourceField] ?? ''))
-  );
+  if (
+    preFilter.hasReceiptIn !== undefined &&
+    preFilter.joinField !== undefined &&
+    preFilter.sourceField !== undefined
+  ) {
+    const relatedItems = loadCollection(preFilter.hasReceiptIn);
+    const relatedValues = new Set(
+      relatedItems.map((item) => String(item[preFilter.joinField!] ?? ''))
+    );
+    filtered = filtered.filter((item) =>
+      relatedValues.has(String(item[preFilter.sourceField!] ?? ''))
+    );
+  }
+
+  if (preFilter.fieldMissing !== undefined) {
+    const field = preFilter.fieldMissing;
+    filtered = filtered.filter(
+      (item) => item[field] === undefined || item[field] === null
+    );
+  }
 
   const query = (params[config.queryParamIndex ?? 0] ?? {}) as QueryJSON;
   return applyQuery(filtered, query, getFieldMap(collection));

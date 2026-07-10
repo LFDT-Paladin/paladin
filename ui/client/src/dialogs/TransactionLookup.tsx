@@ -35,12 +35,14 @@ type Props = {
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
   label: string
+  backToSubmissions?: boolean
 }
 
 export const TransactionLookupDialog: React.FC<Props> = ({
   dialogOpen,
   setDialogOpen,
-  label
+  label,
+  backToSubmissions
 }) => {
 
   const { t } = useTranslation();
@@ -79,11 +81,12 @@ export const TransactionLookupDialog: React.FC<Props> = ({
   });
 
   const handleSubmit = () => {
+    const queryParams = backToSubmissions === true? '?back=submissions' : '';
     setNotFound(false);
     if (isValidTransactionHash(hashOrId)) {
       blockchainTransactionByHash().then(result => {
         if (result.isSuccess) {
-          navigate(`/ui/transactions/${hashOrId}`);
+          navigate(`/ui/transactions/${hashOrId}${queryParams}`);
         } else {
           setNotFound(true);
         }
@@ -91,11 +94,11 @@ export const TransactionLookupDialog: React.FC<Props> = ({
     } else if (isValidUUID(hashOrId)) {
       paladinReceiptById().then(result => {
         if (result.isSuccess && result.data !== null) {
-          navigate(`/ui/transactions/${hashOrId}`);
+          navigate(`/ui/transactions/${hashOrId}${queryParams}`);
         } else {
           paladinTransactionById().then(result => {
             if (result.isSuccess && result.data !== null) {
-              navigate(`/ui/transactions/${hashOrId}`);
+              navigate(`/ui/transactions/${hashOrId}${queryParams}`);
             } else {
               setNotFound(true);
             }

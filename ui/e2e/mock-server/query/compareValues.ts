@@ -28,7 +28,15 @@ export const coerceValue = (value: unknown, type: FieldType): unknown => {
     case 'hex':
       return normalizeHex(value);
     case 'timestamp':
-      return typeof value === 'number' ? value : Number(value);
+      if (typeof value === 'number') {
+        return value;
+      }
+      const asNumber = Number(value);
+      if (!Number.isNaN(asNumber)) {
+        return asNumber;
+      }
+      const asDate = Date.parse(String(value));
+      return Number.isNaN(asDate) ? String(value) : asDate;
     default:
       return String(value);
   }
@@ -58,9 +66,12 @@ export const compareValues = (
   }
 
   if (type === 'int' || type === 'float' || type === 'timestamp') {
-    const a = Number(left);
-    const b = Number(right);
-    return a - b;
+    const a = coerceValue(left, type);
+    const b = coerceValue(right, type);
+    if (typeof a === 'number' && typeof b === 'number') {
+      return a - b;
+    }
+    return String(a).localeCompare(String(b));
   }
 
   const a = caseInsensitive ? String(left).toLowerCase() : String(left);

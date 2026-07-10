@@ -29,7 +29,9 @@
     "domain": "string",
     "from": "hex",
     "to": "hex",
-    "type": "string"
+    "type": "string",
+    "function": "string",
+    "abiReference": "hex"
   },
   "keys": {
     "path": "string",

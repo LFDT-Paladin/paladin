@@ -58,9 +58,12 @@ test.describe('Transactions', () => {
     // Should navigate to transaction details with hash in URL
     await page.waitForURL(`**/ui/transactions/${formatTxHash(1)}`);
     await expect(page.getByRole('tab', { name: 'Pente0000...0001' })).toBeVisible();
+
+    // Should show an option to go back to transactions
+    await expect(page.getByRole('button', { name: 'Back to Transactions' })).toBeVisible();
   });
 
-    test('Lookup transaction by receipt UUID', async ({ page }) => {
+  test('Lookup transaction by receipt UUID', async ({ page }) => {
     // Use lookup dialog to enter hash
     await page.getByRole('button', { name: 'Lookup' }).click();
     await page.getByRole('textbox', { name: 'Blockchain Transaction Hash,' }).fill(formatReceiptId(1));
@@ -69,6 +72,9 @@ test.describe('Transactions', () => {
     // Should navigate to transaction details with hash in URL
     await page.waitForURL(`**/ui/transactions/${formatReceiptId(1)}`);
     await expect(page.getByRole('tab', { name: 'Pente0000...0001' })).toBeVisible();
+
+    // Should show an option to go back to transactions
+    await expect(page.getByRole('button', { name: 'Back to Transactions' })).toBeVisible();
   });
 
   test('Filter transactions', async ({ page }) => {
@@ -83,7 +89,6 @@ test.describe('Transactions', () => {
     await page.getByRole('button', { name: 'Add' }).click();
 
     // Add second filter to show transactions with block number less than or equal to 55
-    await page.getByRole('button', { name: 'Filters', exact: true }).click();
     await page.getByRole('button', { name: 'Add Filter' }).click();
     await page.getByRole('combobox', { name: 'Field' }).click();
     await page.getByRole('option', { name: 'Block' }).click();

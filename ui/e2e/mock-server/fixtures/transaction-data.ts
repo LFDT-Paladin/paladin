@@ -1,16 +1,14 @@
+import { formatHex, formatUuid } from './format-utils.js';
+
 export const TRANSACTION_COUNT = 100;
 
-const padHex = (value: number, length: number): string =>
-  value.toString(16).padStart(length, '0');
-
-export const formatTxHash = (n: number): string => `0x${padHex(n, 64)}`;
-export const formatFromAddress = (n: number): string => `0x1${padHex(n, 39)}`;
-export const formatToAddress = (n: number): string => `0x2${padHex(n, 39)}`;
-export const formatReceiptId = (n: number): string =>
-  `00000000-0000-1000-8000-${n.toString().padStart(12, '0')}`;
-export const formatEventHash = (n: number): string => `0x3${padHex(n, 63)}`;
+export const formatTxHash = (n: number): string => formatHex(n, 64);
+export const formatFromAddress = (n: number): string => formatHex(n, 40, '1');
+export const formatToAddress = (n: number): string => formatHex(n, 40, '2');
+export const formatReceiptId = (n: number): string => formatUuid(n);
+export const formatEventHash = (n: number): string => formatHex(n, 64, '3');
 export const formatBlockHash = (blockNumber: number): string =>
-  `0x4${padHex(blockNumber, 63)}`;
+  formatHex(blockNumber, 64, '4');
 
 export interface MockBlock {
   number: number;
@@ -124,7 +122,6 @@ export const buildEvents = (transactions: MockTransaction[]): MockEvent[] => {
 };
 
 export const EMPTY_COLLECTIONS = [
-  'paladin-transactions',
   'keys',
   'registries',
   'registry-entries',

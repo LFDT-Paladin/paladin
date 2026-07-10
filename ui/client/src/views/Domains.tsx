@@ -124,7 +124,7 @@ export const Domains: React.FC = () => {
             >
               {domains?.map((domain) => (
                 <MenuItem key={domain} value={domain}>
-                  {domain}
+                  {t(domain)}
                 </MenuItem>
               ))}
             </TextField>

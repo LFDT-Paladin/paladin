@@ -20,3 +20,11 @@ export {
   formatEventHash,
   TRANSACTION_COUNT,
 } from '../mock-server/fixtures/transaction-data.js';
+
+export {
+  formatSubmissionId,
+  formatSubmissionFrom,
+  formatSubmissionTo,
+  SUBMISSION_COUNT,
+  submissionStatusForIndex,
+} from '../mock-server/fixtures/submission-data.js';

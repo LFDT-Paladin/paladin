@@ -38,9 +38,12 @@
     "queryParamIndex": 0
   },
   "ptx_queryPendingTransactions": {
-    "type": "query",
+    "type": "derivedQuery",
     "collection": "paladin-transactions",
-    "queryParamIndex": 0
+    "queryParamIndex": 0,
+    "preFilter": {
+      "fieldMissing": "success"
+    }
   },
   "ptx_queryTransactionsFull": {
     "type": "query",
