@@ -106,7 +106,7 @@ export const TransactionEntry: React.FC = () => {
         </Box>
         {enrichedTransaction !== undefined &&
           <Grid2 container spacing={3}>
-            <Grid2 size={{ xs: 12, sm: 12, md: 4, lg: 3 }}>
+            <Grid2 size={{ xs: 12, sm: 12, md: 4, lg: 4 }}>
               <Box>
                 <Typography variant="h6" sx={{ marginBottom: '5px' }}>{t('blockchainTransaction')}</Typography>
                 <TransactionOverview
@@ -120,7 +120,7 @@ export const TransactionEntry: React.FC = () => {
                   </>}
               </Box>
             </Grid2>
-            <Grid2 size={{ xs: 12, sm: 12, md: 8, lg: 9 }}>
+            <Grid2 size={{ xs: 12, sm: 12, md: 8, lg: 8 }}>
               {enrichedTransaction.receipts.length > 0 &&
                 <Box>
                   <Typography variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>

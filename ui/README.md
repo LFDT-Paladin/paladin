@@ -24,3 +24,47 @@ npm run dev:node3
 
 ### Using the UI
 Open a web browser and navigate to `http://localhost:3000`, `http://localhost:3002` and `http://localhost:3003` for nodes 1, 2 and 3 respectively.
+
+### Testing (E2E)
+
+End-to-end tests use Playwright with a mock JSON-RPC server so no live Paladin node is required.
+
+1. Install dependencies and Playwright browsers:
+```
+cd e2e
+npm i
+npx playwright install chromium
+```
+
+2. Run all tests (starts the mock RPC server and Vite in test mode automatically):
+```
+npm test
+```
+
+3. Run a single suite:
+```
+npm test -- tests/transactions.spec.ts
+```
+
+4. Interactive UI mode:
+```
+npm run test:ui
+```
+
+5. Run query engine unit tests:
+```
+npm run test:query
+```
+
+#### Mock server fixtures
+
+E2E tests use a file-backed mock JSON-RPC server. List data lives in JSON files under `e2e/mock-server/store/data/`. RPC methods are mapped in `e2e/mock-server/methods.json` and query filtering/sorting is handled by the shared query engine in `e2e/mock-server/query/`.
+
+To regenerate the default transaction fixture data (100 indexed transactions, receipts, and events):
+
+```
+cd e2e
+npm run generate-fixtures
+```
+
+You can also edit the JSON files directly to change mock responses without changing server code.

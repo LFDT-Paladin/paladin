@@ -1,0 +1,85 @@
+{
+  "indexed-transactions": {
+    "hash": "hex",
+    "blockNumber": "int",
+    "transactionIndex": "int",
+    "from": "hex",
+    "to": "hex",
+    "nonce": "int",
+    "result": "string"
+  },
+  "transaction-receipts": {
+    "id": "string",
+    "blockNumber": "int",
+    "transactionHash": "hex",
+    "success": "bool",
+    "domain": "string"
+  },
+  "indexed-events": {
+    "blockNumber": "int",
+    "transactionIndex": "int",
+    "logIndex": "int",
+    "transactionHash": "hex",
+    "signature": "hex"
+  },
+  "paladin-transactions": {
+    "id": "string",
+    "created": "timestamp",
+    "success": "bool",
+    "domain": "string",
+    "from": "hex",
+    "to": "hex",
+    "type": "string"
+  },
+  "keys": {
+    "path": "string",
+    "index": "int",
+    "parent": "string",
+    "wallet": "string",
+    "keyHandle": "string",
+    "isKey": "bool",
+    "hasChildren": "bool"
+  },
+  "registries": {
+    "name": "string"
+  },
+  "registry-entries": {
+    "registry": "string",
+    "id": "string",
+    "name": "string",
+    "active": "bool"
+  },
+  "domains": {
+    "name": "string"
+  },
+  "smart-contracts": {
+    "address": "hex",
+    "domain": "string"
+  },
+  "privacy-groups": {
+    "id": "string",
+    "address": "hex",
+    "name": "string",
+    "created": "timestamp"
+  },
+  "privacy-group-messages": {
+    "id": "string",
+    "group": "string",
+    "created": "timestamp"
+  },
+  "privacy-group-listeners": {
+    "name": "string"
+  },
+  "states": {
+    "id": "string",
+    "domain": "string",
+    "schema": "string"
+  },
+  "transport-peers": {
+    "name": "string"
+  },
+  "transport-messages": {
+    "id": "string",
+    "node": "string"
+  }
+}

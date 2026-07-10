@@ -116,7 +116,13 @@ export const Transactions: React.FC = () => {
             <Typography variant="h5">
               {t("transactions")}
             </Typography>
-            <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive onChange={(_event, value) => setShowTxsWithReceipt(value === 'withReceipt')} value={showTxsWithReceipt ? 'withReceipt' : 'all'}>
+            <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive onChange={
+              (_event, value) => {
+                if (value !== null) {
+                  setShowTxsWithReceipt(value === 'withReceipt')
+                }
+              }
+            } value={showTxsWithReceipt ? 'withReceipt' : 'all'}>
               <ToggleButton color="primary" value="withReceipt" sx={{ width: '120px' }}>{t('paladinOnly')}</ToggleButton>
               <ToggleButton color="primary" value="all" sx={{ width: '120px' }}>{t('all')}</ToggleButton>
             </ToggleButtonGroup>
