@@ -26,7 +26,6 @@ import { IKeyEntry, IVerifier } from "../interfaces";
 import { useSearchParams } from "react-router-dom";
 import { Captions, Signature } from "lucide-react";
 import SearchIcon from '@mui/icons-material/Search';
-import { ReverseKeyLookupDialog } from "../dialogs/ReverseKeyLookup";
 import RemoveIcon from '@mui/icons-material/Remove';
 import { VerifiersDialog } from "../dialogs/Verifiers";
 import { useTranslation } from "react-i18next";
@@ -57,7 +56,6 @@ export const Keys: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [refEntries, setRefEntries] = useState<IKeyEntry[]>([]);
   const [parent, setParent] = useState(searchParams.get('path') ?? '');
-  const [reverseLookupDialogOpen, setReverseLookupDialogOpen] = useState(false);
   const [selectedVerifiers, setSelectedVerifiers] = useState<IVerifier[]>();
   const [verifiersDialogOpen, setVerifiersDialogOpen] = useState(false);
   const { t } = useTranslation();
@@ -262,15 +260,6 @@ export const Keys: React.FC = () => {
                 {breadcrumbContent}
               </Breadcrumbs>}
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
-              <Button
-                sx={{ borderRadius: '20px', minWidth: '120px' }}
-                size="small"
-                variant="outlined"
-                startIcon={<SearchIcon />}
-                onClick={() => setReverseLookupDialogOpen(true)}
-              >
-                {t('lookup')}
-              </Button>
               <FiltersButton
                 filtersVisible={filtersVisible}
                 setFiltersVisible={setFiltersVisible}
@@ -425,13 +414,6 @@ export const Keys: React.FC = () => {
           }
         </Box>
       </Fade>
-      <ReverseKeyLookupDialog
-        dialogOpen={reverseLookupDialogOpen}
-        setDialogOpen={setReverseLookupDialogOpen}
-        mode={mode}
-        setParent={setParent}
-        setFilters={setFilters}
-      />
       {selectedVerifiers &&
         <VerifiersDialog
           dialogOpen={verifiersDialogOpen}
