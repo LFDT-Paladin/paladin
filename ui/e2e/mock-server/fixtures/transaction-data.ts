@@ -122,7 +122,6 @@ export const buildEvents = (transactions: MockTransaction[]): MockEvent[] => {
 };
 
 export const EMPTY_COLLECTIONS = [
-  'keys',
   'registries',
   'registry-entries',
   'domains',

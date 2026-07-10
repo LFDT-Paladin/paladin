@@ -8,6 +8,7 @@ import {
   EMPTY_COLLECTIONS,
 } from '../fixtures/transaction-data.js';
 import { buildPaladinTransactions } from '../fixtures/submission-data.js';
+import { buildKeys } from '../fixtures/key-data.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const dataDir = join(rootDir, '../store/data');
@@ -17,6 +18,7 @@ const transactions = buildTransactions();
 const receipts = buildReceipts(transactions);
 const events = buildEvents(transactions);
 const paladinTransactions = buildPaladinTransactions();
+const keys = buildKeys();
 
 writeFileSync(
   join(dataDir, 'indexed-transactions.json'),
@@ -34,6 +36,10 @@ writeFileSync(
   join(dataDir, 'paladin-transactions.json'),
   `${JSON.stringify(paladinTransactions, null, 2)}\n`
 );
+writeFileSync(
+  join(dataDir, 'keys.json'),
+  `${JSON.stringify(keys, null, 2)}\n`
+);
 
 for (const collection of EMPTY_COLLECTIONS) {
   writeFileSync(join(dataDir, `${collection}.json`), '[]\n');
@@ -41,10 +47,15 @@ for (const collection of EMPTY_COLLECTIONS) {
 
 const pendingCount = paladinTransactions.filter((tx) => tx.success === undefined).length;
 const failedCount = paladinTransactions.filter((tx) => tx.success === false).length;
+const folderCount = keys.filter((key) => !key.isKey).length;
+const keyCount = keys.filter((key) => key.isKey).length;
 
 console.log(
   `Generated ${transactions.length} indexed transactions, ${receipts.length} receipts, ${events.length} events`
 );
 console.log(
   `Generated ${paladinTransactions.length} paladin transactions (${pendingCount} pending, ${failedCount} failed)`
+);
+console.log(
+  `Generated ${keys.length} key entries (${folderCount} folders, ${keyCount} keys)`
 );
