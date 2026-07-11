@@ -67,4 +67,17 @@ test.describe('Submissions', () => {
 
   });
 
+  test('Submissions sorting', async ({ page }) => {
+    // Default order
+    await expect(page.getByRole('row').nth(1).getByRole('button', { name: '000000...0001' })).toBeVisible();
+    await expect(page.getByRole('row').nth(10).getByRole('button', { name: '000000...0010' })).toBeVisible();
+
+    // Apply sort
+    await page.getByRole('button', { name: 'Created' }).click();
+
+    // Check order is inverted
+    await expect(page.getByRole('row').nth(1).getByRole('button', { name: '000000...0025' })).toBeVisible();
+    await expect(page.getByRole('row').nth(10).getByRole('button', { name: '000000...0016' })).toBeVisible();
+  });
+
 });

@@ -264,7 +264,7 @@ export const SmartContractsTable: React.FC<Props> = ({
                     <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                       <Tooltip title={t('open')} arrow>
                         <IconButton
-                          onClick={mouseEvent => customNavigate(`/ui/domains/${contract.address}?back=domains`, mouseEvent, navigate)}>
+                          onClick={mouseEvent => customNavigate(`/ui/domains/${contract.address}`, mouseEvent, navigate)}>
                           <OpenInNewIcon color="secondary" fontSize="medium" />
                         </IconButton>
                       </Tooltip>

@@ -66,7 +66,7 @@ test.describe('Registries', () => {
 
   });
 
-    test('Filter registry entries', async ({ page }) => {
+  test('Filter registry entries', async ({ page }) => {
     // Add filter to show transactions with block number greater than 50
     await page.getByRole('button', { name: 'Filters', exact: true }).click();
     await page.getByRole('button', { name: 'Add Filter' }).click();
@@ -79,6 +79,19 @@ test.describe('Registries', () => {
 
     // There should be exactly 3 registry entries
     await expect(page.getByText('3 of 3')).toBeVisible();
+  });
+
+  test('Registry entries sorting', async ({ page }) => {
+    // Default order
+    await expect(page.getByRole('row').nth(1).getByRole('cell', { name: 'entry01', exact: true })).toBeVisible();
+    await expect(page.getByRole('row').nth(10).getByRole('cell', { name: 'entry10', exact: true })).toBeVisible();
+
+    // Apply sort
+    await page.getByRole('button', { name: 'Name' }).click();
+
+    // Check order is inverted
+    await expect(page.getByRole('row').nth(1).getByRole('cell', { name: 'entry25', exact: true })).toBeVisible();
+    await expect(page.getByRole('row').nth(10).getByRole('cell', { name: 'entry16', exact: true })).toBeVisible();
   });
 
 

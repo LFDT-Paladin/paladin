@@ -3,19 +3,19 @@ import { formatHex } from './format-utils.js';
 export const DOMAIN_NAMES = ['noto', 'pente', 'zeto'] as const;
 export type DomainName = (typeof DOMAIN_NAMES)[number];
 
-export const NOTO_CONTRACT_COUNT = 25;
-export const ZETO_CONTRACT_COUNT = 15;
-export const PENTE_CONTRACT_COUNT = 5;
+export const NOTO_CONTRACT_COUNT = 10;
+export const ZETO_CONTRACT_COUNT = 10;
+export const PENTE_CONTRACT_COUNT = 10;
 export const SMART_CONTRACT_COUNT =
   NOTO_CONTRACT_COUNT + ZETO_CONTRACT_COUNT + PENTE_CONTRACT_COUNT;
 
 /** Registry addresses use leading nibble `c` (distinct from tx/key fixtures). */
-export const formatNotoRegistryAddress = (): string => formatHex(1, 40, 'c');
-export const formatPenteRegistryAddress = (): string => formatHex(2, 40, 'c');
-export const formatZetoRegistryAddress = (): string => formatHex(3, 40, 'c');
+export const formatNotoRegistryAddress = (): string => formatHex(1, 40, '1');
+export const formatPenteRegistryAddress = (): string => formatHex(2, 40, '2');
+export const formatZetoRegistryAddress = (): string => formatHex(3, 40, '3');
 
 /** Contract addresses use leading nibble `d` with a global sequence across domains. */
-export const formatContractAddress = (n: number): string => formatHex(n, 40, 'd');
+export const formatContractAddress = (n: number): string => formatHex(n, 40);
 
 export const registryAddressForDomain = (name: DomainName): string => {
   switch (name) {
@@ -81,9 +81,9 @@ const buildContract = (
  * Builds smart contracts for the Domains page.
  *
  * Layout (global address sequence, newest-first by created):
- * - n=1..25  → noto  (NotoToken{i} / NT{i}, isNotary on odd i)
- * - n=26..40 → zeto  (ZetoToken{i})
- * - n=41..45 → pente (empty contractConfig)
+ * - n=1..10  noto  (NotoToken{i} / NT{i}, isNotary on odd i)
+ * - n=11..20 zeto  (ZetoToken{i})
+ * - n=21..30 pente (empty contractConfig)
  *
  * Conventions:
  * - address:        0xd...n

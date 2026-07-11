@@ -85,4 +85,21 @@ test.describe('Keys', () => {
     await expect(page.getByText('1 of 1')).toBeVisible();
   });
 
+  test('Keys sorting', async ({ page }) => {
+    // Show (up to) 100 rows per page
+    await page.getByRole('combobox', { name: 'Rows per page:' }).click();
+    await page.getByRole('option', { name: '100' }).click();
+
+    // Default order
+    await expect(page.getByRole('row').nth(1).getByRole('cell', { name: 'org1', exact: true })).toBeVisible();
+    await expect(page.getByRole('row').nth(23).getByRole('cell', { name: 'rootkey5', exact: true })).toBeVisible();
+
+    // Apply sort
+    await page.getByRole('button', { name: 'Path' }).click();
+
+    // Check order is inverted
+    await expect(page.getByRole('row').nth(1).getByRole('cell', { name: 'rootkey5', exact: true })).toBeVisible();
+    await expect(page.getByRole('row').nth(23).getByRole('cell', { name: 'org1', exact: true })).toBeVisible();
+  });
+
 });
