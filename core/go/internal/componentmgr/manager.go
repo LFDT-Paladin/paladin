@@ -18,6 +18,7 @@ package componentmgr
 import (
 	"context"
 	"net/http"
+	"runtime"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -134,6 +135,10 @@ func (cm *componentManager) javaDump(res http.ResponseWriter, req *http.Request)
 }
 
 func (cm *componentManager) startDebugServer() (httpserver.Server, error) {
+	// Enable block and mutex profiling so /debug/pprof/block and /debug/pprof/mutex return data.
+	// Both default to 0 (disabled); a positive rate records every event (1) or samples 1/N.
+	runtime.SetBlockProfileRate(confutil.Int(cm.conf.DebugServer.BlockProfileRate, *pldconf.DebugServerDefaults.BlockProfileRate))
+	runtime.SetMutexProfileFraction(confutil.Int(cm.conf.DebugServer.MutexProfileFraction, *pldconf.DebugServerDefaults.MutexProfileFraction))
 	cm.conf.DebugServer.Port = confutil.P(confutil.Int(cm.conf.DebugServer.Port, 0)) // if enabled with no port, we allocate one
 	server, err := httpserver.NewDebugServer(cm.bgCtx, &cm.conf.DebugServer.HTTPServerConfig)
 	if err == nil {

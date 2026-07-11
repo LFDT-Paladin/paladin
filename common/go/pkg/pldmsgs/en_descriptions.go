@@ -620,7 +620,9 @@ var (
 	StaticServerConfigBaseRedirect = pdm("StaticServerConfig.baseRedirect", "Redirect URL when hitting base path")
 
 	// DebugServerConfig field descriptions
-	DebugServerConfigEnabled = pdm("DebugServerConfig.enabled", "Whether debug server is enabled")
+	DebugServerConfigEnabled              = pdm("DebugServerConfig.enabled", "Whether debug server is enabled")
+	DebugServerConfigBlockProfileRate     = pdm("DebugServerConfig.blockProfileRate", "Rate for runtime block profiling exposed at /debug/pprof/block: 0 disables it, 1 records every blocking event, N samples one event in N")
+	DebugServerConfigMutexProfileFraction = pdm("DebugServerConfig.mutexProfileFraction", "Fraction for runtime mutex profiling exposed at /debug/pprof/mutex: 0 disables it, 1 records every contention event, N samples one event in N")
 
 	// MetricsServerConfig field descriptions
 	MetricsServerConfigEnabled = pdm("MetricsServerConfig.enabled", "Whether metrics server is enabled")

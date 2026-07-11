@@ -235,10 +235,12 @@
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
 | address | Server address | `string` | `"127.0.0.1"` |
+| blockProfileRate | Rate for runtime block profiling exposed at /debug/pprof/block: 0 disables it, 1 records every blocking event, N samples one event in N | `int` | `0` |
 | cors | CORS configuration | [`CORSConfig`](#debugservercors) | - |
 | defaultRequestTimeout | Default request timeout | `string` | `"2m"` |
 | enabled | Whether debug server is enabled | `bool` | `false` |
 | maxRequestTimeout | Maximum request timeout | `string` | `"10m"` |
+| mutexProfileFraction | Fraction for runtime mutex profiling exposed at /debug/pprof/mutex: 0 disables it, 1 records every contention event, N samples one event in N | `int` | `0` |
 | port | Server port | `int` | - |
 | readTimeout | Read timeout | `string` | - |
 | shutdownTimeout | Shutdown timeout | `string` | `"10s"` |
