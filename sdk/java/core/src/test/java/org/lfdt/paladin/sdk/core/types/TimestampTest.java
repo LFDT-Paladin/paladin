@@ -37,20 +37,20 @@ class TimestampTest {
 
     @Test
     void serializesAsRfc3339WithNanoPrecision() throws Exception {
-        Timestamp ts = Timestamp.ofInstant(Instant.ofEpochSecond(SECONDS, 123_456_789L));
+        final Timestamp ts = Timestamp.ofInstant(Instant.ofEpochSecond(SECONDS, 123_456_789L));
         assertEquals("\"2023-11-14T22:13:20.123456789Z\"", MAPPER.writeValueAsString(ts));
     }
 
     @Test
     void roundTripsThroughJson() throws Exception {
-        Timestamp original = Timestamp.ofInstant(Instant.ofEpochSecond(SECONDS, 987_654_321L));
+        final Timestamp original = Timestamp.ofInstant(Instant.ofEpochSecond(SECONDS, 987_654_321L));
         assertEquals(original, MAPPER.readValue(MAPPER.writeValueAsString(original), Timestamp.class));
     }
 
     @Test
     void zeroSerializesToNullAndNullParsesToZero() throws Exception {
         assertEquals("null", MAPPER.writeValueAsString(Timestamp.ZERO));
-        Timestamp parsed = MAPPER.readValue("null", Timestamp.class);
+        final Timestamp parsed = MAPPER.readValue("null", Timestamp.class);
         assertTrue(parsed.isZero());
         assertEquals(Timestamp.ZERO, parsed);
     }

@@ -31,7 +31,7 @@ public class PaladinTimeoutException extends PaladinException {
    *
    * @param message the detail message
    */
-  public PaladinTimeoutException(String message) {
+  public PaladinTimeoutException(final String message) {
     super(message);
   }
 
@@ -41,7 +41,7 @@ public class PaladinTimeoutException extends PaladinException {
    * @param message the detail message
    * @param cause the underlying timeout cause
    */
-  public PaladinTimeoutException(String message, Throwable cause) {
+  public PaladinTimeoutException(final String message, final Throwable cause) {
     super(message, cause);
   }
 }

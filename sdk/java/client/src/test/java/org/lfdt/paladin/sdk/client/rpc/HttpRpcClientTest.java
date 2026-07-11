@@ -36,11 +36,11 @@ import org.lfdt.paladin.sdk.client.exception.PaladinTimeoutException;
 
 class HttpRpcClientTest {
 
-  private static String success(String resultJson) {
+  private static String success(final String resultJson) {
     return "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":" + resultJson + "}";
   }
 
-  private RpcClientConfig config(String url, int maxAttempts) {
+  private RpcClientConfig config(final String url, final int maxAttempts) {
     return RpcClientConfig.builder(url)
         .connectTimeout(Duration.ofSeconds(5))
         .requestTimeout(Duration.ofSeconds(5))
@@ -59,10 +59,10 @@ class HttpRpcClientTest {
             new MockJsonRpcServer(
                 (n, req) -> MockJsonRpcServer.Response.of(200, success("{\"value\":\"0x1f\"}")));
         HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 3))) {
-      JsonNode result = client.callRpc(JsonNode.class, "ptx_call", "a", 1).join();
+      final JsonNode result = client.callRpc(JsonNode.class, "ptx_call", "a", 1).join();
       assertEquals("0x1f", result.get("value").asText());
       // The request reached the server as a well-formed JSON-RPC envelope.
-      JsonNode request = server.requests().get(0);
+      final JsonNode request = server.requests().get(0);
       assertEquals("2.0", request.get("jsonrpc").asText());
       assertEquals("ptx_call", request.get("method").asText());
       assertEquals("000000001", request.get("id").asText());
@@ -76,7 +76,7 @@ class HttpRpcClientTest {
             new MockJsonRpcServer(
                 (n, req) -> MockJsonRpcServer.Response.of(200, success("{\"a\":1,\"b\":2}")));
         HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 3))) {
-      Map<String, Object> result =
+      final Map<String, Object> result =
           client.callRpc(new TypeReference<Map<String, Object>>() {}, "m").join();
       assertEquals(2, result.size());
     }
@@ -93,14 +93,14 @@ class HttpRpcClientTest {
 
   @Test
   void jsonRpcErrorBecomesPaladinRpcException() throws IOException {
-    String body =
+    final String body =
         "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"error\":{\"code\":-32000,\"message\":\"unauthorized\",\"data\":{\"hint\":\"token\"}}}";
     try (MockJsonRpcServer server =
             new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, body));
         HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 3))) {
-      CompletionException ex =
+      final CompletionException ex =
           assertThrows(CompletionException.class, () -> client.callRpc(JsonNode.class, "m").join());
-      PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
+      final PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
       assertEquals(JsonRpcErrorCode.UNAUTHORIZED, rpc.code());
       assertEquals("unauthorized", rpc.getMessage());
       assertTrue(rpc.data().isPresent());
@@ -114,9 +114,9 @@ class HttpRpcClientTest {
     try (MockJsonRpcServer server =
             new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(400, "bad request"));
         HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 3))) {
-      CompletionException ex =
+      final CompletionException ex =
           assertThrows(CompletionException.class, () -> client.callRpc(JsonNode.class, "m").join());
-      PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
+      final PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
       assertEquals(400, rpc.httpStatus());
       // 4xx is not retried.
       assertEquals(1, server.requestCount());
@@ -132,7 +132,7 @@ class HttpRpcClientTest {
                         ? MockJsonRpcServer.Response.of(503, "unavailable")
                         : MockJsonRpcServer.Response.of(200, success("\"ok\"")));
         HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 3))) {
-      String result = client.callRpc(String.class, "m").join();
+      final String result = client.callRpc(String.class, "m").join();
       assertEquals("ok", result);
       assertEquals(2, server.requestCount());
     }
@@ -157,9 +157,9 @@ class HttpRpcClientTest {
     try (MockJsonRpcServer server =
             new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(503, "unavailable"));
         HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 3))) {
-      CompletionException ex =
+      final CompletionException ex =
           assertThrows(CompletionException.class, () -> client.callRpc(JsonNode.class, "m").join());
-      PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
+      final PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
       assertEquals(503, rpc.httpStatus());
       assertEquals(3, server.requestCount());
     }
@@ -177,7 +177,7 @@ class HttpRpcClientTest {
                     .requestTimeout(Duration.ofMillis(150))
                     .retryPolicy(RetryPolicy.builder().maxAttempts(1).build())
                     .build())) {
-      CompletionException ex =
+      final CompletionException ex =
           assertThrows(CompletionException.class, () -> client.callRpc(JsonNode.class, "m").join());
       assertInstanceOf(PaladinTimeoutException.class, ex.getCause());
     }
@@ -185,7 +185,7 @@ class HttpRpcClientTest {
 
   @Test
   void connectionRefusedBecomesPaladinConnectionException() throws IOException {
-    int closedPort;
+    final int closedPort;
     try (ServerSocket socket = new ServerSocket(0)) {
       closedPort = socket.getLocalPort();
     }
@@ -195,7 +195,7 @@ class HttpRpcClientTest {
                 .connectTimeout(Duration.ofSeconds(2))
                 .retryPolicy(RetryPolicy.builder().maxAttempts(1).build())
                 .build())) {
-      CompletionException ex =
+      final CompletionException ex =
           assertThrows(CompletionException.class, () -> client.callRpc(JsonNode.class, "m").join());
       assertInstanceOf(PaladinConnectionException.class, ex.getCause());
     }
@@ -207,7 +207,7 @@ class HttpRpcClientTest {
             new MockJsonRpcServer(
                 (n, req) -> MockJsonRpcServer.Response.of(200, "not json at all"));
         HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 1))) {
-      CompletionException ex =
+      final CompletionException ex =
           assertThrows(CompletionException.class, () -> client.callRpc(JsonNode.class, "m").join());
       assertInstanceOf(PaladinConnectionException.class, ex.getCause());
     }
@@ -234,11 +234,11 @@ class HttpRpcClientTest {
             new MockJsonRpcServer(
                 (n, req) -> MockJsonRpcServer.Response.of(200, success("\"ok\"")));
         HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 3))) {
-      CompletionException ex =
+      final CompletionException ex =
           assertThrows(
               CompletionException.class,
               () -> client.callRpc(JsonNode.class, "m", new Unserializable()).join());
-      PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
+      final PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
       assertEquals(JsonRpcErrorCode.INVALID_REQUEST, rpc.code());
       // The request was never sent.
       assertEquals(0, server.requestCount());

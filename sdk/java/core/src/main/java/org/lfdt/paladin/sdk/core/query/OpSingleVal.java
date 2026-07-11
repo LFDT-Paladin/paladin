@@ -40,10 +40,10 @@ public final class OpSingleVal {
 
     @JsonCreator
     public OpSingleVal(
-            @JsonProperty("field") String field,
-            @JsonProperty("not") boolean not,
-            @JsonProperty("caseInsensitive") boolean caseInsensitive,
-            @JsonProperty("value") JsonNode value) {
+            @JsonProperty("field") final String field,
+            @JsonProperty("not") final boolean not,
+            @JsonProperty("caseInsensitive") final boolean caseInsensitive,
+            @JsonProperty("value") final JsonNode value) {
         this.field = field == null ? "" : field;
         this.not = not;
         this.caseInsensitive = caseInsensitive;
@@ -79,7 +79,7 @@ public final class OpSingleVal {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(final Object o) {
         if (this == o) {
             return true;
         }

@@ -28,14 +28,14 @@ class QueryBuilderTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** Parses a JSON string into a tree so comparisons ignore key ordering. */
-    private static com.fasterxml.jackson.databind.JsonNode tree(String json) throws Exception {
+    private static com.fasterxml.jackson.databind.JsonNode tree(final String json) throws Exception {
         return MAPPER.readTree(json);
     }
 
     @Test
     void buildsFullQueryMatchingGoReference() throws Exception {
         // Mirrors sdk/go/pkg/query TestQuery.
-        String expected = "{"
+        final String expected = "{"
                 + "\"limit\":10,"
                 + "\"sort\":[\"field1 DESC\",\"field2\"],"
                 + "\"eq\":[{\"field\":\"field1\",\"value\":\"value1\"},"
@@ -50,7 +50,7 @@ class QueryBuilderTest {
                 + "\"nin\":[{\"field\":\"field9\",\"values\":[\"x\",\"y\",\"z\"]}],"
                 + "\"null\":[{\"field\":\"field10\",\"not\":true},{\"field\":\"field11\"}]}";
 
-        QueryJSON query = QueryJSON.builder()
+        final QueryJSON query = QueryJSON.builder()
                 .limit(10)
                 .sort("field1 DESC").sort("field2")
                 .equal("field1", "value1", QueryModifier.CASE_SENSITIVE)
@@ -74,13 +74,13 @@ class QueryBuilderTest {
 
     @Test
     void buildsOrQuery() throws Exception {
-        String expected = "{\"or\":["
+        final String expected = "{\"or\":["
                 + "{\"eq\":[{\"field\":\"field1\",\"value\":\"value1\"}],"
                 + "\"neq\":[{\"field\":\"field2\",\"value\":\"value2\"}]},"
                 + "{\"eq\":[{\"field\":\"field3\",\"value\":\"value3\"}],"
                 + "\"neq\":[{\"field\":\"field4\",\"value\":\"value4\"}]}]}";
 
-        QueryJSON query = QueryJSON.builder()
+        final QueryJSON query = QueryJSON.builder()
                 .or(QueryJSON.builder().equal("field1", "value1").notEqual("field2", "value2"))
                 .or(QueryJSON.builder().equal("field3", "value3").notEqual("field4", "value4"))
                 .build();
@@ -91,10 +91,10 @@ class QueryBuilderTest {
     @Test
     void orBranchesIgnoreLimitAndSort() throws Exception {
         // A child builder's limit/sort must not leak into the OR branch.
-        QueryJSON query = QueryJSON.builder()
+        final QueryJSON query = QueryJSON.builder()
                 .or(QueryJSON.builder().limit(99).sort("x").equal("a", 1))
                 .build();
-        String json = MAPPER.writeValueAsString(query);
+        final String json = MAPPER.writeValueAsString(query);
         assertEquals(tree("{\"or\":[{\"eq\":[{\"field\":\"a\",\"value\":1}]}]}"), tree(json));
     }
 
@@ -111,8 +111,8 @@ class QueryBuilderTest {
 
     @Test
     void valueTypesSerializeThroughTheirOwnRepresentation() throws Exception {
-        EthAddress addr = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
-        QueryJSON query = QueryJSON.builder().equal("to", addr).build();
+        final EthAddress addr = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
+        final QueryJSON query = QueryJSON.builder().equal("to", addr).build();
         assertEquals(
                 tree("{\"eq\":[{\"field\":\"to\",\"value\":\"0x05d936207f04d81a85881b72a0d17854ee8be45a\"}]}"),
                 tree(MAPPER.writeValueAsString(query)));
@@ -120,7 +120,7 @@ class QueryBuilderTest {
 
     @Test
     void appendsRatherThanReplacesRepeatedOperators() throws Exception {
-        QueryJSON query = QueryJSON.builder().equal("a", 1).equal("b", 2).build();
+        final QueryJSON query = QueryJSON.builder().equal("a", 1).equal("b", 2).build();
         assertEquals(2, query.eq().size());
         assertEquals("a", query.eq().get(0).field());
         assertEquals("b", query.eq().get(1).field());

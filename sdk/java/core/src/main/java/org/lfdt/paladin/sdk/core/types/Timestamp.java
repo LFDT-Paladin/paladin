@@ -48,17 +48,17 @@ public final class Timestamp {
 
     private final long unixNano;
 
-    private Timestamp(long unixNano) {
+    private Timestamp(final long unixNano) {
         this.unixNano = unixNano;
     }
 
     /** Creates a timestamp from a raw nanoseconds-since-epoch value. */
-    public static Timestamp ofUnixNano(long unixNano) {
+    public static Timestamp ofUnixNano(final long unixNano) {
         return unixNano == 0L ? ZERO : new Timestamp(unixNano);
     }
 
     /** Creates a timestamp from an {@link Instant}. */
-    public static Timestamp ofInstant(Instant instant) {
+    public static Timestamp ofInstant(final Instant instant) {
         return ofUnixNano(Math.addExact(Math.multiplyExact(instant.getEpochSecond(), NANOS_PER_SECOND), instant.getNano()));
     }
 
@@ -66,7 +66,7 @@ public final class Timestamp {
      * Creates a timestamp from a Unix value whose resolution is inferred from its magnitude: seconds,
      * milliseconds, or nanoseconds (matching {@code pldtypes.TimestampFromUnix}).
      */
-    public static Timestamp fromUnix(long unixTime) {
+    public static Timestamp fromUnix(final long unixTime) {
         long t = unixTime;
         if (t < 10_000_000_000L) {
             t *= 1_000L; // seconds -> milliseconds
@@ -78,21 +78,21 @@ public final class Timestamp {
     }
 
     /** Parses an RFC 3339 string or a numeric (seconds/millis/nanos) string. */
-    public static Timestamp fromString(String s) {
-        String t = s.trim();
+    public static Timestamp fromString(final String s) {
+        final String t = s.trim();
         try {
             return ofInstant(Instant.parse(t));
-        } catch (DateTimeParseException ignored) {
+        } catch (final DateTimeParseException ignored) {
             // not an ISO instant with a 'Z' offset; fall through
         }
         try {
             return ofInstant(OffsetDateTime.parse(t).toInstant());
-        } catch (DateTimeParseException ignored) {
+        } catch (final DateTimeParseException ignored) {
             // not an offset date-time; try a bare unix number
         }
         try {
             return fromUnix(Long.parseLong(t));
-        } catch (NumberFormatException e) {
+        } catch (final NumberFormatException e) {
             throw new IllegalArgumentException("invalid timestamp: \"" + s + "\"", e);
         }
     }
@@ -122,7 +122,7 @@ public final class Timestamp {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(final Object o) {
         if (this == o) {
             return true;
         }
@@ -136,7 +136,7 @@ public final class Timestamp {
 
     static final class Serializer extends JsonSerializer<Timestamp> {
         @Override
-        public void serialize(Timestamp v, JsonGenerator gen, SerializerProvider provider) throws IOException {
+        public void serialize(final Timestamp v, final JsonGenerator gen, final SerializerProvider provider) throws IOException {
             if (v.unixNano == 0L) {
                 gen.writeNull();
             } else {
@@ -147,20 +147,20 @@ public final class Timestamp {
 
     static final class Deserializer extends JsonDeserializer<Timestamp> {
         @Override
-        public Timestamp deserialize(JsonParser p, DeserializationContext ctx) throws IOException {
-            JsonToken t = p.currentToken();
+        public Timestamp deserialize(final JsonParser p, final DeserializationContext ctx) throws IOException {
+            final JsonToken t = p.currentToken();
             if (t == JsonToken.VALUE_NUMBER_INT) {
                 return fromUnix(p.getLongValue());
             }
             if (t != null && t.isScalarValue()) {
-                String s = p.getValueAsString();
+                final String s = p.getValueAsString();
                 return (s == null || s.isEmpty()) ? ZERO : fromString(s);
             }
             return (Timestamp) ctx.handleUnexpectedToken(Timestamp.class, p);
         }
 
         @Override
-        public Timestamp getNullValue(DeserializationContext ctx) {
+        public Timestamp getNullValue(final DeserializationContext ctx) {
             return ZERO;
         }
     }

@@ -46,17 +46,17 @@ final class MockJsonRpcServer implements AutoCloseable {
     private final String body;
     private final long delayMillis;
 
-    private Response(int status, String body, long delayMillis) {
+    private Response(final int status, final String body, final long delayMillis) {
       this.status = status;
       this.body = body;
       this.delayMillis = delayMillis;
     }
 
-    static Response of(int status, String body) {
+    static Response of(final int status, final String body) {
       return new Response(status, body, 0);
     }
 
-    Response withDelayMillis(long millis) {
+    Response withDelayMillis(final long millis) {
       return new Response(this.status, this.body, millis);
     }
   }
@@ -67,28 +67,28 @@ final class MockJsonRpcServer implements AutoCloseable {
   private final List<JsonNode> requests = new CopyOnWriteArrayList<>();
   private volatile Headers lastRequestHeaders;
 
-  MockJsonRpcServer(Responder responder) throws IOException {
+  MockJsonRpcServer(final Responder responder) throws IOException {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         "/",
         exchange -> {
           try {
-            byte[] requestBytes = exchange.getRequestBody().readAllBytes();
-            JsonNode request = requestBytes.length == 0 ? null : mapper.readTree(requestBytes);
+            final byte[] requestBytes = exchange.getRequestBody().readAllBytes();
+            final JsonNode request = requestBytes.length == 0 ? null : mapper.readTree(requestBytes);
             requests.add(request);
             lastRequestHeaders = exchange.getRequestHeaders();
-            int number = requestCount.incrementAndGet();
+            final int number = requestCount.incrementAndGet();
 
-            Response response = responder.respond(number, request);
+            final Response response = responder.respond(number, request);
             if (response.delayMillis > 0) {
               try {
                 Thread.sleep(response.delayMillis);
-              } catch (InterruptedException e) {
+              } catch (final InterruptedException e) {
                 Thread.currentThread().interrupt();
               }
             }
 
-            byte[] out =
+            final byte[] out =
                 response.body == null
                     ? new byte[0]
                     : response.body.getBytes(StandardCharsets.UTF_8);
@@ -98,7 +98,7 @@ final class MockJsonRpcServer implements AutoCloseable {
               if (out.length > 0) {
                 exchange.getResponseBody().write(out);
               }
-            } catch (IOException ignored) {
+            } catch (final IOException ignored) {
               // The client may have disconnected (e.g. on a deliberate timeout); nothing to do.
             }
           } finally {
@@ -121,8 +121,8 @@ final class MockJsonRpcServer implements AutoCloseable {
     return requests;
   }
 
-  String requestHeader(String name) {
-    Headers headers = lastRequestHeaders;
+  String requestHeader(final String name) {
+    final Headers headers = lastRequestHeaders;
     return headers == null ? null : headers.getFirst(name);
   }
 

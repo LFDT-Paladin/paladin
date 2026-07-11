@@ -38,9 +38,9 @@ public final class Op {
 
     @JsonCreator
     public Op(
-            @JsonProperty("field") String field,
-            @JsonProperty("not") boolean not,
-            @JsonProperty("caseInsensitive") boolean caseInsensitive) {
+            @JsonProperty("field") final String field,
+            @JsonProperty("not") final boolean not,
+            @JsonProperty("caseInsensitive") final boolean caseInsensitive) {
         this.field = field == null ? "" : field;
         this.not = not;
         this.caseInsensitive = caseInsensitive;
@@ -68,7 +68,7 @@ public final class Op {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(final Object o) {
         if (this == o) {
             return true;
         }

@@ -48,14 +48,14 @@ public final class AbiEntry {
 
     @JsonCreator
     AbiEntry(
-            @JsonProperty("type") EntryType type,
-            @JsonProperty("name") String name,
-            @JsonProperty("payable") boolean payable,
-            @JsonProperty("constant") boolean constant,
-            @JsonProperty("anonymous") boolean anonymous,
-            @JsonProperty("stateMutability") StateMutability stateMutability,
-            @JsonProperty("inputs") List<AbiParameter> inputs,
-            @JsonProperty("outputs") List<AbiParameter> outputs) {
+            @JsonProperty("type") final EntryType type,
+            @JsonProperty("name") final String name,
+            @JsonProperty("payable") final boolean payable,
+            @JsonProperty("constant") final boolean constant,
+            @JsonProperty("anonymous") final boolean anonymous,
+            @JsonProperty("stateMutability") final StateMutability stateMutability,
+            @JsonProperty("inputs") final List<AbiParameter> inputs,
+            @JsonProperty("outputs") final List<AbiParameter> outputs) {
         this.type = type;
         this.name = name == null ? "" : name;
         this.payable = payable;
@@ -121,22 +121,22 @@ public final class AbiEntry {
     }
 
     /** Starts a builder for an entry of the given type. */
-    public static Builder builder(EntryType type) {
+    public static Builder builder(final EntryType type) {
         return new Builder(type);
     }
 
     /** Starts a builder for a {@link EntryType#FUNCTION} with the given name. */
-    public static Builder function(String name) {
+    public static Builder function(final String name) {
         return new Builder(EntryType.FUNCTION).name(name);
     }
 
     /** Starts a builder for an {@link EntryType#EVENT} with the given name. */
-    public static Builder event(String name) {
+    public static Builder event(final String name) {
         return new Builder(EntryType.EVENT).name(name);
     }
 
     /** Starts a builder for an {@link EntryType#ERROR} with the given name. */
-    public static Builder error(String name) {
+    public static Builder error(final String name) {
         return new Builder(EntryType.ERROR).name(name);
     }
 
@@ -146,7 +146,7 @@ public final class AbiEntry {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(final Object o) {
         if (this == o) {
             return true;
         }
@@ -182,51 +182,51 @@ public final class AbiEntry {
         private final List<AbiParameter> inputs = new ArrayList<>();
         private final List<AbiParameter> outputs = new ArrayList<>();
 
-        private Builder(EntryType type) {
+        private Builder(final EntryType type) {
             this.type = type;
         }
 
-        public Builder name(String name) {
+        public Builder name(final String name) {
             this.name = name;
             return this;
         }
 
-        public Builder payable(boolean payable) {
+        public Builder payable(final boolean payable) {
             this.payable = payable;
             return this;
         }
 
-        public Builder constant(boolean constant) {
+        public Builder constant(final boolean constant) {
             this.constant = constant;
             return this;
         }
 
-        public Builder anonymous(boolean anonymous) {
+        public Builder anonymous(final boolean anonymous) {
             this.anonymous = anonymous;
             return this;
         }
 
-        public Builder stateMutability(StateMutability stateMutability) {
+        public Builder stateMutability(final StateMutability stateMutability) {
             this.stateMutability = stateMutability;
             return this;
         }
 
-        public Builder input(AbiParameter input) {
+        public Builder input(final AbiParameter input) {
             this.inputs.add(input);
             return this;
         }
 
-        public Builder inputs(List<AbiParameter> inputs) {
+        public Builder inputs(final List<AbiParameter> inputs) {
             this.inputs.addAll(inputs);
             return this;
         }
 
-        public Builder output(AbiParameter output) {
+        public Builder output(final AbiParameter output) {
             this.outputs.add(output);
             return this;
         }
 
-        public Builder outputs(List<AbiParameter> outputs) {
+        public Builder outputs(final List<AbiParameter> outputs) {
             this.outputs.addAll(outputs);
             return this;
         }

@@ -41,10 +41,10 @@ public final class JsonRpcRequest {
 
   @JsonCreator
   JsonRpcRequest(
-      @JsonProperty("jsonrpc") String jsonrpc,
-      @JsonProperty("id") String id,
-      @JsonProperty("method") String method,
-      @JsonProperty("params") List<Object> params) {
+      @JsonProperty("jsonrpc") final String jsonrpc,
+      @JsonProperty("id") final String id,
+      @JsonProperty("method") final String method,
+      @JsonProperty("params") final List<Object> params) {
     this.jsonrpc = jsonrpc == null ? JSON_RPC_VERSION : jsonrpc;
     this.id = id;
     this.method = method;
@@ -58,7 +58,7 @@ public final class JsonRpcRequest {
    * @param method the JSON-RPC method name
    * @param params the positional parameters; may be empty
    */
-  public JsonRpcRequest(String id, String method, List<Object> params) {
+  public JsonRpcRequest(final String id, final String method, final List<Object> params) {
     this(JSON_RPC_VERSION, id, method, params);
   }
 

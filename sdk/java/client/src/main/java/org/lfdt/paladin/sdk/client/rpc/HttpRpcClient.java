@@ -75,7 +75,7 @@ public final class HttpRpcClient implements RpcClient {
    *
    * @param config the connection, timeout, header, and retry configuration
    */
-  public HttpRpcClient(RpcClientConfig config) {
+  public HttpRpcClient(final RpcClientConfig config) {
     this.config = config;
     this.mapper = PaladinObjectMapper.shared();
     this.uri = URI.create(config.url());
@@ -83,13 +83,13 @@ public final class HttpRpcClient implements RpcClient {
   }
 
   @Override
-  public <T> CompletableFuture<T> callRpc(Class<T> resultType, String method, Object... params) {
+  public <T> CompletableFuture<T> callRpc(final Class<T> resultType, final String method, final Object... params) {
     return call(mapper.getTypeFactory().constructType(resultType), method, params);
   }
 
   @Override
   public <T> CompletableFuture<T> callRpc(
-      TypeReference<T> resultType, String method, Object... params) {
+      final TypeReference<T> resultType, final String method, final Object... params) {
     return call(mapper.getTypeFactory().constructType(resultType), method, params);
   }
 
@@ -98,11 +98,11 @@ public final class HttpRpcClient implements RpcClient {
     httpClient.close();
   }
 
-  private <T> CompletableFuture<T> call(JavaType resultType, String method, Object[] params) {
+  private <T> CompletableFuture<T> call(final JavaType resultType, final String method, final Object[] params) {
     final HttpRequest request;
     try {
       request = buildRequest(method, params);
-    } catch (JsonProcessingException e) {
+    } catch (final JsonProcessingException e) {
       return CompletableFuture.failedFuture(
           new PaladinRpcException(
               JsonRpcErrorCode.INVALID_REQUEST,
@@ -113,11 +113,11 @@ public final class HttpRpcClient implements RpcClient {
     return sendWithRetry(request, 1).thenApply(response -> processResponse(response, resultType));
   }
 
-  private HttpRequest buildRequest(String method, Object[] params) throws JsonProcessingException {
-    String id = String.format(Locale.ROOT, "%09d", requestCounter.incrementAndGet());
-    List<Object> args = params == null ? List.of() : Arrays.asList(params);
-    byte[] body = mapper.writeValueAsBytes(new JsonRpcRequest(id, method, args));
-    HttpRequest.Builder builder =
+  private HttpRequest buildRequest(final String method, final Object[] params) throws JsonProcessingException {
+    final String id = String.format(Locale.ROOT, "%09d", requestCounter.incrementAndGet());
+    final List<Object> args = params == null ? List.of() : Arrays.asList(params);
+    final byte[] body = mapper.writeValueAsBytes(new JsonRpcRequest(id, method, args));
+    final HttpRequest.Builder builder =
         HttpRequest.newBuilder(uri)
             .timeout(config.requestTimeout())
             .header(CONTENT_TYPE, APPLICATION_JSON)
@@ -127,14 +127,14 @@ public final class HttpRpcClient implements RpcClient {
     return builder.build();
   }
 
-  private CompletableFuture<HttpResponse<byte[]>> sendWithRetry(HttpRequest request, int attempt) {
+  private CompletableFuture<HttpResponse<byte[]>> sendWithRetry(final HttpRequest request, final int attempt) {
     return httpClient
         .sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
         .handle((response, throwable) -> new Attempt(response, throwable))
         .thenCompose(
             result -> {
               if (result.throwable != null) {
-                PaladinException mapped = mapTransportError(result.throwable);
+                final PaladinException mapped = mapTransportError(result.throwable);
                 if (config.retryPolicy().shouldRetry(attempt)) {
                   return retryAfterDelay(request, attempt);
                 }
@@ -149,22 +149,22 @@ public final class HttpRpcClient implements RpcClient {
   }
 
   private CompletableFuture<HttpResponse<byte[]>> retryAfterDelay(
-      HttpRequest request, int attempt) {
-    Duration delay = config.retryPolicy().delayForAttempt(attempt);
-    Executor delayed = CompletableFuture.delayedExecutor(delay.toMillis(), TimeUnit.MILLISECONDS);
+      final HttpRequest request, final int attempt) {
+    final Duration delay = config.retryPolicy().delayForAttempt(attempt);
+    final Executor delayed = CompletableFuture.delayedExecutor(delay.toMillis(), TimeUnit.MILLISECONDS);
     return CompletableFuture.supplyAsync(() -> null, delayed)
         .thenCompose(ignored -> sendWithRetry(request, attempt + 1));
   }
 
-  private <T> T processResponse(HttpResponse<byte[]> response, JavaType resultType) {
-    int status = response.statusCode();
-    byte[] body = response.body();
+  private <T> T processResponse(final HttpResponse<byte[]> response, final JavaType resultType) {
+    final int status = response.statusCode();
+    final byte[] body = response.body();
 
     JsonRpcResponse rpcResponse = null;
     if (body != null && body.length > 0) {
       try {
         rpcResponse = mapper.readValue(body, JsonRpcResponse.class);
-      } catch (IOException e) {
+      } catch (final IOException e) {
         // A non-JSON body on a failure status is a transport-level error, not a JSON-RPC error.
         if (!isSuccess(status)) {
           throw new PaladinRpcException(
@@ -175,27 +175,27 @@ public final class HttpRpcClient implements RpcClient {
     }
 
     if (rpcResponse != null && rpcResponse.hasError()) {
-      JsonRpcError error = rpcResponse.error();
+      final JsonRpcError error = rpcResponse.error();
       throw new PaladinRpcException(error.code(), error.message(), error.data(), status);
     }
     if (!isSuccess(status)) {
       throw new PaladinRpcException(0, "HTTP request failed with status " + status, null, status);
     }
 
-    JsonNode result = rpcResponse == null ? null : rpcResponse.result();
+    final JsonNode result = rpcResponse == null ? null : rpcResponse.result();
     if (result == null || result.isNull()) {
       return null;
     }
     try {
       return mapper.convertValue(result, resultType);
-    } catch (IllegalArgumentException e) {
+    } catch (final IllegalArgumentException e) {
       throw new PaladinRpcException(
           JsonRpcErrorCode.PARSE_ERROR, "failed to parse result: " + e.getMessage(), null, status);
     }
   }
 
-  private PaladinException mapTransportError(Throwable throwable) {
-    Throwable cause = unwrap(throwable);
+  private PaladinException mapTransportError(final Throwable throwable) {
+    final Throwable cause = unwrap(throwable);
     if (cause instanceof HttpTimeoutException) {
       return new PaladinTimeoutException(
           "request to " + uri + " timed out after " + config.requestTimeout(), cause);
@@ -212,7 +212,7 @@ public final class HttpRpcClient implements RpcClient {
         "unexpected error calling " + uri + ": " + cause.getMessage(), cause);
   }
 
-  private static Throwable unwrap(Throwable throwable) {
+  private static Throwable unwrap(final Throwable throwable) {
     Throwable cause = throwable;
     while ((cause instanceof CompletionException) && cause.getCause() != null) {
       cause = cause.getCause();
@@ -220,11 +220,11 @@ public final class HttpRpcClient implements RpcClient {
     return cause;
   }
 
-  private static boolean isSuccess(int status) {
+  private static boolean isSuccess(final int status) {
     return status >= 200 && status < 300;
   }
 
-  private static boolean isRetryableStatus(int status) {
+  private static boolean isRetryableStatus(final int status) {
     return status == 429 || (status >= 500 && status < 600);
   }
 
@@ -236,7 +236,7 @@ public final class HttpRpcClient implements RpcClient {
     private final HttpResponse<byte[]> response;
     private final Throwable throwable;
 
-    private Attempt(HttpResponse<byte[]> response, Throwable throwable) {
+    private Attempt(final HttpResponse<byte[]> response, final Throwable throwable) {
       this.response = response;
       this.throwable = throwable;
     }

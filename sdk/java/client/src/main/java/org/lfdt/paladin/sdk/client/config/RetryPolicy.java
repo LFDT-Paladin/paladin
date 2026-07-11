@@ -50,7 +50,7 @@ public final class RetryPolicy {
   private final Duration maxDelay;
   private final double factor;
 
-  private RetryPolicy(Builder b) {
+  private RetryPolicy(final Builder b) {
     this.maxAttempts = b.maxAttempts;
     this.initialDelay = b.initialDelay;
     this.maxDelay = b.maxDelay;
@@ -120,9 +120,9 @@ public final class RetryPolicy {
    * @param failedAttempt the 1-based number of the attempt that failed
    * @return the delay to wait before the next attempt
    */
-  public Duration delayForAttempt(int failedAttempt) {
+  public Duration delayForAttempt(final int failedAttempt) {
     double delayMs = initialDelay.toMillis();
-    double capMs = maxDelay.toMillis();
+    final double capMs = maxDelay.toMillis();
     for (int i = 0; i < failedAttempt - 1; i++) {
       delayMs *= factor;
       if (delayMs >= capMs) {
@@ -139,7 +139,7 @@ public final class RetryPolicy {
    * @param failedAttempt the 1-based number of the attempt that failed
    * @return {@code true} if {@code maxAttempts} has not yet been reached
    */
-  public boolean shouldRetry(int failedAttempt) {
+  public boolean shouldRetry(final int failedAttempt) {
     return failedAttempt < maxAttempts;
   }
 
@@ -160,7 +160,7 @@ public final class RetryPolicy {
      * @param maxAttempts the attempt ceiling
      * @return this builder
      */
-    public Builder maxAttempts(int maxAttempts) {
+    public Builder maxAttempts(final int maxAttempts) {
       this.maxAttempts = maxAttempts;
       return this;
     }
@@ -171,7 +171,7 @@ public final class RetryPolicy {
      * @param initialDelay the initial backoff delay (must be non-negative)
      * @return this builder
      */
-    public Builder initialDelay(Duration initialDelay) {
+    public Builder initialDelay(final Duration initialDelay) {
       this.initialDelay = requireNonNegative(initialDelay, "initialDelay");
       return this;
     }
@@ -182,7 +182,7 @@ public final class RetryPolicy {
      * @param maxDelay the maximum backoff delay (must be non-negative)
      * @return this builder
      */
-    public Builder maxDelay(Duration maxDelay) {
+    public Builder maxDelay(final Duration maxDelay) {
       this.maxDelay = requireNonNegative(maxDelay, "maxDelay");
       return this;
     }
@@ -193,7 +193,7 @@ public final class RetryPolicy {
      * @param factor the backoff multiplier
      * @return this builder
      */
-    public Builder factor(double factor) {
+    public Builder factor(final double factor) {
       if (factor < 1.0) {
         throw new IllegalArgumentException("factor must be >= 1.0, was " + factor);
       }
@@ -210,7 +210,7 @@ public final class RetryPolicy {
       return new RetryPolicy(this);
     }
 
-    private static Duration requireNonNegative(Duration value, String name) {
+    private static Duration requireNonNegative(final Duration value, final String name) {
       Objects.requireNonNull(value, name);
       if (value.isNegative()) {
         throw new IllegalArgumentException(name + " must not be negative, was " + value);

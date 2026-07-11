@@ -58,13 +58,13 @@ public final class QueryBuilder {
     }
 
     /** Sets the maximum number of items to return. */
-    public QueryBuilder limit(int limit) {
+    public QueryBuilder limit(final int limit) {
         this.limit = limit;
         return this;
     }
 
     /** Appends one or more sort fields (each optionally suffixed with {@code " DESC"}/{@code " ASC"}). */
-    public QueryBuilder sort(String... fields) {
+    public QueryBuilder sort(final String... fields) {
         for (String field : fields) {
             this.sort.add(field);
         }
@@ -72,73 +72,73 @@ public final class QueryBuilder {
     }
 
     /** Adds an equality filter ({@code eq}). */
-    public QueryBuilder equal(String field, Object value, QueryModifier... modifiers) {
+    public QueryBuilder equal(final String field, final Object value, final QueryModifier... modifiers) {
         eq.add(singleVal(field, value, modifiers));
         return this;
     }
 
     /** Adds a not-equal filter ({@code neq}). */
-    public QueryBuilder notEqual(String field, Object value, QueryModifier... modifiers) {
+    public QueryBuilder notEqual(final String field, final Object value, final QueryModifier... modifiers) {
         neq.add(singleVal(field, value, modifiers));
         return this;
     }
 
     /** Adds a greater-than filter ({@code gt}). */
-    public QueryBuilder greaterThan(String field, Object value) {
+    public QueryBuilder greaterThan(final String field, final Object value) {
         gt.add(singleVal(field, value));
         return this;
     }
 
     /** Adds a greater-than-or-equal filter ({@code gte}). */
-    public QueryBuilder greaterThanOrEqual(String field, Object value) {
+    public QueryBuilder greaterThanOrEqual(final String field, final Object value) {
         gte.add(singleVal(field, value));
         return this;
     }
 
     /** Adds a less-than filter ({@code lt}). */
-    public QueryBuilder lessThan(String field, Object value) {
+    public QueryBuilder lessThan(final String field, final Object value) {
         lt.add(singleVal(field, value));
         return this;
     }
 
     /** Adds a less-than-or-equal filter ({@code lte}). */
-    public QueryBuilder lessThanOrEqual(String field, Object value) {
+    public QueryBuilder lessThanOrEqual(final String field, final Object value) {
         lte.add(singleVal(field, value));
         return this;
     }
 
     /** Adds a membership filter ({@code in}). */
-    public QueryBuilder in(String field, List<?> values, QueryModifier... modifiers) {
+    public QueryBuilder in(final String field, final List<?> values, final QueryModifier... modifiers) {
         in.add(multiVal(field, values, modifiers));
         return this;
     }
 
     /** Adds a not-in filter ({@code nin}). */
-    public QueryBuilder notIn(String field, List<?> values, QueryModifier... modifiers) {
+    public QueryBuilder notIn(final String field, final List<?> values, final QueryModifier... modifiers) {
         nin.add(multiVal(field, values, modifiers));
         return this;
     }
 
     /** Adds an is-null filter. */
-    public QueryBuilder isNull(String field) {
+    public QueryBuilder isNull(final String field) {
         isNull.add(new Op(field, false, false));
         return this;
     }
 
     /** Adds an is-not-null filter (a {@code null} operand carrying {@code not: true}). */
-    public QueryBuilder isNotNull(String field) {
+    public QueryBuilder isNotNull(final String field) {
         isNull.add(new Op(field, true, false));
         return this;
     }
 
     /** Adds a pattern-match filter ({@code like}). */
-    public QueryBuilder like(String field, Object value) {
+    public QueryBuilder like(final String field, final Object value) {
         like.add(singleVal(field, value));
         return this;
     }
 
     /** Adds a negated pattern-match filter (a {@code like} operand carrying {@code not: true}). */
-    public QueryBuilder notLike(String field, Object value) {
+    public QueryBuilder notLike(final String field, final Object value) {
         like.add(singleVal(field, value, QueryModifier.NOT));
         return this;
     }
@@ -147,7 +147,7 @@ public final class QueryBuilder {
      * Adds OR branches. Each child builder's filter statements become one branch; the children's
      * {@code limit}/{@code sort} are ignored (only the root query paginates), mirroring the Go builder.
      */
-    public QueryBuilder or(QueryBuilder... branches) {
+    public QueryBuilder or(final QueryBuilder... branches) {
         for (QueryBuilder branch : branches) {
             or.add(branch.buildStatements());
         }
@@ -164,14 +164,14 @@ public final class QueryBuilder {
         return new QueryJSON(null, null, or, eq, neq, like, lt, lte, gt, gte, in, nin, isNull);
     }
 
-    private static OpSingleVal singleVal(String field, Object value, QueryModifier... modifiers) {
-        boolean[] flags = flags(modifiers);
+    private static OpSingleVal singleVal(final String field, final Object value, final QueryModifier... modifiers) {
+        final boolean[] flags = flags(modifiers);
         return new OpSingleVal(field, flags[0], flags[1], toNode(value));
     }
 
-    private static OpMultiVal multiVal(String field, List<?> values, QueryModifier... modifiers) {
-        boolean[] flags = flags(modifiers);
-        List<JsonNode> nodes = new ArrayList<>();
+    private static OpMultiVal multiVal(final String field, final List<?> values, final QueryModifier... modifiers) {
+        final boolean[] flags = flags(modifiers);
+        final List<JsonNode> nodes = new ArrayList<>();
         if (values != null) {
             for (Object value : values) {
                 nodes.add(toNode(value));
@@ -181,7 +181,7 @@ public final class QueryBuilder {
     }
 
     /** Resolves the modifier varargs into {@code [not, caseInsensitive]} flags. */
-    private static boolean[] flags(QueryModifier... modifiers) {
+    private static boolean[] flags(final QueryModifier... modifiers) {
         boolean not = false;
         boolean caseInsensitive = false;
         for (QueryModifier modifier : modifiers) {
@@ -199,10 +199,10 @@ public final class QueryBuilder {
      * round-tripping through its serialized form. This keeps the node identical to one parsed from the same
      * JSON, so a built query equals its plain-mapper round trip regardless of the value's declared width.
      */
-    private static JsonNode toNode(Object value) {
+    private static JsonNode toNode(final Object value) {
         try {
             return VALUE_MAPPER.readTree(VALUE_MAPPER.writeValueAsString(value));
-        } catch (JsonProcessingException e) {
+        } catch (final JsonProcessingException e) {
             throw new IllegalArgumentException("query value is not JSON-serializable: " + value, e);
         }
     }

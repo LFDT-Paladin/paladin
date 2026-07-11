@@ -39,7 +39,7 @@ public enum EntryType {
 
     private final String jsonValue;
 
-    EntryType(String jsonValue) {
+    EntryType(final String jsonValue) {
         this.jsonValue = jsonValue;
     }
 
@@ -51,7 +51,7 @@ public enum EntryType {
 
     /** Resolves an entry type from its JSON token, case-insensitively. */
     @JsonCreator
-    public static EntryType fromJson(String s) {
+    public static EntryType fromJson(final String s) {
         if (s != null) {
             for (EntryType t : values()) {
                 if (t.jsonValue.equalsIgnoreCase(s)) {

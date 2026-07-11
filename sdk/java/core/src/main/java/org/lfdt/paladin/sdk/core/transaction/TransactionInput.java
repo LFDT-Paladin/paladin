@@ -68,21 +68,21 @@ public final class TransactionInput {
 
     @JsonCreator
     TransactionInput(
-            @JsonProperty("idempotencyKey") String idempotencyKey,
-            @JsonProperty("type") TransactionType type,
-            @JsonProperty("domain") String domain,
-            @JsonProperty("function") String function,
-            @JsonProperty("abiReference") Bytes32 abiReference,
-            @JsonProperty("from") String from,
-            @JsonProperty("to") EthAddress to,
-            @JsonProperty("data") JsonNode data,
-            @JsonProperty("gas") HexUint64 gas,
-            @JsonProperty("value") HexUint256 value,
-            @JsonProperty("maxPriorityFeePerGas") HexUint256 maxPriorityFeePerGas,
-            @JsonProperty("maxFeePerGas") HexUint256 maxFeePerGas,
-            @JsonProperty("dependsOn") List<UUID> dependsOn,
-            @JsonProperty("abi") List<AbiEntry> abi,
-            @JsonProperty("bytecode") HexBytes bytecode) {
+            @JsonProperty("idempotencyKey") final String idempotencyKey,
+            @JsonProperty("type") final TransactionType type,
+            @JsonProperty("domain") final String domain,
+            @JsonProperty("function") final String function,
+            @JsonProperty("abiReference") final Bytes32 abiReference,
+            @JsonProperty("from") final String from,
+            @JsonProperty("to") final EthAddress to,
+            @JsonProperty("data") final JsonNode data,
+            @JsonProperty("gas") final HexUint64 gas,
+            @JsonProperty("value") final HexUint256 value,
+            @JsonProperty("maxPriorityFeePerGas") final HexUint256 maxPriorityFeePerGas,
+            @JsonProperty("maxFeePerGas") final HexUint256 maxFeePerGas,
+            @JsonProperty("dependsOn") final List<UUID> dependsOn,
+            @JsonProperty("abi") final List<AbiEntry> abi,
+            @JsonProperty("bytecode") final HexBytes bytecode) {
         this.idempotencyKey = idempotencyKey;
         this.type = type;
         this.domain = domain;
@@ -211,7 +211,7 @@ public final class TransactionInput {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(final Object o) {
         if (this == o) {
             return true;
         }
@@ -265,91 +265,91 @@ public final class TransactionInput {
         private Builder() {
         }
 
-        public Builder idempotencyKey(String idempotencyKey) {
+        public Builder idempotencyKey(final String idempotencyKey) {
             this.idempotencyKey = idempotencyKey;
             return this;
         }
 
-        public Builder type(TransactionType type) {
+        public Builder type(final TransactionType type) {
             this.type = type;
             return this;
         }
 
-        public Builder domain(String domain) {
+        public Builder domain(final String domain) {
             this.domain = domain;
             return this;
         }
 
-        public Builder function(String function) {
+        public Builder function(final String function) {
             this.function = function;
             return this;
         }
 
-        public Builder abiReference(Bytes32 abiReference) {
+        public Builder abiReference(final Bytes32 abiReference) {
             this.abiReference = abiReference;
             return this;
         }
 
-        public Builder from(String from) {
+        public Builder from(final String from) {
             this.from = from;
             return this;
         }
 
-        public Builder to(EthAddress to) {
+        public Builder to(final EthAddress to) {
             this.to = to;
             return this;
         }
 
-        public Builder data(JsonNode data) {
+        public Builder data(final JsonNode data) {
             this.data = data;
             return this;
         }
 
-        public Builder gas(HexUint64 gas) {
+        public Builder gas(final HexUint64 gas) {
             this.gas = gas;
             return this;
         }
 
-        public Builder value(HexUint256 value) {
+        public Builder value(final HexUint256 value) {
             this.value = value;
             return this;
         }
 
-        public Builder maxPriorityFeePerGas(HexUint256 maxPriorityFeePerGas) {
+        public Builder maxPriorityFeePerGas(final HexUint256 maxPriorityFeePerGas) {
             this.maxPriorityFeePerGas = maxPriorityFeePerGas;
             return this;
         }
 
-        public Builder maxFeePerGas(HexUint256 maxFeePerGas) {
+        public Builder maxFeePerGas(final HexUint256 maxFeePerGas) {
             this.maxFeePerGas = maxFeePerGas;
             return this;
         }
 
         /** Adds a transaction this one depends on. */
-        public Builder dependsOn(UUID dependency) {
+        public Builder dependsOn(final UUID dependency) {
             this.dependsOn.add(dependency);
             return this;
         }
 
         /** Adds transactions this one depends on. */
-        public Builder dependsOn(List<UUID> dependencies) {
+        public Builder dependsOn(final List<UUID> dependencies) {
             this.dependsOn.addAll(dependencies);
             return this;
         }
 
         /** Adds an entry to the inline ABI. */
-        public Builder abiEntry(AbiEntry entry) {
+        public Builder abiEntry(final AbiEntry entry) {
             this.abi.add(entry);
             return this;
         }
 
         /** Adds entries to the inline ABI. */
-        public Builder abi(List<AbiEntry> abi) {
+        public Builder abi(final List<AbiEntry> abi) {
             this.abi.addAll(abi);
             return this;
         }
 
-        public Builder bytecode(HexBytes bytecode) {
+        public Builder bytecode(final HexBytes bytecode) {
             this.bytecode = bytecode;
             return this;
         }

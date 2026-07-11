@@ -38,10 +38,10 @@ public final class JsonRpcResponse {
 
   @JsonCreator
   JsonRpcResponse(
-      @JsonProperty("jsonrpc") String jsonrpc,
-      @JsonProperty("id") JsonNode id,
-      @JsonProperty("result") JsonNode result,
-      @JsonProperty("error") JsonRpcError error) {
+      @JsonProperty("jsonrpc") final String jsonrpc,
+      @JsonProperty("id") final JsonNode id,
+      @JsonProperty("result") final JsonNode result,
+      @JsonProperty("error") final JsonRpcError error) {
     this.jsonrpc = jsonrpc;
     this.id = id;
     this.result = result;

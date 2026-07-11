@@ -36,9 +36,9 @@ public final class JsonRpcError {
 
   @JsonCreator
   JsonRpcError(
-      @JsonProperty("code") long code,
-      @JsonProperty("message") String message,
-      @JsonProperty("data") JsonNode data) {
+      @JsonProperty("code") final long code,
+      @JsonProperty("message") final String message,
+      @JsonProperty("data") final JsonNode data) {
     this.code = code;
     this.message = message;
     this.data = data;

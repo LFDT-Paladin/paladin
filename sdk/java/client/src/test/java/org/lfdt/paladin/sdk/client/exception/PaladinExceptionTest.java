@@ -43,16 +43,16 @@ class PaladinExceptionTest {
 
   @Test
   void carriesMessageAndCause() {
-    Throwable cause = new IllegalStateException("boom");
-    PaladinConnectionException ex = new PaladinConnectionException("refused", cause);
+    final Throwable cause = new IllegalStateException("boom");
+    final PaladinConnectionException ex = new PaladinConnectionException("refused", cause);
     assertEquals("refused", ex.getMessage());
     assertSame(cause, ex.getCause());
   }
 
   @Test
   void rpcExceptionExposesCodeStatusAndData() {
-    JsonNode data = JsonNodeFactory.instance.numberNode(42);
-    PaladinRpcException ex = new PaladinRpcException(-32000, "unauthorized", data, 401);
+    final JsonNode data = JsonNodeFactory.instance.numberNode(42);
+    final PaladinRpcException ex = new PaladinRpcException(-32000, "unauthorized", data, 401);
     assertEquals(-32000, ex.code());
     assertEquals(401, ex.httpStatus());
     assertTrue(ex.data().isPresent());
@@ -61,7 +61,7 @@ class PaladinExceptionTest {
 
   @Test
   void rpcExceptionWithoutDataReportsEmpty() {
-    PaladinRpcException ex = new PaladinRpcException(0, "bad gateway", null, 502);
+    final PaladinRpcException ex = new PaladinRpcException(0, "bad gateway", null, 502);
     assertEquals(0, ex.code());
     assertEquals(502, ex.httpStatus());
     assertFalse(ex.data().isPresent());

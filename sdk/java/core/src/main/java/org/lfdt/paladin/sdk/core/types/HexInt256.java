@@ -39,23 +39,23 @@ public final class HexInt256 {
 
     private final BigInteger value;
 
-    private HexInt256(BigInteger value) {
+    private HexInt256(final BigInteger value) {
         this.value = value;
     }
 
-    public static HexInt256 of(BigInteger value) {
+    public static HexInt256 of(final BigInteger value) {
         if (value == null) {
             throw new IllegalArgumentException("value must not be null");
         }
         return new HexInt256(value);
     }
 
-    public static HexInt256 of(long value) {
+    public static HexInt256 of(final long value) {
         return new HexInt256(BigInteger.valueOf(value));
     }
 
     /** Parses a hex ({@code 0x}-prefixed, optionally signed) or decimal string. */
-    public static HexInt256 fromString(String s) {
+    public static HexInt256 fromString(final String s) {
         return new HexInt256(Hex.parseBigInteger(s));
     }
 
@@ -79,7 +79,7 @@ public final class HexInt256 {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(final Object o) {
         if (this == o) {
             return true;
         }
@@ -93,15 +93,15 @@ public final class HexInt256 {
 
     static final class Serializer extends JsonSerializer<HexInt256> {
         @Override
-        public void serialize(HexInt256 v, JsonGenerator gen, SerializerProvider provider) throws IOException {
+        public void serialize(final HexInt256 v, final JsonGenerator gen, final SerializerProvider provider) throws IOException {
             gen.writeString(v.to0xHex());
         }
     }
 
     static final class Deserializer extends JsonDeserializer<HexInt256> {
         @Override
-        public HexInt256 deserialize(JsonParser p, DeserializationContext ctx) throws IOException {
-            JsonToken t = p.currentToken();
+        public HexInt256 deserialize(final JsonParser p, final DeserializationContext ctx) throws IOException {
+            final JsonToken t = p.currentToken();
             if (t == JsonToken.VALUE_NUMBER_INT) {
                 return new HexInt256(p.getBigIntegerValue());
             }

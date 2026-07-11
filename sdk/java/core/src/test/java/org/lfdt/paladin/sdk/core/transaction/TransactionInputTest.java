@@ -44,11 +44,11 @@ class TransactionInputTest {
 
     @Test
     void omitsEmptyListsAndNulls() throws Exception {
-        TransactionInput input = TransactionInput.builder()
+        final TransactionInput input = TransactionInput.builder()
                 .type(TransactionType.PUBLIC)
                 .from("key1")
                 .build();
-        String json = MAPPER.writeValueAsString(input);
+        final String json = MAPPER.writeValueAsString(input);
         assertEquals("{\"type\":\"public\",\"from\":\"key1\"}", json);
         assertTrue(input.dependsOn().isEmpty());
         assertTrue(input.abi().isEmpty());
@@ -56,9 +56,9 @@ class TransactionInputTest {
 
     @Test
     void roundTripsFullInvoke() throws Exception {
-        UUID dep = UUID.randomUUID();
-        EthAddress to = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
-        TransactionInput input = TransactionInput.builder()
+        final UUID dep = UUID.randomUUID();
+        final EthAddress to = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
+        final TransactionInput input = TransactionInput.builder()
                 .idempotencyKey("idem-1")
                 .type(TransactionType.PRIVATE)
                 .domain("noto")
@@ -78,7 +78,7 @@ class TransactionInputTest {
                         .build())
                 .build();
 
-        TransactionInput parsed = MAPPER.readValue(MAPPER.writeValueAsString(input), TransactionInput.class);
+        final TransactionInput parsed = MAPPER.readValue(MAPPER.writeValueAsString(input), TransactionInput.class);
         assertEquals(input, parsed);
         assertEquals(TransactionType.PRIVATE, parsed.type());
         assertEquals("transfer", parsed.function());
@@ -91,14 +91,14 @@ class TransactionInputTest {
 
     @Test
     void roundTripsDeployWithBytecode() throws Exception {
-        TransactionInput input = TransactionInput.builder()
+        final TransactionInput input = TransactionInput.builder()
                 .type(TransactionType.PUBLIC)
                 .from("deployer")
                 .bytecode(HexBytes.fromString("0x60806040"))
                 .abiEntry(AbiEntry.constructor().build())
                 .build();
 
-        TransactionInput parsed = MAPPER.readValue(MAPPER.writeValueAsString(input), TransactionInput.class);
+        final TransactionInput parsed = MAPPER.readValue(MAPPER.writeValueAsString(input), TransactionInput.class);
         assertEquals(input, parsed);
         assertEquals(HexBytes.fromString("0x60806040"), parsed.bytecode());
         assertNull(parsed.to()); // null for a deploy
@@ -107,14 +107,14 @@ class TransactionInputTest {
 
     @Test
     void parsesNodeStyleJson() throws Exception {
-        String json = "{"
+        final String json = "{"
                 + "\"type\":\"public\","
                 + "\"from\":\"key1\","
                 + "\"to\":\"0x05d936207F04D81a85881b72A0D17854Ee8BE45A\","
                 + "\"gas\":\"0x5208\","
                 + "\"value\":\"0x0a\","
                 + "\"data\":[\"0x1234\"]}";
-        TransactionInput input = MAPPER.readValue(json, TransactionInput.class);
+        final TransactionInput input = MAPPER.readValue(json, TransactionInput.class);
         assertEquals(TransactionType.PUBLIC, input.type());
         assertEquals(0x5208, input.gas().asUnsignedLong());
         assertEquals(HexUint256.of(10), input.value());
@@ -136,7 +136,7 @@ class TransactionInputTest {
 
     @Test
     void builderDefaultsAreEmpty() {
-        TransactionInput input = TransactionInput.builder().build();
+        final TransactionInput input = TransactionInput.builder().build();
         assertTrue(input.dependsOn().isEmpty());
         assertTrue(input.abi().isEmpty());
         assertFalse(input.equals(TransactionInput.builder().from("x").build()));

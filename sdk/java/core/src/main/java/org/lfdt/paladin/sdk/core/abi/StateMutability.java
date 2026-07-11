@@ -36,7 +36,7 @@ public enum StateMutability {
 
     private final String jsonValue;
 
-    StateMutability(String jsonValue) {
+    StateMutability(final String jsonValue) {
         this.jsonValue = jsonValue;
     }
 
@@ -48,7 +48,7 @@ public enum StateMutability {
 
     /** Resolves a state mutability from its JSON token, case-insensitively. */
     @JsonCreator
-    public static StateMutability fromJson(String s) {
+    public static StateMutability fromJson(final String s) {
         if (s != null) {
             for (StateMutability m : values()) {
                 if (m.jsonValue.equalsIgnoreCase(s)) {

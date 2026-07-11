@@ -27,7 +27,7 @@ class RpcClientConfigTest {
 
   @Test
   void retryDefaultsMirrorGo() {
-    RetryPolicy p = RetryPolicy.defaults();
+    final RetryPolicy p = RetryPolicy.defaults();
     assertEquals(RetryPolicy.DEFAULT_MAX_ATTEMPTS, p.maxAttempts());
     assertEquals(Duration.ofMillis(250), p.initialDelay());
     assertEquals(Duration.ofSeconds(30), p.maxDelay());
@@ -36,7 +36,7 @@ class RpcClientConfigTest {
 
   @Test
   void delayGrowsExponentiallyAndCapsAtMaxDelay() {
-    RetryPolicy p =
+    final RetryPolicy p =
         RetryPolicy.builder()
             .initialDelay(Duration.ofMillis(100))
             .maxDelay(Duration.ofMillis(1000))
@@ -54,7 +54,7 @@ class RpcClientConfigTest {
 
   @Test
   void shouldRetryHonoursMaxAttempts() {
-    RetryPolicy p = RetryPolicy.builder().maxAttempts(3).build();
+    final RetryPolicy p = RetryPolicy.builder().maxAttempts(3).build();
     assertTrue(p.shouldRetry(1));
     assertTrue(p.shouldRetry(2));
     assertFalse(p.shouldRetry(3));
@@ -63,7 +63,7 @@ class RpcClientConfigTest {
 
   @Test
   void singleAttemptPolicyDisablesRetries() {
-    RetryPolicy p = RetryPolicy.builder().maxAttempts(1).build();
+    final RetryPolicy p = RetryPolicy.builder().maxAttempts(1).build();
     assertFalse(p.shouldRetry(1));
   }
 
@@ -80,7 +80,7 @@ class RpcClientConfigTest {
 
   @Test
   void configDefaultsMatchGo() {
-    RpcClientConfig config = RpcClientConfig.builder("http://localhost:8548").build();
+    final RpcClientConfig config = RpcClientConfig.builder("http://localhost:8548").build();
     assertEquals("http://localhost:8548", config.url());
     assertEquals(Duration.ofSeconds(30), config.connectTimeout());
     assertEquals(Duration.ofSeconds(30), config.requestTimeout());
@@ -90,8 +90,8 @@ class RpcClientConfigTest {
 
   @Test
   void configBuilderCarriesAllOverrides() {
-    RetryPolicy retry = RetryPolicy.builder().maxAttempts(2).build();
-    RpcClientConfig config =
+    final RetryPolicy retry = RetryPolicy.builder().maxAttempts(2).build();
+    final RpcClientConfig config =
         RpcClientConfig.builder("http://node:1234")
             .connectTimeout(Duration.ofSeconds(5))
             .requestTimeout(Duration.ofSeconds(10))
@@ -108,7 +108,7 @@ class RpcClientConfigTest {
 
   @Test
   void headersMapIsUnmodifiable() {
-    RpcClientConfig config = RpcClientConfig.builder("http://node").header("a", "b").build();
+    final RpcClientConfig config = RpcClientConfig.builder("http://node").header("a", "b").build();
     assertThrows(UnsupportedOperationException.class, () -> config.headers().put("c", "d"));
   }
 

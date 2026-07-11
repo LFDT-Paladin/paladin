@@ -31,7 +31,7 @@ public class PaladinConnectionException extends PaladinException {
    *
    * @param message the detail message
    */
-  public PaladinConnectionException(String message) {
+  public PaladinConnectionException(final String message) {
     super(message);
   }
 
@@ -41,7 +41,7 @@ public class PaladinConnectionException extends PaladinException {
    * @param message the detail message
    * @param cause the underlying transport-level cause
    */
-  public PaladinConnectionException(String message, Throwable cause) {
+  public PaladinConnectionException(final String message, final Throwable cause) {
     super(message, cause);
   }
 }

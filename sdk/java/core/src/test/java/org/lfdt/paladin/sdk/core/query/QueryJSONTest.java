@@ -29,7 +29,7 @@ class QueryJSONTest {
 
     @Test
     void roundTripsFullQuery() throws Exception {
-        QueryJSON query = QueryJSON.builder()
+        final QueryJSON query = QueryJSON.builder()
                 .limit(25)
                 .sort("created DESC")
                 .equal("type", "private", QueryModifier.CASE_INSENSITIVE)
@@ -39,7 +39,7 @@ class QueryJSONTest {
                 .or(QueryJSON.builder().equal("domain", "noto"))
                 .build();
 
-        QueryJSON parsed = MAPPER.readValue(MAPPER.writeValueAsString(query), QueryJSON.class);
+        final QueryJSON parsed = MAPPER.readValue(MAPPER.writeValueAsString(query), QueryJSON.class);
         assertEquals(query, parsed);
         assertEquals(25, parsed.limit());
         assertEquals("type", parsed.eq().get(0).field());
@@ -52,12 +52,12 @@ class QueryJSONTest {
 
     @Test
     void parsesNodeStyleJson() throws Exception {
-        String json = "{"
+        final String json = "{"
                 + "\"limit\":5,"
                 + "\"sort\":[\"created\"],"
                 + "\"gte\":[{\"field\":\"value\",\"value\":\"0x0a\"}],"
                 + "\"null\":[{\"field\":\"contractAddress\",\"not\":true}]}";
-        QueryJSON query = MAPPER.readValue(json, QueryJSON.class);
+        final QueryJSON query = MAPPER.readValue(json, QueryJSON.class);
         assertEquals(5, query.limit());
         assertEquals(List.of("created"), query.sort());
         assertEquals("0x0a", query.gte().get(0).value().asText());
@@ -66,7 +66,7 @@ class QueryJSONTest {
 
     @Test
     void emptyQueryHasNonNullEmptyLists() throws Exception {
-        QueryJSON query = MAPPER.readValue("{}", QueryJSON.class);
+        final QueryJSON query = MAPPER.readValue("{}", QueryJSON.class);
         assertTrue(query.eq().isEmpty());
         assertTrue(query.or().isEmpty());
         assertTrue(query.isNull().isEmpty());
@@ -76,8 +76,8 @@ class QueryJSONTest {
     @Test
     void preservesNumericValuePrecision() throws Exception {
         // A large integer value must not be coerced through a double.
-        QueryJSON query = QueryJSON.builder().equal("nonce", 9007199254740993L).build();
-        QueryJSON parsed = MAPPER.readValue(MAPPER.writeValueAsString(query), QueryJSON.class);
+        final QueryJSON query = QueryJSON.builder().equal("nonce", 9007199254740993L).build();
+        final QueryJSON parsed = MAPPER.readValue(MAPPER.writeValueAsString(query), QueryJSON.class);
         assertEquals(9007199254740993L, parsed.eq().get(0).value().asLong());
         assertEquals(query, parsed);
     }

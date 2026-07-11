@@ -30,8 +30,8 @@ class JsonRpcEnvelopeTest {
 
   @Test
   void requestSerializesWithDefaultVersionAndParams() throws Exception {
-    JsonRpcRequest req = new JsonRpcRequest("000000001", "ptx_sendTransaction", List.of("a", 42));
-    JsonNode json = mapper.readTree(mapper.writeValueAsBytes(req));
+    final JsonRpcRequest req = new JsonRpcRequest("000000001", "ptx_sendTransaction", List.of("a", 42));
+    final JsonNode json = mapper.readTree(mapper.writeValueAsBytes(req));
     assertEquals("2.0", json.get("jsonrpc").asText());
     assertEquals("000000001", json.get("id").asText());
     assertEquals("ptx_sendTransaction", json.get("method").asText());
@@ -43,23 +43,23 @@ class JsonRpcEnvelopeTest {
 
   @Test
   void requestOmitsEmptyParams() throws Exception {
-    JsonRpcRequest req = new JsonRpcRequest("000000002", "pstate_listSchemas", List.of());
-    JsonNode json = mapper.readTree(mapper.writeValueAsBytes(req));
+    final JsonRpcRequest req = new JsonRpcRequest("000000002", "pstate_listSchemas", List.of());
+    final JsonNode json = mapper.readTree(mapper.writeValueAsBytes(req));
     assertFalse(json.has("params"), "empty params must be omitted to mirror Go omitempty");
   }
 
   @Test
   void nullParamsBecomeEmptyAndAreOmitted() throws Exception {
-    JsonRpcRequest req = new JsonRpcRequest("000000003", "noop", null);
+    final JsonRpcRequest req = new JsonRpcRequest("000000003", "noop", null);
     assertTrue(req.params().isEmpty());
-    JsonNode json = mapper.readTree(mapper.writeValueAsBytes(req));
+    final JsonNode json = mapper.readTree(mapper.writeValueAsBytes(req));
     assertFalse(json.has("params"));
   }
 
   @Test
   void successResponseExposesRawResultAndNoError() throws Exception {
-    String body = "{\"jsonrpc\":\"2.0\",\"id\":\"000000001\",\"result\":{\"value\":\"0x1f\"}}";
-    JsonRpcResponse resp = mapper.readValue(body, JsonRpcResponse.class);
+    final String body = "{\"jsonrpc\":\"2.0\",\"id\":\"000000001\",\"result\":{\"value\":\"0x1f\"}}";
+    final JsonRpcResponse resp = mapper.readValue(body, JsonRpcResponse.class);
     assertFalse(resp.hasError());
     assertNull(resp.error());
     assertEquals("0x1f", resp.result().get("value").asText());
@@ -68,20 +68,20 @@ class JsonRpcEnvelopeTest {
 
   @Test
   void numericResponseIdParses() throws Exception {
-    String body = "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":\"ok\"}";
-    JsonRpcResponse resp = mapper.readValue(body, JsonRpcResponse.class);
+    final String body = "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":\"ok\"}";
+    final JsonRpcResponse resp = mapper.readValue(body, JsonRpcResponse.class);
     assertEquals(7, resp.id().asInt());
     assertEquals("ok", resp.result().asText());
   }
 
   @Test
   void errorResponseExposesCodeMessageAndData() throws Exception {
-    String body =
+    final String body =
         "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"error\":{\"code\":-32000,\"message\":\"unauthorized\",\"data\":{\"hint\":\"token\"}}}";
-    JsonRpcResponse resp = mapper.readValue(body, JsonRpcResponse.class);
+    final JsonRpcResponse resp = mapper.readValue(body, JsonRpcResponse.class);
     assertTrue(resp.hasError());
     assertNull(resp.result());
-    JsonRpcError err = resp.error();
+    final JsonRpcError err = resp.error();
     assertEquals(JsonRpcErrorCode.UNAUTHORIZED, err.code());
     assertEquals("unauthorized", err.message());
     assertEquals("token", err.data().get("hint").asText());
@@ -89,9 +89,9 @@ class JsonRpcEnvelopeTest {
 
   @Test
   void errorWithoutDataReportsNull() throws Exception {
-    String body =
+    final String body =
         "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"error\":{\"code\":-32603,\"message\":\"boom\"}}";
-    JsonRpcResponse resp = mapper.readValue(body, JsonRpcResponse.class);
+    final JsonRpcResponse resp = mapper.readValue(body, JsonRpcResponse.class);
     assertEquals(JsonRpcErrorCode.INTERNAL_ERROR, resp.error().code());
     assertNull(resp.error().data());
   }
@@ -100,12 +100,12 @@ class JsonRpcEnvelopeTest {
   void unknownPropertiesAreToleratedByCallers() throws Exception {
     // The SDK mapper disables FAIL_ON_UNKNOWN_PROPERTIES; a plain mapper configured the same way
     // must accept newer/extra fields without throwing.
-    ObjectMapper lenient =
+    final ObjectMapper lenient =
         new ObjectMapper()
             .disable(
                 com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-    String body = "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"result\":1,\"futureField\":true}";
-    JsonRpcResponse resp = lenient.readValue(body, JsonRpcResponse.class);
+    final String body = "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"result\":1,\"futureField\":true}";
+    final JsonRpcResponse resp = lenient.readValue(body, JsonRpcResponse.class);
     assertEquals(1, resp.result().asInt());
   }
 }

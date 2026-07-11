@@ -30,7 +30,7 @@ class HexBytesTest {
 
     @Test
     void parsesWithAndWithoutPrefixAndAnyCase() {
-        byte[] expected = {(byte) 0xde, (byte) 0xad, (byte) 0xbe, (byte) 0xef};
+        final byte[] expected = {(byte) 0xde, (byte) 0xad, (byte) 0xbe, (byte) 0xef};
         assertArrayEquals(expected, HexBytes.fromString("0xdeadbeef").toByteArray());
         assertArrayEquals(expected, HexBytes.fromString("deadbeef").toByteArray());
         assertArrayEquals(expected, HexBytes.fromString("0xDEADBEEF").toByteArray());
@@ -45,14 +45,14 @@ class HexBytesTest {
 
     @Test
     void serializesAsLowerCase0xPrefixedString() throws Exception {
-        HexBytes value = HexBytes.fromString("0xDEADBEEF");
+        final HexBytes value = HexBytes.fromString("0xDEADBEEF");
         assertEquals("\"0xdeadbeef\"", MAPPER.writeValueAsString(value));
     }
 
     @Test
     void roundTripsThroughJson() throws Exception {
-        HexBytes original = HexBytes.wrap(new byte[] {0, 1, 2, 3, (byte) 0xff});
-        String json = MAPPER.writeValueAsString(original);
+        final HexBytes original = HexBytes.wrap(new byte[] {0, 1, 2, 3, (byte) 0xff});
+        final String json = MAPPER.writeValueAsString(original);
         assertEquals(original, MAPPER.readValue(json, HexBytes.class));
     }
 
@@ -70,8 +70,8 @@ class HexBytesTest {
 
     @Test
     void wrapCopiesInput() {
-        byte[] backing = {1, 2, 3};
-        HexBytes value = HexBytes.wrap(backing);
+        final byte[] backing = {1, 2, 3};
+        final HexBytes value = HexBytes.wrap(backing);
         backing[0] = 9;
         assertEquals("0x010203", value.to0xHex());
     }

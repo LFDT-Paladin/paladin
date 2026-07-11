@@ -41,7 +41,7 @@ public class PaladinException extends RuntimeException {
    *
    * @param message the detail message
    */
-  public PaladinException(String message) {
+  public PaladinException(final String message) {
     super(message);
   }
 
@@ -51,7 +51,7 @@ public class PaladinException extends RuntimeException {
    * @param message the detail message
    * @param cause the underlying cause
    */
-  public PaladinException(String message, Throwable cause) {
+  public PaladinException(final String message, final Throwable cause) {
     super(message, cause);
   }
 }

@@ -32,7 +32,7 @@ public enum TransactionType {
 
     private final String jsonValue;
 
-    TransactionType(String jsonValue) {
+    TransactionType(final String jsonValue) {
         this.jsonValue = jsonValue;
     }
 
@@ -44,7 +44,7 @@ public enum TransactionType {
 
     /** Resolves a transaction type from its JSON token, case-insensitively. */
     @JsonCreator
-    public static TransactionType fromJson(String s) {
+    public static TransactionType fromJson(final String s) {
         if (s != null) {
             for (TransactionType t : values()) {
                 if (t.jsonValue.equalsIgnoreCase(s)) {

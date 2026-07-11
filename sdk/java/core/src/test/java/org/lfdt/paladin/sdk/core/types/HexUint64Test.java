@@ -36,7 +36,7 @@ class HexUint64Test {
 
     @Test
     void supportsFullUnsignedRange() {
-        HexUint64 max = HexUint64.fromString(MAX_HEX);
+        final HexUint64 max = HexUint64.fromString(MAX_HEX);
         assertEquals(MAX, max.bigIntegerValue());
         assertEquals(MAX_HEX, max.to0xHex());
         assertEquals(-1L, max.asUnsignedLong()); // all-ones bit pattern
@@ -44,7 +44,7 @@ class HexUint64Test {
 
     @Test
     void serializesAndRoundTrips() throws Exception {
-        HexUint64 original = HexUint64.fromString(MAX_HEX);
+        final HexUint64 original = HexUint64.fromString(MAX_HEX);
         assertEquals("\"" + MAX_HEX + "\"", MAPPER.writeValueAsString(original));
         assertEquals(original, MAPPER.readValue(MAPPER.writeValueAsString(original), HexUint64.class));
     }

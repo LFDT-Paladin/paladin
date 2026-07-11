@@ -36,7 +36,7 @@ public enum SubmitMode {
 
     private final String jsonValue;
 
-    SubmitMode(String jsonValue) {
+    SubmitMode(final String jsonValue) {
         this.jsonValue = jsonValue;
     }
 
@@ -48,7 +48,7 @@ public enum SubmitMode {
 
     /** Resolves a submit mode from its JSON token, case-insensitively. */
     @JsonCreator
-    public static SubmitMode fromJson(String s) {
+    public static SubmitMode fromJson(final String s) {
         if (s != null) {
             for (SubmitMode m : values()) {
                 if (m.jsonValue.equalsIgnoreCase(s)) {

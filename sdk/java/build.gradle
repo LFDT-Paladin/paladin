@@ -1,10 +1,17 @@
 subprojects {
     apply plugin: 'java'
+    apply plugin: 'checkstyle'
 
     group = 'org.lfdt.paladin.sdk'
 
     repositories {
         mavenCentral()
+    }
+
+    checkstyle {
+        toolVersion = '10.21.4'
+        configFile = rootProject.file('sdk/java/config/checkstyle/checkstyle.xml')
+        maxWarnings = 0
     }
 
     java {

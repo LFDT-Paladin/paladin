@@ -50,7 +50,7 @@ class HexInt256Test {
 
     @Test
     void roundTripsNegativeThroughJson() throws Exception {
-        HexInt256 original = HexInt256.of(BigInteger.TWO.pow(200).negate());
+        final HexInt256 original = HexInt256.of(BigInteger.TWO.pow(200).negate());
         assertEquals(original, MAPPER.readValue(MAPPER.writeValueAsString(original), HexInt256.class));
     }
 }

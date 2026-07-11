@@ -42,7 +42,7 @@ public final class RpcClientConfig {
   private final Map<String, String> headers;
   private final RetryPolicy retryPolicy;
 
-  private RpcClientConfig(Builder b) {
+  private RpcClientConfig(final Builder b) {
     this.url = b.url;
     this.connectTimeout = b.connectTimeout;
     this.requestTimeout = b.requestTimeout;
@@ -56,7 +56,7 @@ public final class RpcClientConfig {
    * @param url the JSON-RPC endpoint URL (e.g. {@code http://localhost:8548})
    * @return a builder pre-populated with the SDK defaults
    */
-  public static Builder builder(String url) {
+  public static Builder builder(final String url) {
     return new Builder(url);
   }
 
@@ -114,7 +114,7 @@ public final class RpcClientConfig {
     private final Map<String, String> headers = new LinkedHashMap<>();
     private RetryPolicy retryPolicy = RetryPolicy.defaults();
 
-    private Builder(String url) {
+    private Builder(final String url) {
       this.url = Objects.requireNonNull(url, "url");
       if (url.isBlank()) {
         throw new IllegalArgumentException("url must not be blank");
@@ -127,7 +127,7 @@ public final class RpcClientConfig {
      * @param connectTimeout the connect timeout (must be positive)
      * @return this builder
      */
-    public Builder connectTimeout(Duration connectTimeout) {
+    public Builder connectTimeout(final Duration connectTimeout) {
       this.connectTimeout = requirePositive(connectTimeout, "connectTimeout");
       return this;
     }
@@ -138,7 +138,7 @@ public final class RpcClientConfig {
      * @param requestTimeout the request timeout (must be positive)
      * @return this builder
      */
-    public Builder requestTimeout(Duration requestTimeout) {
+    public Builder requestTimeout(final Duration requestTimeout) {
       this.requestTimeout = requirePositive(requestTimeout, "requestTimeout");
       return this;
     }
@@ -151,7 +151,7 @@ public final class RpcClientConfig {
      * @param value the header value
      * @return this builder
      */
-    public Builder header(String name, String value) {
+    public Builder header(final String name, final String value) {
       this.headers.put(
           Objects.requireNonNull(name, "header name"),
           Objects.requireNonNull(value, "header value"));
@@ -164,7 +164,7 @@ public final class RpcClientConfig {
      * @param headers the headers to add
      * @return this builder
      */
-    public Builder headers(Map<String, String> headers) {
+    public Builder headers(final Map<String, String> headers) {
       headers.forEach(this::header);
       return this;
     }
@@ -175,7 +175,7 @@ public final class RpcClientConfig {
      * @param retryPolicy the retry policy
      * @return this builder
      */
-    public Builder retryPolicy(RetryPolicy retryPolicy) {
+    public Builder retryPolicy(final RetryPolicy retryPolicy) {
       this.retryPolicy = Objects.requireNonNull(retryPolicy, "retryPolicy");
       return this;
     }
@@ -189,7 +189,7 @@ public final class RpcClientConfig {
       return new RpcClientConfig(this);
     }
 
-    private static Duration requirePositive(Duration value, String name) {
+    private static Duration requirePositive(final Duration value, final String name) {
       Objects.requireNonNull(value, name);
       if (value.isNegative() || value.isZero()) {
         throw new IllegalArgumentException(name + " must be positive, was " + value);
