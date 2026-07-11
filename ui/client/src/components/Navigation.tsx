@@ -109,6 +109,7 @@ export const Navigation: React.FC = () => {
       </List>
       <Box sx={{ display: 'flex', height: '100%', padding: '5px' }}>
         <IconButton
+          id="settings"
           size="large"
           sx={{
             marginTop: 'auto'

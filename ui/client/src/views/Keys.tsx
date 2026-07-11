@@ -25,7 +25,6 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import { IKeyEntry, IVerifier } from "../interfaces";
 import { useSearchParams } from "react-router-dom";
 import { Captions, Signature } from "lucide-react";
-import SearchIcon from '@mui/icons-material/Search';
 import RemoveIcon from '@mui/icons-material/Remove';
 import { VerifiersDialog } from "../dialogs/Verifiers";
 import { useTranslation } from "react-i18next";

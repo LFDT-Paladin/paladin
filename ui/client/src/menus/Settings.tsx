@@ -61,10 +61,10 @@ export const SettingsMenu: React.FC<Props> = ({
             <Box sx={{ borderBottom: `solid 1px ${theme.palette.divider}`, padding: '8px 12px 8px 20px', display: 'flex', alignItems: 'center' }}>
               <Typography sx={{ minWidth: '150px', whiteSpace: 'nowrap', marginRight: '8px' }}>{t('modeValue', { value: t(readOnly ? 'readOnly' : 'edit') })}</Typography>
               <ToggleButtonGroup exclusive onChange={(_event, value) => setReadOnly(value === 'readOnly')} value={readOnly ? 'readOnly' : 'edit'}>
-                <ToggleButton color="primary" value="readOnly">
+                <ToggleButton color="primary" value="readOnly" id="readOnlyMode">
                   <EditOffIcon fontSize="small" />
                 </ToggleButton>
-                <ToggleButton color="primary" value="edit">
+                <ToggleButton color="primary" value="edit" id="editMode">
                   <EditIcon fontSize="small" />
                 </ToggleButton>
               </ToggleButtonGroup>
@@ -72,10 +72,10 @@ export const SettingsMenu: React.FC<Props> = ({
             <Box sx={{ borderBottom: `solid 1px ${theme.palette.divider}`, padding: '8px 12px 8px 20px', display: 'flex', alignItems: 'center' }}>
               <Typography sx={{ minWidth: '150px', whiteSpace: 'nowrap', marginRight: '8px' }}>{t('themeValue', { value: t(theme.palette.mode === 'light' ? 'light' : 'dark') })}</Typography>
               <ToggleButtonGroup exclusive onChange={(_event, value) => handleColorChange(value)} value={theme.palette.mode}>
-                <ToggleButton color="primary" value="light">
+                <ToggleButton color="primary" value="light" id="lightTheme">
                   <LightModeIcon fontSize="small" />
                 </ToggleButton>
-                <ToggleButton color="primary" value="dark">
+                <ToggleButton color="primary" value="dark" id="darkTheme">
                   <DarkModeIcon fontSize="small" />
                 </ToggleButton>
               </ToggleButtonGroup>
