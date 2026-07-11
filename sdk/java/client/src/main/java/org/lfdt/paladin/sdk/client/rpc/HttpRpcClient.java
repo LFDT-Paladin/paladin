@@ -83,7 +83,8 @@ public final class HttpRpcClient implements RpcClient {
   }
 
   @Override
-  public <T> CompletableFuture<T> callRpc(final Class<T> resultType, final String method, final Object... params) {
+  public <T> CompletableFuture<T> callRpc(
+      final Class<T> resultType, final String method, final Object... params) {
     return call(mapper.getTypeFactory().constructType(resultType), method, params);
   }
 
@@ -98,7 +99,8 @@ public final class HttpRpcClient implements RpcClient {
     httpClient.close();
   }
 
-  private <T> CompletableFuture<T> call(final JavaType resultType, final String method, final Object[] params) {
+  private <T> CompletableFuture<T> call(
+      final JavaType resultType, final String method, final Object[] params) {
     final HttpRequest request;
     try {
       request = buildRequest(method, params);
@@ -113,7 +115,8 @@ public final class HttpRpcClient implements RpcClient {
     return sendWithRetry(request, 1).thenApply(response -> processResponse(response, resultType));
   }
 
-  private HttpRequest buildRequest(final String method, final Object[] params) throws JsonProcessingException {
+  private HttpRequest buildRequest(final String method, final Object[] params)
+      throws JsonProcessingException {
     final String id = String.format(Locale.ROOT, "%09d", requestCounter.incrementAndGet());
     final List<Object> args = params == null ? List.of() : Arrays.asList(params);
     final byte[] body = mapper.writeValueAsBytes(new JsonRpcRequest(id, method, args));
@@ -127,7 +130,8 @@ public final class HttpRpcClient implements RpcClient {
     return builder.build();
   }
 
-  private CompletableFuture<HttpResponse<byte[]>> sendWithRetry(final HttpRequest request, final int attempt) {
+  private CompletableFuture<HttpResponse<byte[]>> sendWithRetry(
+      final HttpRequest request, final int attempt) {
     return httpClient
         .sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
         .handle((response, throwable) -> new Attempt(response, throwable))
@@ -151,7 +155,8 @@ public final class HttpRpcClient implements RpcClient {
   private CompletableFuture<HttpResponse<byte[]>> retryAfterDelay(
       final HttpRequest request, final int attempt) {
     final Duration delay = config.retryPolicy().delayForAttempt(attempt);
-    final Executor delayed = CompletableFuture.delayedExecutor(delay.toMillis(), TimeUnit.MILLISECONDS);
+    final Executor delayed =
+        CompletableFuture.delayedExecutor(delay.toMillis(), TimeUnit.MILLISECONDS);
     return CompletableFuture.supplyAsync(() -> null, delayed)
         .thenCompose(ignored -> sendWithRetry(request, attempt + 1));
   }

@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.types;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -26,76 +25,114 @@ import java.util.Arrays;
  */
 public final class Bytes32 {
 
-    /** Length of the value in bytes. */
-    public static final int SIZE = 32;
+  /** Length of the value in bytes. */
+  public static final int SIZE = 32;
 
-    private final byte[] value;
+  private final byte[] value;
 
-    private Bytes32(final byte[] value) {
-        this.value = value;
+  private Bytes32(final byte[] value) {
+    this.value = value;
+  }
+
+  /**
+   * Wraps a copy of exactly {@value #SIZE} bytes.
+   *
+   * @param bytes the {@value #SIZE}-byte value to copy
+   * @return a {@code Bytes32} holding a defensive copy of {@code bytes}
+   * @throws IllegalArgumentException if {@code bytes} is null or not exactly {@value #SIZE} bytes
+   */
+  public static Bytes32 wrap(final byte[] bytes) {
+    if (bytes == null || bytes.length != SIZE) {
+      throw new IllegalArgumentException(
+          "Bytes32 requires exactly "
+              + SIZE
+              + " bytes, got "
+              + (bytes == null ? "null" : bytes.length));
     }
+    return new Bytes32(bytes.clone());
+  }
 
-    /** Wraps a copy of exactly {@value #SIZE} bytes. */
-    public static Bytes32 wrap(final byte[] bytes) {
-        if (bytes == null || bytes.length != SIZE) {
-            throw new IllegalArgumentException(
-                    "Bytes32 requires exactly " + SIZE + " bytes, got " + (bytes == null ? "null" : bytes.length));
-        }
-        return new Bytes32(bytes.clone());
+  /**
+   * Parses a 32-byte value from hex (with or without {@code 0x}).
+   *
+   * @param s the hex string to parse, with or without a {@code 0x} prefix, in any case
+   * @return the parsed {@code Bytes32}
+   * @throws IllegalArgumentException if {@code s} is not valid hex or does not decode to exactly
+   *     {@value #SIZE} bytes
+   */
+  @JsonCreator
+  public static Bytes32 fromString(final String s) {
+    final byte[] bytes = Hex.decode(s);
+    if (bytes.length != SIZE) {
+      throw new IllegalArgumentException(
+          "Bytes32 requires "
+              + SIZE
+              + " bytes ("
+              + (SIZE * 2)
+              + " hex chars), got "
+              + bytes.length
+              + " bytes");
     }
+    return new Bytes32(bytes);
+  }
 
-    /** Parses a 32-byte value from hex (with or without {@code 0x}). */
-    @JsonCreator
-    public static Bytes32 fromString(final String s) {
-        final byte[] bytes = Hex.decode(s);
-        if (bytes.length != SIZE) {
-            throw new IllegalArgumentException(
-                    "Bytes32 requires " + SIZE + " bytes (" + (SIZE * 2) + " hex chars), got " + bytes.length + " bytes");
-        }
-        return new Bytes32(bytes);
-    }
+  /**
+   * Returns a copy of the underlying bytes.
+   *
+   * @return a defensive copy of the {@value #SIZE} backing bytes
+   */
+  public byte[] toByteArray() {
+    return value.clone();
+  }
 
-    /** Returns a copy of the underlying bytes. */
-    public byte[] toByteArray() {
-        return value.clone();
+  /**
+   * Reports whether every byte is zero.
+   *
+   * @return {@code true} if all {@value #SIZE} bytes are zero
+   */
+  public boolean isZero() {
+    for (byte b : value) {
+      if (b != 0) {
+        return false;
+      }
     }
+    return true;
+  }
 
-    /** True if every byte is zero. */
-    public boolean isZero() {
-        for (byte b : value) {
-            if (b != 0) {
-                return false;
-            }
-        }
-        return true;
-    }
+  /**
+   * Lower-case hex without a {@code 0x} prefix.
+   *
+   * @return the {@value #SIZE}-byte value as {@value #SIZE}*2 lower-case hex characters
+   */
+  public String toHex() {
+    return Hex.FORMAT.formatHex(value);
+  }
 
-    /** Lower-case hex without a {@code 0x} prefix. */
-    public String toHex() {
-        return Hex.FORMAT.formatHex(value);
-    }
+  /**
+   * Lower-case hex with a {@code 0x} prefix — the JSON representation.
+   *
+   * @return the value as {@code 0x}-prefixed lower-case hex
+   */
+  @JsonValue
+  public String to0xHex() {
+    return "0x" + Hex.FORMAT.formatHex(value);
+  }
 
-    /** Lower-case hex with a {@code 0x} prefix — the JSON representation. */
-    @JsonValue
-    public String to0xHex() {
-        return "0x" + Hex.FORMAT.formatHex(value);
-    }
+  @Override
+  public String toString() {
+    return to0xHex();
+  }
 
-    @Override
-    public String toString() {
-        return to0xHex();
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
     }
+    return o instanceof Bytes32 other && Arrays.equals(value, other.value);
+  }
 
-    @Override
-    public boolean equals(final Object o) {
-        if (this == o) {
-            return true;
-        }
-        return o instanceof Bytes32 other && Arrays.equals(value, other.value);
-    }
-
-    @Override
-    public int hashCode() {
-        return Arrays.hashCode(value);
-    }
+  @Override
+  public int hashCode() {
+    return Arrays.hashCode(value);
+  }
 }

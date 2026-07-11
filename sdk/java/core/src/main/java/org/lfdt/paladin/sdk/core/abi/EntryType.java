@@ -12,53 +12,62 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.abi;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
- * The kind of an {@link AbiEntry}, mirroring {@code abi.EntryType} from firefly-signer. Serializes to
- * its lower-case JSON token (e.g. {@code "function"}); parsing is case-insensitive.
+ * The kind of an {@link AbiEntry}, mirroring {@code abi.EntryType} from firefly-signer. Serializes
+ * to its lower-case JSON token (e.g. {@code "function"}); parsing is case-insensitive.
  */
 public enum EntryType {
 
-    /** A function/method of the smart contract. */
-    FUNCTION("function"),
-    /** The constructor. */
-    CONSTRUCTOR("constructor"),
-    /** The "receive ether" function. */
-    RECEIVE("receive"),
-    /** The default function to invoke. */
-    FALLBACK("fallback"),
-    /** An event the smart contract can emit. */
-    EVENT("event"),
-    /** An error definition. */
-    ERROR("error");
+  /** A function/method of the smart contract. */
+  FUNCTION("function"),
+  /** The constructor. */
+  CONSTRUCTOR("constructor"),
+  /** The "receive ether" function. */
+  RECEIVE("receive"),
+  /** The default function to invoke. */
+  FALLBACK("fallback"),
+  /** An event the smart contract can emit. */
+  EVENT("event"),
+  /** An error definition. */
+  ERROR("error");
 
-    private final String jsonValue;
+  private final String jsonValue;
 
-    EntryType(final String jsonValue) {
-        this.jsonValue = jsonValue;
-    }
+  EntryType(final String jsonValue) {
+    this.jsonValue = jsonValue;
+  }
 
-    /** The JSON token for this entry type. */
-    @JsonValue
-    public String jsonValue() {
-        return jsonValue;
-    }
+  /**
+   * The JSON token for this entry type.
+   *
+   * @return the lower-case JSON token
+   */
+  @JsonValue
+  public String jsonValue() {
+    return jsonValue;
+  }
 
-    /** Resolves an entry type from its JSON token, case-insensitively. */
-    @JsonCreator
-    public static EntryType fromJson(final String s) {
-        if (s != null) {
-            for (EntryType t : values()) {
-                if (t.jsonValue.equalsIgnoreCase(s)) {
-                    return t;
-                }
-            }
+  /**
+   * Resolves an entry type from its JSON token, case-insensitively.
+   *
+   * @param s the JSON token to resolve
+   * @return the matching entry type
+   * @throws IllegalArgumentException if {@code s} is null or not a known entry type
+   */
+  @JsonCreator
+  public static EntryType fromJson(final String s) {
+    if (s != null) {
+      for (EntryType t : values()) {
+        if (t.jsonValue.equalsIgnoreCase(s)) {
+          return t;
         }
-        throw new IllegalArgumentException("unknown ABI entry type: \"" + s + "\"");
+      }
     }
+    throw new IllegalArgumentException("unknown ABI entry type: \"" + s + "\"");
+  }
 }

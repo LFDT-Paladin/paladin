@@ -47,7 +47,8 @@ public class PaladinRpcException extends PaladinException {
    * @param data structured error detail attached by the node, or {@code null}
    * @param httpStatus the HTTP status of the response that produced this error
    */
-  public PaladinRpcException(final long code, final String message, final JsonNode data, final int httpStatus) {
+  public PaladinRpcException(
+      final long code, final String message, final JsonNode data, final int httpStatus) {
     super(message);
     this.code = code;
     this.data = data;

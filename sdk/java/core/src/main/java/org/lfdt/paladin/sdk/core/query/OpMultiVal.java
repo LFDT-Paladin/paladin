@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.query;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -27,76 +26,101 @@ import java.util.Objects;
  * A multi-value filter operand, mirroring {@code query.OpMultiVal} (Go's {@code Op} embedded plus a
  * {@code values} array). Backs the {@code in} and {@code nin} (not-in) operators.
  *
- * <p>Immutable and self-serializing. Each value is held as a {@link JsonNode} (mirroring Go's {@code RawJSON});
- * the {@code values} list is never null (empty when unset, in which case it is omitted).
+ * <p>Immutable and self-serializing. Each value is held as a {@link JsonNode} (mirroring Go's
+ * {@code RawJSON}); the {@code values} list is never null (empty when unset, in which case it is
+ * omitted).
  */
 @JsonPropertyOrder({"field", "not", "caseInsensitive", "values"})
 public final class OpMultiVal {
 
-    private final String field;
-    private final boolean not;
-    private final boolean caseInsensitive;
-    private final List<JsonNode> values;
+  private final String field;
+  private final boolean not;
+  private final boolean caseInsensitive;
+  private final List<JsonNode> values;
 
-    @JsonCreator
-    public OpMultiVal(
-            @JsonProperty("field") final String field,
-            @JsonProperty("not") final boolean not,
-            @JsonProperty("caseInsensitive") final boolean caseInsensitive,
-            @JsonProperty("values") final List<JsonNode> values) {
-        this.field = field == null ? "" : field;
-        this.not = not;
-        this.caseInsensitive = caseInsensitive;
-        this.values = values == null ? List.of() : List.copyOf(values);
-    }
+  /**
+   * Creates a multi-value operand.
+   *
+   * @param field the field the operand applies to
+   * @param not whether the operand is negated
+   * @param caseInsensitive whether the comparison is case-insensitive
+   * @param values the values to compare against, as raw JSON nodes
+   */
+  @JsonCreator
+  public OpMultiVal(
+      @JsonProperty("field") final String field,
+      @JsonProperty("not") final boolean not,
+      @JsonProperty("caseInsensitive") final boolean caseInsensitive,
+      @JsonProperty("values") final List<JsonNode> values) {
+    this.field = field == null ? "" : field;
+    this.not = not;
+    this.caseInsensitive = caseInsensitive;
+    this.values = values == null ? List.of() : List.copyOf(values);
+  }
 
-    /** The field the operand applies to. */
-    @JsonProperty("field")
-    @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    public String field() {
-        return field;
-    }
+  /**
+   * The field the operand applies to.
+   *
+   * @return the field name
+   */
+  @JsonProperty("field")
+  @JsonInclude(JsonInclude.Include.NON_EMPTY)
+  public String field() {
+    return field;
+  }
 
-    /** Whether the operand is negated. */
-    @JsonProperty("not")
-    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
-    public boolean not() {
-        return not;
-    }
+  /**
+   * Whether the operand is negated.
+   *
+   * @return {@code true} if the operand is negated
+   */
+  @JsonProperty("not")
+  @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+  public boolean not() {
+    return not;
+  }
 
-    /** Whether the comparison is case-insensitive. */
-    @JsonProperty("caseInsensitive")
-    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
-    public boolean caseInsensitive() {
-        return caseInsensitive;
-    }
+  /**
+   * Whether the comparison is case-insensitive.
+   *
+   * @return {@code true} if the comparison is case-insensitive
+   */
+  @JsonProperty("caseInsensitive")
+  @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+  public boolean caseInsensitive() {
+    return caseInsensitive;
+  }
 
-    /** The set of values to compare against, as raw JSON nodes. Never null. */
-    @JsonProperty("values")
-    @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    public List<JsonNode> values() {
-        return values;
-    }
+  /**
+   * The set of values to compare against, as raw JSON nodes. Never null.
+   *
+   * @return the comparison values (never null, empty when unset)
+   */
+  @JsonProperty("values")
+  @JsonInclude(JsonInclude.Include.NON_EMPTY)
+  public List<JsonNode> values() {
+    return values;
+  }
 
-    @Override
-    public boolean equals(final Object o) {
-        if (this == o) {
-            return true;
-        }
-        return o instanceof OpMultiVal other
-                && not == other.not
-                && caseInsensitive == other.caseInsensitive
-                && field.equals(other.field)
-                && values.equals(other.values);
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
     }
+    return o instanceof OpMultiVal other
+        && not == other.not
+        && caseInsensitive == other.caseInsensitive
+        && field.equals(other.field)
+        && values.equals(other.values);
+  }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(field, not, caseInsensitive, values);
-    }
+  @Override
+  public int hashCode() {
+    return Objects.hash(field, not, caseInsensitive, values);
+  }
 
-    @Override
-    public String toString() {
-        return "OpMultiVal{field=" + field + ", values=" + values.size() + (not ? ", not" : "") + "}";
-    }
+  @Override
+  public String toString() {
+    return "OpMultiVal{field=" + field + ", values=" + values.size() + (not ? ", not" : "") + "}";
+  }
 }

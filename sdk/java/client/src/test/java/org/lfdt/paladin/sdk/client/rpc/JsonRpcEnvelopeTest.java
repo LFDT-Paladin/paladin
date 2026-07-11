@@ -30,7 +30,8 @@ class JsonRpcEnvelopeTest {
 
   @Test
   void requestSerializesWithDefaultVersionAndParams() throws Exception {
-    final JsonRpcRequest req = new JsonRpcRequest("000000001", "ptx_sendTransaction", List.of("a", 42));
+    final JsonRpcRequest req =
+        new JsonRpcRequest("000000001", "ptx_sendTransaction", List.of("a", 42));
     final JsonNode json = mapper.readTree(mapper.writeValueAsBytes(req));
     assertEquals("2.0", json.get("jsonrpc").asText());
     assertEquals("000000001", json.get("id").asText());
@@ -58,7 +59,8 @@ class JsonRpcEnvelopeTest {
 
   @Test
   void successResponseExposesRawResultAndNoError() throws Exception {
-    final String body = "{\"jsonrpc\":\"2.0\",\"id\":\"000000001\",\"result\":{\"value\":\"0x1f\"}}";
+    final String body =
+        "{\"jsonrpc\":\"2.0\",\"id\":\"000000001\",\"result\":{\"value\":\"0x1f\"}}";
     final JsonRpcResponse resp = mapper.readValue(body, JsonRpcResponse.class);
     assertFalse(resp.hasError());
     assertNull(resp.error());

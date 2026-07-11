@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.abi;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -25,37 +24,47 @@ import com.fasterxml.jackson.annotation.JsonValue;
  */
 public enum StateMutability {
 
-    /** Specified not to read blockchain state. */
-    PURE("pure"),
-    /** Specified not to modify the blockchain state (read-only). */
-    VIEW("view"),
-    /** The function accepts ether. */
-    PAYABLE("payable"),
-    /** The function does not accept ether. */
-    NONPAYABLE("nonpayable");
+  /** Specified not to read blockchain state. */
+  PURE("pure"),
+  /** Specified not to modify the blockchain state (read-only). */
+  VIEW("view"),
+  /** The function accepts ether. */
+  PAYABLE("payable"),
+  /** The function does not accept ether. */
+  NONPAYABLE("nonpayable");
 
-    private final String jsonValue;
+  private final String jsonValue;
 
-    StateMutability(final String jsonValue) {
-        this.jsonValue = jsonValue;
-    }
+  StateMutability(final String jsonValue) {
+    this.jsonValue = jsonValue;
+  }
 
-    /** The JSON token for this state mutability. */
-    @JsonValue
-    public String jsonValue() {
-        return jsonValue;
-    }
+  /**
+   * The JSON token for this state mutability.
+   *
+   * @return the lower-case JSON token
+   */
+  @JsonValue
+  public String jsonValue() {
+    return jsonValue;
+  }
 
-    /** Resolves a state mutability from its JSON token, case-insensitively. */
-    @JsonCreator
-    public static StateMutability fromJson(final String s) {
-        if (s != null) {
-            for (StateMutability m : values()) {
-                if (m.jsonValue.equalsIgnoreCase(s)) {
-                    return m;
-                }
-            }
+  /**
+   * Resolves a state mutability from its JSON token, case-insensitively.
+   *
+   * @param s the JSON token to resolve
+   * @return the matching state mutability
+   * @throws IllegalArgumentException if {@code s} is null or not a known state mutability
+   */
+  @JsonCreator
+  public static StateMutability fromJson(final String s) {
+    if (s != null) {
+      for (StateMutability m : values()) {
+        if (m.jsonValue.equalsIgnoreCase(s)) {
+          return m;
         }
-        throw new IllegalArgumentException("unknown ABI state mutability: \"" + s + "\"");
+      }
     }
+    throw new IllegalArgumentException("unknown ABI state mutability: \"" + s + "\"");
+  }
 }

@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.transaction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,41 +22,41 @@ import org.junit.jupiter.api.Test;
 
 class TransactionEnumsTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    @Test
-    void transactionTypeSerializesToLowerCaseToken() throws Exception {
-        assertEquals("\"private\"", MAPPER.writeValueAsString(TransactionType.PRIVATE));
-        assertEquals("\"public\"", MAPPER.writeValueAsString(TransactionType.PUBLIC));
-    }
+  @Test
+  void transactionTypeSerializesToLowerCaseToken() throws Exception {
+    assertEquals("\"private\"", MAPPER.writeValueAsString(TransactionType.PRIVATE));
+    assertEquals("\"public\"", MAPPER.writeValueAsString(TransactionType.PUBLIC));
+  }
 
-    @Test
-    void transactionTypeParsesCaseInsensitively() throws Exception {
-        assertEquals(TransactionType.PRIVATE, MAPPER.readValue("\"Private\"", TransactionType.class));
-        assertEquals(TransactionType.PUBLIC, MAPPER.readValue("\"PUBLIC\"", TransactionType.class));
-    }
+  @Test
+  void transactionTypeParsesCaseInsensitively() throws Exception {
+    assertEquals(TransactionType.PRIVATE, MAPPER.readValue("\"Private\"", TransactionType.class));
+    assertEquals(TransactionType.PUBLIC, MAPPER.readValue("\"PUBLIC\"", TransactionType.class));
+  }
 
-    @Test
-    void transactionTypeRejectsUnknownToken() {
-        assertThrows(Exception.class, () -> MAPPER.readValue("\"hybrid\"", TransactionType.class));
-    }
+  @Test
+  void transactionTypeRejectsUnknownToken() {
+    assertThrows(Exception.class, () -> MAPPER.readValue("\"hybrid\"", TransactionType.class));
+  }
 
-    @Test
-    void submitModeSerializesToLowerCaseToken() throws Exception {
-        assertEquals("\"auto\"", MAPPER.writeValueAsString(SubmitMode.AUTO));
-        assertEquals("\"external\"", MAPPER.writeValueAsString(SubmitMode.EXTERNAL));
-        assertEquals("\"call\"", MAPPER.writeValueAsString(SubmitMode.CALL));
-        assertEquals("\"prepare\"", MAPPER.writeValueAsString(SubmitMode.PREPARE));
-    }
+  @Test
+  void submitModeSerializesToLowerCaseToken() throws Exception {
+    assertEquals("\"auto\"", MAPPER.writeValueAsString(SubmitMode.AUTO));
+    assertEquals("\"external\"", MAPPER.writeValueAsString(SubmitMode.EXTERNAL));
+    assertEquals("\"call\"", MAPPER.writeValueAsString(SubmitMode.CALL));
+    assertEquals("\"prepare\"", MAPPER.writeValueAsString(SubmitMode.PREPARE));
+  }
 
-    @Test
-    void submitModeParsesCaseInsensitively() throws Exception {
-        assertEquals(SubmitMode.AUTO, MAPPER.readValue("\"AUTO\"", SubmitMode.class));
-        assertEquals(SubmitMode.PREPARE, MAPPER.readValue("\"Prepare\"", SubmitMode.class));
-    }
+  @Test
+  void submitModeParsesCaseInsensitively() throws Exception {
+    assertEquals(SubmitMode.AUTO, MAPPER.readValue("\"AUTO\"", SubmitMode.class));
+    assertEquals(SubmitMode.PREPARE, MAPPER.readValue("\"Prepare\"", SubmitMode.class));
+  }
 
-    @Test
-    void submitModeRejectsUnknownToken() {
-        assertThrows(Exception.class, () -> MAPPER.readValue("\"manual\"", SubmitMode.class));
-    }
+  @Test
+  void submitModeRejectsUnknownToken() {
+    assertThrows(Exception.class, () -> MAPPER.readValue("\"manual\"", SubmitMode.class));
+  }
 }

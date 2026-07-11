@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.lfdt.paladin.sdk.core.types;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,29 +23,30 @@ import org.junit.jupiter.api.Test;
 
 class Bytes32Test {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final String HASH = "0x1122334455667788990011223344556677889900112233445566778899001122";
+  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final String HASH =
+      "0x1122334455667788990011223344556677889900112233445566778899001122";
 
-    @Test
-    void serializesAsLowerCase0xHash() throws Exception {
-        assertEquals("\"" + HASH + "\"", MAPPER.writeValueAsString(Bytes32.fromString(HASH)));
-    }
+  @Test
+  void serializesAsLowerCase0xHash() throws Exception {
+    assertEquals("\"" + HASH + "\"", MAPPER.writeValueAsString(Bytes32.fromString(HASH)));
+  }
 
-    @Test
-    void roundTripsThroughJson() throws Exception {
-        final Bytes32 original = Bytes32.fromString(HASH);
-        final String json = MAPPER.writeValueAsString(original);
-        assertEquals(original, MAPPER.readValue(json, Bytes32.class));
-    }
+  @Test
+  void roundTripsThroughJson() throws Exception {
+    final Bytes32 original = Bytes32.fromString(HASH);
+    final String json = MAPPER.writeValueAsString(original);
+    assertEquals(original, MAPPER.readValue(json, Bytes32.class));
+  }
 
-    @Test
-    void rejectsWrongLength() {
-        assertThrows(IllegalArgumentException.class, () -> Bytes32.fromString(HASH + "00"));
-        assertThrows(IllegalArgumentException.class, () -> Bytes32.wrap(new byte[31]));
-    }
+  @Test
+  void rejectsWrongLength() {
+    assertThrows(IllegalArgumentException.class, () -> Bytes32.fromString(HASH + "00"));
+    assertThrows(IllegalArgumentException.class, () -> Bytes32.wrap(new byte[31]));
+  }
 
-    @Test
-    void zeroDetection() {
-        assertTrue(Bytes32.wrap(new byte[32]).isZero());
-    }
+  @Test
+  void zeroDetection() {
+    assertTrue(Bytes32.wrap(new byte[32]).isZero());
+  }
 }

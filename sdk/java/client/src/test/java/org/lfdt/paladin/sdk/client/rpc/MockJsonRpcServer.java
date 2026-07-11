@@ -74,7 +74,8 @@ final class MockJsonRpcServer implements AutoCloseable {
         exchange -> {
           try {
             final byte[] requestBytes = exchange.getRequestBody().readAllBytes();
-            final JsonNode request = requestBytes.length == 0 ? null : mapper.readTree(requestBytes);
+            final JsonNode request =
+                requestBytes.length == 0 ? null : mapper.readTree(requestBytes);
             requests.add(request);
             lastRequestHeaders = exchange.getRequestHeaders();
             final int number = requestCount.incrementAndGet();

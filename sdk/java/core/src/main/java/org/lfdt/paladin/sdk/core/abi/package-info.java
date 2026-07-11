@@ -14,13 +14,14 @@
  */
 
 /**
- * Ethereum contract ABI types for the Paladin Java SDK, mirroring {@code abi.Entry} /
- * {@code abi.Parameter} from firefly-signer (as used by {@code sdk/go/pkg/pldtypes}).
+ * Ethereum contract ABI types for the Paladin Java SDK, mirroring {@code abi.Entry} / {@code
+ * abi.Parameter} from firefly-signer (as used by {@code sdk/go/pkg/pldtypes}).
  *
- * <p>{@link org.lfdt.paladin.sdk.core.abi.AbiEntry} models a function/constructor/event/error/fallback,
- * {@link org.lfdt.paladin.sdk.core.abi.AbiParameter} models its inputs/outputs and tuple components, and
- * {@link org.lfdt.paladin.sdk.core.abi.EntryType} / {@link org.lfdt.paladin.sdk.core.abi.StateMutability}
- * are the associated enums. All types are immutable and round-trip through any Jackson
- * {@code ObjectMapper} with no consumer configuration.
+ * <p>{@link org.lfdt.paladin.sdk.core.abi.AbiEntry} models a
+ * function/constructor/event/error/fallback, {@link org.lfdt.paladin.sdk.core.abi.AbiParameter}
+ * models its inputs/outputs and tuple components, and {@link
+ * org.lfdt.paladin.sdk.core.abi.EntryType} / {@link org.lfdt.paladin.sdk.core.abi.StateMutability}
+ * are the associated enums. All types are immutable and round-trip through any Jackson {@code
+ * ObjectMapper} with no consumer configuration.
  */
 package org.lfdt.paladin.sdk.core.abi;

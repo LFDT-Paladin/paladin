@@ -14,16 +14,17 @@
  */
 
 /**
- * Transaction submission and receipt types for the Paladin Java SDK, mirroring {@code pldapi/transaction.go}.
+ * Transaction submission and receipt types for the Paladin Java SDK, mirroring {@code
+ * pldapi/transaction.go}.
  *
- * <p>{@link org.lfdt.paladin.sdk.core.transaction.TransactionInput} is the body submitted when sending a
- * transaction (flattening Go's {@code TransactionBase} and {@code PublicTxOptions}), and
- * {@link org.lfdt.paladin.sdk.core.transaction.TransactionReceipt} is the result returned once a transaction
- * reaches a final state (flattening Go's {@code TransactionReceiptData} and its inlined on-chain blocks).
- * {@link org.lfdt.paladin.sdk.core.transaction.TransactionType} and
- * {@link org.lfdt.paladin.sdk.core.transaction.SubmitMode} are the associated enums.
+ * <p>{@link org.lfdt.paladin.sdk.core.transaction.TransactionInput} is the body submitted when
+ * sending a transaction (flattening Go's {@code TransactionBase} and {@code PublicTxOptions}), and
+ * {@link org.lfdt.paladin.sdk.core.transaction.TransactionReceipt} is the result returned once a
+ * transaction reaches a final state (flattening Go's {@code TransactionReceiptData} and its inlined
+ * on-chain blocks). {@link org.lfdt.paladin.sdk.core.transaction.TransactionType} and {@link
+ * org.lfdt.paladin.sdk.core.transaction.SubmitMode} are the associated enums.
  *
- * <p>All types are immutable and round-trip through any Jackson {@code ObjectMapper} with no consumer
- * configuration, following the {@code omitempty} conventions of the Go reference.
+ * <p>All types are immutable and round-trip through any Jackson {@code ObjectMapper} with no
+ * consumer configuration, following the {@code omitempty} conventions of the Go reference.
  */
 package org.lfdt.paladin.sdk.core.transaction;
