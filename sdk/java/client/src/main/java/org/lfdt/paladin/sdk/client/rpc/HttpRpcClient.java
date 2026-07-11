@@ -57,6 +57,13 @@ import org.lfdt.paladin.sdk.core.json.PaladinObjectMapper;
  * JSON-RPC application errors and other {@code 4xx} responses are returned to the caller without
  * retry.
  *
+ * <p>Errors are detected from the JSON-RPC {@code error} member <em>independent of the HTTP
+ * status</em>. Since Paladin became JSON-RPC-spec compliant (paladin PR #1183) the node returns
+ * HTTP {@code 200} for application errors (with the detail in the {@code error} body), {@code 403}
+ * for auth failures, and {@code 500} for genuine internal errors — so any response carrying an
+ * {@code error} member is surfaced as a {@link PaladinRpcException} regardless of status, including
+ * on {@code 200}.
+ *
  * <p>Thread-safe and intended to be shared; {@link #close()} releases the underlying client.
  */
 public final class HttpRpcClient implements RpcClient {

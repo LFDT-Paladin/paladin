@@ -40,6 +40,17 @@ class HttpRpcClientTest {
     return "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":" + resultJson + "}";
   }
 
+  private static String error(final long code, final String message, final String dataJson) {
+    final String data = dataJson == null ? "" : ",\"data\":" + dataJson;
+    return "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"error\":{\"code\":"
+        + code
+        + ",\"message\":\""
+        + message
+        + "\""
+        + data
+        + "}}";
+  }
+
   private RpcClientConfig config(final String url, final int maxAttempts) {
     return RpcClientConfig.builder(url)
         .connectTimeout(Duration.ofSeconds(5))
@@ -92,20 +103,63 @@ class HttpRpcClientTest {
   }
 
   @Test
-  void jsonRpcErrorBecomesPaladinRpcException() throws IOException {
+  void businessErrorOn200IsSurfacedAndNotRetried() throws IOException {
+    // Paladin #1183 makes the node JSON-RPC-spec compliant: application errors are returned as HTTP
+    // 200 with a JSON-RPC error body (issue #1001 exercised the idempotency-key clash, PD012220,
+    // returned with RPCCodeConflict -32001). The transport must surface the error from the error
+    // member regardless of the 200 status, and must not retry it.
     final String body =
-        "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"error\":{\"code\":-32000,\"message\":\"unauthorized\",\"data\":{\"hint\":\"token\"}}}";
+        error(
+            // -32001 == RPCCodeConflict; the JsonRpcErrorCode.CONFLICT constant is deferred to the
+            // TxBuilder work (see sdk/java/CLAUDE.md), so the raw code is used here.
+            -32001,
+            "PD012220: idempotencyKey already used by submitted transaction mint-cash=abc",
+            "{\"hint\":\"idempotencyKey\"}");
     try (MockJsonRpcServer server =
             new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, body));
         HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 3))) {
       final CompletionException ex =
+          assertThrows(
+              CompletionException.class,
+              () -> client.callRpc(JsonNode.class, "ptx_sendTransaction").join());
+      final PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
+      assertEquals(-32001, rpc.code());
+      assertEquals(200, rpc.httpStatus());
+      assertTrue(rpc.getMessage().contains("PD012220"));
+      assertTrue(rpc.data().isPresent());
+      // A JSON-RPC application error on HTTP 200 is not retried.
+      assertEquals(1, server.requestCount());
+    }
+  }
+
+  @Test
+  void authErrorStatusIsNotRetried() throws IOException {
+    // Paladin #1183 returns auth failures as HTTP 403. As a 4xx status it must not be retried.
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(403, "forbidden"));
+        HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 3))) {
+      final CompletionException ex =
           assertThrows(CompletionException.class, () -> client.callRpc(JsonNode.class, "m").join());
       final PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
-      assertEquals(JsonRpcErrorCode.UNAUTHORIZED, rpc.code());
-      assertEquals("unauthorized", rpc.getMessage());
-      assertTrue(rpc.data().isPresent());
-      // A JSON-RPC application error is not retried.
+      assertEquals(403, rpc.httpStatus());
       assertEquals(1, server.requestCount());
+    }
+  }
+
+  @Test
+  void errorBodyTakesPrecedenceOverStatus() throws IOException {
+    // Paladin #1183: even on a non-2xx status, when the body carries a JSON-RPC error the transport
+    // surfaces that error's code/message rather than a bare "HTTP request failed with status".
+    final String body = error(-32000, "PD020000: request is not authorized", null);
+    try (MockJsonRpcServer server =
+            new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(403, body));
+        HttpRpcClient client = new HttpRpcClient(config(server.baseUrl(), 1))) {
+      final CompletionException ex =
+          assertThrows(CompletionException.class, () -> client.callRpc(JsonNode.class, "m").join());
+      final PaladinRpcException rpc = assertInstanceOf(PaladinRpcException.class, ex.getCause());
+      assertEquals(-32000, rpc.code());
+      assertTrue(rpc.getMessage().contains("not authorized"));
+      assertEquals(403, rpc.httpStatus());
     }
   }
 

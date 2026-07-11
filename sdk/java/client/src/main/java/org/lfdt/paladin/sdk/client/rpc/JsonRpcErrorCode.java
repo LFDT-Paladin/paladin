@@ -21,6 +21,11 @@ package org.lfdt.paladin.sdk.client.rpc;
  * from the JSON-RPC 2.0 specification. The {@code -32000}..{@code -32099} band is reserved by the
  * spec for "implementation-defined server errors"; Paladin uses {@link #UNAUTHORIZED} from that
  * band for authentication failures.
+ *
+ * <p>Paladin PR #1183 added a further code in this band, {@code CONFLICT} ({@code -32001}), for an
+ * idempotency-key clash. It is intentionally not defined here yet: it is only actionable together
+ * with the idempotency-clash recovery that belongs to the TxBuilder work (mirroring Go's {@code
+ * txbuilder.go}). See the TODO in {@code sdk/java/CLAUDE.md}.
  */
 public final class JsonRpcErrorCode {
 
