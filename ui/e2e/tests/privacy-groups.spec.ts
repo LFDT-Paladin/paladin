@@ -32,7 +32,7 @@ test.describe('Privacy Groups', () => {
       // Navigate to fist privacy group
       await page.getByRole('button', { name: 'Open' }).first().click();
 
-      // Should navigate to privact group details with hash in URL
+      // Should navigate to privacy group details with hash in URL
       await page.waitForURL(`**/ui/privacy-groups/groups/${formatHex(1, 64, 'e')}`);
       await expect(page.getByRole('tab', { name: 'group01 0xe0...0001' })).toBeVisible();
 
@@ -78,7 +78,7 @@ test.describe('Privacy Groups', () => {
       // Navigate to fist privacy group
       await page.getByRole('button', { name: 'Open' }).first().click();
 
-      // Should navigate to privact group details with hash in URL
+      // Should navigate to privacy group details with hash in URL
       await page.waitForURL(`**/ui/privacy-groups/messages/${formatMessageId(1)}`);
       await expect(page.getByRole('tab', { name: '0000...0001' })).toBeVisible();
 
@@ -138,7 +138,7 @@ test.describe('Privacy Groups', () => {
       // Navigate to fist privacy group
       await page.getByRole('button', { name: 'Open' }).first().click();
 
-      // Should navigate to privact group details with hash in URL
+      // Should navigate to privacy group details with hash in URL
       await page.waitForURL('**/ui/privacy-groups/listeners/listener01');
       await expect(page.getByRole('tab', { name: 'listener01' })).toBeVisible();
 
