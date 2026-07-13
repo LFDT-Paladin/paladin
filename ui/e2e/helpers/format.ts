@@ -69,3 +69,17 @@ export {
   PRIVACY_GROUP_LISTENER_COUNT,
   PRIVACY_GROUP_LISTENER_STARTED_COUNT,
 } from '../mock-server/fixtures/privacy-group-data.js';
+
+export {
+  formatSchemaId,
+  formatStateId,
+  formatStateContractAddress,
+  formatStateOwner,
+  SCHEMA_IDS,
+  SCHEMA_COUNT,
+  STATE_COUNT,
+  NOTO_COIN_STATE_COUNT,
+  NOTO_LOCKED_COIN_STATE_COUNT,
+  ZETO_COIN_STATE_COUNT,
+  PENTE_ACCOUNT_STATE_COUNT,
+} from '../mock-server/fixtures/state-data.js';

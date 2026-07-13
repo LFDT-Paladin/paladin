@@ -40,6 +40,19 @@ test.describe('Privacy Groups', () => {
       await expect(page.getByRole('button', { name: 'Back to Privacy Groups' })).toBeVisible();
     });
 
+    test('Privacy group sorting', async ({ page }) => {
+      // Default order
+      await expect(page.getByRole('row').nth(1).getByRole('button', { name: '0xe000...0001' })).toBeVisible();
+      await expect(page.getByRole('row').nth(10).getByRole('button', { name: '0xe000...000a' })).toBeVisible();
+
+      // Apply sort
+      await page.getByRole('button', { name: 'Created' }).click();
+
+      // Check order is inverted
+      await expect(page.getByRole('row').nth(1).getByRole('button', { name: '0xe000...0019' })).toBeVisible();
+      await expect(page.getByRole('row').nth(10).getByRole('button', { name: '0xe000...0010' })).toBeVisible();
+    });
+
   });
 
   test.describe('Messages', () => {
@@ -71,6 +84,19 @@ test.describe('Privacy Groups', () => {
 
       // Should show an option to go back to submissions
       await expect(page.getByRole('button', { name: 'Back to Messages' })).toBeVisible();
+    });
+
+    test('Privacy group message sorting', async ({ page }) => {
+      // Default order
+      await expect(page.getByRole('row').nth(1).getByRole('button', { name: '0000...0001' })).toBeVisible();
+      await expect(page.getByRole('row').nth(10).getByRole('button', { name: '0000...0010' })).toBeVisible();
+
+      // Apply sort
+      await page.getByRole('button', { name: 'Sent' }).click();
+
+      // Check order is inverted
+      await expect(page.getByRole('row').nth(1).getByRole('button', { name: '00000...0050' })).toBeVisible();
+      await expect(page.getByRole('row').nth(10).getByRole('button', { name: '00000...0041' })).toBeVisible();
     });
 
     test.describe('Edit actions for messages', () => {
@@ -120,30 +146,34 @@ test.describe('Privacy Groups', () => {
       await expect(page.getByRole('button', { name: 'Back to Listeners' })).toBeVisible();
     });
 
+    test('Privacy group listener sorting', async ({ page }) => {
+      // Default order
+      await expect(page.getByRole('row').nth(1).getByRole('cell', { name: 'listener01' })).toBeVisible();
+      await expect(page.getByRole('row').nth(10).getByRole('cell', { name: 'listener10' })).toBeVisible();
+
+      // Apply sort
+      await page.getByRole('button', { name: 'name' }).click();
+
+      // Check order is inverted
+      await expect(page.getByRole('row').nth(1).getByRole('cell', { name: 'listener12' })).toBeVisible();
+      await expect(page.getByRole('row').nth(10).getByRole('cell', { name: 'listener03' })).toBeVisible();
+    });
+
     test.describe('Edit actions for listeners', () => {
 
-      test('Send message', async ({ page }) => {
+      test('Start / Stop / Delete', async ({ page }) => {
 
         // Switch to "Edit" mode
         await page.locator('#settings').click();
         await page.locator('#editMode').click();
         await page.locator('.MuiBackdrop-root').click();
 
-        // Should show an option to go back to create new listeners
-        await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeVisible();
+        // There should be an actions to start, stop and delete
+        await expect(page.getByText('StartStopDelete')).toHaveCount(10);
       });
     });
 
-    test('Start/stop/delete', async ({ page }) => {
 
-      // Switch to "Edit" mode
-      await page.locator('#settings').click();
-      await page.locator('#editMode').click();
-      await page.locator('.MuiBackdrop-root').click();
-
-      // There should be an actions to start, stop and delete
-      await expect(page.getByText('StartStopDelete')).toHaveCount(10);
-    });
 
   });
 });

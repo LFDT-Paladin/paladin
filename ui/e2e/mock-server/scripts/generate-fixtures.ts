@@ -16,6 +16,7 @@ import {
   buildPrivacyGroupMessages,
   buildPrivacyGroupListeners,
 } from '../fixtures/privacy-group-data.js';
+import { buildSchemas, buildStates } from '../fixtures/state-data.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const dataDir = join(rootDir, '../store/data');
@@ -33,6 +34,8 @@ const registryEntries = buildRegistryEntries();
 const privacyGroups = buildPrivacyGroups();
 const privacyGroupMessages = buildPrivacyGroupMessages(privacyGroups);
 const privacyGroupListeners = buildPrivacyGroupListeners(privacyGroups);
+const schemas = buildSchemas();
+const states = buildStates();
 
 writeFileSync(
   join(dataDir, 'indexed-transactions.json'),
@@ -82,6 +85,14 @@ writeFileSync(
   join(dataDir, 'privacy-group-listeners.json'),
   `${JSON.stringify(privacyGroupListeners, null, 2)}\n`
 );
+writeFileSync(
+  join(dataDir, 'schemas.json'),
+  `${JSON.stringify(schemas, null, 2)}\n`
+);
+writeFileSync(
+  join(dataDir, 'states.json'),
+  `${JSON.stringify(states, null, 2)}\n`
+);
 
 for (const collection of EMPTY_COLLECTIONS) {
   writeFileSync(join(dataDir, `${collection}.json`), '[]\n');
@@ -96,6 +107,7 @@ const zetoCount = smartContracts.filter((c) => c.domainName === 'zeto').length;
 const penteCount = smartContracts.filter((c) => c.domainName === 'pente').length;
 const inactiveCount = registryEntries.filter((e) => e.active === false).length;
 const startedListeners = privacyGroupListeners.filter((l) => l.started).length;
+const notoCoinStates = states.filter((s) => s.schema === schemas[0].id).length;
 
 console.log(
   `Generated ${transactions.length} indexed transactions, ${receipts.length} receipts, ${events.length} events`
@@ -114,4 +126,7 @@ console.log(
 );
 console.log(
   `Generated ${privacyGroups.length} privacy groups, ${privacyGroupMessages.length} messages, ${privacyGroupListeners.length} listeners (${startedListeners} started)`
+);
+console.log(
+  `Generated ${schemas.length} schemas, ${states.length} states (${notoCoinStates} NotoCoin)`
 );

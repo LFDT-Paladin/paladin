@@ -88,9 +88,24 @@
     "started": "bool"
   },
   "states": {
-    "id": "string",
+    "id": "hex",
+    ".id": "hex",
+    "created": "timestamp",
+    ".created": "timestamp",
     "domain": "string",
-    "schema": "string"
+    "schema": "hex",
+    "contractAddress": "hex",
+    "owner": "hex",
+    "amount": "int",
+    "locked": "bool",
+    "address": "hex",
+    "balance": "int"
+  },
+  "schemas": {
+    "id": "hex",
+    "domain": "string",
+    "type": "string",
+    "created": "timestamp"
   },
   "transport-peers": {
     "name": "string"

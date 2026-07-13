@@ -159,14 +159,24 @@
     "paramIndex": 0
   },
   "pstate_listSchemas": {
-    "type": "query",
-    "collection": "states",
-    "queryParamIndex": 0
+    "type": "derivedQuery",
+    "collection": "schemas",
+    "queryParamIndex": 1,
+    "preFilter": {
+      "equalField": "domain",
+      "equalParamIndex": 0
+    }
   },
   "pstate_queryStates": {
-    "type": "query",
+    "type": "derivedQuery",
     "collection": "states",
-    "queryParamIndex": 0
+    "queryParamIndex": 2,
+    "preFilter": {
+      "equalFields": [
+        { "field": "domain", "paramIndex": 0 },
+        { "field": "schema", "paramIndex": 1 }
+      ]
+    }
   },
   "transport_queryPeers": {
     "type": "query",

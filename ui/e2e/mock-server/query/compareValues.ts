@@ -94,9 +94,19 @@ export const getFieldValue = (item: Record<string, unknown>, field: string): unk
   if (
     properties !== null &&
     typeof properties === 'object' &&
-    !Array.isArray(properties)
+    !Array.isArray(properties) &&
+    Object.prototype.hasOwnProperty.call(properties, key)
   ) {
     return (properties as Record<string, unknown>)[key];
+  }
+  const data = item.data;
+  if (
+    data !== null &&
+    typeof data === 'object' &&
+    !Array.isArray(data) &&
+    Object.prototype.hasOwnProperty.call(data, key)
+  ) {
+    return (data as Record<string, unknown>)[key];
   }
   return undefined;
 };

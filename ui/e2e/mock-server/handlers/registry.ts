@@ -12,6 +12,8 @@ export interface PreFilterConfig {
   /** Keep items where item[equalField] === params[equalParamIndex]. */
   equalField?: string;
   equalParamIndex?: number;
+  /** Multiple equalField prefilters (e.g. domain + schema for pstate_queryStates). */
+  equalFields?: Array<{ field: string; paramIndex: number }>;
   /** Apply active/inactive/any filter from params[activeParamIndex]. */
   activeParamIndex?: number;
 }

@@ -42,6 +42,13 @@ export const handleDerivedQuery = (
     filtered = filtered.filter((item) => item[field] === expected);
   }
 
+  if (preFilter.equalFields !== undefined) {
+    for (const { field, paramIndex } of preFilter.equalFields) {
+      const expected = params[paramIndex];
+      filtered = filtered.filter((item) => item[field] === expected);
+    }
+  }
+
   if (preFilter.activeParamIndex !== undefined) {
     const activeFilter = String(params[preFilter.activeParamIndex] ?? 'any');
     if (activeFilter === 'active') {
