@@ -9,7 +9,6 @@ test.describe('States', () => {
   });
 
   test('List states', async ({ page }) => {
-
     // Show (up to) 100 rows per page
     await page.getByRole('combobox', { name: 'Rows per page:' }).click();
     await page.getByRole('option', { name: '100' }).click();

@@ -83,3 +83,11 @@ export {
   ZETO_COIN_STATE_COUNT,
   PENTE_ACCOUNT_STATE_COUNT,
 } from '../mock-server/fixtures/state-data.js';
+
+export {
+  formatPeerName,
+  formatReliableMessageId,
+  TRANSPORT_PEER_COUNT,
+  TRANSPORT_MESSAGE_COUNT,
+  MESSAGE_TYPES,
+} from '../mock-server/fixtures/transport-data.js';

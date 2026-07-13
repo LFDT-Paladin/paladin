@@ -108,10 +108,19 @@
     "created": "timestamp"
   },
   "transport-peers": {
-    "name": "string"
+    "name": "string",
+    "activated": "timestamp",
+    "stats.sentMsgs": "int",
+    "stats.receivedMsgs": "int",
+    "stats.lastSend": "timestamp",
+    "stats.lastReceive": "timestamp"
   },
   "transport-messages": {
     "id": "string",
-    "node": "string"
+    "sequence": "int",
+    "created": "timestamp",
+    "node": "string",
+    "messageType": "string",
+    "ack.time": "timestamp"
   }
 }

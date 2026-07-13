@@ -87,6 +87,11 @@ export const likeToRegExp = (pattern: string, caseInsensitive: boolean): RegExp 
 
 export const getFieldValue = (item: Record<string, unknown>, field: string): unknown => {
   const key = field.startsWith('.') ? field.slice(1) : field;
+
+  if (key.includes('.')) {
+    return getNestedValue(item, key.split('.'));
+  }
+
   if (Object.prototype.hasOwnProperty.call(item, key)) {
     return item[key];
   }
@@ -109,4 +114,19 @@ export const getFieldValue = (item: Record<string, unknown>, field: string): unk
     return (data as Record<string, unknown>)[key];
   }
   return undefined;
+};
+
+const getNestedValue = (obj: unknown, parts: string[]): unknown => {
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current)) {
+      return undefined;
+    }
+    const record = current as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(record, part)) {
+      return undefined;
+    }
+    current = record[part];
+  }
+  return current;
 };

@@ -1,1 +1,452 @@
-[]
+[
+  {
+    "name": "node01",
+    "activated": "2026-01-01T12:00:00.999Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node01.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.999Z",
+      "sentMsgs": 100,
+      "receivedMsgs": 90,
+      "sentBytes": 1024,
+      "receivedBytes": 900,
+      "lastSend": "2026-01-01T12:00:01.999Z",
+      "lastReceive": "2026-01-01T12:00:01.499Z",
+      "reliableHighestSent": 100
+    }
+  },
+  {
+    "name": "node02",
+    "activated": "2026-01-01T12:00:00.998Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node02.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.998Z",
+      "sentMsgs": 200,
+      "receivedMsgs": 180,
+      "sentBytes": 2048,
+      "receivedBytes": 1800,
+      "lastSend": "2026-01-01T12:00:01.998Z",
+      "lastReceive": "2026-01-01T12:00:01.498Z",
+      "reliableHighestSent": 200
+    }
+  },
+  {
+    "name": "node03",
+    "activated": "2026-01-01T12:00:00.997Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node03.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.997Z",
+      "sentMsgs": 300,
+      "receivedMsgs": 270,
+      "sentBytes": 3072,
+      "receivedBytes": 2700,
+      "lastSend": "2026-01-01T12:00:01.997Z",
+      "lastReceive": "2026-01-01T12:00:01.497Z",
+      "reliableHighestSent": 300
+    }
+  },
+  {
+    "name": "node04",
+    "activated": "2026-01-01T12:00:00.996Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node04.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.996Z",
+      "sentMsgs": 400,
+      "receivedMsgs": 360,
+      "sentBytes": 4096,
+      "receivedBytes": 3600,
+      "lastSend": "2026-01-01T12:00:01.996Z",
+      "lastReceive": "2026-01-01T12:00:01.496Z",
+      "reliableHighestSent": 400
+    }
+  },
+  {
+    "name": "node05",
+    "activated": "2026-01-01T12:00:00.995Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node05.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.995Z",
+      "sentMsgs": 500,
+      "receivedMsgs": 450,
+      "sentBytes": 5120,
+      "receivedBytes": 4500,
+      "lastSend": "2026-01-01T12:00:01.995Z",
+      "lastReceive": null,
+      "reliableHighestSent": 500
+    }
+  },
+  {
+    "name": "node06",
+    "activated": "2026-01-01T12:00:00.994Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node06.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.994Z",
+      "sentMsgs": 600,
+      "receivedMsgs": 540,
+      "sentBytes": 6144,
+      "receivedBytes": 5400,
+      "lastSend": "2026-01-01T12:00:01.994Z",
+      "lastReceive": "2026-01-01T12:00:01.494Z",
+      "reliableHighestSent": 600
+    }
+  },
+  {
+    "name": "node07",
+    "activated": "2026-01-01T12:00:00.993Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node07.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.993Z",
+      "sentMsgs": 700,
+      "receivedMsgs": 630,
+      "sentBytes": 7168,
+      "receivedBytes": 6300,
+      "lastSend": "2026-01-01T12:00:01.993Z",
+      "lastReceive": "2026-01-01T12:00:01.493Z",
+      "reliableHighestSent": 700
+    }
+  },
+  {
+    "name": "node08",
+    "activated": "2026-01-01T12:00:00.992Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node08.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.992Z",
+      "sentMsgs": 800,
+      "receivedMsgs": 720,
+      "sentBytes": 8192,
+      "receivedBytes": 7200,
+      "lastSend": "2026-01-01T12:00:01.992Z",
+      "lastReceive": "2026-01-01T12:00:01.492Z",
+      "reliableHighestSent": 800
+    }
+  },
+  {
+    "name": "node09",
+    "activated": "2026-01-01T12:00:00.991Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node09.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.991Z",
+      "sentMsgs": 900,
+      "receivedMsgs": 810,
+      "sentBytes": 9216,
+      "receivedBytes": 8100,
+      "lastSend": "2026-01-01T12:00:01.991Z",
+      "lastReceive": "2026-01-01T12:00:01.491Z",
+      "reliableHighestSent": 900
+    }
+  },
+  {
+    "name": "node10",
+    "activated": "2026-01-01T12:00:00.990Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node10.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.990Z",
+      "sentMsgs": 1000,
+      "receivedMsgs": 900,
+      "sentBytes": 10240,
+      "receivedBytes": 9000,
+      "lastSend": "2026-01-01T12:00:01.990Z",
+      "lastReceive": null,
+      "reliableHighestSent": 1000
+    }
+  },
+  {
+    "name": "node11",
+    "activated": "2026-01-01T12:00:00.989Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node11.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.989Z",
+      "sentMsgs": 1100,
+      "receivedMsgs": 990,
+      "sentBytes": 11264,
+      "receivedBytes": 9900,
+      "lastSend": "2026-01-01T12:00:01.989Z",
+      "lastReceive": "2026-01-01T12:00:01.489Z",
+      "reliableHighestSent": 1100
+    }
+  },
+  {
+    "name": "node12",
+    "activated": "2026-01-01T12:00:00.988Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node12.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.988Z",
+      "sentMsgs": 1200,
+      "receivedMsgs": 1080,
+      "sentBytes": 12288,
+      "receivedBytes": 10800,
+      "lastSend": "2026-01-01T12:00:01.988Z",
+      "lastReceive": "2026-01-01T12:00:01.488Z",
+      "reliableHighestSent": 1200
+    }
+  },
+  {
+    "name": "node13",
+    "activated": "2026-01-01T12:00:00.987Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node13.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.987Z",
+      "sentMsgs": 1300,
+      "receivedMsgs": 1170,
+      "sentBytes": 13312,
+      "receivedBytes": 11700,
+      "lastSend": "2026-01-01T12:00:01.987Z",
+      "lastReceive": "2026-01-01T12:00:01.487Z",
+      "reliableHighestSent": 1300
+    }
+  },
+  {
+    "name": "node14",
+    "activated": "2026-01-01T12:00:00.986Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node14.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.986Z",
+      "sentMsgs": 1400,
+      "receivedMsgs": 1260,
+      "sentBytes": 14336,
+      "receivedBytes": 12600,
+      "lastSend": "2026-01-01T12:00:01.986Z",
+      "lastReceive": "2026-01-01T12:00:01.486Z",
+      "reliableHighestSent": 1400
+    }
+  },
+  {
+    "name": "node15",
+    "activated": "2026-01-01T12:00:00.985Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node15.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.985Z",
+      "sentMsgs": 1500,
+      "receivedMsgs": 1350,
+      "sentBytes": 15360,
+      "receivedBytes": 13500,
+      "lastSend": "2026-01-01T12:00:01.985Z",
+      "lastReceive": null,
+      "reliableHighestSent": 1500
+    }
+  },
+  {
+    "name": "node16",
+    "activated": "2026-01-01T12:00:00.984Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node16.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.984Z",
+      "sentMsgs": 1600,
+      "receivedMsgs": 1440,
+      "sentBytes": 16384,
+      "receivedBytes": 14400,
+      "lastSend": "2026-01-01T12:00:01.984Z",
+      "lastReceive": "2026-01-01T12:00:01.484Z",
+      "reliableHighestSent": 1600
+    }
+  },
+  {
+    "name": "node17",
+    "activated": "2026-01-01T12:00:00.983Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node17.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.983Z",
+      "sentMsgs": 1700,
+      "receivedMsgs": 1530,
+      "sentBytes": 17408,
+      "receivedBytes": 15300,
+      "lastSend": "2026-01-01T12:00:01.983Z",
+      "lastReceive": "2026-01-01T12:00:01.483Z",
+      "reliableHighestSent": 1700
+    }
+  },
+  {
+    "name": "node18",
+    "activated": "2026-01-01T12:00:00.982Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node18.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.982Z",
+      "sentMsgs": 1800,
+      "receivedMsgs": 1620,
+      "sentBytes": 18432,
+      "receivedBytes": 16200,
+      "lastSend": "2026-01-01T12:00:01.982Z",
+      "lastReceive": "2026-01-01T12:00:01.482Z",
+      "reliableHighestSent": 1800
+    }
+  },
+  {
+    "name": "node19",
+    "activated": "2026-01-01T12:00:00.981Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node19.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.981Z",
+      "sentMsgs": 1900,
+      "receivedMsgs": 1710,
+      "sentBytes": 19456,
+      "receivedBytes": 17100,
+      "lastSend": "2026-01-01T12:00:01.981Z",
+      "lastReceive": "2026-01-01T12:00:01.481Z",
+      "reliableHighestSent": 1900
+    }
+  },
+  {
+    "name": "node20",
+    "activated": "2026-01-01T12:00:00.980Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node20.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.980Z",
+      "sentMsgs": 2000,
+      "receivedMsgs": 1800,
+      "sentBytes": 20480,
+      "receivedBytes": 18000,
+      "lastSend": "2026-01-01T12:00:01.980Z",
+      "lastReceive": null,
+      "reliableHighestSent": 2000
+    }
+  },
+  {
+    "name": "node21",
+    "activated": "2026-01-01T12:00:00.979Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node21.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.979Z",
+      "sentMsgs": 2100,
+      "receivedMsgs": 1890,
+      "sentBytes": 21504,
+      "receivedBytes": 18900,
+      "lastSend": "2026-01-01T12:00:01.979Z",
+      "lastReceive": "2026-01-01T12:00:01.479Z",
+      "reliableHighestSent": 2100
+    }
+  },
+  {
+    "name": "node22",
+    "activated": "2026-01-01T12:00:00.978Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node22.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.978Z",
+      "sentMsgs": 2200,
+      "receivedMsgs": 1980,
+      "sentBytes": 22528,
+      "receivedBytes": 19800,
+      "lastSend": "2026-01-01T12:00:01.978Z",
+      "lastReceive": "2026-01-01T12:00:01.478Z",
+      "reliableHighestSent": 2200
+    }
+  },
+  {
+    "name": "node23",
+    "activated": "2026-01-01T12:00:00.977Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node23.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.977Z",
+      "sentMsgs": 2300,
+      "receivedMsgs": 2070,
+      "sentBytes": 23552,
+      "receivedBytes": 20700,
+      "lastSend": "2026-01-01T12:00:01.977Z",
+      "lastReceive": "2026-01-01T12:00:01.477Z",
+      "reliableHighestSent": 2300
+    }
+  },
+  {
+    "name": "node24",
+    "activated": "2026-01-01T12:00:00.976Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node24.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.976Z",
+      "sentMsgs": 2400,
+      "receivedMsgs": 2160,
+      "sentBytes": 24576,
+      "receivedBytes": 21600,
+      "lastSend": "2026-01-01T12:00:01.976Z",
+      "lastReceive": "2026-01-01T12:00:01.476Z",
+      "reliableHighestSent": 2400
+    }
+  },
+  {
+    "name": "node25",
+    "activated": "2026-01-01T12:00:00.975Z",
+    "outboundTransport": "grpc",
+    "outbound": {
+      "endpoint": "dns:///node25.example:18888"
+    },
+    "stats": {
+      "createdAt": "2026-01-01T12:00:00.975Z",
+      "sentMsgs": 2500,
+      "receivedMsgs": 2250,
+      "sentBytes": 25600,
+      "receivedBytes": 22500,
+      "lastSend": "2026-01-01T12:00:01.975Z",
+      "lastReceive": null,
+      "reliableHighestSent": 2500
+    }
+  }
+]

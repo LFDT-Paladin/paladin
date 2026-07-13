@@ -123,7 +123,4 @@ export const buildEvents = (transactions: MockTransaction[]): MockEvent[] => {
   return events;
 };
 
-export const EMPTY_COLLECTIONS = [
-  'transport-peers',
-  'transport-messages',
-];
+export const EMPTY_COLLECTIONS: string[] = [];

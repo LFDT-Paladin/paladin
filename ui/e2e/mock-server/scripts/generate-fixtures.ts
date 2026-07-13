@@ -17,6 +17,10 @@ import {
   buildPrivacyGroupListeners,
 } from '../fixtures/privacy-group-data.js';
 import { buildSchemas, buildStates } from '../fixtures/state-data.js';
+import {
+  buildTransportPeers,
+  buildTransportMessages,
+} from '../fixtures/transport-data.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const dataDir = join(rootDir, '../store/data');
@@ -36,6 +40,8 @@ const privacyGroupMessages = buildPrivacyGroupMessages(privacyGroups);
 const privacyGroupListeners = buildPrivacyGroupListeners(privacyGroups);
 const schemas = buildSchemas();
 const states = buildStates();
+const transportPeers = buildTransportPeers();
+const transportMessages = buildTransportMessages(transportPeers);
 
 writeFileSync(
   join(dataDir, 'indexed-transactions.json'),
@@ -93,6 +99,14 @@ writeFileSync(
   join(dataDir, 'states.json'),
   `${JSON.stringify(states, null, 2)}\n`
 );
+writeFileSync(
+  join(dataDir, 'transport-peers.json'),
+  `${JSON.stringify(transportPeers, null, 2)}\n`
+);
+writeFileSync(
+  join(dataDir, 'transport-messages.json'),
+  `${JSON.stringify(transportMessages, null, 2)}\n`
+);
 
 for (const collection of EMPTY_COLLECTIONS) {
   writeFileSync(join(dataDir, `${collection}.json`), '[]\n');
@@ -108,6 +122,7 @@ const penteCount = smartContracts.filter((c) => c.domainName === 'pente').length
 const inactiveCount = registryEntries.filter((e) => e.active === false).length;
 const startedListeners = privacyGroupListeners.filter((l) => l.started).length;
 const notoCoinStates = states.filter((s) => s.schema === schemas[0].id).length;
+const unackedMessages = transportMessages.filter((m) => m.ack === undefined).length;
 
 console.log(
   `Generated ${transactions.length} indexed transactions, ${receipts.length} receipts, ${events.length} events`
@@ -129,4 +144,7 @@ console.log(
 );
 console.log(
   `Generated ${schemas.length} schemas, ${states.length} states (${notoCoinStates} NotoCoin)`
+);
+console.log(
+  `Generated ${transportPeers.length} transport peers, ${transportMessages.length} reliable messages (${unackedMessages} unacked)`
 );

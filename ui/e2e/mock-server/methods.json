@@ -195,11 +195,11 @@
   },
   "transport_nodeName": {
     "type": "static",
-    "file": "static/transport-node-name.json"
+    "file": "../static/transport-node-name.json"
   },
   "transport_localTransportDetails": {
     "type": "static",
-    "file": "static/transport-local-details.json"
+    "file": "../static/transport-local-details.json"
   },
   "ptx_call": { "type": "empty", "returnValue": null },
   "ptx_decodeCall": { "type": "empty", "returnValue": null },
