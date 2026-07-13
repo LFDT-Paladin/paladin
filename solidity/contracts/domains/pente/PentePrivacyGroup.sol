@@ -30,6 +30,9 @@ contract PentePrivacyGroup is IPente, UUPSUpgradeable, EIP712Upgradeable {
     bytes32 private constant UPGRADE_TYPEHASH =
         keccak256("Upgrade(address address)");
 
+    bytes32 private constant UPDATE_ENDORSEMENT_TYPEHASH =
+        keccak256("UpdateEndorsement(uint256 threshold,address[] endorsementSet)");
+
     mapping(bytes32 => bool) private _unspent;
     mapping(bytes32 => address) private _approvals;
     mapping(bytes32 => bool) private _txids;
@@ -48,6 +51,7 @@ contract PentePrivacyGroup is IPente, UUPSUpgradeable, EIP712Upgradeable {
     error PenteReadNotAvailable(bytes32 read);
     error PenteOutputAlreadyUnspent(bytes32 output);
     error PenteExternalCallsDisabled();
+    error PenteEmptyEndorsementSet();
     error PenteInvalidDelegate(
         bytes32 txhash,
         address delegate,
@@ -115,6 +119,22 @@ contract PentePrivacyGroup is IPente, UUPSUpgradeable, EIP712Upgradeable {
         bytes32 upgradeHash = _buildUpgradeHash(newImplementation);
         validateEndorsements(upgradeHash, signatures);
         _nextImplementation = newImplementation;
+    }
+
+    function updateEndorsementConfig(
+        uint threshold,
+        address[] calldata endorsementSet,
+        bytes[] calldata signatures
+    ) external {
+        if (endorsementSet.length == 0) {
+            revert PenteEmptyEndorsementSet();
+        }
+        bytes32 updateHash = _buildUpdateEndorsementHash(threshold, endorsementSet);
+        validateEndorsements(updateHash, signatures);
+        _endorsementConfig = EndorsementConfig({
+            threshold: threshold,
+            endorsementSet: endorsementSet
+        });
     }
 
     function transition(
@@ -241,6 +261,20 @@ contract PentePrivacyGroup is IPente, UUPSUpgradeable, EIP712Upgradeable {
     ) internal view returns (bytes32) {
         bytes32 structHash = keccak256(
             abi.encode(UPGRADE_TYPEHASH, newImplementation)
+        );
+        return _hashTypedDataV4(structHash);
+    }
+
+    function _buildUpdateEndorsementHash(
+        uint threshold,
+        address[] calldata endorsementSet
+    ) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                UPDATE_ENDORSEMENT_TYPEHASH,
+                threshold,
+                keccak256(abi.encodePacked(endorsementSet))
+            )
         );
         return _hashTypedDataV4(structHash);
     }
