@@ -72,7 +72,7 @@ export const handleDerivedQuery = (
     } else if (activeFilter === 'inactive') {
       filtered = filtered.filter((item) => item.active === false);
     }
-    // any / all → no active filter
+    // any / all no active filter
   }
 
   const query = (params[config.queryParamIndex ?? 0] ?? {}) as QueryJSON;

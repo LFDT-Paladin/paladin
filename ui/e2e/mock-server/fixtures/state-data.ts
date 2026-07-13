@@ -181,10 +181,10 @@ const buildState = (
  * Builds private states for the States page.
  *
  * Layout (global id sequence, newest-first by created within each schema):
- * - n=1..25  → noto / NotoCoin
- * - n=26..30 → noto / NotoLockedCoin
- * - n=31..40 → zeto / ZetoCoin
- * - n=41..45 → pente / AccountState
+ * - n=1..25  noto / NotoCoin
+ * - n=26..30 noto / NotoLockedCoin
+ * - n=31..40 zeto / ZetoCoin
+ * - n=41..45 pente / AccountState
  *
  * Conventions:
  * - id:              0x7...n

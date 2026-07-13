@@ -52,8 +52,8 @@ export interface MockPaladinTransaction {
 
 /**
  * Status for submissions (1-indexed position n):
- * - n = 1..25 → pending (no success / receipt)
- * - n = 26..30 → failed (success: false)
+ * - n = 1..25 pending (no success / receipt)
+ * - n = 26..30 failed (success: false)
  */
 export const submissionStatusForIndex = (n: number): SubmissionStatus =>
   n <= PENDING_SUBMISSION_COUNT ? 'pending' : 'failed';

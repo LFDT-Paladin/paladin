@@ -57,8 +57,8 @@ const padNameIndex = (n: number): string => n.toString(10).padStart(2, '0');
  * Builds registry entries for the Registries page.
  *
  * Layout (id/owner sequence n=1..25):
- * - entry01..entry20 → active
- * - entry21..entry25 → inactive
+ * - entry01..entry20 active
+ * - entry21..entry25 inactive
  *
  * Conventions:
  * - id:     0x...n (bytes32)
