@@ -967,10 +967,10 @@ func TestSequencerManager_CallPrivateSmartContract_Success(t *testing.T) {
 	mocks.components.EXPECT().IdentityResolver().Return(identityResolver).Once()
 	identityResolver.EXPECT().ResolveVerifier(ctx, "alice", "ECDSA", "eth_address").Return("0xabc", nil).Once()
 
-	mockDCtx := componentsmocks.NewDomainContext(t)
-	mocks.stateManager.EXPECT().NewDomainContext(ctx, mockDomain, *contractAddr).Return(mockDCtx).Once()
-	mockDCtx.EXPECT().Close().Once()
-	mocks.domainAPI.EXPECT().ExecCall(mockDCtx, nil, call, mock.Anything).Return(&abi.ComponentValue{}, nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	mocks.stateManager.EXPECT().NewDomainQueryContext(ctx, mockDomain, *contractAddr).Return(mockDqc).Once()
+	mockDqc.EXPECT().Close(mock.Anything).Once()
+	mocks.domainAPI.EXPECT().ExecCall(mock.Anything, mockDqc, nil, call, mock.Anything).Return(&abi.ComponentValue{}, nil).Once()
 
 	result, err := sm.CallPrivateSmartContract(ctx, call)
 	require.NoError(t, err)

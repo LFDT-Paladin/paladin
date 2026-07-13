@@ -100,7 +100,7 @@ type coordinatorTransaction struct {
 	syncPoints                        syncpoints.SyncPoints
 	components                        components.AllComponents
 	domainAPI                         components.DomainSmartContract
-	dCtx                              components.DomainContext
+	dsw                               components.DomainStateWriter
 	queueEventForCoordinator          func(context.Context, common.Event)
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error
 	getCoordinatorTransactionState    func(context.Context, uuid.UUID) (State, bool)
@@ -127,7 +127,7 @@ func NewTransaction(ctx context.Context,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
 	domainAPI components.DomainSmartContract,
-	dCtx components.DomainContext,
+	dsw components.DomainStateWriter,
 	requestTimeout,
 	stateTimeout time.Duration,
 	finalizingGracePeriod int,
@@ -158,7 +158,7 @@ func NewTransaction(ctx context.Context,
 		syncPoints,
 		allComponents,
 		domainAPI,
-		dCtx,
+		dsw,
 		requestTimeout,
 		stateTimeout,
 		finalizingGracePeriod,
@@ -191,7 +191,7 @@ func newTransaction(
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
 	domainAPI components.DomainSmartContract,
-	dCtx components.DomainContext,
+	dsw components.DomainStateWriter,
 	requestTimeout,
 	stateTimeout time.Duration,
 	finalizingGracePeriod int,
@@ -222,7 +222,7 @@ func newTransaction(
 		syncPoints:                        syncPoints,
 		components:                        allComponents,
 		domainAPI:                         domainAPI,
-		dCtx:                              dCtx,
+		dsw:                               dsw,
 		domainSigningIdentity:             domainAPI.Domain().FixedSigningIdentity(),
 		getCoordinatorSigningIdentity:     getCoordinatorSigningIdentity,
 		submitterSelection:                domainAPI.ContractConfig().GetSubmitterSelection(),

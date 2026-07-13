@@ -116,7 +116,7 @@ type coordinator struct {
 
 	/* Dependencies */
 	domainAPI             components.DomainSmartContract
-	dCtx                  components.DomainContext
+	dsw                   components.DomainStateWriter
 	components            components.AllComponents
 	transportWriter       transport.TransportWriter
 	clock                 common.Clock
@@ -138,7 +138,7 @@ type coordinator struct {
 func NewCoordinator(
 	contractAddress *pldtypes.EthAddress,
 	domainAPI components.DomainSmartContract,
-	dCtx components.DomainContext,
+	dsw components.DomainStateWriter,
 	allComponents components.AllComponents,
 	buildNullifiers func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error),
 	newPrivateTransaction func(context.Context, []*components.ValidatedTransaction) error,
@@ -158,7 +158,7 @@ func NewCoordinator(
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]transaction.CoordinatorTransaction),
 		domainAPI:                          domainAPI,
-		dCtx:                               dCtx,
+		dsw:                                dsw,
 		components:                         allComponents,
 		buildNullifiers:                    buildNullifiers,
 		newPrivateTransaction:              newPrivateTransaction,

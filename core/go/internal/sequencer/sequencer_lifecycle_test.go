@@ -228,10 +228,11 @@ func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	mockDomainSmartContract := componentsmocks.NewDomainSmartContract(t)
 	mockDomain := componentsmocks.NewDomain(t)
 	mockDomain.EXPECT().GetBlockHeight().Return(int64(0))
+	mockDomain.EXPECT().Name().Return("testDomain").Maybe()
 	mockDomainSmartContract.EXPECT().Domain().Return(mockDomain)
 	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("test-identity@test-coordinator")}).Maybe()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mockDomainSmartContract, nil)
-	mocks.stateManager.EXPECT().NewDomainContext(ctx, mockDomain, *contractAddr).Return(componentsmocks.NewDomainContext(t)).Once()
+	mocks.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 
 	// Setup transport writer creation
 	mocks.transportWriter.EXPECT().SendDispatched(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -1588,26 +1589,6 @@ func TestHeartbeatLoop_StopsWhenContextCancelled(t *testing.T) {
 	<-done
 }
 
-func TestSequencer_shutdown_WithDomainContext(t *testing.T) {
-	ctx := context.Background()
-	contractAddr := pldtypes.RandAddress()
-	mocks := newSequencerLifecycleTestMocks(t)
-
-	mockDCtx := componentsmocks.NewDomainContext(t)
-	mockDCtx.EXPECT().Close().Once()
-	seq := &sequencer{
-		contractAddress: contractAddr.String(),
-		originator:      mocks.originator,
-		coordinator:     mocks.coordinator,
-		cancelCtx:       func() {},
-		domainContext:   mockDCtx,
-	}
-	mocks.coordinator.EXPECT().WaitForDone(mock.Anything).Once()
-	mocks.originator.EXPECT().WaitForDone(mock.Anything).Once()
-	seq.shutdown(ctx)
-	assert.Nil(t, seq.domainContext)
-}
-
 func TestSequencer_shutdown_NilCancelCtx(t *testing.T) {
 	ctx := context.Background()
 	contractAddr := pldtypes.RandAddress()
@@ -1647,12 +1628,13 @@ func TestSequencerManager_LoadSequencer_WithProvidedDomainAPI(t *testing.T) {
 	mockDomainSmartContract := componentsmocks.NewDomainSmartContract(t)
 	mockDomain := componentsmocks.NewDomain(t)
 	mockDomain.EXPECT().GetBlockHeight().Return(int64(0))
+	mockDomain.EXPECT().Name().Return("testDomain").Maybe()
 	mockDomainSmartContract.EXPECT().Domain().Return(mockDomain).Maybe()
 	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("test-identity@test-coordinator")}).Maybe()
 	mocks.components.EXPECT().TransportManager().Return(mocks.transportManager).Maybe()
 	mocks.transportManager.EXPECT().LocalNodeName().Return("test-node").Maybe()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, nil, *contractAddr).Return(mockDomainSmartContract, nil).Once()
-	mocks.stateManager.EXPECT().NewDomainContext(mock.Anything, mockDomain, *contractAddr).Return(componentsmocks.NewDomainContext(t)).Once()
+	mocks.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 	mocks.metrics.EXPECT().SetActiveSequencers(0).Once()
 
 	result, err := sm.LoadSequencer(ctx, nil, *contractAddr, mockDomainSmartContract, nil)
@@ -1687,12 +1669,13 @@ func TestSequencerManager_LoadSequencer_InvalidSelectionConfig(t *testing.T) {
 
 	mockDomainSmartContract := componentsmocks.NewDomainSmartContract(t)
 	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.EXPECT().Name().Return("testDomain").Maybe()
 	mockDomainSmartContract.EXPECT().Domain().Return(mockDomain).Maybe()
 	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("not-a-valid-locator")}).Once()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
 	mocks.metrics.EXPECT().SetActiveSequencers(0).Once()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, nil, *contractAddr).Return(mockDomainSmartContract, nil).Once()
-	mocks.stateManager.EXPECT().NewDomainContext(mock.Anything, mockDomain, *contractAddr).Return(componentsmocks.NewDomainContext(t)).Once()
+	mocks.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 	mocks.transportManager.EXPECT().LocalNodeName().Return("test-node").Maybe()
 
 	result, err := sm.LoadSequencer(ctx, nil, *contractAddr, nil, nil)
@@ -1725,11 +1708,12 @@ func TestSequencerManager_LoadSequencer_ReachesTargetLimit(t *testing.T) {
 	mockDomainSmartContract := componentsmocks.NewDomainSmartContract(t)
 	mockDomain := componentsmocks.NewDomain(t)
 	mockDomain.EXPECT().GetBlockHeight().Return(int64(0))
+	mockDomain.EXPECT().Name().Return("testDomain").Maybe()
 	mockDomainSmartContract.EXPECT().Domain().Return(mockDomain).Maybe()
 	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("test-identity@test-coordinator")}).Maybe()
 	mocks1.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr3).Return(mocks1.domainAPI, nil).Once()
 	mocks1.domainManager.EXPECT().GetSmartContractByAddress(ctx, nil, *contractAddr3).Return(mockDomainSmartContract, nil).Once()
-	mocks1.stateManager.EXPECT().NewDomainContext(mock.Anything, mockDomain, *contractAddr3).Return(componentsmocks.NewDomainContext(t)).Once()
+	mocks1.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr3).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 	mocks1.transportManager.EXPECT().LocalNodeName().Return("test-node").Maybe()
 	mocks1.metrics.EXPECT().SetActiveSequencers(1).Once()
 

@@ -81,7 +81,7 @@ type inFlightDomainRequest struct {
 	d        *domain
 	id       string                   // each request gets a unique ID
 	dbTX     persistence.DBTX         // only if there's a DB transactions such as when called by block indexer
-	dCtx     components.DomainContext // might be short lived, or managed externally (by private TX manager)
+	dqc     components.DomainQueryContext // might be short lived, or managed externally (by private TX manager)
 	readOnly bool
 }
 
@@ -234,10 +234,10 @@ func (d *domain) init() {
 	}
 }
 
-func (d *domain) newInFlightDomainRequest(dbTX persistence.DBTX, dc components.DomainContext, readOnly bool) *inFlightDomainRequest {
+func (d *domain) newInFlightDomainRequest(dbTX persistence.DBTX, dc components.DomainQueryContext, readOnly bool) *inFlightDomainRequest {
 	c := &inFlightDomainRequest{
 		d:        d,
-		dCtx:     dc,
+		dqc:     dc,
 		id:       pldtypes.ShortID(),
 		dbTX:     dbTX,
 		readOnly: readOnly,
@@ -328,9 +328,7 @@ func (d *domain) FindAvailableStates(ctx context.Context, req *prototk.FindAvail
 		return nil, err
 	}
 
-	dcInfo := c.dCtx.Info()
-	ctx = log.WithLogField(ctx, "domain", dcInfo.DomainName)
-	ctx = log.WithLogField(ctx, "contract", dcInfo.ContractAddress.String())
+	ctx = log.WithLogField(ctx, "domain", d.name)
 	ctx = log.WithLogField(ctx, "schema", req.SchemaId)
 	log.L(ctx).Debugf("Domain callback FindAvailableStates")
 
@@ -346,9 +344,9 @@ func (d *domain) FindAvailableStates(ctx context.Context, req *prototk.FindAvail
 
 	var states []*pldapi.State
 	if req.UseNullifiers != nil && *req.UseNullifiers {
-		_, states, err = c.dCtx.FindAvailableNullifiers(ctx, c.dbTX, schemaID, &query)
+		_, states, err = c.dqc.FindAvailableNullifiers(ctx, c.dbTX, schemaID, &query)
 	} else {
-		_, states, err = c.dCtx.FindAvailableStates(ctx, c.dbTX, schemaID, &query)
+		_, states, err = c.dqc.FindAvailableStates(ctx, c.dbTX, schemaID, &query)
 	}
 	if err != nil {
 		return nil, err
@@ -899,7 +897,7 @@ func (d *domain) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRe
 		return nil, i18n.WrapError(ctx, err, msgs.MsgDomainInvalidSchemaID, req.SchemaId)
 	}
 
-	_, states, err := c.dCtx.GetStatesByID(ctx, c.dbTX, schemaID, req.StateIds)
+	_, states, err := c.dqc.GetStatesByID(ctx, c.dbTX, schemaID, req.StateIds)
 	return &prototk.GetStatesByIDResponse{
 		States: toProtoStates(states),
 	}, err
@@ -925,16 +923,16 @@ func (d *domain) ReverseKeyLookup(ctx context.Context, req *prototk.ReverseKeyLo
 	return &prototk.ReverseKeyLookupResponse{Results: results}, nil
 }
 
-func (d *domain) mapPotentialStates(dCtx components.DomainContext, potentialStates []*prototk.NewState, isOutput bool, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
+func (d *domain) mapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, isOutput bool, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
 	stateUpserts = make([]*components.StateUpsert, len(potentialStates))
 	for i, s := range potentialStates {
 		schema := d.schemasByID[s.SchemaId]
 		if schema == nil {
-			return nil, i18n.NewError(dCtx.Ctx(), msgs.MsgDomainUnknownSchema, s.SchemaId)
+			return nil, i18n.NewError(ctx, msgs.MsgDomainUnknownSchema, s.SchemaId)
 		}
 		var id pldtypes.HexBytes
 		if s.Id != nil {
-			id, err = pldtypes.ParseHexBytes(dCtx.Ctx(), *s.Id)
+			id, err = pldtypes.ParseHexBytes(ctx, *s.Id)
 			if err != nil {
 				return nil, err
 			}
@@ -958,11 +956,11 @@ func (d *domain) ValidateStates(ctx context.Context, req *prototk.ValidateStates
 	if err != nil {
 		return nil, err
 	}
-	statesToValidate, err := d.mapPotentialStates(c.dCtx, req.States, false, nil)
+	statesToValidate, err := d.mapPotentialStates(ctx, req.States, false, nil)
 	if err != nil {
 		return nil, err
 	}
-	states, err := c.dCtx.ValidateStates(c.dbTX, statesToValidate...)
+	states, err := d.dm.stateStore.ValidateStates(ctx, c.dbTX, d.Name(), c.dqc.ContractAddress(), d.CustomHashFunction(), statesToValidate...)
 	if err != nil {
 		return nil, err
 	}
