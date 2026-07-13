@@ -92,17 +92,18 @@ func (ptm *pubTxManager) flushStaleOrchestratorsGetCount(ctx context.Context) (i
 
 	// Run through copying across from the old InFlight list to the new one, those that aren't ready to be deleted
 	for signingAddress, oc := range oldInFlight {
-		log.L(ctx).Debugf("Engine checking orchestrator for %s: state: %s, state duration: %s, number of transactions: %d", oc.signingAddress, oc.state, time.Since(oc.stateEntryTime), len(oc.inFlightTxs))
-		if oc.state == OrchestratorStateIdle && time.Since(oc.stateEntryTime) > ptm.orchestratorIdleTimeout ||
-			oc.state == OrchestratorStateStale && time.Since(oc.stateEntryTime) > ptm.orchestratorStaleTimeout {
+		ocState, ocStateEntryTime := oc.getStateAndEntryTime()
+		log.L(ctx).Debugf("Engine checking orchestrator for %s: state: %s, state duration: %s", oc.signingAddress, ocState, time.Since(ocStateEntryTime))
+		if ocState == OrchestratorStateIdle && time.Since(ocStateEntryTime) > ptm.orchestratorIdleTimeout ||
+			ocState == OrchestratorStateStale && time.Since(ocStateEntryTime) > ptm.orchestratorStaleTimeout {
 			// tell transaction orchestrator to stop, there is a chance we later found new transaction for this address, but we got to make a call at some point
 			// so it's here. The transaction orchestrator won't be removed immediately as the state update is async
 			oc.Stop()
 		}
-		if oc.state != OrchestratorStateStopped {
+		if ocState != OrchestratorStateStopped {
 			ptm.inFlightOrchestrators[signingAddress] = oc
 			oc.MarkInFlightTxStale()
-			stateCounts[string(oc.state)] = stateCounts[string(oc.state)] + 1
+			stateCounts[string(ocState)] = stateCounts[string(ocState)] + 1
 			inFlightSigningAddresses = append(inFlightSigningAddresses, signingAddress)
 		} else {
 			log.L(ctx).Infof("Engine removed orchestrator for signing address %s", signingAddress)
@@ -164,7 +165,7 @@ func (ptm *pubTxManager) poll(ctx context.Context) (polled int, total int) {
 			if _, exist := ptm.inFlightOrchestrators[r.From]; !exist {
 				oc := NewOrchestrator(ptm, r.From, ptm.conf)
 				ptm.inFlightOrchestrators[r.From] = oc
-				stateCounts[string(oc.state)] = stateCounts[string(oc.state)] + 1
+				stateCounts[string(oc.getState())] = stateCounts[string(oc.getState())] + 1
 				_, _ = oc.Start(ptm.ctx)
 				log.L(ctx).Infof("Engine added orchestrator for signing address %s", r.From)
 			}
