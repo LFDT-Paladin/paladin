@@ -116,6 +116,23 @@ export interface PrivacyGroupListenersViewState {
   setFiltersVisible: Dispatch<SetStateAction<boolean>>;
 }
 
+export interface EventListenersViewState {
+  sortAscending: boolean;
+  setSortAscending: Dispatch<SetStateAction<boolean>>;
+  refEntries: ISortPagingReference[];
+  setRefEntries: Dispatch<SetStateAction<ISortPagingReference[]>>;
+  sortBy: string;
+  setSortBy: Dispatch<SetStateAction<string>>;
+  page: number;
+  setPage: Dispatch<SetStateAction<number>>;
+  rowsPerPage: number;
+  setRowsPerPage: Dispatch<SetStateAction<number>>;
+  filters: IFilter[];
+  setFilters: Dispatch<SetStateAction<IFilter[]>>;
+  filtersVisible: boolean;
+  setFiltersVisible: Dispatch<SetStateAction<boolean>>;
+}
+
 export interface StatesViewState {
   selectedDomain: string | undefined;
   setSelectedDomain: Dispatch<SetStateAction<string | undefined>>;
@@ -228,6 +245,7 @@ interface IApplicationContext {
   privacyGroups: PrivacyGroupsViewState;
   privacyGroupListeners: PrivacyGroupListenersViewState;
   privacyGroupMessages: PrivacyGroupMessagesViewState;
+  eventListeners: EventListenersViewState;
   states: StatesViewState;
   messages: MessagesViewState;
   transports: TransportsViewState;
@@ -307,6 +325,15 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   const [privacyGroupListenersSortBy, setPrivacyGroupListenerssortBy] = useState('name');
   const [privacyGroupListenersSortAscending, setPrivacyGroupListenersSortAscending] = useState(true);
   const [privacyGroupListenersFiltersVisible, setPrivacyGroupListenersFiltersVisible] = useState(false);
+
+  // Event listeners view state
+  const [eventListenersFilters, setEventListenersFilters] = useState<IFilter[]>([]);
+  const [eventListenersPage, setEventListenersPage] = useState(0);
+  const [eventListenersRowsPerPage, setEventListenersRowsPerPage] = useState(10);
+  const [eventListenersRefEntries, setEventListenersRefEntries] = useState<ISortPagingReference[]>([]);
+  const [eventListenersSortBy, setEventListenersSortBy] = useState('name');
+  const [eventListenersSortAscending, setEventListenersSortAscending] = useState(true);
+  const [eventListenersFiltersVisible, setEventListenersFiltersVisible] = useState(false);
 
   // States view state
   const [statesSelectedDomain, setStatesSelectedDomain] = useState<string | undefined>();
@@ -497,6 +524,34 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
     ]
   );
 
+  const eventListeners = useMemo(
+    (): EventListenersViewState => ({
+      sortAscending: eventListenersSortAscending,
+      setSortAscending: setEventListenersSortAscending,
+      refEntries: eventListenersRefEntries,
+      setRefEntries: setEventListenersRefEntries,
+      sortBy: eventListenersSortBy,
+      setSortBy: setEventListenersSortBy,
+      page: eventListenersPage,
+      setPage: setEventListenersPage,
+      rowsPerPage: eventListenersRowsPerPage,
+      setRowsPerPage: setEventListenersRowsPerPage,
+      filters: eventListenersFilters,
+      setFilters: setEventListenersFilters,
+      filtersVisible: eventListenersFiltersVisible,
+      setFiltersVisible: setEventListenersFiltersVisible,
+    }),
+    [
+      eventListenersSortAscending,
+      eventListenersRefEntries,
+      eventListenersSortBy,
+      eventListenersPage,
+      eventListenersRowsPerPage,
+      eventListenersFilters,
+      eventListenersFiltersVisible,
+    ]
+  );
+
   const states = useMemo(
     (): StatesViewState => ({
       selectedDomain: statesSelectedDomain,
@@ -672,6 +727,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
         domains,
         privacyGroups,
         privacyGroupListeners,
+        eventListeners,
         states,
         messages,
         transports,

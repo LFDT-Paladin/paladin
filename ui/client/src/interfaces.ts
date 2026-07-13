@@ -365,3 +365,22 @@ export interface IPrivacyGroupListener {
   filters?: IPrivacyGroupMessageListenerFilters
   options?: IPrivacyGroupMessageListenerOptions
 }
+
+export interface IEventListenerOptions {
+  batchSize?: number
+  batchTimeout?: string
+  fromBlock?: string | number
+}
+
+export interface IEventListenerSource {
+  abi: IABIEntry[]
+  address?: string
+}
+
+export interface IEventListener {
+  name: string
+  created: string
+  started?: boolean | null
+  sources: IEventListenerSource[]
+  options?: IEventListenerOptions
+}

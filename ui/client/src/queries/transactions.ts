@@ -20,12 +20,16 @@ import {
   IBlock,
   IEnrichedTransaction,
   IEvent,
+  IEventListener,
+  IEventListenerOptions,
+  IEventListenerSource,
   IFilter,
   IPaladinTransaction,
   IPaladinTransactionPagingReference,
   ITransaction,
   ITransactionInput,
   IPagedResult,
+  ISortPagingReference,
   ITransactionPagingReference,
   ITransactionReceipt,
 } from '../interfaces';
@@ -414,6 +418,149 @@ export const fetchPaladinTransactionFull = async (
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
       i18next.t('errorFetchingPaladinTransaction')
+    )
+  );
+};
+
+export const getEventListenerSortValue = (
+  listener: IEventListener,
+  sortBy: string,
+): any => sortBy === 'created' ? listener.created : listener.name;
+
+export const buildEventListenerPagingReference = (
+  listener: IEventListener,
+  sortBy: string,
+): ISortPagingReference => ({
+  sortValue: getEventListenerSortValue(listener, sortBy),
+  tiebreaker: listener.name,
+});
+
+export const listEventListeners = async (
+  limit: number,
+  filters: IFilter[],
+  sortBy: string,
+  sortAscending: boolean,
+  pageRef?: ISortPagingReference
+): Promise<IPagedResult<IEventListener>> => {
+  let translatedFilters = translateFilters(filters);
+  const sortDirection = sortAscending ? 'ASC' : 'DESC';
+
+  let queryParams: any = {
+    ...translatedFilters,
+    limit: limit + 1,
+    sort: [
+      `${sortBy} ${sortDirection}`,
+      `name ${sortDirection}`,
+    ],
+  };
+
+  if (pageRef !== undefined) {
+    const comparison = sortAscending ? 'greaterThan' : 'lessThan';
+    queryParams.or = [
+      {
+        [comparison]: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+      },
+      {
+        equal: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+        [comparison]: [{
+          field: 'name',
+          value: pageRef.tiebreaker,
+        }],
+      },
+    ];
+  }
+
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_queryBlockchainEventListeners,
+    params: [queryParams]
+  };
+  const results = await returnResponse(
+    () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+    i18next.t('errorFetchingEventListeners')
+  );
+  return toPagedResult(results, limit);
+};
+
+export const startEventListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_startBlockchainEventListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStartingEventListener')
+    )
+  );
+};
+
+export const stopEventListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_stopBlockchainEventListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStoppingEventListener')
+    )
+  );
+};
+
+export const createEventListener = async (
+  name: string,
+  started: boolean,
+  sources: IEventListenerSource[],
+  options: IEventListenerOptions
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_createBlockchainEventListener,
+    params: [{
+      name,
+      started,
+      sources,
+      options
+    }],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorCreatingEventListener')
+    )
+  );
+};
+
+export const deleteEventListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_deleteBlockchainEventListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorDeletingEventListener')
     )
   );
 };

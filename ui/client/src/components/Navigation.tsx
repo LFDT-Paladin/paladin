@@ -106,6 +106,13 @@ export const Navigation: React.FC = () => {
             <ListItemText primary={t('transports')} />
           </ListItemButton>
         </ListItem>
+        <ListItem>
+          <ListItemButton
+            onClick={event => customNavigate(AppRoutes.EventListeners, event, navigate)}
+            selected={pathname.startsWith('/ui/listeners')}>
+            <ListItemText primary={t('listeners')} />
+          </ListItemButton>
+        </ListItem>
       </List>
       <Box sx={{ display: 'flex', height: '100%', padding: '5px' }}>
         <IconButton
