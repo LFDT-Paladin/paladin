@@ -124,9 +124,6 @@ export const buildEvents = (transactions: MockTransaction[]): MockEvent[] => {
 };
 
 export const EMPTY_COLLECTIONS = [
-  'privacy-groups',
-  'privacy-group-messages',
-  'privacy-group-listeners',
   'states',
   'transport-peers',
   'transport-messages',

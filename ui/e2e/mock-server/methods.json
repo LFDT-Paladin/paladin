@@ -134,12 +134,12 @@
     "type": "getByField",
     "collection": "privacy-groups",
     "field": "id",
-    "paramIndex": 0
+    "paramIndex": 1
   },
   "pgroup_getGroupByAddress": {
     "type": "getByField",
     "collection": "privacy-groups",
-    "field": "address",
+    "field": "contractAddress",
     "paramIndex": 0
   },
   "pgroup_queryMessages": {

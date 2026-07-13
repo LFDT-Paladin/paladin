@@ -305,7 +305,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   const [privacyGroupListenersRowsPerPage, setPrivacyGroupListenersRowsPerPage] = useState(10);
   const [privacyGroupListenersRefEntries, setPrivacyGroupListenersRefEntries] = useState<ISortPagingReference[]>([]);
   const [privacyGroupListenersSortBy, setPrivacyGroupListenerssortBy] = useState('name');
-  const [privacyGroupListenersSortAscending, setPrivacyGroupListenersSortAscending] = useState(false);
+  const [privacyGroupListenersSortAscending, setPrivacyGroupListenersSortAscending] = useState(true);
   const [privacyGroupListenersFiltersVisible, setPrivacyGroupListenersFiltersVisible] = useState(false);
 
   // States view state

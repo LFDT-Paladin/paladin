@@ -58,3 +58,14 @@ export {
   REGISTRY_ENTRY_COUNT,
   REGISTRY_INACTIVE_COUNT,
 } from '../mock-server/fixtures/registry-data.js';
+
+export {
+  formatPrivacyGroupId,
+  formatPrivacyGroupAddress,
+  formatMessageId,
+  formatGenesisTxId,
+  PRIVACY_GROUP_COUNT,
+  PRIVACY_GROUP_MESSAGE_COUNT,
+  PRIVACY_GROUP_LISTENER_COUNT,
+  PRIVACY_GROUP_LISTENER_STARTED_COUNT,
+} from '../mock-server/fixtures/privacy-group-data.js';

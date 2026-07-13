@@ -66,18 +66,26 @@
     "created": "timestamp"
   },
   "privacy-groups": {
-    "id": "string",
-    "address": "hex",
+    "id": "hex",
+    "contractAddress": "hex",
     "name": "string",
+    "domain": "string",
     "created": "timestamp"
   },
   "privacy-group-messages": {
     "id": "string",
-    "group": "string",
-    "created": "timestamp"
+    "group": "hex",
+    "sent": "timestamp",
+    "received": "timestamp",
+    "node": "string",
+    "domain": "string",
+    "topic": "string",
+    "localSequence": "int"
   },
   "privacy-group-listeners": {
-    "name": "string"
+    "name": "string",
+    "created": "timestamp",
+    "started": "bool"
   },
   "states": {
     "id": "string",
