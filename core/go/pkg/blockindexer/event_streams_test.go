@@ -711,6 +711,8 @@ func TestStartStopEventStream(t *testing.T) {
 	assert.NotNil(t, eventStream.dispatcherDone)
 	assert.NotNil(t, eventStream.detectorStarted)
 	assert.NotNil(t, eventStream.dispatcherStarted)
+	require.NotNil(t, eventStream.definition.Started)
+	assert.True(t, *eventStream.definition.Started)
 
 	// Wait for goroutines to start
 	<-eventStream.detectorStarted
@@ -724,6 +726,9 @@ func TestStartStopEventStream(t *testing.T) {
 		err = bi.StopEventStream(ctx, esID)
 		assert.ErrorContains(c, err, "pop")
 	}, testTimeout(t), 1*time.Millisecond)
+	// Failed DB update must not flip in-memory started status
+	require.NotNil(t, eventStream.definition.Started)
+	assert.True(t, *eventStream.definition.Started)
 
 	// final StopEventStream
 	err = bi.StopEventStream(ctx, esID)
@@ -731,6 +736,8 @@ func TestStartStopEventStream(t *testing.T) {
 
 	assert.Nil(t, eventStream.detectorDone)
 	assert.Nil(t, eventStream.dispatcherDone)
+	require.NotNil(t, eventStream.definition.Started)
+	assert.False(t, *eventStream.definition.Started)
 }
 
 func TestGetEventStreamStatus(t *testing.T) {
