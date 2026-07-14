@@ -26,7 +26,6 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { FiltersButton } from "../components/FiltersButton";
 import { Filters } from "../components/Filters";
 import CircleIcon from '@mui/icons-material/Circle';
-import { Hash } from "../components/Hash";
 import { AppRoutes } from "../routes";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { customNavigate } from "../utils";
