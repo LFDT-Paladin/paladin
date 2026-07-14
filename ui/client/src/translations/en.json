@@ -198,6 +198,7 @@
 	"fromBlock": "From Block",
 	"fromBlockN": "From Block {{n}}",
 	"fromBlockOptional": "From Block (optional)",
+	"invalidFromBlock": "Must be a number or \"latest\"",
 	"function": "Function",
 	"greaterThan": "Greater than",
 	"greaterThanOrEqual": "Greater than or equal",

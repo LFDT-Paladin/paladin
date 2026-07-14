@@ -88,7 +88,10 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
   const isValidAbi = abiText.trim().length === 0 || parsedAbi !== undefined;
   const isValidListenerName = isValidPrivacyGroupListenerName(listenerName);
   const isValidAddress = address.length === 0 || isValidHex(address);
-  const isValidFromBlock = fromBlock.length === 0 || /^\d+$/.test(fromBlock);
+  const isValidFromBlock =
+    fromBlock.length === 0 ||
+    fromBlock === 'latest' ||
+    /^\d+$/.test(fromBlock);
   const isValidBatchTimeout = batchTimeout.length === 0 || /^(\d+h)?(\d+m)?(\d+s)?(\d+ms)?(\d+ns)?$/.test(batchTimeout);
   const canSubmit = isValidListenerName && parsedAbi !== undefined && isValidAddress && isValidFromBlock && isValidBatchTimeout;
 
@@ -96,7 +99,7 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
     mutationFn: () => {
       const options: IEventListenerOptions = {};
       if (fromBlock.length > 0) {
-        options.fromBlock = Number(fromBlock);
+        options.fromBlock = fromBlock === 'latest' ? 'latest' : Number(fromBlock);
       }
       if (batchSize.trim().length > 0) {
         options.batchSize = Number(batchSize);
@@ -210,23 +213,14 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
               helperText={address.length > 0 && !isValidAddress ? t('mustBeAValidHex') : undefined}
             />
             <TextField
-              type="number"
-              sx={{
-                marginBottom: '20px',
-                '& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button': {
-                  display: 'none',
-                  WebkitAppearance: 'none',
-                  margin: 0,
-                },
-                '& input[type=number]': {
-                  MozAppearance: 'textfield',
-                }
-              }}
+              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('fromBlockOptional')}
               value={fromBlock}
               onChange={event => setFromBlock(event.target.value)}
+              error={fromBlock.length > 0 && !isValidFromBlock}
+              helperText={fromBlock.length > 0 && !isValidFromBlock ? t('invalidFromBlock') : undefined}
             />
             <TextField
               type="number"
