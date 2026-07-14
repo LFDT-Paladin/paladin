@@ -35,5 +35,7 @@ export const AppRoutes = {
   TransportConnections: '/ui/transports/connections',
   TransportMessages: '/ui/transports/messages',
   EventListeners: '/ui/listeners/events',
-  ReceiptListeners: '/ui/listeners/receipts'
+  EventListenerEntry: '/ui/listeners/events/:id',
+  ReceiptListeners: '/ui/listeners/receipts',
+  ReceiptListenerEntry: '/ui/listeners/receipts/:id'
 };

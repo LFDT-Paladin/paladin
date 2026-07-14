@@ -54,6 +54,7 @@ export const RpcMethods = {
   ptx_deleteReceiptListener: 'ptx_deleteReceiptListener',
   ptx_getBlockchainEventListener: 'ptx_getBlockchainEventListener',
   ptx_getDomainReceipt: 'ptx_getDomainReceipt',
+  ptx_getReceiptListener: 'ptx_getReceiptListener',
   ptx_getStateReceipt: 'ptx_getStateReceipt',
   ptx_getTransaction: 'ptx_getTransaction',
   ptx_getTransactionFull: 'ptx_getTransactionFull',

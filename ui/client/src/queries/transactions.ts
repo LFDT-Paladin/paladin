@@ -568,6 +568,23 @@ export const deleteEventListener = async (
   );
 };
 
+export const getEventListener = async (
+  listenerName: string
+): Promise<IEventListener> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_getBlockchainEventListener,
+    params: [listenerName],
+  };
+  return <Promise<IEventListener>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingEventListener')
+    )
+  );
+};
+
 export const getReceiptListenerSortValue = (
   listener: IReceiptListener,
   sortBy: string,
@@ -707,6 +724,23 @@ export const deleteReceiptListener = async (
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
       i18next.t('errorDeletingReceiptListener')
+    )
+  );
+};
+
+export const getReceiptListener = async (
+  listenerName: string
+): Promise<IReceiptListener> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_getReceiptListener,
+    params: [listenerName],
+  };
+  return <Promise<IReceiptListener>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingReceiptListener')
     )
   );
 };

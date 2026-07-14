@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Collapse, Fade, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { useTranslation } from "react-i18next";
@@ -27,6 +27,8 @@ import { FiltersButton } from "../components/FiltersButton";
 import { Filters } from "../components/Filters";
 import CircleIcon from '@mui/icons-material/Circle';
 import { AppRoutes } from "../routes";
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import { customNavigate } from "../utils";
 import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 import AddIcon from '@mui/icons-material/Add';
 import { CreateReceiptListenerDialog } from "../dialogs/CreateReceiptListener";
@@ -304,7 +306,14 @@ export const ReceiptListeners: React.FC = () => {
                               refetch={refetch}
                             />
                           </TableCell>
-                          <TableCell />
+                          <TableCell sx={{ padding: '8px' }}>
+                            <Tooltip title={t('open')} arrow>
+                              <IconButton
+                                onClick={mouseEvent => customNavigate(`/ui/listeners/receipts/${receiptListener.name}`, mouseEvent, navigate)}>
+                                <OpenInNewIcon color="secondary" fontSize="medium" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
                         </TableRow>
                       )}
                     </TableBody>
