@@ -80,7 +80,7 @@ export const ReceiptListenerEntry: React.FC = () => {
             }}
             label={
               <Box>
-                {getShortId(listener.name)}
+                {listener.name}
               </Box>
             } />
         </Tabs>

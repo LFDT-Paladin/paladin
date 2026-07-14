@@ -37,6 +37,10 @@ import {
   buildTransportPeers,
   buildTransportMessages,
 } from '../fixtures/transport-data.js';
+import {
+  buildEventListeners,
+  buildReceiptListeners,
+} from '../fixtures/listener-data.js';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const dataDir = join(rootDir, '../store/data');
@@ -58,6 +62,8 @@ const schemas = buildSchemas();
 const states = buildStates();
 const transportPeers = buildTransportPeers();
 const transportMessages = buildTransportMessages(transportPeers);
+const eventListeners = buildEventListeners();
+const receiptListeners = buildReceiptListeners();
 
 writeFileSync(
   join(dataDir, 'indexed-transactions.json'),
@@ -123,6 +129,14 @@ writeFileSync(
   join(dataDir, 'transport-messages.json'),
   `${JSON.stringify(transportMessages, null, 2)}\n`
 );
+writeFileSync(
+  join(dataDir, 'event-listeners.json'),
+  `${JSON.stringify(eventListeners, null, 2)}\n`
+);
+writeFileSync(
+  join(dataDir, 'receipt-listeners.json'),
+  `${JSON.stringify(receiptListeners, null, 2)}\n`
+);
 
 for (const collection of EMPTY_COLLECTIONS) {
   writeFileSync(join(dataDir, `${collection}.json`), '[]\n');
@@ -139,6 +153,8 @@ const inactiveCount = registryEntries.filter((e) => e.active === false).length;
 const startedListeners = privacyGroupListeners.filter((l) => l.started).length;
 const notoCoinStates = states.filter((s) => s.schema === schemas[0].id).length;
 const unackedMessages = transportMessages.filter((m) => m.ack === undefined).length;
+const startedEventListeners = eventListeners.filter((l) => l.started).length;
+const startedReceiptListeners = receiptListeners.filter((l) => l.started).length;
 
 console.log(
   `Generated ${transactions.length} indexed transactions, ${receipts.length} receipts, ${events.length} events`
@@ -163,4 +179,7 @@ console.log(
 );
 console.log(
   `Generated ${transportPeers.length} transport peers, ${transportMessages.length} reliable messages (${unackedMessages} unacked)`
+);
+console.log(
+  `Generated ${eventListeners.length} event listeners (${startedEventListeners} started), ${receiptListeners.length} receipt listeners (${startedReceiptListeners} started)`
 );

@@ -201,6 +201,28 @@
     "type": "static",
     "file": "../static/transport-local-details.json"
   },
+  "ptx_queryBlockchainEventListeners": {
+    "type": "query",
+    "collection": "event-listeners",
+    "queryParamIndex": 0
+  },
+  "ptx_getBlockchainEventListener": {
+    "type": "getByField",
+    "collection": "event-listeners",
+    "field": "name",
+    "paramIndex": 0
+  },
+  "ptx_queryReceiptListeners": {
+    "type": "query",
+    "collection": "receipt-listeners",
+    "queryParamIndex": 0
+  },
+  "ptx_getReceiptListener": {
+    "type": "getByField",
+    "collection": "receipt-listeners",
+    "field": "name",
+    "paramIndex": 0
+  },
   "ptx_call": { "type": "empty", "returnValue": null },
   "ptx_decodeCall": { "type": "empty", "returnValue": null },
   "ptx_decodeEvent": { "type": "empty", "returnValue": null },
@@ -212,6 +234,14 @@
   },
   "ptx_sendTransaction": { "type": "empty", "returnValue": null },
   "ptx_storeABI": { "type": "empty", "returnValue": null },
+  "ptx_createBlockchainEventListener": { "type": "empty", "returnValue": null },
+  "ptx_deleteBlockchainEventListener": { "type": "empty", "returnValue": null },
+  "ptx_startBlockchainEventListener": { "type": "empty", "returnValue": null },
+  "ptx_stopBlockchainEventListener": { "type": "empty", "returnValue": null },
+  "ptx_createReceiptListener": { "type": "empty", "returnValue": null },
+  "ptx_deleteReceiptListener": { "type": "empty", "returnValue": null },
+  "ptx_startReceiptListener": { "type": "empty", "returnValue": null },
+  "ptx_stopReceiptListener": { "type": "empty", "returnValue": null },
   "pgroup_sendMessage": { "type": "empty", "returnValue": null },
   "pgroup_createGroup": { "type": "empty", "returnValue": null },
   "pgroup_startMessageListener": { "type": "empty", "returnValue": null },

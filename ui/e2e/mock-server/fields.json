@@ -122,5 +122,15 @@
     "node": "string",
     "messageType": "string",
     "ack.time": "timestamp"
+  },
+  "event-listeners": {
+    "name": "string",
+    "created": "timestamp",
+    "started": "bool"
+  },
+  "receipt-listeners": {
+    "name": "string",
+    "created": "timestamp",
+    "started": "bool"
   }
 }

@@ -25,9 +25,11 @@ export const Routes = {
   PrivacyGroups: '/ui/privacy-groups/groups',
   PrivacyGroupMessages: '/ui/privacy-groups/messages',
   PrivacyGroupListeners: '/ui/listeners/privacy-groups',
+  EventListeners: '/ui/listeners/events',
   States: '/ui/states',
   TransportConnections: '/ui/transports/connections',
   TransportMessages: '/ui/transports/messages',
+  ReceiptListeners: '/ui/listeners/receipts'
 } as const;
 
 export const gotoTransactions = (page: Page) =>
@@ -53,6 +55,12 @@ export const gotoPrivacyGroupMessages = (page: Page) =>
 
 export const gotoPrivacyGroupListeners = (page: Page) =>
   page.goto(Routes.PrivacyGroupListeners);
+
+export const gotoEventListeners = (page: Page) =>
+  page.goto(Routes.EventListeners);
+
+export const gotoReceiptListeners = (page: Page) =>
+  page.goto(Routes.ReceiptListeners);
 
 export const gotoStates = (page: Page) =>
   page.goto(Routes.States);
