@@ -130,6 +130,7 @@ export const EventListeners: React.FC = () => {
             <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive value="events">
               <ToggleButton color="primary" value="events" sx={{ width: '120px' }}>{t('events')}</ToggleButton>
               <ToggleButton color="primary" value="receipts" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.ReceiptListeners, { state: { skipFade: true } })}>{t('receipts')}</ToggleButton>
+              <ToggleButton color="primary" value="listeners" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.PrivacyGroupListeners, { state: { skipFade: true } })}>{t('privacyGroups')}</ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
               {!readOnly &&
@@ -245,7 +246,27 @@ export const EventListeners: React.FC = () => {
                             minWidth: '120px'
                           }}
                         >
-                          {t('sources')}
+                          {t('fromBlock')}
+                        </TableCell>
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap',
+                            minWidth: '120px'
+                          }}
+                        >
+                          {t('batchSize')}
+                        </TableCell>
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap',
+                            minWidth: '120px'
+                          }}
+                        >
+                          {t('batchTimeout')}
                         </TableCell>
                         <TableCell
                           sx={{
@@ -286,17 +307,13 @@ export const EventListeners: React.FC = () => {
                             </Box>
                           </TableCell>
                           <TableCell>
-                            {eventListener.sources?.length > 0 ?
-                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                {eventListener.sources.map((source, index) =>
-                                  source.address ?
-                                    <Hash key={`${eventListener.name}-source-${index}`} title={t('address')} hideTitle hash={source.address} />
-                                    :
-                                    <Typography key={`${eventListener.name}-source-${index}`} variant="body2">--</Typography>
-                                )}
-                              </Box>
-                              :
-                              '--'}
+                            {eventListener.options?.fromBlock?.toLocaleString() ?? '--'}
+                          </TableCell>
+                          <TableCell>
+                            {eventListener.options?.batchSize?.toLocaleString() ?? '--'}
+                          </TableCell>
+                          <TableCell>
+                            {eventListener.options?.batchTimeout ?? '--'}
                           </TableCell>
                           <TableCell sx={{ padding: '8px' }}>
                             <EventListenerActions
@@ -350,7 +367,6 @@ export const EventListeners: React.FC = () => {
       <CreateEventListenerDialog
         dialogOpen={createEventListenerDialogOpen}
         setDialogOpen={setCreateEventListenerDialogOpen}
-        refetch={refetch}
       />
     </>
   );

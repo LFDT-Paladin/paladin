@@ -48,7 +48,7 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
   const navigate = useNavigate();
   const [listenerName, setListenerName] = useState('');
   const [started, setStarted] = useState(true);
-  const [sequenceAbove, setSequenceAbove] = useState(0);
+  const [sequenceAbove, setSequenceAbove] = useState('');
   const [domain, setDomain] = useState('');
   const [group, setGroup] = useState('');
   const [topic, setTopic] = useState('');
@@ -60,7 +60,7 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
       setErrorMessage(undefined);
       setListenerName('');
       setStarted(true);
-      setSequenceAbove(0);
+      setSequenceAbove('');
       setDomain('');
       setGroup('');
       setTopic('');
@@ -68,12 +68,17 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
     }
   }, [dialogOpen]);
 
+  const isValidListenerName = isValidPrivacyGroupListenerName(listenerName);
+  const isValidGroup = isValidHex(group);
+  const isValidSequenceAbove = sequenceAbove.length === 0 || /^\d+$/.test(sequenceAbove);
+  const canSubmit = isValidListenerName && (group.length === 0 || isValidGroup) && isValidSequenceAbove;
+
   const { mutate: handleSubmit } = useMutation({
     mutationFn: () => createPrivacyGroupListener(
       listenerName,
       started,
       {
-        sequenceAbove,
+        ...(sequenceAbove.length > 0 ? { sequenceAbove: Number(sequenceAbove) } : {}),
         domain,
         group,
         topic
@@ -83,16 +88,16 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
       }
     ),
     onSuccess: () => {
-      navigate(`/ui/privacy-groups/listeners/${listenerName}`);
+      navigate(`/ui/listeners/privacy-groups/${listenerName}`);
     },
     onError: error => {
-      setErrorMessage(error.message);
+      setErrorMessage(
+        error.message.includes('already exists')
+          ? t('listenerNameAlreadyExists')
+          : error.message
+      );
     }
   });
-
-  const isValidListenerName = isValidPrivacyGroupListenerName(listenerName);
-  const isValidGroup = isValidHex(group);
-  const canSubmit = isValidListenerName && (group.length === 0 || isValidGroup);
 
   return (
     <Dialog
@@ -155,13 +160,14 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
               </MenuItem>
             </TextField>
             <TextField
-              type="number"
               sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
-              label={t('sequenceAbove')}
+              label={t('sequenceAboveOptional')}
               value={sequenceAbove}
-              onChange={event => setSequenceAbove(Number(event.target.value))}
+              onChange={event => setSequenceAbove(event.target.value)}
+              error={sequenceAbove.length > 0 && !isValidSequenceAbove}
+              helperText={sequenceAbove.length > 0 && !isValidSequenceAbove ? t('mustBeAValidNumber') : undefined}
             />
             <TextField
               sx={{ marginBottom: '20px' }}
@@ -190,7 +196,6 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
               onChange={event => setTopic(event.target.value)}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               label={t('localMessages')}
               value={excludeLocal ? 'exclude' : 'include'}

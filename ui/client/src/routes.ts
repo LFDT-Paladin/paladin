@@ -24,9 +24,7 @@ export const AppRoutes = {
   DomainContract: '/ui/domains/:address',
   PrivacyGroups: '/ui/privacy-groups/groups',
   PrivacyGroup: '/ui/privacy-groups/groups/:idOrAddress',
-  PrivacyGroupListeners: '/ui/privacy-groups/listeners',
   PrivacyGroupMessages: '/ui/privacy-groups/messages',
-  PrivacyGroupListenerEntry: '/ui/privacy-groups/listeners/:name',
   States: '/ui/states',
   ReliableMessage: '/ui/transports/messages/:id',
   State: '/ui/states/:domain/:schema/:id',
@@ -37,5 +35,7 @@ export const AppRoutes = {
   EventListeners: '/ui/listeners/events',
   EventListenerEntry: '/ui/listeners/events/:id',
   ReceiptListeners: '/ui/listeners/receipts',
-  ReceiptListenerEntry: '/ui/listeners/receipts/:id'
+  ReceiptListenerEntry: '/ui/listeners/receipts/:id',
+  PrivacyGroupListeners: '/ui/listeners/privacy-groups',
+  PrivacyGroupListenerEntry: '/ui/listeners/privacy-groups/:name',
 };

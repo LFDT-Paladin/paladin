@@ -33,27 +33,27 @@ import { createReceiptListener } from '../queries/transactions';
 import CircleIcon from '@mui/icons-material/Circle';
 import { isValidPrivacyGroupListenerName } from '../utils';
 import { IReceiptListenerFilters, IReceiptListenerOptions, TransactionType } from '../interfaces';
+import { useNavigate } from 'react-router-dom';
 
 type Props = {
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
-  refetch: () => any
 }
 
 export const CreateReceiptListenerDialog: React.FC<Props> = ({
   dialogOpen,
   setDialogOpen,
-  refetch,
 }) => {
 
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [listenerName, setListenerName] = useState('');
   const [started, setStarted] = useState(true);
-  const [sequenceAbove, setSequenceAbove] = useState(0);
-  const [type, setType] = useState('');
+  const [sequenceAbove, setSequenceAbove] = useState('');
+  const [type, setType] = useState('all');
   const [domain, setDomain] = useState('');
   const [domainReceipts, setDomainReceipts] = useState(false);
-  const [incompleteStateReceiptBehavior, setIncompleteStateReceiptBehavior] = useState('');
+  const [incompleteStateReceiptBehavior, setIncompleteStateReceiptBehavior] = useState('default');
   const [errorMessage, setErrorMessage] = useState<string>();
 
   useEffect(() => {
@@ -61,20 +61,25 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
       setErrorMessage(undefined);
       setListenerName('');
       setStarted(true);
-      setSequenceAbove(0);
-      setType('');
+      setSequenceAbove('');
+      setType('all');
       setDomain('');
       setDomainReceipts(false);
-      setIncompleteStateReceiptBehavior('');
+      setIncompleteStateReceiptBehavior('default');
     }
   }, [dialogOpen]);
 
+  const isValidListenerName = isValidPrivacyGroupListenerName(listenerName);
+  const isValidSequenceAbove = sequenceAbove.length === 0 || /^\d+$/.test(sequenceAbove);
+  const canSubmit = isValidListenerName && isValidSequenceAbove;
+
   const { mutate: handleSubmit } = useMutation({
     mutationFn: () => {
-      const filters: IReceiptListenerFilters = {
-        sequenceAbove,
-      };
-      if (type.length > 0) {
+      const filters: IReceiptListenerFilters = {};
+      if (sequenceAbove.length > 0) {
+        filters.sequenceAbove = Number(sequenceAbove);
+      }
+      if (type.length > 0 && type !== 'all') {
         filters.type = type as TransactionType;
       }
       if (domain.length > 0) {
@@ -83,7 +88,7 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
       const options: IReceiptListenerOptions = {
         domainReceipts,
       };
-      if (incompleteStateReceiptBehavior.length > 0) {
+      if (incompleteStateReceiptBehavior.length > 0 && incompleteStateReceiptBehavior !== 'default') {
         options.incompleteStateReceiptBehavior = incompleteStateReceiptBehavior as IReceiptListenerOptions['incompleteStateReceiptBehavior'];
       }
       return createReceiptListener(
@@ -94,16 +99,16 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
       );
     },
     onSuccess: () => {
-      refetch();
-      setDialogOpen(false);
+      navigate(`/ui/listeners/receipts/${listenerName}`);
     },
     onError: error => {
-      setErrorMessage(error.message);
+      setErrorMessage(
+        error.message.includes('already exists')
+          ? t('listenerNameAlreadyExists')
+          : error.message
+      );
     }
   });
-
-  const isValidListenerName = isValidPrivacyGroupListenerName(listenerName);
-  const canSubmit = isValidListenerName;
 
   return (
     <Dialog
@@ -166,13 +171,14 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
               </MenuItem>
             </TextField>
             <TextField
-              type="number"
               sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
-              label={t('sequenceAbove')}
+              label={t('sequenceAboveOptional')}
               value={sequenceAbove}
-              onChange={event => setSequenceAbove(Number(event.target.value))}
+              onChange={event => setSequenceAbove(event.target.value)}
+              error={sequenceAbove.length > 0 && !isValidSequenceAbove}
+              helperText={sequenceAbove.length > 0 && !isValidSequenceAbove ? t('mustBeAValidNumber') : undefined}
             />
             <TextField
               sx={{ marginBottom: '20px' }}
@@ -182,7 +188,7 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
               onChange={event => setType(event.target.value)}
               select
             >
-              <MenuItem value="">{t('all')}</MenuItem>
+              <MenuItem value="all">{t('all')}</MenuItem>
               <MenuItem value={TransactionType.PUBLIC}>{t('public')}</MenuItem>
               <MenuItem value={TransactionType.PRIVATE}>{t('private')}</MenuItem>
             </TextField>
@@ -206,14 +212,13 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
               <MenuItem value="true">{t('true')}</MenuItem>
             </TextField>
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               label={t('incompleteStateReceiptBehaviorOptional')}
               value={incompleteStateReceiptBehavior}
               onChange={event => setIncompleteStateReceiptBehavior(event.target.value)}
               select
             >
-              <MenuItem value="">{t('default')}</MenuItem>
+              <MenuItem value="default">{t('default')}</MenuItem>
               <MenuItem value="block_contract">{t('blockContract')}</MenuItem>
               <MenuItem value="process">{t('process')}</MenuItem>
               <MenuItem value="complete_only">{t('completeOnly')}</MenuItem>

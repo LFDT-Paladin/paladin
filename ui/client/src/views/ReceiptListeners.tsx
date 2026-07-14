@@ -129,6 +129,7 @@ export const ReceiptListeners: React.FC = () => {
             <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive value="receipts">
               <ToggleButton color="primary" value="events" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.EventListeners, { state: { skipFade: true } })}>{t('events')}</ToggleButton>
               <ToggleButton color="primary" value="receipts" sx={{ width: '120px' }}>{t('receipts')}</ToggleButton>
+              <ToggleButton color="primary" value="listeners" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.PrivacyGroupListeners, { state: { skipFade: true } })}>{t('privacyGroups')}</ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
               {!readOnly &&
@@ -352,7 +353,6 @@ export const ReceiptListeners: React.FC = () => {
       <CreateReceiptListenerDialog
         dialogOpen={createReceiptListenerDialogOpen}
         setDialogOpen={setCreateReceiptListenerDialogOpen}
-        refetch={refetch}
       />
     </>
   );

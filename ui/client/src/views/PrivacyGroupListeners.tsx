@@ -126,12 +126,12 @@ export const PrivacyGroupListeners: React.FC = () => {
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
             <Typography align="center" variant="h5">
-              {t("privacyGroups")}
+              {t("listeners")}
             </Typography>
             <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive value="listeners">
-              <ToggleButton color="primary" value="groups" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.PrivacyGroups, { state: { skipFade: true } })}>{t('groups')}</ToggleButton>
-              <ToggleButton color="primary" value="messages" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.PrivacyGroupMessages, { state: { skipFade: true } })}>{t('messages')}</ToggleButton>
-              <ToggleButton color="primary" value="listeners" sx={{ width: '120px' }}>{t('listeners')}</ToggleButton>
+              <ToggleButton color="primary" value="events" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.EventListeners, { state: { skipFade: true } })}>{t('events')}</ToggleButton>
+              <ToggleButton color="primary" value="receipts" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.ReceiptListeners, { state: { skipFade: true } })}>{t('receipts')}</ToggleButton>
+              <ToggleButton color="primary" value="listeners" sx={{ width: '120px' }}>{t('privacyGroups')}</ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
               {!readOnly &&
@@ -313,10 +313,10 @@ export const PrivacyGroupListeners: React.FC = () => {
                             {privacyGroupListener.filters?.domain ?? '--'}
                           </TableCell>
                           <TableCell>
-                            {privacyGroupListener.filters?.group?
-                            <Hash Icon={<Captions size="18px" />} title={t('group')} hideTitle hash={privacyGroupListener.filters.group} />
-                            :
-                            '--'}
+                            {privacyGroupListener.filters?.group ?
+                              <Hash Icon={<Captions size="18px" />} title={t('group')} hideTitle hash={privacyGroupListener.filters.group} />
+                              :
+                              '--'}
                           </TableCell>
                           <TableCell>
                             {privacyGroupListener.filters?.topic ?? '--'}

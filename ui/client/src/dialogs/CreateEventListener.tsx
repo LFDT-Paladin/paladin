@@ -33,20 +33,20 @@ import { createEventListener } from '../queries/transactions';
 import CircleIcon from '@mui/icons-material/Circle';
 import { isValidHex, isValidPrivacyGroupListenerName } from '../utils';
 import { IABIEntry, IEventListenerOptions } from '../interfaces';
+import { useNavigate } from 'react-router-dom';
 
 type Props = {
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
-  refetch: () => any
 }
 
 export const CreateEventListenerDialog: React.FC<Props> = ({
   dialogOpen,
   setDialogOpen,
-  refetch,
 }) => {
 
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [listenerName, setListenerName] = useState('');
   const [started, setStarted] = useState(true);
   const [abiText, setAbiText] = useState('');
@@ -88,14 +88,15 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
   const isValidAbi = abiText.trim().length === 0 || parsedAbi !== undefined;
   const isValidListenerName = isValidPrivacyGroupListenerName(listenerName);
   const isValidAddress = address.length === 0 || isValidHex(address);
-  const canSubmit = isValidListenerName && parsedAbi !== undefined && isValidAddress;
+  const isValidFromBlock = fromBlock.length === 0 || /^\d+$/.test(fromBlock);
+  const isValidBatchTimeout = batchTimeout.length === 0 || /^(\d+h)?(\d+m)?(\d+s)?(\d+ms)?(\d+ns)?$/.test(batchTimeout);
+  const canSubmit = isValidListenerName && parsedAbi !== undefined && isValidAddress && isValidFromBlock && isValidBatchTimeout;
 
   const { mutate: handleSubmit } = useMutation({
     mutationFn: () => {
       const options: IEventListenerOptions = {};
-      if (fromBlock.trim().length > 0) {
-        const numericFromBlock = Number(fromBlock);
-        options.fromBlock = Number.isNaN(numericFromBlock) ? fromBlock.trim() : numericFromBlock;
+      if (fromBlock.length > 0) {
+        options.fromBlock = Number(fromBlock);
       }
       if (batchSize.trim().length > 0) {
         options.batchSize = Number(batchSize);
@@ -114,11 +115,14 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
       );
     },
     onSuccess: () => {
-      refetch();
-      setDialogOpen(false);
+      navigate(`/ui/listeners/events/${listenerName}`);
     },
     onError: error => {
-      setErrorMessage(error.message);
+      setErrorMessage(
+        error.message.includes('already exists')
+          ? t('listenerNameAlreadyExists')
+          : error.message
+      );
     }
   });
 
@@ -127,7 +131,7 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
       onClose={() => setDialogOpen(false)}
       open={dialogOpen}
       fullWidth
-      maxWidth="sm"
+      maxWidth="xs"
     >
       <form onSubmit={(event) => {
         event.preventDefault();
@@ -183,10 +187,11 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
               </MenuItem>
             </TextField>
             <TextField
-              sx={{ marginBottom: '20px' }}
+              sx={{ marginBottom: '20px', height: '' }}
               fullWidth
               multiline
               minRows={4}
+              maxRows={4}
               autoComplete="off"
               label={t('abi')}
               value={abiText}
@@ -205,7 +210,18 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
               helperText={address.length > 0 && !isValidAddress ? t('mustBeAValidHex') : undefined}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
+              type="number"
+              sx={{
+                marginBottom: '20px',
+                '& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button': {
+                  display: 'none',
+                  WebkitAppearance: 'none',
+                  margin: 0,
+                },
+                '& input[type=number]': {
+                  MozAppearance: 'textfield',
+                }
+              }}
               fullWidth
               autoComplete="off"
               label={t('fromBlockOptional')}
@@ -214,7 +230,17 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
             />
             <TextField
               type="number"
-              sx={{ marginBottom: '20px' }}
+              sx={{
+                marginBottom: '20px',
+                '& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button': {
+                  display: 'none',
+                  WebkitAppearance: 'none',
+                  margin: 0,
+                },
+                '& input[type=number]': {
+                  MozAppearance: 'textfield',
+                }
+              }}
               fullWidth
               autoComplete="off"
               label={t('batchSizeOptional')}
@@ -222,12 +248,13 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
               onChange={event => setBatchSize(event.target.value)}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('batchTimeoutOptional')}
               value={batchTimeout}
               onChange={event => setBatchTimeout(event.target.value)}
+              error={batchTimeout.length > 0 && !isValidBatchTimeout}
+              helperText={batchTimeout.length > 0 && !isValidBatchTimeout ? t('invalidDuration') : undefined}
             />
           </Box>
         </DialogContent>
