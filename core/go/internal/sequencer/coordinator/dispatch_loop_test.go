@@ -144,6 +144,7 @@ func TestDispatchLoop_HandleEventError_ContinuesLoop(t *testing.T) {
 		}
 		return false
 	})).Return(nil)
+	tx2.EXPECT().PersistDispatch(mock.Anything).Return(nil)
 	tx2.EXPECT().HasDispatchedPublicTransaction().Return(false)
 
 	// Pre-queue both transactions before starting the loop (buffered channel)
@@ -189,6 +190,7 @@ func TestDispatchLoop_TxnWithoutPublicDispatch_DoesNotCountAhead(t *testing.T) {
 		_, ok := e.(*transaction.DispatchedEvent)
 		return ok
 	})).Return(nil)
+	tx.EXPECT().PersistDispatch(mock.Anything).Return(nil)
 	// HasDispatchedPublicTransaction returns false — dispatchedAhead stays 0
 	tx.EXPECT().HasDispatchedPublicTransaction().Return(false)
 
@@ -239,6 +241,7 @@ func TestDispatchLoop_CtxCancelledDuringSecondWait_Exits(t *testing.T) {
 		_, ok := e.(*transaction.DispatchedEvent)
 		return ok
 	})).Return(nil)
+	tx.EXPECT().PersistDispatch(mock.Anything).Return(nil)
 	// HasDispatchedPublicTransaction returns true — dispatchedAhead becomes 1, hitting maxDispatchAhead
 	tx.EXPECT().HasDispatchedPublicTransaction().Return(true)
 
@@ -328,6 +331,7 @@ func TestDispatchLoop_SecondWait_NormalExit(t *testing.T) {
 		_, ok := e.(*transaction.DispatchedEvent)
 		return ok
 	})).Return(nil)
+	tx.EXPECT().PersistDispatch(mock.Anything).Return(nil)
 	tx.EXPECT().HasDispatchedPublicTransaction().Return(true)
 
 	c.dispatchQueue <- tx

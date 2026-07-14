@@ -16,6 +16,7 @@
 package transaction
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"strings"
@@ -35,12 +36,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// runDispatch runs prepare then persist in sequence, exercising the full flow end-to-end for the tests.
+func runDispatch(ctx context.Context, txn *coordinatorTransaction) error {
+	if err := txn.dispatchPrepare(ctx); err != nil {
+		return err
+	}
+	return txn.PersistDispatch(ctx)
+}
+
 func Test_action_Dispatch(t *testing.T) {
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
 	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("prepare failed"))
 
-	err := action_Dispatch(ctx, txn, nil)
+	err := action_DispatchPrepare(ctx, txn, nil)
 	require.ErrorContains(t, err, "prepare failed")
 }
 
@@ -403,7 +412,7 @@ func Test_dispatch_PrepareTransactionReturnsError(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
 	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("prepare failed"))
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.ErrorContains(t, err, "prepare failed")
 }
 
@@ -416,7 +425,7 @@ func Test_dispatch_BuildDispatchBatchReturnsError(t *testing.T) {
 		Build()
 	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.ErrorContains(t, err, "Prepare outcome unexpected")
 }
 
@@ -438,7 +447,7 @@ func Test_dispatch_StateDistributionBuilderReturnsError(t *testing.T) {
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.ErrorContains(t, err, "state distribution")
 }
 
@@ -459,7 +468,7 @@ func Test_dispatch_BuildNullifiersReturnsError(t *testing.T) {
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, errors.New("build nullifiers failed"))
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "build nullifiers failed")
 }
@@ -482,7 +491,7 @@ func Test_dispatch_StageNullifierUpsertsReturnsError(t *testing.T) {
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return([]*components.NullifierUpsert{{}}, nil)
 	mocks.DomainStateWriter.On("StageNullifierUpserts", mock.Anything, mock.Anything).Return(errors.New("upsert nullifiers failed"))
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "upsert nullifiers failed")
 }
@@ -510,7 +519,7 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 	mocks.DB.ExpectBegin()
 	mocks.DB.ExpectCommit()
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.NoError(t, err)
 }
 
@@ -533,7 +542,7 @@ func Test_dispatch_PersistDispatchBatchReturnsError(t *testing.T) {
 	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(errors.New("persist failed"))
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "persist failed")
 }
@@ -581,7 +590,7 @@ func Test_dispatch_PersistDispatchBatch_WithRemoteStateDistributions(t *testing.
 	mocks.DB.ExpectBegin()
 	mocks.DB.ExpectCommit()
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.NoError(t, err)
 }
 
@@ -606,7 +615,7 @@ func Test_dispatch_HandleNewTransactionsReturnsError(t *testing.T) {
 	mocks.DB.ExpectBegin()
 	mocks.DB.ExpectRollback()
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "handle new transactions failed")
 }
@@ -629,7 +638,7 @@ func Test_dispatch_Success_PrepareTransactionBranch_DoesNotHandleNewTransactions
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
 	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.NoError(t, err)
 	mocks.SequenceManager.AssertNotCalled(t, "HandleNewTransactions", mock.Anything, mock.Anything)
 }
@@ -655,7 +664,7 @@ func Test_dispatch_Success_ChainedPrivate(t *testing.T) {
 	mocks.DB.ExpectBegin()
 	mocks.DB.ExpectCommit()
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.NoError(t, err)
 }
 
@@ -677,7 +686,7 @@ func Test_dispatch_Success_PrepareTransactionBranch(t *testing.T) {
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
 	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	err := txn.dispatch(ctx)
+	err := runDispatch(ctx, txn)
 	require.NoError(t, err)
 }
 

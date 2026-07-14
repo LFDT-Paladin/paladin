@@ -818,7 +818,7 @@ var stateDefinitionsMap = StateDefinitions{
 				Handlers: []EventHandler{{
 					Actions: []ActionRule{
 						{Action: action_AllocateSigningIdentity},
-						{Action: action_Dispatch},
+						{Action: action_DispatchPrepare},
 					},
 					Transitions: []Transition{
 						{

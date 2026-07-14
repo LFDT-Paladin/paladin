@@ -62,6 +62,13 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 				continue
 			}
 
+			// Persist the batch off the transaction lock so the DB commit doesn't block the coordinator event
+			// loop behind the tx lock.
+			if err := tx.PersistDispatch(ctx); err != nil {
+				log.L(ctx).Errorf("error persisting dispatch for transaction %s: %v", tx.GetID().String(), err)
+				continue
+			}
+
 			c.inFlightMutex.L.Lock()
 			// Only dispatched transactions that result in a sent public transaction count towards max dispatch ahead
 			if tx.HasDispatchedPublicTransaction() {

@@ -178,6 +178,14 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		},
 	})
 
+	// PersistDispatch runs off-lock; the real dispatchLoop drives it after the transition to
+	// State_Dispatched. The loop is disabled for this test (MaxDispatchAhead=-1), so drive it manually.
+	require.Eventually(t, func() bool {
+		return len(c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})) == 1
+	}, 100*time.Millisecond, 1*time.Millisecond, "transaction should reach State_Dispatched")
+	dispatched := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})
+	require.NoError(t, dispatched[0].PersistDispatch(ctx))
+
 	// Simulate the public transaction manager collecting the dispatched transaction and associating a signing address with it
 	signerAddress := pldtypes.RandAddress()
 	c.QueueEvent(ctx, &transaction.CollectedEvent{

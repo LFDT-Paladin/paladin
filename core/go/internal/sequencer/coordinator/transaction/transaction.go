@@ -36,6 +36,7 @@ import (
 
 type CoordinatorTransaction interface {
 	HandleEvent(ctx context.Context, event common.Event) error
+	PersistDispatch(ctx context.Context) error
 	GetID() uuid.UUID
 	GetCurrentState() State
 	HasDispatchedPublicTransaction() bool
@@ -80,6 +81,9 @@ type coordinatorTransaction struct {
 	cancelStateTimeoutSchedule   func()                                          // Timeout for state completion before repooling
 	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingPreDispatchRequest    *common.IdempotentRequest
+
+	pendingDispatchBatch            *syncpoints.DispatchBatch
+	pendingRemoteStateDistributions []*components.StateDistribution
 
 	//Configuration
 	blockHeightTolerance           uint64

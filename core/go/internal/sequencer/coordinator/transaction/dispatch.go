@@ -32,13 +32,18 @@ import (
 	"github.com/google/uuid"
 )
 
-// action_Dispatch runs the full dispatch flow when handling Event_Dispatched in State_Ready_For_Dispatch.
-func action_Dispatch(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	return t.dispatch(ctx)
+// action_DispatchPrepare handles Event_Dispatched in State_Ready_For_Dispatch by building the dispatch batch,
+// which PersistDispatch then persists off-lock.
+func action_DispatchPrepare(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	return t.dispatchPrepare(ctx)
 }
 
-// Dispatch runs the full dispatch flow: prepare, build batch, state distributions, nullifiers, persist, chained transactions.
-func (t *coordinatorTransaction) dispatch(ctx context.Context) error {
+// dispatchPrepare prepares the transaction via the domain, builds the dispatch batch, resolves state
+// distributions and stages nullifiers, then stashes the batch and remote distributions for PersistDispatch.
+// It runs under the transaction lock (held by ProcessEvent), so the stash write is safe against the
+// lock-guarded reads elsewhere. It persists nothing and touches no on-chain state, so a revert arriving
+// before the transition to State_Dispatched can still cancel the transaction cleanly.
+func (t *coordinatorTransaction) dispatchPrepare(ctx context.Context) error {
 	// TODO: should this domain query context be populated with a snapshot of the domain's states at the point the transaction
 	// finished assembling? Doing this would require storing a grapher snapshot for every transaction.
 	// In a previous iteration of this code where the domain state writer and domain query context coexisted
@@ -79,6 +84,28 @@ func (t *coordinatorTransaction) dispatch(ctx context.Context) error {
 		return err
 	}
 
+	t.pendingDispatchBatch = dispatchBatch
+	t.pendingRemoteStateDistributions = remoteStateDistributions
+	return nil
+}
+
+// PersistDispatch persists the batch stashed by dispatchPrepare and hands off any chained transactions. The
+// DB commit must not run under the transaction lock (it would block the coordinator event loop), so the stash
+// is detached under the lock and persisted off it. This races safely against a repool clearing the stash
+// (initializeForNewAssembly, on another goroutine): whichever side takes the lock first wins — we either
+// detach and persist, or observe nil and no-op.
+func (t *coordinatorTransaction) PersistDispatch(ctx context.Context) error {
+	t.Lock()
+	dispatchBatch := t.pendingDispatchBatch
+	remoteStateDistributions := t.pendingRemoteStateDistributions
+	t.pendingDispatchBatch = nil
+	t.pendingRemoteStateDistributions = nil
+	t.Unlock()
+
+	if dispatchBatch == nil {
+		return nil // already persisted, or repooled before persist
+	}
+
 	log.L(ctx).Debugf("Persisting & deploying batch. %d public transactions, %d private transactions, %d prepared transactions", len(dispatchBatch.PublicDispatches), len(dispatchBatch.PrivateDispatches), len(dispatchBatch.PreparedTransactions))
 	if err := t.syncPoints.PersistDispatchBatch(ctx, t.dsw, t.pt.Address, t.pt.ID, dispatchBatch, remoteStateDistributions, dispatchBatch.PreparedTransactions); err != nil {
 		log.L(ctx).Errorf("error persisting batch: %s", err)
@@ -87,7 +114,7 @@ func (t *coordinatorTransaction) dispatch(ctx context.Context) error {
 
 	if len(dispatchBatch.PrivateDispatches) > 0 {
 		for _, chained := range dispatchBatch.PrivateDispatches {
-			err = t.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTx persistence.DBTX) error {
+			err := t.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTx persistence.DBTX) error {
 				return t.components.SequencerManager().HandleNewTx(ctx, dbTx, chained.NewTransaction)
 			})
 			if err != nil {
@@ -96,6 +123,7 @@ func (t *coordinatorTransaction) dispatch(ctx context.Context) error {
 			}
 		}
 	}
+
 	return nil
 }
 

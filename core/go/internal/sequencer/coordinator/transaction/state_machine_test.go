@@ -1340,6 +1340,10 @@ func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *te
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+
+	// Persist runs off-lock via PersistDispatch after the transition to State_Dispatched.
+	mocks.SyncPoints.AssertNotCalled(t, "PersistDispatchBatch")
+	require.NoError(t, txn.PersistDispatch(ctx))
 }
 
 func TestCoordinatorTransaction_Dispatched_NoTransition_OnCollected(t *testing.T) {
