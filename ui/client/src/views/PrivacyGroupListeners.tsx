@@ -330,7 +330,7 @@ export const PrivacyGroupListeners: React.FC = () => {
                           <TableCell sx={{ padding: '8px' }}>
                             <Tooltip title={t('open')} arrow>
                               <IconButton
-                                onClick={mouseEvent => customNavigate(`/ui/privacy-groups/listeners/${privacyGroupListener.name}`, mouseEvent, navigate)}>
+                                onClick={mouseEvent => customNavigate(`/ui/listeners/privacy-groups/${privacyGroupListener.name}`, mouseEvent, navigate)}>
                                 <OpenInNewIcon color="secondary" fontSize="medium" />
                               </IconButton>
                             </Tooltip>

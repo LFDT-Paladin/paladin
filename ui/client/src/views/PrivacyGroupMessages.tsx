@@ -133,7 +133,6 @@ export const PrivacyGroupMessages: React.FC = () => {
             <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive value="messages">
               <ToggleButton color="primary" value="groups" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.PrivacyGroups, { state: { skipFade: true } })}>{t('groups')}</ToggleButton>
               <ToggleButton color="primary" value="messages" sx={{ width: '120px' }}>{t('messages')}</ToggleButton>
-              <ToggleButton color="primary" value="listeners" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.PrivacyGroupListeners, { state: { skipFade: true } })}>{t('listeners')}</ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
               {!readOnly &&

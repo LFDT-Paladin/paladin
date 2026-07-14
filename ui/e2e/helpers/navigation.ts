@@ -24,7 +24,7 @@ export const Routes = {
   Domains: '/ui/domains',
   PrivacyGroups: '/ui/privacy-groups/groups',
   PrivacyGroupMessages: '/ui/privacy-groups/messages',
-  PrivacyGroupListeners: '/ui/privacy-groups/listeners',
+  PrivacyGroupListeners: '/ui/listeners/privacy-groups',
   States: '/ui/states',
   TransportConnections: '/ui/transports/connections',
   TransportMessages: '/ui/transports/messages',

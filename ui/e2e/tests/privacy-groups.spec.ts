@@ -16,7 +16,6 @@
 
 import { expect, test } from '@playwright/test';
 import {
-  gotoPrivacyGroupListeners,
   gotoPrivacyGroupMessages,
   gotoPrivacyGroups,
 } from '../helpers/navigation.js';
@@ -131,65 +130,4 @@ test.describe('Privacy Groups', () => {
 
   });
 
-  test.describe('Listeners', () => {
-    test.beforeEach(async ({ page }) => {
-      await gotoPrivacyGroupListeners(page);
-    });
-
-    test('List listeners', async ({ page }) => {
-
-      // Show (up to) 100 rows per page
-      await page.getByRole('combobox', { name: 'Rows per page:' }).click();
-      await page.getByRole('option', { name: '100' }).click();
-
-      // There should be 12 rows
-      await expect(page.getByText('12 of 12')).toBeVisible();
-
-      for (let i = 1; i <= 12; i++) {
-        await expect(page.getByRole('cell', { name: `listener${i.toString().padStart(2, '0')}` })).toBeVisible();
-      }
-    });
-
-    test('Explore listener', async ({ page }) => {
-      // Navigate to fist privacy group
-      await page.getByRole('button', { name: 'Open' }).first().click();
-
-      // Should navigate to privacy group details with hash in URL
-      await page.waitForURL('**/ui/privacy-groups/listeners/listener01');
-      await expect(page.getByRole('tab', { name: 'listener01' })).toBeVisible();
-
-      // Should show an option to go back to listeners
-      await expect(page.getByRole('button', { name: 'Back to Listeners' })).toBeVisible();
-    });
-
-    test('Privacy group listener sorting', async ({ page }) => {
-      // Default order
-      await expect(page.getByRole('row').nth(1).getByRole('cell', { name: 'listener01' })).toBeVisible();
-      await expect(page.getByRole('row').nth(10).getByRole('cell', { name: 'listener10' })).toBeVisible();
-
-      // Apply sort
-      await page.getByRole('button', { name: 'name' }).click();
-
-      // Check order is inverted
-      await expect(page.getByRole('row').nth(1).getByRole('cell', { name: 'listener12' })).toBeVisible();
-      await expect(page.getByRole('row').nth(10).getByRole('cell', { name: 'listener03' })).toBeVisible();
-    });
-
-    test.describe('Edit actions for listeners', () => {
-
-      test('Start / Stop / Delete', async ({ page }) => {
-
-        // Switch to "Edit" mode
-        await page.locator('#settings').click();
-        await page.locator('#editMode').click();
-        await page.locator('.MuiBackdrop-root').click();
-
-        // There should be an actions to start, stop and delete
-        await expect(page.getByText('StartStopDelete')).toHaveCount(10);
-      });
-    });
-
-
-
-  });
 });
