@@ -51,6 +51,7 @@ import { PrivacyGroupListeners } from "./views/PrivacyGroupListeners";
 import { PrivacyGroupListenerEntry } from "./views/PrivacyGroupListenerEntry";
 import { PrivacyGroupMessages } from "./views/PrivacyGroupMessages";
 import { EventListeners } from "./views/EventListeners";
+import { ReceiptListeners } from "./views/ReceiptListeners";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({}),
@@ -140,6 +141,7 @@ function App() {
                   <Route path={AppRoutes.TransportConnections} element={<TransportConnections />} />
                   <Route path={AppRoutes.TransportMessages} element={<TransportMessages />} />
                   <Route path={AppRoutes.EventListeners} element={<EventListeners />} />
+                  <Route path={AppRoutes.ReceiptListeners} element={<ReceiptListeners />} />
                   <Route path="*" element={<Navigate to={AppRoutes.Transactions} replace />} />
                 </Routes>
               </Box>

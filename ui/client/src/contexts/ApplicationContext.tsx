@@ -133,6 +133,23 @@ export interface EventListenersViewState {
   setFiltersVisible: Dispatch<SetStateAction<boolean>>;
 }
 
+export interface ReceiptListenersViewState {
+  sortAscending: boolean;
+  setSortAscending: Dispatch<SetStateAction<boolean>>;
+  refEntries: ISortPagingReference[];
+  setRefEntries: Dispatch<SetStateAction<ISortPagingReference[]>>;
+  sortBy: string;
+  setSortBy: Dispatch<SetStateAction<string>>;
+  page: number;
+  setPage: Dispatch<SetStateAction<number>>;
+  rowsPerPage: number;
+  setRowsPerPage: Dispatch<SetStateAction<number>>;
+  filters: IFilter[];
+  setFilters: Dispatch<SetStateAction<IFilter[]>>;
+  filtersVisible: boolean;
+  setFiltersVisible: Dispatch<SetStateAction<boolean>>;
+}
+
 export interface StatesViewState {
   selectedDomain: string | undefined;
   setSelectedDomain: Dispatch<SetStateAction<string | undefined>>;
@@ -246,6 +263,7 @@ interface IApplicationContext {
   privacyGroupListeners: PrivacyGroupListenersViewState;
   privacyGroupMessages: PrivacyGroupMessagesViewState;
   eventListeners: EventListenersViewState;
+  receiptListeners: ReceiptListenersViewState;
   states: StatesViewState;
   messages: MessagesViewState;
   transports: TransportsViewState;
@@ -334,6 +352,15 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
   const [eventListenersSortBy, setEventListenersSortBy] = useState('name');
   const [eventListenersSortAscending, setEventListenersSortAscending] = useState(true);
   const [eventListenersFiltersVisible, setEventListenersFiltersVisible] = useState(false);
+
+  // Receipt listeners view state
+  const [receiptListenersFilters, setReceiptListenersFilters] = useState<IFilter[]>([]);
+  const [receiptListenersPage, setReceiptListenersPage] = useState(0);
+  const [receiptListenersRowsPerPage, setReceiptListenersRowsPerPage] = useState(10);
+  const [receiptListenersRefEntries, setReceiptListenersRefEntries] = useState<ISortPagingReference[]>([]);
+  const [receiptListenersSortBy, setReceiptListenersSortBy] = useState('name');
+  const [receiptListenersSortAscending, setReceiptListenersSortAscending] = useState(true);
+  const [receiptListenersFiltersVisible, setReceiptListenersFiltersVisible] = useState(false);
 
   // States view state
   const [statesSelectedDomain, setStatesSelectedDomain] = useState<string | undefined>();
@@ -552,6 +579,34 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
     ]
   );
 
+  const receiptListeners = useMemo(
+    (): ReceiptListenersViewState => ({
+      sortAscending: receiptListenersSortAscending,
+      setSortAscending: setReceiptListenersSortAscending,
+      refEntries: receiptListenersRefEntries,
+      setRefEntries: setReceiptListenersRefEntries,
+      sortBy: receiptListenersSortBy,
+      setSortBy: setReceiptListenersSortBy,
+      page: receiptListenersPage,
+      setPage: setReceiptListenersPage,
+      rowsPerPage: receiptListenersRowsPerPage,
+      setRowsPerPage: setReceiptListenersRowsPerPage,
+      filters: receiptListenersFilters,
+      setFilters: setReceiptListenersFilters,
+      filtersVisible: receiptListenersFiltersVisible,
+      setFiltersVisible: setReceiptListenersFiltersVisible,
+    }),
+    [
+      receiptListenersSortAscending,
+      receiptListenersRefEntries,
+      receiptListenersSortBy,
+      receiptListenersPage,
+      receiptListenersRowsPerPage,
+      receiptListenersFilters,
+      receiptListenersFiltersVisible,
+    ]
+  );
+
   const states = useMemo(
     (): StatesViewState => ({
       selectedDomain: statesSelectedDomain,
@@ -728,6 +783,7 @@ export const ApplicationContextProvider = ({ children, colorMode }: Props) => {
         privacyGroups,
         privacyGroupListeners,
         eventListeners,
+        receiptListeners,
         states,
         messages,
         transports,

@@ -26,6 +26,9 @@ import {
   IFilter,
   IPaladinTransaction,
   IPaladinTransactionPagingReference,
+  IReceiptListener,
+  IReceiptListenerFilters,
+  IReceiptListenerOptions,
   ITransaction,
   ITransactionInput,
   IPagedResult,
@@ -561,6 +564,149 @@ export const deleteEventListener = async (
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
       i18next.t('errorDeletingEventListener')
+    )
+  );
+};
+
+export const getReceiptListenerSortValue = (
+  listener: IReceiptListener,
+  sortBy: string,
+): any => sortBy === 'created' ? listener.created : listener.name;
+
+export const buildReceiptListenerPagingReference = (
+  listener: IReceiptListener,
+  sortBy: string,
+): ISortPagingReference => ({
+  sortValue: getReceiptListenerSortValue(listener, sortBy),
+  tiebreaker: listener.name,
+});
+
+export const listReceiptListeners = async (
+  limit: number,
+  filters: IFilter[],
+  sortBy: string,
+  sortAscending: boolean,
+  pageRef?: ISortPagingReference
+): Promise<IPagedResult<IReceiptListener>> => {
+  let translatedFilters = translateFilters(filters);
+  const sortDirection = sortAscending ? 'ASC' : 'DESC';
+
+  let queryParams: any = {
+    ...translatedFilters,
+    limit: limit + 1,
+    sort: [
+      `${sortBy} ${sortDirection}`,
+      `name ${sortDirection}`,
+    ],
+  };
+
+  if (pageRef !== undefined) {
+    const comparison = sortAscending ? 'greaterThan' : 'lessThan';
+    queryParams.or = [
+      {
+        [comparison]: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+      },
+      {
+        equal: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+        [comparison]: [{
+          field: 'name',
+          value: pageRef.tiebreaker,
+        }],
+      },
+    ];
+  }
+
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_queryReceiptListeners,
+    params: [queryParams]
+  };
+  const results = await returnResponse(
+    () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+    i18next.t('errorFetchingReceiptListeners')
+  );
+  return toPagedResult(results, limit);
+};
+
+export const startReceiptListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_startReceiptListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStartingReceiptListener')
+    )
+  );
+};
+
+export const stopReceiptListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_stopReceiptListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStoppingReceiptListener')
+    )
+  );
+};
+
+export const createReceiptListener = async (
+  name: string,
+  started: boolean,
+  filters: IReceiptListenerFilters,
+  options: IReceiptListenerOptions
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_createReceiptListener,
+    params: [{
+      name,
+      started,
+      filters,
+      options
+    }],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorCreatingReceiptListener')
+    )
+  );
+};
+
+export const deleteReceiptListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_deleteReceiptListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorDeletingReceiptListener')
     )
   );
 };

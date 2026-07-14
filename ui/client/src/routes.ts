@@ -34,5 +34,6 @@ export const AppRoutes = {
   PrivacyGroupMessageEntry: '/ui/privacy-groups/messages/:messageId',
   TransportConnections: '/ui/transports/connections',
   TransportMessages: '/ui/transports/messages',
-  EventListeners: '/ui/listeners/events'
+  EventListeners: '/ui/listeners/events',
+  ReceiptListeners: '/ui/listeners/receipts'
 };

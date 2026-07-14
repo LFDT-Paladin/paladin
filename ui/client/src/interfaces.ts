@@ -384,3 +384,22 @@ export interface IEventListener {
   sources: IEventListenerSource[]
   options?: IEventListenerOptions
 }
+
+export interface IReceiptListenerFilters {
+  sequenceAbove?: number
+  type?: TransactionType
+  domain?: string
+}
+
+export interface IReceiptListenerOptions {
+  domainReceipts?: boolean
+  incompleteStateReceiptBehavior?: 'block_contract' | 'process' | 'complete_only'
+}
+
+export interface IReceiptListener {
+  name: string
+  created: string
+  started?: boolean | null
+  filters?: IReceiptListenerFilters
+  options?: IReceiptListenerOptions
+}

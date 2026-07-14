@@ -18,7 +18,7 @@ import { Alert, Box, Button, Collapse, Fade, Paper, Table, TableBody, TableCell,
 import { useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
 import { useTranslation } from "react-i18next";
-import { buildEventListenerPagingReference, listEventListeners } from "../queries/transactions";
+import { buildReceiptListenerPagingReference, listReceiptListeners } from "../queries/transactions";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Timestamp } from "../components/Timestamp";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -26,15 +26,14 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { FiltersButton } from "../components/FiltersButton";
 import { Filters } from "../components/Filters";
 import CircleIcon from '@mui/icons-material/Circle';
-import { Hash } from "../components/Hash";
 import { AppRoutes } from "../routes";
 import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 import AddIcon from '@mui/icons-material/Add';
-import { CreateEventListenerDialog } from "../dialogs/CreateEventListener";
-import { EventListenerActions } from "../components/EventListenerActions";
+import { CreateReceiptListenerDialog } from "../dialogs/CreateReceiptListener";
+import { ReceiptListenerActions } from "../components/ReceiptListenerActions";
 
-export const EventListeners: React.FC = () => {
-  const { eventListeners: eventListenersViewState, readOnly } = useApplicationContext();
+export const ReceiptListeners: React.FC = () => {
+  const { receiptListeners: receiptListenersViewState, readOnly } = useApplicationContext();
   const {
     sortAscending,
     setSortAscending,
@@ -50,20 +49,20 @@ export const EventListeners: React.FC = () => {
     setFilters,
     filtersVisible,
     setFiltersVisible,
-  } = eventListenersViewState;
+  } = receiptListenersViewState;
 
-  const [createEventListenerDialogOpen, setCreateEventListenerDialogOpen] = useState(false);
+  const [createReceiptListenerDialogOpen, setCreateReceiptListenerDialogOpen] = useState(false);
   const navigate = useNavigate();
   const { t } = useTranslation();
   const location = useLocation();
 
   const { data, error, isPlaceholderData, isFetching, refetch } = useQuery({
-    queryKey: ['event-listeners', page, rowsPerPage, filters, sortBy, sortAscending, refEntries],
-    queryFn: () => listEventListeners(rowsPerPage, filters, sortBy, sortAscending, refEntries[refEntries.length - 1]),
+    queryKey: ['receipt-listeners', page, rowsPerPage, filters, sortBy, sortAscending, refEntries],
+    queryFn: () => listReceiptListeners(rowsPerPage, filters, sortBy, sortAscending, refEntries[refEntries.length - 1]),
     placeholderData: keepPreviousData
   });
 
-  const eventListeners = data?.items;
+  const receiptListeners = data?.items;
   const hasMore = data?.hasMore ?? false;
 
   const count = pagedTableCount(data, hasMore, page, rowsPerPage);
@@ -88,9 +87,9 @@ export const EventListeners: React.FC = () => {
     if (newPage === 0) {
       setRefEntries([]);
     } else if (newPage > page) {
-      if (eventListeners !== undefined && !isPlaceholderData && eventListeners.length > 0) {
+      if (receiptListeners !== undefined && !isPlaceholderData && receiptListeners.length > 0) {
         const refEntriesCopy = [...refEntries];
-        refEntriesCopy.push(buildEventListenerPagingReference(eventListeners[eventListeners.length - 1], sortBy));
+        refEntriesCopy.push(buildReceiptListenerPagingReference(receiptListeners[receiptListeners.length - 1], sortBy));
         setRefEntries(refEntriesCopy);
       }
     } else {
@@ -125,9 +124,9 @@ export const EventListeners: React.FC = () => {
             <Typography align="center" variant="h5">
               {t("listeners")}
             </Typography>
-            <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive value="events">
-              <ToggleButton color="primary" value="events" sx={{ width: '120px' }}>{t('events')}</ToggleButton>
-              <ToggleButton color="primary" value="receipts" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.ReceiptListeners, { state: { skipFade: true } })}>{t('receipts')}</ToggleButton>
+            <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive value="receipts">
+              <ToggleButton color="primary" value="events" sx={{ width: '120px' }} onClick={() => navigate(AppRoutes.EventListeners, { state: { skipFade: true } })}>{t('events')}</ToggleButton>
+              <ToggleButton color="primary" value="receipts" sx={{ width: '120px' }}>{t('receipts')}</ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
               {!readOnly &&
@@ -136,7 +135,7 @@ export const EventListeners: React.FC = () => {
                   size="small"
                   variant="outlined"
                   startIcon={<AddIcon />}
-                  onClick={() => setCreateEventListenerDialogOpen(true)}
+                  onClick={() => setCreateReceiptListenerDialogOpen(true)}
                 >
                   {t('create')}
                 </Button>}
@@ -177,7 +176,7 @@ export const EventListeners: React.FC = () => {
             flexDirection: 'column',
             gap: '20px'
           }}>
-            {eventListeners !== undefined && eventListeners.length > 0 &&
+            {receiptListeners !== undefined && receiptListeners.length > 0 &&
               <Paper>
                 <TableContainer>
                   <Table stickyHeader>
@@ -243,7 +242,17 @@ export const EventListeners: React.FC = () => {
                             minWidth: '120px'
                           }}
                         >
-                          {t('sources')}
+                          {t('domain')}
+                        </TableCell>
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap',
+                            minWidth: '120px'
+                          }}
+                        >
+                          {t('type')}
                         </TableCell>
                         <TableCell
                           sx={{
@@ -263,13 +272,13 @@ export const EventListeners: React.FC = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {eventListeners?.map(eventListener =>
-                        <TableRow key={`${eventListener.name}${eventListener.created}`}>
-                          <TableCell>
-                            {eventListener.name}
+                      {receiptListeners?.map(receiptListener =>
+                        <TableRow key={`${receiptListener.name}${receiptListener.created}`}>
+                          <TableCell sx={{ whiteSpace: 'nowrap'}}>
+                            {receiptListener.name}
                           </TableCell>
                           <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
-                            <Timestamp timestamp={eventListener.created} />
+                            <Timestamp timestamp={receiptListener.created} />
                           </TableCell>
                           <TableCell>
                             <Box sx={{
@@ -277,28 +286,21 @@ export const EventListeners: React.FC = () => {
                               alignItems: 'center',
                               gap: '8px'
                             }}>
-                              <CircleIcon sx={{ fontSize: '16px' }} color={eventListener.started ? 'success' : 'warning'} />
+                              <CircleIcon sx={{ fontSize: '16px' }} color={receiptListener.started ? 'success' : 'warning'} />
                               <Typography variant="body2">
-                                {t(eventListener.started ? 'started' : 'stopped')}
+                                {t(receiptListener.started ? 'started' : 'stopped')}
                               </Typography>
                             </Box>
                           </TableCell>
                           <TableCell>
-                            {eventListener.sources?.length > 0 ?
-                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                {eventListener.sources.map((source, index) =>
-                                  source.address ?
-                                    <Hash key={`${eventListener.name}-source-${index}`} title={t('address')} hideTitle hash={source.address} />
-                                    :
-                                    <Typography key={`${eventListener.name}-source-${index}`} variant="body2">--</Typography>
-                                )}
-                              </Box>
-                              :
-                              '--'}
+                            {receiptListener.filters?.domain || '--'}
+                          </TableCell>
+                          <TableCell>
+                            {receiptListener.filters?.type ? t(receiptListener.filters.type) : '--'}
                           </TableCell>
                           <TableCell sx={{ padding: '8px' }}>
-                            <EventListenerActions
-                              eventListener={eventListener}
+                            <ReceiptListenerActions
+                              receiptListener={receiptListener}
                               refetch={refetch}
                             />
                           </TableCell>
@@ -329,18 +331,18 @@ export const EventListeners: React.FC = () => {
                   onRowsPerPageChange={handleChangeRowsPerPage}
                 />
               </Paper>}
-            {eventListeners !== undefined && eventListeners.length === 0 &&
+            {receiptListeners !== undefined && receiptListeners.length === 0 &&
               <Box sx={{ marginTop: '20px', textAlign: 'center', color: theme => theme.palette.text.secondary }}>
                 <InfoOutlinedIcon sx={{ fontSize: '50px' }} />
-                <Typography>{t('eventListenersEmptyState')}</Typography>
+                <Typography>{t('receiptListenersEmptyState')}</Typography>
               </Box>
             }
           </Box>
         </Box>
       </Fade>
-      <CreateEventListenerDialog
-        dialogOpen={createEventListenerDialogOpen}
-        setDialogOpen={setCreateEventListenerDialogOpen}
+      <CreateReceiptListenerDialog
+        dialogOpen={createReceiptListenerDialogOpen}
+        setDialogOpen={setCreateReceiptListenerDialogOpen}
         refetch={refetch}
       />
     </>
