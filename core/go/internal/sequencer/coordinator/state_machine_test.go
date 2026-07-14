@@ -1680,6 +1680,7 @@ func TestCoordinator_WhenActive_TransactionStateTransition_DispatchedToPooled_Wi
 		NodeName("node1").
 		CurrentActiveCoordinator("node1").
 		Transactions(txAssembling, txDispatched).
+		AssemblingTransaction(txAssemblingID).
 		Build()
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txDispatchedID,
@@ -2147,6 +2148,7 @@ func TestCoordinator_WhenActiveFLush_TransactionStateTransition_DispatchedToPool
 		NodeName("node1").
 		CurrentActiveCoordinator("node1").
 		Transactions(txAssembling, txDispatched1, txDispatched2).
+		AssemblingTransaction(txAssemblingID).
 		Build()
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txDispatched1ID,
