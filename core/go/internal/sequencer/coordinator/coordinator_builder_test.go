@@ -75,7 +75,9 @@ type CoordinatorDependencyMocks struct {
 	AllComponents       *componentsmocks.AllComponents
 	Domain              *componentsmocks.Domain
 	DomainAPI           *componentsmocks.DomainSmartContract
-	DomainContext       *componentsmocks.DomainContext
+	DomainStateWriter   *componentsmocks.DomainStateWriter
+	StateManager        *componentsmocks.StateManager
+	DomainQueryContext  *componentsmocks.DomainQueryContext
 	TXManager           *componentsmocks.TXManager
 	SequencerManager    *componentsmocks.SequencerManager
 }
@@ -308,12 +310,17 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 		AllComponents:       componentsmocks.NewAllComponents(b.t),
 		Domain:              componentsmocks.NewDomain(b.t),
 		DomainAPI:           componentsmocks.NewDomainSmartContract(b.t),
-		DomainContext:       componentsmocks.NewDomainContext(b.t),
+		DomainStateWriter:   componentsmocks.NewDomainStateWriter(b.t),
+		StateManager:        componentsmocks.NewStateManager(b.t),
+		DomainQueryContext:  componentsmocks.NewDomainQueryContext(b.t),
 		TXManager:           componentsmocks.NewTXManager(b.t),
 		SequencerManager:    componentsmocks.NewSequencerManager(b.t),
 	}
 
 	mocks.DomainAPI.On("Domain").Return(mocks.Domain).Maybe()
+	mocks.DomainAPI.On("Address").Return(*b.contractAddress).Maybe()
+	mocks.DomainQueryContext.On("Close", mock.Anything).Return().Maybe()
+	mocks.StateManager.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mocks.DomainQueryContext).Maybe()
 
 	if b.useMockTransportWriter {
 		mockTransportWriter := sequencertransportmocks.NewTransportWriter(b.t)
@@ -336,6 +343,7 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 	transportManager := componentsmocks.NewTransportManager(b.t)
 	transportManager.On("LocalNodeName").Return(localNode).Maybe()
 	mocks.AllComponents.On("SequencerManager").Return(mocks.SequencerManager).Maybe()
+	mocks.AllComponents.On("StateManager").Return(mocks.StateManager).Maybe()
 	mocks.AllComponents.On("Persistence").Return(mp.P).Maybe()
 
 	if b.keyManagerResolveErr != nil {
@@ -360,7 +368,7 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 	coordinator := NewCoordinator(
 		b.contractAddress,
 		mocks.DomainAPI,
-		mocks.DomainContext,
+		mocks.DomainStateWriter,
 		mocks.AllComponents,
 		nil,
 		nil,

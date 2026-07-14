@@ -406,6 +406,12 @@ var (
 	LogConfigUTC          = pdm("LogConfig.utc", "Sets log timestamps to the UTC timezone")
 	LogConfigFile         = pdm("LogConfig.file", "Configure file based logging")
 	LogConfigJSON         = pdm("LogConfig.json", "Configure json based logging")
+	LogConfigBuffer       = pdm("LogConfig.buffer", "Configure buffered log output")
+
+	// LogBufferConfig field descriptions
+	LogBufferConfigEnabled       = pdm("LogBufferConfig.enabled", "Enables buffered log output, batching lines in memory to reduce the number of write syscalls (default false)")
+	LogBufferConfigSize          = pdm("LogBufferConfig.size", "The amount of log output to accumulate in memory before flushing")
+	LogBufferConfigFlushInterval = pdm("LogBufferConfig.flushInterval", "The maximum time to hold buffered log lines before flushing them")
 
 	// LogFileConfig field descriptions
 	LogFileConfigFilename   = pdm("LogFileConfig.filename", "Sets the log filename prefix")

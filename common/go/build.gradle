@@ -22,9 +22,7 @@ ext {
     }
     targetCoverage = 100
     maxCoverageBarGap = 1
-    coverageExcludedPackages = [
-        'pkg/log/formatter.go',
-    ]
+    coverageExcludedPackages = []
 }
 
 configurations {
@@ -110,7 +108,9 @@ task aggregateCoverage(type: Copy, dependsOn: buildCoverageTxt) {
     eachFile { fcd ->
         fcd.setRelativePath(fcd.relativePath.replaceLastName('coverage.txt'))
     }
-    filter(LineContains, negate: true, contains: getProject().ext.coverageExcludedPackages, matchAny: true)
+    if (!getProject().ext.coverageExcludedPackages.isEmpty()) {
+        filter(LineContains, negate: true, contains: getProject().ext.coverageExcludedPackages, matchAny: true)
+    }
 }
 
 task checkCoverage(type: GoCheckCoverage, dependsOn: [aggregateCoverage]) {

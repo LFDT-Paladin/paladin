@@ -38,7 +38,7 @@ import (
 func Test_action_Dispatch(t *testing.T) {
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("prepare failed"))
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("prepare failed"))
 
 	err := action_Dispatch(ctx, txn, nil)
 	require.ErrorContains(t, err, "prepare failed")
@@ -401,7 +401,7 @@ func Test_buildDispatchBatch_PublicBranch_ValidateTransactionError(t *testing.T)
 func Test_dispatch_PrepareTransactionReturnsError(t *testing.T) {
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("prepare failed"))
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("prepare failed"))
 
 	err := txn.dispatch(ctx)
 	require.ErrorContains(t, err, "prepare failed")
@@ -414,7 +414,7 @@ func Test_dispatch_BuildDispatchBatchReturnsError(t *testing.T) {
 			TransactionSpecification: &prototk.TransactionSpecification{},
 		}).
 		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.dispatch(ctx)
 	require.ErrorContains(t, err, "Prepare outcome unexpected")
@@ -432,8 +432,8 @@ func Test_dispatch_StateDistributionBuilderReturnsError(t *testing.T) {
 		}).
 		Build()
 
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		args.Get(2).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
@@ -452,8 +452,8 @@ func Test_dispatch_BuildNullifiersReturnsError(t *testing.T) {
 			},
 		}).
 		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		args.Get(2).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
@@ -464,7 +464,7 @@ func Test_dispatch_BuildNullifiersReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "build nullifiers failed")
 }
 
-func Test_dispatch_UpsertNullifiersReturnsError(t *testing.T) {
+func Test_dispatch_StageNullifierUpsertsReturnsError(t *testing.T) {
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		PreAssembly(&components.TransactionPreAssembly{
@@ -474,13 +474,13 @@ func Test_dispatch_UpsertNullifiersReturnsError(t *testing.T) {
 			},
 		}).
 		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		args.Get(2).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return([]*components.NullifierUpsert{{}}, nil)
-	mocks.DomainContext.On("UpsertNullifiers", mock.Anything).Return(errors.New("upsert nullifiers failed"))
+	mocks.DomainStateWriter.On("StageNullifierUpserts", mock.Anything, mock.Anything).Return(errors.New("upsert nullifiers failed"))
 
 	err := txn.dispatch(ctx)
 	require.Error(t, err)
@@ -497,15 +497,15 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 			},
 		}).
 		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		args.Get(2).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).
 		Return([]*components.NullifierUpsert{{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}}, nil)
-	mocks.DomainContext.On("UpsertNullifiers", mock.Anything).Return(nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.DomainStateWriter.On("StageNullifierUpserts", mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.DB.ExpectBegin()
 	mocks.DB.ExpectCommit()
@@ -524,13 +524,13 @@ func Test_dispatch_PersistDispatchBatchReturnsError(t *testing.T) {
 			},
 		}).
 		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		args.Get(2).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(errors.New("persist failed"))
 
 	err := txn.dispatch(ctx)
@@ -562,15 +562,15 @@ func Test_dispatch_PersistDispatchBatch_WithRemoteStateDistributions(t *testing.
 			},
 		}).
 		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		args.Get(2).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			sd := args.Get(4).([]*components.StateDistribution)
+			sd := args.Get(5).([]*components.StateDistribution)
 			require.Len(t, sd, 1)
 			assert.Equal(t, "receiver@node2", sd[0].IdentityLocator)
 		}).
@@ -593,13 +593,13 @@ func Test_dispatch_HandleNewTransactionsReturnsError(t *testing.T) {
 			},
 		}).
 		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		args.Get(2).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("handle new transactions failed"))
 	mocks.DB.ExpectBegin()
 	mocks.DB.ExpectRollback()
@@ -620,12 +620,12 @@ func Test_dispatch_Success_PrepareTransactionBranch_DoesNotHandleNewTransactions
 		}).
 		Build()
 
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		pt := args.Get(2).(*components.PrivateTransaction)
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		pt := args.Get(3).(*components.PrivateTransaction)
 		pt.PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.dispatch(ctx)
 	require.NoError(t, err)
@@ -642,13 +642,13 @@ func Test_dispatch_Success_ChainedPrivate(t *testing.T) {
 			},
 		}).
 		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		args.Get(2).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.DB.ExpectBegin()
 	mocks.DB.ExpectCommit()
@@ -668,12 +668,12 @@ func Test_dispatch_Success_PrepareTransactionBranch(t *testing.T) {
 		}).
 		Build()
 
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		pt := args.Get(2).(*components.PrivateTransaction)
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		pt := args.Get(3).(*components.PrivateTransaction)
 		pt.PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.dispatch(ctx)
 	require.NoError(t, err)

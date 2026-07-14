@@ -49,11 +49,11 @@ type EngineIntegration interface {
 	AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) (*components.TransactionPostAssembly, error)
 }
 
-func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract, domainContext components.DomainContext) EngineIntegration {
+func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract, domainStateWriter components.DomainStateWriter) EngineIntegration {
 	return &engineIntegration{
 		components:          allComponents,
 		domainSmartContract: domainSmartContract,
-		domainContext:       domainContext,
+		domainStateWriter:   domainStateWriter,
 		nodeName:            nodeName,
 	}
 
@@ -62,25 +62,25 @@ func NewEngineIntegration(ctx context.Context, allComponents components.AllCompo
 type engineIntegration struct {
 	components          components.AllComponents
 	domainSmartContract components.DomainSmartContract
-	domainContext       components.DomainContext
+	domainStateWriter   components.DomainStateWriter
 	nodeName            string
 }
 
 func (e *engineIntegration) MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
-	return e.domainSmartContract.MapPotentialStates(e.domainContext, potentialStates, true, createdByTX)
+	return e.domainSmartContract.MapPotentialStates(ctx, potentialStates, true, createdByTX)
 }
 
 func (e *engineIntegration) WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 
 	if (txn.PostAssembly.OutputStatesPotential != nil && txn.PostAssembly.OutputStates == nil) || (txn.PostAssembly.InfoStatesPotential != nil && txn.PostAssembly.InfoStates == nil) {
 		readTX := e.components.Persistence().NOTX() // no DB transaction required here for the reads from the DB (writes happen on syncpoint flusher)
-		err := e.domainSmartContract.WritePotentialStates(e.domainContext, readTX, txn)
+		err := e.domainSmartContract.WritePotentialStates(ctx, e.domainStateWriter, readTX, txn)
 		if err != nil {
 			// Any error from WritePotentialStates is likely to be caused by an invalid init or assemble of the transaction
 			// which is most likely a programming error in the domain or the domain manager or the sequencer
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, err)
 		} else {
-			log.L(ctx).Debugf("Potential states written %s", e.domainContext.Info().ID)
+			log.L(ctx).Debugf("Potential states written for domain=%s", e.domainSmartContract.Domain().Name())
 		}
 	}
 
@@ -114,10 +114,10 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 	log.L(ctx).Debugf("Assembling transaction %s. Creating domain context with coordinator state locks", transactionID)
 
 	// Create a domain context just for this call that the snapshot can be loaded into.
-	dCtx := e.components.StateManager().NewDomainContext(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address())
-	defer dCtx.Close()
+	dqc := e.components.StateManager().NewDomainQueryContext(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address())
+	defer dqc.Close(ctx)
 
-	err := dCtx.ImportSnapshot(ctx, stateLocksJSON)
+	err := dqc.ImportSnapshot(ctx, stateLocksJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 		})
 	}
 
-	return e.assembleAndSign(ctx, transactionID, preAssembly, resolvedVerifiers, dCtx)
+	return e.assembleAndSign(ctx, transactionID, preAssembly, resolvedVerifiers, dqc)
 }
 
 func (e *engineIntegration) resolveLocalTransaction(ctx context.Context, transactionID uuid.UUID) (*components.ResolvedTransaction, error) {
@@ -153,7 +153,7 @@ func (e *engineIntegration) resolveLocalTransaction(ctx context.Context, transac
 	return locallyResolvedTx, err
 }
 
-func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, domainContext components.DomainContext) (*components.TransactionPostAssembly, error) {
+func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, domainQueryContext components.DomainQueryContext) (*components.TransactionPostAssembly, error) {
 	localTx, err := e.resolveLocalTransaction(ctx, transactionID)
 	if err != nil || localTx.Transaction.Domain != e.domainSmartContract.Domain().Name() || localTx.Transaction.To == nil || *localTx.Transaction.To != e.domainSmartContract.Address() {
 		if err == nil {
@@ -174,7 +174,7 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 	 * Assemble
 	 */
 	log.L(ctx).Debugf("Assembling transaction: %+v", transaction)
-	err = e.domainSmartContract.AssembleTransaction(domainContext, e.components.Persistence().NOTX(), transaction, localTx, resolvedVerifiers)
+	err = e.domainSmartContract.AssembleTransaction(ctx, domainQueryContext, e.components.Persistence().NOTX(), transaction, localTx, resolvedVerifiers)
 	if err != nil {
 		log.L(ctx).Errorf("error assembling transaction: %s", err)
 		return nil, err

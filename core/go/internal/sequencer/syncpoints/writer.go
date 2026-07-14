@@ -22,7 +22,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
-	"github.com/google/uuid"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -54,7 +53,7 @@ to atomically allocate and record the nonce under that same transaction.
 
 type syncPointOperation struct {
 	contractAddress   pldtypes.EthAddress
-	domainContext     components.DomainContext
+	domainStateWriter components.DomainStateWriter
 	finalizeOperation *finalizeOperation
 	dispatchOperation *dispatchOperation
 }
@@ -69,11 +68,11 @@ func (s *syncPoints) runBatch(ctx context.Context, dbTX persistence.DBTX, values
 
 	finalizeOperations := make([]*finalizeOperation, 0, len(values))
 	dispatchOperations := make([]*dispatchOperation, 0, len(values))
-	domainContextsToFlush := make(map[uuid.UUID]components.DomainContext)
+	domainStateWritersToFlush := make(map[components.DomainStateWriter]components.DomainStateWriter)
 
 	for _, op := range values {
-		if op.domainContext != nil {
-			domainContextsToFlush[op.domainContext.Info().ID] = op.domainContext
+		if op.domainStateWriter != nil {
+			domainStateWritersToFlush[op.domainStateWriter] = op.domainStateWriter
 		}
 		if op.finalizeOperation != nil {
 			finalizeOperations = append(finalizeOperations, op.finalizeOperation)
@@ -83,15 +82,13 @@ func (s *syncPoints) runBatch(ctx context.Context, dbTX persistence.DBTX, values
 		}
 	}
 
-	// We flush all of the affected domain contexts first, as they might contain states we need to refer
-	// to in the DB transaction below using foreign key relationships
-	// We must track if we're returning an error with a nil callback, and ensure that in those cases
-	// we call the dbTXCallback with the error for any contexts we've received back from a Flush() call
+	// We flush all of the affected domain state writers first, as they might contain states we need to
+	// refer to in the DB transaction below using foreign key relationships.
 	var err error
-	log.L(ctx).Infof("SyncPoints flush-writer: domain=contexts=%d finalizeOperations=%d dispatchOperations=%d",
-		len(domainContextsToFlush), len(finalizeOperations), len(dispatchOperations))
-	for _, dc := range domainContextsToFlush {
-		err = dc.Flush(dbTX) // err variable must not be re-allocated
+	log.L(ctx).Infof("SyncPoints flush-writer: domainStateWriters=%d finalizeOperations=%d dispatchOperations=%d",
+		len(domainStateWritersToFlush), len(finalizeOperations), len(dispatchOperations))
+	for _, dsw := range domainStateWritersToFlush {
+		err = dsw.Flush(ctx, dbTX) // err variable must not be re-allocated
 		if err != nil {
 			return nil, err
 		}

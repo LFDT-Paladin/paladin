@@ -43,7 +43,7 @@ type SyncPoints interface {
 	// to the PrivateTxnManager's persistence store in the same database transaction
 	// Although the actual persistence is offloaded to the flushwriter, this method is synchronous and will block until the
 	// dispatch sequence is written to the database
-	PersistDispatchBatch(dCtx components.DomainContext, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error
+	PersistDispatchBatch(ctx context.Context, dsw components.DomainStateWriter, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error
 
 	// Deploy is a special case of dispatch batch, where there are no private states, so no domain context is required
 	PersistDeployDispatchBatch(ctx context.Context, transactionID uuid.UUID, dispatchBatch *DispatchBatch) error
@@ -61,7 +61,13 @@ type SyncPoints interface {
 }
 
 type syncPoints struct {
-	started      bool
+	started bool
+	// bgCtx is the long-lived context that owns the flush writer. It is only cancelled on
+	// coordinator/sequencer shutdown, never for control-flow reasons (e.g. an epoch-boundary
+	// dispatch-loop stop). Durable point-of-no-return persists queue and wait on this context
+	// so a caller cancellation can neither drop the operation before it is enqueued nor abort
+	// the wait after the batch has committed.
+	bgCtx        context.Context
 	writer       flushwriter.Writer[*syncPointOperation, *noResult]
 	txMgr        components.TXManager
 	pubTxMgr     components.PublicTxManager
@@ -70,6 +76,7 @@ type syncPoints struct {
 
 func NewSyncPoints(ctx context.Context, conf *pldconf.FlushWriterConfig, p persistence.Persistence, txMgr components.TXManager, pubTxMgr components.PublicTxManager, transportMgr components.TransportManager) SyncPoints {
 	s := &syncPoints{
+		bgCtx:        ctx,
 		txMgr:        txMgr,
 		pubTxMgr:     pubTxMgr,
 		transportMgr: transportMgr,

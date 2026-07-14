@@ -363,6 +363,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| buffer | Configure buffered log output | [`LogBufferConfig`](#logbuffer) | - |
 | disableColor | Forces color to be disabled, even if we detect a TTY | `bool` | `false` |
 | file | Configure file based logging | [`LogFileConfig`](#logfile) | - |
 | forceColor | Forces color to be enabled, even if we do not detect a TTY | `bool` | `false` |
@@ -372,6 +373,14 @@
 | output | Sets the output destination (stdout, stderr, file) | `string` | `"stderr"` |
 | timeFormat | String format for timestamps | `string` | `"2006-01-02T15:04:05.000Z07:00"` |
 | utc | Sets log timestamps to the UTC timezone | `bool` | `false` |
+
+## log.buffer
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| enabled | Enables buffered log output, batching lines in memory to reduce the number of write syscalls (default false) | `bool` | `false` |
+| flushInterval | The maximum time to hold buffered log lines before flushing them | `string` | `"1s"` |
+| size | The amount of log output to accumulate in memory before flushing | `string` | `"64Kb"` |
 
 ## log.file
 

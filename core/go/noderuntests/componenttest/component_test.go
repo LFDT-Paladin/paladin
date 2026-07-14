@@ -33,6 +33,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -41,7 +42,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -79,7 +79,7 @@ func newSingleNodePartyForComponentTestingWithSequencerConfig(t *testing.T, node
 func TestRunSimpleStorageEthTransaction(t *testing.T) {
 	ctx := t.Context()
 
-	logrus.SetLevel(logrus.DebugLevel)
+	log.SetLevel("debug")
 
 	instance := newInstanceForComponentTestingWithDomainRegistry(t)
 	c := instance.GetClient()
@@ -154,7 +154,7 @@ func TestRunSimpleStorageEthTransaction(t *testing.T) {
 func TestBlockchainEventListeners(t *testing.T) {
 	ctx := t.Context()
 
-	logrus.SetLevel(logrus.DebugLevel)
+	log.SetLevel("debug")
 
 	instance := newInstanceForComponentTestingWithDomainRegistry(t)
 	c := instance.GetClient()
@@ -345,7 +345,7 @@ func subscribeAndSendDataToChannel(ctx context.Context, t *testing.T, wsClient p
 
 func TestUpdatePublicTransaction(t *testing.T) {
 	ctx := t.Context()
-	logrus.SetLevel(logrus.DebugLevel)
+	log.SetLevel("debug")
 
 	instance := newInstanceForComponentTestingWithDomainRegistry(t)
 	c := instance.GetClient()
