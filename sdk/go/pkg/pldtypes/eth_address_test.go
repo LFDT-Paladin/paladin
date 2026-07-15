@@ -42,6 +42,7 @@ func TestEthAddress(t *testing.T) {
 
 	a = MustEthAddress("0xacA6D8Ba6BFf0fa5c8a06A58368CB6097285d5c5")
 	assert.Equal(t, "0xaca6d8ba6bff0fa5c8a06a58368cb6097285d5c5", (*a).String())
+	assert.Equal(t, "0xaca6d8ba6bff0fa5c8a06a58368cb6097285d5c5", a.Address0xHex().String())
 
 	assert.True(t, (*EthAddress)(nil).Equals(nil))
 	assert.False(t, a.Equals(nil))
