@@ -1,8 +1,5 @@
 # Paladin UI
 
-### Introduction
-This is a light-weight compact UI used for development/debugging purposes.
-
 ### Setup
 1. Install dependencies
 ```
