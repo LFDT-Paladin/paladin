@@ -46,6 +46,12 @@ export const SettingsMenu: React.FC<Props> = ({
     }
   };
 
+  const handleModeChange = (mode: 'readOnly' | 'edit' | null) => {
+    if (mode !== null) {
+      setReadOnly(mode === 'readOnly');
+    }
+  };
+
   return (
     <>
       <Menu
@@ -60,7 +66,7 @@ export const SettingsMenu: React.FC<Props> = ({
           <Grid2>
             <Box sx={{ borderBottom: `solid 1px ${theme.palette.divider}`, padding: '8px 12px 8px 20px', display: 'flex', alignItems: 'center' }}>
               <Typography sx={{ minWidth: '150px', whiteSpace: 'nowrap', marginRight: '8px' }}>{t('modeValue', { value: t(readOnly ? 'readOnly' : 'edit') })}</Typography>
-              <ToggleButtonGroup exclusive onChange={(_event, value) => setReadOnly(value === 'readOnly')} value={readOnly ? 'readOnly' : 'edit'}>
+              <ToggleButtonGroup exclusive onChange={(_event, value) => handleModeChange(value)} value={readOnly ? 'readOnly' : 'edit'}>
                 <ToggleButton color="primary" value="readOnly" id="readOnlyMode">
                   <EditOffIcon fontSize="small" />
                 </ToggleButton>
