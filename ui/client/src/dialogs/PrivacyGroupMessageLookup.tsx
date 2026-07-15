@@ -32,13 +32,11 @@ import { useNavigate } from 'react-router-dom';
 import { getPrivacyGroupMessage } from '../queries/privacyGroups';
 
 type Props = {
-  privacyGroupId?: string
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export const PrivacyGroupMessageLookupDialog: React.FC<Props> = ({
-  privacyGroupId,
   dialogOpen,
   setDialogOpen,
 }) => {
@@ -65,7 +63,7 @@ export const PrivacyGroupMessageLookupDialog: React.FC<Props> = ({
     setNotFound(false);
     messageById().then(result => {
       if (result.data !== null) {
-        navigate(`/ui/privacy-groups/${privacyGroupId}/messages/${id}`);
+        navigate(`/ui/privacy-groups/messages/${id}`);
       } else {
         setNotFound(true);
       }

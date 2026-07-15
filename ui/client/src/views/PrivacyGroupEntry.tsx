@@ -44,13 +44,13 @@ export const PrivacyGroupEntry: React.FC = () => {
 
   useEffect(() => {
     if (idOrAddress === undefined) {
-      navigate('/ui/privacy-groups');
+      navigate(AppRoutes.PrivacyGroups);
     } else if (isValidAddress(idOrAddress)) {
       setAddress(idOrAddress);
     } else if (isValidPrivacyGroupId(idOrAddress)) {
       setId(idOrAddress);
     } else {
-      navigate('/ui/privacy-groups');
+      navigate(AppRoutes.PrivacyGroups);
     }
   }, [idOrAddress]);
 

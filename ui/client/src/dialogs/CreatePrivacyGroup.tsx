@@ -69,7 +69,7 @@ export const CreatePrivacyGroupDialog: React.FC<Props> = ({
   const { mutate: handleSubmit } = useMutation({
     mutationFn: () => createPrivacyGroup(name, members),
     onSuccess: data => {
-      navigate(`/ui/privacy-groups/${data.id}`);
+      navigate(`/ui/privacy-groups/groups/${data.id}`);
     },
     onError: error => {
       setErrorMessage(error.message);
