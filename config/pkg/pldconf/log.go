@@ -37,6 +37,8 @@ type LogConfig struct {
 	File LogFileConfig `json:"file"`
 	// configure json based logging
 	JSON LogJSONConfig `json:"json"`
+	// configure buffered log output
+	Buffer LogBufferConfig `json:"buffer"`
 }
 
 type LogFileConfig struct {
@@ -50,6 +52,15 @@ type LogFileConfig struct {
 	MaxAge *string `json:"maxAge"`
 	// Compress sets whether to compress backups
 	Compress *bool `json:"compress"`
+}
+
+type LogBufferConfig struct {
+	// enables buffered log output, batching lines in memory to reduce the number of write syscalls (default false)
+	Enabled *bool `json:"enabled"`
+	// the amount of log output to accumulate in memory before flushing (e.g. "256Kb")
+	Size *string `json:"size"`
+	// the maximum time to hold buffered log lines before flushing them
+	FlushInterval *string `json:"flushInterval"`
 }
 
 type LogJSONConfig struct {
@@ -86,5 +97,10 @@ var LogDefaults = LogConfig{
 		MessageField:   confutil.P("message"),
 		FuncField:      confutil.P("func"),
 		FileField:      confutil.P("file"),
+	},
+	Buffer: LogBufferConfig{
+		Enabled:       confutil.P(false),
+		Size:          confutil.P("64Kb"),
+		FlushInterval: confutil.P("1s"),
 	},
 }

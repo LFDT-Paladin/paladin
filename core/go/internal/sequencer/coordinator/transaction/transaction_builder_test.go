@@ -45,6 +45,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -454,7 +455,9 @@ type transactionDependencyMocks struct {
 	AllComponents       *componentsmocks.AllComponents
 	DomainAPI           *componentsmocks.DomainSmartContract
 	Domain              *componentsmocks.Domain
-	DomainContext       *componentsmocks.DomainContext
+	DomainStateWriter   *componentsmocks.DomainStateWriter
+	StateManager        *componentsmocks.StateManager
+	DomainQueryContext  *componentsmocks.DomainQueryContext
 	KeyManager          *componentsmocks.KeyManager
 	PublicTxManager     *componentsmocks.PublicTxManager
 	TXManager           *componentsmocks.TXManager
@@ -488,9 +491,11 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		PublicTxManager:     componentsmocks.NewPublicTxManager(b.t),
 		TXManager:           componentsmocks.NewTXManager(b.t),
 		SequenceManager:     componentsmocks.NewSequencerManager(b.t),
+		StateManager:        componentsmocks.NewStateManager(b.t),
+		DomainQueryContext:  componentsmocks.NewDomainQueryContext(b.t),
 		DomainAPI:           componentsmocks.NewDomainSmartContract(b.t),
 		Domain:              componentsmocks.NewDomain(b.t),
-		DomainContext:       componentsmocks.NewDomainContext(b.t),
+		DomainStateWriter:   componentsmocks.NewDomainStateWriter(b.t),
 		DB:                  mp.Mock,
 	}
 
@@ -500,7 +505,11 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	mocks.AllComponents.On("TxManager").Return(mocks.TXManager).Maybe()
 	mocks.AllComponents.On("SequencerManager").Return(mocks.SequenceManager).Maybe()
 	mocks.AllComponents.On("Persistence").Return(mp.P).Maybe()
+	mocks.AllComponents.On("StateManager").Return(mocks.StateManager).Maybe()
+	mocks.DomainQueryContext.On("Close", mock.Anything).Return().Maybe()
+	mocks.StateManager.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mocks.DomainQueryContext).Maybe()
 	mocks.DomainAPI.On("Domain").Return(mocks.Domain).Maybe()
+	mocks.DomainAPI.On("Address").Return(*pldtypes.RandAddress()).Maybe()
 
 	// create the mocks needed for the NewTransaction call below
 	// the return values of these can be set by builder methods if needed
@@ -547,7 +556,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		mocks.SyncPoints,
 		mocks.AllComponents,
 		mocks.DomainAPI,
-		mocks.DomainContext,
+		mocks.DomainStateWriter,
 		time.Duration(b.requestTimeout),
 		time.Duration(b.stateTimeout),
 		b.finalizingGracePeriod,

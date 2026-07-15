@@ -40,7 +40,7 @@ import (
 type eiMocks struct {
 	allComponents       *componentsmocks.AllComponents
 	domainSmartContract *componentsmocks.DomainSmartContract
-	domainContext       *componentsmocks.DomainContext
+	domainStateWriter    *componentsmocks.DomainStateWriter
 	domain              *componentsmocks.Domain
 	stateManager        *componentsmocks.StateManager
 	txManager           *componentsmocks.TXManager
@@ -54,7 +54,7 @@ func newTestEngineIntegration(t *testing.T) (EngineIntegration, *eiMocks) {
 	m := &eiMocks{
 		allComponents:       componentsmocks.NewAllComponents(t),
 		domainSmartContract: componentsmocks.NewDomainSmartContract(t),
-		domainContext:       componentsmocks.NewDomainContext(t),
+		domainStateWriter:    componentsmocks.NewDomainStateWriter(t),
 		domain:              componentsmocks.NewDomain(t),
 		stateManager:        componentsmocks.NewStateManager(t),
 		txManager:           componentsmocks.NewTXManager(t),
@@ -69,7 +69,7 @@ func newTestEngineIntegration(t *testing.T) (EngineIntegration, *eiMocks) {
 	m.allComponents.On("KeyManager").Return(m.keyManager).Maybe()
 	m.allComponents.On("DomainManager").Return(m.domainManager).Maybe()
 
-	ei := NewEngineIntegration(context.Background(), m.allComponents, "node1", m.domainSmartContract, m.domainContext)
+	ei := NewEngineIntegration(context.Background(), m.allComponents, "node1", m.domainSmartContract, m.domainStateWriter)
 	return ei, m
 }
 
@@ -90,7 +90,7 @@ func TestEngineIntegration_MapPotentialStates(t *testing.T) {
 	tx := &components.PrivateTransaction{ID: uuid.New()}
 	expected := []*components.StateUpsert{{}}
 
-	m.domainSmartContract.On("MapPotentialStates", m.domainContext, potentialStates, true, tx).
+	m.domainSmartContract.On("MapPotentialStates", mock.Anything, potentialStates, true, tx).
 		Return(expected, nil).Once()
 
 	result, err := ei.MapPotentialStates(ctx, potentialStates, tx)
@@ -127,9 +127,10 @@ func TestEngineIntegration_WriteStatesForTransaction_WithPotentialStates_Success
 		},
 	}
 
-	m.domainSmartContract.On("WritePotentialStates", m.domainContext, mock.Anything, txn).
+	m.domainSmartContract.On("WritePotentialStates", mock.Anything, m.domainStateWriter, mock.Anything, txn).
 		Return(nil).Once()
-	m.domainContext.On("Info").Return(components.DomainContextInfo{ID: uuid.New()}).Maybe()
+	m.domainSmartContract.On("Domain").Return(m.domain).Once()
+	m.domain.On("Name").Return("test-domain").Once()
 
 	err = ei.WriteStatesForTransaction(ctx, txn)
 	require.NoError(t, err)
@@ -149,7 +150,7 @@ func TestEngineIntegration_WriteStatesForTransaction_WithPotentialStates_Error(t
 		},
 	}
 
-	m.domainSmartContract.On("WritePotentialStates", m.domainContext, mock.Anything, txn).
+	m.domainSmartContract.On("WritePotentialStates", mock.Anything, m.domainStateWriter, mock.Anything, txn).
 		Return(fmt.Errorf("write failed")).Once()
 
 	err = ei.WriteStatesForTransaction(ctx, txn)
@@ -245,10 +246,11 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return(domainName)
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, contractAddr).
-		Return(m.domainContext).Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-	m.domainContext.On("Close").Return().Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, contractAddr).
+		Return(mockDqc).Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	resolvedVerifierStr := pldtypes.RandAddress().String()
 	m.identityResolver.On("ResolveVerifier", mock.Anything, "alice@node1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS).
@@ -264,9 +266,9 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 	}
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(localTx, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			ptx := args.Get(2).(*components.PrivateTransaction)
+			ptx := args.Get(3).(*components.PrivateTransaction)
 			ptx.PostAssembly = &components.TransactionPostAssembly{
 				AssemblyResult:  prototk.AssembleTransactionResponse_OK,
 				AttestationPlan: []*prototk.AttestationRequest{},
@@ -309,10 +311,11 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_ResolverError(t *testing.T) {
 	m.domainSmartContract.On("Domain").Return(m.domain)
 	m.domainSmartContract.On("Address").Return(contractAddr)
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, contractAddr).
-		Return(m.domainContext).Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-	m.domainContext.On("Close").Return().Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, contractAddr).
+		Return(mockDqc).Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	m.identityResolver.On("ResolveVerifier", mock.Anything, "bob@node2", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS).
 		Return("", errors.New("resolver unavailable")).Once()
@@ -337,10 +340,11 @@ func TestEngineIntegration_AssembleAndSign_ImportSnapshotError(t *testing.T) {
 
 	m.domainSmartContract.On("Domain").Return(m.domain)
 	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).
 		Return(fmt.Errorf("snapshot error")).Once()
 
 	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, []byte(`{}`), 100)
@@ -360,10 +364,11 @@ func TestEngineIntegration_AssembleAndSign_ResolveVerifierError(t *testing.T) {
 
 	m.domainSmartContract.On("Domain").Return(m.domain)
 	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 	m.identityResolver.On("ResolveVerifier", mock.Anything, "alice@node1", "algo1", "type1").
 		Return("", fmt.Errorf("resolve error")).Once()
 
@@ -381,10 +386,11 @@ func TestEngineIntegration_AssembleAndSign_TxNotFound(t *testing.T) {
 
 	m.domainSmartContract.On("Domain").Return(m.domain)
 	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).
 		Return(nil, nil).Once()
 
@@ -402,10 +408,11 @@ func TestEngineIntegration_AssembleAndSign_TxLookupError(t *testing.T) {
 
 	m.domainSmartContract.On("Domain").Return(m.domain)
 	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).
 		Return(nil, fmt.Errorf("db error")).Once()
 
@@ -426,10 +433,11 @@ func TestEngineIntegration_AssembleAndSign_WrongDomain(t *testing.T) {
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -460,10 +468,11 @@ func TestEngineIntegration_AssembleAndSign_AssembleTransactionError(t *testing.T
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -474,7 +483,7 @@ func TestEngineIntegration_AssembleAndSign_AssembleTransactionError(t *testing.T
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(fmt.Errorf("assemble failed")).Once()
 
 	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
@@ -497,10 +506,11 @@ func TestEngineIntegration_AssembleAndSign_NilPostAssembly(t *testing.T) {
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -509,7 +519,7 @@ func TestEngineIntegration_AssembleAndSign_NilPostAssembly(t *testing.T) {
 	}, nil).Once()
 
 	// AssembleTransaction leaves PostAssembly nil.
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(nil).Once()
 
 	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
@@ -532,10 +542,11 @@ func TestEngineIntegration_AssembleAndSign_UnsupportedAttestationType(t *testing
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -543,9 +554,9 @@ func TestEngineIntegration_AssembleAndSign_UnsupportedAttestationType(t *testing
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
+			tx := args.Get(3).(*components.PrivateTransaction)
 			tx.PostAssembly = &components.TransactionPostAssembly{
 				AttestationPlan: []*prototk.AttestationRequest{
 					{AttestationType: prototk.AttestationType(99)}, // unsupported type
@@ -573,10 +584,11 @@ func TestEngineIntegration_AssembleAndSign_SignAttestationLocalParty(t *testing.
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -584,9 +596,9 @@ func TestEngineIntegration_AssembleAndSign_SignAttestationLocalParty(t *testing.
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
+			tx := args.Get(3).(*components.PrivateTransaction)
 			tx.PostAssembly = &components.TransactionPostAssembly{
 				AssemblyResult: prototk.AssembleTransactionResponse_OK,
 				AttestationPlan: []*prototk.AttestationRequest{
@@ -635,10 +647,11 @@ func TestEngineIntegration_AssembleAndSign_SignAttestationRemoteParty(t *testing
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -646,9 +659,9 @@ func TestEngineIntegration_AssembleAndSign_SignAttestationRemoteParty(t *testing
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
+			tx := args.Get(3).(*components.PrivateTransaction)
 			tx.PostAssembly = &components.TransactionPostAssembly{
 				AssemblyResult: prototk.AssembleTransactionResponse_OK,
 				AttestationPlan: []*prototk.AttestationRequest{
@@ -682,10 +695,11 @@ func TestEngineIntegration_AssembleAndSign_EndorseAttestationType(t *testing.T) 
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -693,9 +707,9 @@ func TestEngineIntegration_AssembleAndSign_EndorseAttestationType(t *testing.T) 
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
+			tx := args.Get(3).(*components.PrivateTransaction)
 			tx.PostAssembly = &components.TransactionPostAssembly{
 				AssemblyResult: prototk.AssembleTransactionResponse_OK,
 				AttestationPlan: []*prototk.AttestationRequest{
@@ -725,10 +739,11 @@ func TestEngineIntegration_AssembleAndSign_ResolveKeyError(t *testing.T) {
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -736,9 +751,9 @@ func TestEngineIntegration_AssembleAndSign_ResolveKeyError(t *testing.T) {
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
+			tx := args.Get(3).(*components.PrivateTransaction)
 			tx.PostAssembly = &components.TransactionPostAssembly{
 				AttestationPlan: []*prototk.AttestationRequest{
 					{
@@ -775,10 +790,11 @@ func TestEngineIntegration_AssembleAndSign_InvalidSigningPartyLocator(t *testing
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -786,9 +802,9 @@ func TestEngineIntegration_AssembleAndSign_InvalidSigningPartyLocator(t *testing
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
+			tx := args.Get(3).(*components.PrivateTransaction)
 			tx.PostAssembly = &components.TransactionPostAssembly{
 				AttestationPlan: []*prototk.AttestationRequest{
 					{
@@ -826,10 +842,11 @@ func TestEngineIntegration_AssembleAndSign_DebugLogging(t *testing.T) {
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -838,9 +855,9 @@ func TestEngineIntegration_AssembleAndSign_DebugLogging(t *testing.T) {
 	}, nil).Once()
 
 	outputStateID := pldtypes.RandBytes(32)
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
+			tx := args.Get(3).(*components.PrivateTransaction)
 			tx.PostAssembly = &components.TransactionPostAssembly{
 				AssemblyResult:  prototk.AssembleTransactionResponse_OK,
 				AttestationPlan: []*prototk.AttestationRequest{},
@@ -871,10 +888,11 @@ func TestEngineIntegration_AssembleAndSign_SignError(t *testing.T) {
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -882,9 +900,9 @@ func TestEngineIntegration_AssembleAndSign_SignError(t *testing.T) {
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
+			tx := args.Get(3).(*components.PrivateTransaction)
 			tx.PostAssembly = &components.TransactionPostAssembly{
 				AttestationPlan: []*prototk.AttestationRequest{
 					{

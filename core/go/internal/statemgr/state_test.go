@@ -290,12 +290,12 @@ func TestFindNullifiersInContext(t *testing.T) {
 	td.On("Name").Return("domain1")
 	td.On("CustomHashFunction").Return(false)
 
-	dCtx := ss.NewDomainContext(ctx, td, *pldtypes.RandAddress())
-	defer dCtx.Close()
+	dqc := ss.NewDomainQueryContext(ctx, td, *pldtypes.RandAddress())
+	defer dqc.Close(ctx)
 
 	contractAddress := pldtypes.RandAddress()
 	results, err := ss.FindContractNullifiers(ctx, ss.p.NOTX(), "domain1", *contractAddress, schemaID,
-		query.NewQueryBuilder().Limit(1).Query(), pldapi.StateStatusQualifier(dCtx.Info().ID.String()))
+		query.NewQueryBuilder().Limit(1).Query(), pldapi.StateStatusQualifier(dqc.ID().String()))
 	require.NoError(t, err)
 	require.Empty(t, results)
 
@@ -412,4 +412,43 @@ func TestWritePreVerifiedStates_ClearsCompletionRows(t *testing.T) {
 	err = ss.p.DB().Find(&remaining).Error
 	require.NoError(t, err)
 	assert.Empty(t, remaining)
+}
+
+func TestValidateStates(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schemas, err := ss.EnsureABISchemas(ctx, ss.p.NOTX(), "domain1", []*abi.Parameter{testABIParam(t, fakeCoinABI)})
+	require.NoError(t, err)
+	require.Len(t, schemas, 1)
+	schemaID := schemas[0].ID()
+	fakeHash1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	fakeHash2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	contractAddress := *pldtypes.RandAddress()
+
+	upsert1 := &components.StateUpsert{
+		ID:     fakeHash1,
+		Schema: schemaID,
+		Data:   pldtypes.RawJSON(fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32))),
+	}
+	states, err := ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, true,
+		upsert1,
+		&components.StateUpsert{
+			ID:     fakeHash2,
+			Schema: schemaID,
+			Data:   pldtypes.RawJSON(fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32))),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+	assert.NotEmpty(t, states[0].ID)
+	assert.Equal(t, fakeHash2, states[1].ID)
+
+	// Empty call is a no-op
+	states, err = ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, true)
+	require.NoError(t, err)
+	require.Empty(t, states)
+
 }

@@ -145,7 +145,7 @@ func (tb *testbed) gatherSignatures(ctx context.Context, tx *testbedTransaction)
 	return nil
 }
 
-func (tb *testbed) writeNullifiersToContext(dCtx components.DomainContext, tx *components.PrivateTransaction) error {
+func (tb *testbed) writeNullifiersToContext(dsw components.DomainStateWriter, tx *components.PrivateTransaction) error {
 
 	distributions, err := tb.c.SequencerManager().BuildStateDistributions(tb.ctx, tx)
 	if err != nil {
@@ -162,7 +162,7 @@ func (tb *testbed) writeNullifiersToContext(dCtx components.DomainContext, tx *c
 		return err
 	}
 
-	return dCtx.UpsertNullifiers(nullifiers...)
+	return dsw.StageNullifierUpserts(tb.ctx, nullifiers...)
 
 }
 
@@ -178,7 +178,7 @@ func toEndorsableList(states []*components.FullState) []*prototk.EndorsableState
 	return endorsableList
 }
 
-func (tb *testbed) gatherEndorsements(dCtx components.DomainContext, tx *testbedTransaction) error {
+func (tb *testbed) gatherEndorsements(ctx context.Context, dc components.DomainQueryContext, tx *testbedTransaction) error {
 
 	keyMgr := tb.c.KeyManager()
 	attestations := []*prototk.AttestationResult{}
@@ -186,14 +186,14 @@ func (tb *testbed) gatherEndorsements(dCtx components.DomainContext, tx *testbed
 		if ar.AttestationType == prototk.AttestationType_ENDORSE {
 			for _, partyName := range ar.Parties {
 				// Look up the endorser
-				resolvedKey, err := tb.ResolveKey(dCtx.Ctx(), partyName, ar.Algorithm, ar.VerifierType)
+				resolvedKey, err := tb.ResolveKey(ctx, partyName, ar.Algorithm, ar.VerifierType)
 				if err != nil {
 					return fmt.Errorf("failed to resolve (local in testbed case) endorser for %s (algorithm=%s): %s", partyName, ar.Algorithm, err)
 				}
 				// Invoke the domain
-			endorseRes, err := tx.psc.EndorseTransaction(dCtx, tb.c.Persistence().NOTX(), &components.PrivateTransactionEndorseRequest{
-				TransactionSpecification: tx.ptx.PreAssembly.TransactionSpecification,
-				Verifiers:                tx.ptx.PostAssembly.ResolvedVerifiers,
+				endorseRes, err := tx.psc.EndorseTransaction(ctx, dc, tb.c.Persistence().NOTX(), &components.PrivateTransactionEndorseRequest{
+					TransactionSpecification: tx.ptx.PreAssembly.TransactionSpecification,
+					Verifiers:                tx.ptx.PostAssembly.ResolvedVerifiers,
 					Signatures:               tx.ptx.PostAssembly.Signatures,
 					InputStates:              toEndorsableList(tx.ptx.PostAssembly.InputStates),
 					ReadStates:               toEndorsableList(tx.ptx.PostAssembly.ReadStates),
@@ -224,7 +224,7 @@ func (tb *testbed) gatherEndorsements(dCtx components.DomainContext, tx *testbed
 					return fmt.Errorf("reverted: %s", revertReason)
 				case prototk.EndorseTransactionResponse_SIGN:
 					// Build the signature
-					signaturePayload, err := keyMgr.Sign(dCtx.Ctx(), resolvedKey, ar.PayloadType, endorseRes.Payload)
+					signaturePayload, err := keyMgr.Sign(ctx, resolvedKey, ar.PayloadType, endorseRes.Payload)
 					if err != nil {
 						return fmt.Errorf("failed to endorse for party %s (verifier=%s,algorithm=%s): %s", partyName, resolvedKey.Verifier.Verifier, ar.Algorithm, err)
 					}

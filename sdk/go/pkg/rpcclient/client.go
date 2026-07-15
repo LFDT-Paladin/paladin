@@ -31,7 +31,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldresty"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/go-resty/resty/v2"
-	"github.com/sirupsen/logrus"
 )
 
 type RPCCode int64
@@ -222,7 +221,7 @@ func (rc *rpcClient) SyncRequest(ctx context.Context, rpcReq *RPCRequest) (rpcRe
 	rpcRes = new(RPCResponse)
 
 	log.L(ctx).Debugf("RPC[%s] --> %s", rpcTraceID, rpcReq.Method)
-	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+	if log.IsTraceEnabled() {
 		jsonInput, _ := json.Marshal(rpcReq)
 		log.L(ctx).Tracef("RPC[%s] INPUT: %s", rpcTraceID, jsonInput)
 	}
@@ -242,7 +241,7 @@ func (rc *rpcClient) SyncRequest(ctx context.Context, rpcReq *RPCRequest) (rpcRe
 		rpcRes = RPCErrorResponse(err, rpcReq.ID, RPCCodeInternalError)
 		return rpcRes, err
 	}
-	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+	if log.IsTraceEnabled() {
 		jsonOutput, _ := json.Marshal(rpcRes)
 		log.L(ctx).Tracef("RPC[%s] OUTPUT: %s", rpcTraceID, jsonOutput)
 	}

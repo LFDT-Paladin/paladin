@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
@@ -39,7 +40,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
-	"github.com/sirupsen/logrus"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,8 +76,8 @@ func newTestSigner(t *testing.T) (context.Context, signer.SigningModule) {
 
 func newTestKeyManager(t *testing.T, realDB bool, conf *pldconf.KeyManagerInlineConfig, tps []*testPlugin) (context.Context, *keyManager, *mockComponents, func()) {
 	ctx, cancelCtx := context.WithCancel(context.Background())
-	oldLevel := logrus.GetLevel()
-	logrus.SetLevel(logrus.TraceLevel)
+	oldLevel := log.GetLevel()
+	log.SetLevel("trace")
 
 	mc := &mockComponents{c: componentsmocks.NewAllComponents(t)}
 	componentsmocks := mc.c
@@ -117,7 +117,7 @@ func newTestKeyManager(t *testing.T, realDB bool, conf *pldconf.KeyManagerInline
 	require.NoError(t, err)
 
 	return ctx, km.(*keyManager), mc, func() {
-		logrus.SetLevel(oldLevel)
+		log.SetLevel(oldLevel)
 		cancelCtx()
 		km.Stop()
 		pDone()

@@ -62,7 +62,7 @@ func TestRunBatch_EmptyBatch(t *testing.T) {
 	assert.Equal(t, 0, len(results))
 }
 
-func TestRunBatch_OnlyDomainContexts(t *testing.T) {
+func TestRunBatch_OnlyDomainStateWriters(t *testing.T) {
 	ctx := context.Background()
 	s := &syncPoints{
 		txMgr:        componentsmocks.NewTXManager(t),
@@ -72,29 +72,25 @@ func TestRunBatch_OnlyDomainContexts(t *testing.T) {
 	dbTX := persistencemocks.NewDBTX(t)
 
 	// Create mock domain contexts
-	dc1 := componentsmocks.NewDomainContext(t)
-	dc1ID := uuid.New()
-	dc1.On("Info").Return(components.DomainContextInfo{ID: dc1ID})
-	dc1.On("Flush", dbTX).Return(nil)
+	dc1 := componentsmocks.NewDomainStateWriter(t)
+	dc1.On("Flush", mock.Anything, dbTX).Return(nil)
 
-	dc2 := componentsmocks.NewDomainContext(t)
-	dc2ID := uuid.New()
-	dc2.On("Info").Return(components.DomainContextInfo{ID: dc2ID})
-	dc2.On("Flush", dbTX).Return(nil)
+	dc2 := componentsmocks.NewDomainStateWriter(t)
+	dc2.On("Flush", mock.Anything, dbTX).Return(nil)
 
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			domainContext:   dc1,
+			domainStateWriter:  dc1,
 		},
 		{
 			contractAddress: *contractAddr,
-			domainContext:   dc2,
+			domainStateWriter:  dc2,
 		},
 		{
 			contractAddress: *contractAddr,
-			domainContext:   dc1, // Duplicate - should be deduplicated
+			domainStateWriter:  dc1, // Duplicate - should be deduplicated
 		},
 	}
 
@@ -106,7 +102,7 @@ func TestRunBatch_OnlyDomainContexts(t *testing.T) {
 	dc2.AssertExpectations(t)
 }
 
-func TestRunBatch_DomainContextFlushError(t *testing.T) {
+func TestRunBatch_DomainStateWriterFlushError(t *testing.T) {
 	ctx := context.Background()
 	s := &syncPoints{
 		txMgr:        componentsmocks.NewTXManager(t),
@@ -115,17 +111,15 @@ func TestRunBatch_DomainContextFlushError(t *testing.T) {
 	}
 	dbTX := persistencemocks.NewDBTX(t)
 
-	dc := componentsmocks.NewDomainContext(t)
-	dcID := uuid.New()
-	dc.On("Info").Return(components.DomainContextInfo{ID: dcID})
+	dc := componentsmocks.NewDomainStateWriter(t)
 	flushErr := errors.New("flush error")
-	dc.On("Flush", dbTX).Return(flushErr)
+	dc.On("Flush", mock.Anything, dbTX).Return(flushErr)
 
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			domainContext:   dc,
+			domainStateWriter:  dc,
 		},
 	}
 
@@ -239,10 +233,8 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 	dbTX := persistencemocks.NewDBTX(t)
 
 	// Setup domain context
-	dc := componentsmocks.NewDomainContext(t)
-	dcID := uuid.New()
-	dc.On("Info").Return(components.DomainContextInfo{ID: dcID})
-	dc.On("Flush", dbTX).Return(nil)
+	dc := componentsmocks.NewDomainStateWriter(t)
+	dc.On("Flush", mock.Anything, dbTX).Return(nil)
 
 	// Setup finalize operation mocks
 	// Since originator is on the same node as LocalNodeName, receipt goes to FinalizeTransactions
@@ -259,7 +251,7 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			domainContext:   dc,
+			domainStateWriter:  dc,
 			finalizeOperation: &finalizeOperation{
 				TransactionFinalizeRequest: TransactionFinalizeRequest{
 					Domain:         "domain1",
@@ -271,7 +263,7 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 		},
 		{
 			contractAddress: *contractAddr,
-			domainContext:   dc,
+			domainStateWriter:  dc,
 			dispatchOperation: &dispatchOperation{
 				publicDispatches: []*PublicDispatch{
 					{
@@ -397,7 +389,7 @@ func TestRunBatch_NoOperations(t *testing.T) {
 	assert.IsType(t, flushwriter.Result[*noResult]{}, results[0])
 }
 
-func TestRunBatch_MultipleDomainContextsWithSameID(t *testing.T) {
+func TestRunBatch_MultipleDomainStateWritersDedup(t *testing.T) {
 	ctx := context.Background()
 	s := &syncPoints{
 		txMgr:        componentsmocks.NewTXManager(t),
@@ -406,38 +398,29 @@ func TestRunBatch_MultipleDomainContextsWithSameID(t *testing.T) {
 	}
 	dbTX := persistencemocks.NewDBTX(t)
 
-	// Create domain contexts with the same ID - should be deduplicated
-	// The map key is the domain context ID, so the last one added overwrites the first
-	// Only one flush should occur (for the last one added)
-	dcID := uuid.New()
-	dc1 := componentsmocks.NewDomainContext(t)
-	dc1.On("Info").Return(components.DomainContextInfo{ID: dcID})
-	// dc1 won't be flushed since dc2 overwrites it in the map
+	// Deduplication is by pointer identity (interface value), so two different DomainStateWriter
+	// instances are two different map keys. Both will be flushed.
+	dc1 := componentsmocks.NewDomainStateWriter(t)
+	dc1.On("Flush", mock.Anything, dbTX).Return(nil)
 
-	dc2 := componentsmocks.NewDomainContext(t)
-	dc2.On("Info").Return(components.DomainContextInfo{ID: dcID})
-	dc2.On("Flush", dbTX).Return(nil)
-	// dc2 will be flushed since it's the last one added to the map
+	dc2 := componentsmocks.NewDomainStateWriter(t)
+	dc2.On("Flush", mock.Anything, dbTX).Return(nil)
 
+	// Adding the same writer twice deduplicates it to one flush.
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
-		{
-			contractAddress: *contractAddr,
-			domainContext:   dc1,
-		},
-		{
-			contractAddress: *contractAddr,
-			domainContext:   dc2, // Same ID as dc1, overwrites dc1 in the map
-		},
+		{contractAddress: *contractAddr, domainStateWriter: dc1},
+		{contractAddress: *contractAddr, domainStateWriter: dc2},
+		{contractAddress: *contractAddr, domainStateWriter: dc1}, // duplicate of dc1
 	}
 
 	results, err := s.runBatch(ctx, dbTX, values)
 
 	require.NoError(t, err)
-	assert.Equal(t, 2, len(results))
-	// Only dc2 should be flushed since it overwrote dc1 in the map
-	dc1.AssertNotCalled(t, "Flush", mock.Anything)
-	dc2.AssertExpectations(t)
+	assert.Equal(t, 3, len(results))
+	// dc1 and dc2 each flushed exactly once despite dc1 appearing twice
+	dc1.AssertNumberOfCalls(t, "Flush", 1)
+	dc2.AssertNumberOfCalls(t, "Flush", 1)
 }
 
 func TestRunBatch_FinalizeOperationsWithEmptyFailureMessage(t *testing.T) {

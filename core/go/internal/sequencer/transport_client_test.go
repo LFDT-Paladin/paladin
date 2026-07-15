@@ -56,7 +56,7 @@ type transportClientTestMocks struct {
 	txManager       *componentsmocks.TXManager
 	domainAPI       *componentsmocks.DomainSmartContract
 	domain          *componentsmocks.Domain
-	domainContext   *componentsmocks.DomainContext
+	domainQueryContext   *componentsmocks.DomainQueryContext
 	transportWriter *sequencertransportmocks.TransportWriter
 	originator      *originatormocks.Originator
 	coordinator     *coordinatormocks.Coordinator
@@ -72,7 +72,7 @@ func newTransportClientTestMocks(t *testing.T) *transportClientTestMocks {
 		txManager:       componentsmocks.NewTXManager(t),
 		domainAPI:       componentsmocks.NewDomainSmartContract(t),
 		domain:          componentsmocks.NewDomain(t),
-		domainContext:   componentsmocks.NewDomainContext(t),
+		domainQueryContext:   componentsmocks.NewDomainQueryContext(t),
 		transportWriter: sequencertransportmocks.NewTransportWriter(t),
 		originator:      originatormocks.NewOriginator(t),
 		coordinator:     coordinatormocks.NewCoordinator(t),
@@ -116,7 +116,7 @@ func setupDefaultMocks(ctx context.Context, mocks *transportClientTestMocks, con
 	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
 	mocks.domainAPI.EXPECT().Domain().Return(mocks.domain).Maybe()
 	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Maybe()
-	mocks.stateManager.EXPECT().NewDomainContext(ctx, mocks.domain, *contractAddr).Return(mocks.domainContext).Maybe()
+	mocks.stateManager.EXPECT().NewDomainQueryContext(ctx, mocks.domain, *contractAddr).Return(mocks.domainQueryContext).Maybe()
 }
 
 func TestHandlePaladinMsg_Routing(t *testing.T) {

@@ -44,7 +44,7 @@ type stateManager struct {
 	abiSchemaCache    cache.Cache[string, components.Schema]
 	rpcModule         *rpcserver.RPCModule
 	domainContextLock sync.Mutex
-	domainContexts    map[uuid.UUID]*domainContext
+	domainContexts    map[uuid.UUID]*domainQueryContext
 }
 
 type logStateSpendRecords []*pldapi.StateSpendRecord
@@ -92,7 +92,7 @@ func NewStateManager(ctx context.Context, conf *pldconf.StateStoreConfig, p pers
 		p:              p,
 		conf:           conf,
 		abiSchemaCache: cache.NewCache[string, components.Schema](&conf.SchemaCache, &pldconf.StateStoreConfigDefaults.SchemaCache),
-		domainContexts: make(map[uuid.UUID]*domainContext),
+		domainContexts: make(map[uuid.UUID]*domainQueryContext),
 	}
 	ss.bgCtx, ss.cancelCtx = context.WithCancel(log.WithComponent(ctx, "statemanager"))
 	return ss

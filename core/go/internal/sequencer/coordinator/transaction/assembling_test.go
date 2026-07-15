@@ -819,7 +819,6 @@ func Test_Assembling_ChainedDependencyFailed_TransitionsToReverted(t *testing.T)
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
-	// mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 
 	err := txn.HandleEvent(ctx, &ChainedDependencyFailedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},

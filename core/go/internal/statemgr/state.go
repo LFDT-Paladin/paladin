@@ -349,17 +349,17 @@ func (ss *stateManager) findStates(
 	}
 
 	// Otherwise, we need to run it against the specified domain context
-	var dc components.DomainContext
+	var dqc components.DomainQueryContext
 	dcID, err := uuid.Parse(string(options.StatusQualifier))
 	if err == nil {
-		if dc = ss.GetDomainContext(ctx, dcID); dc == nil {
+		if dqc = ss.GetDomainQueryContext(ctx, dcID); dqc == nil {
 			err = i18n.NewError(ctx, msgs.MsgStateDomainContextNotActive, dcID)
 		}
 	}
 	if err != nil {
 		return nil, nil, err
 	}
-	return dc.FindAvailableStates(ctx, dbTX, schemaID, jq)
+	return dqc.FindAvailableStates(ctx, dbTX, schemaID, jq)
 }
 
 func (ss *stateManager) findNullifiers(
@@ -397,17 +397,17 @@ func (ss *stateManager) findNullifiers(
 	}
 
 	// Otherwise, we need to run it against the specified domain context
-	var dc components.DomainContext
+	var dqc components.DomainQueryContext
 	dcID, err := uuid.Parse(string(status))
 	if err == nil {
-		if dc = ss.GetDomainContext(ctx, dcID); dc == nil {
+		if dqc = ss.GetDomainQueryContext(ctx, dcID); dqc == nil {
 			err = i18n.NewError(ctx, msgs.MsgStateDomainContextNotActive, dcID)
 		}
 	}
 	if err != nil {
 		return nil, nil, err
 	}
-	return dc.FindAvailableNullifiers(ctx, dbTX, schemaID, jq)
+	return dqc.FindAvailableNullifiers(ctx, dbTX, schemaID, jq)
 }
 
 func (ss *stateManager) findStatesCommon(
@@ -459,4 +459,46 @@ func (ss *stateManager) findStatesCommon(
 		return nil, nil, q.Error
 	}
 	return schema, states, nil
+}
+
+type validatedStateSet struct {
+	states     []*pldapi.State
+	withValues []*components.StateWithLabels
+}
+
+// validateStateSet validates state upserts against their schemas.
+func (ss *stateManager) validateStateSet(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, dbTX persistence.DBTX, stateUpserts ...*components.StateUpsert) (*validatedStateSet, error) {
+	vss := &validatedStateSet{
+		states:     make([]*pldapi.State, len(stateUpserts)),
+		withValues: make([]*components.StateWithLabels, len(stateUpserts)),
+	}
+	for i, ns := range stateUpserts {
+		schema, err := ss.getSchemaByID(ctx, dbTX, domainName, ns.Schema, true)
+		if err != nil {
+			return nil, err
+		}
+		vs, err := schema.ProcessState(ctx, &contractAddress, ns.Data, ns.ID, customHashFunction)
+		if err != nil {
+			return nil, err
+		}
+		vss.withValues[i] = vs
+		vss.states[i] = vs.State
+	}
+	return vss, nil
+}
+
+// ValidateStates verifies state upserts against their schemas without persisting them.
+func (ss *stateManager) ValidateStates(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, stateUpserts ...*components.StateUpsert) ([]*pldapi.StateBase, error) {
+	if len(stateUpserts) == 0 {
+		return []*pldapi.StateBase{}, nil
+	}
+	vss, err := ss.validateStateSet(ctx, domainName, contractAddress, customHashFunction, dbTX, stateUpserts...)
+	if err != nil {
+		return nil, err
+	}
+	states := make([]*pldapi.StateBase, len(vss.states))
+	for i, s := range vss.states {
+		states[i] = &s.StateBase
+	}
+	return states, nil
 }

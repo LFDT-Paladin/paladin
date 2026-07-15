@@ -270,9 +270,10 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 		tx.localTx.Transaction.From = fmt.Sprintf("%s@%s", sender, tb.c.TransportManager().LocalNodeName())
 	}
 
-	// Testbed just uses a domain context for the duration of the TX, and flushes before returning
-	dCtx := tb.c.StateManager().NewDomainContext(ctx, tx.psc.Domain(), tx.psc.Address())
-	defer dCtx.Close()
+	// Testbed uses a domain context (for queries) and a domain state writer (for writes).
+	dqc := tb.c.StateManager().NewDomainQueryContext(ctx, tx.psc.Domain(), tx.psc.Address())
+	defer dqc.Close(ctx)
+	dsw := tb.c.StateManager().NewDomainStateWriter(ctx, tx.psc.Domain(), tx.psc.Address())
 
 	// First we call init on the smart contract to:
 	// - validate the transaction ABI is understood by the contract
@@ -297,7 +298,7 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	// Now call assemble
-	if err := tx.psc.AssembleTransaction(dCtx, tb.c.Persistence().NOTX(), tx.ptx, tx.localTx, resolvedVerifiers); err != nil {
+	if err := tx.psc.AssembleTransaction(ctx, dqc, tb.c.Persistence().NOTX(), tx.ptx, tx.localTx, resolvedVerifiers); err != nil {
 		return err
 	}
 	tx.ptx.PostAssembly.ResolvedVerifiers = resolvedVerifiers
@@ -316,7 +317,7 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	// The testbed always chooses to take the assemble output and progress to endorse
 	// (no complex sequence selection routine that might result in abandonment).
 	// So just write the states
-	if err := tx.psc.WritePotentialStates(dCtx, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
+	if err := tx.psc.WritePotentialStates(ctx, dsw, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
 		return err
 	}
 
@@ -326,7 +327,7 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	// Gather endorsements (this would be a distributed activity across nodes in the real engine)
-	if err := tb.gatherEndorsements(dCtx, tx); err != nil {
+	if err := tb.gatherEndorsements(ctx, dqc, tx); err != nil {
 		return err
 	}
 
@@ -338,19 +339,18 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 		return err
 	}
 
-	// Prepare the transaction
-	if err := tx.psc.PrepareTransaction(dCtx, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
+	if err := tx.psc.PrepareTransaction(ctx, dqc, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
 		return err
 	}
 
 	// Build any nullifiers
-	if err := tb.writeNullifiersToContext(dCtx, tx.ptx); err != nil {
+	if err := tb.writeNullifiersToContext(dsw, tx.ptx); err != nil {
 		return err
 	}
 
-	// Flush the context
+	// Flush the state writer
 	err := tb.Components().Persistence().Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		return dCtx.Flush(dbTX)
+		return dsw.Flush(ctx, dbTX)
 	})
 	if err != nil {
 		return err
@@ -542,10 +542,10 @@ func (tb *testbed) rpcTestbedCall() rpcserver.RPCHandler {
 			return nil, err
 		}
 
-		dCtx := tb.c.StateManager().NewDomainContext(ctx, tx.psc.Domain(), tx.psc.Address())
-		defer dCtx.Close()
+		dqc := tb.c.StateManager().NewDomainQueryContext(ctx, tx.psc.Domain(), tx.psc.Address())
+		defer dqc.Close(ctx)
 
-		cv, err := tx.psc.ExecCall(dCtx, tb.c.Persistence().NOTX(), tx.localTx, resolvedVerifiers)
+		cv, err := tx.psc.ExecCall(ctx, dqc, tb.c.Persistence().NOTX(), tx.localTx, resolvedVerifiers)
 		if err != nil {
 			return nil, err
 		}
