@@ -21,7 +21,6 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
-	"fmt"
 	"math/big"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -101,12 +100,16 @@ func (hi *HexUint256) NilOrZero() bool {
 
 // Get string with 0x prefix - nil is all zeros
 func (hi *HexUint256) HexString0xPrefix() string {
-	absHi := new(big.Int).Abs(hi.Int())
-	str := absHi.Text(16)
-	if len(str)%2 != 0 {
-		str = "0" + str
+	i := hi.Int()
+	// Avoid allocating a new big.Int for Abs in the common non-negative case
+	str := i.Text(16)
+	if i.Sign() < 0 {
+		str = new(big.Int).Abs(i).Text(16)
 	}
-	return fmt.Sprintf("0x%s", str)
+	if len(str)%2 != 0 {
+		return "0x0" + str
+	}
+	return "0x" + str
 }
 
 // Get string (without 0x prefix) - nil is all zeros
