@@ -104,7 +104,7 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
         <DialogTitle>
           {t('lookup')}
           {notFound &&
-            <Alert sx={{ marginTop: '15px' }} variant="filled" severity="warning">{t('domainSmartContractNotFound')}</Alert>}
+            <Alert sx={{ marginTop: '15px' }} variant="filled" severity="warning">{t('privacyGroupNotFound')}</Alert>}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ marginTop: '6px' }}>

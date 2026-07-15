@@ -205,7 +205,7 @@ export const getPrivacyGroupMessage = async (
     }
   ]
   if (privacyGroupId !== undefined) {
-    params[0].equals.push({
+    params[0].equal.push({
       field: 'group',
       value: privacyGroupId
     });
@@ -389,7 +389,7 @@ export const getPrivacyGroupListener = async (
   return <Promise<IPrivacyGroupListener>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
-      i18next.t('errorStoppingPrivacyGroupListener')
+      i18next.t('errorFetchingPrivacyGroupListener')
     )
   );
 };
@@ -414,7 +414,7 @@ export const createPrivacyGroupListener = async (
   return <Promise<boolean>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
-      i18next.t('errorDeletingPrivacyGroupListener')
+      i18next.t('errorCreatingPrivacyGroupListener')
     )
   );
 };

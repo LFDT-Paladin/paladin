@@ -138,7 +138,7 @@ export const queryStates = async (
   };
   const results = await returnResponse(
     () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
-    i18next.t("errorFetchingSchemas"), []
+    i18next.t("errorFetchingStates"), []
   );
   return toPagedResult(results, limit);
 };
@@ -168,7 +168,7 @@ export const getState = async (
   const states = await <Promise<IState[]>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
-      i18next.t("errorFetchingSchemas"), []
+      i18next.t("errorFetchingState"), []
     )
   );
   if (states.length === 0) {
@@ -195,7 +195,7 @@ export const pushState = async (
   return <Promise<string>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
-      i18next.t("errorFetchingSchemas"), []
+      i18next.t("errorPushingState"), []
     )
   );
 };
