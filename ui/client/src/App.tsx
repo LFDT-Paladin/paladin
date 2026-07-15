@@ -127,7 +127,7 @@ function App() {
                   <Route path={AppRoutes.Submissions} element={<Submissions />} />
                   <Route path={AppRoutes.Transaction} element={<TransactionEntry />} />
                   <Route path={AppRoutes.Keys} element={<Keys />} />
-                  <Route path={AppRoutes.Registies} element={<Registries />} />
+                  <Route path={AppRoutes.Registries} element={<Registries />} />
                   <Route path={AppRoutes.Domains} element={<Domains />} />
                   <Route path={AppRoutes.DomainContract} element={<DomainContract />} />
                   <Route path={AppRoutes.PrivacyGroups} element={<PrivacyGroups />} />

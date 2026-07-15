@@ -62,7 +62,7 @@ export const RegistryEntry: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate(AppRoutes.Registies)}
+            onClick={() => navigate(AppRoutes.Registries)}
           >
             {t('backToRegistries')}
           </Button>
