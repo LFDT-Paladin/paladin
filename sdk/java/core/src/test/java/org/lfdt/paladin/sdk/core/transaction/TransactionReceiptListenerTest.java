@@ -29,11 +29,12 @@ class TransactionReceiptListenerTest {
 
   @Test
   void builderCreatesInputWithoutCreatedTimestamp() throws Exception {
-    TransactionReceiptFilters filters = TransactionReceiptFilters.builder().domain("noto").build();
-    TransactionReceiptListenerOptions options =
+    final TransactionReceiptFilters filters =
+        TransactionReceiptFilters.builder().domain("noto").build();
+    final TransactionReceiptListenerOptions options =
         TransactionReceiptListenerOptions.builder().domainReceipts(true).build();
 
-    TransactionReceiptListener listener =
+    final TransactionReceiptListener listener =
         TransactionReceiptListener.builder()
             .name("listener-1")
             .started(true)
@@ -42,10 +43,11 @@ class TransactionReceiptListenerTest {
             .build();
 
     assertNull(listener.created());
-    String json = MAPPER.writeValueAsString(listener);
+    final String json = MAPPER.writeValueAsString(listener);
     assertFalse(json.contains("created"));
 
-    TransactionReceiptListener parsed = MAPPER.readValue(json, TransactionReceiptListener.class);
+    final TransactionReceiptListener parsed =
+        MAPPER.readValue(json, TransactionReceiptListener.class);
     assertEquals("listener-1", parsed.name());
     assertTrue(parsed.started());
     assertEquals("noto", parsed.filters().domain());
@@ -54,8 +56,9 @@ class TransactionReceiptListenerTest {
 
   @Test
   void parsesServerResponseWithCreatedTimestamp() throws Exception {
-    String json = "{\"name\":\"l1\",\"created\":\"2024-06-18T12:00:00Z\",\"started\":false}";
-    TransactionReceiptListener listener = MAPPER.readValue(json, TransactionReceiptListener.class);
+    final String json = "{\"name\":\"l1\",\"created\":\"2024-06-18T12:00:00Z\",\"started\":false}";
+    final TransactionReceiptListener listener =
+        MAPPER.readValue(json, TransactionReceiptListener.class);
 
     assertEquals("l1", listener.name());
     assertEquals(Timestamp.fromString("2024-06-18T12:00:00Z"), listener.created());
@@ -65,7 +68,7 @@ class TransactionReceiptListenerTest {
 
   @Test
   void zeroTimestampIsNormalizedToNull() {
-    TransactionReceiptListener listener =
+    final TransactionReceiptListener listener =
         new TransactionReceiptListener("l", Timestamp.ZERO, null, null, null);
     assertNull(listener.created());
   }

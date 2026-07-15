@@ -39,11 +39,11 @@ public final class TransactionReceiptListener {
 
   @JsonCreator
   TransactionReceiptListener(
-      @JsonProperty("name") String name,
-      @JsonProperty("created") Timestamp created,
-      @JsonProperty("started") Boolean started,
-      @JsonProperty("filters") TransactionReceiptFilters filters,
-      @JsonProperty("options") TransactionReceiptListenerOptions options) {
+      @JsonProperty("name") final String name,
+      @JsonProperty("created") final Timestamp created,
+      @JsonProperty("started") final Boolean started,
+      @JsonProperty("filters") final TransactionReceiptFilters filters,
+      @JsonProperty("options") final TransactionReceiptListenerOptions options) {
     this.name = name;
     // A zero timestamp is "unset" (Go omitempty); normalize to null to keep round-trips clean.
     this.created = (created == null || created.isZero()) ? null : created;
@@ -136,7 +136,7 @@ public final class TransactionReceiptListener {
      * @param name the listener name
      * @return this builder
      */
-    public Builder name(String name) {
+    public Builder name(final String name) {
       this.name = name;
       return this;
     }
@@ -147,7 +147,7 @@ public final class TransactionReceiptListener {
      * @param started the started flag
      * @return this builder
      */
-    public Builder started(Boolean started) {
+    public Builder started(final Boolean started) {
       this.started = started;
       return this;
     }
@@ -158,7 +158,7 @@ public final class TransactionReceiptListener {
      * @param filters the filters
      * @return this builder
      */
-    public Builder filters(TransactionReceiptFilters filters) {
+    public Builder filters(final TransactionReceiptFilters filters) {
       this.filters = filters;
       return this;
     }
@@ -169,7 +169,7 @@ public final class TransactionReceiptListener {
      * @param options the options
      * @return this builder
      */
-    public Builder options(TransactionReceiptListenerOptions options) {
+    public Builder options(final TransactionReceiptListenerOptions options) {
       this.options = options;
       return this;
     }

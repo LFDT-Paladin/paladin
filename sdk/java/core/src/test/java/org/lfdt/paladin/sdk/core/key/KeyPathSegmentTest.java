@@ -27,11 +27,11 @@ class KeyPathSegmentTest {
 
   @Test
   void roundTrips() throws Exception {
-    KeyPathSegment segment = new KeyPathSegment("alice", 3);
-    String json = MAPPER.writeValueAsString(segment);
+    final KeyPathSegment segment = new KeyPathSegment("alice", 3);
+    final String json = MAPPER.writeValueAsString(segment);
     assertEquals("{\"name\":\"alice\",\"index\":3}", json);
 
-    KeyPathSegment parsed = MAPPER.readValue(json, KeyPathSegment.class);
+    final KeyPathSegment parsed = MAPPER.readValue(json, KeyPathSegment.class);
     assertEquals(segment, parsed);
     assertEquals("alice", parsed.name());
     assertEquals(3, parsed.index());
@@ -39,10 +39,10 @@ class KeyPathSegmentTest {
 
   @Test
   void equalsAndHashCode() {
-    KeyPathSegment a = new KeyPathSegment("alice", 3);
-    KeyPathSegment b = new KeyPathSegment("alice", 3);
-    KeyPathSegment differentIndex = new KeyPathSegment("alice", 4);
-    KeyPathSegment differentName = new KeyPathSegment("bob", 3);
+    final KeyPathSegment a = new KeyPathSegment("alice", 3);
+    final KeyPathSegment b = new KeyPathSegment("alice", 3);
+    final KeyPathSegment differentIndex = new KeyPathSegment("alice", 4);
+    final KeyPathSegment differentName = new KeyPathSegment("bob", 3);
 
     assertEquals(a, a);
     assertEquals(a, b);

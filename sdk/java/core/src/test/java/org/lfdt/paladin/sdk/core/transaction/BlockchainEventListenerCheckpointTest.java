@@ -26,11 +26,12 @@ class BlockchainEventListenerCheckpointTest {
 
   @Test
   void roundTrips() throws Exception {
-    BlockchainEventListenerCheckpoint checkpoint = new BlockchainEventListenerCheckpoint(12345L);
-    String json = MAPPER.writeValueAsString(checkpoint);
+    final BlockchainEventListenerCheckpoint checkpoint =
+        new BlockchainEventListenerCheckpoint(12345L);
+    final String json = MAPPER.writeValueAsString(checkpoint);
     assertEquals("{\"blockNumber\":12345}", json);
 
-    BlockchainEventListenerCheckpoint parsed =
+    final BlockchainEventListenerCheckpoint parsed =
         MAPPER.readValue(json, BlockchainEventListenerCheckpoint.class);
     assertEquals(12345L, parsed.blockNumber());
     assertTrue(parsed.toString().contains("12345"));
@@ -38,7 +39,7 @@ class BlockchainEventListenerCheckpointTest {
 
   @Test
   void zeroBlockNumberIsStillEmitted() throws Exception {
-    BlockchainEventListenerCheckpoint checkpoint = new BlockchainEventListenerCheckpoint(0L);
+    final BlockchainEventListenerCheckpoint checkpoint = new BlockchainEventListenerCheckpoint(0L);
     assertEquals("{\"blockNumber\":0}", MAPPER.writeValueAsString(checkpoint));
   }
 }

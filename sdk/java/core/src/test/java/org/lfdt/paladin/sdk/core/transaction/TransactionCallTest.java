@@ -29,12 +29,13 @@ class TransactionCallTest {
 
   @Test
   void serializesUnwrappedInputWithBlockAndDataFormat() throws Exception {
-    EthAddress to = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
-    TransactionInput input =
+    final EthAddress to = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
+    final TransactionInput input =
         TransactionInput.builder().type(TransactionType.PUBLIC).from("key1").to(to).build();
-    TransactionCall call = TransactionCall.builder(input).block("latest").dataFormat("mapping").build();
+    final TransactionCall call =
+        TransactionCall.builder(input).block("latest").dataFormat("mapping").build();
 
-    String json = MAPPER.writeValueAsString(call);
+    final String json = MAPPER.writeValueAsString(call);
     assertTrue(json.contains("\"type\":\"public\""));
     assertTrue(json.contains("\"from\":\"key1\""));
     assertTrue(json.contains("\"block\":\"latest\""));
@@ -47,10 +48,10 @@ class TransactionCallTest {
 
   @Test
   void omitsUnsetBlockAndDataFormat() throws Exception {
-    TransactionInput input = TransactionInput.builder().build();
-    TransactionCall call = TransactionCall.builder(input).build();
+    final TransactionInput input = TransactionInput.builder().build();
+    final TransactionCall call = TransactionCall.builder(input).build();
 
-    String json = MAPPER.writeValueAsString(call);
+    final String json = MAPPER.writeValueAsString(call);
     assertEquals("{}", json);
     assertNull(call.block());
     assertNull(call.dataFormat());

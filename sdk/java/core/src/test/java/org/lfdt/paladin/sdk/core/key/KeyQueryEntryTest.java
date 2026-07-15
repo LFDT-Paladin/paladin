@@ -29,13 +29,21 @@ class KeyQueryEntryTest {
 
   @Test
   void roundTripsKeyNode() throws Exception {
-    KeyVerifier verifier = new KeyVerifier("0xabc", "eth_address", "ecdsa:secp256k1");
-    KeyQueryEntry entry =
+    final KeyVerifier verifier = new KeyVerifier("0xabc", "eth_address", "ecdsa:secp256k1");
+    final KeyQueryEntry entry =
         new KeyQueryEntry(
-            true, false, "alice", "alice.key1", "key1", 1, "wallet1", "handle-1", List.of(verifier));
+            true,
+            false,
+            "alice",
+            "alice.key1",
+            "key1",
+            1,
+            "wallet1",
+            "handle-1",
+            List.of(verifier));
 
-    String json = MAPPER.writeValueAsString(entry);
-    KeyQueryEntry parsed = MAPPER.readValue(json, KeyQueryEntry.class);
+    final String json = MAPPER.writeValueAsString(entry);
+    final KeyQueryEntry parsed = MAPPER.readValue(json, KeyQueryEntry.class);
 
     assertEquals(entry, parsed);
     assertTrue(parsed.isKey());
@@ -52,11 +60,11 @@ class KeyQueryEntryTest {
 
   @Test
   void roundTripsIntermediatePathNode() throws Exception {
-    KeyQueryEntry entry =
+    final KeyQueryEntry entry =
         new KeyQueryEntry(false, true, "", "alice", "alice", 0, null, null, null);
 
-    String json = MAPPER.writeValueAsString(entry);
-    KeyQueryEntry parsed = MAPPER.readValue(json, KeyQueryEntry.class);
+    final String json = MAPPER.writeValueAsString(entry);
+    final KeyQueryEntry parsed = MAPPER.readValue(json, KeyQueryEntry.class);
 
     assertFalse(parsed.isKey());
     assertTrue(parsed.hasChildren());
@@ -65,9 +73,10 @@ class KeyQueryEntryTest {
 
   @Test
   void equalsAndHashCode() {
-    KeyQueryEntry a = new KeyQueryEntry(true, false, "p", "p.k", "k", 0, "w", "h", List.of());
-    KeyQueryEntry b = new KeyQueryEntry(true, false, "p", "p.k", "k", 0, "w", "h", List.of());
-    KeyQueryEntry different = new KeyQueryEntry(false, false, "p", "p.k", "k", 0, "w", "h", List.of());
+    final KeyQueryEntry a = new KeyQueryEntry(true, false, "p", "p.k", "k", 0, "w", "h", List.of());
+    final KeyQueryEntry b = new KeyQueryEntry(true, false, "p", "p.k", "k", 0, "w", "h", List.of());
+    final KeyQueryEntry different =
+        new KeyQueryEntry(false, false, "p", "p.k", "k", 0, "w", "h", List.of());
 
     assertEquals(a, a);
     assertEquals(a, b);

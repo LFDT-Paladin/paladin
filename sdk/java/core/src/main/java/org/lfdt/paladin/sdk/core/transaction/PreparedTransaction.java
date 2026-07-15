@@ -42,12 +42,12 @@ public final class PreparedTransaction {
 
   @JsonCreator
   PreparedTransaction(
-      @JsonProperty("id") UUID id,
-      @JsonProperty("domain") String domain,
-      @JsonProperty("to") EthAddress to,
-      @JsonProperty("transaction") TransactionInput transaction,
-      @JsonProperty("metadata") JsonNode metadata,
-      @JsonProperty("states") TransactionStates states) {
+      @JsonProperty("id") final UUID id,
+      @JsonProperty("domain") final String domain,
+      @JsonProperty("to") final EthAddress to,
+      @JsonProperty("transaction") final TransactionInput transaction,
+      @JsonProperty("metadata") final JsonNode metadata,
+      @JsonProperty("states") final TransactionStates states) {
     this.id = id;
     this.domain = domain;
     this.to = to;

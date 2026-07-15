@@ -27,10 +27,10 @@ class DispatchTest {
 
   @Test
   void roundTrips() throws Exception {
-    Dispatch dispatch = new Dispatch("dispatch-1", "txn-1", 42L);
-    String json = MAPPER.writeValueAsString(dispatch);
+    final Dispatch dispatch = new Dispatch("dispatch-1", "txn-1", 42L);
+    final String json = MAPPER.writeValueAsString(dispatch);
 
-    Dispatch parsed = MAPPER.readValue(json, Dispatch.class);
+    final Dispatch parsed = MAPPER.readValue(json, Dispatch.class);
     assertEquals("dispatch-1", parsed.id());
     assertEquals("txn-1", parsed.transactionID());
     assertEquals(42L, parsed.publicTransactionID());
@@ -39,8 +39,8 @@ class DispatchTest {
 
   @Test
   void omitsEmptyStringsButKeepsZeroId() throws Exception {
-    Dispatch dispatch = new Dispatch("", "", 0L);
-    String json = MAPPER.writeValueAsString(dispatch);
+    final Dispatch dispatch = new Dispatch("", "", 0L);
+    final String json = MAPPER.writeValueAsString(dispatch);
     assertFalse(json.contains("\"id\""));
     assertFalse(json.contains("\"transactionID\""));
     assertTrue(json.contains("\"publicTransactionID\":0"));

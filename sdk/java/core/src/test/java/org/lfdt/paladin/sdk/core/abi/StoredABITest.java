@@ -29,13 +29,14 @@ class StoredABITest {
 
   @Test
   void roundTripsWithEntries() throws Exception {
-    Bytes32 hash =
+    final Bytes32 hash =
         Bytes32.fromString("0x1111111111111111111111111111111111111111111111111111111111111111");
-    AbiEntry entry = AbiEntry.function("transfer").input(AbiParameter.of("to", "string")).build();
-    StoredABI stored = new StoredABI(hash, List.of(entry));
+    final AbiEntry entry =
+        AbiEntry.function("transfer").input(AbiParameter.of("to", "string")).build();
+    final StoredABI stored = new StoredABI(hash, List.of(entry));
 
-    String json = MAPPER.writeValueAsString(stored);
-    StoredABI parsed = MAPPER.readValue(json, StoredABI.class);
+    final String json = MAPPER.writeValueAsString(stored);
+    final StoredABI parsed = MAPPER.readValue(json, StoredABI.class);
 
     assertEquals(hash, parsed.hash());
     assertEquals(1, parsed.abi().size());
@@ -45,7 +46,7 @@ class StoredABITest {
 
   @Test
   void defaultsToEmptyAbiWhenNull() throws Exception {
-    StoredABI stored = new StoredABI(null, null);
+    final StoredABI stored = new StoredABI(null, null);
     assertTrue(stored.abi().isEmpty());
     assertNull(stored.hash());
     assertEquals("{}", MAPPER.writeValueAsString(stored));

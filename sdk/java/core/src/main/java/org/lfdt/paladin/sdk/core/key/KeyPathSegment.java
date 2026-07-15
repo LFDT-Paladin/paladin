@@ -30,7 +30,7 @@ public final class KeyPathSegment {
   private final long index;
 
   @JsonCreator
-  KeyPathSegment(@JsonProperty("name") String name, @JsonProperty("index") long index) {
+  KeyPathSegment(@JsonProperty("name") final String name, @JsonProperty("index") final long index) {
     this.name = name;
     this.index = index;
   }
@@ -56,7 +56,7 @@ public final class KeyPathSegment {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }

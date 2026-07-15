@@ -27,17 +27,19 @@ class ABIDecodedDataTest {
 
   @Test
   void roundTripsFullDecodedError() throws Exception {
-    AbiEntry definition =
-        AbiEntry.error("InsufficientBalance").input(AbiParameter.of("available", "uint256")).build();
-    ABIDecodedData decoded =
+    final AbiEntry definition =
+        AbiEntry.error("InsufficientBalance")
+            .input(AbiParameter.of("available", "uint256"))
+            .build();
+    final ABIDecodedData decoded =
         new ABIDecodedData(
             MAPPER.readTree("{\"available\":\"100\"}"),
             "InsufficientBalance(100)",
             definition,
             "InsufficientBalance(uint256)");
 
-    String json = MAPPER.writeValueAsString(decoded);
-    ABIDecodedData parsed = MAPPER.readValue(json, ABIDecodedData.class);
+    final String json = MAPPER.writeValueAsString(decoded);
+    final ABIDecodedData parsed = MAPPER.readValue(json, ABIDecodedData.class);
 
     assertEquals("100", parsed.data().get("available").asText());
     assertEquals("InsufficientBalance(100)", parsed.summary());
@@ -48,8 +50,8 @@ class ABIDecodedDataTest {
 
   @Test
   void omitsUnsetFields() throws Exception {
-    ABIDecodedData decoded = new ABIDecodedData(null, null, null, null);
-    String json = MAPPER.writeValueAsString(decoded);
+    final ABIDecodedData decoded = new ABIDecodedData(null, null, null, null);
+    final String json = MAPPER.writeValueAsString(decoded);
     assertEquals("{}", json);
     assertNull(decoded.data());
     assertNull(decoded.summary());
@@ -59,7 +61,7 @@ class ABIDecodedDataTest {
 
   @Test
   void omitsEmptySummary() throws Exception {
-    ABIDecodedData decoded = new ABIDecodedData(null, "", null, null);
+    final ABIDecodedData decoded = new ABIDecodedData(null, "", null, null);
     assertEquals("{}", MAPPER.writeValueAsString(decoded));
   }
 }

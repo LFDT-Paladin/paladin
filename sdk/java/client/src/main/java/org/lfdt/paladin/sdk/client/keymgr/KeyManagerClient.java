@@ -42,7 +42,7 @@ public final class KeyManagerClient {
    *
    * @param rpc the RPC client used to make calls; must not be {@code null}
    */
-  public KeyManagerClient(RpcClient rpc) {
+  public KeyManagerClient(final RpcClient rpc) {
     this.rpc = Objects.requireNonNull(rpc, "rpc");
   }
 
@@ -64,7 +64,7 @@ public final class KeyManagerClient {
    * @return a future completing with the resolved key mapping and verifier
    */
   public CompletableFuture<KeyMappingAndVerifier> resolveKey(
-      String keyIdentifier, String algorithm, String verifierType) {
+      final String keyIdentifier, final String algorithm, final String verifierType) {
     return rpc.callRpc(
         KeyMappingAndVerifier.class, "keymgr_resolveKey", keyIdentifier, algorithm, verifierType);
   }
@@ -75,7 +75,7 @@ public final class KeyManagerClient {
    * @param keyIdentifier the key identifier to resolve
    * @return a future completing with the resolved Ethereum address
    */
-  public CompletableFuture<EthAddress> resolveEthAddress(String keyIdentifier) {
+  public CompletableFuture<EthAddress> resolveEthAddress(final String keyIdentifier) {
     return rpc.callRpc(EthAddress.class, "keymgr_resolveEthAddress", keyIdentifier);
   }
 
@@ -88,7 +88,7 @@ public final class KeyManagerClient {
    * @return a future completing with the matching key mapping and verifier
    */
   public CompletableFuture<KeyMappingAndVerifier> reverseKeyLookup(
-      String algorithm, String verifierType, String verifier) {
+      final String algorithm, final String verifierType, final String verifier) {
     return rpc.callRpc(
         KeyMappingAndVerifier.class, "keymgr_reverseKeyLookup", algorithm, verifierType, verifier);
   }
@@ -99,7 +99,7 @@ public final class KeyManagerClient {
    * @param query the query to run
    * @return a future completing with the matching key entries
    */
-  public CompletableFuture<List<KeyQueryEntry>> queryKeys(QueryJSON query) {
+  public CompletableFuture<List<KeyQueryEntry>> queryKeys(final QueryJSON query) {
     return rpc.callRpc(new TypeReference<List<KeyQueryEntry>>() {}, "keymgr_queryKeys", query);
   }
 
@@ -114,11 +114,11 @@ public final class KeyManagerClient {
    * @return a future completing with the signature
    */
   public CompletableFuture<HexBytes> sign(
-      String keyIdentifier,
-      String algorithm,
-      String verifierType,
-      String payloadType,
-      HexBytes payload) {
+      final String keyIdentifier,
+      final String algorithm,
+      final String verifierType,
+      final String payloadType,
+      final HexBytes payload) {
     return rpc.callRpc(
         HexBytes.class,
         "keymgr_sign",

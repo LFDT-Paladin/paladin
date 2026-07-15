@@ -36,8 +36,8 @@ public final class TransactionReceiptListenerOptions {
 
   @JsonCreator
   TransactionReceiptListenerOptions(
-      @JsonProperty("domainReceipts") boolean domainReceipts,
-      @JsonProperty("incompleteStateReceiptBehavior") String incompleteStateReceiptBehavior) {
+      @JsonProperty("domainReceipts") final boolean domainReceipts,
+      @JsonProperty("incompleteStateReceiptBehavior") final String incompleteStateReceiptBehavior) {
     this.domainReceipts = domainReceipts;
     this.incompleteStateReceiptBehavior = incompleteStateReceiptBehavior;
   }
@@ -94,7 +94,7 @@ public final class TransactionReceiptListenerOptions {
      * @param domainReceipts whether to include domain receipts
      * @return this builder
      */
-    public Builder domainReceipts(boolean domainReceipts) {
+    public Builder domainReceipts(final boolean domainReceipts) {
       this.domainReceipts = domainReceipts;
       return this;
     }
@@ -106,7 +106,7 @@ public final class TransactionReceiptListenerOptions {
      *     {@code "complete_only"}
      * @return this builder
      */
-    public Builder incompleteStateReceiptBehavior(String incompleteStateReceiptBehavior) {
+    public Builder incompleteStateReceiptBehavior(final String incompleteStateReceiptBehavior) {
       this.incompleteStateReceiptBehavior = incompleteStateReceiptBehavior;
       return this;
     }

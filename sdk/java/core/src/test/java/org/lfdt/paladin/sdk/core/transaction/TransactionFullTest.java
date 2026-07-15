@@ -28,11 +28,12 @@ class TransactionFullTest {
 
   @Test
   void roundTripsWithDependenciesAndReceipt() throws Exception {
-    UUID id = UUID.randomUUID();
-    UUID dependency = UUID.randomUUID();
-    TransactionReceipt receipt = TransactionReceipt.builder().id(id).sequence(1).success(true).build();
+    final UUID id = UUID.randomUUID();
+    final UUID dependency = UUID.randomUUID();
+    final TransactionReceipt receipt =
+        TransactionReceipt.builder().id(id).sequence(1).success(true).build();
 
-    TransactionFull full =
+    final TransactionFull full =
         new TransactionFull(
             id,
             null,
@@ -55,8 +56,8 @@ class TransactionFullTest {
             List.of(MAPPER.readTree("{\"h\":1}")),
             List.of(MAPPER.readTree("{\"s\":1}")));
 
-    String json = MAPPER.writeValueAsString(full);
-    TransactionFull parsed = MAPPER.readValue(json, TransactionFull.class);
+    final String json = MAPPER.writeValueAsString(full);
+    final TransactionFull parsed = MAPPER.readValue(json, TransactionFull.class);
 
     assertEquals(id, parsed.id());
     assertEquals(1, parsed.dependsOn().size());
@@ -70,7 +71,7 @@ class TransactionFullTest {
 
   @Test
   void defaultsToEmptyListsWhenNull() {
-    TransactionFull full =
+    final TransactionFull full =
         new TransactionFull(
             null, null, null, null, null, null, null, null, null, null, null, null, null, null,
             null, null, null, null, null, null);

@@ -40,11 +40,11 @@ public final class KeyMappingAndVerifier {
 
   @JsonCreator
   KeyMappingAndVerifier(
-      @JsonProperty("identifier") String identifier,
-      @JsonProperty("wallet") String wallet,
-      @JsonProperty("keyHandle") String keyHandle,
-      @JsonProperty("path") List<KeyPathSegment> path,
-      @JsonProperty("verifier") KeyVerifier verifier) {
+      @JsonProperty("identifier") final String identifier,
+      @JsonProperty("wallet") final String wallet,
+      @JsonProperty("keyHandle") final String keyHandle,
+      @JsonProperty("path") final List<KeyPathSegment> path,
+      @JsonProperty("verifier") final KeyVerifier verifier) {
     this.identifier = identifier;
     this.wallet = wallet;
     this.keyHandle = keyHandle;
@@ -103,7 +103,7 @@ public final class KeyMappingAndVerifier {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }

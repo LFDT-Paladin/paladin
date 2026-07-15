@@ -33,9 +33,9 @@ public final class ChainedDispatch {
 
   @JsonCreator
   ChainedDispatch(
-      @JsonProperty("id") String id,
-      @JsonProperty("transactionID") String transactionID,
-      @JsonProperty("chainedTransactionID") String chainedTransactionID) {
+      @JsonProperty("id") final String id,
+      @JsonProperty("transactionID") final String transactionID,
+      @JsonProperty("chainedTransactionID") final String chainedTransactionID) {
     this.id = id;
     this.transactionID = transactionID;
     this.chainedTransactionID = chainedTransactionID;

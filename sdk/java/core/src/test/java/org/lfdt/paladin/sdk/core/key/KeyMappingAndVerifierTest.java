@@ -29,8 +29,8 @@ class KeyMappingAndVerifierTest {
 
   @Test
   void roundTripsWithPathAndVerifier() throws Exception {
-    KeyVerifier verifier = new KeyVerifier("0xabc", "eth_address", "ecdsa:secp256k1");
-    KeyMappingAndVerifier mapping =
+    final KeyVerifier verifier = new KeyVerifier("0xabc", "eth_address", "ecdsa:secp256k1");
+    final KeyMappingAndVerifier mapping =
         new KeyMappingAndVerifier(
             "alice.key1",
             "wallet1",
@@ -38,8 +38,8 @@ class KeyMappingAndVerifierTest {
             List.of(new KeyPathSegment("alice", 0), new KeyPathSegment("key1", 1)),
             verifier);
 
-    String json = MAPPER.writeValueAsString(mapping);
-    KeyMappingAndVerifier parsed = MAPPER.readValue(json, KeyMappingAndVerifier.class);
+    final String json = MAPPER.writeValueAsString(mapping);
+    final KeyMappingAndVerifier parsed = MAPPER.readValue(json, KeyMappingAndVerifier.class);
 
     assertEquals(mapping, parsed);
     assertEquals("alice.key1", parsed.identifier());
@@ -52,7 +52,7 @@ class KeyMappingAndVerifierTest {
 
   @Test
   void defaultsPathToEmptyWhenNull() {
-    KeyMappingAndVerifier mapping = new KeyMappingAndVerifier(null, null, null, null, null);
+    final KeyMappingAndVerifier mapping = new KeyMappingAndVerifier(null, null, null, null, null);
     assertTrue(mapping.path().isEmpty());
     assertNull(mapping.identifier());
     assertNull(mapping.verifier());
@@ -60,11 +60,11 @@ class KeyMappingAndVerifierTest {
 
   @Test
   void equalsAndHashCode() {
-    KeyMappingAndVerifier a =
+    final KeyMappingAndVerifier a =
         new KeyMappingAndVerifier("id", "wallet", "handle", List.of(), null);
-    KeyMappingAndVerifier b =
+    final KeyMappingAndVerifier b =
         new KeyMappingAndVerifier("id", "wallet", "handle", List.of(), null);
-    KeyMappingAndVerifier different =
+    final KeyMappingAndVerifier different =
         new KeyMappingAndVerifier("other", "wallet", "handle", List.of(), null);
 
     assertEquals(a, a);

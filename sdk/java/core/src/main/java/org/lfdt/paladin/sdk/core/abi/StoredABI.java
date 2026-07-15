@@ -34,7 +34,8 @@ public final class StoredABI {
   private final List<AbiEntry> abi;
 
   @JsonCreator
-  StoredABI(@JsonProperty("hash") Bytes32 hash, @JsonProperty("abi") List<AbiEntry> abi) {
+  StoredABI(
+      @JsonProperty("hash") final Bytes32 hash, @JsonProperty("abi") final List<AbiEntry> abi) {
     this.hash = hash;
     this.abi = abi == null ? Collections.emptyList() : List.copyOf(abi);
   }

@@ -51,15 +51,15 @@ public final class KeyQueryEntry {
 
   @JsonCreator
   KeyQueryEntry(
-      @JsonProperty("isKey") boolean isKey,
-      @JsonProperty("hasChildren") boolean hasChildren,
-      @JsonProperty("parent") String parent,
-      @JsonProperty("path") String path,
-      @JsonProperty("name") String name,
-      @JsonProperty("index") long index,
-      @JsonProperty("wallet") String wallet,
-      @JsonProperty("keyHandle") String keyHandle,
-      @JsonProperty("verifiers") List<KeyVerifier> verifiers) {
+      @JsonProperty("isKey") final boolean isKey,
+      @JsonProperty("hasChildren") final boolean hasChildren,
+      @JsonProperty("parent") final String parent,
+      @JsonProperty("path") final String path,
+      @JsonProperty("name") final String name,
+      @JsonProperty("index") final long index,
+      @JsonProperty("wallet") final String wallet,
+      @JsonProperty("keyHandle") final String keyHandle,
+      @JsonProperty("verifiers") final List<KeyVerifier> verifiers) {
     this.isKey = isKey;
     this.hasChildren = hasChildren;
     this.parent = parent;
@@ -162,7 +162,7 @@ public final class KeyQueryEntry {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }

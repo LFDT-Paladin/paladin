@@ -29,18 +29,18 @@ class PreparedTransactionTest {
 
   @Test
   void roundTripsFullPreparedTransaction() throws Exception {
-    UUID id = UUID.randomUUID();
-    EthAddress to = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
-    TransactionInput transaction =
+    final UUID id = UUID.randomUUID();
+    final EthAddress to = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
+    final TransactionInput transaction =
         TransactionInput.builder().type(TransactionType.PRIVATE).domain("noto").to(to).build();
-    TransactionStates states = new TransactionStates(true, null, null, null, null, null);
+    final TransactionStates states = new TransactionStates(true, null, null, null, null, null);
 
-    PreparedTransaction prepared =
+    final PreparedTransaction prepared =
         new PreparedTransaction(
             id, "noto", to, transaction, MAPPER.readTree("{\"note\":\"x\"}"), states);
 
-    String json = MAPPER.writeValueAsString(prepared);
-    PreparedTransaction parsed = MAPPER.readValue(json, PreparedTransaction.class);
+    final String json = MAPPER.writeValueAsString(prepared);
+    final PreparedTransaction parsed = MAPPER.readValue(json, PreparedTransaction.class);
 
     assertEquals(id, parsed.id());
     assertEquals("noto", parsed.domain());
@@ -53,7 +53,8 @@ class PreparedTransactionTest {
 
   @Test
   void omitsUnsetFields() throws Exception {
-    PreparedTransaction prepared = new PreparedTransaction(null, null, null, null, null, null);
+    final PreparedTransaction prepared =
+        new PreparedTransaction(null, null, null, null, null, null);
     assertEquals("{}", MAPPER.writeValueAsString(prepared));
     assertNull(prepared.id());
     assertNull(prepared.transaction());

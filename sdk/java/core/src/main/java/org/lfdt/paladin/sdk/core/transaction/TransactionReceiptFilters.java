@@ -33,9 +33,9 @@ public final class TransactionReceiptFilters {
 
   @JsonCreator
   TransactionReceiptFilters(
-      @JsonProperty("sequenceAbove") Long sequenceAbove,
-      @JsonProperty("type") TransactionType type,
-      @JsonProperty("domain") String domain) {
+      @JsonProperty("sequenceAbove") final Long sequenceAbove,
+      @JsonProperty("type") final TransactionType type,
+      @JsonProperty("domain") final String domain) {
     this.sequenceAbove = sequenceAbove;
     this.type = type;
     this.domain = domain;
@@ -108,7 +108,7 @@ public final class TransactionReceiptFilters {
      * @param sequenceAbove the sequence lower bound
      * @return this builder
      */
-    public Builder sequenceAbove(Long sequenceAbove) {
+    public Builder sequenceAbove(final Long sequenceAbove) {
       this.sequenceAbove = sequenceAbove;
       return this;
     }
@@ -119,7 +119,7 @@ public final class TransactionReceiptFilters {
      * @param type the transaction type
      * @return this builder
      */
-    public Builder type(TransactionType type) {
+    public Builder type(final TransactionType type) {
       this.type = type;
       return this;
     }
@@ -130,7 +130,7 @@ public final class TransactionReceiptFilters {
      * @param domain the domain name
      * @return this builder
      */
-    public Builder domain(String domain) {
+    public Builder domain(final String domain) {
       this.domain = domain;
       return this;
     }

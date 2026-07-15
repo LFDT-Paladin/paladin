@@ -27,14 +27,14 @@ class TransactionReceiptListenerOptionsTest {
 
   @Test
   void builderRoundTripsAllFields() throws Exception {
-    TransactionReceiptListenerOptions options =
+    final TransactionReceiptListenerOptions options =
         TransactionReceiptListenerOptions.builder()
             .domainReceipts(true)
             .incompleteStateReceiptBehavior("process")
             .build();
 
-    String json = MAPPER.writeValueAsString(options);
-    TransactionReceiptListenerOptions parsed =
+    final String json = MAPPER.writeValueAsString(options);
+    final TransactionReceiptListenerOptions parsed =
         MAPPER.readValue(json, TransactionReceiptListenerOptions.class);
 
     assertTrue(parsed.domainReceipts());
@@ -44,11 +44,12 @@ class TransactionReceiptListenerOptionsTest {
 
   @Test
   void defaultsOmitFalseAndEmptyBehavior() throws Exception {
-    TransactionReceiptListenerOptions options = TransactionReceiptListenerOptions.builder().build();
-    String json = MAPPER.writeValueAsString(options);
+    final TransactionReceiptListenerOptions options =
+        TransactionReceiptListenerOptions.builder().build();
+    final String json = MAPPER.writeValueAsString(options);
     assertFalse(json.contains("incompleteStateReceiptBehavior"));
 
-    TransactionReceiptListenerOptions parsed =
+    final TransactionReceiptListenerOptions parsed =
         MAPPER.readValue(json, TransactionReceiptListenerOptions.class);
     assertFalse(parsed.domainReceipts());
   }

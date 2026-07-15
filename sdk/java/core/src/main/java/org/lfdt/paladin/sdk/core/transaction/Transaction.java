@@ -71,21 +71,21 @@ public class Transaction {
 
   @JsonCreator
   Transaction(
-      @JsonProperty("id") UUID id,
-      @JsonProperty("created") Timestamp created,
-      @JsonProperty("submitMode") SubmitMode submitMode,
-      @JsonProperty("idempotencyKey") String idempotencyKey,
-      @JsonProperty("type") TransactionType type,
-      @JsonProperty("domain") String domain,
-      @JsonProperty("function") String function,
-      @JsonProperty("abiReference") Bytes32 abiReference,
-      @JsonProperty("from") String from,
-      @JsonProperty("to") EthAddress to,
-      @JsonProperty("data") JsonNode data,
-      @JsonProperty("gas") HexUint64 gas,
-      @JsonProperty("value") HexUint256 value,
-      @JsonProperty("maxPriorityFeePerGas") HexUint256 maxPriorityFeePerGas,
-      @JsonProperty("maxFeePerGas") HexUint256 maxFeePerGas) {
+      @JsonProperty("id") final UUID id,
+      @JsonProperty("created") final Timestamp created,
+      @JsonProperty("submitMode") final SubmitMode submitMode,
+      @JsonProperty("idempotencyKey") final String idempotencyKey,
+      @JsonProperty("type") final TransactionType type,
+      @JsonProperty("domain") final String domain,
+      @JsonProperty("function") final String function,
+      @JsonProperty("abiReference") final Bytes32 abiReference,
+      @JsonProperty("from") final String from,
+      @JsonProperty("to") final EthAddress to,
+      @JsonProperty("data") final JsonNode data,
+      @JsonProperty("gas") final HexUint64 gas,
+      @JsonProperty("value") final HexUint256 value,
+      @JsonProperty("maxPriorityFeePerGas") final HexUint256 maxPriorityFeePerGas,
+      @JsonProperty("maxFeePerGas") final HexUint256 maxFeePerGas) {
     this.id = id;
     // A zero timestamp is "unset" (Go omitempty); normalize to null to keep round-trips clean.
     this.created = (created == null || created.isZero()) ? null : created;

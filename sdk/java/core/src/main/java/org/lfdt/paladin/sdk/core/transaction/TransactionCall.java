@@ -33,7 +33,8 @@ public final class TransactionCall {
   private final String block;
   private final String dataFormat;
 
-  private TransactionCall(TransactionInput input, String block, String dataFormat) {
+  private TransactionCall(
+      final TransactionInput input, final String block, final String dataFormat) {
     this.input = Objects.requireNonNull(input, "input");
     this.block = block;
     this.dataFormat = dataFormat;
@@ -77,7 +78,7 @@ public final class TransactionCall {
    * @param input the transaction to call
    * @return a new builder
    */
-  public static Builder builder(TransactionInput input) {
+  public static Builder builder(final TransactionInput input) {
     return new Builder(input);
   }
 
@@ -98,7 +99,7 @@ public final class TransactionCall {
     private String block;
     private String dataFormat;
 
-    private Builder(TransactionInput input) {
+    private Builder(final TransactionInput input) {
       this.input = input;
     }
 
@@ -108,7 +109,7 @@ public final class TransactionCall {
      * @param block a number or a special string such as {@code "latest"}
      * @return this builder
      */
-    public Builder block(String block) {
+    public Builder block(final String block) {
       this.block = block;
       return this;
     }
@@ -119,7 +120,7 @@ public final class TransactionCall {
      * @param dataFormat the data format
      * @return this builder
      */
-    public Builder dataFormat(String dataFormat) {
+    public Builder dataFormat(final String dataFormat) {
       this.dataFormat = dataFormat;
       return this;
     }

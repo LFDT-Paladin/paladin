@@ -32,9 +32,9 @@ public final class KeyVerifier {
 
   @JsonCreator
   KeyVerifier(
-      @JsonProperty("verifier") String verifier,
-      @JsonProperty("type") String type,
-      @JsonProperty("algorithm") String algorithm) {
+      @JsonProperty("verifier") final String verifier,
+      @JsonProperty("type") final String type,
+      @JsonProperty("algorithm") final String algorithm) {
     this.verifier = verifier;
     this.type = type;
     this.algorithm = algorithm;
@@ -71,7 +71,7 @@ public final class KeyVerifier {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }

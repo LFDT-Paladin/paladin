@@ -27,15 +27,16 @@ class TransactionReceiptFiltersTest {
 
   @Test
   void builderRoundTripsAllFields() throws Exception {
-    TransactionReceiptFilters filters =
+    final TransactionReceiptFilters filters =
         TransactionReceiptFilters.builder()
             .sequenceAbove(100L)
             .type(TransactionType.PRIVATE)
             .domain("noto")
             .build();
 
-    String json = MAPPER.writeValueAsString(filters);
-    TransactionReceiptFilters parsed = MAPPER.readValue(json, TransactionReceiptFilters.class);
+    final String json = MAPPER.writeValueAsString(filters);
+    final TransactionReceiptFilters parsed =
+        MAPPER.readValue(json, TransactionReceiptFilters.class);
 
     assertEquals(100L, parsed.sequenceAbove());
     assertEquals(TransactionType.PRIVATE, parsed.type());
@@ -45,7 +46,7 @@ class TransactionReceiptFiltersTest {
 
   @Test
   void builderDefaultsAreEmpty() throws Exception {
-    TransactionReceiptFilters filters = TransactionReceiptFilters.builder().build();
+    final TransactionReceiptFilters filters = TransactionReceiptFilters.builder().build();
     assertEquals("{}", MAPPER.writeValueAsString(filters));
     assertNull(filters.sequenceAbove());
     assertNull(filters.type());

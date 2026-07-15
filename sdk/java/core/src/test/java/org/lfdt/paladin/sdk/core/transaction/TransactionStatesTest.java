@@ -29,7 +29,7 @@ class TransactionStatesTest {
 
   @Test
   void roundTripsPopulatedStates() throws Exception {
-    TransactionStates states =
+    final TransactionStates states =
         new TransactionStates(
             false,
             List.of(MAPPER.readTree("{\"id\":\"s1\"}")),
@@ -38,8 +38,8 @@ class TransactionStatesTest {
             List.of(MAPPER.readTree("{\"id\":\"i1\"}")),
             MAPPER.readTree("{\"count\":1}"));
 
-    String json = MAPPER.writeValueAsString(states);
-    TransactionStates parsed = MAPPER.readValue(json, TransactionStates.class);
+    final String json = MAPPER.writeValueAsString(states);
+    final TransactionStates parsed = MAPPER.readValue(json, TransactionStates.class);
 
     assertFalse(parsed.none());
     assertEquals(1, parsed.spent().size());
@@ -52,11 +52,11 @@ class TransactionStatesTest {
 
   @Test
   void noneStateOmitsEmptyLists() throws Exception {
-    TransactionStates states = new TransactionStates(true, null, null, null, null, null);
-    String json = MAPPER.writeValueAsString(states);
+    final TransactionStates states = new TransactionStates(true, null, null, null, null, null);
+    final String json = MAPPER.writeValueAsString(states);
     assertEquals("{\"none\":true}", json);
 
-    TransactionStates parsed = MAPPER.readValue(json, TransactionStates.class);
+    final TransactionStates parsed = MAPPER.readValue(json, TransactionStates.class);
     assertTrue(parsed.none());
     assertTrue(parsed.spent().isEmpty());
     assertTrue(parsed.read().isEmpty());
@@ -67,7 +67,7 @@ class TransactionStatesTest {
 
   @Test
   void falseNoneIsOmittedByDefault() throws Exception {
-    TransactionStates states = new TransactionStates(false, null, null, null, null, null);
+    final TransactionStates states = new TransactionStates(false, null, null, null, null, null);
     assertEquals("{}", MAPPER.writeValueAsString(states));
   }
 }

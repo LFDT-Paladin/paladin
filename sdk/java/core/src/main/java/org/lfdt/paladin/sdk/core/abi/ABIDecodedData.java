@@ -38,10 +38,10 @@ public final class ABIDecodedData {
 
   @JsonCreator
   ABIDecodedData(
-      @JsonProperty("data") JsonNode data,
-      @JsonProperty("summary") String summary,
-      @JsonProperty("definition") AbiEntry definition,
-      @JsonProperty("signature") String signature) {
+      @JsonProperty("data") final JsonNode data,
+      @JsonProperty("summary") final String summary,
+      @JsonProperty("definition") final AbiEntry definition,
+      @JsonProperty("signature") final String signature) {
     this.data = data;
     this.summary = summary;
     this.definition = definition;

@@ -88,27 +88,27 @@ public final class PublicTxWithBinding {
 
   @JsonCreator
   PublicTxWithBinding(
-      @JsonProperty("localId") Long localId,
-      @JsonProperty("to") EthAddress to,
-      @JsonProperty("data") HexBytes data,
-      @JsonProperty("from") EthAddress from,
-      @JsonProperty("nonce") HexUint64 nonce,
-      @JsonProperty("created") Timestamp created,
-      @JsonProperty("dispatcher") String dispatcher,
-      @JsonProperty("completedAt") Timestamp completedAt,
-      @JsonProperty("transactionHash") Bytes32 transactionHash,
-      @JsonProperty("success") Boolean success,
-      @JsonProperty("revertData") HexBytes revertData,
-      @JsonProperty("submissions") List<JsonNode> submissions,
-      @JsonProperty("activity") List<JsonNode> activity,
-      @JsonProperty("gas") HexUint64 gas,
-      @JsonProperty("value") HexUint256 value,
-      @JsonProperty("maxPriorityFeePerGas") HexUint256 maxPriorityFeePerGas,
-      @JsonProperty("maxFeePerGas") HexUint256 maxFeePerGas,
-      @JsonProperty("transaction") UUID transaction,
-      @JsonProperty("transactionType") TransactionType transactionType,
-      @JsonProperty("sender") String sender,
-      @JsonProperty("contractAddress") String contractAddress) {
+      @JsonProperty("localId") final Long localId,
+      @JsonProperty("to") final EthAddress to,
+      @JsonProperty("data") final HexBytes data,
+      @JsonProperty("from") final EthAddress from,
+      @JsonProperty("nonce") final HexUint64 nonce,
+      @JsonProperty("created") final Timestamp created,
+      @JsonProperty("dispatcher") final String dispatcher,
+      @JsonProperty("completedAt") final Timestamp completedAt,
+      @JsonProperty("transactionHash") final Bytes32 transactionHash,
+      @JsonProperty("success") final Boolean success,
+      @JsonProperty("revertData") final HexBytes revertData,
+      @JsonProperty("submissions") final List<JsonNode> submissions,
+      @JsonProperty("activity") final List<JsonNode> activity,
+      @JsonProperty("gas") final HexUint64 gas,
+      @JsonProperty("value") final HexUint256 value,
+      @JsonProperty("maxPriorityFeePerGas") final HexUint256 maxPriorityFeePerGas,
+      @JsonProperty("maxFeePerGas") final HexUint256 maxFeePerGas,
+      @JsonProperty("transaction") final UUID transaction,
+      @JsonProperty("transactionType") final TransactionType transactionType,
+      @JsonProperty("sender") final String sender,
+      @JsonProperty("contractAddress") final String contractAddress) {
     this.localId = localId;
     this.to = to;
     this.data = data;

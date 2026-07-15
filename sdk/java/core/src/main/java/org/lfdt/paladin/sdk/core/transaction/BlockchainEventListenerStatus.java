@@ -32,8 +32,8 @@ public final class BlockchainEventListenerStatus {
 
   @JsonCreator
   BlockchainEventListenerStatus(
-      @JsonProperty("catchup") boolean catchup,
-      @JsonProperty("checkpoint") BlockchainEventListenerCheckpoint checkpoint) {
+      @JsonProperty("catchup") final boolean catchup,
+      @JsonProperty("checkpoint") final BlockchainEventListenerCheckpoint checkpoint) {
     this.catchup = catchup;
     this.checkpoint = checkpoint;
   }

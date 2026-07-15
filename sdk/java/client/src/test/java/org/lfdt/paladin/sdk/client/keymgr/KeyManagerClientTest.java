@@ -43,11 +43,11 @@ class KeyManagerClientTest {
           + "\"path\":[{\"name\":\"key1\",\"index\":0}],"
           + "\"verifier\":{\"verifier\":\"0xabc\",\"type\":\"eth_address\",\"algorithm\":\"ecdsa\"}}";
 
-  private static String success(String resultJson) {
+  private static String success(final String resultJson) {
     return "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":" + resultJson + "}";
   }
 
-  private RpcClientConfig config(String url) {
+  private RpcClientConfig config(final String url) {
     return RpcClientConfig.builder(url)
         .connectTimeout(Duration.ofSeconds(5))
         .requestTimeout(Duration.ofSeconds(5))
@@ -66,9 +66,9 @@ class KeyManagerClientTest {
             new MockJsonRpcServer(
                 (n, req) -> MockJsonRpcServer.Response.of(200, success("[\"w-a\",\"w-b\"]")));
         HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
-      List<String> wallets = new KeyManagerClient(rpc).wallets().join();
+      final List<String> wallets = new KeyManagerClient(rpc).wallets().join();
       assertEquals(List.of("w-a", "w-b"), wallets);
-      JsonNode req = server.requests().get(0);
+      final JsonNode req = server.requests().get(0);
       assertEquals("keymgr_wallets", req.get("method").asText());
       // No-arg calls omit the params array (JSON-RPC envelope uses NON_EMPTY inclusion).
       assertFalse(req.has("params") && req.get("params").size() > 0);
@@ -81,7 +81,7 @@ class KeyManagerClientTest {
             new MockJsonRpcServer(
                 (n, req) -> MockJsonRpcServer.Response.of(200, success(MAPPING_JSON)));
         HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
-      KeyMappingAndVerifier mapping =
+      final KeyMappingAndVerifier mapping =
           new KeyManagerClient(rpc).resolveKey("key1", "ecdsa", "eth_address").join();
       assertEquals("key1", mapping.identifier());
       assertEquals("w1", mapping.wallet());
@@ -89,9 +89,9 @@ class KeyManagerClientTest {
       assertEquals(1, mapping.path().size());
       assertEquals("key1", mapping.path().get(0).name());
       assertEquals("0xabc", mapping.verifier().verifier());
-      JsonNode req = server.requests().get(0);
+      final JsonNode req = server.requests().get(0);
       assertEquals("keymgr_resolveKey", req.get("method").asText());
-      JsonNode params = req.get("params");
+      final JsonNode params = req.get("params");
       assertEquals(3, params.size());
       assertEquals("key1", params.get(0).asText());
       assertEquals("ecdsa", params.get(1).asText());
@@ -101,14 +101,14 @@ class KeyManagerClientTest {
 
   @Test
   void resolveEthAddress() throws IOException {
-    String addr = "0x1234567890123456789012345678901234567890";
+    final String addr = "0x1234567890123456789012345678901234567890";
     try (MockJsonRpcServer server =
             new MockJsonRpcServer(
                 (n, req) -> MockJsonRpcServer.Response.of(200, success("\"" + addr + "\"")));
         HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
-      EthAddress result = new KeyManagerClient(rpc).resolveEthAddress("key1").join();
+      final EthAddress result = new KeyManagerClient(rpc).resolveEthAddress("key1").join();
       assertEquals(EthAddress.fromString(addr), result);
-      JsonNode req = server.requests().get(0);
+      final JsonNode req = server.requests().get(0);
       assertEquals("keymgr_resolveEthAddress", req.get("method").asText());
       assertEquals(1, req.get("params").size());
       assertEquals("key1", req.get("params").get(0).asText());
@@ -121,12 +121,12 @@ class KeyManagerClientTest {
             new MockJsonRpcServer(
                 (n, req) -> MockJsonRpcServer.Response.of(200, success(MAPPING_JSON)));
         HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
-      KeyMappingAndVerifier mapping =
+      final KeyMappingAndVerifier mapping =
           new KeyManagerClient(rpc).reverseKeyLookup("ecdsa", "eth_address", "0xabc").join();
       assertEquals("key1", mapping.identifier());
-      JsonNode req = server.requests().get(0);
+      final JsonNode req = server.requests().get(0);
       assertEquals("keymgr_reverseKeyLookup", req.get("method").asText());
-      JsonNode params = req.get("params");
+      final JsonNode params = req.get("params");
       assertEquals(3, params.size());
       assertEquals("ecdsa", params.get(0).asText());
       assertEquals("eth_address", params.get(1).asText());
@@ -136,19 +136,19 @@ class KeyManagerClientTest {
 
   @Test
   void queryKeys() throws IOException {
-    String result =
+    final String result =
         "[{\"isKey\":true,\"hasChildren\":false,\"parent\":\"\",\"path\":\"key1\","
             + "\"name\":\"key1\",\"index\":0,\"wallet\":\"w1\",\"keyHandle\":\"h1\","
             + "\"verifiers\":[{\"verifier\":\"0xabc\",\"type\":\"t\",\"algorithm\":\"a\"}]}]";
     try (MockJsonRpcServer server =
             new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, success(result)));
         HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
-      QueryJSON query = QueryJSON.builder().limit(10).equal("path", "key1").build();
-      List<KeyQueryEntry> keys = new KeyManagerClient(rpc).queryKeys(query).join();
+      final QueryJSON query = QueryJSON.builder().limit(10).equal("path", "key1").build();
+      final List<KeyQueryEntry> keys = new KeyManagerClient(rpc).queryKeys(query).join();
       assertEquals(1, keys.size());
       assertEquals("key1", keys.get(0).path());
       assertEquals(1, keys.get(0).verifiers().size());
-      JsonNode req = server.requests().get(0);
+      final JsonNode req = server.requests().get(0);
       assertEquals("keymgr_queryKeys", req.get("method").asText());
       assertEquals(1, req.get("params").size());
       assertEquals(10, req.get("params").get(0).get("limit").asInt());
@@ -161,13 +161,13 @@ class KeyManagerClientTest {
             new MockJsonRpcServer(
                 (n, req) -> MockJsonRpcServer.Response.of(200, success("\"0xdeadbeef\"")));
         HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
-      HexBytes payload = HexBytes.fromString("0x0011");
-      HexBytes signature =
+      final HexBytes payload = HexBytes.fromString("0x0011");
+      final HexBytes signature =
           new KeyManagerClient(rpc).sign("key1", "ecdsa", "eth_address", "opaque", payload).join();
       assertEquals(HexBytes.fromString("0xdeadbeef"), signature);
-      JsonNode req = server.requests().get(0);
+      final JsonNode req = server.requests().get(0);
       assertEquals("keymgr_sign", req.get("method").asText());
-      JsonNode params = req.get("params");
+      final JsonNode params = req.get("params");
       assertEquals(5, params.size());
       assertEquals("key1", params.get(0).asText());
       assertEquals("ecdsa", params.get(1).asText());
@@ -179,12 +179,12 @@ class KeyManagerClientTest {
 
   @Test
   void rpcErrorPropagates() throws IOException {
-    String body =
+    final String body =
         "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"error\":{\"code\":-32000,\"message\":\"no such key\"}}";
     try (MockJsonRpcServer server =
             new MockJsonRpcServer((n, req) -> MockJsonRpcServer.Response.of(200, body));
         HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
-      CompletionException ex =
+      final CompletionException ex =
           assertThrows(
               CompletionException.class,
               () -> new KeyManagerClient(rpc).resolveEthAddress("missing").join());

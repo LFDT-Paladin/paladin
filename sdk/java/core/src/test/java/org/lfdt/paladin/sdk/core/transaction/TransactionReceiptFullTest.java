@@ -28,10 +28,10 @@ class TransactionReceiptFullTest {
 
   @Test
   void roundTripsWithStatesAndDomainReceipt() throws Exception {
-    UUID id = UUID.randomUUID();
-    TransactionStates states = new TransactionStates(true, null, null, null, null, null);
+    final UUID id = UUID.randomUUID();
+    final TransactionStates states = new TransactionStates(true, null, null, null, null, null);
 
-    TransactionReceiptFull full =
+    final TransactionReceiptFull full =
         new TransactionReceiptFull(
             id,
             null,
@@ -51,8 +51,8 @@ class TransactionReceiptFullTest {
             null,
             List.of(MAPPER.readTree("{\"p\":1}")));
 
-    String json = MAPPER.writeValueAsString(full);
-    TransactionReceiptFull parsed = MAPPER.readValue(json, TransactionReceiptFull.class);
+    final String json = MAPPER.writeValueAsString(full);
+    final TransactionReceiptFull parsed = MAPPER.readValue(json, TransactionReceiptFull.class);
 
     assertEquals(id, parsed.id());
     assertEquals(5, parsed.sequence());
@@ -66,13 +66,28 @@ class TransactionReceiptFullTest {
 
   @Test
   void carriesDomainReceiptError() throws Exception {
-    TransactionReceiptFull full =
+    final TransactionReceiptFull full =
         new TransactionReceiptFull(
-            UUID.randomUUID(), null, 1, null, false, null, null, null, null, null, null, null, null,
-            null, null, "decode failed", null);
+            UUID.randomUUID(),
+            null,
+            1,
+            null,
+            false,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "decode failed",
+            null);
 
-    String json = MAPPER.writeValueAsString(full);
-    TransactionReceiptFull parsed = MAPPER.readValue(json, TransactionReceiptFull.class);
+    final String json = MAPPER.writeValueAsString(full);
+    final TransactionReceiptFull parsed = MAPPER.readValue(json, TransactionReceiptFull.class);
 
     assertEquals("decode failed", parsed.domainReceiptError());
     assertTrue(parsed.publicTransactions().isEmpty());

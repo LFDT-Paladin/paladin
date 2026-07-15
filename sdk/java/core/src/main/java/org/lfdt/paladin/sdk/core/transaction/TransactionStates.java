@@ -43,12 +43,12 @@ public final class TransactionStates {
 
   @JsonCreator
   TransactionStates(
-      @JsonProperty("none") boolean none,
-      @JsonProperty("spent") List<JsonNode> spent,
-      @JsonProperty("read") List<JsonNode> read,
-      @JsonProperty("confirmed") List<JsonNode> confirmed,
-      @JsonProperty("info") List<JsonNode> info,
-      @JsonProperty("unavailable") JsonNode unavailable) {
+      @JsonProperty("none") final boolean none,
+      @JsonProperty("spent") final List<JsonNode> spent,
+      @JsonProperty("read") final List<JsonNode> read,
+      @JsonProperty("confirmed") final List<JsonNode> confirmed,
+      @JsonProperty("info") final List<JsonNode> info,
+      @JsonProperty("unavailable") final JsonNode unavailable) {
     this.none = none;
     this.spent = spent == null ? Collections.emptyList() : List.copyOf(spent);
     this.read = read == null ? Collections.emptyList() : List.copyOf(read);

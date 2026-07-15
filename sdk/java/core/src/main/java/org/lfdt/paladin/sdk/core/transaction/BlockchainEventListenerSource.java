@@ -37,7 +37,8 @@ public final class BlockchainEventListenerSource {
 
   @JsonCreator
   BlockchainEventListenerSource(
-      @JsonProperty("abi") List<AbiEntry> abi, @JsonProperty("address") EthAddress address) {
+      @JsonProperty("abi") final List<AbiEntry> abi,
+      @JsonProperty("address") final EthAddress address) {
     this.abi = abi == null ? Collections.emptyList() : List.copyOf(abi);
     this.address = address;
   }
@@ -91,7 +92,7 @@ public final class BlockchainEventListenerSource {
      * @param entry the ABI entry to add
      * @return this builder
      */
-    public Builder abiEntry(AbiEntry entry) {
+    public Builder abiEntry(final AbiEntry entry) {
       this.abi.add(entry);
       return this;
     }
@@ -102,7 +103,7 @@ public final class BlockchainEventListenerSource {
      * @param abi the ABI entries to add
      * @return this builder
      */
-    public Builder abi(List<AbiEntry> abi) {
+    public Builder abi(final List<AbiEntry> abi) {
       this.abi.addAll(abi);
       return this;
     }
@@ -113,7 +114,7 @@ public final class BlockchainEventListenerSource {
      * @param address the contract address
      * @return this builder
      */
-    public Builder address(EthAddress address) {
+    public Builder address(final EthAddress address) {
       this.address = address;
       return this;
     }

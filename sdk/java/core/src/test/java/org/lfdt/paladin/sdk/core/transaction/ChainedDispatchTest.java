@@ -26,10 +26,10 @@ class ChainedDispatchTest {
 
   @Test
   void roundTrips() throws Exception {
-    ChainedDispatch dispatch = new ChainedDispatch("cd-1", "txn-1", "txn-2");
-    String json = MAPPER.writeValueAsString(dispatch);
+    final ChainedDispatch dispatch = new ChainedDispatch("cd-1", "txn-1", "txn-2");
+    final String json = MAPPER.writeValueAsString(dispatch);
 
-    ChainedDispatch parsed = MAPPER.readValue(json, ChainedDispatch.class);
+    final ChainedDispatch parsed = MAPPER.readValue(json, ChainedDispatch.class);
     assertEquals("cd-1", parsed.id());
     assertEquals("txn-1", parsed.transactionID());
     assertEquals("txn-2", parsed.chainedTransactionID());
@@ -38,7 +38,7 @@ class ChainedDispatchTest {
 
   @Test
   void omitsEmptyStrings() throws Exception {
-    ChainedDispatch dispatch = new ChainedDispatch(null, null, null);
+    final ChainedDispatch dispatch = new ChainedDispatch(null, null, null);
     assertEquals("{}", MAPPER.writeValueAsString(dispatch));
   }
 }

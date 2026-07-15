@@ -27,15 +27,15 @@ class BlockchainEventListenerOptionsTest {
 
   @Test
   void builderRoundTripsAllFields() throws Exception {
-    BlockchainEventListenerOptions options =
+    final BlockchainEventListenerOptions options =
         BlockchainEventListenerOptions.builder()
             .batchSize(50)
             .batchTimeout("5s")
             .fromBlock(MAPPER.readTree("\"latest\""))
             .build();
 
-    String json = MAPPER.writeValueAsString(options);
-    BlockchainEventListenerOptions parsed =
+    final String json = MAPPER.writeValueAsString(options);
+    final BlockchainEventListenerOptions parsed =
         MAPPER.readValue(json, BlockchainEventListenerOptions.class);
 
     assertEquals(50, parsed.batchSize());
@@ -46,7 +46,7 @@ class BlockchainEventListenerOptionsTest {
 
   @Test
   void builderDefaultsAreEmpty() throws Exception {
-    BlockchainEventListenerOptions options = BlockchainEventListenerOptions.builder().build();
+    final BlockchainEventListenerOptions options = BlockchainEventListenerOptions.builder().build();
     assertEquals("{}", MAPPER.writeValueAsString(options));
     assertNull(options.batchSize());
     assertNull(options.batchTimeout());
@@ -55,9 +55,9 @@ class BlockchainEventListenerOptionsTest {
 
   @Test
   void fromBlockCanBeNumeric() throws Exception {
-    BlockchainEventListenerOptions options =
+    final BlockchainEventListenerOptions options =
         BlockchainEventListenerOptions.builder().fromBlock(MAPPER.readTree("1000")).build();
-    BlockchainEventListenerOptions parsed =
+    final BlockchainEventListenerOptions parsed =
         MAPPER.readValue(MAPPER.writeValueAsString(options), BlockchainEventListenerOptions.class);
     assertEquals(1000, parsed.fromBlock().asInt());
   }

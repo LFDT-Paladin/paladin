@@ -35,13 +35,13 @@ class PublicTxWithBindingTest {
 
   @Test
   void roundTripsCompletedTransaction() throws Exception {
-    EthAddress to = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
-    EthAddress from = EthAddress.fromString("0x1111111111111111111111111111111111111111");
-    UUID transactionId = UUID.randomUUID();
-    Bytes32 hash =
+    final EthAddress to = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
+    final EthAddress from = EthAddress.fromString("0x1111111111111111111111111111111111111111");
+    final UUID transactionId = UUID.randomUUID();
+    final Bytes32 hash =
         Bytes32.fromString("0x1111111111111111111111111111111111111111111111111111111111111111");
 
-    PublicTxWithBinding publicTx =
+    final PublicTxWithBinding publicTx =
         new PublicTxWithBinding(
             7L,
             to,
@@ -65,8 +65,8 @@ class PublicTxWithBindingTest {
             "alice",
             "0x2222222222222222222222222222222222222222");
 
-    String json = MAPPER.writeValueAsString(publicTx);
-    PublicTxWithBinding parsed = MAPPER.readValue(json, PublicTxWithBinding.class);
+    final String json = MAPPER.writeValueAsString(publicTx);
+    final PublicTxWithBinding parsed = MAPPER.readValue(json, PublicTxWithBinding.class);
 
     assertEquals(7L, parsed.localId());
     assertEquals(to, parsed.to());
@@ -89,15 +89,35 @@ class PublicTxWithBindingTest {
     assertEquals(TransactionType.PUBLIC, parsed.transactionType());
     assertEquals("alice", parsed.sender());
     assertEquals("0x2222222222222222222222222222222222222222", parsed.contractAddress());
-    assertTrue(publicTx.toString().contains("alice") || publicTx.toString().contains(from.toString()));
+    assertTrue(
+        publicTx.toString().contains("alice") || publicTx.toString().contains(from.toString()));
   }
 
   @Test
   void defaultsAndZeroTimestampsAreNormalized() {
-    PublicTxWithBinding publicTx =
+    final PublicTxWithBinding publicTx =
         new PublicTxWithBinding(
-            null, null, null, null, null, Timestamp.ZERO, null, Timestamp.ZERO, null, null, null,
-            null, null, null, null, null, null, null, null, null, null);
+            null,
+            null,
+            null,
+            null,
+            null,
+            Timestamp.ZERO,
+            null,
+            Timestamp.ZERO,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
 
     assertNull(publicTx.created());
     assertNull(publicTx.completedAt());

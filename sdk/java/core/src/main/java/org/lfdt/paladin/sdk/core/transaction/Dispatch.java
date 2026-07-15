@@ -33,9 +33,9 @@ public final class Dispatch {
 
   @JsonCreator
   Dispatch(
-      @JsonProperty("id") String id,
-      @JsonProperty("transactionID") String transactionID,
-      @JsonProperty("publicTransactionID") long publicTransactionID) {
+      @JsonProperty("id") final String id,
+      @JsonProperty("transactionID") final String transactionID,
+      @JsonProperty("publicTransactionID") final long publicTransactionID) {
     this.id = id;
     this.transactionID = transactionID;
     this.publicTransactionID = publicTransactionID;

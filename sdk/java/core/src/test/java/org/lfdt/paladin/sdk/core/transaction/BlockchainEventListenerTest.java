@@ -30,9 +30,11 @@ class BlockchainEventListenerTest {
 
   @Test
   void builderCreatesInputWithoutCreatedTimestamp() throws Exception {
-    BlockchainEventListenerSource source =
-        BlockchainEventListenerSource.builder().abiEntry(AbiEntry.event("Transfer").build()).build();
-    BlockchainEventListener listener =
+    final BlockchainEventListenerSource source =
+        BlockchainEventListenerSource.builder()
+            .abiEntry(AbiEntry.event("Transfer").build())
+            .build();
+    final BlockchainEventListener listener =
         BlockchainEventListener.builder()
             .name("my-listener")
             .started(true)
@@ -41,10 +43,10 @@ class BlockchainEventListenerTest {
             .build();
 
     assertNull(listener.created());
-    String json = MAPPER.writeValueAsString(listener);
+    final String json = MAPPER.writeValueAsString(listener);
     assertFalse(json.contains("created"));
 
-    BlockchainEventListener parsed = MAPPER.readValue(json, BlockchainEventListener.class);
+    final BlockchainEventListener parsed = MAPPER.readValue(json, BlockchainEventListener.class);
     assertEquals("my-listener", parsed.name());
     assertTrue(parsed.started());
     assertEquals(1, parsed.sources().size());
@@ -53,18 +55,18 @@ class BlockchainEventListenerTest {
 
   @Test
   void builderSourcesListAppends() {
-    BlockchainEventListenerSource s1 = BlockchainEventListenerSource.builder().build();
-    BlockchainEventListenerSource s2 = BlockchainEventListenerSource.builder().build();
-    BlockchainEventListener listener =
+    final BlockchainEventListenerSource s1 = BlockchainEventListenerSource.builder().build();
+    final BlockchainEventListenerSource s2 = BlockchainEventListenerSource.builder().build();
+    final BlockchainEventListener listener =
         BlockchainEventListener.builder().name("l").sources(java.util.List.of(s1, s2)).build();
     assertEquals(2, listener.sources().size());
   }
 
   @Test
   void parsesServerResponseWithCreatedTimestamp() throws Exception {
-    String json =
+    final String json =
         "{\"name\":\"l1\",\"created\":\"2024-06-18T12:00:00Z\",\"started\":false,\"sources\":[]}";
-    BlockchainEventListener listener = MAPPER.readValue(json, BlockchainEventListener.class);
+    final BlockchainEventListener listener = MAPPER.readValue(json, BlockchainEventListener.class);
 
     assertEquals("l1", listener.name());
     assertEquals(Timestamp.fromString("2024-06-18T12:00:00Z"), listener.created());
@@ -75,7 +77,7 @@ class BlockchainEventListenerTest {
 
   @Test
   void zeroTimestampIsNormalizedToNull() {
-    BlockchainEventListener listener =
+    final BlockchainEventListener listener =
         new BlockchainEventListener("l", Timestamp.ZERO, null, null, null);
     assertNull(listener.created());
   }

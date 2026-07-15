@@ -28,7 +28,7 @@ public final class BlockchainEventListenerCheckpoint {
   private final long blockNumber;
 
   @JsonCreator
-  BlockchainEventListenerCheckpoint(@JsonProperty("blockNumber") long blockNumber) {
+  BlockchainEventListenerCheckpoint(@JsonProperty("blockNumber") final long blockNumber) {
     this.blockNumber = blockNumber;
   }
 

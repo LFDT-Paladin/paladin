@@ -43,11 +43,11 @@ public final class BlockchainEventListener {
 
   @JsonCreator
   BlockchainEventListener(
-      @JsonProperty("name") String name,
-      @JsonProperty("created") Timestamp created,
-      @JsonProperty("started") Boolean started,
-      @JsonProperty("sources") List<BlockchainEventListenerSource> sources,
-      @JsonProperty("options") BlockchainEventListenerOptions options) {
+      @JsonProperty("name") final String name,
+      @JsonProperty("created") final Timestamp created,
+      @JsonProperty("started") final Boolean started,
+      @JsonProperty("sources") final List<BlockchainEventListenerSource> sources,
+      @JsonProperty("options") final BlockchainEventListenerOptions options) {
     this.name = name;
     // A zero timestamp is "unset" (Go omitempty); normalize to null to keep round-trips clean.
     this.created = (created == null || created.isZero()) ? null : created;
@@ -146,7 +146,7 @@ public final class BlockchainEventListener {
      * @param name the listener name
      * @return this builder
      */
-    public Builder name(String name) {
+    public Builder name(final String name) {
       this.name = name;
       return this;
     }
@@ -157,7 +157,7 @@ public final class BlockchainEventListener {
      * @param started the started flag
      * @return this builder
      */
-    public Builder started(Boolean started) {
+    public Builder started(final Boolean started) {
       this.started = started;
       return this;
     }
@@ -168,7 +168,7 @@ public final class BlockchainEventListener {
      * @param source the source to add
      * @return this builder
      */
-    public Builder source(BlockchainEventListenerSource source) {
+    public Builder source(final BlockchainEventListenerSource source) {
       this.sources.add(source);
       return this;
     }
@@ -179,7 +179,7 @@ public final class BlockchainEventListener {
      * @param sources the sources to add
      * @return this builder
      */
-    public Builder sources(List<BlockchainEventListenerSource> sources) {
+    public Builder sources(final List<BlockchainEventListenerSource> sources) {
       this.sources.addAll(sources);
       return this;
     }
@@ -190,7 +190,7 @@ public final class BlockchainEventListener {
      * @param options the options
      * @return this builder
      */
-    public Builder options(BlockchainEventListenerOptions options) {
+    public Builder options(final BlockchainEventListenerOptions options) {
       this.options = options;
       return this;
     }

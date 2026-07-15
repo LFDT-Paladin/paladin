@@ -29,13 +29,13 @@ class BlockchainEventListenerSourceTest {
 
   @Test
   void builderRoundTripsAbiAndAddress() throws Exception {
-    EthAddress address = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
-    AbiEntry event = AbiEntry.event("Transfer").build();
-    BlockchainEventListenerSource source =
+    final EthAddress address = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
+    final AbiEntry event = AbiEntry.event("Transfer").build();
+    final BlockchainEventListenerSource source =
         BlockchainEventListenerSource.builder().abiEntry(event).address(address).build();
 
-    String json = MAPPER.writeValueAsString(source);
-    BlockchainEventListenerSource parsed =
+    final String json = MAPPER.writeValueAsString(source);
+    final BlockchainEventListenerSource parsed =
         MAPPER.readValue(json, BlockchainEventListenerSource.class);
 
     assertEquals(1, parsed.abi().size());
@@ -46,9 +46,9 @@ class BlockchainEventListenerSourceTest {
 
   @Test
   void builderAbiListAppends() {
-    AbiEntry e1 = AbiEntry.event("A").build();
-    AbiEntry e2 = AbiEntry.event("B").build();
-    BlockchainEventListenerSource source =
+    final AbiEntry e1 = AbiEntry.event("A").build();
+    final AbiEntry e2 = AbiEntry.event("B").build();
+    final BlockchainEventListenerSource source =
         BlockchainEventListenerSource.builder().abi(java.util.List.of(e1, e2)).build();
     assertEquals(2, source.abi().size());
     assertNull(source.address());
@@ -56,7 +56,7 @@ class BlockchainEventListenerSourceTest {
 
   @Test
   void defaultsToEmptyAbiWhenNull() {
-    BlockchainEventListenerSource source = new BlockchainEventListenerSource(null, null);
+    final BlockchainEventListenerSource source = new BlockchainEventListenerSource(null, null);
     assertTrue(source.abi().isEmpty());
   }
 }

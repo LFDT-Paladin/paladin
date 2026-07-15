@@ -37,9 +37,9 @@ public final class BlockchainEventListenerOptions {
 
   @JsonCreator
   BlockchainEventListenerOptions(
-      @JsonProperty("batchSize") Integer batchSize,
-      @JsonProperty("batchTimeout") String batchTimeout,
-      @JsonProperty("fromBlock") JsonNode fromBlock) {
+      @JsonProperty("batchSize") final Integer batchSize,
+      @JsonProperty("batchTimeout") final String batchTimeout,
+      @JsonProperty("fromBlock") final JsonNode fromBlock) {
     this.batchSize = batchSize;
     this.batchTimeout = batchTimeout;
     this.fromBlock = fromBlock;
@@ -111,7 +111,7 @@ public final class BlockchainEventListenerOptions {
      * @param batchSize the batch size
      * @return this builder
      */
-    public Builder batchSize(Integer batchSize) {
+    public Builder batchSize(final Integer batchSize) {
       this.batchSize = batchSize;
       return this;
     }
@@ -122,7 +122,7 @@ public final class BlockchainEventListenerOptions {
      * @param batchTimeout the batch timeout
      * @return this builder
      */
-    public Builder batchTimeout(String batchTimeout) {
+    public Builder batchTimeout(final String batchTimeout) {
       this.batchTimeout = batchTimeout;
       return this;
     }
@@ -133,7 +133,7 @@ public final class BlockchainEventListenerOptions {
      * @param fromBlock a block number or a special string such as {@code "latest"}
      * @return this builder
      */
-    public Builder fromBlock(JsonNode fromBlock) {
+    public Builder fromBlock(final JsonNode fromBlock) {
       this.fromBlock = fromBlock;
       return this;
     }

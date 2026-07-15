@@ -27,11 +27,12 @@ class KeyVerifierTest {
 
   @Test
   void roundTrips() throws Exception {
-    KeyVerifier verifier =
-        new KeyVerifier("0x05d936207F04D81a85881b72A0D17854Ee8BE45A", "eth_address", "ecdsa:secp256k1");
-    String json = MAPPER.writeValueAsString(verifier);
+    final KeyVerifier verifier =
+        new KeyVerifier(
+            "0x05d936207F04D81a85881b72A0D17854Ee8BE45A", "eth_address", "ecdsa:secp256k1");
+    final String json = MAPPER.writeValueAsString(verifier);
 
-    KeyVerifier parsed = MAPPER.readValue(json, KeyVerifier.class);
+    final KeyVerifier parsed = MAPPER.readValue(json, KeyVerifier.class);
     assertEquals(verifier, parsed);
     assertEquals("0x05d936207F04D81a85881b72A0D17854Ee8BE45A", parsed.verifier());
     assertEquals("eth_address", parsed.type());
@@ -40,9 +41,9 @@ class KeyVerifierTest {
 
   @Test
   void equalsAndHashCode() {
-    KeyVerifier a = new KeyVerifier("v", "t", "alg");
-    KeyVerifier b = new KeyVerifier("v", "t", "alg");
-    KeyVerifier different = new KeyVerifier("other", "t", "alg");
+    final KeyVerifier a = new KeyVerifier("v", "t", "alg");
+    final KeyVerifier b = new KeyVerifier("v", "t", "alg");
+    final KeyVerifier different = new KeyVerifier("other", "t", "alg");
 
     assertEquals(a, a);
     assertEquals(a, b);

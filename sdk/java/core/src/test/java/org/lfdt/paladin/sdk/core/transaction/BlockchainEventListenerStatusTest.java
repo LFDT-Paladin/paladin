@@ -28,11 +28,11 @@ class BlockchainEventListenerStatusTest {
 
   @Test
   void roundTripsWithCheckpoint() throws Exception {
-    BlockchainEventListenerStatus status =
+    final BlockchainEventListenerStatus status =
         new BlockchainEventListenerStatus(true, new BlockchainEventListenerCheckpoint(99L));
 
-    String json = MAPPER.writeValueAsString(status);
-    BlockchainEventListenerStatus parsed =
+    final String json = MAPPER.writeValueAsString(status);
+    final BlockchainEventListenerStatus parsed =
         MAPPER.readValue(json, BlockchainEventListenerStatus.class);
 
     assertTrue(parsed.catchup());
@@ -42,11 +42,11 @@ class BlockchainEventListenerStatusTest {
 
   @Test
   void omitsNullCheckpoint() throws Exception {
-    BlockchainEventListenerStatus status = new BlockchainEventListenerStatus(false, null);
-    String json = MAPPER.writeValueAsString(status);
+    final BlockchainEventListenerStatus status = new BlockchainEventListenerStatus(false, null);
+    final String json = MAPPER.writeValueAsString(status);
     assertFalse(json.contains("checkpoint"));
 
-    BlockchainEventListenerStatus parsed =
+    final BlockchainEventListenerStatus parsed =
         MAPPER.readValue(json, BlockchainEventListenerStatus.class);
     assertFalse(parsed.catchup());
     assertNull(parsed.checkpoint());

@@ -62,7 +62,7 @@ public final class PtxClient {
    *
    * @param rpc the RPC client used to make calls; must not be {@code null}
    */
-  public PtxClient(RpcClient rpc) {
+  public PtxClient(final RpcClient rpc) {
     this.rpc = Objects.requireNonNull(rpc, "rpc");
   }
 
@@ -72,7 +72,7 @@ public final class PtxClient {
    * @param transaction the transaction to submit
    * @return a future completing with the assigned transaction id
    */
-  public CompletableFuture<UUID> sendTransaction(TransactionInput transaction) {
+  public CompletableFuture<UUID> sendTransaction(final TransactionInput transaction) {
     return rpc.callRpc(UUID.class, "ptx_sendTransaction", transaction);
   }
 
@@ -82,7 +82,7 @@ public final class PtxClient {
    * @param transactions the transactions to submit
    * @return a future completing with the assigned transaction ids, in order
    */
-  public CompletableFuture<List<UUID>> sendTransactions(List<TransactionInput> transactions) {
+  public CompletableFuture<List<UUID>> sendTransactions(final List<TransactionInput> transactions) {
     return rpc.callRpc(new TypeReference<List<UUID>>() {}, "ptx_sendTransactions", transactions);
   }
 
@@ -92,7 +92,7 @@ public final class PtxClient {
    * @param transaction the transaction to prepare
    * @return a future completing with the prepared transaction id
    */
-  public CompletableFuture<UUID> prepareTransaction(TransactionInput transaction) {
+  public CompletableFuture<UUID> prepareTransaction(final TransactionInput transaction) {
     return rpc.callRpc(UUID.class, "ptx_prepareTransaction", transaction);
   }
 
@@ -102,7 +102,8 @@ public final class PtxClient {
    * @param transactions the transactions to prepare
    * @return a future completing with the prepared transaction ids, in order
    */
-  public CompletableFuture<List<UUID>> prepareTransactions(List<TransactionInput> transactions) {
+  public CompletableFuture<List<UUID>> prepareTransactions(
+      final List<TransactionInput> transactions) {
     return rpc.callRpc(new TypeReference<List<UUID>>() {}, "ptx_prepareTransactions", transactions);
   }
 
@@ -113,7 +114,8 @@ public final class PtxClient {
    * @param transaction the new transaction content
    * @return a future completing with the transaction id
    */
-  public CompletableFuture<UUID> updateTransaction(UUID id, TransactionInput transaction) {
+  public CompletableFuture<UUID> updateTransaction(
+      final UUID id, final TransactionInput transaction) {
     return rpc.callRpc(UUID.class, "ptx_updateTransaction", id, transaction);
   }
 
@@ -123,7 +125,7 @@ public final class PtxClient {
    * @param transaction the call to execute
    * @return a future completing with the call result as raw JSON
    */
-  public CompletableFuture<JsonNode> call(TransactionCall transaction) {
+  public CompletableFuture<JsonNode> call(final TransactionCall transaction) {
     return rpc.callRpc(JsonNode.class, "ptx_call", transaction);
   }
 
@@ -133,7 +135,7 @@ public final class PtxClient {
    * @param id the transaction id
    * @return a future completing with the transaction, or {@code null} if not found
    */
-  public CompletableFuture<Transaction> getTransaction(UUID id) {
+  public CompletableFuture<Transaction> getTransaction(final UUID id) {
     return rpc.callRpc(Transaction.class, "ptx_getTransaction", id);
   }
 
@@ -143,7 +145,7 @@ public final class PtxClient {
    * @param id the transaction id
    * @return a future completing with the full transaction, or {@code null} if not found
    */
-  public CompletableFuture<TransactionFull> getTransactionFull(UUID id) {
+  public CompletableFuture<TransactionFull> getTransactionFull(final UUID id) {
     return rpc.callRpc(TransactionFull.class, "ptx_getTransactionFull", id);
   }
 
@@ -153,7 +155,8 @@ public final class PtxClient {
    * @param idempotencyKey the idempotency key
    * @return a future completing with the transaction, or {@code null} if not found
    */
-  public CompletableFuture<Transaction> getTransactionByIdempotencyKey(String idempotencyKey) {
+  public CompletableFuture<Transaction> getTransactionByIdempotencyKey(
+      final String idempotencyKey) {
     return rpc.callRpc(Transaction.class, "ptx_getTransactionByIdempotencyKey", idempotencyKey);
   }
 
@@ -163,7 +166,7 @@ public final class PtxClient {
    * @param query the query to run
    * @return a future completing with the matching transactions
    */
-  public CompletableFuture<List<Transaction>> queryTransactions(QueryJSON query) {
+  public CompletableFuture<List<Transaction>> queryTransactions(final QueryJSON query) {
     return rpc.callRpc(new TypeReference<List<Transaction>>() {}, "ptx_queryTransactions", query);
   }
 
@@ -173,7 +176,7 @@ public final class PtxClient {
    * @param query the query to run
    * @return a future completing with the matching full transactions
    */
-  public CompletableFuture<List<TransactionFull>> queryTransactionsFull(QueryJSON query) {
+  public CompletableFuture<List<TransactionFull>> queryTransactionsFull(final QueryJSON query) {
     return rpc.callRpc(
         new TypeReference<List<TransactionFull>>() {}, "ptx_queryTransactionsFull", query);
   }
@@ -184,7 +187,7 @@ public final class PtxClient {
    * @param id the transaction id
    * @return a future completing with the receipt, or {@code null} if not yet available
    */
-  public CompletableFuture<TransactionReceipt> getTransactionReceipt(UUID id) {
+  public CompletableFuture<TransactionReceipt> getTransactionReceipt(final UUID id) {
     return rpc.callRpc(TransactionReceipt.class, "ptx_getTransactionReceipt", id);
   }
 
@@ -194,7 +197,7 @@ public final class PtxClient {
    * @param id the transaction id
    * @return a future completing with the full receipt, or {@code null} if not yet available
    */
-  public CompletableFuture<TransactionReceiptFull> getTransactionReceiptFull(UUID id) {
+  public CompletableFuture<TransactionReceiptFull> getTransactionReceiptFull(final UUID id) {
     return rpc.callRpc(TransactionReceiptFull.class, "ptx_getTransactionReceiptFull", id);
   }
 
@@ -205,7 +208,7 @@ public final class PtxClient {
    * @param id the transaction id
    * @return a future completing with the domain receipt as raw JSON
    */
-  public CompletableFuture<JsonNode> getDomainReceipt(String domain, UUID id) {
+  public CompletableFuture<JsonNode> getDomainReceipt(final String domain, final UUID id) {
     return rpc.callRpc(JsonNode.class, "ptx_getDomainReceipt", domain, id);
   }
 
@@ -215,7 +218,7 @@ public final class PtxClient {
    * @param id the transaction id
    * @return a future completing with the transaction states
    */
-  public CompletableFuture<TransactionStates> getStateReceipt(UUID id) {
+  public CompletableFuture<TransactionStates> getStateReceipt(final UUID id) {
     return rpc.callRpc(TransactionStates.class, "ptx_getStateReceipt", id);
   }
 
@@ -225,7 +228,8 @@ public final class PtxClient {
    * @param query the query to run
    * @return a future completing with the matching receipts
    */
-  public CompletableFuture<List<TransactionReceipt>> queryTransactionReceipts(QueryJSON query) {
+  public CompletableFuture<List<TransactionReceipt>> queryTransactionReceipts(
+      final QueryJSON query) {
     return rpc.callRpc(
         new TypeReference<List<TransactionReceipt>>() {}, "ptx_queryTransactionReceipts", query);
   }
@@ -236,7 +240,7 @@ public final class PtxClient {
    * @param id the transaction id
    * @return a future completing with the prepared transaction, or {@code null} if not found
    */
-  public CompletableFuture<PreparedTransaction> getPreparedTransaction(UUID id) {
+  public CompletableFuture<PreparedTransaction> getPreparedTransaction(final UUID id) {
     return rpc.callRpc(PreparedTransaction.class, "ptx_getPreparedTransaction", id);
   }
 
@@ -246,7 +250,8 @@ public final class PtxClient {
    * @param query the query to run
    * @return a future completing with the matching prepared transactions
    */
-  public CompletableFuture<List<PreparedTransaction>> queryPreparedTransactions(QueryJSON query) {
+  public CompletableFuture<List<PreparedTransaction>> queryPreparedTransactions(
+      final QueryJSON query) {
     return rpc.callRpc(
         new TypeReference<List<PreparedTransaction>>() {}, "ptx_queryPreparedTransactions", query);
   }
@@ -257,7 +262,7 @@ public final class PtxClient {
    * @param id the node-local public transaction id
    * @return a future completing with the public transaction and its binding
    */
-  public CompletableFuture<PublicTxWithBinding> getPublicTransaction(long id) {
+  public CompletableFuture<PublicTxWithBinding> getPublicTransaction(final long id) {
     return rpc.callRpc(PublicTxWithBinding.class, "ptx_getPublicTransaction", id);
   }
 
@@ -267,7 +272,7 @@ public final class PtxClient {
    * @param abi the ABI entries to store
    * @return a future completing with the stored ABI hash
    */
-  public CompletableFuture<Bytes32> storeABI(List<AbiEntry> abi) {
+  public CompletableFuture<Bytes32> storeABI(final List<AbiEntry> abi) {
     return rpc.callRpc(Bytes32.class, "ptx_storeABI", abi);
   }
 
@@ -277,7 +282,7 @@ public final class PtxClient {
    * @param hashRef the ABI hash reference
    * @return a future completing with the stored ABI, or {@code null} if not found
    */
-  public CompletableFuture<StoredABI> getStoredABI(Bytes32 hashRef) {
+  public CompletableFuture<StoredABI> getStoredABI(final Bytes32 hashRef) {
     return rpc.callRpc(StoredABI.class, "ptx_getStoredABI", hashRef);
   }
 
@@ -287,7 +292,7 @@ public final class PtxClient {
    * @param query the query to run
    * @return a future completing with the matching stored ABIs
    */
-  public CompletableFuture<List<StoredABI>> queryStoredABIs(QueryJSON query) {
+  public CompletableFuture<List<StoredABI>> queryStoredABIs(final QueryJSON query) {
     return rpc.callRpc(new TypeReference<List<StoredABI>>() {}, "ptx_queryStoredABIs", query);
   }
 
@@ -298,7 +303,8 @@ public final class PtxClient {
    * @param dataFormat the requested output data format
    * @return a future completing with the decoded data
    */
-  public CompletableFuture<ABIDecodedData> decodeError(HexBytes revertData, String dataFormat) {
+  public CompletableFuture<ABIDecodedData> decodeError(
+      final HexBytes revertData, final String dataFormat) {
     return rpc.callRpc(ABIDecodedData.class, "ptx_decodeError", revertData, dataFormat);
   }
 
@@ -309,7 +315,8 @@ public final class PtxClient {
    * @param dataFormat the requested output data format
    * @return a future completing with the decoded data
    */
-  public CompletableFuture<ABIDecodedData> decodeCall(HexBytes callData, String dataFormat) {
+  public CompletableFuture<ABIDecodedData> decodeCall(
+      final HexBytes callData, final String dataFormat) {
     return rpc.callRpc(ABIDecodedData.class, "ptx_decodeCall", callData, dataFormat);
   }
 
@@ -322,7 +329,7 @@ public final class PtxClient {
    * @return a future completing with the decoded data
    */
   public CompletableFuture<ABIDecodedData> decodeEvent(
-      List<Bytes32> topics, HexBytes data, String dataFormat) {
+      final List<Bytes32> topics, final HexBytes data, final String dataFormat) {
     return rpc.callRpc(ABIDecodedData.class, "ptx_decodeEvent", topics, data, dataFormat);
   }
 
@@ -335,7 +342,7 @@ public final class PtxClient {
    * @return a future completing with the resolved verifier
    */
   public CompletableFuture<String> resolveVerifier(
-      String keyIdentifier, String algorithm, String verifierType) {
+      final String keyIdentifier, final String algorithm, final String verifierType) {
     return rpc.callRpc(String.class, "ptx_resolveVerifier", keyIdentifier, algorithm, verifierType);
   }
 
@@ -345,7 +352,8 @@ public final class PtxClient {
    * @param listener the listener definition
    * @return a future completing with {@code true} if the listener was created
    */
-  public CompletableFuture<Boolean> createReceiptListener(TransactionReceiptListener listener) {
+  public CompletableFuture<Boolean> createReceiptListener(
+      final TransactionReceiptListener listener) {
     return rpc.callRpc(Boolean.class, "ptx_createReceiptListener", listener);
   }
 
@@ -356,7 +364,7 @@ public final class PtxClient {
    * @return a future completing with the matching listeners
    */
   public CompletableFuture<List<TransactionReceiptListener>> queryReceiptListeners(
-      QueryJSON query) {
+      final QueryJSON query) {
     return rpc.callRpc(
         new TypeReference<List<TransactionReceiptListener>>() {},
         "ptx_queryReceiptListeners",
@@ -369,7 +377,8 @@ public final class PtxClient {
    * @param listenerName the listener name
    * @return a future completing with the listener, or {@code null} if not found
    */
-  public CompletableFuture<TransactionReceiptListener> getReceiptListener(String listenerName) {
+  public CompletableFuture<TransactionReceiptListener> getReceiptListener(
+      final String listenerName) {
     return rpc.callRpc(TransactionReceiptListener.class, "ptx_getReceiptListener", listenerName);
   }
 
@@ -379,7 +388,7 @@ public final class PtxClient {
    * @param listenerName the listener name
    * @return a future completing with {@code true} if the listener was started
    */
-  public CompletableFuture<Boolean> startReceiptListener(String listenerName) {
+  public CompletableFuture<Boolean> startReceiptListener(final String listenerName) {
     return rpc.callRpc(Boolean.class, "ptx_startReceiptListener", listenerName);
   }
 
@@ -389,7 +398,7 @@ public final class PtxClient {
    * @param listenerName the listener name
    * @return a future completing with {@code true} if the listener was stopped
    */
-  public CompletableFuture<Boolean> stopReceiptListener(String listenerName) {
+  public CompletableFuture<Boolean> stopReceiptListener(final String listenerName) {
     return rpc.callRpc(Boolean.class, "ptx_stopReceiptListener", listenerName);
   }
 
@@ -399,7 +408,7 @@ public final class PtxClient {
    * @param listenerName the listener name
    * @return a future completing with {@code true} if the listener was deleted
    */
-  public CompletableFuture<Boolean> deleteReceiptListener(String listenerName) {
+  public CompletableFuture<Boolean> deleteReceiptListener(final String listenerName) {
     return rpc.callRpc(Boolean.class, "ptx_deleteReceiptListener", listenerName);
   }
 
@@ -410,7 +419,7 @@ public final class PtxClient {
    * @return a future completing with {@code true} if the listener was created
    */
   public CompletableFuture<Boolean> createBlockchainEventListener(
-      BlockchainEventListener listener) {
+      final BlockchainEventListener listener) {
     return rpc.callRpc(Boolean.class, "ptx_createBlockchainEventListener", listener);
   }
 
@@ -421,7 +430,7 @@ public final class PtxClient {
    * @return a future completing with the matching listeners
    */
   public CompletableFuture<List<BlockchainEventListener>> queryBlockchainEventListeners(
-      QueryJSON query) {
+      final QueryJSON query) {
     return rpc.callRpc(
         new TypeReference<List<BlockchainEventListener>>() {},
         "ptx_queryBlockchainEventListeners",
@@ -435,7 +444,7 @@ public final class PtxClient {
    * @return a future completing with the listener, or {@code null} if not found
    */
   public CompletableFuture<BlockchainEventListener> getBlockchainEventListener(
-      String listenerName) {
+      final String listenerName) {
     return rpc.callRpc(
         BlockchainEventListener.class, "ptx_getBlockchainEventListener", listenerName);
   }
@@ -446,7 +455,7 @@ public final class PtxClient {
    * @param listenerName the listener name
    * @return a future completing with {@code true} if the listener was started
    */
-  public CompletableFuture<Boolean> startBlockchainEventListener(String listenerName) {
+  public CompletableFuture<Boolean> startBlockchainEventListener(final String listenerName) {
     return rpc.callRpc(Boolean.class, "ptx_startBlockchainEventListener", listenerName);
   }
 
@@ -456,7 +465,7 @@ public final class PtxClient {
    * @param listenerName the listener name
    * @return a future completing with {@code true} if the listener was stopped
    */
-  public CompletableFuture<Boolean> stopBlockchainEventListener(String listenerName) {
+  public CompletableFuture<Boolean> stopBlockchainEventListener(final String listenerName) {
     return rpc.callRpc(Boolean.class, "ptx_stopBlockchainEventListener", listenerName);
   }
 
@@ -466,7 +475,7 @@ public final class PtxClient {
    * @param listenerName the listener name
    * @return a future completing with {@code true} if the listener was deleted
    */
-  public CompletableFuture<Boolean> deleteBlockchainEventListener(String listenerName) {
+  public CompletableFuture<Boolean> deleteBlockchainEventListener(final String listenerName) {
     return rpc.callRpc(Boolean.class, "ptx_deleteBlockchainEventListener", listenerName);
   }
 
@@ -478,7 +487,7 @@ public final class PtxClient {
    * @return a future completing with the listener status
    */
   public CompletableFuture<BlockchainEventListenerStatus> getBlockchainEventListenerStatus(
-      String listenerName) {
+      final String listenerName) {
     return rpc.callRpc(
         BlockchainEventListenerStatus.class, "ptx_getBlockchainEventListenerStatus", listenerName);
   }
@@ -489,7 +498,7 @@ public final class PtxClient {
    * @param query the query to run
    * @return a future completing with the matching dispatches
    */
-  public CompletableFuture<List<Dispatch>> queryDispatches(QueryJSON query) {
+  public CompletableFuture<List<Dispatch>> queryDispatches(final QueryJSON query) {
     return rpc.callRpc(new TypeReference<List<Dispatch>>() {}, "ptx_queryDispatches", query);
   }
 
@@ -499,7 +508,7 @@ public final class PtxClient {
    * @param id the dispatch id
    * @return a future completing with the dispatch, or {@code null} if not found
    */
-  public CompletableFuture<Dispatch> getDispatch(String id) {
+  public CompletableFuture<Dispatch> getDispatch(final String id) {
     return rpc.callRpc(Dispatch.class, "ptx_getDispatch", id);
   }
 
@@ -509,7 +518,7 @@ public final class PtxClient {
    * @param query the query to run
    * @return a future completing with the matching chained dispatches
    */
-  public CompletableFuture<List<ChainedDispatch>> queryChainedDispatches(QueryJSON query) {
+  public CompletableFuture<List<ChainedDispatch>> queryChainedDispatches(final QueryJSON query) {
     return rpc.callRpc(
         new TypeReference<List<ChainedDispatch>>() {}, "ptx_queryChainedDispatches", query);
   }
@@ -520,7 +529,7 @@ public final class PtxClient {
    * @param id the chained dispatch id
    * @return a future completing with the chained dispatch, or {@code null} if not found
    */
-  public CompletableFuture<ChainedDispatch> getChainedDispatch(String id) {
+  public CompletableFuture<ChainedDispatch> getChainedDispatch(final String id) {
     return rpc.callRpc(ChainedDispatch.class, "ptx_getChainedDispatch", id);
   }
 }

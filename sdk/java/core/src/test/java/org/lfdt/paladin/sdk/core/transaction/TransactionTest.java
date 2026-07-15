@@ -33,12 +33,12 @@ class TransactionTest {
 
   @Test
   void roundTripsFullTransaction() throws Exception {
-    UUID id = UUID.randomUUID();
-    EthAddress to = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
-    Bytes32 abiRef =
+    final UUID id = UUID.randomUUID();
+    final EthAddress to = EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A");
+    final Bytes32 abiRef =
         Bytes32.fromString("0x1111111111111111111111111111111111111111111111111111111111111111");
 
-    Transaction transaction =
+    final Transaction transaction =
         new Transaction(
             id,
             Timestamp.fromString("2024-06-18T12:00:00Z"),
@@ -56,8 +56,8 @@ class TransactionTest {
             HexUint256.of(1),
             HexUint256.of(2));
 
-    String json = MAPPER.writeValueAsString(transaction);
-    Transaction parsed = MAPPER.readValue(json, Transaction.class);
+    final String json = MAPPER.writeValueAsString(transaction);
+    final Transaction parsed = MAPPER.readValue(json, Transaction.class);
 
     assertEquals(id, parsed.id());
     assertEquals(Timestamp.fromString("2024-06-18T12:00:00Z"), parsed.created());
@@ -79,10 +79,23 @@ class TransactionTest {
 
   @Test
   void zeroTimestampAndEmptyFieldsAreNormalized() throws Exception {
-    Transaction transaction =
+    final Transaction transaction =
         new Transaction(
-            null, Timestamp.ZERO, null, null, null, null, null, null, null, null, null, null, null,
-            null, null);
+            null,
+            Timestamp.ZERO,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
     assertNull(transaction.created());
     assertEquals("{}", MAPPER.writeValueAsString(transaction));
   }
