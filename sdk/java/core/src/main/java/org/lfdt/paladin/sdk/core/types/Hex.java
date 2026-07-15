@@ -29,7 +29,7 @@ final class Hex {
    * Strips a leading {@code 0x} / {@code 0X} prefix if present, otherwise returns the input
    * unchanged.
    */
-  static String strip0x(String s) {
+  static String strip0x(final String s) {
     if (s.length() >= 2 && s.charAt(0) == '0' && (s.charAt(1) == 'x' || s.charAt(1) == 'X')) {
       return s.substring(2);
     }
@@ -40,17 +40,17 @@ final class Hex {
    * Decodes a hex string (with or without a {@code 0x} prefix, any case) into bytes. An empty
    * string (or a bare {@code "0x"}) decodes to an empty array.
    */
-  static byte[] decode(String s) {
+  static byte[] decode(final String s) {
     if (s == null) {
       throw new IllegalArgumentException("hex string must not be null");
     }
-    String body = strip0x(s);
+    final String body = strip0x(s);
     if (body.isEmpty()) {
       return new byte[0];
     }
     try {
       return FORMAT.parseHex(body);
-    } catch (IllegalArgumentException e) {
+    } catch (final IllegalArgumentException e) {
       throw new IllegalArgumentException("invalid hex string: \"" + s + "\"", e);
     }
   }
@@ -59,7 +59,7 @@ final class Hex {
    * Parses a base-aware integer string the way the Go SDK does for JSON numbers: a {@code
    * 0x}/{@code 0X} prefix (optionally signed) is read as hex, anything else as decimal.
    */
-  static BigInteger parseBigInteger(String s) {
+  static BigInteger parseBigInteger(final String s) {
     if (s == null) {
       throw new IllegalArgumentException("integer string must not be null");
     }
@@ -75,12 +75,12 @@ final class Hex {
       t = t.substring(1);
     }
     try {
-      BigInteger value =
+      final BigInteger value =
           (t.length() >= 2 && t.charAt(0) == '0' && (t.charAt(1) == 'x' || t.charAt(1) == 'X'))
               ? new BigInteger(t.substring(2), 16)
               : new BigInteger(t, 10);
       return negative ? value.negate() : value;
-    } catch (NumberFormatException e) {
+    } catch (final NumberFormatException e) {
       throw new IllegalArgumentException("invalid integer string: \"" + s + "\"", e);
     }
   }

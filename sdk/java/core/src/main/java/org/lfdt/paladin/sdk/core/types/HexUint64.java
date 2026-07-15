@@ -41,7 +41,7 @@ public final class HexUint64 {
 
   private final long value;
 
-  private HexUint64(long value) {
+  private HexUint64(final long value) {
     this.value = value;
   }
 
@@ -53,7 +53,7 @@ public final class HexUint64 {
    * @return a {@code HexUint64} holding {@code value}
    * @throws IllegalArgumentException if {@code value} is negative
    */
-  public static HexUint64 of(long value) {
+  public static HexUint64 of(final long value) {
     if (value < 0) {
       throw new IllegalArgumentException("value must not be negative: " + value);
     }
@@ -68,11 +68,11 @@ public final class HexUint64 {
    * @throws IllegalArgumentException if {@code s} is not valid or is outside the unsigned 64-bit
    *     range
    */
-  public static HexUint64 fromString(String s) {
+  public static HexUint64 fromString(final String s) {
     return fromBigInteger(Hex.parseBigInteger(s), s);
   }
 
-  private static HexUint64 fromBigInteger(BigInteger v, String source) {
+  private static HexUint64 fromBigInteger(final BigInteger v, final String source) {
     if (v.signum() < 0 || v.compareTo(MAX) > 0) {
       throw new IllegalArgumentException("value out of uint64 range: " + source);
     }
@@ -122,7 +122,7 @@ public final class HexUint64 {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }
@@ -136,7 +136,8 @@ public final class HexUint64 {
 
   static final class Serializer extends JsonSerializer<HexUint64> {
     @Override
-    public void serialize(HexUint64 v, JsonGenerator gen, SerializerProvider provider)
+    public void serialize(
+        final HexUint64 v, final JsonGenerator gen, final SerializerProvider provider)
         throws IOException {
       gen.writeString(v.to0xHex());
     }
@@ -144,8 +145,9 @@ public final class HexUint64 {
 
   static final class Deserializer extends JsonDeserializer<HexUint64> {
     @Override
-    public HexUint64 deserialize(JsonParser p, DeserializationContext ctx) throws IOException {
-      JsonToken t = p.currentToken();
+    public HexUint64 deserialize(final JsonParser p, final DeserializationContext ctx)
+        throws IOException {
+      final JsonToken t = p.currentToken();
       if (t == JsonToken.VALUE_NUMBER_INT) {
         return fromBigInteger(p.getBigIntegerValue(), p.getText());
       }

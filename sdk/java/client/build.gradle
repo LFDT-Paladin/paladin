@@ -1,4 +1,5 @@
 // HTTP + WebSocket transport and RPC client
 dependencies {
     implementation project(':sdk:java:core')
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.6'
 }

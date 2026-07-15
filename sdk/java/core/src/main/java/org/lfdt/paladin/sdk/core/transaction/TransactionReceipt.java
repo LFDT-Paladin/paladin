@@ -69,19 +69,19 @@ public final class TransactionReceipt {
 
   @JsonCreator
   TransactionReceipt(
-      @JsonProperty("id") UUID id,
-      @JsonProperty("indexed") Timestamp indexed,
-      @JsonProperty("sequence") long sequence,
-      @JsonProperty("domain") String domain,
-      @JsonProperty("success") boolean success,
-      @JsonProperty("transactionHash") Bytes32 transactionHash,
-      @JsonProperty("blockNumber") Long blockNumber,
-      @JsonProperty("transactionIndex") Long transactionIndex,
-      @JsonProperty("logIndex") Long logIndex,
-      @JsonProperty("source") EthAddress source,
-      @JsonProperty("failureMessage") String failureMessage,
-      @JsonProperty("revertData") HexBytes revertData,
-      @JsonProperty("contractAddress") EthAddress contractAddress) {
+      @JsonProperty("id") final UUID id,
+      @JsonProperty("indexed") final Timestamp indexed,
+      @JsonProperty("sequence") final long sequence,
+      @JsonProperty("domain") final String domain,
+      @JsonProperty("success") final boolean success,
+      @JsonProperty("transactionHash") final Bytes32 transactionHash,
+      @JsonProperty("blockNumber") final Long blockNumber,
+      @JsonProperty("transactionIndex") final Long transactionIndex,
+      @JsonProperty("logIndex") final Long logIndex,
+      @JsonProperty("source") final EthAddress source,
+      @JsonProperty("failureMessage") final String failureMessage,
+      @JsonProperty("revertData") final HexBytes revertData,
+      @JsonProperty("contractAddress") final EthAddress contractAddress) {
     this.id = id;
     // A zero timestamp is "unset" (Go omitempty); the Timestamp deserializer yields a zero rather
     // than null for an absent field, so normalize here to keep round-trips and equality clean.
@@ -251,7 +251,7 @@ public final class TransactionReceipt {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }
@@ -323,7 +323,7 @@ public final class TransactionReceipt {
      * @param id the transaction id
      * @return this builder
      */
-    public Builder id(UUID id) {
+    public Builder id(final UUID id) {
       this.id = id;
       return this;
     }
@@ -334,7 +334,7 @@ public final class TransactionReceipt {
      * @param indexed the time the receipt was indexed
      * @return this builder
      */
-    public Builder indexed(Timestamp indexed) {
+    public Builder indexed(final Timestamp indexed) {
       this.indexed = indexed;
       return this;
     }
@@ -345,7 +345,7 @@ public final class TransactionReceipt {
      * @param sequence the local ordering sequence
      * @return this builder
      */
-    public Builder sequence(long sequence) {
+    public Builder sequence(final long sequence) {
       this.sequence = sequence;
       return this;
     }
@@ -356,7 +356,7 @@ public final class TransactionReceipt {
      * @param domain the domain name (private-transaction receipts only)
      * @return this builder
      */
-    public Builder domain(String domain) {
+    public Builder domain(final String domain) {
       this.domain = domain;
       return this;
     }
@@ -367,7 +367,7 @@ public final class TransactionReceipt {
      * @param success {@code true} if the transaction succeeded
      * @return this builder
      */
-    public Builder success(boolean success) {
+    public Builder success(final boolean success) {
       this.success = success;
       return this;
     }
@@ -378,7 +378,7 @@ public final class TransactionReceipt {
      * @param transactionHash the on-chain transaction hash
      * @return this builder
      */
-    public Builder transactionHash(Bytes32 transactionHash) {
+    public Builder transactionHash(final Bytes32 transactionHash) {
       this.transactionHash = transactionHash;
       return this;
     }
@@ -389,7 +389,7 @@ public final class TransactionReceipt {
      * @param blockNumber the on-chain block number
      * @return this builder
      */
-    public Builder blockNumber(Long blockNumber) {
+    public Builder blockNumber(final Long blockNumber) {
       this.blockNumber = blockNumber;
       return this;
     }
@@ -400,7 +400,7 @@ public final class TransactionReceipt {
      * @param transactionIndex the on-chain transaction index
      * @return this builder
      */
-    public Builder transactionIndex(Long transactionIndex) {
+    public Builder transactionIndex(final Long transactionIndex) {
       this.transactionIndex = transactionIndex;
       return this;
     }
@@ -411,7 +411,7 @@ public final class TransactionReceipt {
      * @param logIndex the finalizing event's log index
      * @return this builder
      */
-    public Builder logIndex(Long logIndex) {
+    public Builder logIndex(final Long logIndex) {
       this.logIndex = logIndex;
       return this;
     }
@@ -422,7 +422,7 @@ public final class TransactionReceipt {
      * @param source the finalizing event's emitting contract address
      * @return this builder
      */
-    public Builder source(EthAddress source) {
+    public Builder source(final EthAddress source) {
       this.source = source;
       return this;
     }
@@ -433,7 +433,7 @@ public final class TransactionReceipt {
      * @param failureMessage detail of why the transaction reverted
      * @return this builder
      */
-    public Builder failureMessage(String failureMessage) {
+    public Builder failureMessage(final String failureMessage) {
       this.failureMessage = failureMessage;
       return this;
     }
@@ -444,7 +444,7 @@ public final class TransactionReceipt {
      * @param revertData the encoded revert data
      * @return this builder
      */
-    public Builder revertData(HexBytes revertData) {
+    public Builder revertData(final HexBytes revertData) {
       this.revertData = revertData;
       return this;
     }
@@ -455,7 +455,7 @@ public final class TransactionReceipt {
      * @param contractAddress the address of a newly deployed contract
      * @return this builder
      */
-    public Builder contractAddress(EthAddress contractAddress) {
+    public Builder contractAddress(final EthAddress contractAddress) {
       this.contractAddress = contractAddress;
       return this;
     }

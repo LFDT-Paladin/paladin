@@ -62,7 +62,7 @@ public final class QueryBuilder {
    * @param limit the maximum number of items to return
    * @return this builder
    */
-  public QueryBuilder limit(int limit) {
+  public QueryBuilder limit(final int limit) {
     this.limit = limit;
     return this;
   }
@@ -73,7 +73,7 @@ public final class QueryBuilder {
    * @param fields the sort fields to append
    * @return this builder
    */
-  public QueryBuilder sort(String... fields) {
+  public QueryBuilder sort(final String... fields) {
     for (String field : fields) {
       this.sort.add(field);
     }
@@ -88,7 +88,8 @@ public final class QueryBuilder {
    * @param modifiers optional modifiers (e.g. {@link QueryModifier#NOT}, case sensitivity)
    * @return this builder
    */
-  public QueryBuilder equal(String field, Object value, QueryModifier... modifiers) {
+  public QueryBuilder equal(
+      final String field, final Object value, final QueryModifier... modifiers) {
     eq.add(singleVal(field, value, modifiers));
     return this;
   }
@@ -101,7 +102,8 @@ public final class QueryBuilder {
    * @param modifiers optional modifiers (e.g. {@link QueryModifier#NOT}, case sensitivity)
    * @return this builder
    */
-  public QueryBuilder notEqual(String field, Object value, QueryModifier... modifiers) {
+  public QueryBuilder notEqual(
+      final String field, final Object value, final QueryModifier... modifiers) {
     neq.add(singleVal(field, value, modifiers));
     return this;
   }
@@ -113,7 +115,7 @@ public final class QueryBuilder {
    * @param value the value to compare against
    * @return this builder
    */
-  public QueryBuilder greaterThan(String field, Object value) {
+  public QueryBuilder greaterThan(final String field, final Object value) {
     gt.add(singleVal(field, value));
     return this;
   }
@@ -125,7 +127,7 @@ public final class QueryBuilder {
    * @param value the value to compare against
    * @return this builder
    */
-  public QueryBuilder greaterThanOrEqual(String field, Object value) {
+  public QueryBuilder greaterThanOrEqual(final String field, final Object value) {
     gte.add(singleVal(field, value));
     return this;
   }
@@ -137,7 +139,7 @@ public final class QueryBuilder {
    * @param value the value to compare against
    * @return this builder
    */
-  public QueryBuilder lessThan(String field, Object value) {
+  public QueryBuilder lessThan(final String field, final Object value) {
     lt.add(singleVal(field, value));
     return this;
   }
@@ -149,7 +151,7 @@ public final class QueryBuilder {
    * @param value the value to compare against
    * @return this builder
    */
-  public QueryBuilder lessThanOrEqual(String field, Object value) {
+  public QueryBuilder lessThanOrEqual(final String field, final Object value) {
     lte.add(singleVal(field, value));
     return this;
   }
@@ -162,7 +164,8 @@ public final class QueryBuilder {
    * @param modifiers optional modifiers (e.g. {@link QueryModifier#NOT}, case sensitivity)
    * @return this builder
    */
-  public QueryBuilder in(String field, List<?> values, QueryModifier... modifiers) {
+  public QueryBuilder in(
+      final String field, final List<?> values, final QueryModifier... modifiers) {
     in.add(multiVal(field, values, modifiers));
     return this;
   }
@@ -175,7 +178,8 @@ public final class QueryBuilder {
    * @param modifiers optional modifiers (e.g. {@link QueryModifier#NOT}, case sensitivity)
    * @return this builder
    */
-  public QueryBuilder notIn(String field, List<?> values, QueryModifier... modifiers) {
+  public QueryBuilder notIn(
+      final String field, final List<?> values, final QueryModifier... modifiers) {
     nin.add(multiVal(field, values, modifiers));
     return this;
   }
@@ -186,7 +190,7 @@ public final class QueryBuilder {
    * @param field the field that must be null
    * @return this builder
    */
-  public QueryBuilder isNull(String field) {
+  public QueryBuilder isNull(final String field) {
     isNull.add(new Op(field, false, false));
     return this;
   }
@@ -197,7 +201,7 @@ public final class QueryBuilder {
    * @param field the field that must not be null
    * @return this builder
    */
-  public QueryBuilder isNotNull(String field) {
+  public QueryBuilder isNotNull(final String field) {
     isNull.add(new Op(field, true, false));
     return this;
   }
@@ -209,7 +213,7 @@ public final class QueryBuilder {
    * @param value the pattern to match against
    * @return this builder
    */
-  public QueryBuilder like(String field, Object value) {
+  public QueryBuilder like(final String field, final Object value) {
     like.add(singleVal(field, value));
     return this;
   }
@@ -221,7 +225,7 @@ public final class QueryBuilder {
    * @param value the pattern that must not match
    * @return this builder
    */
-  public QueryBuilder notLike(String field, Object value) {
+  public QueryBuilder notLike(final String field, final Object value) {
     like.add(singleVal(field, value, QueryModifier.NOT));
     return this;
   }
@@ -234,7 +238,7 @@ public final class QueryBuilder {
    * @param branches the child builders whose statements become OR branches
    * @return this builder
    */
-  public QueryBuilder or(QueryBuilder... branches) {
+  public QueryBuilder or(final QueryBuilder... branches) {
     for (QueryBuilder branch : branches) {
       or.add(branch.buildStatements());
     }
@@ -255,14 +259,16 @@ public final class QueryBuilder {
     return new QueryJSON(null, null, or, eq, neq, like, lt, lte, gt, gte, in, nin, isNull);
   }
 
-  private static OpSingleVal singleVal(String field, Object value, QueryModifier... modifiers) {
-    boolean[] flags = flags(modifiers);
+  private static OpSingleVal singleVal(
+      final String field, final Object value, final QueryModifier... modifiers) {
+    final boolean[] flags = flags(modifiers);
     return new OpSingleVal(field, flags[0], flags[1], toNode(value));
   }
 
-  private static OpMultiVal multiVal(String field, List<?> values, QueryModifier... modifiers) {
-    boolean[] flags = flags(modifiers);
-    List<JsonNode> nodes = new ArrayList<>();
+  private static OpMultiVal multiVal(
+      final String field, final List<?> values, final QueryModifier... modifiers) {
+    final boolean[] flags = flags(modifiers);
+    final List<JsonNode> nodes = new ArrayList<>();
     if (values != null) {
       for (Object value : values) {
         nodes.add(toNode(value));
@@ -272,7 +278,7 @@ public final class QueryBuilder {
   }
 
   /** Resolves the modifier varargs into {@code [not, caseInsensitive]} flags. */
-  private static boolean[] flags(QueryModifier... modifiers) {
+  private static boolean[] flags(final QueryModifier... modifiers) {
     boolean not = false;
     boolean caseInsensitive = false;
     for (QueryModifier modifier : modifiers) {
@@ -291,10 +297,10 @@ public final class QueryBuilder {
    * the same JSON, so a built query equals its plain-mapper round trip regardless of the value's
    * declared width.
    */
-  private static JsonNode toNode(Object value) {
+  private static JsonNode toNode(final Object value) {
     try {
       return VALUE_MAPPER.readTree(VALUE_MAPPER.writeValueAsString(value));
-    } catch (JsonProcessingException e) {
+    } catch (final JsonProcessingException e) {
       throw new IllegalArgumentException("query value is not JSON-serializable: " + value, e);
     }
   }

@@ -43,11 +43,11 @@ public final class AbiParameter {
 
   @JsonCreator
   AbiParameter(
-      @JsonProperty("name") String name,
-      @JsonProperty("type") String type,
-      @JsonProperty("internalType") String internalType,
-      @JsonProperty("components") List<AbiParameter> components,
-      @JsonProperty("indexed") boolean indexed) {
+      @JsonProperty("name") final String name,
+      @JsonProperty("type") final String type,
+      @JsonProperty("internalType") final String internalType,
+      @JsonProperty("components") final List<AbiParameter> components,
+      @JsonProperty("indexed") final boolean indexed) {
     this.name = name == null ? "" : name;
     this.type = type == null ? "" : type;
     this.internalType = internalType;
@@ -116,7 +116,7 @@ public final class AbiParameter {
    * @param type the canonical ABI type
    * @return a new elementary {@code AbiParameter}
    */
-  public static AbiParameter of(String name, String type) {
+  public static AbiParameter of(final String name, final String type) {
     return new AbiParameter(name, type, null, null, false);
   }
 
@@ -127,12 +127,12 @@ public final class AbiParameter {
    * @param type the canonical ABI type
    * @return a new builder
    */
-  public static Builder builder(String name, String type) {
+  public static Builder builder(final String name, final String type) {
     return new Builder(name, type);
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }
@@ -162,7 +162,7 @@ public final class AbiParameter {
     private final List<AbiParameter> components = new ArrayList<>();
     private boolean indexed;
 
-    private Builder(String name, String type) {
+    private Builder(final String name, final String type) {
       this.name = name;
       this.type = type;
     }
@@ -173,7 +173,7 @@ public final class AbiParameter {
      * @param internalType the internal type information
      * @return this builder
      */
-    public Builder internalType(String internalType) {
+    public Builder internalType(final String internalType) {
       this.internalType = internalType;
       return this;
     }
@@ -184,7 +184,7 @@ public final class AbiParameter {
      * @param component the nested component parameter to add
      * @return this builder
      */
-    public Builder component(AbiParameter component) {
+    public Builder component(final AbiParameter component) {
       this.components.add(component);
       return this;
     }
@@ -195,7 +195,7 @@ public final class AbiParameter {
      * @param components the nested component parameters to add
      * @return this builder
      */
-    public Builder components(List<AbiParameter> components) {
+    public Builder components(final List<AbiParameter> components) {
       this.components.addAll(components);
       return this;
     }
@@ -206,7 +206,7 @@ public final class AbiParameter {
      * @param indexed whether the parameter is indexed into a log topic
      * @return this builder
      */
-    public Builder indexed(boolean indexed) {
+    public Builder indexed(final boolean indexed) {
       this.indexed = indexed;
       return this;
     }

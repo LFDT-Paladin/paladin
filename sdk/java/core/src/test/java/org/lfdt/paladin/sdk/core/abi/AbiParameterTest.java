@@ -36,7 +36,7 @@ class AbiParameterTest {
 
   @Test
   void serializesIndexedAndInternalTypeWhenSet() throws Exception {
-    AbiParameter p =
+    final AbiParameter p =
         AbiParameter.builder("from", "address").internalType("address").indexed(true).build();
     assertEquals(
         "{\"name\":\"from\",\"type\":\"address\",\"internalType\":\"address\",\"indexed\":true}",
@@ -45,12 +45,13 @@ class AbiParameterTest {
 
   @Test
   void roundTripsTupleWithComponents() throws Exception {
-    AbiParameter tuple =
+    final AbiParameter tuple =
         AbiParameter.builder("order", "tuple")
             .component(AbiParameter.of("recipient", "address"))
             .component(AbiParameter.of("amount", "uint256"))
             .build();
-    AbiParameter parsed = MAPPER.readValue(MAPPER.writeValueAsString(tuple), AbiParameter.class);
+    final AbiParameter parsed =
+        MAPPER.readValue(MAPPER.writeValueAsString(tuple), AbiParameter.class);
     assertEquals(tuple, parsed);
     assertEquals(2, parsed.components().size());
     assertEquals("recipient", parsed.components().get(0).name());
@@ -58,7 +59,7 @@ class AbiParameterTest {
 
   @Test
   void deserializesFromSolidityStyleJson() throws Exception {
-    AbiParameter p =
+    final AbiParameter p =
         MAPPER.readValue(
             "{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}",
             AbiParameter.class);
@@ -71,7 +72,7 @@ class AbiParameterTest {
 
   @Test
   void unnamedParameterDefaultsToEmptyName() throws Exception {
-    AbiParameter p = MAPPER.readValue("{\"type\":\"bool\"}", AbiParameter.class);
+    final AbiParameter p = MAPPER.readValue("{\"type\":\"bool\"}", AbiParameter.class);
     assertEquals("", p.name());
     assertEquals("bool", p.type());
   }

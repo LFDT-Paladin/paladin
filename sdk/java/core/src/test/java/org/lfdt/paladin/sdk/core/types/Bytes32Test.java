@@ -34,8 +34,8 @@ class Bytes32Test {
 
   @Test
   void roundTripsThroughJson() throws Exception {
-    Bytes32 original = Bytes32.fromString(HASH);
-    String json = MAPPER.writeValueAsString(original);
+    final Bytes32 original = Bytes32.fromString(HASH);
+    final String json = MAPPER.writeValueAsString(original);
     assertEquals(original, MAPPER.readValue(json, Bytes32.class));
   }
 

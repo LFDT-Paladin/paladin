@@ -35,7 +35,7 @@ public enum StateMutability {
 
   private final String jsonValue;
 
-  StateMutability(String jsonValue) {
+  StateMutability(final String jsonValue) {
     this.jsonValue = jsonValue;
   }
 
@@ -57,7 +57,7 @@ public enum StateMutability {
    * @throws IllegalArgumentException if {@code s} is null or not a known state mutability
    */
   @JsonCreator
-  public static StateMutability fromJson(String s) {
+  public static StateMutability fromJson(final String s) {
     if (s != null) {
       for (StateMutability m : values()) {
         if (m.jsonValue.equalsIgnoreCase(s)) {

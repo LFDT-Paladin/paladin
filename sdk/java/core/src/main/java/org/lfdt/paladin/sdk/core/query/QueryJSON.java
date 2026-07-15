@@ -59,19 +59,19 @@ public final class QueryJSON {
 
   @JsonCreator
   QueryJSON(
-      @JsonProperty("limit") Integer limit,
-      @JsonProperty("sort") List<String> sort,
-      @JsonProperty("or") List<QueryJSON> or,
-      @JsonProperty("eq") List<OpSingleVal> eq,
-      @JsonProperty("neq") List<OpSingleVal> neq,
-      @JsonProperty("like") List<OpSingleVal> like,
-      @JsonProperty("lt") List<OpSingleVal> lt,
-      @JsonProperty("lte") List<OpSingleVal> lte,
-      @JsonProperty("gt") List<OpSingleVal> gt,
-      @JsonProperty("gte") List<OpSingleVal> gte,
-      @JsonProperty("in") List<OpMultiVal> in,
-      @JsonProperty("nin") List<OpMultiVal> nin,
-      @JsonProperty("null") List<Op> isNull) {
+      @JsonProperty("limit") final Integer limit,
+      @JsonProperty("sort") final List<String> sort,
+      @JsonProperty("or") final List<QueryJSON> or,
+      @JsonProperty("eq") final List<OpSingleVal> eq,
+      @JsonProperty("neq") final List<OpSingleVal> neq,
+      @JsonProperty("like") final List<OpSingleVal> like,
+      @JsonProperty("lt") final List<OpSingleVal> lt,
+      @JsonProperty("lte") final List<OpSingleVal> lte,
+      @JsonProperty("gt") final List<OpSingleVal> gt,
+      @JsonProperty("gte") final List<OpSingleVal> gte,
+      @JsonProperty("in") final List<OpMultiVal> in,
+      @JsonProperty("nin") final List<OpMultiVal> nin,
+      @JsonProperty("null") final List<Op> isNull) {
     this.limit = limit;
     this.sort = copyOf(sort);
     this.or = copyOf(or);
@@ -87,7 +87,7 @@ public final class QueryJSON {
     this.isNull = copyOf(isNull);
   }
 
-  private static <T> List<T> copyOf(List<T> list) {
+  private static <T> List<T> copyOf(final List<T> list) {
     return list == null ? List.of() : List.copyOf(list);
   }
 
@@ -252,13 +252,13 @@ public final class QueryJSON {
   public String toJson() {
     try {
       return PaladinObjectMapper.shared().writeValueAsString(this);
-    } catch (JsonProcessingException e) {
+    } catch (final JsonProcessingException e) {
       throw new IllegalStateException("failed to serialize query", e);
     }
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }

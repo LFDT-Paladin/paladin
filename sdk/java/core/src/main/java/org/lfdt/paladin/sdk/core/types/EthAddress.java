@@ -30,7 +30,7 @@ public final class EthAddress {
 
   private final byte[] value;
 
-  private EthAddress(byte[] value) {
+  private EthAddress(final byte[] value) {
     this.value = value;
   }
 
@@ -41,7 +41,7 @@ public final class EthAddress {
    * @return an {@code EthAddress} holding a defensive copy of {@code bytes}
    * @throws IllegalArgumentException if {@code bytes} is null or not exactly {@value #SIZE} bytes
    */
-  public static EthAddress wrap(byte[] bytes) {
+  public static EthAddress wrap(final byte[] bytes) {
     if (bytes == null || bytes.length != SIZE) {
       throw new IllegalArgumentException(
           "EthAddress requires exactly "
@@ -61,8 +61,8 @@ public final class EthAddress {
    *     {@value #SIZE} bytes
    */
   @JsonCreator
-  public static EthAddress fromString(String s) {
-    byte[] bytes = Hex.decode(s);
+  public static EthAddress fromString(final String s) {
+    final byte[] bytes = Hex.decode(s);
     if (bytes.length != SIZE) {
       throw new IllegalArgumentException(
           "EthAddress requires "
@@ -124,7 +124,7 @@ public final class EthAddress {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }

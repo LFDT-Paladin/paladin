@@ -48,13 +48,13 @@ class HexUint256Test {
 
   @Test
   void deserializesFromJsonNumberWithoutPrecisionLoss() throws Exception {
-    BigInteger big = BigInteger.TWO.pow(200).add(BigInteger.ONE);
+    final BigInteger big = BigInteger.TWO.pow(200).add(BigInteger.ONE);
     assertEquals(HexUint256.of(big), MAPPER.readValue(big.toString(), HexUint256.class));
   }
 
   @Test
   void roundTripsThroughJson() throws Exception {
-    HexUint256 original = HexUint256.of(BigInteger.TWO.pow(255));
+    final HexUint256 original = HexUint256.of(BigInteger.TWO.pow(255));
     assertEquals(original, MAPPER.readValue(MAPPER.writeValueAsString(original), HexUint256.class));
   }
 }

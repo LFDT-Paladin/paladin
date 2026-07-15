@@ -31,7 +31,7 @@ public enum TransactionType {
 
   private final String jsonValue;
 
-  TransactionType(String jsonValue) {
+  TransactionType(final String jsonValue) {
     this.jsonValue = jsonValue;
   }
 
@@ -53,7 +53,7 @@ public enum TransactionType {
    * @throws IllegalArgumentException if {@code s} is null or not a known transaction type
    */
   @JsonCreator
-  public static TransactionType fromJson(String s) {
+  public static TransactionType fromJson(final String s) {
     if (s != null) {
       for (TransactionType t : values()) {
         if (t.jsonValue.equalsIgnoreCase(s)) {

@@ -29,14 +29,14 @@ class EthAddressTest {
 
   @Test
   void serializesAsLowerCase0xHex() throws Exception {
-    EthAddress addr = EthAddress.fromString("0x5E7E6322F3F6CC8FC94F5F6F3F6CC8FC94F5F6F3");
+    final EthAddress addr = EthAddress.fromString("0x5E7E6322F3F6CC8FC94F5F6F3F6CC8FC94F5F6F3");
     assertEquals("\"" + ADDR + "\"", MAPPER.writeValueAsString(addr));
   }
 
   @Test
   void roundTripsThroughJson() throws Exception {
-    EthAddress original = EthAddress.fromString(ADDR);
-    String json = MAPPER.writeValueAsString(original);
+    final EthAddress original = EthAddress.fromString(ADDR);
+    final String json = MAPPER.writeValueAsString(original);
     assertEquals(original, MAPPER.readValue(json, EthAddress.class));
   }
 

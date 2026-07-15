@@ -39,7 +39,7 @@ public final class HexInt256 {
 
   private final BigInteger value;
 
-  private HexInt256(BigInteger value) {
+  private HexInt256(final BigInteger value) {
     this.value = value;
   }
 
@@ -50,7 +50,7 @@ public final class HexInt256 {
    * @return a {@code HexInt256} holding {@code value}
    * @throws IllegalArgumentException if {@code value} is null
    */
-  public static HexInt256 of(BigInteger value) {
+  public static HexInt256 of(final BigInteger value) {
     if (value == null) {
       throw new IllegalArgumentException("value must not be null");
     }
@@ -63,7 +63,7 @@ public final class HexInt256 {
    * @param value the integer value
    * @return a {@code HexInt256} holding {@code value}
    */
-  public static HexInt256 of(long value) {
+  public static HexInt256 of(final long value) {
     return new HexInt256(BigInteger.valueOf(value));
   }
 
@@ -74,7 +74,7 @@ public final class HexInt256 {
    * @return the parsed {@code HexInt256}
    * @throws IllegalArgumentException if {@code s} is not a valid hex or decimal integer
    */
-  public static HexInt256 fromString(String s) {
+  public static HexInt256 fromString(final String s) {
     return new HexInt256(Hex.parseBigInteger(s));
   }
 
@@ -111,7 +111,7 @@ public final class HexInt256 {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }
@@ -125,7 +125,8 @@ public final class HexInt256 {
 
   static final class Serializer extends JsonSerializer<HexInt256> {
     @Override
-    public void serialize(HexInt256 v, JsonGenerator gen, SerializerProvider provider)
+    public void serialize(
+        final HexInt256 v, final JsonGenerator gen, final SerializerProvider provider)
         throws IOException {
       gen.writeString(v.to0xHex());
     }
@@ -133,8 +134,9 @@ public final class HexInt256 {
 
   static final class Deserializer extends JsonDeserializer<HexInt256> {
     @Override
-    public HexInt256 deserialize(JsonParser p, DeserializationContext ctx) throws IOException {
-      JsonToken t = p.currentToken();
+    public HexInt256 deserialize(final JsonParser p, final DeserializationContext ctx)
+        throws IOException {
+      final JsonToken t = p.currentToken();
       if (t == JsonToken.VALUE_NUMBER_INT) {
         return new HexInt256(p.getBigIntegerValue());
       }

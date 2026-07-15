@@ -35,7 +35,7 @@ class TransactionReceiptTest {
   void omitsUnsetOnchainFieldsButKeepsSequence() throws Exception {
     // A receipt that has not been finalized on-chain has no hash/block/index, but sequence is
     // always emitted.
-    TransactionReceipt receipt =
+    final TransactionReceipt receipt =
         TransactionReceipt.builder()
             .id(UUID.fromString("3e6b4f1c-0000-0000-0000-000000000001"))
             .sequence(7)
@@ -47,8 +47,8 @@ class TransactionReceiptTest {
 
   @Test
   void roundTripsSuccessfulOnchainReceipt() throws Exception {
-    UUID id = UUID.randomUUID();
-    TransactionReceipt receipt =
+    final UUID id = UUID.randomUUID();
+    final TransactionReceipt receipt =
         TransactionReceipt.builder()
             .id(id)
             .indexed(Timestamp.fromString("2024-06-18T12:00:00Z"))
@@ -63,7 +63,7 @@ class TransactionReceiptTest {
             .contractAddress(EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A"))
             .build();
 
-    TransactionReceipt parsed =
+    final TransactionReceipt parsed =
         MAPPER.readValue(MAPPER.writeValueAsString(receipt), TransactionReceipt.class);
     assertEquals(receipt, parsed);
     assertEquals(id, parsed.id());
@@ -76,7 +76,7 @@ class TransactionReceiptTest {
 
   @Test
   void roundTripsFailedReceipt() throws Exception {
-    TransactionReceipt receipt =
+    final TransactionReceipt receipt =
         TransactionReceipt.builder()
             .id(UUID.randomUUID())
             .sequence(1)
@@ -85,11 +85,11 @@ class TransactionReceiptTest {
             .revertData(HexBytes.fromString("0x08c379a0"))
             .build();
 
-    String json = MAPPER.writeValueAsString(receipt);
+    final String json = MAPPER.writeValueAsString(receipt);
     assertFalse(json.contains("\"success\"")); // false is omitted (NON_DEFAULT)
     assertTrue(json.contains("\"failureMessage\":\"execution reverted\""));
 
-    TransactionReceipt parsed = MAPPER.readValue(json, TransactionReceipt.class);
+    final TransactionReceipt parsed = MAPPER.readValue(json, TransactionReceipt.class);
     assertEquals(receipt, parsed);
     assertFalse(parsed.success());
     assertEquals("execution reverted", parsed.failureMessage());
@@ -98,26 +98,26 @@ class TransactionReceiptTest {
 
   @Test
   void distinguishesZeroBlockFromAbsent() throws Exception {
-    TransactionReceipt onchainZero =
+    final TransactionReceipt onchainZero =
         TransactionReceipt.builder().blockNumber(0L).transactionIndex(0L).build();
-    String json = MAPPER.writeValueAsString(onchainZero);
+    final String json = MAPPER.writeValueAsString(onchainZero);
     assertTrue(json.contains("\"blockNumber\":0"));
     assertTrue(json.contains("\"transactionIndex\":0"));
 
-    TransactionReceipt offchain = TransactionReceipt.builder().build();
+    final TransactionReceipt offchain = TransactionReceipt.builder().build();
     assertNull(offchain.blockNumber());
     assertFalse(MAPPER.writeValueAsString(offchain).contains("blockNumber"));
   }
 
   @Test
   void parsesEventFinalizedReceipt() throws Exception {
-    String json =
+    final String json =
         "{"
             + "\"sequence\":5,"
             + "\"success\":true,"
             + "\"logIndex\":2,"
             + "\"source\":\"0x05d936207F04D81a85881b72A0D17854Ee8BE45A\"}";
-    TransactionReceipt receipt = MAPPER.readValue(json, TransactionReceipt.class);
+    final TransactionReceipt receipt = MAPPER.readValue(json, TransactionReceipt.class);
     assertEquals(2L, receipt.logIndex());
     assertEquals(
         EthAddress.fromString("0x05d936207F04D81a85881b72A0D17854Ee8BE45A"), receipt.source());

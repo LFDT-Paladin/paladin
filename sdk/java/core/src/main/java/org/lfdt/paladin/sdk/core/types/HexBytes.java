@@ -27,7 +27,7 @@ public final class HexBytes {
 
   private final byte[] value;
 
-  private HexBytes(byte[] value) {
+  private HexBytes(final byte[] value) {
     this.value = value;
   }
 
@@ -38,7 +38,7 @@ public final class HexBytes {
    * @return a {@code HexBytes} holding a defensive copy of {@code bytes}
    * @throws IllegalArgumentException if {@code bytes} is null
    */
-  public static HexBytes wrap(byte[] bytes) {
+  public static HexBytes wrap(final byte[] bytes) {
     if (bytes == null) {
       throw new IllegalArgumentException("bytes must not be null");
     }
@@ -53,7 +53,7 @@ public final class HexBytes {
    * @throws IllegalArgumentException if {@code s} is not valid hex
    */
   @JsonCreator
-  public static HexBytes fromString(String s) {
+  public static HexBytes fromString(final String s) {
     return new HexBytes(Hex.decode(s));
   }
 
@@ -109,7 +109,7 @@ public final class HexBytes {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }
