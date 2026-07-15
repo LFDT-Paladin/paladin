@@ -19,8 +19,11 @@ import {
   gotoPrivacyGroupMessages,
   gotoPrivacyGroups,
 } from '../helpers/navigation.js';
-import { formatHex } from '../mock-server/fixtures/format-utils.js';
-import { formatMessageId } from '../helpers/format.js';
+import {
+  formatMessageId,
+  formatPrivacyGroupAddress,
+  formatPrivacyGroupId,
+} from '../helpers/format.js';
 
 test.describe('Privacy Groups', () => {
   test.describe('Groups', () => {
@@ -47,11 +50,39 @@ test.describe('Privacy Groups', () => {
       // Navigate to fist privacy group
       await page.getByRole('button', { name: 'Open' }).first().click();
 
-      // Should navigate to privacy group details with hash in URL
-      await page.waitForURL(`**/ui/privacy-groups/groups/${formatHex(1, 64, 'e')}`);
+      // Should navigate to privacy group details with id in URL
+      await page.waitForURL(`**/ui/privacy-groups/groups/${formatPrivacyGroupId(1)}`);
       await expect(page.getByRole('tab', { name: 'group01 0xe0...0001' })).toBeVisible();
 
-      // Should show an option to go back to submissions
+      // Should show an option to go back to privacy groups
+      await expect(page.getByRole('button', { name: 'Back to Privacy Groups' })).toBeVisible();
+    });
+
+    test('Lookup privacy group by ID', async ({ page }) => {
+      // Use lookup dialog to enter privacy group ID
+      await page.getByRole('button', { name: 'Lookup' }).click();
+      await page.getByRole('textbox', { name: 'Privacy Group ID or Contract Address' }).fill(formatPrivacyGroupId(1));
+      await page.getByRole('button', { name: 'Lookup' }).click();
+
+      // Should navigate to privacy group details with id in URL
+      await page.waitForURL(`**/ui/privacy-groups/groups/${formatPrivacyGroupId(1)}`);
+      await expect(page.getByRole('tab', { name: 'group01 0xe0...0001' })).toBeVisible();
+
+      // Should show an option to go back to privacy groups
+      await expect(page.getByRole('button', { name: 'Back to Privacy Groups' })).toBeVisible();
+    });
+
+    test('Lookup privacy group by contract address', async ({ page }) => {
+      // Use lookup dialog to enter contract address
+      await page.getByRole('button', { name: 'Lookup' }).click();
+      await page.getByRole('textbox', { name: 'Privacy Group ID or Contract Address' }).fill(formatPrivacyGroupAddress(1));
+      await page.getByRole('button', { name: 'Lookup' }).click();
+
+      // Should navigate to privacy group details with address in URL
+      await page.waitForURL(`**/ui/privacy-groups/groups/${formatPrivacyGroupAddress(1)}`);
+      await expect(page.getByRole('tab', { name: 'group01 0xe0...0001' })).toBeVisible();
+
+      // Should show an option to go back to privacy groups
       await expect(page.getByRole('button', { name: 'Back to Privacy Groups' })).toBeVisible();
     });
 
@@ -90,14 +121,28 @@ test.describe('Privacy Groups', () => {
     });
 
     test('Explore message', async ({ page }) => {
-      // Navigate to fist privacy group
+      // Navigate to fist privacy group message
       await page.getByRole('button', { name: 'Open' }).first().click();
 
-      // Should navigate to privacy group details with hash in URL
+      // Should navigate to privacy group message details with id in URL
       await page.waitForURL(`**/ui/privacy-groups/messages/${formatMessageId(1)}`);
       await expect(page.getByRole('tab', { name: '0000...0001' })).toBeVisible();
 
-      // Should show an option to go back to submissions
+      // Should show an option to go back to messages
+      await expect(page.getByRole('button', { name: 'Back to Messages' })).toBeVisible();
+    });
+
+    test('Lookup privacy group message by ID', async ({ page }) => {
+      // Use lookup dialog to enter message ID
+      await page.getByRole('button', { name: 'Lookup' }).click();
+      await page.getByRole('textbox', { name: 'Message ID' }).fill(formatMessageId(1));
+      await page.getByRole('button', { name: 'Lookup' }).click();
+
+      // Should navigate to privacy group message details with id in URL
+      await page.waitForURL(`**/ui/privacy-groups/messages/${formatMessageId(1)}`);
+      await expect(page.getByRole('tab', { name: '0000...0001' })).toBeVisible();
+
+      // Should show an option to go back to messages
       await expect(page.getByRole('button', { name: 'Back to Messages' })).toBeVisible();
     });
 

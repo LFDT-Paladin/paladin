@@ -15,6 +15,7 @@
 // limitations under the License.
 
 import { expect, test } from '@playwright/test';
+import { formatReliableMessageId } from '../helpers/format.js';
 import {
   gotoTransportConnections,
   gotoTransportMessages,
@@ -87,6 +88,20 @@ test.describe('Transports', () => {
       for (let i = 1; i <= 25; i++) {
         await expect(page.getByRole('cell', { name: `node${i.toString().padStart(2, '0')}`, exact: true })).toHaveCount(2);
       }
+    });
+
+    test('Lookup transport message by ID', async ({ page }) => {
+      // Use lookup dialog to enter message ID
+      await page.getByRole('button', { name: 'Lookup' }).click();
+      await page.getByRole('textbox', { name: 'Message ID' }).fill(formatReliableMessageId(1));
+      await page.getByRole('button', { name: 'Lookup' }).click();
+
+      // Should navigate to transport message details with id in URL
+      await page.waitForURL(`**/ui/transports/messages/${formatReliableMessageId(1)}`);
+      await expect(page.getByRole('tab', { name: '0000...0001' })).toBeVisible();
+
+      // Should show an option to go back to transports
+      await expect(page.getByRole('button', { name: 'Back to Transports' })).toBeVisible();
     });
 
     test('Sort messages', async ({ page }) => {
