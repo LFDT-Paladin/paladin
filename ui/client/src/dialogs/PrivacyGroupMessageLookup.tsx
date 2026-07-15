@@ -62,7 +62,7 @@ export const PrivacyGroupMessageLookupDialog: React.FC<Props> = ({
   const handleSubmit = () => {
     setNotFound(false);
     messageById().then(result => {
-      if (result.data !== null) {
+      if (result.isSuccess && result.data !== null) {
         navigate(`/ui/privacy-groups/messages/${id}`);
       } else {
         setNotFound(true);

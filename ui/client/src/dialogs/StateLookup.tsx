@@ -67,7 +67,7 @@ export const StateLookupDialog: React.FC<Props> = ({
   const handleSubmit = () => {
     setNotFound(false);
     state().then(result => {
-      if (result.data !== null) {
+      if (result.isSuccess && result.data !== null) {
         navigate(`/ui/states/${domain}/${schemaId}/${stateId}`);
       } else {
         setNotFound(true);

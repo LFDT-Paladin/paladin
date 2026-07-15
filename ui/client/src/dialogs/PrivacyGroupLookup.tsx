@@ -70,7 +70,7 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
     setNotFound(false);
     if (isValidPrivacyGroupId(idOrContractAddress)) {
       privacyGroupById().then(result => {
-        if (result.data !== null) {
+        if (result.isSuccess) {
           navigate(`/ui/privacy-groups/groups/${idOrContractAddress}`);
         } else {
           setNotFound(true);
@@ -78,7 +78,7 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
       });
     } else if (isValidAddress(idOrContractAddress)) {
       privacyGroupByAddress().then(result => {
-        if (result.data !== null) {
+        if (result.isSuccess) {
           navigate(`/ui/privacy-groups/groups/${idOrContractAddress}`);
         } else {
           setNotFound(true);
