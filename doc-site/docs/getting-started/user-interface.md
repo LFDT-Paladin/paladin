@@ -16,24 +16,38 @@ Each Paladin node runs an instance of the Paladin UI at the path `/ui`. If you u
 
 ## Interacting with the UI
 
-### Indexer
+### Transactions
 
-The indexer panel displays recent transactions and events. 
-
-<img src="../../images/ui-indexer.png" alt="Indexer" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
-
-Clicking on `View Details` brings up detailed information on a transaction or event:
-
-<img src="../../images/ui-transaction.png" alt="Transaction" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
+<img src="../../images/ui-transactions.png" alt="Indexer" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
 
 ### Submissions
 
-The submissions panel displays recent transactions that have been submitted with an option to display only those in pending state.
-
 <img src="../../images/ui-submissions.png" alt="Submissions" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
 
-### Registry
+### Keys
 
-The registry panel displays the list of Paladin nodes.
+<img src="../../images/ui-keys.png" alt="Registry" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
 
-<img src="../../images/ui-registry.png" alt="Registry" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
+### Registries
+
+<img src="../../images/ui-registries.png" alt="Registry" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
+
+### Domains
+
+<img src="../../images/ui-domains.png" alt="Registry" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
+
+### Privacy Groups
+
+<img src="../../images/ui-privacy-groups.png" alt="Registry" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
+
+### States
+
+<img src="../../images/ui-states.png" alt="Registry" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
+
+### Transports
+
+<img src="../../images/ui-transports.png" alt="Registry" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
+
+### Listeners
+
+<img src="../../images/ui-listeners.png" alt="Registry" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57">
