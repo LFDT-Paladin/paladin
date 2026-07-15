@@ -135,6 +135,7 @@ COPY rpcauth/basicauth rpcauth/basicauth
 COPY signingmodules/example signingmodules/example
 COPY transports/grpc transports/grpc
 COPY ui/client ui/client
+COPY ui/e2e ui/e2e
 # No build of these four, but we need to go.mod to make the go.work valid
 COPY testinfra/go.mod testinfra/go.mod
 COPY operator/go.mod operator/go.mod

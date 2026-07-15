@@ -29,6 +29,8 @@ Open a web browser and navigate to `http://localhost:3000`, `http://localhost:30
 
 End-to-end tests use Playwright with a mock JSON-RPC server so no live Paladin node is required.
 
+As part of the project build, `./gradlew build` (or `./gradlew :ui:e2e:build`) runs these tests and fails if they do not pass.
+
 1. Install dependencies and Playwright browsers:
 ```
 cd e2e
@@ -40,6 +42,7 @@ npx playwright install chromium
 ```
 npm test
 ```
+
 
 3. Run a single suite:
 ```
