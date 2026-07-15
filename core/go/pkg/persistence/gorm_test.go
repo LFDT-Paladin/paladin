@@ -43,6 +43,7 @@ func newMockGormPSQLPersistence(t *testing.T) (Persistence, sqlmock.Sqlmock) {
 		p:    &postgresProvider{},
 		gdb:  gdb,
 		conf: &pldconf.SQLDBConfig{},
+		notx: newNOTX(gdb),
 	}, mdb
 }
 
