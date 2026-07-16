@@ -21,12 +21,12 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.databind.JsonNode;
 
 /**
- * The batching and start-block options for a blockchain-event listener, mirroring {@code
- * pldapi.BlockchainEventListenerOptions}. Immutable; build one with the {@linkplain #builder()
- * fluent builder}. All fields follow the Go {@code omitempty} convention.
+ * The batching and start-block options for a blockchain-event listener. Immutable; build one with
+ * the {@linkplain #builder() fluent builder}. All fields are optional and omitted from the JSON
+ * form when unset.
  *
- * <p>{@link #fromBlock()} mirrors Go's {@code json.RawMessage} (a block number or a special string
- * such as {@code "latest"}) and is surfaced as raw JSON.
+ * <p>{@link #fromBlock()} is a block number or a special string such as {@code "latest"}, surfaced
+ * as raw JSON.
  */
 @JsonPropertyOrder({"batchSize", "batchTimeout", "fromBlock"})
 public final class BlockchainEventListenerOptions {

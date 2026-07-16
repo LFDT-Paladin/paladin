@@ -43,8 +43,7 @@ import org.lfdt.paladin.sdk.core.types.Bytes32;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 
 /**
- * Client for the {@code ptx_*} RPC namespace (private transaction manager), mirroring Go's {@code
- * pldclient.PTX} ({@code sdk/go/pkg/pldclient/ptx.go}).
+ * Client for the {@code ptx_*} RPC namespace (private transaction manager).
  *
  * <p>Each method maps one-to-one to a JSON-RPC call on the underlying {@link RpcClient} and returns
  * a {@link CompletableFuture}; failures complete it exceptionally with a {@code PaladinException}
@@ -213,7 +212,7 @@ public final class PtxClient {
   }
 
   /**
-   * Fetches the states touched by a transaction ({@code ptx_getStateReceipt}).
+   * Fetches the states related to a transaction ({@code ptx_getStateReceipt}).
    *
    * @param id the transaction id
    * @return a future completing with the transaction states

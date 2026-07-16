@@ -26,8 +26,8 @@ import org.lfdt.paladin.sdk.core.types.EthAddress;
 
 /**
  * An ABI, optionally scoped to a single contract address, that a blockchain-event listener matches
- * against, mirroring {@code pldapi.BlockchainEventListenerSource}. Immutable; build one with the
- * {@linkplain #builder() fluent builder} to configure a listener.
+ * against. Immutable; build one with the {@linkplain #builder() fluent builder} to configure a
+ * listener.
  */
 @JsonPropertyOrder({"abi", "address"})
 public final class BlockchainEventListenerSource {

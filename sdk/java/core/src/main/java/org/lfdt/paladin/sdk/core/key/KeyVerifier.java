@@ -21,7 +21,7 @@ import java.util.Objects;
 
 /**
  * A resolved verifier (for example, an address) for a key, together with the algorithm and verifier
- * type it was produced under. Immutable; mirrors {@code pldapi.KeyVerifier}.
+ * type it was produced under. Immutable.
  */
 @JsonPropertyOrder({"verifier", "type", "algorithm"})
 public final class KeyVerifier {

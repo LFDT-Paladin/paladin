@@ -20,9 +20,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 /**
- * The binding of a Paladin transaction to a chained transaction it triggered, mirroring {@code
- * pldapi.ChainedDispatch}. Immutable. Returned by {@code ptx_getChainedDispatch} and {@code
- * ptx_queryChainedDispatches}.
+ * The binding of a Paladin transaction to a chained transaction it triggered. Immutable. Returned
+ * by {@code ptx_getChainedDispatch} and {@code ptx_queryChainedDispatches}.
  */
 @JsonPropertyOrder({"id", "transactionID", "chainedTransactionID"})
 public final class ChainedDispatch {

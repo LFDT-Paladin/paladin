@@ -22,12 +22,11 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * A resolved key mapping together with its verifier, mirroring {@code pldapi.KeyMappingAndVerifier}
- * (which inlines {@code KeyMappingWithPath} and its embedded {@code KeyMapping}).
+ * A resolved key mapping together with its verifier.
  *
- * <p>Immutable. The embedded mapping fields ({@link #identifier()}, {@link #wallet()}, {@link
- * #keyHandle()}, {@link #path()}) are flattened here to match the flat JSON wire form. The path
- * list is never {@code null} (empty when unset).
+ * <p>Immutable. The mapping fields ({@link #identifier()}, {@link #wallet()}, {@link #keyHandle()},
+ * {@link #path()}) are flattened here to match the flat JSON wire form. The path list is never
+ * {@code null} (empty when unset).
  */
 @JsonPropertyOrder({"identifier", "wallet", "keyHandle", "path", "verifier"})
 public final class KeyMappingAndVerifier {

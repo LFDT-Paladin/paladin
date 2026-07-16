@@ -26,8 +26,7 @@ import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 
 /**
- * Client for the {@code keymgr_*} RPC namespace (key manager), mirroring Go's {@code
- * pldclient.KeyManager} ({@code sdk/go/pkg/pldclient/keymgr.go}).
+ * Client for the {@code keymgr_*} RPC namespace (key manager).
  *
  * <p>Each method maps one-to-one to a JSON-RPC call on the underlying {@link RpcClient} and returns
  * a {@link CompletableFuture}; failures complete it exceptionally with a {@code PaladinException}

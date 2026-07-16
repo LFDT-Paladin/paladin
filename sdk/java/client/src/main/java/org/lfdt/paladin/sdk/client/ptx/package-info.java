@@ -14,7 +14,7 @@
  */
 
 /**
- * Client for the {@code ptx_*} RPC namespace (private transaction manager), mirroring Go's {@code
- * pldclient.PTX}. Built on the SDK's {@code RpcClient} transport.
+ * Client for the {@code ptx_*} RPC namespace (private transaction manager). Built on the SDK's
+ * {@code RpcClient} transport.
  */
 package org.lfdt.paladin.sdk.client.ptx;

@@ -18,10 +18,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
-/**
- * The block a blockchain-event listener has processed up to, mirroring {@code
- * pldapi.BlockchainEventListenerCheckpoint}. Immutable.
- */
+/** The block a blockchain-event listener has processed up to. Immutable. */
 @JsonPropertyOrder({"blockNumber"})
 public final class BlockchainEventListenerCheckpoint {
 

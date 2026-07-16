@@ -28,13 +28,12 @@ import org.lfdt.paladin.sdk.core.types.HexBytes;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
 /**
- * A {@link TransactionReceipt} enriched with the states it touched, the domain receipt, and any
- * associated public transactions, mirroring {@code pldapi.TransactionReceiptFull}. Immutable.
+ * A {@link TransactionReceipt} enriched with its related states, the domain receipt, and any
+ * associated public transactions. Immutable.
  *
  * <p>The base receipt fields are re-declared and flattened here to match the flat JSON wire form,
  * exactly as {@link TransactionFull} does over {@link Transaction}. The {@link #domainReceipt()}
- * mirrors Go's {@code pldtypes.RawJSON} and the {@link #publicTransactions()} block mirrors Go's
- * {@code []*PublicTx} (not yet ported); both are surfaced as raw JSON.
+ * and the {@link #publicTransactions()} block are surfaced as raw JSON.
  */
 @JsonPropertyOrder({
   "id",
@@ -103,7 +102,7 @@ public final class TransactionReceiptFull extends TransactionReceipt {
   }
 
   /**
-   * The states touched by the transaction.
+   * The states related to the transaction.
    *
    * @return the transaction states, or {@code null} if unset
    */
@@ -136,7 +135,7 @@ public final class TransactionReceiptFull extends TransactionReceipt {
   }
 
   /**
-   * The associated public transactions, surfaced as raw JSON (mirrors Go's {@code []*PublicTx}).
+   * The associated public transactions, surfaced as raw JSON.
    *
    * @return the public transactions, never {@code null} (empty when unset)
    */

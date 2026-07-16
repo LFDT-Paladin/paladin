@@ -23,8 +23,8 @@ import java.util.Objects;
 
 /**
  * One node returned by {@code keymgr_queryKeys} — either a key (when {@link #isKey()}) or an
- * intermediate path node (when {@link #hasChildren()}). Immutable; mirrors {@code
- * pldapi.KeyQueryEntry}. The verifiers list is never {@code null}.
+ * intermediate path node (when {@link #hasChildren()}). Immutable. The verifiers list is never
+ * {@code null}.
  */
 @JsonPropertyOrder({
   "isKey",

@@ -20,9 +20,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 /**
- * The binding of a Paladin transaction to the public transaction it was dispatched as, mirroring
- * {@code pldapi.Dispatch}. Immutable. Returned by {@code ptx_getDispatch} and {@code
- * ptx_queryDispatches}.
+ * The binding of a Paladin transaction to the public transaction it was dispatched as. Immutable.
+ * Returned by {@code ptx_getDispatch} and {@code ptx_queryDispatches}.
  */
 @JsonPropertyOrder({"id", "transactionID", "publicTransactionID"})
 public final class Dispatch {

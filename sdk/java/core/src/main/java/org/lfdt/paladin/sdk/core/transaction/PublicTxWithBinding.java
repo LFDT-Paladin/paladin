@@ -30,14 +30,12 @@ import org.lfdt.paladin.sdk.core.types.HexUint64;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
 /**
- * A public transaction together with its binding back to the owning Paladin transaction, mirroring
- * {@code pldapi.PublicTxWithBinding} — an embedded {@code PublicTx} (including its inlined {@code
- * PublicTxOptions}/{@code PublicTxGasPricing} gas fields) plus the {@code PublicTxBinding}.
+ * A public transaction together with its binding back to the owning Paladin transaction — the
+ * public transaction fields (including its gas options and gas-pricing detail) plus the binding.
  * Immutable.
  *
- * <p>Both embedded structs are flattened onto the flat JSON wire form. The {@link #submissions()}
- * and {@link #activity()} lists mirror Go's {@code []*PublicTxSubmissionData} / {@code
- * []TransactionActivityRecord} (not yet ported) and are surfaced as raw JSON.
+ * <p>All fields are flattened onto the flat JSON wire form. The {@link #submissions()} and {@link
+ * #activity()} lists are not yet typed and are surfaced as raw JSON.
  */
 @JsonPropertyOrder({
   "localId",
@@ -114,7 +112,7 @@ public final class PublicTxWithBinding {
     this.data = data;
     this.from = from;
     this.nonce = nonce;
-    // A zero timestamp is "unset" (Go omitempty); normalize to null to keep round-trips clean.
+    // The node sends a zero timestamp for "unset"; normalize to null to keep round-trips clean.
     this.created = (created == null || created.isZero()) ? null : created;
     this.dispatcher = dispatcher;
     this.completedAt = (completedAt == null || completedAt.isZero()) ? null : completedAt;

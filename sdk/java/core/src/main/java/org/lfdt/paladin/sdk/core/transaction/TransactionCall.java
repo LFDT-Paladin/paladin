@@ -20,9 +20,9 @@ import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import java.util.Objects;
 
 /**
- * The input to {@code ptx_call}, mirroring {@code pldapi.TransactionCall} — an embedded {@link
- * TransactionInput} plus the {@code PublicCallOptions} block and the {@code JSONFormatOptions} data
- * format. Immutable; build one with the {@linkplain #builder(TransactionInput) fluent builder}.
+ * The input to {@code ptx_call} — an embedded {@link TransactionInput} plus the public-call {@code
+ * block} option and the output data format. Immutable; build one with the {@linkplain
+ * #builder(TransactionInput) fluent builder}.
  *
  * <p>The input fields are unwrapped onto the flat JSON wire form. The {@link #block()} is a number
  * or a special string such as {@code "latest"}.

@@ -23,12 +23,11 @@ import java.util.UUID;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 
 /**
- * A transaction that has been assembled and prepared for submission, mirroring {@code
- * pldapi.PreparedTransaction} — the embedded {@code PreparedTransactionBase} ({@code id}, {@code
- * domain}, {@code to}, the assembled {@link TransactionInput}, and optional metadata) plus the
+ * A transaction that has been assembled and prepared for submission — its {@code id}, {@code
+ * domain}, {@code to}, the assembled {@link TransactionInput}, and optional metadata, plus the
  * states it will produce. Immutable.
  *
- * <p>The {@link #metadata()} mirrors Go's {@code pldtypes.RawJSON} and is surfaced as raw JSON.
+ * <p>The {@link #metadata()} is surfaced as raw JSON.
  */
 @JsonPropertyOrder({"id", "domain", "to", "transaction", "metadata", "states"})
 public final class PreparedTransaction {

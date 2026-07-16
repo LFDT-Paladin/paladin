@@ -19,10 +19,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.util.Objects;
 
-/**
- * One named, indexed segment of the hierarchical path that resolves to a key. Immutable; mirrors
- * {@code pldapi.KeyPathSegment}.
- */
+/** One named, indexed segment of the hierarchical path that resolves to a key. Immutable. */
 @JsonPropertyOrder({"name", "index"})
 public final class KeyPathSegment {
 

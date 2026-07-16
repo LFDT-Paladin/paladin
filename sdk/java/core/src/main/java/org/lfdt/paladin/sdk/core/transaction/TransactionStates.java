@@ -23,13 +23,11 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The state buckets a transaction touched — spent, read, confirmed, and info — plus an unavailable
- * block listing states whose data the node does not hold, mirroring {@code
- * pldapi.TransactionStates}. Immutable.
+ * The state buckets related to a transaction — spent, read, confirmed, and info — plus an
+ * unavailable block listing states whose data the node does not hold. Immutable.
  *
- * <p>The individual states mirror Go's {@code []*pldapi.StateBase} and the {@link #unavailable()}
- * block mirrors {@code *pldapi.UnavailableStates}; neither is ported yet, so both are surfaced as
- * raw JSON to keep round-trips exact.
+ * <p>Typed models for the individual states and the {@link #unavailable()} block are not yet built,
+ * so both are surfaced as raw JSON to keep round-trips exact.
  */
 @JsonPropertyOrder({"none", "spent", "read", "confirmed", "info", "unavailable"})
 public final class TransactionStates {
@@ -58,7 +56,7 @@ public final class TransactionStates {
   }
 
   /**
-   * Whether the transaction touched no states.
+   * Whether the transaction has no related states.
    *
    * @return {@code true} if there are no states
    */

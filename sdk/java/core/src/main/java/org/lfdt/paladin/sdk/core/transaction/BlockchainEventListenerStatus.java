@@ -21,8 +21,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 /**
  * The runtime status of a blockchain-event listener — whether it is catching up and its current
- * checkpoint, mirroring {@code pldapi.BlockchainEventListenerStatus}. Immutable. Returned by {@code
- * ptx_getBlockchainEventListenerStatus}.
+ * checkpoint. Immutable. Returned by {@code ptx_getBlockchainEventListenerStatus}.
  */
 @JsonPropertyOrder({"catchup", "checkpoint"})
 public final class BlockchainEventListenerStatus {

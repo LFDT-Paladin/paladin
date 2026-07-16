@@ -20,9 +20,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 /**
- * The filters that select which receipts a listener delivers, mirroring {@code
- * pldapi.TransactionReceiptFilters}. Immutable; build one with the {@linkplain #builder() fluent
- * builder} to configure a receipt listener. All fields follow the Go {@code omitempty} convention.
+ * The filters that select which receipts a listener delivers. Immutable; build one with the
+ * {@linkplain #builder() fluent builder} to configure a receipt listener. All fields are optional
+ * and omitted from the JSON form when unset.
  */
 @JsonPropertyOrder({"sequenceAbove", "type", "domain"})
 public final class TransactionReceiptFilters {

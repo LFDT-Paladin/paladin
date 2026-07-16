@@ -27,9 +27,8 @@ import org.lfdt.paladin.sdk.core.types.HexUint64;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
 /**
- * A transaction as recorded by the node, mirroring {@code pldapi.Transaction} — the
- * server-generated {@code id}/{@code created}/{@code submitMode} plus the embedded {@code
- * TransactionBase} fields. Immutable.
+ * A transaction as recorded by the node — the server-generated {@code id}/{@code created}/{@code
+ * submitMode} plus the common transaction fields. Immutable.
  *
  * <p>The base fields are flattened here to match the flat JSON wire form, as in {@link
  * TransactionInput}. Subclassed by {@link TransactionFull}, so this type is not {@code final}.
@@ -87,7 +86,7 @@ public class Transaction {
       @JsonProperty("maxPriorityFeePerGas") final HexUint256 maxPriorityFeePerGas,
       @JsonProperty("maxFeePerGas") final HexUint256 maxFeePerGas) {
     this.id = id;
-    // A zero timestamp is "unset" (Go omitempty); normalize to null to keep round-trips clean.
+    // The node sends a zero timestamp for "unset"; normalize to null to keep round-trips clean.
     this.created = (created == null || created.isZero()) ? null : created;
     this.submitMode = submitMode;
     this.idempotencyKey = idempotencyKey;

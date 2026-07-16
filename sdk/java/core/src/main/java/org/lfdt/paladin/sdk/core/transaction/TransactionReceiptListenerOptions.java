@@ -20,12 +20,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 /**
- * The delivery options for a receipt listener, mirroring {@code
- * pldapi.TransactionReceiptListenerOptions}. Immutable; build one with the {@linkplain #builder()
+ * The delivery options for a receipt listener. Immutable; build one with the {@linkplain #builder()
  * fluent builder}.
  *
- * <p>{@link #incompleteStateReceiptBehavior()} mirrors the Go {@code
- * Enum[IncompleteStateReceiptBehavior]} and is one of {@code "block_contract"} (default), {@code
+ * <p>{@link #incompleteStateReceiptBehavior()} is one of {@code "block_contract"} (default), {@code
  * "process"}, or {@code "complete_only"}.
  */
 @JsonPropertyOrder({"domainReceipts", "incompleteStateReceiptBehavior"})

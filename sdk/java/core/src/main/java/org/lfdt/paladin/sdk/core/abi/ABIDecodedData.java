@@ -21,12 +21,11 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.databind.JsonNode;
 
 /**
- * The result of decoding revert, call, or event data against a stored ABI, mirroring {@code
- * pldapi.ABIDecodedData}. Immutable. Returned by {@code ptx_decodeError}, {@code ptx_decodeCall},
- * and {@code ptx_decodeEvent}.
+ * The result of decoding revert, call, or event data against a stored ABI. Immutable. Returned by
+ * {@code ptx_decodeError}, {@code ptx_decodeCall}, and {@code ptx_decodeEvent}.
  *
- * <p>The decoded {@link #data()} mirrors Go's {@code pldtypes.RawJSON} and is surfaced as raw JSON;
- * the matched {@link #definition()} is a typed {@link AbiEntry}.
+ * <p>The decoded {@link #data()} is surfaced as raw JSON; the matched {@link #definition()} is a
+ * typed {@link AbiEntry}.
  */
 @JsonPropertyOrder({"data", "summary", "definition", "signature"})
 public final class ABIDecodedData {

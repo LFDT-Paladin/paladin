@@ -21,8 +21,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
 /**
- * A named, filtered stream of transaction receipts, mirroring {@code
- * pldapi.TransactionReceiptListener}. Immutable.
+ * A named, filtered stream of transaction receipts. Immutable.
  *
  * <p>Used both as the input to {@code ptx_createReceiptListener} and as the result of {@code
  * ptx_getReceiptListener} / {@code ptx_queryReceiptListeners}; build one with the {@linkplain
@@ -45,7 +44,7 @@ public final class TransactionReceiptListener {
       @JsonProperty("filters") final TransactionReceiptFilters filters,
       @JsonProperty("options") final TransactionReceiptListenerOptions options) {
     this.name = name;
-    // A zero timestamp is "unset" (Go omitempty); normalize to null to keep round-trips clean.
+    // The node sends a zero timestamp for "unset"; normalize to null to keep round-trips clean.
     this.created = (created == null || created.isZero()) ? null : created;
     this.started = started;
     this.filters = filters;

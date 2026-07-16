@@ -24,8 +24,8 @@ import org.lfdt.paladin.sdk.core.types.Bytes32;
 
 /**
  * The thin record automatically stored for any ABI used in a transaction — a deterministic hash of
- * the ABI together with the ABI itself. Immutable; mirrors {@code pldapi.StoredABI}. Returned by
- * {@code ptx_getStoredABI} and {@code ptx_queryStoredABIs}.
+ * the ABI together with the ABI itself. Immutable. Returned by {@code ptx_getStoredABI} and {@code
+ * ptx_queryStoredABIs}.
  */
 @JsonPropertyOrder({"hash", "abi"})
 public final class StoredABI {

@@ -14,8 +14,7 @@
  */
 
 /**
- * Key-manager data models for the Paladin Java SDK, mirroring the key types in {@code
- * sdk/go/pkg/pldapi} (keymgr). Each type is an immutable, self-serializing response model returned
- * by the {@code keymgr_*} RPC namespace.
+ * Key-manager data models for the Paladin Java SDK. Each type is an immutable, self-serializing
+ * response model returned by the {@code keymgr_*} RPC namespace.
  */
 package org.lfdt.paladin.sdk.core.key;

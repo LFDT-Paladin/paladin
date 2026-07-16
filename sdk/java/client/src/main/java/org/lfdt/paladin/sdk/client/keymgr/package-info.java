@@ -14,7 +14,7 @@
  */
 
 /**
- * Client for the {@code keymgr_*} RPC namespace (key management), mirroring Go's {@code
- * pldclient.KeyManager}. Built on the SDK's {@code RpcClient} transport.
+ * Client for the {@code keymgr_*} RPC namespace (key management). Built on the SDK's {@code
+ * RpcClient} transport.
  */
 package org.lfdt.paladin.sdk.client.keymgr;

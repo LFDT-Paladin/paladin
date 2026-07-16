@@ -26,9 +26,7 @@ import org.lfdt.paladin.sdk.core.types.HexBytes;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
 /**
- * The receipt returned once a transaction reaches a final state, mirroring {@code
- * pldapi.TransactionReceipt} (which embeds {@code TransactionReceiptData} and its inlined {@code
- * TransactionReceiptDataOnchain} / {@code TransactionReceiptDataOnchainEvent} blocks).
+ * The receipt returned once a transaction reaches a final state.
  *
  * <p>Immutable and self-serializing. The on-chain fields ({@link #transactionHash()}, {@link
  * #blockNumber()}, {@link #transactionIndex()}, {@link #logIndex()}, {@link #source()}) are
@@ -83,7 +81,7 @@ public class TransactionReceipt {
       @JsonProperty("revertData") final HexBytes revertData,
       @JsonProperty("contractAddress") final EthAddress contractAddress) {
     this.id = id;
-    // A zero timestamp is "unset" (Go omitempty); the Timestamp deserializer yields a zero rather
+    // The node sends a zero timestamp for "unset"; the Timestamp deserializer yields a zero rather
     // than null for an absent field, so normalize here to keep round-trips and equality clean.
     this.indexed = (indexed == null || indexed.isZero()) ? null : indexed;
     this.sequence = sequence;

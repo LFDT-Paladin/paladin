@@ -30,12 +30,11 @@ import org.lfdt.paladin.sdk.core.types.Timestamp;
 
 /**
  * A {@link Transaction} enriched with dependencies, receipt, and associated
- * public/history/sequencer detail, mirroring {@code pldapi.TransactionFull}. Immutable.
+ * public/history/sequencer detail. Immutable.
  *
  * <p>The {@link #dependsOn()} list and the {@link #receipt()} are typed; the {@link
  * #publicTransactions()}, {@link #history()}, and {@link #sequencerActivity()} blocks are surfaced
- * as raw JSON for now (they mirror Go's {@code []*PublicTx} / {@code []*TransactionHistory} /
- * {@code []*SequencerActivity}, which are not yet ported).
+ * as raw JSON for now (typed models for them are not yet built).
  */
 @JsonPropertyOrder({
   "id",
@@ -137,7 +136,7 @@ public final class TransactionFull extends Transaction {
   }
 
   /**
-   * The associated public transactions, surfaced as raw JSON (mirrors Go's {@code []*PublicTx}).
+   * The associated public transactions, surfaced as raw JSON.
    *
    * @return the public transactions, never {@code null} (empty when unset)
    */
@@ -148,7 +147,7 @@ public final class TransactionFull extends Transaction {
   }
 
   /**
-   * The transaction history, surfaced as raw JSON (mirrors Go's {@code []*TransactionHistory}).
+   * The transaction history, surfaced as raw JSON.
    *
    * @return the history entries, never {@code null} (empty when unset)
    */
@@ -159,7 +158,7 @@ public final class TransactionFull extends Transaction {
   }
 
   /**
-   * The sequencer activity, surfaced as raw JSON (mirrors Go's {@code []*SequencerActivity}).
+   * The sequencer activity, surfaced as raw JSON.
    *
    * @return the sequencer activity entries, never {@code null} (empty when unset)
    */
