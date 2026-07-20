@@ -60,7 +60,6 @@ func (op *pendingStateWrites) exec(ctx context.Context, dbTX persistence.DBTX) e
 
 	// Build lists of things to insert (we are insert only)
 	var states []*pldapi.State
-	var stateLocks []*pldapi.StateLock
 	var stateNullifiers []*pldapi.StateNullifier
 	for _, s := range op.states {
 		states = append(states, s.State)
@@ -68,8 +67,8 @@ func (op *pendingStateWrites) exec(ctx context.Context, dbTX persistence.DBTX) e
 	if len(op.stateNullifiers) > 0 {
 		stateNullifiers = append(stateNullifiers, op.stateNullifiers...)
 	}
-	log.L(ctx).Debugf("Writing state batch states=%d locks=%d nullifiers=%d ",
-		len(states), len(stateLocks), len(stateNullifiers))
+	log.L(ctx).Debugf("Writing state batch states=%d nullifiers=%d ",
+		len(states), len(stateNullifiers))
 
 	var err error
 

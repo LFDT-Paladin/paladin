@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -551,7 +552,7 @@ func Test_addToDelegatedTransactions_SendDelegationResponseError_ReturnsError(t 
 	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("send ack failed"))
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("send ack failed"))
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 
@@ -725,10 +726,10 @@ func Test_addToDelegatedTransactions_SubsequentTransactionGetsPreviousTransactio
 
 	var capturedErrors []int64
 	c, mocks := builder.WithMockTransportWriter().Build()
-	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(errors []int64) bool {
-		capturedErrors = errors
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.MatchedBy(func(msg *engineProto.DelegationResponse) bool {
+		capturedErrors = msg.Errors
 		return true
-	}), mock.Anything).Return(nil)
+	})).Return(nil)
 
 	txn1 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 	txn2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
@@ -751,7 +752,7 @@ func Test_addToDelegatedTransactions_ErrorStopsSubsequentTransactionsBeingAccept
 
 	fifthErr := fmt.Errorf("fifth transaction HandleEvent failed")
 	c, mocks := builder.WithMockTransportWriter().Build()
-	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	// Delegate 10 transactions. TX 5 fails at HandleEvent time. 5-10 should not be in the TX list for the coordinator
 	txns := make([]*components.PrivateTransaction, 10)
@@ -808,7 +809,7 @@ func Test_addToDelegatedTransactions_FifthFailsThenFullRetry_PreservesFirstFourA
 	fifthErr := fmt.Errorf("fifth transaction HandleEvent failed")
 
 	c, mocks := builder.WithMockTransportWriter().Build()
-	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Twice()
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything).Return(nil).Twice()
 
 	txns := make([]*components.PrivateTransaction, 10)
 	for i := range txns {
@@ -1344,7 +1345,10 @@ func Test_nudgeHandoverRequest_WithPendingRequest_CallsNudge(t *testing.T) {
 	mocks.TransportWriter.EXPECT().SendHandoverRequest(mock.Anything, "node2", mock.Anything).Return(nil).Once()
 	// A freshly created IdempotentRequest (requestTime == nil) always sends on first Nudge.
 	c.pendingHandoverRequest = common.NewIdempotentRequest(ctx, c.clock, c.requestTimeout, func(ctx context.Context, _ uuid.UUID) error {
-		return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, c.contractAddress)
+		return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, &engineProto.CoordinatorHandoverRequest{
+			FromNode:        c.nodeName,
+			ContractAddress: c.contractAddress.HexString(),
+		})
 	})
 
 	err := c.nudgeHandoverRequest(ctx)

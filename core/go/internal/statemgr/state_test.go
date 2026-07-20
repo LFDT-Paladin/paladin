@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
@@ -428,27 +429,56 @@ func TestValidateStates(t *testing.T) {
 
 	contractAddress := *pldtypes.RandAddress()
 
-	upsert1 := &components.StateUpsert{
-		ID:     fakeHash1,
-		Schema: schemaID,
-		Data:   pldtypes.RawJSON(fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32))),
+	state1 := &prototk.EndorsableState{
+		Id:            fakeHash1.String(),
+		SchemaId:      schemaID.String(),
+		StateDataJson: fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32)),
 	}
 	states, err := ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, true,
-		upsert1,
-		&components.StateUpsert{
-			ID:     fakeHash2,
-			Schema: schemaID,
-			Data:   pldtypes.RawJSON(fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32))),
+		state1,
+		&prototk.EndorsableState{
+			Id:            fakeHash2.String(),
+			SchemaId:      schemaID.String(),
+			StateDataJson: fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32)),
 		},
 	)
 	require.NoError(t, err)
 	require.Len(t, states, 2)
-	assert.NotEmpty(t, states[0].ID)
-	assert.Equal(t, fakeHash2, states[1].ID)
+	assert.NotEmpty(t, states[0].Id)
+	assert.Equal(t, fakeHash2.String(), states[1].Id)
 
 	// Empty call is a no-op
 	states, err = ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, true)
 	require.NoError(t, err)
 	require.Empty(t, states)
+
+}
+
+func TestValidateStatesBadSchema(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	contractAddress := *pldtypes.RandAddress()
+	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, false, &prototk.EndorsableState{
+		SchemaId:      pldtypes.RandBytes32().String(),
+		StateDataJson: `{}`,
+	})
+	assert.Regexp(t, "PD010106", err) // unknown schema
+
+}
+
+func TestValidateStatesBadStateID(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	contractAddress := *pldtypes.RandAddress()
+	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, false, &prototk.EndorsableState{
+		Id:            "not-valid-hex",
+		SchemaId:      pldtypes.RandBytes32().String(),
+		StateDataJson: `{}`,
+	})
+	require.Error(t, err)
 
 }

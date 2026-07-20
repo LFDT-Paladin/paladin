@@ -41,7 +41,6 @@ func TestMockDomainCallbacks_FindAvailableStates(t *testing.T) {
 							SchemaId:  "schema1",
 							CreatedAt: 123456789,
 							DataJson:  `{"key": "value"}`,
-							Locks:     []*pb.StateLock{},
 						},
 					},
 				}, nil
@@ -52,7 +51,6 @@ func TestMockDomainCallbacks_FindAvailableStates(t *testing.T) {
 					SchemaId:  "schema1",
 					CreatedAt: 123456789,
 					DataJson:  `{"key": "value"}`,
-					Locks:     []*pb.StateLock{},
 				},
 			},
 			expectedError: nil,

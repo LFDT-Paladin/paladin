@@ -99,7 +99,7 @@ func TestStateMachine_Idle_TransactionCreated_EpochBoundary_EndorserMode_ResetsT
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(10))
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "A", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "A", mock.Anything).
 		Return(nil).Once()
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
@@ -209,7 +209,7 @@ func TestStateMachine_Idle_TransactionCreated_TransitionsToSending_SendsDelegati
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Times(2)
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything).
 		Return(nil).Once()
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
@@ -319,7 +319,7 @@ func TestStateMachine_Observing_TransactionCreated_TransitionsToSending_SendsDel
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything).
 		Return(nil).Once()
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
@@ -544,7 +544,7 @@ func TestStateMachine_Sending_TransactionCreated_CreatesTxnAndDelegates(t *testi
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything).
 		Return(nil).Once()
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
@@ -590,7 +590,7 @@ func TestStateMachine_Sending_HeartbeatReceived_DroppedTransaction_Redelegates(t
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything).
 		Return(nil).Once()
 
 	// Heartbeat with empty snapshot — txID is absent ⇒ dropped.
@@ -654,7 +654,7 @@ func TestStateMachine_Sending_HeartbeatReceived_HigherPriorityActiveNode_Redirec
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "node1", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "node1", mock.Anything).
 		Return(nil).Once()
 
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatReceivedEvent{
@@ -704,7 +704,7 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_NoEndorserMode_Red
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything).
 		Return(nil).Once()
 
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
@@ -735,7 +735,7 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_EndorserMode_Failo
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "B", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "B", mock.Anything).
 		Return(nil).Once()
 
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
@@ -767,7 +767,7 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_EndorserMode_WrapA
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "C", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "C", mock.Anything).
 		Return(nil).Once()
 
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
@@ -797,7 +797,7 @@ func TestStateMachine_Sending_DelegationRejected_HigherPriority_RedirectsAndRede
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "node1", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "node1", mock.Anything).
 		Return(nil).Once()
 
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &DelegationRequestRejectedEvent{
@@ -983,7 +983,7 @@ func TestStateMachine_Sending_HeartbeatReceived_Step3_GraceExceeded_SwitchesCoor
 	// Step 5 fires because empty snapshot means txID is dropped → redelegate.
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
 	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "node3", mock.Anything, mock.Anything).
+		SendDelegationRequest(mock.Anything, "node3", mock.Anything).
 		Return(nil).Once()
 
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatReceivedEvent{
