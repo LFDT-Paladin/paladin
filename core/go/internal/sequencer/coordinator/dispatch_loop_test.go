@@ -392,6 +392,81 @@ func TestSetDispatchedInFlight_AddAndRemove(t *testing.T) {
 	assert.Equal(t, 0, len(c.inFlightTxns))
 }
 
+// TestDispatchLoop_CapsBatchSize verifies the dispatch loop never pulls more than maxDispatchBatchSize
+// transactions per batch, splitting a larger queue into multiple batches while preserving pull order.
+func TestDispatchLoop_CapsBatchSize(t *testing.T) {
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
+	config := builder.GetSequencerConfig()
+	config.MaxDispatchAhead = confutil.P(50)
+	config.MaxDispatchBatchSize = confutil.P(2)
+	builder.OverrideSequencerConfig(config)
+
+	c, mocks := builder.Build()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	context.AfterFunc(ctx, func() {
+		c.inFlightMutex.L.Lock()
+		c.inFlightMutex.Broadcast()
+		c.inFlightMutex.L.Unlock()
+	})
+
+	// Three transactions, each with its own plain (no chained children) pending dispatch.
+	var wantOrder []uuid.UUID
+	for i := 0; i < 3; i++ {
+		pd := &syncpoints.PendingDispatch{Dispatch: &syncpoints.TransactionDispatch{}}
+		tx := newDispatchTxMock(t, pd)
+		// newDispatchTxMock stamps pd.TransactionID with the mock's own id.
+		wantOrder = append(wantOrder, pd.TransactionID)
+		c.dispatchQueue <- tx
+	}
+
+	// Capture each committed batch's transaction ids. The .Run runs on the dispatch-loop goroutine; the
+	// buffered channel both hands the ids to the test goroutine and synchronises the two commits.
+	committed := make(chan []uuid.UUID, 2)
+	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Run(func(_ context.Context, batch *syncpoints.DispatchBatch) {
+		ids := make([]uuid.UUID, 0, len(batch.Dispatches()))
+		for _, pd := range batch.Dispatches() {
+			ids = append(ids, pd.TransactionID)
+		}
+		committed <- ids
+	}).Return(nil)
+
+	done := make(chan struct{})
+	c.dispatchLoopDone = done
+	go func() {
+		defer close(done)
+		c.dispatchLoop(ctx)
+	}()
+
+	var batches [][]uuid.UUID
+	for len(batches) < 2 {
+		select {
+		case ids := <-committed:
+			batches = append(batches, ids)
+		case <-time.After(time.Second):
+			t.Fatal("did not observe two committed batches within timeout")
+		}
+	}
+
+	require.Len(t, batches, 2, "expected exactly two committed batches")
+	assert.Len(t, batches[0], 2, "first batch must be capped at MaxDispatchBatchSize")
+	assert.Len(t, batches[1], 1, "second batch holds the remaining transaction")
+
+	var gotOrder []uuid.UUID
+	gotOrder = append(gotOrder, batches[0]...)
+	gotOrder = append(gotOrder, batches[1]...)
+	assert.Equal(t, wantOrder, gotOrder, "pull order must be preserved across the batch split")
+
+	cancel()
+	select {
+	case <-c.dispatchLoopDone:
+	case <-time.After(time.Second):
+		t.Fatal("dispatch loop did not stop within timeout")
+	}
+}
+
 // newDispatchTxMock builds a CoordinatorTransaction mock that dispatches successfully and returns the given
 // pending dispatch (its TransactionID is set to the mock's ID). Pass pd == nil to model a transaction that
 // prepared no dispatch (repooled before its event).

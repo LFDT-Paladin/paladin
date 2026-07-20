@@ -38,6 +38,9 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 				log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
 				return
 			}
+			if capacity > c.maxDispatchBatchSize {
+				capacity = c.maxDispatchBatchSize
+			}
 			batch := c.pullDispatchBatch(tx, capacity)
 			c.dispatchBatch(ctx, batch)
 		case <-ctx.Done():

@@ -807,6 +807,7 @@
 | idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
 | inactiveGracePeriod | Number of heartbeat intervals without activity before a node is considered inactive | `int` | `2` |
 | maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
+| maxDispatchBatchSize | Maximum number of transactions prepared and committed in a single dispatch batch | `int` | `20` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
 | originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
