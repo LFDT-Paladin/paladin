@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".d2", ".mermaid", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -1075,13 +1075,6 @@
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="../../reference/types/statelock/">
-<span class="md-ellipsis">
-    StateLock
-  </span>
-</a>
-</li>
-<li class="md-nav__item">
 <a class="md-nav__link" href="../../reference/types/statespend/">
 <span class="md-ellipsis">
     StateSpend
@@ -1317,6 +1310,13 @@
 </nav>
 </li>
 <li class="md-nav__item">
+<a class="md-nav__link" href="#backwards-compatibility">
+<span class="md-ellipsis">
+      Backwards compatibility
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
 <a class="md-nav__link" href="#inclusive-language">
 <span class="md-ellipsis">
       Inclusive Language
@@ -1439,6 +1439,13 @@
 </nav>
 </li>
 <li class="md-nav__item">
+<a class="md-nav__link" href="#backwards-compatibility">
+<span class="md-ellipsis">
+      Backwards compatibility
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
 <a class="md-nav__link" href="#inclusive-language">
 <span class="md-ellipsis">
       Inclusive Language
@@ -1505,6 +1512,12 @@ enhancement. Here are some example scenarios:</p>
 <li>The PR must be approved by at least two reviewers without any
   outstanding requests for changes</li>
 </ul>
+<h2 id="backwards-compatibility">Backwards compatibility<a class="headerlink" href="#backwards-compatibility" title="Permanent link">¶</a></h2>
+<p>All changes must be backwards compatibile within a major version. This means that:
+* A plugin (e.g. a domain) developed against Paladin core <code>v1.x</code> must continue to work with Paladin core <code>v1.x+n</code> without any changes required in the domain
+* A node running Paladin core <code>v1.x</code> must be able to participate in a domain with a node running Paladin core <code>v1.x+n</code></p>
+<p>There are some exceptions to this, where the amount of changes required has meant that maintaining backwards compatibility has not been achievable: 
+* <code>v1.0</code> -&gt; <code>v1.1</code> includes a large refactor to use proto definitions more efficiently</p>
 <h2 id="inclusive-language">Inclusive Language<a class="headerlink" href="#inclusive-language" title="Permanent link">¶</a></h2>
 <ul>
 <li>Consider that users who will read the source code and documentation are from different background and cultures and that they have different preferences.</li>
