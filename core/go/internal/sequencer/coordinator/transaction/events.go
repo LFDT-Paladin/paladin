@@ -16,7 +16,6 @@
 package transaction
 
 import (
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -91,7 +90,7 @@ func (*AssembleRequestSentEvent) TypeString() string {
 
 type AssembleSuccessEvent struct {
 	BaseCoordinatorEvent
-	PostAssembly *components.TransactionPostAssembly
+	PostAssembly *prototk.TransactionPostAssembly
 	RequestID    uuid.UUID
 }
 
@@ -105,7 +104,7 @@ func (*AssembleSuccessEvent) TypeString() string {
 
 type AssembleRevertEvent struct {
 	BaseCoordinatorEvent
-	PostAssembly *components.TransactionPostAssembly
+	PostAssembly *prototk.TransactionPostAssembly
 	RequestID    uuid.UUID
 }
 

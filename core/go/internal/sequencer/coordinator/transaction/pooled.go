@@ -194,10 +194,13 @@ func action_NotifyOriginatorOfChainedDependencyFailureAtCreation(ctx context.Con
 		state, ok := t.getCoordinatorTransactionState(ctx, depID)
 		if ok && state == State_Reverted {
 			failureMessage := i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, depID).Error()
-			return t.transportWriter.SendTransactionConfirmed(
-				ctx, t.pt.ID, t.originatorNode, &t.pt.Address, nil,
-				engine.TransactionConfirmed_OUTCOME_REVERTED, nil, failureMessage, false,
-			)
+			return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, &engine.TransactionConfirmed{
+				Id:              uuid.New().String(),
+				TransactionId:   t.pt.ID.String(),
+				ContractAddress: t.pt.Address.HexString(),
+				Outcome:         engine.TransactionConfirmed_OUTCOME_REVERTED,
+				FailureMessage:  failureMessage,
+			})
 		}
 	}
 	return nil

@@ -31,6 +31,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -79,7 +80,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		Address(builder.GetContractAddress()).
 		Originator(originator).
 		NumberOfRequiredEndorsers(1).
-		PreAssembly(&components.TransactionPreAssembly{
+		PreAssembly(&prototk.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
 				From:   originator,
 				Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
@@ -92,7 +93,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		Transactions: []*components.PrivateTransaction{txn},
 	})
 
-	var snapshot *common.CoordinatorSnapshot
+	var snapshot *engineProto.CoordinatorSnapshot
 
 	// Assert that snapshot contains a transaction with matching ID
 	require.Eventually(t, func() bool {
@@ -100,7 +101,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		return snapshot != nil && len(snapshot.PooledTransactions) == 1
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain one pooled transaction")
 
-	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
+	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].Id, "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
 
 	// Assert that a request has been sent to the originator and respond with an assembled transaction
 	assert.Eventually(t, func() bool {
@@ -111,7 +112,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 			TransactionID: txn.ID,
 		},
 		RequestID:    mocks.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
-		PostAssembly: transactionBuilder.BuildPostAssembly(),
+		PostAssembly: transactionBuilder.BuildPostAssembly().AssembleResponse,
 	})
 
 	// Assert that the coordinator has sent an endorsement request to the endorser
@@ -123,7 +124,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	snapshot = c.getSnapshot(ctx)
 	require.NotNil(t, snapshot)
 	require.Equal(t, 1, len(snapshot.PooledTransactions))
-	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
+	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].Id, "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
 
 	// now respond with an endorsement
 	c.QueueEvent(ctx, &transaction.EndorsedEvent{
@@ -143,7 +144,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	snapshot = c.getSnapshot(ctx)
 	require.NotNil(t, snapshot)
 	require.Equal(t, 1, len(snapshot.PooledTransactions))
-	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
+	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].Id, "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
 
 	// now respond with a dispatch confirmation
 	c.QueueEvent(ctx, &transaction.DispatchRequestApprovedEvent{
@@ -167,7 +168,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
-			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String()
+			snapshot.DispatchedTransactions[0].Id == txn.ID.String()
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain exactly one dispatched transaction")
 
 	// Simulate the dispatcher thread collecting the transaction and dispatching it to a public transaction manager
@@ -192,8 +193,8 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
-			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String() &&
-			snapshot.DispatchedTransactions[0].Signer.String() == signerAddress.String()
+			snapshot.DispatchedTransactions[0].Id == txn.ID.String() &&
+			snapshot.DispatchedTransactions[0].Signer == signerAddress.String()
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain dispatched transaction with signer address")
 
 	// Simulate the dispatcher thread allocating a nonce for the transaction
@@ -210,7 +211,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
-			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String() &&
+			snapshot.DispatchedTransactions[0].Id == txn.ID.String() &&
 			snapshot.DispatchedTransactions[0].Nonce != nil &&
 			*snapshot.DispatchedTransactions[0].Nonce == uint64(42)
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain dispatched transaction with nonce 42")
@@ -230,9 +231,9 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
-			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String() &&
+			snapshot.DispatchedTransactions[0].Id == txn.ID.String() &&
 			snapshot.DispatchedTransactions[0].LatestSubmissionHash != nil &&
-			*snapshot.DispatchedTransactions[0].LatestSubmissionHash == submissionHash
+			*snapshot.DispatchedTransactions[0].LatestSubmissionHash == submissionHash.String()
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain dispatched transaction with a submission hash")
 
 	// Simulate the block indexer confirming the transaction
@@ -250,7 +251,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		snapshot := c.getSnapshot(ctx)
 		return snapshot != nil &&
 			len(snapshot.ConfirmedTransactions) == 1 &&
-			snapshot.ConfirmedTransactions[0].ID.String() == txn.ID.String()
+			snapshot.ConfirmedTransactions[0].Id == txn.ID.String()
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain exactly one confirmed transaction")
 
 }

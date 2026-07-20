@@ -85,7 +85,7 @@ func (s *ChainedDependenciesSuite) newTx(chainedDeps ...uuid.UUID) uuid.UUID {
 		Address(s.builder.GetContractAddress()).
 		Originator(s.originator).
 		NumberOfRequiredEndorsers(1)
-	pa := &components.TransactionPreAssembly{
+	pa := &prototk.TransactionPreAssembly{
 		TransactionSpecification: &prototk.TransactionSpecification{
 			From:   s.originator,
 			Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
@@ -93,7 +93,11 @@ func (s *ChainedDependenciesSuite) newTx(chainedDeps ...uuid.UUID) uuid.UUID {
 	}
 	if len(chainedDeps) > 0 {
 		b.ChainedDependencies(chainedDeps...)
-		pa.ChainedDependsOn = chainedDeps
+		chainedDependsOn := make([]string, len(chainedDeps))
+		for i, id := range chainedDeps {
+			chainedDependsOn[i] = id.String()
+		}
+		pa.ChainedDependsOn = chainedDependsOn
 	}
 	b.PreAssembly(pa)
 	txn := b.BuildSparse()
@@ -132,7 +136,7 @@ func (s *ChainedDependenciesSuite) progressToReadyForDispatch(txIDs ...uuid.UUID
 		s.handleEvent(&transaction.AssembleSuccessEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: id},
 			RequestID:            rec.AssembleKeyForTx(id),
-			PostAssembly:         b.BuildPostAssembly(),
+			PostAssembly:         b.BuildPostAssembly().AssembleResponse,
 		})
 
 		endorser := b.GetEndorserIdentityLocator(0)

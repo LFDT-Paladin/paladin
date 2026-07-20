@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -150,8 +151,7 @@ func TestAssembleRequestReceivedEvent_Fields(t *testing.T) {
 	requestID := uuid.New()
 	coordinator := "coordinator@testNode"
 	blockHeight := int64(100)
-	stateLocksJSON := []byte(`{"locks": []}`)
-	preAssembly := []byte(`{"pre": "assembly"}`)
+	stateSnapshot := &prototk.StateSnapshot{}
 
 	event := &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
@@ -160,15 +160,13 @@ func TestAssembleRequestReceivedEvent_Fields(t *testing.T) {
 		RequestID:              requestID,
 		Coordinator:            coordinator,
 		CoordinatorBlockHeight: blockHeight,
-		StateLocksJSON:         stateLocksJSON,
-		PreAssembly:            preAssembly,
+		StateSnapshot:          stateSnapshot,
 	}
 	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, requestID, event.RequestID)
 	assert.Equal(t, coordinator, event.Coordinator)
 	assert.Equal(t, blockHeight, event.CoordinatorBlockHeight)
-	assert.Equal(t, stateLocksJSON, event.StateLocksJSON)
-	assert.Equal(t, preAssembly, event.PreAssembly)
+	assert.Equal(t, stateSnapshot, event.StateSnapshot)
 }
 
 func TestAssembleAndSignSuccessEvent_Type(t *testing.T) {

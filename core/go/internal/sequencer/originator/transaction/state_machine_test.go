@@ -345,7 +345,7 @@ func Test_Delegated_PrivateStateComplete_ProceedsToAssembly(t *testing.T) {
 	// Builder default already returns true, nil; no override needed for the complete path.
 	mocks.EngineIntegration.On(
 		"AssembleAndSign", mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything,
-	).Return(&components.TransactionPostAssembly{
+	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil).Maybe()
 
@@ -385,8 +385,9 @@ func TestOriginatorTransaction_Assembling_ToEndorsement_Gathering_OnAssembleAndS
 		},
 		RequestID: builder.GetAssembleRequestID(),
 		PostAssembly: &components.TransactionPostAssembly{
-			AssemblyResult: prototk.AssembleTransactionResponse_OK,
-			//TODO use a builder to create a more realistically populated PostAssembly
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AssemblyResult: prototk.AssembleTransactionResponse_OK,
+			},
 		},
 	})
 	assert.NoError(t, err)
@@ -410,7 +411,9 @@ func TestOriginatorTransaction_Assembling_StaysInAssembling_OnAssembleAndSignSuc
 		BaseEvent: BaseEvent{TransactionID: txn.GetID()},
 		RequestID: staleRequestID,
 		PostAssembly: &components.TransactionPostAssembly{
-			AssemblyResult: prototk.AssembleTransactionResponse_OK,
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AssemblyResult: prototk.AssembleTransactionResponse_OK,
+			},
 		},
 	})
 	assert.NoError(t, err)
@@ -429,8 +432,10 @@ func TestOriginatorTransaction_Assembling_ToReverted_OnAssembleRevert(t *testing
 			TransactionID: txn.GetID(),
 		},
 		PostAssembly: &components.TransactionPostAssembly{
-			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-			RevertReason:   ptrTo("test revert reason"),
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+				RevertReason:   ptrTo("test revert reason"),
+			},
 		},
 	})
 	assert.NoError(t, err)
@@ -449,7 +454,9 @@ func TestOriginatorTransaction_Assembling_ToParked_OnAssemblePark(t *testing.T) 
 			TransactionID: txn.GetID(),
 		},
 		PostAssembly: &components.TransactionPostAssembly{
-			AssemblyResult: prototk.AssembleTransactionResponse_PARK,
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AssemblyResult: prototk.AssembleTransactionResponse_PARK,
+			},
 		},
 	})
 	assert.NoError(t, err)

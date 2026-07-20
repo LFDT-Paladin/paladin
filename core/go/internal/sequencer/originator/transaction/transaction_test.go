@@ -88,11 +88,13 @@ func TestTransaction_GetStatus_ReturnsStatusWithEndorsements(t *testing.T) {
 	builder := NewTransactionBuilderForTesting(t, State_Initial)
 	txn, _ := builder.BuildWithMocks()
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		AttestationPlan: []*prototk.AttestationRequest{
-			{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}, VerifierType: "v1"},
-		},
-		Endorsements: []*prototk.AttestationResult{
-			{Name: "att1", Verifier: &prototk.ResolvedVerifier{Lookup: "party1", VerifierType: "v1"}},
+		AssembleResponse: &prototk.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{
+				{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}, VerifierType: "v1"},
+			},
+			Endorsements: []*prototk.AttestationResult{
+				{Name: "att1", Verifier: &prototk.ResolvedVerifier{Lookup: "party1", VerifierType: "v1"}},
+			},
 		},
 	}
 	txn.stateMachine.SetCurrentState(State_Assembling)

@@ -296,7 +296,7 @@ func (t *grpcTransport) SendMessage(ctx context.Context, req *prototk.SendMessag
 		// This is an error in the Paladin layer
 		return nil, i18n.NewError(ctx, msgs.MsgNodeNotActive, req.Node)
 	}
-	log.L(ctx).Infof("GRPC sending message id=%s cid=%v component=%s messageType=%s to peer %s",
+	log.L(ctx).Infof("GRPC sending message id=%s cid=%v component=%d messageType=%s to peer %s",
 		msg.MessageId, msg.CorrelationId, msg.Component, msg.MessageType, req.Node)
 	err := oc.send(&proto.Message{
 		MessageId:     msg.MessageId,

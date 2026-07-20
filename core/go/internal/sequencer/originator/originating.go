@@ -118,7 +118,21 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 
 	log.L(ctx).Debugf("sending delegation request for %d transactions", len(o.transactionsOrdered))
 
-	return o.transportWriter.SendDelegationRequest(ctx, o.currentActiveCoordinator, transactionsToDelegate, uint64(o.currentBlockHeight))
+	delegations := make([]*engineProto.PrivateTransactionDelegation, 0, len(transactionsToDelegate))
+	for _, tx := range transactionsToDelegate {
+		delegations = append(delegations, &engineProto.PrivateTransactionDelegation{
+			Id:          tx.ID.String(),
+			Domain:      tx.Domain,
+			Intent:      tx.Intent,
+			PreAssembly: tx.PreAssembly,
+		})
+	}
+	return o.transportWriter.SendDelegationRequest(ctx, o.currentActiveCoordinator, &engineProto.DelegationRequest{
+		DelegateNodeId:        o.currentActiveCoordinator,
+		OriginatorBlockHeight: int64(o.currentBlockHeight),
+		ContractAddress:       o.contractAddress.HexString(),
+		Transactions:          delegations,
+	})
 }
 
 func action_SendDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {

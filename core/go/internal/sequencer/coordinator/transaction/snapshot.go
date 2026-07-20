@@ -19,10 +19,11 @@ import (
 	"context"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction, *common.SnapshotRevertedTransaction) {
+func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*engineProto.SnapshotPooledTransaction, *engineProto.SnapshotDispatchedTransaction, *engineProto.SnapshotConfirmedTransaction, *engineProto.SnapshotRevertedTransaction) {
 	t.RLock()
 	defer t.RUnlock()
 
@@ -38,52 +39,49 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.Snaps
 		State_PreAssembly_Blocked,
 		State_Assembling,
 		State_Pooled:
-		return &common.SnapshotPooledTransaction{
-			ID: t.pt.ID,
-		}, nil, nil, nil
+		return &engineProto.SnapshotPooledTransaction{Id: t.pt.ID.String()}, nil, nil, nil
 
 	// State_Ready_For_Dispatch is already past the point of no return. It is as good as dispatched, just waiting for
 	// the dispatcher thread to collect it so we include it in the dispatched transactions of the snapshot
 	case State_Ready_For_Dispatch,
 		State_Dispatched:
-		dispatchedTransaction := &common.SnapshotDispatchedTransaction{
-			SnapshotPooledTransaction: common.SnapshotPooledTransaction{
-				ID: t.pt.ID,
-			},
-		}
+		dispatchedTransaction := &engineProto.SnapshotDispatchedTransaction{Id: t.pt.ID.String()}
 		if t.signerAddress != nil {
-			dispatchedTransaction.Signer = *t.signerAddress
+			dispatchedTransaction.Signer = t.signerAddress.String()
 			dispatchedTransaction.Nonce = t.nonce
-			dispatchedTransaction.LatestSubmissionHash = t.latestSubmissionHash
+			dispatchedTransaction.LatestSubmissionHash = bytes32ToProto(t.latestSubmissionHash)
 		}
 		return nil, dispatchedTransaction, nil, nil
 
 	case State_Confirmed:
 		log.L(ctx).Debugf("heartbeat snapshot building, transaction ID %s is in State_Confirmed, sending to heartbeat receipients", t.pt.ID.String())
-		confirmedTransaction := &common.SnapshotConfirmedTransaction{
-			SnapshotDispatchedTransaction: common.SnapshotDispatchedTransaction{
-				SnapshotPooledTransaction: common.SnapshotPooledTransaction{
-					ID: t.pt.ID,
-				},
-				Nonce:                t.nonce,
-				LatestSubmissionHash: t.latestSubmissionHash,
-			},
+		confirmedTransaction := &engineProto.SnapshotConfirmedTransaction{
+			Id:                   t.pt.ID.String(),
+			Nonce:                t.nonce,
+			LatestSubmissionHash: bytes32ToProto(t.latestSubmissionHash),
 		}
 		if t.signerAddress != nil {
-			confirmedTransaction.Signer = *t.signerAddress
+			confirmedTransaction.Signer = t.signerAddress.String()
 		}
 		return nil, nil, confirmedTransaction, nil
 
 	case State_Reverted:
 		log.L(ctx).Debugf("heartbeat snapshot building, transaction ID %s is in State_Reverted, sending to heartbeat recipients", t.pt.ID.String())
-		return nil, nil, nil, &common.SnapshotRevertedTransaction{
-			SnapshotPooledTransaction: common.SnapshotPooledTransaction{
-				ID: t.pt.ID,
-			},
-			RevertReason: t.revertReason,
+		return nil, nil, nil, &engineProto.SnapshotRevertedTransaction{
+			Id:           t.pt.ID.String(),
+			RevertReason: t.revertReason.String(),
 		}
 	}
 
 	// Other states are excluded from snapshots.
 	return nil, nil, nil, nil
+}
+
+// bytes32ToProto renders an optional hash as the optional wire string (nil stays nil).
+func bytes32ToProto(b *pldtypes.Bytes32) *string {
+	if b == nil {
+		return nil
+	}
+	s := b.String()
+	return &s
 }

@@ -28,36 +28,32 @@ import (
 	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
-// OutputState wraps a StateUpsert with AllowedNodes for coordinator handover and assembly requests.
-// AllowedNodes is the set of nodes permitted to hold this state's private data, derived from the
-// assembly response DistributionList. A nil or empty AllowedNodes means the distribution is unknown
-// and the state is excluded from all exports — this is the default-deny posture.
-type OutputState struct {
-	components.StateUpsert
-	AllowedNodes []string `json:"allowedNodes,omitempty"`
-}
-
 // StateVisibilityStore is the single interface for all private state visibility operations.
 // All methods are thread-safe.
+//
+// States are held natively as *prototk.SnapshotState (an EndorsableState plus the AllowedNodes set of
+// nodes permitted to hold the private data, derived from the assembly response DistributionList). A nil
+// or empty AllowedNodes means the distribution is unknown and the state is excluded from all exports —
+// this is the default-deny posture. Storing the proto directly means the export/handover paths (the
+// hot paths) need no per-state conversion.
 type StateVisibilityStore interface {
 	// RecordAssemblyOutput is the only path by which newly minted state visibility is written.
 	// It derives AllowedNodes for each output state from the DistributionList in the assembly
 	// response and stores the result.
-	RecordAssemblyOutput(ctx context.Context, states []*components.FullState, potentials []*prototk.NewState)
+	RecordAssemblyOutput(ctx context.Context, states []*prototk.EndorsableState, potentials []*prototk.NewState)
 
 	// GetForNode returns all states that node is explicitly listed in AllowedNodes for.
 	// States with nil or empty AllowedNodes are always excluded (default-deny).
-	GetForNode(node string) []*OutputState
+	GetForNode(node string) []*prototk.SnapshotState
 
 	// ImportIfAbsent records state only if no entry already exists for stateID.
 	// Existing entries always take precedence — a coordinator's own knowledge must never be
 	// overwritten by a handover import. Returns true if the state was stored.
-	ImportIfAbsent(stateID string, state *OutputState) bool
+	ImportIfAbsent(stateID string, state *prototk.SnapshotState) bool
 
 	// Delete removes stateID. No-op if absent.
 	Delete(stateID string)
@@ -65,47 +61,43 @@ type StateVisibilityStore interface {
 
 type store struct {
 	mu         sync.RWMutex
-	statesByID map[string]*OutputState
+	statesByID map[string]*prototk.SnapshotState
 }
 
 // NewStore returns a new, empty StateVisibilityStore.
 func NewStore() StateVisibilityStore {
 	return &store{
-		statesByID: make(map[string]*OutputState),
+		statesByID: make(map[string]*prototk.SnapshotState),
 	}
 }
 
-func (s *store) RecordAssemblyOutput(ctx context.Context, states []*components.FullState, potentials []*prototk.NewState) {
+func (s *store) RecordAssemblyOutput(ctx context.Context, states []*prototk.EndorsableState, potentials []*prototk.NewState) {
 	// Derive AllowedNodes before acquiring the lock — no shared state is read here.
 	allowedNodes := allowedNodesFromDistributionList(ctx, states, potentials)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, state := range states {
-		stateID := state.ID.String()
-		s.statesByID[stateID] = &OutputState{
-			StateUpsert: components.StateUpsert{
-				ID:     state.ID,
-				Schema: state.Schema,
-				Data:   state.Data,
-			},
+		stateID := state.GetId()
+		s.statesByID[stateID] = &prototk.SnapshotState{
+			State:        state,
 			AllowedNodes: allowedNodes[stateID],
 		}
 	}
 }
 
-func (s *store) GetForNode(node string) []*OutputState {
+func (s *store) GetForNode(node string) []*prototk.SnapshotState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	result := make([]*OutputState, 0, len(s.statesByID))
+	result := make([]*prototk.SnapshotState, 0, len(s.statesByID))
 	for _, state := range s.statesByID {
-		if nodeInAllowedList(state.AllowedNodes, node) {
+		if nodeInAllowedList(state.GetAllowedNodes(), node) {
 			result = append(result, state)
 		}
 	}
 	return result
 }
 
-func (s *store) ImportIfAbsent(stateID string, state *OutputState) bool {
+func (s *store) ImportIfAbsent(stateID string, state *prototk.SnapshotState) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.statesByID[stateID]; exists {
@@ -126,13 +118,13 @@ func (s *store) Delete(stateID string) {
 // authoritative source for which nodes are permitted to hold each state's private data.
 // If a locator cannot be parsed, a warning is logged and that recipient is skipped — the state
 // is still stored but will be invisible to the unparseable node (default-deny).
-func allowedNodesFromDistributionList(ctx context.Context, states []*components.FullState, potentials []*prototk.NewState) map[string][]string {
+func allowedNodesFromDistributionList(ctx context.Context, states []*prototk.EndorsableState, potentials []*prototk.NewState) map[string][]string {
 	allowedNodes := make(map[string][]string)
 	for i, state := range states {
 		if i >= len(potentials) {
 			break
 		}
-		stateID := state.ID.String()
+		stateID := state.GetId()
 		for _, recipient := range potentials[i].DistributionList {
 			node, err := pldtypes.PrivateIdentityLocator(recipient).Node(ctx, false)
 			if err != nil {

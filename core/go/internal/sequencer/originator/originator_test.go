@@ -76,7 +76,7 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
-	).Return(postAssembly, nil)
+	).Return(postAssembly.AssembleResponse, nil)
 	// Queue TransactionCreated and the coordinator's assemble request together
 	o.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: txn})
 	// Simulate the coordinator sending an assemble request
@@ -84,7 +84,7 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 	o.QueueEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{TransactionID: txn.ID},
 		RequestID: assembleRequestIdempotencyKey, Coordinator: coordinatorNode,
-		CoordinatorBlockHeight: 0, StateLocksJSON: []byte("{}"),
+		CoordinatorBlockHeight: 0, StateSnapshot: &prototk.StateSnapshot{},
 	})
 	sync = statemachine.NewSyncEvent()
 	o.QueueEvent(ctx, sync)
@@ -159,7 +159,7 @@ func Test_propagateEventToTransaction_UnknownTransaction_AssembleRequestSendsRej
 		RequestID:              assembleRequestIdempotencyKey,
 		Coordinator:            coordinatorLocator,
 		CoordinatorBlockHeight: 1000,
-		StateLocksJSON:         []byte("{}"),
+		StateSnapshot:          &prototk.StateSnapshot{},
 	}
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, event))
 	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "SendAssembleRejection should be called for unknown transaction")

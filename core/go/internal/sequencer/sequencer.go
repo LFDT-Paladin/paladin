@@ -494,7 +494,11 @@ func (sMgr *sequencerManager) handleTx(ctx context.Context, dbTX persistence.DBT
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "PreAssembly is nil")
 	}
 
-	tx.PreAssembly.ChainedDependsOn = localTx.ChainedDependsOn
+	chainedDependsOn := make([]string, len(localTx.ChainedDependsOn))
+	for i, id := range localTx.ChainedDependsOn {
+		chainedDependsOn[i] = id.String()
+	}
+	tx.PreAssembly.ChainedDependsOn = chainedDependsOn
 
 	sequencer, err := sMgr.LoadSequencer(ctx, dbTX, contractAddr, domainAPI, tx)
 	if err != nil {
