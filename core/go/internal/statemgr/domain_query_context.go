@@ -18,7 +18,6 @@ package statemgr
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -30,10 +29,12 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 type logStateSummary []*pldapi.State
@@ -72,7 +73,7 @@ type domainQueryContext struct {
 	// State locks are an in memory structure only, recording a set of locks associated with each transaction.
 	// These are held only in memory, and used during DB queries to create a view on top of the database
 	// that can make both additional states available, and remove visibility to states.
-	txLocks []*pldapi.StateLock
+	txLocks []*prototk.SnapshotStateLock
 }
 
 // Very important that callers Close domain query contexts they open.
@@ -138,21 +139,9 @@ func (dqc *domainQueryContext) Close(ctx context.Context) {
 	delete(dqc.ss.domainContexts, dqc.id)
 }
 
-type exportSnapshot struct {
-	States []*components.StateUpsert `json:"states"`
-	Locks  []*exportableStateLock    `json:"locks"`
-}
-
-// pldapi.StateLocks do not include the stateID in the serialized JSON so we need a separate struct.
-type exportableStateLock struct {
-	State       pldtypes.HexBytes                   `json:"stateId"`
-	Transaction uuid.UUID                           `json:"transaction"`
-	Type        pldtypes.Enum[pldapi.StateLockType] `json:"type"`
-}
-
-// ImportSnapshot hydrates this context from a coordinator grapher export (JSON).
-// Populates creatingStates and txLocks for assembly queries
-func (dqc *domainQueryContext) ImportSnapshot(ctx context.Context, stateLocksJSON []byte) error {
+// ImportSnapshot hydrates this context (typically from a coordinator grapher export)
+// Populates creatingStates and txLocks for assembly queries.
+func (dqc *domainQueryContext) ImportSnapshot(ctx context.Context, snapshot *prototk.StateSnapshot) error {
 	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, nil)
 	dqc.stateLock.Lock()
 	defer dqc.stateLock.Unlock()
@@ -160,57 +149,56 @@ func (dqc *domainQueryContext) ImportSnapshot(ctx context.Context, stateLocksJSO
 		return err
 	}
 
-	var snapshot exportSnapshot
-	err := json.Unmarshal(stateLocksJSON, &snapshot)
-	if err != nil {
-		return i18n.WrapError(ctx, err, msgs.MsgDomainContextImportInvalidJSON)
-	}
-
-	// Validate and process the snapshot states without appending to any DB write buffer.
-	vss, err := dqc.ss.validateStateSet(ctx, dqc.domainName, dqc.contractAddress, dqc.customHashFunction, dqc.ss.p.NOTX(), snapshot.States...)
-	if err != nil {
-		return i18n.WrapError(ctx, err, msgs.MsgDomainContextImportBadStates)
-	}
-
-	processedStates := make(map[string]*components.StateWithLabels, len(vss.withValues))
-	for _, vs := range vss.withValues {
+	// Validate and process the snapshot states
+	snapshotStates := snapshot.GetStates()
+	processedStates := make(map[string]*components.StateWithLabels, len(snapshotStates))
+	for _, snapshotState := range snapshotStates {
+		vs, err := dqc.ss.validateAndConvertEndorsableState(ctx, dqc.domainName, dqc.contractAddress, dqc.customHashFunction, dqc.ss.p.NOTX(), snapshotState.GetState(), true)
+		if err != nil {
+			return i18n.WrapError(ctx, err, msgs.MsgDomainContextImportBadStates)
+		}
 		processedStates[vs.ID.String()] = vs
 	}
-
 	dqc.creatingStates = make(map[string]*components.StateWithLabels)
-	dqc.txLocks = make([]*pldapi.StateLock, 0, len(snapshot.Locks))
-	for _, l := range snapshot.Locks {
-		dqc.txLocks = append(dqc.txLocks, &pldapi.StateLock{
-			DomainName:  dqc.domainName,
-			StateID:     l.State,
-			Transaction: l.Transaction,
-			Type:        l.Type,
-		})
-		if l.Type == pldapi.StateLockTypeCreate.Enum() {
-			if state, found := processedStates[l.State.String()]; found {
+	dqc.txLocks = snapshot.GetLocks()
+	for _, l := range dqc.txLocks {
+		if l.GetType() == prototk.SnapshotStateLock_CREATE {
+			stateID := l.GetStateId()
+			if state, found := processedStates[stateID]; found {
 				dqc.creatingStates[state.ID.String()] = state
-			} else {
-				// The state distribution message may not have arrived yet, or we are not on the list.
-				// The domain can Park the transaction if it suspects the former.
-				log.L(ctx).Infof("ImportSnapshot: state %s not found in snapshot states", l.State)
 			}
+			// A snapshot can contain create locks for states which already have a corresponding
+			// spend lock, in which case the private state data is omitted. A snapshot may also
+			// contain a create lock for a state which will not be distributed to this node, in
+			// which case the private state data will again be omitted.
 		}
 	}
 
 	return nil
 }
 
-func (dqc *domainQueryContext) applyLocks(ctx context.Context, states []*pldapi.State) []*pldapi.State {
-	for _, s := range states {
-		s.Locks = []*pldapi.StateLock{}
-		for _, l := range dqc.txLocks {
-			if l.StateID.Equals(s.ID) {
-				log.L(ctx).Tracef("state %s is locked by %s", s.ID, l.Transaction)
-				s.Locks = append(s.Locks, l)
-			}
-		}
+// labelPreloadModifier returns a query modifier that preloads the persisted label rows, but only
+// when this context has in-flight snapshot creates — the sole case where mergeInMemoryMatches runs
+// against DB states and needs their label values. This is an optimization: RecoverLabels falls back
+// to re-parsing the state data when the rows are absent, so returning nil on the common path (no
+// extra DB round-trips) stays correct.
+//
+// TODO: Under sustained load creatingStates is non-empty on essentially every query, so this preload
+// fires almost always and its cost (two extra SELECTs, on state_labels and state_int64labels) is
+// paid per query. A further optimization is possible: findStatesCommon already INNER-JOINs the
+// label tables for the fields referenced by the query's filter/sort, and the recovered values are
+// consumed only by the in-memory sort in mergeInMemoryMatches (which needs only the sort-key
+// labels). Selecting those already-joined columns into the result would supply the sort values with
+// zero extra round-trips and no re-parse, superseding both this preload and the RecoverLabels
+// fallback — at the cost of a custom projection/scan, since GORM will not map arbitrary selected
+// columns onto pldapi.State.
+func (dqc *domainQueryContext) labelPreloadModifier() func(persistence.DBTX, *gorm.DB) *gorm.DB {
+	if len(dqc.creatingStates) == 0 {
+		return nil
 	}
-	return states
+	return func(_ persistence.DBTX, q *gorm.DB) *gorm.DB {
+		return q.Preload("Labels").Preload("Int64Labels")
+	}
 }
 
 func (dqc *domainQueryContext) findSnapshotMatches(ctx context.Context, schema components.Schema, dbStates []*pldapi.State, q *query.QueryJSON, excludeSpent, requireNullifier bool) (snapshotMatches []*components.StateWithLabels, err error) {
@@ -224,8 +212,8 @@ func (dqc *domainQueryContext) findSnapshotMatches(ctx context.Context, schema c
 		if excludeSpent {
 			spent := false
 			for _, lock := range dqc.txLocks {
-				if lock.StateID.Equals(state.ID) && lock.Type.V() == pldapi.StateLockTypeSpend {
-					log.L(ctx).Tracef("State %s is spent by transaction %s - not including in the response", state.ID, lock.Transaction)
+				if lock.GetStateId() == state.ID.String() && lock.GetType() == prototk.SnapshotStateLock_SPEND {
+					log.L(ctx).Tracef("State %s is spent by transaction %s - not including in the response", state.ID, lock.GetTransaction())
 					spent = true
 					break
 				}
@@ -302,9 +290,9 @@ func (dqc *domainQueryContext) mergeAndSortStates(ctx context.Context, schema co
 	return retList, nil
 }
 
-// mergeSnapshotApplyLocks merges snapshot creatingStates with DB results and applies locks.
-func (dqc *domainQueryContext) mergeSnapshotApplyLocks(ctx context.Context, schema components.Schema, dbStates []*pldapi.State, q *query.QueryJSON, excludeSpent, requireNullifier bool) (_ []*pldapi.State, err error) {
-	log.L(ctx).Debugf("domainQueryContext:mergeSnapshotApplyLocks txLocks=%d creatingStates=%d", len(dqc.txLocks), len(dqc.creatingStates))
+// mergeSnapshotStatesResult merges snapshot creatingStates with DB results.
+func (dqc *domainQueryContext) mergeSnapshotStatesResult(ctx context.Context, schema components.Schema, dbStates []*pldapi.State, q *query.QueryJSON, excludeSpent, requireNullifier bool) (_ []*pldapi.State, err error) {
+	log.L(ctx).Debugf("domainQueryContext:mergeSnapshotStatesResult txLocks=%d creatingStates=%d", len(dqc.txLocks), len(dqc.creatingStates))
 	dqc.stateLock.Lock()
 	defer dqc.stateLock.Unlock()
 	if err := dqc.checkClosed(ctx); err != nil {
@@ -322,7 +310,7 @@ func (dqc *domainQueryContext) mergeSnapshotApplyLocks(ctx context.Context, sche
 		}
 	}
 
-	return dqc.applyLocks(ctx, retStates), nil
+	return retStates, nil
 }
 
 // getSnapshotSpends returns spend locks from the snapshot-loaded txLocks.
@@ -334,14 +322,18 @@ func (dqc *domainQueryContext) getSnapshotSpends(ctx context.Context) (spending 
 	}
 
 	for _, l := range dqc.txLocks {
-		if l.Type.V() == pldapi.StateLockTypeSpend {
-			spending = append(spending, l.StateID)
+		if l.GetType() == prototk.SnapshotStateLock_SPEND {
+			stateID, err := pldtypes.ParseHexBytes(ctx, l.GetStateId())
+			if err != nil {
+				return nil, err
+			}
+			spending = append(spending, stateID)
 		}
 	}
 	return spending, nil
 }
 
-// FindAvailableStates queries available states, merging snapshot creatingStates and applying locks.
+// FindAvailableStates queries available states, merging snapshot creatingStates.
 func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, q *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
 	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, &schemaID)
 	log.L(ctx).Debugf("FindAvailableStates query=%s", q)
@@ -361,13 +353,14 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 	schema, states, err := dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q, &components.StateQueryOptions{
 		StatusQualifier: pldapi.StateStatusAvailable,
 		ExcludedIDs:     spending,
+		QueryModifier:   dqc.labelPreloadModifier(),
 	})
 	if err != nil {
 		return nil, nil, err
 	}
 	log.L(ctx).Tracef("FindAvailableStates read %d states from DB", len(states))
 
-	states, err = dqc.mergeSnapshotApplyLocks(ctx, schema, states, q, true /* exclude spent */, false)
+	states, err = dqc.mergeSnapshotStatesResult(ctx, schema, states, q, true /* exclude spent */, false)
 	if log.IsTraceEnabled() {
 		for _, s := range states {
 			log.L(ctx).Tracef("returning available state %s", s.ID)
@@ -390,12 +383,16 @@ func (dqc *domainQueryContext) FindAvailableNullifiers(ctx context.Context, dbTX
 
 	// For snapshot-loaded contexts, nullifiers are on creatingStates entries; no unFlushed buffer.
 	// Pass empty nullifierIDs — committed nullifiers are queryable via the DB directly.
-	schema, states, err := dqc.ss.findNullifiers(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q, pldapi.StateStatusAvailable, spending, nil)
+	schema, states, err := dqc.ss.findNullifiers(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q, &components.StateQueryOptions{
+		StatusQualifier: pldapi.StateStatusAvailable,
+		ExcludedIDs:     spending,
+		QueryModifier:   dqc.labelPreloadModifier(),
+	})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	states, err = dqc.mergeSnapshotApplyLocks(ctx, schema, states, q, true /* exclude spent */, true)
+	states, err = dqc.mergeSnapshotStatesResult(ctx, schema, states, q, true /* exclude spent */, true)
 	return schema, states, err
 }
 
@@ -410,6 +407,7 @@ func (dqc *domainQueryContext) GetStatesByID(ctx context.Context, dbTX persisten
 	q := query.NewQueryBuilder().In(".id", idsAny).Sort(".created").Query()
 	schema, matches, err := dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q, &components.StateQueryOptions{
 		StatusQualifier: pldapi.StateStatusAll,
+		QueryModifier:   dqc.labelPreloadModifier(),
 	})
 	if err == nil {
 		var snapshotStates []*components.StateWithLabels

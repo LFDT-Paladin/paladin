@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"gorm.io/gorm"
@@ -49,8 +50,8 @@ type StateManager interface {
 	// State finalizations are written on the DB context of the block indexer, by the domain manager.
 	WriteStateFinalizations(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord, reads []*pldapi.StateReadRecord, confirms []*pldapi.StateConfirmRecord, infoRecords []*pldapi.StateInfoRecord) (err error)
 
-	// Validate a set of state upserts against their schemas
-	ValidateStates(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, stateUpserts ...*StateUpsert) ([]*pldapi.StateBase, error)
+	// Validate a set of states against their schemas
+	ValidateStates(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, states ...*prototk.EndorsableState) ([]*prototk.EndorsableState, error)
 
 	// MUST NOT be called for states received over a network from another node.
 	// Writes a batch of states that have been pre-verified BY THIS NODE so can bypass domain hash verification.
@@ -85,16 +86,15 @@ type PendingPrivateStateDataEntry struct {
 }
 
 type StateQueryOptions struct {
-	StatusQualifier pldapi.StateStatusQualifier
-	ExcludedIDs     []pldtypes.HexBytes
-	QueryModifier   func(db persistence.DBTX, query *gorm.DB) *gorm.DB
+	StatusQualifier      pldapi.StateStatusQualifier
+	ExcludedIDs          []pldtypes.HexBytes
+	ExcludedNullifierIDs []pldtypes.HexBytes
+	QueryModifier        func(db persistence.DBTX, query *gorm.DB) *gorm.DB
 }
 
 // DomainStateWriter is a long-lived write buffer used for flushing domain states and nullifiers to the DB.
 type DomainStateWriter interface {
 	// StageStateUpserts creates or updates states in the in-memory write buffer.
-	// States are visible immediately for queries on this writer (even before flush).
-	// If a non-nil CreatedBy is set on a state, an in-memory create lock is registered.
 	StageStateUpserts(ctx context.Context, dbTX persistence.DBTX, states ...*StateUpsert) (s []*pldapi.State, err error)
 
 	// StageNullifierUpserts creates nullifier records associated with states.
@@ -122,7 +122,7 @@ type DomainQueryContext interface {
 	ID() uuid.UUID
 
 	// ImportSnapshot hydrates this context with a domain instance's ahead of chain view.
-	ImportSnapshot(ctx context.Context, stateLocksJSON []byte) error
+	ImportSnapshot(ctx context.Context, snapshot *prototk.StateSnapshot) error
 
 	// FindAvailableStates is the primary query function, returning only available states.
 	// For snapshot-loaded contexts, results include in-memory creating states and respect locks.
@@ -177,6 +177,6 @@ type Schema interface {
 	ID() pldtypes.Bytes32
 	Signature() string
 	Persisted() *pldapi.Schema
-	ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool) (*StateWithLabels, error)
+	ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool, withLabels bool) (*StateWithLabels, error)
 	RecoverLabels(ctx context.Context, s *pldapi.State) (*StateWithLabels, error)
 }

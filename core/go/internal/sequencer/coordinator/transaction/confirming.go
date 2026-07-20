@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
 )
 
 func guard_CanRetryRevert(ctx context.Context, txn *coordinatorTransaction) bool {
@@ -108,35 +109,61 @@ func checkConfirmedHash(ctx context.Context, t *coordinatorTransaction, hash pld
 
 func action_NotifyOriginatorOfConfirmation(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedSuccessEvent)
-	return t.transportWriter.SendTransactionConfirmed(
-		ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce,
-		engine.TransactionConfirmed_OUTCOME_SUCCESS, nil, "", false,
-	)
+	msg := &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_SUCCESS,
+	}
+	if e.Nonce != nil {
+		msg.Nonce = int64(*e.Nonce)
+	}
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, msg)
 }
 
 func action_NotifyOriginatorOfRetryableRevert(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedRevertedEvent)
-	return t.transportWriter.SendTransactionConfirmed(
-		ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce,
-		engine.TransactionConfirmed_OUTCOME_REVERTED, t.revertReason, t.decodedRevertReason, true,
-	)
+	msg := &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_REVERTED,
+		RevertReason:    t.revertReason,
+		FailureMessage:  t.decodedRevertReason,
+		WillRetry:       true,
+	}
+	if e.Nonce != nil {
+		msg.Nonce = int64(*e.Nonce)
+	}
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, msg)
 }
 
 func action_NotifyOriginatorOfNonRetryableRevert(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedRevertedEvent)
-	return t.transportWriter.SendTransactionConfirmed(
-		ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce,
-		engine.TransactionConfirmed_OUTCOME_REVERTED, t.revertReason, t.decodedRevertReason, false,
-	)
+	msg := &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_REVERTED,
+		RevertReason:    t.revertReason,
+		FailureMessage:  t.decodedRevertReason,
+	}
+	if e.Nonce != nil {
+		msg.Nonce = int64(*e.Nonce)
+	}
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, msg)
 }
 
 func action_NotifyOriginatorOfChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ChainedDependencyFailedEvent)
 	failureMessage := i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, e.FailedTxID).Error()
-	return t.transportWriter.SendTransactionConfirmed(
-		ctx, t.pt.ID, t.originatorNode, &t.pt.Address, nil,
-		engine.TransactionConfirmed_OUTCOME_REVERTED, nil, failureMessage, false,
-	)
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_REVERTED,
+		FailureMessage:  failureMessage,
+	})
 }
 
 func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
