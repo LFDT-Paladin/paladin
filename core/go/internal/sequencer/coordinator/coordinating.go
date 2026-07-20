@@ -226,6 +226,8 @@ func (c *coordinator) getCoordinatorTransactionState(ctx context.Context, id uui
 }
 
 func (c *coordinator) getCoordinatorSigningIdentity() string {
+	c.signingIdentity.mu.Lock()
+	defer c.signingIdentity.mu.Unlock()
 	c.signingIdentity.used = true
 	return c.signingIdentity.value
 }
@@ -422,9 +424,12 @@ func (c *coordinator) addToDelegatedTransactions(
 }
 
 func action_NewSigningIdentity(ctx context.Context, c *coordinator, _ common.Event) error {
+	c.signingIdentity.mu.Lock()
 	c.signingIdentity.value = fmt.Sprintf("domains.%s.submit.%s", c.contractAddress.String(), uuid.New())
 	c.signingIdentity.used = false
-	log.L(ctx).Debugf("new signing identity: %s", c.signingIdentity.value)
+	value := c.signingIdentity.value
+	c.signingIdentity.mu.Unlock()
+	log.L(ctx).Debugf("new signing identity: %s", value)
 	return nil
 }
 

@@ -40,8 +40,11 @@ import (
 )
 
 // signingIdentityState groups the coordinator's current signing key with a flag that tracks
-// whether any transaction has consumed it since the last key rotation.
+// whether any transaction has consumed it since the last key rotation. Its own mutex guards all
+// access because the dispatch path reads and writes it while holding a transaction lock (not the
+// coordinator lock).
 type signingIdentityState struct {
+	mu    sync.Mutex
 	value string
 	used  bool // set when a transaction first retrieves the signing identity; cleared on key rotation
 }
