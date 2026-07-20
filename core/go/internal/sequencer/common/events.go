@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
@@ -80,7 +79,6 @@ type HeartbeatReceivedEvent struct {
 	FromNode            string
 	ContractAddress     *pldtypes.EthAddress
 	CoordinatorSnapshot *CoordinatorSnapshot
-	StateSnapshot       *prototk.StateSnapshot
 }
 
 func (*HeartbeatReceivedEvent) Type() EventType {

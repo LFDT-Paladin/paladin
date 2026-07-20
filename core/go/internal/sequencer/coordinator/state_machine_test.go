@@ -593,10 +593,10 @@ func TestCoordinator_WhenElect_ActiveCoordinatorClosing_TransitionsDirectlyToAct
 		FromNode: "node2",
 		CoordinatorSnapshot: &common.CoordinatorSnapshot{
 			CoordinatorState: common.CoordinatorState_Closing,
-		},
-		StateSnapshot: &prototk.StateSnapshot{
-			States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: stateID.String()}, AllowedNodes: []string{"node1"}}},
-			Locks:  []*prototk.SnapshotStateLock{{StateId: stateID.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAtBlock}},
+			StateSnapshot: &prototk.StateSnapshot{
+				States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: stateID.String()}, AllowedNodes: []string{"node1"}}},
+				Locks:  []*prototk.SnapshotStateLock{{StateId: stateID.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAtBlock}},
+			},
 		},
 	}
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, event))
@@ -1042,10 +1042,10 @@ func TestCoordinator_WhenPreparedReceivesClosingHeartbeat_TransitionsToActiveAnd
 		FromNode: "node2",
 		CoordinatorSnapshot: &common.CoordinatorSnapshot{
 			CoordinatorState: common.CoordinatorState_Closing,
-		},
-		StateSnapshot: &prototk.StateSnapshot{
-			States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: stateID.String()}, AllowedNodes: []string{"node1"}}},
-			Locks:  []*prototk.SnapshotStateLock{{StateId: stateID.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAtBlock}},
+			StateSnapshot: &prototk.StateSnapshot{
+				States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: stateID.String()}, AllowedNodes: []string{"node1"}}},
+				Locks:  []*prototk.SnapshotStateLock{{StateId: stateID.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAtBlock}},
+			},
 		},
 	}
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, event))

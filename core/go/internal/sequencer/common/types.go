@@ -19,24 +19,29 @@ import (
 
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
-// The CoordinatorSnapshot proto is converted wholesale to native types (uuid.UUID / pldtypes.EthAddress / Bytes32 /
-// HexBytes) once at the transport boundary, rather than per-field on demand: the state-machine
-// consumers would otherwise repeat those conversions on every pass over the snapshot.
+// The CoordinatorSnapshot proto's transaction lists are converted wholesale to native types
+// (uuid.UUID / pldtypes.EthAddress / Bytes32 / HexBytes) once at the transport boundary, rather than
+// per-field on demand: the state-machine consumers would otherwise repeat those conversions on every
+// pass over the snapshot. StateSnapshot is the one exception —it carries private states and locks for coordinator
+// handover only. It is left as the raw proto (not converted to native types) because it flows straight through
+// to the grapher's ImportStatesAndLocks as proto and is never inspected field-by-field here.
 
-// CoordinatorSnapshot must only contain information about transactions which is (or will eventually be)
-// known on the base ledger (e.g. hash, nonce, signer, revert reason). It must not contain information
-// such as the transaction originator.
+// The transaction lists in CoordinatorSnapshot must only contain information about transactions which
+// is (or will eventually be) known on the base ledger (e.g. hash, nonce, signer, revert reason). They
+// must not contain information such as the transaction originator.
 type CoordinatorSnapshot struct {
-	DispatchedTransactions []*SnapshotDispatchedTransaction `json:"dispatchedTransactions"`
-	PooledTransactions     []*SnapshotPooledTransaction     `json:"pooledTransactions"`
-	ConfirmedTransactions  []*SnapshotConfirmedTransaction  `json:"confirmedTransactions"`
-	RevertedTransactions   []*SnapshotRevertedTransaction   `json:"revertedTransactions"`
-	CoordinatorState       CoordinatorState                 `json:"coordinatorState"`
-	BlockHeight            uint64                           `json:"blockHeight"`
-	EndorserCandidates     []string                         `json:"endorserCandidates,omitempty"` // (COORDINATOR_ENDORSER selection mode only)
+	DispatchedTransactions []*SnapshotDispatchedTransaction
+	PooledTransactions     []*SnapshotPooledTransaction
+	ConfirmedTransactions  []*SnapshotConfirmedTransaction
+	RevertedTransactions   []*SnapshotRevertedTransaction
+	CoordinatorState       CoordinatorState
+	BlockHeight            uint64
+	EndorserCandidates     []string // (COORDINATOR_ENDORSER selection mode only)
+	StateSnapshot          *prototk.StateSnapshot
 }
 
 type SnapshotPooledTransaction struct {
@@ -72,6 +77,7 @@ func CoordinatorSnapshotFromProto(ctx context.Context, p *engineProto.Coordinato
 		CoordinatorState:   CoordinatorState(int(p.GetCoordinatorState())),
 		BlockHeight:        p.GetBlockHeight(),
 		EndorserCandidates: p.GetEndorserCandidates(),
+		StateSnapshot:      p.GetStateSnapshot(),
 	}
 	for _, pt := range p.GetPooledTransactions() {
 		id, err := uuid.Parse(pt.GetId())

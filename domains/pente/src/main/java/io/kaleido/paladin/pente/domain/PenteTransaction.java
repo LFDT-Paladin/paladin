@@ -110,6 +110,10 @@
      private final long baseBlockTimestamp;
      private Values values;
  
+     PenteTransaction(PenteDomain domain, TransactionSpecification tx) throws IOException, IllegalArgumentException {
+         this(domain, tx, null);
+     }
+
      PenteTransaction(PenteDomain domain, TransactionSpecification tx, BlockContext blockCtx) throws IOException, IllegalArgumentException {
          this.domain = domain;
          contractAddress = new Address(tx.getContractInfo().getContractAddress());

@@ -252,5 +252,5 @@ message CoordinatorSnapshot {
     int32 coordinator_state = 5;
     uint64 block_height = 6;
     repeated string endorser_candidates = 7;
-    io.kaleido.paladin.toolkit.StateSnapshot state_snapshot = 8; // handover only
+    io.kaleido.paladin.toolkit.StateSnapshot state_snapshot = 8; // for coordinator handover only
 }

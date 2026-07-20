@@ -140,7 +140,10 @@ func action_ProcessConfirmedTransactionsFromSnapshot(ctx context.Context, c *coo
 // Triggered as a transition action on State_Prepared → State_Active when the closing heartbeat arrives.
 func action_ImportStatesAndLocks(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.HeartbeatReceivedEvent)
-	stateSnapshot := e.StateSnapshot
+	if e.CoordinatorSnapshot == nil {
+		return nil
+	}
+	stateSnapshot := e.CoordinatorSnapshot.StateSnapshot
 	if stateSnapshot != nil && (len(stateSnapshot.GetLocks()) > 0 || len(stateSnapshot.GetStates()) > 0) {
 		log.L(ctx).Debugf("action_ImportStatesAndLocks: importing %d output states and %d locks from previous coordinator snapshot", len(stateSnapshot.GetStates()), len(stateSnapshot.GetLocks()))
 		c.grapher.ImportStatesAndLocks(ctx, stateSnapshot)
