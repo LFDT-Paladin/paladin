@@ -50,23 +50,85 @@ type PublicDispatch struct {
 	PrivateTransactionDispatches []*DispatchPersisted
 }
 
-// a dispatch batch is a collection of dispatch sequences that are submitted together with no ordering requirements between sequences
-// purely for a database performance reason, they are included in the same transaction
-type DispatchBatch struct {
+// TransactionDispatch is the resolved outcome of dispatching one transaction: the public dispatch
+// sequences, any chained private transactions, and any prepared transactions it produced. It is the
+// content written for one transaction; the flush writer coalesces many of these into a single DB write.
+type TransactionDispatch struct {
 	PublicDispatches     []*PublicDispatch
 	PrivateDispatches    []*components.ChainedPrivateTransaction
 	PreparedTransactions []*components.PreparedTransactionWithRefs
 }
 
-// PersistDispatches persists the dispatches to the database and coordinates with the public transaction manager
-// to submit public transactions.
-func (s *syncPoints) PersistDispatchBatch(ctx context.Context, dsw components.DomainStateWriter, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error {
+// PendingDispatch is one transaction's resolved dispatch awaiting persistence: the content to write plus
+// the remote state distributions to send. A DispatchBatch collects these; PersistDispatchBatch commits the
+// whole batch in a single DB transaction.
+type PendingDispatch struct {
+	TransactionID      uuid.UUID
+	Dispatch           *TransactionDispatch
+	StateDistributions []*components.StateDistribution
+}
+
+// DispatchBatch accumulates the pending dispatches for one contract so they commit together in a single DB
+// transaction. The domain state writer and contract address are batch-level, not per-dispatch: every
+// dispatch in a batch belongs to the same coordinator (one contract), so they share the one state writer
+// and the flush-writer WriteKey. Append preserves order, which is what preserves on-chain nonce order.
+type DispatchBatch struct {
+	DomainStateWriter components.DomainStateWriter
+	ContractAddress   pldtypes.EthAddress
+	dispatches        []*PendingDispatch
+}
+
+// Append adds a pending dispatch to the batch, preserving order.
+func (b *DispatchBatch) Append(d *PendingDispatch) {
+	b.dispatches = append(b.dispatches, d)
+}
+
+// Dispatches returns the pending dispatches in the batch, in Append order.
+func (b *DispatchBatch) Dispatches() []*PendingDispatch {
+	return b.dispatches
+}
+
+// PersistDispatchBatch commits every dispatch in the batch and blocks until it has committed. The whole
+// batch is submitted as one flush-writer operation, so it commits atomically in a single DB transaction
+// via runBatch -> writeDispatchOperations.
+//
+// Ordering: dispatches are written in Append order. Every dispatch carries the batch's contract address as
+// its flush-writer WriteKey, so the writer routes the batch to a single worker that inserts each public
+// transaction row into public_txns in Append order, giving a monotonic auto-increment pub_txn_id. Nonces
+// are NOT assigned here; the per-signing-address public-tx orchestrator later assigns gapless sequential
+// nonces ORDER BY pub_txn_id. So Append order -> insert order -> pub_txn_id order -> nonce order.
+//
+// It enqueues and waits on the long-lived s.bgCtx, never the caller's ctx. Dispatch persistence is a point
+// of no return: a control-flow cancellation of the caller (e.g. an epoch-boundary dispatch-loop stop
+// rotating the coordinator signing key) must not drop the operation before it is queued, nor return a
+// context-cancelled error after the batch has already committed and leave transactions wedged in
+// Ready_For_Dispatch.
+func (s *syncPoints) PersistDispatchBatch(ctx context.Context, batch *DispatchBatch) error {
+	dispatchOperations := make([]*dispatchOperation, 0, len(batch.dispatches))
+	for _, pd := range batch.dispatches {
+		dispatchOperations = append(dispatchOperations, s.buildDispatchOperation(ctx, pd))
+	}
+
+	op := s.writer.QueueWithFlush(s.bgCtx, &syncPointOperation{
+		domainStateWriter:  batch.DomainStateWriter,
+		contractAddress:    batch.ContractAddress,
+		dispatchOperations: dispatchOperations,
+	})
+	_, err := op.WaitFlushed(s.bgCtx)
+	return err
+}
+
+// buildDispatchOperation turns one pending dispatch into the flush-writer's dispatchOperation, allocating
+// dispatch IDs and building the reliable messages (remote prepared transactions, state distributions and
+// sequencer activity records) to send alongside the DB write.
+func (s *syncPoints) buildDispatchOperation(ctx context.Context, pd *PendingDispatch) *dispatchOperation {
+	dispatch := pd.Dispatch
 
 	preparedReliableMsgs := make([]*pldapi.ReliableMessage, 0,
-		len(dispatchBatch.PreparedTransactions)+len(stateDistributions))
+		len(dispatch.PreparedTransactions)+len(pd.StateDistributions))
 
 	var localPreparedTxns []*components.PreparedTransactionWithRefs
-	for _, preparedTxnDistribution := range preparedTxnDistributions {
+	for _, preparedTxnDistribution := range dispatch.PreparedTransactions {
 		node, _ := pldtypes.PrivateIdentityLocator(preparedTxnDistribution.Transaction.From).Node(ctx, false)
 		if node != s.transportMgr.LocalNodeName() {
 			preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
@@ -79,7 +141,7 @@ func (s *syncPoints) PersistDispatchBatch(ctx context.Context, dsw components.Do
 		}
 	}
 
-	for _, stateDistribution := range stateDistributions {
+	for _, stateDistribution := range pd.StateDistributions {
 		node, _ := pldtypes.PrivateIdentityLocator(stateDistribution.IdentityLocator).Node(ctx, false)
 		preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 			Node:        node,
@@ -89,8 +151,8 @@ func (s *syncPoints) PersistDispatchBatch(ctx context.Context, dsw components.Do
 	}
 
 	// Allocate dispatch IDs early so we can distribute sequencer dispatch records with a remote ID that correlates to the dispatch ID
-	for _, dispatch := range dispatchBatch.PublicDispatches {
-		for _, dispatches := range dispatch.PrivateTransactionDispatches {
+	for _, publicDispatch := range dispatch.PublicDispatches {
+		for _, dispatches := range publicDispatch.PrivateTransactionDispatches {
 			dispatches.ID = uuid.New().String()
 		}
 	}
@@ -98,7 +160,7 @@ func (s *syncPoints) PersistDispatchBatch(ctx context.Context, dsw components.Do
 	var localSequencerActivities []*components.SequencingActivity
 
 	// Sequencer activity dispatch records for public transactions
-	for _, publicDispatch := range dispatchBatch.PublicDispatches {
+	for _, publicDispatch := range dispatch.PublicDispatches {
 		for i, privateTx := range publicDispatch.PrivateTransactionDispatches {
 			sequencingProgress := &components.SequencingActivity{
 				SubjectID:      privateTx.ID, // This is the dispatch ID (not the TX ID)
@@ -132,7 +194,7 @@ func (s *syncPoints) PersistDispatchBatch(ctx context.Context, dsw components.Do
 	}
 
 	// Sequencer activity dispatch records for chained private transactions
-	for _, privateDispatch := range dispatchBatch.PrivateDispatches {
+	for _, privateDispatch := range dispatch.PrivateDispatches {
 		privateDispatch.ID = uuid.New() // Allocate a local chained ID early (not the TX ID) to include in sequencer activity records
 		sequencingProgress := &components.SequencingActivity{
 			SubjectID:      privateDispatch.ID.String(), // This is the dispatch ID (not the TX ID)
@@ -155,42 +217,26 @@ func (s *syncPoints) PersistDispatchBatch(ctx context.Context, dsw components.Do
 		}
 	}
 
-	// Send the write operation with all of the batch sequence operations to the flush worker.
-	//
-	// Enqueue and wait on the long-lived s.bgCtx, never the caller's ctx. Dispatch persistence
-	// is a point of no return: a control-flow cancellation of the caller (e.g. an epoch-boundary
-	// dispatch-loop stop rotating the coordinator signing key) must not drop the operation before
-	// it is queued, nor return a context-cancelled error after the batch has already committed and
-	// leave the transaction wedged in Ready_For_Dispatch. Prior to splitting the domain context out
-	// into a context-free state writer, this rode on the long-lived domain context (dCtx.Ctx()).
-	op := s.writer.Queue(s.bgCtx, &syncPointOperation{
-		domainStateWriter: dsw,
-		contractAddress:   contractAddress,
-		dispatchOperation: &dispatchOperation{
-			transactionID:           transactionID,
-			publicDispatches:        dispatchBatch.PublicDispatches,
-			privateDispatches:       dispatchBatch.PrivateDispatches,
-			localPreparedTxns:       localPreparedTxns,
-			preparedReliableMsgs:    preparedReliableMsgs,
-			localSequencerActivites: localSequencerActivities,
-		},
-	})
-
-	//wait for the flush to complete
-	_, err := op.WaitFlushed(s.bgCtx)
-	return err
+	return &dispatchOperation{
+		transactionID:           pd.TransactionID,
+		publicDispatches:        dispatch.PublicDispatches,
+		privateDispatches:       dispatch.PrivateDispatches,
+		localPreparedTxns:       localPreparedTxns,
+		preparedReliableMsgs:    preparedReliableMsgs,
+		localSequencerActivites: localSequencerActivities,
+	}
 }
 
-func (s *syncPoints) PersistDeployDispatchBatch(ctx context.Context, transactionID uuid.UUID, dispatchBatch *DispatchBatch) error {
+func (s *syncPoints) PersistDeployTransactionDispatch(ctx context.Context, transactionID uuid.UUID, dispatch *TransactionDispatch) error {
 
 	// Send the write operation with all of the batch sequence operations to the flush worker.
 	// Queue and wait on the long-lived s.bgCtx rather than the caller's ctx - deploy dispatch is
 	// equally a point of no return, so a caller cancellation must not drop or orphan the persist.
 	op := s.writer.Queue(s.bgCtx, &syncPointOperation{
-		dispatchOperation: &dispatchOperation{
+		dispatchOperations: []*dispatchOperation{{
 			transactionID:    transactionID,
-			publicDispatches: dispatchBatch.PublicDispatches,
-		},
+			publicDispatches: dispatch.PublicDispatches,
+		}},
 	})
 
 	//wait for the flush to complete
@@ -201,16 +247,17 @@ func (s *syncPoints) PersistDeployDispatchBatch(ctx context.Context, transaction
 func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persistence.DBTX, dispatchOperations []*dispatchOperation) (err error) {
 	log.L(ctx).Debugf("writeDispatchOperations writing %d dispatchOperations", len(dispatchOperations))
 
-	// For each operation in the batch, we need to call the baseledger transaction manager to allocate its nonce
-	// which it can only guaranteed to be gapless and unique if it is done during the database transaction that inserts the dispatch record.
+	// For each operation in the batch we hand the public transactions to the public transaction manager,
+	// which inserts them in the same DB transaction that records the dispatch. The nonce itself is allocated
+	// later by that manager's per-signing-address orchestrator, ordered by the pub_txn_id assigned on insert.
 
 	// Build lists of things to insert (we are insert only)
 	for _, op := range dispatchOperations {
 		opCtx := log.WithLogField(ctx, "txID", op.transactionID.String())
 		log.L(opCtx).Tracef("writeDispatchOperations op: %+v", *op)
 
-		//for each batchSequence operation, call the public transaction manager to allocate a nonce
-		//and persist the intent to send the states to the distribution list.
+		//for each batchSequence operation, hand the public transactions to the public transaction manager to
+		//insert (nonce allocated later, ordered by pub_txn_id) and persist the dispatch records.
 		for _, dispatchSequenceOp := range op.publicDispatches {
 			if len(dispatchSequenceOp.PrivateTransactionDispatches) == 0 {
 				continue

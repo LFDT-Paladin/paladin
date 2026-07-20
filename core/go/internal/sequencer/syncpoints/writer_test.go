@@ -81,16 +81,16 @@ func TestRunBatch_OnlyDomainStateWriters(t *testing.T) {
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
 		{
-			contractAddress: *contractAddr,
-			domainStateWriter:  dc1,
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc1,
 		},
 		{
-			contractAddress: *contractAddr,
-			domainStateWriter:  dc2,
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc2,
 		},
 		{
-			contractAddress: *contractAddr,
-			domainStateWriter:  dc1, // Duplicate - should be deduplicated
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc1, // Duplicate - should be deduplicated
 		},
 	}
 
@@ -118,8 +118,8 @@ func TestRunBatch_DomainStateWriterFlushError(t *testing.T) {
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
 		{
-			contractAddress: *contractAddr,
-			domainStateWriter:  dc,
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc,
 		},
 	}
 
@@ -203,14 +203,14 @@ func TestRunBatch_OnlyDispatchOperations(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				publicDispatches: []*PublicDispatch{
 					{
 						PublicTxs:                    []*components.PublicTxSubmission{},
 						PrivateTransactionDispatches: []*DispatchPersisted{}, // Empty - will be skipped
 					},
 				},
-			},
+			}},
 		},
 	}
 
@@ -250,8 +250,8 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 
 	values := []*syncPointOperation{
 		{
-			contractAddress: *contractAddr,
-			domainStateWriter:  dc,
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc,
 			finalizeOperation: &finalizeOperation{
 				TransactionFinalizeRequest: TransactionFinalizeRequest{
 					Domain:         "domain1",
@@ -262,16 +262,16 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 			},
 		},
 		{
-			contractAddress: *contractAddr,
-			domainStateWriter:  dc,
-			dispatchOperation: &dispatchOperation{
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc,
+			dispatchOperations: []*dispatchOperation{{
 				publicDispatches: []*PublicDispatch{
 					{
 						PublicTxs:                    []*components.PublicTxSubmission{},
 						PrivateTransactionDispatches: []*DispatchPersisted{}, // Empty - will be skipped
 					},
 				},
-			},
+			}},
 		},
 	}
 
@@ -342,7 +342,7 @@ func TestRunBatch_DispatchOperationError(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				publicDispatches: []*PublicDispatch{
 					{
 						PublicTxs: []*components.PublicTxSubmission{
@@ -353,7 +353,7 @@ func TestRunBatch_DispatchOperationError(t *testing.T) {
 						},
 					},
 				},
-			},
+			}},
 		},
 	}
 
@@ -776,9 +776,9 @@ func TestRunBatch_WithPrivateDispatches(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				privateDispatches: []*components.ChainedPrivateTransaction{chainedTx},
-			},
+			}},
 		},
 	}
 
@@ -804,11 +804,11 @@ func TestRunBatch_WithPrivateDispatchesError(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				privateDispatches: []*components.ChainedPrivateTransaction{
 					{ID: uuid.New()},
 				},
-			},
+			}},
 		},
 	}
 
@@ -834,11 +834,11 @@ func TestRunBatch_WithPreparedReliableMsgs(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				preparedReliableMsgs: []*pldapi.ReliableMessage{
 					{Node: "node2", MessageType: pldapi.RMTState.Enum()},
 				},
-			},
+			}},
 		},
 	}
 
@@ -864,11 +864,11 @@ func TestRunBatch_WithPreparedReliableMsgsError(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				preparedReliableMsgs: []*pldapi.ReliableMessage{
 					{Node: "node2", MessageType: pldapi.RMTState.Enum()},
 				},
-			},
+			}},
 		},
 	}
 
@@ -895,11 +895,11 @@ func TestRunBatch_WithLocalPreparedTxnsError(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				localPreparedTxns: []*components.PreparedTransactionWithRefs{
 					{},
 				},
-			},
+			}},
 		},
 	}
 
@@ -929,7 +929,7 @@ func TestRunBatch_WithLocalSequencerActivities(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				localSequencerActivites: []*components.SequencingActivity{
 					{
 						SubjectID:      uuid.New().String(),
@@ -938,7 +938,7 @@ func TestRunBatch_WithLocalSequencerActivities(t *testing.T) {
 						SequencingNode: "node1",
 					},
 				},
-			},
+			}},
 		},
 	}
 
@@ -967,7 +967,7 @@ func TestRunBatch_WithLocalSequencerActivitiesError(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				localSequencerActivites: []*components.SequencingActivity{
 					{
 						SubjectID:      uuid.New().String(),
@@ -976,7 +976,7 @@ func TestRunBatch_WithLocalSequencerActivitiesError(t *testing.T) {
 						SequencingNode: "node1",
 					},
 				},
-			},
+			}},
 		},
 	}
 

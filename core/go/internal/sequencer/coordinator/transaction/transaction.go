@@ -36,7 +36,7 @@ import (
 
 type CoordinatorTransaction interface {
 	HandleEvent(ctx context.Context, event common.Event) error
-	PersistDispatch(ctx context.Context) error
+	PendingDispatch(ctx context.Context) *syncpoints.PendingDispatch
 	GetID() uuid.UUID
 	GetCurrentState() State
 	GetSnapshot(ctx context.Context) (*engineProto.SnapshotPooledTransaction, *engineProto.SnapshotDispatchedTransaction, *engineProto.SnapshotConfirmedTransaction, *engineProto.SnapshotRevertedTransaction)
@@ -81,7 +81,7 @@ type coordinatorTransaction struct {
 	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingPreDispatchRequest    *common.IdempotentRequest
 
-	pendingDispatchBatch            *syncpoints.DispatchBatch
+	pendingDispatch                 *syncpoints.TransactionDispatch
 	pendingRemoteStateDistributions []*components.StateDistribution
 
 	//Configuration

@@ -25,24 +25,24 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
-// action_DispatchPrepare handles Event_Dispatched in State_Ready_For_Dispatch by building the dispatch batch,
-// which PersistDispatch then persists off-lock.
+// action_DispatchPrepare handles Event_Dispatched in State_Ready_For_Dispatch by building the transaction's
+// dispatch, which the dispatch loop then detaches and persists off-lock.
 func action_DispatchPrepare(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	return t.dispatchPrepare(ctx)
 }
 
-// dispatchPrepare prepares the transaction via the domain, builds the dispatch batch, resolves state
-// distributions and stages nullifiers, then stashes the batch and remote distributions for PersistDispatch.
-// It runs under the transaction lock (held by ProcessEvent), so the stash write is safe against the
-// lock-guarded reads elsewhere. It persists nothing and touches no on-chain state, so a revert arriving
-// before the transition to State_Dispatched can still cancel the transaction cleanly.
+// dispatchPrepare prepares the transaction via the domain, builds the transaction dispatch, resolves state
+// distributions and stages nullifiers, then stores the dispatch and remote distributions for the dispatch
+// loop to persist. It runs under the transaction lock held by ProcessEvent for the whole
+// Event_Dispatched handling (prepare and the transition into State_Dispatched are one lock-held unit), so
+// no other event can interleave within it; an event that would cancel the transaction is only ever
+// processed before or after, never during.
 func (t *coordinatorTransaction) dispatchPrepare(ctx context.Context) error {
 	// TODO: should this domain query context be populated with a snapshot of the domain's states at the point the transaction
 	// finished assembling? Doing this would require storing a grapher snapshot for every transaction.
@@ -59,7 +59,7 @@ func (t *coordinatorTransaction) dispatchPrepare(ctx context.Context) error {
 		return err
 	}
 
-	dispatchBatch, err := t.buildDispatchBatch(ctx)
+	dispatch, err := t.buildTransactionDispatch(ctx)
 	if err != nil {
 		return err
 	}
@@ -84,51 +84,38 @@ func (t *coordinatorTransaction) dispatchPrepare(ctx context.Context) error {
 		return err
 	}
 
-	t.pendingDispatchBatch = dispatchBatch
+	t.pendingDispatch = dispatch
 	t.pendingRemoteStateDistributions = remoteStateDistributions
 	return nil
 }
 
-// PersistDispatch persists the batch stashed by dispatchPrepare and hands off any chained transactions. The
-// DB commit must not run under the transaction lock (it would block the coordinator event loop), so the stash
-// is detached under the lock and persisted off it. This races safely against a repool clearing the stash
-// (initializeForNewAssembly, on another goroutine): whichever side takes the lock first wins — we either
-// detach and persist, or observe nil and no-op.
-func (t *coordinatorTransaction) PersistDispatch(ctx context.Context) error {
+// PendingDispatch reads the dispatch stashed by dispatchPrepare and returns it to the dispatch loop as a
+// pending dispatch to append to the batch. Reaching this point is a point of no return: the dispatch will
+// be persisted regardless of any subsequent state change to the transaction, because HandleEvent has
+// already transitioned it into State_Dispatched. It reads the stash under the transaction lock so it cannot
+// race a concurrent stash write. Returns nil if nothing was prepared - i.e. the transaction was repooled before
+// its Event_Dispatched was processed, so there is nothing to persist. The stash is not cleared: the state
+// machine only ever routes an Event_Dispatched from State_Ready_For_Dispatch (a second attempt errors from
+// State_Dispatched), and a repool re-runs dispatchPrepare and restashes before the next read, so the read
+// always sees a freshly-prepared dispatch exactly once per dispatch cycle.
+func (t *coordinatorTransaction) PendingDispatch(ctx context.Context) *syncpoints.PendingDispatch {
 	t.Lock()
-	dispatchBatch := t.pendingDispatchBatch
+	dispatch := t.pendingDispatch
 	remoteStateDistributions := t.pendingRemoteStateDistributions
-	t.pendingDispatchBatch = nil
-	t.pendingRemoteStateDistributions = nil
 	t.Unlock()
 
-	if dispatchBatch == nil {
-		return nil // already persisted, or repooled before persist
+	if dispatch == nil {
+		return nil
 	}
-
-	log.L(ctx).Debugf("Persisting & deploying batch. %d public transactions, %d private transactions, %d prepared transactions", len(dispatchBatch.PublicDispatches), len(dispatchBatch.PrivateDispatches), len(dispatchBatch.PreparedTransactions))
-	if err := t.syncPoints.PersistDispatchBatch(ctx, t.dsw, t.pt.Address, t.pt.ID, dispatchBatch, remoteStateDistributions, dispatchBatch.PreparedTransactions); err != nil {
-		log.L(ctx).Errorf("error persisting batch: %s", err)
-		return err
+	return &syncpoints.PendingDispatch{
+		TransactionID:      t.pt.ID,
+		Dispatch:           dispatch,
+		StateDistributions: remoteStateDistributions,
 	}
-
-	if len(dispatchBatch.PrivateDispatches) > 0 {
-		for _, chained := range dispatchBatch.PrivateDispatches {
-			err := t.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTx persistence.DBTX) error {
-				return t.components.SequencerManager().HandleNewTx(ctx, dbTx, chained.NewTransaction)
-			})
-			if err != nil {
-				log.L(ctx).Errorf("error handling new private transaction: %v", err)
-				return err
-			}
-		}
-	}
-
-	return nil
 }
 
-// buildDispatchBatch builds the dispatch batch for a transaction which has already been prepared via the domain
-func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncpoints.DispatchBatch, error) {
+// buildTransactionDispatch builds the dispatch for a transaction which has already been prepared via the domain
+func (t *coordinatorTransaction) buildTransactionDispatch(ctx context.Context) (*syncpoints.TransactionDispatch, error) {
 	hasPublicTransaction := t.pt.PreparedPublicTransaction != nil
 	hasPrivateTransaction := t.pt.PreparedPrivateTransaction != nil
 	intent := t.pt.PreAssembly.TransactionSpecification.Intent
@@ -139,7 +126,7 @@ func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 		if err != nil {
 			return nil, err
 		}
-		return &syncpoints.DispatchBatch{
+		return &syncpoints.TransactionDispatch{
 			PublicDispatches: []*syncpoints.PublicDispatch{{
 				PrivateTransactionDispatches: []*syncpoints.DispatchPersisted{
 					{TransactionID: t.pt.ID.String()},
@@ -192,7 +179,7 @@ func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 				log.L(ctx).Debugf("Chained TX %s has %d dependencies from parent grapher: %v", childID, len(chainedDeps), chainedDeps)
 			}
 		}
-		return &syncpoints.DispatchBatch{
+		return &syncpoints.TransactionDispatch{
 			PrivateDispatches: []*components.ChainedPrivateTransaction{validatedPrivateTx},
 		}, nil
 	}
@@ -200,7 +187,7 @@ func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 	if intent == prototk.TransactionSpecification_PREPARE_TRANSACTION && (hasPublicTransaction || hasPrivateTransaction) {
 		log.L(ctx).Debugf("Result of transaction %s is a prepared transaction public=%t private=%t", t.pt.ID, hasPublicTransaction, hasPrivateTransaction)
 		preparedTransactionWithRefs := t.mapPreparedTransaction()
-		return &syncpoints.DispatchBatch{
+		return &syncpoints.TransactionDispatch{
 			PreparedTransactions: []*components.PreparedTransactionWithRefs{preparedTransactionWithRefs},
 		}, nil
 	}

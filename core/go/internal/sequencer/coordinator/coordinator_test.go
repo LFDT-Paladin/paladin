@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
@@ -84,7 +85,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		cancel()
 		c.WaitForDone(t.Context())
 	}()
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything).Return(nil).Once()
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -189,13 +190,18 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		},
 	})
 
-	// PersistDispatch runs off-lock; the real dispatchLoop drives it after the transition to
-	// State_Dispatched. The loop is disabled for this test (MaxDispatchAhead=-1), so drive it manually.
+	// Committing the dispatch runs off-lock; the real dispatchLoop drives it after the transition to
+	// State_Dispatched. The loop is disabled for this test (MaxDispatchAhead=-1), so drive it manually:
+	// detach the prepared dispatch, append it to a batch and commit.
 	require.Eventually(t, func() bool {
 		return len(c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})) == 1
 	}, 100*time.Millisecond, 1*time.Millisecond, "transaction should reach State_Dispatched")
 	dispatched := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})
-	require.NoError(t, dispatched[0].PersistDispatch(ctx))
+	pd := dispatched[0].PendingDispatch(ctx)
+	require.NotNil(t, pd)
+	batch := &syncpoints.DispatchBatch{DomainStateWriter: c.dsw, ContractAddress: *c.contractAddress}
+	batch.Append(pd)
+	require.NoError(t, c.syncPoints.PersistDispatchBatch(ctx, batch))
 
 	// Simulate the public transaction manager collecting the dispatched transaction and associating a signing address with it
 	signerAddress := pldtypes.RandAddress()

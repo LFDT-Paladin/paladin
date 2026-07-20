@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -38,15 +37,13 @@ type PublicTransactionsSubmit func(tx *gorm.DB) (publicTxID []string, err error)
 type SyncPoints interface {
 	Start()
 
-	// PersistDispatchSequence takes a DispatchBatch and for each sequence in the batch, it integrates
-	// with the PublicTxManager to record the transactions in its persistence store and also writes the dispatch
-	// to the PrivateTxnManager's persistence store in the same database transaction
-	// Although the actual persistence is offloaded to the flushwriter, this method is synchronous and will block until the
-	// dispatch sequence is written to the database
-	PersistDispatchBatch(ctx context.Context, dsw components.DomainStateWriter, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error
+	// PersistDispatchBatch commits every dispatch in the batch atomically in a single DB transaction and
+	// blocks until it has committed. The whole batch is one flush-writer operation, so it can never be split
+	// across two transactions. The write happens on the flush writer worker (runBatch -> writeDispatchOperations).
+	PersistDispatchBatch(ctx context.Context, batch *DispatchBatch) error
 
-	// Deploy is a special case of dispatch batch, where there are no private states, so no domain context is required
-	PersistDeployDispatchBatch(ctx context.Context, transactionID uuid.UUID, dispatchBatch *DispatchBatch) error
+	// Deploy is a special case of dispatch, where there are no private states, so no domain state writer is required
+	PersistDeployTransactionDispatch(ctx context.Context, transactionID uuid.UUID, dispatch *TransactionDispatch) error
 
 	// QueueTransactionFinalize integrates with TxManager to mark a transaction as finalized.
 	// For off-chain failures, req.FailureMessage is set. For on-chain failures, req.OnChain and req.RevertData are set.

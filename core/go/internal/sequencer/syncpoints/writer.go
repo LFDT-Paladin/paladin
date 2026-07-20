@@ -52,10 +52,10 @@ to atomically allocate and record the nonce under that same transaction.
 // but never more than one of these.  We probably could make the mutually exclusive nature more explicit by using interfaces but its not worth the added complexity
 
 type syncPointOperation struct {
-	contractAddress   pldtypes.EthAddress
-	domainStateWriter components.DomainStateWriter
-	finalizeOperation *finalizeOperation
-	dispatchOperation *dispatchOperation
+	contractAddress    pldtypes.EthAddress
+	domainStateWriter  components.DomainStateWriter
+	finalizeOperation  *finalizeOperation
+	dispatchOperations []*dispatchOperation
 }
 
 func (dso *syncPointOperation) WriteKey() string {
@@ -77,8 +77,8 @@ func (s *syncPoints) runBatch(ctx context.Context, dbTX persistence.DBTX, values
 		if op.finalizeOperation != nil {
 			finalizeOperations = append(finalizeOperations, op.finalizeOperation)
 		}
-		if op.dispatchOperation != nil {
-			dispatchOperations = append(dispatchOperations, op.dispatchOperation)
+		if len(op.dispatchOperations) > 0 {
+			dispatchOperations = append(dispatchOperations, op.dispatchOperations...)
 		}
 	}
 

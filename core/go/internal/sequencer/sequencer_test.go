@@ -209,7 +209,7 @@ func TestSequencerManager_deploymentLoop_Success(t *testing.T) {
 	from := pldtypes.RandAddress()
 	mocks.keyManager.EXPECT().ResolveEthAddressBatchNewDatabaseTX(ctx, []string{"signer"}).Return([]*pldtypes.EthAddress{from}, nil).Once()
 	mocks.publicTxManager.EXPECT().ValidateTransaction(ctx, nil, mock.Anything).Return(nil).Once()
-	mocks.syncPoints.EXPECT().PersistDeployDispatchBatch(ctx, mock.Anything, mock.Anything).Return(nil).Once()
+	mocks.syncPoints.EXPECT().PersistDeployTransactionDispatch(ctx, mock.Anything, mock.Anything).Return(nil).Once()
 
 	tx := &components.PrivateContractDeploy{
 		ID: uuid.New(),
@@ -328,7 +328,7 @@ func TestSequencerManager_evaluateDeployment_PersistError(t *testing.T) {
 	from := pldtypes.RandAddress()
 	mocks.keyManager.EXPECT().ResolveEthAddressBatchNewDatabaseTX(ctx, []string{"signer"}).Return([]*pldtypes.EthAddress{from}, nil).Once()
 	mocks.publicTxManager.EXPECT().ValidateTransaction(ctx, nil, mock.Anything).Return(nil).Once()
-	mocks.syncPoints.EXPECT().PersistDeployDispatchBatch(ctx, mock.Anything, mock.Anything).Return(errors.New("persist failed")).Once()
+	mocks.syncPoints.EXPECT().PersistDeployTransactionDispatch(ctx, mock.Anything, mock.Anything).Return(errors.New("persist failed")).Once()
 	mocks.syncPoints.EXPECT().QueueTransactionFinalize(ctx, mock.Anything, mock.Anything, mock.Anything).Once()
 
 	err := sm.evaluateDeployment(ctx, mockDomain, tx)
@@ -346,7 +346,7 @@ func TestSequencerManager_evaluateDeployment_Success(t *testing.T) {
 	from := pldtypes.RandAddress()
 	mocks.keyManager.EXPECT().ResolveEthAddressBatchNewDatabaseTX(ctx, []string{"signer"}).Return([]*pldtypes.EthAddress{from}, nil).Once()
 	mocks.publicTxManager.EXPECT().ValidateTransaction(ctx, nil, mock.Anything).Return(nil).Once()
-	mocks.syncPoints.EXPECT().PersistDeployDispatchBatch(ctx, mock.Anything, mock.Anything).Return(nil).Once()
+	mocks.syncPoints.EXPECT().PersistDeployTransactionDispatch(ctx, mock.Anything, mock.Anything).Return(nil).Once()
 
 	err := sm.evaluateDeployment(ctx, mockDomain, tx)
 	require.NoError(t, err)

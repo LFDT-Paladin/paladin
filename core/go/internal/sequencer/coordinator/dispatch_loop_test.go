@@ -17,13 +17,16 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -134,7 +137,8 @@ func TestDispatchLoop_HandleEventError_ContinuesLoop(t *testing.T) {
 		return false
 	})).Return(fmt.Errorf("dispatch error"))
 
-	// tx2: HandleEvent returns nil, no public transaction — verifies loop continued after error
+	// tx2: HandleEvent returns nil, and detaches no batch (repooled before its event) — verifies the loop
+	// continued after tx1's error.
 	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	id2 := uuid.New()
 	tx2.EXPECT().GetID().Return(id2).Maybe()
@@ -144,7 +148,7 @@ func TestDispatchLoop_HandleEventError_ContinuesLoop(t *testing.T) {
 		}
 		return false
 	})).Return(nil)
-	tx2.EXPECT().PersistDispatch(mock.Anything).Return(nil)
+	tx2.EXPECT().PendingDispatch(mock.Anything).Return(nil)
 
 	// Pre-queue both transactions before starting the loop (buffered channel)
 	c.dispatchQueue <- tx1
@@ -168,10 +172,10 @@ func TestDispatchLoop_HandleEventError_ContinuesLoop(t *testing.T) {
 	}
 }
 
-// TestDispatchLoop_PersistDispatchError_ContinuesLoop verifies that when PersistDispatch returns an
-// error for a dispatched transaction, the loop logs the error and continues processing subsequent
-// transactions.
-func TestDispatchLoop_PersistDispatchError_ContinuesLoop(t *testing.T) {
+// TestDispatchLoop_SkipsRepooledTransaction_ContinuesLoop verifies that when a transaction detaches no
+// prepared batch (it was repooled before its DispatchedEvent was processed, so prepare never ran), the
+// loop skips it and continues processing subsequent transactions.
+func TestDispatchLoop_SkipsRepooledTransaction_ContinuesLoop(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -183,7 +187,7 @@ func TestDispatchLoop_PersistDispatchError_ContinuesLoop(t *testing.T) {
 		c.inFlightMutex.L.Unlock()
 	})
 
-	// tx1: HandleEvent succeeds but PersistDispatch fails — the loop should log and continue
+	// tx1: HandleEvent succeeds but detaches no batch (repooled) — the loop should skip and continue
 	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	id1 := uuid.New()
 	tx1.EXPECT().GetID().Return(id1).Maybe()
@@ -191,9 +195,9 @@ func TestDispatchLoop_PersistDispatchError_ContinuesLoop(t *testing.T) {
 		de, ok := e.(*transaction.DispatchedEvent)
 		return ok && de.TransactionID == id1
 	})).Return(nil)
-	tx1.EXPECT().PersistDispatch(mock.Anything).Return(fmt.Errorf("persist error"))
+	tx1.EXPECT().PendingDispatch(mock.Anything).Return(nil)
 
-	// tx2: dispatched successfully — verifies the loop continued after tx1's persist error
+	// tx2: also detaches no batch — verifies the loop continued after skipping tx1
 	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	id2 := uuid.New()
 	tx2.EXPECT().GetID().Return(id2).Maybe()
@@ -202,7 +206,7 @@ func TestDispatchLoop_PersistDispatchError_ContinuesLoop(t *testing.T) {
 		return ok && de.TransactionID == id2
 	})).Return(nil)
 	dispatched := make(chan struct{}, 1)
-	tx2.EXPECT().PersistDispatch(mock.Anything).Run(func(context.Context) { dispatched <- struct{}{} }).Return(nil)
+	tx2.EXPECT().PendingDispatch(mock.Anything).Run(func(context.Context) { dispatched <- struct{}{} }).Return(nil)
 
 	c.dispatchQueue <- tx1
 	c.dispatchQueue <- tx2
@@ -250,7 +254,7 @@ func TestDispatchLoop_DispatchesQueuedTransaction(t *testing.T) {
 		de, ok := e.(*transaction.DispatchedEvent)
 		return ok && de.TransactionID == id
 	})).Run(func(context.Context, common.Event) { dispatched <- struct{}{} }).Return(nil)
-	tx.EXPECT().PersistDispatch(mock.Anything).Return(nil)
+	tx.EXPECT().PendingDispatch(mock.Anything).Return(nil)
 
 	c.dispatchQueue <- tx
 
@@ -302,7 +306,7 @@ func TestDispatchLoop_WaitsAtCapacityThenProceeds(t *testing.T) {
 		_, ok := e.(*transaction.DispatchedEvent)
 		return ok
 	})).Run(func(context.Context, common.Event) { dispatched <- struct{}{} }).Return(nil)
-	tx.EXPECT().PersistDispatch(mock.Anything).Return(nil)
+	tx.EXPECT().PendingDispatch(mock.Anything).Return(nil).Maybe()
 
 	// Fill the single dispatch-ahead slot so the loop must wait before dispatching tx.
 	occupyingID := uuid.New()
@@ -341,6 +345,34 @@ func TestDispatchLoop_WaitsAtCapacityThenProceeds(t *testing.T) {
 	}
 }
 
+// TestDispatchLoop_PullCapRespectsInFlight verifies that the pull cap is maxDispatchAhead minus the
+// number of in-flight transactions, so a batch never pulls more than the dispatch-ahead limit allows.
+func TestDispatchLoop_PullCapRespectsInFlight(t *testing.T) {
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
+	config := builder.GetSequencerConfig()
+	config.MaxDispatchAhead = confutil.P(5)
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build()
+
+	// Two public transactions already in flight leave capacity for three more.
+	c.setDispatchedInFlight(uuid.New(), true)
+	c.setDispatchedInFlight(uuid.New(), true)
+
+	capacity := c.awaitDispatchAheadCapacity(t.Context())
+	require.Equal(t, 3, capacity)
+
+	// Queue five transactions; the pull must cap the batch at the capacity and leave the rest queued.
+	for i := 0; i < 5; i++ {
+		tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+		tx.EXPECT().GetID().Return(uuid.New()).Maybe()
+		c.dispatchQueue <- tx
+	}
+	first := <-c.dispatchQueue
+	batch := c.pullDispatchBatch(first, capacity)
+	assert.Len(t, batch, 3, "batch must be capped at the dispatch-ahead capacity")
+	assert.Len(t, c.dispatchQueue, 2, "transactions beyond the cap must remain queued")
+}
+
 // TestSetDispatchedInFlight_AddAndRemove verifies the in-flight set is maintained by ID and that
 // removal signals the dispatch loop, and is idempotent for unknown IDs.
 func TestSetDispatchedInFlight_AddAndRemove(t *testing.T) {
@@ -358,4 +390,98 @@ func TestSetDispatchedInFlight_AddAndRemove(t *testing.T) {
 	// Removing an unknown ID is a no-op.
 	c.setDispatchedInFlight(uuid.New(), false)
 	assert.Equal(t, 0, len(c.inFlightTxns))
+}
+
+// newDispatchTxMock builds a CoordinatorTransaction mock that dispatches successfully and returns the given
+// pending dispatch (its TransactionID is set to the mock's ID). Pass pd == nil to model a transaction that
+// prepared no dispatch (repooled before its event).
+func newDispatchTxMock(t *testing.T, pd *syncpoints.PendingDispatch) transaction.CoordinatorTransaction {
+	id := uuid.New()
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx.EXPECT().GetID().Return(id).Maybe()
+	tx.EXPECT().HandleEvent(mock.Anything, mock.MatchedBy(func(e common.Event) bool {
+		de, ok := e.(*transaction.DispatchedEvent)
+		return ok && de.TransactionID == id
+	})).Return(nil)
+	if pd != nil {
+		pd.TransactionID = id
+	}
+	tx.EXPECT().PendingDispatch(mock.Anything).Return(pd)
+	return tx
+}
+
+func chainedDispatch() *syncpoints.PendingDispatch {
+	return &syncpoints.PendingDispatch{
+		Dispatch: &syncpoints.TransactionDispatch{
+			PrivateDispatches: []*components.ChainedPrivateTransaction{
+				{NewTransaction: &components.ValidatedTransaction{}},
+			},
+		},
+	}
+}
+
+// TestDispatchBatch_HandsOffChainedChildren verifies that after the batch commits, a dispatch carrying a
+// chained private child is handed off via SequencerManager.HandleNewTx.
+func TestDispatchBatch_HandsOffChainedChildren(t *testing.T) {
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Return(nil)
+	mocks.SequencerManager.EXPECT().HandleNewTx(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.Persistence.Mock.ExpectBegin()
+	mocks.Persistence.Mock.ExpectCommit()
+
+	c.dispatchBatch(ctx, []transaction.CoordinatorTransaction{newDispatchTxMock(t, chainedDispatch())})
+}
+
+// TestDispatchBatch_NoChainedChildren_SkipsHandoff verifies that a dispatch with no chained children commits
+// but triggers no chained hand-off (SequencerManager.HandleNewTx is not called).
+func TestDispatchBatch_NoChainedChildren_SkipsHandoff(t *testing.T) {
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Return(nil)
+
+	pd := &syncpoints.PendingDispatch{Dispatch: &syncpoints.TransactionDispatch{}}
+	c.dispatchBatch(ctx, []transaction.CoordinatorTransaction{newDispatchTxMock(t, pd)})
+
+	mocks.SequencerManager.AssertNotCalled(t, "HandleNewTx")
+}
+
+// TestDispatchBatch_PersistError_SkipsChainedHandoff verifies that when the batch commit fails, the loop
+// logs and returns without handing off chained children.
+func TestDispatchBatch_PersistError_SkipsChainedHandoff(t *testing.T) {
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Return(errors.New("persist failed"))
+
+	c.dispatchBatch(ctx, []transaction.CoordinatorTransaction{newDispatchTxMock(t, chainedDispatch())})
+
+	mocks.SequencerManager.AssertNotCalled(t, "HandleNewTx")
+}
+
+// TestDispatchBatch_ChainedChildError_LogsAndContinues verifies that a failure handing off a chained child
+// is logged and does not abort the loop (the batch has already committed atomically).
+func TestDispatchBatch_ChainedChildError_LogsAndContinues(t *testing.T) {
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Return(nil)
+	mocks.SequencerManager.EXPECT().HandleNewTx(mock.Anything, mock.Anything, mock.Anything).Return(errors.New("handle new tx failed"))
+	mocks.Persistence.Mock.ExpectBegin()
+	mocks.Persistence.Mock.ExpectRollback()
+
+	c.dispatchBatch(ctx, []transaction.CoordinatorTransaction{newDispatchTxMock(t, chainedDispatch())})
+}
+
+// TestDispatchBatch_AllSkipped_TouchesNoSyncPoints verifies that a batch in which no transaction prepared a
+// dispatch is created lazily and never touches syncPoints.
+func TestDispatchBatch_AllSkipped_TouchesNoSyncPoints(t *testing.T) {
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	c.dispatchBatch(ctx, []transaction.CoordinatorTransaction{newDispatchTxMock(t, nil), newDispatchTxMock(t, nil)})
+
+	mocks.SyncPoints.AssertNotCalled(t, "PersistDispatchBatch")
 }

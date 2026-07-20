@@ -1334,7 +1334,6 @@ func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *te
 		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, &DispatchedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -1347,9 +1346,11 @@ func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *te
 	// PREPARE_TRANSACTION intent produces no public transaction, so entering Dispatched must not mark in-flight.
 	assert.Empty(t, inFlightCalls, "no public transaction dispatched, so setDispatchedInFlight must not be called")
 
-	// Persist runs off-lock via PersistDispatch after the transition to State_Dispatched.
+	// The prepared dispatch is committed off-lock by the dispatch loop after the transition to
+	// State_Dispatched, so preparing on entry to Dispatched must not itself persist. The transaction's
+	// only responsibility is to make the prepared dispatch available; the loop batches and commits it.
 	mocks.SyncPoints.AssertNotCalled(t, "PersistDispatchBatch")
-	require.NoError(t, txn.PersistDispatch(ctx))
+	require.NotNil(t, txn.PendingDispatch(ctx))
 }
 
 // TestCoordinatorTransaction_ToDispatched_WithPublicTx_MarksInFlight verifies that entering
