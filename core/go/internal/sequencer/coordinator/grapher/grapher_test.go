@@ -23,14 +23,22 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const testBlockHeightTolerance uint64 = 5
+
+func endorsable(ids ...pldtypes.HexBytes) []*prototk.EndorsableState {
+	result := make([]*prototk.EndorsableState, len(ids))
+	for i, id := range ids {
+		result[i] = &prototk.EndorsableState{Id: id.String()}
+	}
+	return result
+}
 
 func testGrapher(t *testing.T) Grapher {
 	t.Helper()
@@ -53,8 +61,8 @@ func TestAddMinter_Success(t *testing.T) {
 	minterID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("aa", 32))
 
-	err := g.AddMinter(ctx, []*components.FullState{
-		{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32)), Data: pldtypes.RawJSON(`{}`)},
+	err := g.AddMinter(ctx, []*prototk.EndorsableState{
+		{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32)).String(), StateDataJson: `{}`},
 	}, minterID)
 	require.NoError(t, err)
 
@@ -70,9 +78,9 @@ func TestAddMinter_MultipleStates_AppendsToOutputStatesByMinter(t *testing.T) {
 	minterID := uuid.New()
 	s1 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("01", 32))
 	s2 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("02", 32))
-	states := []*components.FullState{
-		{ID: s1, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("03", 32)), Data: pldtypes.RawJSON(`{}`)},
-		{ID: s2, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("04", 32)), Data: pldtypes.RawJSON(`{}`)},
+	states := []*prototk.EndorsableState{
+		{Id: s1.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("03", 32)).String(), StateDataJson: `{}`},
+		{Id: s2.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("04", 32)).String(), StateDataJson: `{}`},
 	}
 	require.NoError(t, g.AddMinter(ctx, states, minterID))
 	require.Len(t, g.outputStatesByMinter[minterID], 2)
@@ -85,8 +93,8 @@ func TestAddMinter_RegistersSameGrapherTXInTransactionByIDAndTransactionByOutput
 	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("c0", 32))
-	states := []*components.FullState{
-		{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("c1", 32)), Data: pldtypes.RawJSON(`{}`)},
+	states := []*prototk.EndorsableState{
+		{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("c1", 32)).String(), StateDataJson: `{}`},
 	}
 
 	require.NoError(t, g.AddMinter(ctx, states, minterID))
@@ -106,10 +114,10 @@ func TestAddMinter_AlreadyExists(t *testing.T) {
 	firstMinter := uuid.New()
 	secondMinter := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("cc", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("dd", 32)), Data: pldtypes.RawJSON(`{}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("dd", 32)).String(), StateDataJson: `{}`}
 
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, firstMinter))
-	err := g.AddMinter(ctx, []*components.FullState{state}, secondMinter)
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, firstMinter))
+	err := g.AddMinter(ctx, []*prototk.EndorsableState{state}, secondMinter)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, string(msgs.MsgSequencerGrapherAddMinterAlreadyExistsError))
 }
@@ -130,10 +138,10 @@ func TestLockMintsOnSpend_DependsOnMinter(t *testing.T) {
 	minterID := uuid.New()
 	consumerID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ee", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("ff", 32)), Data: pldtypes.RawJSON(`{}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("ff", 32)).String(), StateDataJson: `{}`}
 
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerID)
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterID))
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), consumerID)
 
 	assert.Equal(t, []uuid.UUID{minterID}, g.GetDependencies(ctx, consumerID))
 }
@@ -144,10 +152,10 @@ func TestLockMintsOnRead_DependsOnMinter(t *testing.T) {
 	minterID := uuid.New()
 	readerID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("11", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("22", 32)), Data: pldtypes.RawJSON(`{}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("22", 32)).String(), StateDataJson: `{}`}
 
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{state}, []*components.FullState{}, readerID)
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterID))
+	g.LockMintsOnReadAndSpend(ctx, endorsable(stateID), endorsable(), readerID)
 
 	assert.Equal(t, []uuid.UUID{minterID}, g.GetDependencies(ctx, readerID))
 }
@@ -169,7 +177,7 @@ func TestGetDependents_ConsumerWithNoReadPrereqs_ReturnsEmptySlice(t *testing.T)
 	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b1", 32))
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: unknown}}, []*components.FullState{}, consumerID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(unknown), endorsable(), consumerID)
 
 	assert.Empty(t, g.GetDependents(ctx, consumerID))
 }
@@ -179,7 +187,7 @@ func TestGetDependents_ConsumerWithNoSpendPrereqs_ReturnsEmptySlice(t *testing.T
 	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b1", 32))
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{{ID: unknown}}, consumerID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(unknown), consumerID)
 
 	assert.Empty(t, g.GetDependents(ctx, consumerID))
 }
@@ -207,9 +215,8 @@ func TestLockMintsOnSpend_UnknownReadState_NoDependency(t *testing.T) {
 	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("33", 32))
-	state := &components.FullState{ID: unknown}
 
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{state}, []*components.FullState{}, consumerID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(unknown), endorsable(), consumerID)
 	assert.Empty(t, g.GetDependencies(ctx, consumerID))
 }
 
@@ -218,9 +225,8 @@ func TestLockMintsOnSpend_UnknownSpendState_NoDependency(t *testing.T) {
 	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("33", 32))
-	state := &components.FullState{ID: unknown}
 
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(unknown), consumerID)
 	assert.Empty(t, g.GetDependencies(ctx, consumerID))
 }
 
@@ -231,13 +237,13 @@ func TestLockMintsOnSpend_MultipleStates_AppendsSpendLocks(t *testing.T) {
 	s1 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("de", 32))
 	s2 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ef", 32))
 
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{{ID: s1}, {ID: s2}}, txID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(s1, s2), txID)
 
 	locks := g.locksByTransaction[txID]
 	require.Len(t, locks, 2)
-	assert.True(t, locks[0].State.Equals(s1))
-	assert.True(t, locks[1].State.Equals(s2))
-	assert.Equal(t, pldapi.StateLockTypeSpend.Enum(), locks[0].Type)
+	assert.Equal(t, s1.String(), locks[0].GetStateId())
+	assert.Equal(t, s2.String(), locks[1].GetStateId())
+	assert.Equal(t, prototk.SnapshotStateLock_SPEND, locks[0].GetType())
 }
 
 func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
@@ -249,17 +255,17 @@ func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
 	upserts := []*components.StateUpsert{
 		{ID: stateID, CreatedBy: &createdBy},
 	}
-	states := []*components.FullState{{ID: stateID}}
+	states := []*prototk.EndorsableState{{Id: stateID.String()}}
 
 	g.LockMintsOnCreate(ctx, upserts, states, txID)
 
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	require.Len(t, data.LockedState, 1)
-	assert.True(t, data.LockedState[0].State.Equals(stateID))
-	require.NotNil(t, data.LockedState[0].Transaction)
-	assert.Equal(t, txID, *data.LockedState[0].Transaction)
-	assert.Equal(t, pldapi.StateLockTypeCreate.Enum(), data.LockedState[0].Type)
+	require.Len(t, data.GetLocks(), 1)
+	assert.Equal(t, stateID.String(), data.GetLocks()[0].GetStateId())
+	require.NotNil(t, data.GetLocks()[0].Transaction)
+	assert.Equal(t, txID.String(), *data.GetLocks()[0].Transaction)
+	assert.Equal(t, prototk.SnapshotStateLock_CREATE, data.GetLocks()[0].GetType())
 }
 
 func TestLockMintsOnCreate_NoCreatedBy_NoLocks(t *testing.T) {
@@ -268,13 +274,13 @@ func TestLockMintsOnCreate_NoCreatedBy_NoLocks(t *testing.T) {
 	txID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("90", 32))
 	upserts := []*components.StateUpsert{{ID: stateID, CreatedBy: nil}}
-	states := []*components.FullState{{ID: stateID}}
+	states := []*prototk.EndorsableState{{Id: stateID.String()}}
 
 	g.LockMintsOnCreate(ctx, upserts, states, txID)
 
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Empty(t, data.LockedState)
+	assert.Empty(t, data.GetLocks())
 }
 
 func TestLockMintsOnCreate_MixedCreatedBy_AppendsOnlyPotential(t *testing.T) {
@@ -288,14 +294,14 @@ func TestLockMintsOnCreate_MixedCreatedBy_AppendsOnlyPotential(t *testing.T) {
 		{ID: s1, CreatedBy: nil},
 		{ID: s2, CreatedBy: &createdBy},
 	}
-	states := []*components.FullState{{ID: s1}, {ID: s2}}
+	states := []*prototk.EndorsableState{{Id: s1.String()}, {Id: s2.String()}}
 
 	g.LockMintsOnCreate(ctx, upserts, states, txID)
 
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	require.Len(t, data.LockedState, 1)
-	assert.True(t, data.LockedState[0].State.Equals(s2))
+	require.Len(t, data.GetLocks(), 1)
+	assert.Equal(t, s2.String(), data.GetLocks()[0].GetStateId())
 }
 
 func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
@@ -304,22 +310,19 @@ func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
 	minterID := uuid.New()
 	consumerID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("55", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("66", 32)), Data: pldtypes.RawJSON(`{"x":1}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("66", 32)).String(), StateDataJson: `{"x":1}`}
 
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterID))
 	// Seed visibility directly so ExportStatesAndLocks can return this state for "test-node"
-	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &statevisibilitytracker.OutputState{
-		StateUpsert:  components.StateUpsert{ID: stateID, Schema: state.Schema, Data: state.Data},
-		AllowedNodes: []string{"test-node"},
-	})
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{state}, []*components.FullState{}, consumerID)
+	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"test-node"}})
+	g.LockMintsOnReadAndSpend(ctx, endorsable(stateID), endorsable(), consumerID)
 
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	require.Len(t, data.OutputState, 1)
-	assert.True(t, data.OutputState[0].ID.Equals(stateID))
-	require.Len(t, data.LockedState, 1)
-	assert.True(t, data.LockedState[0].State.Equals(stateID))
+	require.Len(t, data.GetStates(), 1)
+	assert.Equal(t, stateID.String(), data.GetStates()[0].GetState().GetId())
+	require.Len(t, data.GetLocks(), 1)
+	assert.Equal(t, stateID.String(), data.GetLocks()[0].GetStateId())
 }
 
 func TestExportStatesAndLocks_EmptyGrapher(t *testing.T) {
@@ -327,8 +330,8 @@ func TestExportStatesAndLocks_EmptyGrapher(t *testing.T) {
 	g := testGrapher(t)
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Empty(t, data.OutputState)
-	assert.Empty(t, data.LockedState)
+	assert.Empty(t, data.GetStates())
+	assert.Empty(t, data.GetLocks())
 }
 
 func TestExportStatesAndLocks_LocksReturnedUnfiltered(t *testing.T) {
@@ -340,17 +343,17 @@ func TestExportStatesAndLocks_LocksReturnedUnfiltered(t *testing.T) {
 	s2 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("d2", 32))
 
 	// Two transactions create locks on different states
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: s1}}, []*components.FullState{}, txID1)
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{{ID: s2}}, txID2)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(s1), endorsable(), txID1)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(s2), txID2)
 
 	// Both nodes should see all locks regardless of any AllowedNodes on states
 	forNode1, err := g.ExportStatesAndLocks(ctx, "node1")
 	require.NoError(t, err)
-	assert.Len(t, forNode1.LockedState, 2, "all locks returned to node1")
+	assert.Len(t, forNode1.GetLocks(), 2, "all locks returned to node1")
 
 	forNode2, err := g.ExportStatesAndLocks(ctx, "node2")
 	require.NoError(t, err)
-	assert.Len(t, forNode2.LockedState, 2, "all locks returned to node2")
+	assert.Len(t, forNode2.GetLocks(), 2, "all locks returned to node2")
 }
 
 func TestForgetTransactionAndLocks_UnknownTransaction_NoOp(t *testing.T) {
@@ -368,10 +371,10 @@ func TestForgetTransactionAndLocks_RemoveAllDependencyLinks_SkipsMissingDependen
 	realDependent := uuid.New()
 	minterID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("a0", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("a1", 32)), Data: pldtypes.RawJSON(`{}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("a1", 32)).String(), StateDataJson: `{}`}
 
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, realDependent)
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterID))
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), realDependent)
 
 	g.mu.Lock()
 	g.addConsumer(ghostDependent)
@@ -390,9 +393,9 @@ func TestForgetTransactionAndLocks_RemoveAllDependencyLinks_SkipsMissingPrerequi
 	ghostPrereq := uuid.New()
 	minterID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b0", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("b1", 32)), Data: pldtypes.RawJSON(`{}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("b1", 32)).String(), StateDataJson: `{}`}
 
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterID))
 
 	g.mu.Lock()
 	g.addConsumer(ghostPrereq)
@@ -411,10 +414,10 @@ func TestForgetTransactionAndLocks_ClearsPrereqOnMinterWhenConsumerForgotten(t *
 	minterID := uuid.New()
 	consumerID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("f0", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("f1", 32)), Data: pldtypes.RawJSON(`{}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("f1", 32)).String(), StateDataJson: `{}`}
 
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerID)
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterID))
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), consumerID)
 
 	require.Contains(t, g.GetDependents(ctx, minterID), consumerID)
 
@@ -430,11 +433,11 @@ func TestForgetTransactionAndLocks_ClearsMinterConsumerAndLocks(t *testing.T) {
 	consumerID := uuid.New()
 	createdBy := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("77", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("88", 32)), Data: pldtypes.RawJSON(`{}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("88", 32)).String(), StateDataJson: `{}`}
 
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnCreate(ctx, []*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}}, []*components.FullState{{ID: stateID}}, minterID)
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerID)
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterID))
+	g.LockMintsOnCreate(ctx, []*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}}, []*prototk.EndorsableState{{Id: stateID.String()}}, minterID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), consumerID)
 	g.ForgetTransactionAndLocks(ctx, minterID)
 
 	// Transaction-indexed maps cleared
@@ -453,7 +456,7 @@ func TestForgetTransactionAndLocks_ClearsLocksForTransaction(t *testing.T) {
 	txID := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ab", 32))
 	// Read lock → lands in readLocksByStateID
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: s}}, []*components.FullState{}, txID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(s), endorsable(), txID)
 	require.Contains(t, g.locksByTransaction, txID)
 	require.Contains(t, g.readLocksByStateID, s.String())
 	g.ForgetTransactionAndLocks(ctx, txID)
@@ -468,14 +471,14 @@ func TestForgetTransactionAndLocks_AlreadyConfirmedTransaction_NoOp(t *testing.T
 	g := testGrapher(t)
 	txID := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("cd", 32))
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: s}}, []*components.FullState{}, txID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(s), endorsable(), txID)
 	g.ForgetTransaction(ctx, txID, 100)
 	// Second call (from cleanUpTransaction) must be a no-op
 	g.ForgetTransactionAndLocks(ctx, txID)
 	// The confirmed lock (no transaction) should still be present — ForgetTransactionAndLocks is a no-op once confirmed
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Len(t, data.LockedState, 1)
+	assert.Len(t, data.GetLocks(), 1)
 }
 
 func TestForgetTransaction_OutputStateRemainsForHeartbeatsUntilLockExpires(t *testing.T) {
@@ -484,29 +487,26 @@ func TestForgetTransaction_OutputStateRemainsForHeartbeatsUntilLockExpires(t *te
 	txID := uuid.New()
 	createdBy := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("e1", 32))
-	state := &components.FullState{ID: s, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("e2", 32)), Data: pldtypes.RawJSON(`{}`)}
+	state := &prototk.EndorsableState{Id: s.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("e2", 32)).String(), StateDataJson: `{}`}
 
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, txID))
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, txID))
 	// Seed visibility so ExportStatesAndLocks returns this state for "test-node"
-	g.stateVisibilityTracker.ImportIfAbsent(s.String(), &statevisibilitytracker.OutputState{
-		StateUpsert:  components.StateUpsert{ID: s, Schema: state.Schema, Data: state.Data},
-		AllowedNodes: []string{"test-node"},
-	})
-	g.LockMintsOnCreate(ctx, []*components.StateUpsert{{ID: s, CreatedBy: &createdBy}}, []*components.FullState{{ID: s}}, txID)
+	g.stateVisibilityTracker.ImportIfAbsent(s.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"test-node"}})
+	g.LockMintsOnCreate(ctx, []*components.StateUpsert{{ID: s, CreatedBy: &createdBy}}, []*prototk.EndorsableState{{Id: s.String()}}, txID)
 	g.ForgetTransaction(ctx, txID, 100)
 
 	// OutputState should still be exported for heartbeats after confirmation
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	require.Len(t, data.OutputState, 1, "OutputState must remain after confirmation for handover heartbeats")
-	assert.True(t, data.OutputState[0].ID.Equals(s))
+	require.Len(t, data.GetStates(), 1, "OutputState must remain after confirmation for handover heartbeats")
+	assert.Equal(t, s.String(), data.GetStates()[0].GetState().GetId())
 
 	// Once the lock expires, both the lock and the OutputState are removed
 	g.ForgetLocks(ctx, 100+testBlockHeightTolerance)
 	data, err = g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Empty(t, data.LockedState)
-	assert.Empty(t, data.OutputState, "OutputState must be removed when the lock expires")
+	assert.Empty(t, data.GetLocks())
+	assert.Empty(t, data.GetStates(), "OutputState must be removed when the lock expires")
 }
 
 func TestForgetTransaction_StampsConfirmedAtBlockAndClearsTransaction(t *testing.T) {
@@ -516,7 +516,7 @@ func TestForgetTransaction_StampsConfirmedAtBlockAndClearsTransaction(t *testing
 	createdBy := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("12", 32))
 	upserts := []*components.StateUpsert{{ID: s, CreatedBy: &createdBy}}
-	states := []*components.FullState{{ID: s}}
+	states := []*prototk.EndorsableState{{Id: s.String()}}
 
 	g.LockMintsOnCreate(ctx, upserts, states, txID)
 	g.ForgetTransaction(ctx, txID, 100)
@@ -531,7 +531,7 @@ func TestForgetTransaction_StampsConfirmedAtBlockAndClearsTransaction(t *testing
 	assert.Nil(t, lock.Transaction)
 	require.NotNil(t, lock.ConfirmedAtBlock)
 	assert.Equal(t, uint64(100), *lock.ConfirmedAtBlock)
-	assert.True(t, lock.State.Equals(s))
+	assert.Equal(t, s.String(), lock.GetStateId())
 }
 
 // TestForgetTransaction_CreateAndSpendLocksStampedIndependently verifies that when a minter
@@ -547,16 +547,15 @@ func TestForgetTransaction_CreateAndSpendLocksStampedIndependently(t *testing.T)
 	consumerTx := uuid.New()
 	createdBy := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("5c", 32))
-	state := &components.FullState{ID: stateID}
 
 	// Minter assembles: create lock recorded in createLocksByStateID.
 	g.LockMintsOnCreate(ctx,
 		[]*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}},
-		[]*components.FullState{{ID: stateID}},
+		[]*prototk.EndorsableState{{Id: stateID.String()}},
 		minterTx,
 	)
 	// Consumer assembles: spend lock recorded in spendLocksByStateID.
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerTx)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), consumerTx)
 
 	// Minter confirms first at block 10.
 	g.ForgetTransaction(ctx, minterTx, 10)
@@ -571,7 +570,7 @@ func TestForgetTransaction_CreateAndSpendLocksStampedIndependently(t *testing.T)
 	spendLock, ok := g.spendLocksByStateID[stateID.String()]
 	require.True(t, ok)
 	require.NotNil(t, spendLock.Transaction, "spend lock must still be transaction-owned")
-	assert.Equal(t, consumerTx, *spendLock.Transaction)
+	assert.Equal(t, consumerTx.String(), *spendLock.Transaction)
 
 	// Consumer confirms later at block 20.
 	g.ForgetTransaction(ctx, consumerTx, 20)
@@ -594,16 +593,13 @@ func TestForgetTransaction_ClearsInFlightIndexesButKeepsStateData(t *testing.T) 
 	g := testGrapherUnlocked(t)
 	txID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("34", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("35", 32)), Data: pldtypes.RawJSON(`{}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("35", 32)).String(), StateDataJson: `{}`}
 
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, txID))
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, txID))
 	// Seed visibility for node1
-	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &statevisibilitytracker.OutputState{
-		StateUpsert:  components.StateUpsert{ID: stateID, Schema: state.Schema, Data: state.Data},
-		AllowedNodes: []string{"node1"},
-	})
+	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}})
 	createdBy := uuid.New()
-	g.LockMintsOnCreate(ctx, []*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}}, []*components.FullState{{ID: stateID}}, txID)
+	g.LockMintsOnCreate(ctx, []*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}}, []*prototk.EndorsableState{{Id: stateID.String()}}, txID)
 	g.ForgetTransaction(ctx, txID, 50)
 
 	// All transaction tracking removed — txID is no longer known to the grapher
@@ -627,7 +623,7 @@ func TestForgetTransaction_UnknownTransaction_NoOp(t *testing.T) {
 	g.ForgetTransaction(ctx, uuid.New(), 100)
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Empty(t, data.LockedState)
+	assert.Empty(t, data.GetLocks())
 }
 
 func TestForgetLocks_RemovesExpiredLocks(t *testing.T) {
@@ -635,19 +631,19 @@ func TestForgetLocks_RemovesExpiredLocks(t *testing.T) {
 	g := testGrapher(t)
 	txID := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("56", 32))
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: s}}, []*components.FullState{}, txID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(s), endorsable(), txID)
 	g.ForgetTransaction(ctx, txID, 100)
 
 	// tolerance = 5, confirmedAt = 100, expires at >= 105
 	g.ForgetLocks(ctx, 104) // not yet expired
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Len(t, data.LockedState, 1)
+	assert.Len(t, data.GetLocks(), 1)
 
 	g.ForgetLocks(ctx, 105) // exactly at expiry
 	data, err = g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Empty(t, data.LockedState)
+	assert.Empty(t, data.GetLocks())
 }
 
 func TestForgetLocks_RemovesExpiredSpendLocks(t *testing.T) {
@@ -655,19 +651,19 @@ func TestForgetLocks_RemovesExpiredSpendLocks(t *testing.T) {
 	g := testGrapher(t)
 	txID := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("57", 32))
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{{ID: s}}, txID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(s), txID)
 	g.ForgetTransaction(ctx, txID, 100)
 
 	// tolerance = 5, confirmedAt = 100, expires at >= 105
 	g.ForgetLocks(ctx, 104) // not yet expired
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Len(t, data.LockedState, 1)
+	assert.Len(t, data.GetLocks(), 1)
 
 	g.ForgetLocks(ctx, 105) // exactly at expiry
 	data, err = g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Empty(t, data.LockedState)
+	assert.Empty(t, data.GetLocks())
 }
 
 func TestForgetLocks_DoesNotRemoveTransactionOwnedLocks(t *testing.T) {
@@ -675,13 +671,13 @@ func TestForgetLocks_DoesNotRemoveTransactionOwnedLocks(t *testing.T) {
 	g := testGrapher(t)
 	txID := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("78", 32))
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: s}}, []*components.FullState{}, txID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(s), endorsable(), txID)
 
 	// Should not touch transaction-owned locks
 	g.ForgetLocks(ctx, 99999)
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Len(t, data.LockedState, 1)
+	assert.Len(t, data.GetLocks(), 1)
 }
 
 func TestImportStatesAndLocks_AddsTxFreeLocks(t *testing.T) {
@@ -689,34 +685,34 @@ func TestImportStatesAndLocks_AddsTxFreeLocks(t *testing.T) {
 	g := testGrapher(t)
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("9a", 32))
 	confirmedAt := uint64(200)
-	locks := []*StateLock{
-		{State: s, Type: pldapi.StateLockTypeSpend.Enum(), ConfirmedAtBlock: &confirmedAt},
+	snapshot := &prototk.StateSnapshot{
+		Locks: []*prototk.SnapshotStateLock{{StateId: s.String(), Type: prototk.SnapshotStateLock_SPEND, ConfirmedAtBlock: &confirmedAt}},
 	}
 
-	g.ImportStatesAndLocks(ctx, nil, locks)
+	g.ImportStatesAndLocks(ctx, snapshot)
 
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	require.Len(t, data.LockedState, 1)
-	assert.True(t, data.LockedState[0].State.Equals(s))
-	assert.Nil(t, data.LockedState[0].Transaction)
-	require.NotNil(t, data.LockedState[0].ConfirmedAtBlock)
-	assert.Equal(t, uint64(200), *data.LockedState[0].ConfirmedAtBlock)
+	require.Len(t, data.GetLocks(), 1)
+	assert.Equal(t, s.String(), data.GetLocks()[0].GetStateId())
+	assert.Nil(t, data.GetLocks()[0].Transaction)
+	require.NotNil(t, data.GetLocks()[0].ConfirmedAtBlock)
+	assert.Equal(t, uint64(200), *data.GetLocks()[0].ConfirmedAtBlock)
 }
 
 func TestImportStatesAndLocks_SkipsLockWithNoTransactionAndNoConfirmedAtBlock(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapher(t)
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("bc", 32))
-	locks := []*StateLock{
-		{State: s, Type: pldapi.StateLockTypeCreate.Enum(), ConfirmedAtBlock: nil},
+	snapshot := &prototk.StateSnapshot{
+		Locks: []*prototk.SnapshotStateLock{{StateId: s.String(), Type: prototk.SnapshotStateLock_CREATE}},
 	}
 
-	g.ImportStatesAndLocks(ctx, nil, locks)
+	g.ImportStatesAndLocks(ctx, snapshot)
 
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Empty(t, data.LockedState)
+	assert.Empty(t, data.GetLocks())
 }
 
 func TestImportStatesAndLocks_DoesNotOverwriteExistingLock(t *testing.T) {
@@ -726,14 +722,14 @@ func TestImportStatesAndLocks_DoesNotOverwriteExistingLock(t *testing.T) {
 	first := uint64(20)
 	second := uint64(10)
 
-	g.ImportStatesAndLocks(ctx, nil, []*StateLock{{State: s, Type: pldapi.StateLockTypeCreate.Enum(), ConfirmedAtBlock: &first}})
+	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{Locks: []*prototk.SnapshotStateLock{{StateId: s.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &first}}})
 	// A second import for the same state must not overwrite the first.
-	g.ImportStatesAndLocks(ctx, nil, []*StateLock{{State: s, Type: pldapi.StateLockTypeCreate.Enum(), ConfirmedAtBlock: &second}})
+	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{Locks: []*prototk.SnapshotStateLock{{StateId: s.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &second}}})
 
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	require.Len(t, data.LockedState, 1)
-	assert.Equal(t, uint64(20), *data.LockedState[0].ConfirmedAtBlock)
+	require.Len(t, data.GetLocks(), 1)
+	assert.Equal(t, uint64(20), *data.GetLocks()[0].ConfirmedAtBlock)
 }
 
 func TestImportStatesAndLocks_ExpiredAfterImport(t *testing.T) {
@@ -741,12 +737,12 @@ func TestImportStatesAndLocks_ExpiredAfterImport(t *testing.T) {
 	g := testGrapher(t) // tolerance = 5
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ef", 32))
 	confirmedAt := uint64(10)
-	g.ImportStatesAndLocks(ctx, nil, []*StateLock{{State: s, Type: pldapi.StateLockTypeRead.Enum(), ConfirmedAtBlock: &confirmedAt}})
+	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{Locks: []*prototk.SnapshotStateLock{{StateId: s.String(), Type: prototk.SnapshotStateLock_READ, ConfirmedAtBlock: &confirmedAt}}})
 
 	g.ForgetLocks(ctx, 15) // 10 + 5 = 15, should expire
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	assert.Empty(t, data.LockedState)
+	assert.Empty(t, data.GetLocks())
 }
 
 func TestImportStatesAndLocks_SkipsInFlightLocks(t *testing.T) {
@@ -755,18 +751,14 @@ func TestImportStatesAndLocks_SkipsInFlightLocks(t *testing.T) {
 	txID := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("a5", 32))
 	schema := pldtypes.MustParseBytes32("0x" + strings.Repeat("b5", 32))
+	txIDStr := txID.String()
 
-	locks := []*StateLock{
-		{State: s, Type: pldapi.StateLockTypeCreate.Enum(), Transaction: &txID},
-	}
-	outputStates := []*statevisibilitytracker.OutputState{
-		{
-			StateUpsert:  components.StateUpsert{ID: s, Schema: schema, Data: pldtypes.RawJSON(`{"v":1}`)},
-			AllowedNodes: []string{"node1"},
-		},
+	snapshot := &prototk.StateSnapshot{
+		States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: s.String(), SchemaId: schema.String(), StateDataJson: `{"v":1}`}, AllowedNodes: []string{"node1"}}},
+		Locks:  []*prototk.SnapshotStateLock{{StateId: s.String(), Type: prototk.SnapshotStateLock_CREATE, Transaction: &txIDStr}},
 	}
 
-	g.ImportStatesAndLocks(ctx, outputStates, locks)
+	g.ImportStatesAndLocks(ctx, snapshot)
 
 	// In-flight lock must not be imported — the new coordinator has no state machine for it
 	assert.Empty(t, g.createLocksByStateID)
@@ -789,17 +781,12 @@ func TestImportStatesAndLocks_ImportsConfirmedOutputStates(t *testing.T) {
 	confirmedAt := uint64(50)
 
 	// Confirmed lock — no transaction
-	locks := []*StateLock{
-		{State: s, Type: pldapi.StateLockTypeCreate.Enum(), ConfirmedAtBlock: &confirmedAt},
-	}
-	outputStates := []*statevisibilitytracker.OutputState{
-		{
-			StateUpsert:  components.StateUpsert{ID: s},
-			AllowedNodes: []string{"node1"},
-		},
+	snapshot := &prototk.StateSnapshot{
+		States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: s.String()}, AllowedNodes: []string{"node1"}}},
+		Locks:  []*prototk.SnapshotStateLock{{StateId: s.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAt}},
 	}
 
-	g.ImportStatesAndLocks(ctx, outputStates, locks)
+	g.ImportStatesAndLocks(ctx, snapshot)
 
 	// Private state data in statevisibilitytracker store and visible to node1
 	assert.Len(t, g.stateVisibilityTracker.GetForNode("node1"), 1)
@@ -814,14 +801,11 @@ func TestImportStatesAndLocks_SkipsOutputStateWithNoMatchingLock(t *testing.T) {
 	g := testGrapherUnlocked(t)
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("c5", 32))
 
-	outputStates := []*statevisibilitytracker.OutputState{
-		{StateUpsert: components.StateUpsert{ID: s}},
-	}
 	// No lock provided for this state
-	g.ImportStatesAndLocks(ctx, outputStates, nil)
+	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: s.String()}}}})
 
 	// ImportIfAbsent returns true (stored now) only if the state was absent before — confirms it was not added.
-	assert.True(t, g.stateVisibilityTracker.ImportIfAbsent(s.String(), &statevisibilitytracker.OutputState{StateUpsert: components.StateUpsert{ID: s}}),
+	assert.True(t, g.stateVisibilityTracker.ImportIfAbsent(s.String(), &prototk.SnapshotState{State: &prototk.EndorsableState{Id: s.String()}}),
 		"state must not have been stored by ImportStatesAndLocks")
 	assert.Empty(t, g.outputStatesByMinter)
 	assert.Empty(t, g.transactionByOutputState)
@@ -835,28 +819,18 @@ func TestImportStatesAndLocks_ExistingOutputStatePreserved(t *testing.T) {
 	g := testGrapherUnlocked(t)
 
 	// Seed an existing output state via direct visibility store access
-	err := g.AddMinter(ctx, []*components.FullState{{ID: stateID}}, txID)
+	err := g.AddMinter(ctx, []*prototk.EndorsableState{{Id: stateID.String()}}, txID)
 	require.NoError(t, err)
-	original := &statevisibilitytracker.OutputState{
-		StateUpsert:  components.StateUpsert{ID: stateID},
-		AllowedNodes: []string{"node1"},
-	}
+	original := &prototk.SnapshotState{State: &prototk.EndorsableState{Id: stateID.String()}, AllowedNodes: []string{"node1"}}
 	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), original)
 
 	// Build an import with a confirmed lock for the same state ID but different AllowedNodes.
 	blockNum := uint64(10)
-	importState := &statevisibilitytracker.OutputState{
-		StateUpsert:  components.StateUpsert{ID: stateID},
-		AllowedNodes: []string{"node2"},
-	}
-	lock := &StateLock{
-		State:            stateID,
-		Type:             pldapi.StateLockTypeSpend.Enum(),
-		ConfirmedAtBlock: &blockNum,
-	}
+	importState := &prototk.SnapshotState{State: &prototk.EndorsableState{Id: stateID.String()}, AllowedNodes: []string{"node2"}}
+	lock := &prototk.SnapshotStateLock{StateId: stateID.String(), Type: prototk.SnapshotStateLock_SPEND, ConfirmedAtBlock: &blockNum}
 
 	// ImportStatesAndLocks should skip the state because an existing entry already exists.
-	g.ImportStatesAndLocks(ctx, []*statevisibilitytracker.OutputState{importState}, []*StateLock{lock})
+	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{States: []*prototk.SnapshotState{importState}, Locks: []*prototk.SnapshotStateLock{lock}})
 
 	// The original output state must not have been overwritten — check via GetForNode.
 	node1States := g.stateVisibilityTracker.GetForNode("node1")
@@ -875,42 +849,39 @@ func TestExportStatesAndLocks_SpendLockSuppressesPrivateStateData(t *testing.T) 
 	createdBy := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("a9", 32))
 	schema := pldtypes.MustParseBytes32("0x" + strings.Repeat("b9", 32))
-	state := &components.FullState{ID: stateID, Schema: schema, Data: pldtypes.RawJSON(`{"v":42}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: schema.String(), StateDataJson: `{"v":42}`}
 
 	// Minter assembles: create lock + private state data visible to "node1".
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterTx))
-	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &statevisibilitytracker.OutputState{
-		StateUpsert:  components.StateUpsert{ID: stateID, Schema: schema, Data: state.Data},
-		AllowedNodes: []string{"node1"},
-	})
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterTx))
+	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}})
 	g.LockMintsOnCreate(ctx,
 		[]*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}},
-		[]*components.FullState{{ID: stateID}},
+		[]*prototk.EndorsableState{{Id: stateID.String()}},
 		minterTx,
 	)
 
 	// Before the spend lock: state data must be visible to node1.
 	data, err := g.ExportStatesAndLocks(ctx, "node1")
 	require.NoError(t, err)
-	require.Len(t, data.OutputState, 1, "state must be visible before spend lock is added")
-	assert.True(t, data.OutputState[0].ID.Equals(stateID))
+	require.Len(t, data.GetStates(), 1, "state must be visible before spend lock is added")
+	assert.Equal(t, stateID.String(), data.GetStates()[0].GetState().GetId())
 
 	// Spender assembles: spend lock added for the same state.
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, spenderTx)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), spenderTx)
 
 	// After spend lock: private state data must be suppressed for node1 — state is consumed.
 	data, err = g.ExportStatesAndLocks(ctx, "node1")
 	require.NoError(t, err)
-	assert.Empty(t, data.OutputState, "state data must be suppressed while a spend lock exists")
+	assert.Empty(t, data.GetStates(), "state data must be suppressed while a spend lock exists")
 
 	// Spend lock itself must still be exported so assemblers know the state is locked.
 	var foundSpend, foundCreate bool
-	for _, lock := range data.LockedState {
-		if lock.State.Equals(stateID) {
-			switch lock.Type.V() {
-			case pldapi.StateLockTypeSpend:
+	for _, lock := range data.GetLocks() {
+		if lock.GetStateId() == stateID.String() {
+			switch lock.GetType() {
+			case prototk.SnapshotStateLock_SPEND:
 				foundSpend = true
-			case pldapi.StateLockTypeCreate:
+			case prototk.SnapshotStateLock_CREATE:
 				foundCreate = true
 			}
 		}
@@ -922,8 +893,8 @@ func TestExportStatesAndLocks_SpendLockSuppressesPrivateStateData(t *testing.T) 
 	g.ForgetTransactionAndLocks(ctx, spenderTx)
 	data, err = g.ExportStatesAndLocks(ctx, "node1")
 	require.NoError(t, err)
-	require.Len(t, data.OutputState, 1, "state must become visible again after spend lock is removed")
-	assert.True(t, data.OutputState[0].ID.Equals(stateID))
+	require.Len(t, data.GetStates(), 1, "state must become visible again after spend lock is removed")
+	assert.Equal(t, stateID.String(), data.GetStates()[0].GetState().GetId())
 }
 
 func TestAddMinter_DuplicateStateIDWithinOneCall_ReturnsError(t *testing.T) {
@@ -935,9 +906,9 @@ func TestAddMinter_DuplicateStateIDWithinOneCall_ReturnsError(t *testing.T) {
 
 	// Pass the same state ID twice in a single AddMinter call. The first iteration registers the
 	// state under transactionByOutputState; the second finds it already present and returns an error.
-	err := g.AddMinter(ctx, []*components.FullState{
-		{ID: stateID},
-		{ID: stateID},
+	err := g.AddMinter(ctx, []*prototk.EndorsableState{
+		{Id: stateID.String()},
+		{Id: stateID.String()},
 	}, txID)
 
 	require.Error(t, err)
@@ -956,13 +927,13 @@ func TestCreateLockSurvivesSpendLockRevert(t *testing.T) {
 	consumerTx := uuid.New()
 	createdBy := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ca", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("cb", 32)), Data: pldtypes.RawJSON(`{}`)}
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("cb", 32)).String(), StateDataJson: `{}`}
 
 	// Step 1: minterTx assembles and produces stateID with a create lock.
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterTx))
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterTx))
 	g.LockMintsOnCreate(ctx,
 		[]*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}},
-		[]*components.FullState{{ID: stateID}},
+		[]*prototk.EndorsableState{{Id: stateID.String()}},
 		minterTx,
 	)
 
@@ -970,7 +941,7 @@ func TestCreateLockSurvivesSpendLockRevert(t *testing.T) {
 	assert.Empty(t, g.spendLocksByStateID, "no spend lock yet")
 
 	// Step 2: consumerTx optimistically spends stateID — this must NOT displace the create lock.
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerTx)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), consumerTx)
 
 	require.Contains(t, g.createLocksByStateID, stateID.String(), "create lock must still exist after spend lock added")
 	require.Contains(t, g.spendLocksByStateID, stateID.String(), "spend lock must be recorded for consumerTx")
@@ -984,17 +955,17 @@ func TestCreateLockSurvivesSpendLockRevert(t *testing.T) {
 	require.Contains(t, g.createLocksByStateID, stateID.String(), "create lock must survive the consumer revert")
 	createLock := g.createLocksByStateID[stateID.String()]
 	require.NotNil(t, createLock.Transaction)
-	assert.Equal(t, minterTx, *createLock.Transaction)
-	assert.Equal(t, pldapi.StateLockTypeCreate.Enum(), createLock.Type)
+	assert.Equal(t, minterTx.String(), *createLock.Transaction)
+	assert.Equal(t, prototk.SnapshotStateLock_CREATE, createLock.GetType())
 
 	// Step 5: ExportStatesAndLocks must still include the create lock so that a reassembled
 	// transaction on the assembler node can find stateID via ImportSnapshot → creatingStates.
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	require.Len(t, data.LockedState, 1, "exactly the create lock must be exported")
-	assert.Equal(t, pldapi.StateLockTypeCreate.Enum(), data.LockedState[0].Type)
-	require.NotNil(t, data.LockedState[0].Transaction)
-	assert.Equal(t, minterTx, *data.LockedState[0].Transaction)
+	require.Len(t, data.GetLocks(), 1, "exactly the create lock must be exported")
+	assert.Equal(t, prototk.SnapshotStateLock_CREATE, data.GetLocks()[0].GetType())
+	require.NotNil(t, data.GetLocks()[0].Transaction)
+	assert.Equal(t, minterTx.String(), *data.GetLocks()[0].Transaction)
 }
 
 // TestReadLockSurvivesSpendLockRevert verifies that an optimistic spend of a read-locked state
@@ -1008,15 +979,14 @@ func TestReadLockSurvivesSpendLockRevert(t *testing.T) {
 	readerTx := uuid.New()
 	spenderTx := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("cc", 32))
-	state := &components.FullState{ID: stateID}
 
 	// txB reads stateID → read lock in readLocksByStateID.
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{state}, []*components.FullState{}, readerTx)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(stateID), endorsable(), readerTx)
 	require.Contains(t, g.readLocksByStateID, stateID.String(), "read lock must be recorded for readerTx")
 	assert.Empty(t, g.spendLocksByStateID, "no spend lock yet")
 
 	// txC spends stateID → spend lock in spendLocksByStateID, must NOT displace the read lock.
-	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, spenderTx)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), spenderTx)
 	require.Contains(t, g.readLocksByStateID, stateID.String(), "read lock must still exist after spend lock added")
 	require.Contains(t, g.spendLocksByStateID, stateID.String(), "spend lock must be recorded for spenderTx")
 
@@ -1028,14 +998,14 @@ func TestReadLockSurvivesSpendLockRevert(t *testing.T) {
 	require.Contains(t, g.readLocksByStateID, stateID.String(), "read lock must survive the spender revert")
 	readLock := g.readLocksByStateID[stateID.String()]
 	require.NotNil(t, readLock.Transaction)
-	assert.Equal(t, readerTx, *readLock.Transaction)
-	assert.Equal(t, pldapi.StateLockTypeRead.Enum(), readLock.Type)
+	assert.Equal(t, readerTx.String(), *readLock.Transaction)
+	assert.Equal(t, prototk.SnapshotStateLock_READ, readLock.GetType())
 
 	// Export must include the read lock so the assembler knows stateID is still in use.
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	require.Len(t, data.LockedState, 1, "exactly the read lock must be exported")
-	assert.Equal(t, pldapi.StateLockTypeRead.Enum(), data.LockedState[0].Type)
-	require.NotNil(t, data.LockedState[0].Transaction)
-	assert.Equal(t, readerTx, *data.LockedState[0].Transaction)
+	require.Len(t, data.GetLocks(), 1, "exactly the read lock must be exported")
+	assert.Equal(t, prototk.SnapshotStateLock_READ, data.GetLocks()[0].GetType())
+	require.NotNil(t, data.GetLocks()[0].Transaction)
+	assert.Equal(t, readerTx.String(), *data.GetLocks()[0].Transaction)
 }

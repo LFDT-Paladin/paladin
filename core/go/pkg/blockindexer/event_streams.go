@@ -420,6 +420,11 @@ func (es *eventStream) start(updateDB bool) error {
 			if err != nil {
 				return err
 			}
+			// Keep in-memory definition in sync with DB so callers of Definition()
+			// (e.g. ptx_getBlockchainEventListener) see the current started status.
+			// Only update when persisting — temporary runtime stops/starts must not
+			// overwrite the configured/desired started state.
+			es.definition.Started = confutil.P(true)
 		}
 		es.detectorDone = make(chan struct{})
 		es.dispatcherDone = make(chan struct{})
@@ -442,6 +447,11 @@ func (es *eventStream) stop(updateDB bool) error {
 		if err != nil {
 			return err
 		}
+		// Keep in-memory definition in sync with DB so callers of Definition()
+		// (e.g. ptx_getBlockchainEventListener) see the current started status.
+		// Only update when persisting — temporary runtime stops must not
+		// overwrite the configured/desired started state.
+		es.definition.Started = confutil.P(false)
 	}
 	if es.cancelCtx != nil {
 		es.cancelCtx()

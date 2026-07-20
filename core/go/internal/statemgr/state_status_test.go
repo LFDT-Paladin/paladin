@@ -28,10 +28,19 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// snapLock is a test-only convenience for describing a state lock before conversion to its proto
+// wire form in ImportSnapshot.
+type snapLock struct {
+	State       pldtypes.HexBytes
+	Transaction uuid.UUID
+	Type        prototk.SnapshotStateLock_StateLockType
+}
 
 const widgetABI = `{
 	"type": "tuple",
@@ -94,21 +103,29 @@ func makeWidgets(t *testing.T, ctx context.Context, ss *stateManager, domainName
 	return states
 }
 
-func syncFlushContext(t *testing.T, dc components.DomainContext) {
-	ss := dc.(*domainContext).ss
-	err := ss.p.Transaction(dc.Ctx(), func(ctx context.Context, dbTX persistence.DBTX) error {
-		return dc.Flush(dbTX)
+func syncFlushWriter(t *testing.T, ctx context.Context, sw *domainStateWriter) {
+	err := sw.ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return sw.Flush(ctx, dbTX)
 	})
 	require.NoError(t, err)
 }
 
-func newTestDomainContext(t *testing.T, ctx context.Context, ss *stateManager, name string, customHashFunction bool) (*pldtypes.EthAddress, *domainContext) {
+func newTestDomainContext(t *testing.T, ctx context.Context, ss *stateManager, name string, customHashFunction bool) (*pldtypes.EthAddress, *domainQueryContext) {
 	md := componentsmocks.NewDomain(t)
 	md.On("Name").Return(name)
 	md.On("CustomHashFunction").Return(customHashFunction)
 	contractAddress := pldtypes.RandAddress()
-	dc := ss.NewDomainContext(ctx, md, *contractAddress)
-	return contractAddress, dc.(*domainContext)
+	dqc := ss.NewDomainQueryContext(ctx, md, *contractAddress)
+	return contractAddress, dqc.(*domainQueryContext)
+}
+
+func newTestDomainStateWriter(t *testing.T, ctx context.Context, ss *stateManager, name string, customHashFunction bool) (*pldtypes.EthAddress, *domainStateWriter) {
+	md := componentsmocks.NewDomain(t)
+	md.On("Name").Return(name)
+	md.On("CustomHashFunction").Return(customHashFunction)
+	contractAddress := pldtypes.RandAddress()
+	dsw := ss.NewDomainStateWriter(ctx, md, *contractAddress)
+	return contractAddress, dsw.(*domainStateWriter)
 }
 
 func TestStateLockingQuery(t *testing.T) {
@@ -125,8 +142,7 @@ func TestStateLockingQuery(t *testing.T) {
 	require.NoError(t, err)
 	schemaID := schema.ID()
 
-	contractAddress, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
-	defer dc.Close()
+	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 
 	widgets := makeWidgets(t, ctx, ss, "domain1", contractAddress, schemaID, []string{
 		`{"size": 11111, "color": "red",  "price": 100}`,
@@ -153,7 +169,32 @@ func TestStateLockingQuery(t *testing.T) {
 		}
 	}
 
-	seqQual := pldapi.StateStatusQualifier(dc.Info().ID.String())
+	// importSnapshot is a helper that calls ImportSnapshot with the given states and locks.
+	importSnapshot := func(states []*components.StateUpsert, locks []*snapLock) {
+		protoStates := make([]*prototk.SnapshotState, len(states))
+		for i, u := range states {
+			protoStates[i] = &prototk.SnapshotState{State: &prototk.EndorsableState{
+				Id:            u.ID.String(),
+				SchemaId:      u.Schema.String(),
+				StateDataJson: string(u.Data),
+			}}
+		}
+		protoLocks := make([]*prototk.SnapshotStateLock, len(locks))
+		for i, l := range locks {
+			txStr := l.Transaction.String()
+			protoLocks[i] = &prototk.SnapshotStateLock{
+				StateId:     l.State.String(),
+				Transaction: &txStr,
+				Type:        l.Type,
+			}
+		}
+		require.NoError(t, dqc.ImportSnapshot(ctx, &prototk.StateSnapshot{
+			States: protoStates,
+			Locks:  protoLocks,
+		}))
+	}
+
+	seqQual := pldapi.StateStatusQualifier(dqc.ID().String())
 	all := query.NewQueryBuilder().Query()
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4)
@@ -195,29 +236,44 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusSpent, 0)           // added 0
 	checkQuery(all, seqQual, 1, 2, 4)                     // unchanged
 
-	// add a new state only within the domain context
+	// Write widget[5] to DB (unconfirmed) via WritePreVerifiedStates, then import it into
+	// the DomainQueryContext snapshot so the seqQual query can see the creating state.
+	// This mirrors what the coordinator does: the DSW flushes the state to DB, then the
+	// assembler's DQC receives a snapshot via ImportSnapshot.
 	txID1 := uuid.New()
-	contextStates, err := dc.UpsertStates(ss.p.NOTX(),
-		genWidget(t, schemaID, &txID1, `{"size": 66666, "color": "blue", "price": 600}`))
+	widget5Upsert := genWidget(t, schemaID, &txID1, `{"size": 66666, "color": "blue", "price": 600}`)
+	var widget5States []*pldapi.State
+	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		widget5States, err = ss.WritePreVerifiedStates(ctx, dbTX, "domain1", []*components.StateUpsertOutsideContext{
+			{ContractAddress: contractAddress, SchemaID: schemaID, Data: widget5Upsert.Data},
+		})
+		return err
+	})
 	require.NoError(t, err)
-	widgets = append(widgets, contextStates...)
-	syncFlushContext(t, dc)
+	widgets = append(widgets, widget5States[0])
+	widget5Upsert.ID = widgets[5].ID // ID is computed by WritePreVerifiedStates; set here so importSnapshot doesn't see a zero "0x" ID
+
+	importSnapshot(
+		[]*components.StateUpsert{widget5Upsert},
+		[]*snapLock{{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE}},
+	)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // added 5
 	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3, 5)     // added 5
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
-	checkQuery(all, seqQual, 1, 2, 4, 5)                     // added 5
+	checkQuery(all, seqQual, 1, 2, 4, 5)                     // added 5 (via snapshot)
 
-	// lock the unconfirmed one for spending
+	// Add a spend lock for widget[5]: re-import the full snapshot with both create and spend locks.
 	txID2 := uuid.New()
-	err = dc.AddStateLocks(&pldapi.StateLock{
-		Type:        pldapi.StateLockTypeSpend.Enum(),
-		Transaction: txID2,
-		StateID:     widgets[5].ID,
-	})
-	require.NoError(t, err)
+	importSnapshot(
+		[]*components.StateUpsert{widget5Upsert},
+		[]*snapLock{
+			{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE},
+			{State: widgets[5].ID, Transaction: txID2, Type: prototk.SnapshotStateLock_SPEND},
+		},
+	)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4)    // unchanged
@@ -226,8 +282,11 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
 	checkQuery(all, seqQual, 1, 2, 4)                        // removed 5
 
-	// cancel that spend lock
-	dc.ResetTransactions(txID2)
+	// Cancel the spend lock by re-importing without it (ImportSnapshot replaces the whole snapshot).
+	importSnapshot(
+		[]*components.StateUpsert{widget5Upsert},
+		[]*snapLock{{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE}},
+	)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4)    // unchanged
@@ -236,7 +295,7 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
 	checkQuery(all, seqQual, 1, 2, 4, 5)                     // added 5 back
 
-	// Mark that new state confirmed
+	// Mark widget[5] confirmed in DB
 	err = ss.WriteStateFinalizations(ss.bgCtx, ss.p.NOTX(),
 		[]*pldapi.StateSpendRecord{},
 		[]*pldapi.StateReadRecord{
@@ -247,34 +306,37 @@ func TestStateLockingQuery(t *testing.T) {
 		}, []*pldapi.StateInfoRecord{})
 	require.NoError(t, err)
 
-	// reset the domain context - does not matter now
-	dc.Reset()
+	// Close the old DQC and open a fresh one with an empty snapshot.
+	// Widget[5] is now confirmed in DB so it is visible via DB-available queries without a snapshot.
+	dqc.Close(ctx)
+	md2 := componentsmocks.NewDomain(t)
+	md2.On("Name").Return("domain1")
+	md2.On("CustomHashFunction").Return(false)
+	dqc = ss.NewDomainQueryContext(ctx, md2, *contractAddress).(*domainQueryContext)
+	defer dqc.Close(ctx)
+	seqQual = pldapi.StateStatusQualifier(dqc.ID().String())
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4, 5) // added 5
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4, 5) // added 5
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)        // removed 5
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
-	checkQuery(all, seqQual, 1, 2, 4, 5)                     // unchanged
+	checkQuery(all, seqQual, 1, 2, 4, 5)                     // unchanged (5 now confirmed in DB)
 
-	// Add 3 only as confirmed by a TX only within the domain context
-	// Note we have to re-supply the data here, so that the domain context can
-	// have it in memory for queries
+	// Import widget[3] into the snapshot: it's unconfirmed in DB (never confirmed above) but
+	// the seqQual can see it once the coordinator sends its snapshot.
 	txID13 := uuid.New()
-	_, err = dc.UpsertStates(ss.p.NOTX(), &components.StateUpsert{
-		ID:        widgets[3].ID,
-		Schema:    widgets[3].Schema,
-		Data:      widgets[3].Data,
-		CreatedBy: &txID13,
-	})
-	require.NoError(t, err)
+	importSnapshot(
+		[]*components.StateUpsert{{Schema: schemaID, Data: widgets[3].Data, ID: widgets[3].ID}},
+		[]*snapLock{{State: widgets[3].ID, Transaction: txID13, Type: prototk.SnapshotStateLock_CREATE}},
+	)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)        // unchanged
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
-	checkQuery(all, seqQual, 1, 2, 3, 4, 5)                  // added 3
+	checkQuery(all, seqQual, 1, 2, 3, 4, 5)                  // added 3 (via snapshot)
 
 	// check a sub-select
 	checkQuery(query.NewQueryBuilder().Equal("color", "pink").Query(), seqQual, 3)

@@ -75,7 +75,7 @@ func TestAction_SendPreDispatchResponse_Success(t *testing.T) {
 		From:          "originator@node1",
 	}
 	if txn.pt.PreAssembly == nil {
-		txn.pt.PreAssembly = &components.TransactionPreAssembly{}
+		txn.pt.PreAssembly = &prototk.TransactionPreAssembly{}
 	}
 	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
@@ -107,13 +107,12 @@ func TestAction_SendPreDispatchResponse_TransportError(t *testing.T) {
 		From:          "originator@node1",
 	}
 	if txn.pt.PreAssembly == nil {
-		txn.pt.PreAssembly = &components.TransactionPreAssembly{}
+		txn.pt.PreAssembly = &prototk.TransactionPreAssembly{}
 	}
 	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
 	expectedError := errors.New("transport error")
 	mocks.TransportWriter.EXPECT().SendPreDispatchResponse(
-		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
@@ -207,10 +206,12 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_Success(t *testi
 	coordinator := "coordinator@node1"
 	txn.currentDelegate = coordinator
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		AssemblyResult: prototk.AssembleTransactionResponse_OK,
-		Signatures: []*prototk.AttestationResult{
-			{
-				Payload: []byte("test signature"),
+		AssembleResponse: &prototk.TransactionPostAssembly{
+			AssemblyResult: prototk.AssembleTransactionResponse_OK,
+			Signatures: []*prototk.AttestationResult{
+				{
+					Payload: []byte("test signature"),
+				},
 			},
 		},
 	}
@@ -248,10 +249,12 @@ func TestValidator_PreDispatchRequestFromCurrentDelegate_WrongCoordinator(t *tes
 	differentCoordinator := "coordinator@node2"
 	txn.currentDelegate = coordinator
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		AssemblyResult: prototk.AssembleTransactionResponse_OK,
-		Signatures: []*prototk.AttestationResult{
-			{
-				Payload: []byte("test signature"),
+		AssembleResponse: &prototk.TransactionPostAssembly{
+			AssemblyResult: prototk.AssembleTransactionResponse_OK,
+			Signatures: []*prototk.AttestationResult{
+				{
+					Payload: []byte("test signature"),
+				},
 			},
 		},
 	}
@@ -286,10 +289,12 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongHash(t *tes
 	coordinator := "coordinator@node1"
 	txn.currentDelegate = coordinator
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		AssemblyResult: prototk.AssembleTransactionResponse_OK,
-		Signatures: []*prototk.AttestationResult{
-			{
-				Payload: []byte("test signature"),
+		AssembleResponse: &prototk.TransactionPostAssembly{
+			AssemblyResult: prototk.AssembleTransactionResponse_OK,
+			Signatures: []*prototk.AttestationResult{
+				{
+					Payload: []byte("test signature"),
+				},
 			},
 		},
 	}
@@ -448,7 +453,11 @@ func TestAction_SendAssembleRejectionNotCurrentDelegate_Success(t *testing.T) {
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendAssembleRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE, int64(0), int64(0)).
+		SendAssembleRejection(mock.Anything, "other@node2", mock.MatchedBy(func(msg *engineProto.AssembleRejection) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.AssembleRequestId == reqID.String() &&
+				msg.RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE
+		})).
 		Return(nil)
 
 	err := action_SendAssembleRejectionNotCurrentDelegate(ctx, txn, event)
@@ -469,7 +478,11 @@ func TestAction_SendAssembleRejectionNotCurrentDelegate_TransportError_LogsWarnA
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendAssembleRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE, int64(0), int64(0)).
+		SendAssembleRejection(mock.Anything, "other@node2", mock.MatchedBy(func(msg *engineProto.AssembleRejection) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.AssembleRequestId == reqID.String() &&
+				msg.RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE
+		})).
 		Return(errors.New("transport error"))
 
 	err := action_SendAssembleRejectionNotCurrentDelegate(ctx, txn, event)
@@ -491,7 +504,11 @@ func TestAction_SendPreDispatchRejectionNotCurrentDelegate_Success(t *testing.T)
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendPreDispatchRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE).
+		SendPreDispatchRejection(mock.Anything, "other@node2", mock.MatchedBy(func(msg *engineProto.PreDispatchRejection) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.RequestId == reqID.String() &&
+				msg.RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE
+		})).
 		Return(nil)
 
 	err := action_SendPreDispatchRejectionNotCurrentDelegate(ctx, txn, event)
@@ -513,7 +530,11 @@ func TestAction_SendPreDispatchRejectionNotCurrentDelegate_TransportError_LogsWa
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendPreDispatchRejection(mock.Anything, txn.pt.ID, reqID, "other@node2", engineProto.RejectionReason_NOT_CURRENT_DELEGATE).
+		SendPreDispatchRejection(mock.Anything, "other@node2", mock.MatchedBy(func(msg *engineProto.PreDispatchRejection) bool {
+			return msg.TransactionId == txn.GetID().String() &&
+				msg.RequestId == reqID.String() &&
+				msg.RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE
+		})).
 		Return(errors.New("transport error"))
 
 	err := action_SendPreDispatchRejectionNotCurrentDelegate(ctx, txn, event)

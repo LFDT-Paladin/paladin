@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -243,8 +244,7 @@ func Test_action_CleanUpTransaction_RemovesFromMap(t *testing.T) {
 	txID := uuid.New()
 	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	txn.EXPECT().GetID().Return(txID)
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
-	mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Once()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
 	err := action_CleanUpTransaction(t.Context(), c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txID,
 		ToState:       transaction.State_Final,
@@ -258,8 +258,7 @@ func Test_action_CleanUpTransaction_RemovesFromPool(t *testing.T) {
 	txID := uuid.New()
 	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	txn.EXPECT().GetID().Return(txID)
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
-	mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Once()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
 	c.addTransactionToBackOfPool(txn)
 	require.Len(t, c.pooledTransactions, 1)
 	err := action_CleanUpTransaction(t.Context(), c, &common.TransactionStateTransitionEvent[transaction.State]{
@@ -308,8 +307,7 @@ func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *test
 	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	txn.EXPECT().GetID().Return(txID)
 
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
-	mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Once()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
 	err := action_CleanUpTransaction(t.Context(), c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txID,
 		ToState:       transaction.State_Final,
@@ -554,7 +552,7 @@ func Test_addToDelegatedTransactions_SendDelegationResponseError_ReturnsError(t 
 	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("send ack failed"))
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("send ack failed"))
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 
@@ -728,10 +726,10 @@ func Test_addToDelegatedTransactions_SubsequentTransactionGetsPreviousTransactio
 
 	var capturedErrors []int64
 	c, mocks := builder.WithMockTransportWriter().Build()
-	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(errors []int64) bool {
-		capturedErrors = errors
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.MatchedBy(func(msg *engineProto.DelegationResponse) bool {
+		capturedErrors = msg.Errors
 		return true
-	}), mock.Anything).Return(nil)
+	})).Return(nil)
 
 	txn1 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 	txn2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
@@ -754,7 +752,7 @@ func Test_addToDelegatedTransactions_ErrorStopsSubsequentTransactionsBeingAccept
 
 	fifthErr := fmt.Errorf("fifth transaction HandleEvent failed")
 	c, mocks := builder.WithMockTransportWriter().Build()
-	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	// Delegate 10 transactions. TX 5 fails at HandleEvent time. 5-10 should not be in the TX list for the coordinator
 	txns := make([]*components.PrivateTransaction, 10)
@@ -811,7 +809,7 @@ func Test_addToDelegatedTransactions_FifthFailsThenFullRetry_PreservesFirstFourA
 	fifthErr := fmt.Errorf("fifth transaction HandleEvent failed")
 
 	c, mocks := builder.WithMockTransportWriter().Build()
-	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Twice()
+	mocks.TransportWriter.On("SendDelegationResponse", mock.Anything, mock.Anything, mock.Anything).Return(nil).Twice()
 
 	txns := make([]*components.PrivateTransaction, 10)
 	for i := range txns {
@@ -969,8 +967,7 @@ func Test_action_CleanUpTransactionsNotYetDispatched_DrainsPendingDispatchQueueI
 	txPooled.EXPECT().GetID().Return(idPooled)
 	txPooled.EXPECT().GetCurrentState().Return(transaction.State_Pooled)
 
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txPooled).Build()
-	mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Once()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txPooled).Build()
 
 	// Pre-populate the dispatch queue with a transaction reference to exercise the drain path.
 	c.dispatchQueue <- txPooled
@@ -998,9 +995,8 @@ func Test_action_CleanUpTransactionsNotYetDispatched_RemovesNonDispatchedTransac
 	txConfirmed.EXPECT().GetID().Return(idConfirmed)
 	txConfirmed.EXPECT().GetCurrentState().Return(transaction.State_Confirmed)
 
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txPooled, txAssembling, txConfirmed).Build()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txPooled, txAssembling, txConfirmed).Build()
 	// cleanUpTransaction is called once for each non-dispatched, non-confirmed transaction (Pooled + Assembling).
-	mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Times(2)
 
 	err := action_CleanUpTransactionsNotYetDispatched(ctx, c, nil)
 	require.NoError(t, err)
@@ -1349,7 +1345,10 @@ func Test_nudgeHandoverRequest_WithPendingRequest_CallsNudge(t *testing.T) {
 	mocks.TransportWriter.EXPECT().SendHandoverRequest(mock.Anything, "node2", mock.Anything).Return(nil).Once()
 	// A freshly created IdempotentRequest (requestTime == nil) always sends on first Nudge.
 	c.pendingHandoverRequest = common.NewIdempotentRequest(ctx, c.clock, c.requestTimeout, func(ctx context.Context, _ uuid.UUID) error {
-		return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, c.contractAddress)
+		return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, &engineProto.CoordinatorHandoverRequest{
+			FromNode:        c.nodeName,
+			ContractAddress: c.contractAddress.HexString(),
+		})
 	})
 
 	err := c.nudgeHandoverRequest(ctx)

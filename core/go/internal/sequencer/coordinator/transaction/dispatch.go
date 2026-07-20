@@ -39,7 +39,17 @@ func action_Dispatch(ctx context.Context, t *coordinatorTransaction, _ common.Ev
 
 // Dispatch runs the full dispatch flow: prepare, build batch, state distributions, nullifiers, persist, chained transactions.
 func (t *coordinatorTransaction) dispatch(ctx context.Context) error {
-	if err := t.domainAPI.PrepareTransaction(t.dCtx, t.components.Persistence().NOTX(), t.pt); err != nil {
+	// TODO: should this domain query context be populated with a snapshot of the domain's states at the point the transaction
+	// finished assembling? Doing this would require storing a grapher snapshot for every transaction.
+	// In a previous iteration of this code where the domain state writer and domain query context coexisted
+	// in a single domain context, the context was effectively loaded with the entire coordinator ahead of chain view,
+	// including transactions assembled after this one. This was arguably too far ahead, as the domain shouldn't be able
+	// to query the future when preparing the transaction. At this stage the domain should not really need to be querying
+	// states, as the prepare request contains all the states the transaction consumes/spends/creates, hence the decision
+	// to not import a snapshot at the time of writing this comment, but it is something to be aware of.
+	dqc := t.components.StateManager().NewDomainQueryContext(ctx, t.domainAPI.Domain(), t.domainAPI.Address())
+	defer dqc.Close(ctx)
+	if err := t.domainAPI.PrepareTransaction(ctx, dqc, t.components.Persistence().NOTX(), t.pt); err != nil {
 		log.L(ctx).Errorf("error preparing transaction %s: %s", t.pt.ID, err)
 		return err
 	}
@@ -62,7 +72,7 @@ func (t *coordinatorTransaction) dispatch(ctx context.Context) error {
 
 	localNullifiers, err := t.components.SequencerManager().BuildNullifiers(ctx, stateDistributionSet.Local)
 	if err == nil && len(localNullifiers) > 0 {
-		err = t.dCtx.UpsertNullifiers(localNullifiers...)
+		err = t.dsw.StageNullifierUpserts(ctx, localNullifiers...)
 	}
 	if err != nil {
 		log.L(ctx).Errorf("error building nullifiers: %s", err)
@@ -70,7 +80,7 @@ func (t *coordinatorTransaction) dispatch(ctx context.Context) error {
 	}
 
 	log.L(ctx).Debugf("Persisting & deploying batch. %d public transactions, %d private transactions, %d prepared transactions", len(dispatchBatch.PublicDispatches), len(dispatchBatch.PrivateDispatches), len(dispatchBatch.PreparedTransactions))
-	if err := t.syncPoints.PersistDispatchBatch(t.dCtx, t.pt.Address, t.pt.ID, dispatchBatch, remoteStateDistributions, dispatchBatch.PreparedTransactions); err != nil {
+	if err := t.syncPoints.PersistDispatchBatch(ctx, t.dsw, t.pt.Address, t.pt.ID, dispatchBatch, remoteStateDistributions, dispatchBatch.PreparedTransactions); err != nil {
 		log.L(ctx).Errorf("error persisting batch: %s", err)
 		return err
 	}
@@ -222,17 +232,17 @@ func (t *coordinatorTransaction) mapPreparedTransaction() *components.PreparedTr
 			Metadata: tx.PreparedMetadata,
 		},
 	}
-	for _, s := range tx.PostAssembly.InputStates {
-		preparedTransaction.StateRefs.Spent = append(preparedTransaction.StateRefs.Spent, s.ID)
+	for _, s := range tx.PostAssembly.AssembleResponse.GetInputStates() {
+		preparedTransaction.StateRefs.Spent = append(preparedTransaction.StateRefs.Spent, pldtypes.MustParseHexBytes(s.GetId()))
 	}
-	for _, s := range tx.PostAssembly.ReadStates {
-		preparedTransaction.StateRefs.Read = append(preparedTransaction.StateRefs.Read, s.ID)
+	for _, s := range tx.PostAssembly.AssembleResponse.GetReadStates() {
+		preparedTransaction.StateRefs.Read = append(preparedTransaction.StateRefs.Read, pldtypes.MustParseHexBytes(s.GetId()))
 	}
 	for _, s := range tx.PostAssembly.OutputStates {
-		preparedTransaction.StateRefs.Confirmed = append(preparedTransaction.StateRefs.Confirmed, s.ID)
+		preparedTransaction.StateRefs.Confirmed = append(preparedTransaction.StateRefs.Confirmed, pldtypes.MustParseHexBytes(s.GetId()))
 	}
 	for _, s := range tx.PostAssembly.InfoStates {
-		preparedTransaction.StateRefs.Info = append(preparedTransaction.StateRefs.Info, s.ID)
+		preparedTransaction.StateRefs.Info = append(preparedTransaction.StateRefs.Info, pldtypes.MustParseHexBytes(s.GetId()))
 	}
 	if tx.PreparedPublicTransaction != nil {
 		preparedTransaction.Transaction = *tx.PreparedPublicTransaction
@@ -241,4 +251,3 @@ func (t *coordinatorTransaction) mapPreparedTransaction() *components.PreparedTr
 	}
 	return preparedTransaction
 }
-

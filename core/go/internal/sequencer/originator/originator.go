@@ -173,11 +173,19 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 
 	switch e := event.(type) {
 	case *transaction.AssembleRequestReceivedEvent:
-		return o.transportWriter.SendAssembleRejection(ctx, e.GetTransactionID(), e.RequestID, e.Coordinator,
-			engineProto.RejectionReason_TRANSACTION_UNKNOWN, 0, 0)
+		return o.transportWriter.SendAssembleRejection(ctx, e.Coordinator, &engineProto.AssembleRejection{
+			TransactionId:     e.GetTransactionID().String(),
+			AssembleRequestId: e.RequestID.String(),
+			ContractAddress:   o.contractAddress.HexString(),
+			RejectionReason:   engineProto.RejectionReason_TRANSACTION_UNKNOWN,
+		})
 	case *transaction.PreDispatchRequestReceivedEvent:
-		return o.transportWriter.SendPreDispatchRejection(ctx, e.GetTransactionID(), e.RequestID, e.Coordinator,
-			engineProto.RejectionReason_TRANSACTION_UNKNOWN)
+		return o.transportWriter.SendPreDispatchRejection(ctx, e.Coordinator, &engineProto.PreDispatchRejection{
+			TransactionId:   e.GetTransactionID().String(),
+			RequestId:       e.RequestID.String(),
+			ContractAddress: o.contractAddress.HexString(),
+			RejectionReason: engineProto.RejectionReason_TRANSACTION_UNKNOWN,
+		})
 	default:
 		// Other events can be safely ignored
 		return nil

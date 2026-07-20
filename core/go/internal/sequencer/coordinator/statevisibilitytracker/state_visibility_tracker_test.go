@@ -19,7 +19,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +44,7 @@ func TestRecordAssemblyOutput_DerivesNodesFromDistributionList(t *testing.T) {
 	stateID := testStateID("aa")
 	schema := pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32))
 
-	states := []*components.FullState{{ID: stateID, Schema: schema, Data: pldtypes.RawJSON(`{}`)}}
+	states := []*prototk.EndorsableState{{Id: stateID.String(), SchemaId: schema.String(), StateDataJson: `{}`}}
 	potentials := []*prototk.NewState{{DistributionList: []string{"alice@node1", "bob@node2"}}}
 
 	s.RecordAssemblyOutput(ctx, states, potentials)
@@ -60,7 +59,7 @@ func TestRecordAssemblyOutput_BadLocator_StateStoredButInvisible(t *testing.T) {
 	s := newTestStore()
 	stateID := testStateID("ab")
 
-	states := []*components.FullState{{ID: stateID}}
+	states := []*prototk.EndorsableState{{Id: stateID.String()}}
 	potentials := []*prototk.NewState{{DistributionList: []string{"not-a-valid-locator"}}}
 
 	s.RecordAssemblyOutput(ctx, states, potentials)
@@ -77,7 +76,7 @@ func TestRecordAssemblyOutput_EmptyDistributionList_StateStoredButInvisible(t *t
 	s := newTestStore()
 	stateID := testStateID("ac")
 
-	states := []*components.FullState{{ID: stateID}}
+	states := []*prototk.EndorsableState{{Id: stateID.String()}}
 	potentials := []*prototk.NewState{{DistributionList: nil}}
 
 	s.RecordAssemblyOutput(ctx, states, potentials)
@@ -94,7 +93,7 @@ func TestRecordAssemblyOutput_MoreStatesThanPotentials_ExtraStateInvisible(t *te
 	s1 := testStateID("ad")
 	s2 := testStateID("ae")
 
-	states := []*components.FullState{{ID: s1}, {ID: s2}}
+	states := []*prototk.EndorsableState{{Id: s1.String()}, {Id: s2.String()}}
 	potentials := []*prototk.NewState{{DistributionList: []string{"alice@node1"}}} // only one potential
 
 	s.RecordAssemblyOutput(ctx, states, potentials)
@@ -112,7 +111,7 @@ func TestRecordAssemblyOutput_MoreStatesThanPotentials_ExtraStateInvisible(t *te
 	// node1 sees only s1 (has AllowedNodes=["node1"]); s2 is invisible (nil AllowedNodes)
 	node1States := s.GetForNode("node1")
 	require.Len(t, node1States, 1)
-	assert.True(t, node1States[0].ID.Equals(s1))
+	assert.Equal(t, s1.String(), node1States[0].GetState().GetId())
 }
 
 // --- GetForNode — enforcement of the default-deny posture ---
@@ -123,7 +122,7 @@ func TestGetForNode_OnlyAllowedNodeSeesState(t *testing.T) {
 	stateID := testStateID("af")
 
 	s.RecordAssemblyOutput(ctx,
-		[]*components.FullState{{ID: stateID}},
+		[]*prototk.EndorsableState{{Id: stateID.String()}},
 		[]*prototk.NewState{{DistributionList: []string{"alice@node1"}}},
 	)
 
@@ -134,8 +133,8 @@ func TestGetForNode_OnlyAllowedNodeSeesState(t *testing.T) {
 func TestGetForNode_NilAllowedNodes_DefaultDeny(t *testing.T) {
 	s := newTestStore()
 	stateID := testStateID("b0")
-	s.statesByID[stateID.String()] = &OutputState{
-		StateUpsert:  components.StateUpsert{ID: stateID},
+	s.statesByID[stateID.String()] = &prototk.SnapshotState{
+		State:        &prototk.EndorsableState{Id: stateID.String()},
 		AllowedNodes: nil,
 	}
 
@@ -145,8 +144,8 @@ func TestGetForNode_NilAllowedNodes_DefaultDeny(t *testing.T) {
 func TestGetForNode_EmptyAllowedNodes_DefaultDeny(t *testing.T) {
 	s := newTestStore()
 	stateID := testStateID("b1")
-	s.statesByID[stateID.String()] = &OutputState{
-		StateUpsert:  components.StateUpsert{ID: stateID},
+	s.statesByID[stateID.String()] = &prototk.SnapshotState{
+		State:        &prototk.EndorsableState{Id: stateID.String()},
 		AllowedNodes: []string{},
 	}
 
@@ -161,23 +160,23 @@ func TestGetForNode_MultipleStates_FiltersCorrectly(t *testing.T) {
 	s3 := testStateID("b4")
 
 	s.RecordAssemblyOutput(ctx,
-		[]*components.FullState{{ID: s1}},
+		[]*prototk.EndorsableState{{Id: s1.String()}},
 		[]*prototk.NewState{{DistributionList: []string{"alice@node1"}}},
 	)
 	s.RecordAssemblyOutput(ctx,
-		[]*components.FullState{{ID: s2}},
+		[]*prototk.EndorsableState{{Id: s2.String()}},
 		[]*prototk.NewState{{DistributionList: []string{"bob@node2"}}},
 	)
 	// s3: nil AllowedNodes via direct insert
-	s.statesByID[s3.String()] = &OutputState{StateUpsert: components.StateUpsert{ID: s3}}
+	s.statesByID[s3.String()] = &prototk.SnapshotState{State: &prototk.EndorsableState{Id: s3.String()}}
 
 	node1States := s.GetForNode("node1")
 	require.Len(t, node1States, 1)
-	assert.True(t, node1States[0].ID.Equals(s1))
+	assert.Equal(t, s1.String(), node1States[0].GetState().GetId())
 
 	node2States := s.GetForNode("node2")
 	require.Len(t, node2States, 1)
-	assert.True(t, node2States[0].ID.Equals(s2))
+	assert.Equal(t, s2.String(), node2States[0].GetState().GetId())
 }
 
 // --- ImportIfAbsent — coordinator handover safety ---
@@ -185,8 +184,8 @@ func TestGetForNode_MultipleStates_FiltersCorrectly(t *testing.T) {
 func TestImportIfAbsent_StoresWhenAbsent(t *testing.T) {
 	s := newTestStore()
 	stateID := testStateID("b5")
-	state := &OutputState{
-		StateUpsert:  components.StateUpsert{ID: stateID},
+	state := &prototk.SnapshotState{
+		State:        &prototk.EndorsableState{Id: stateID.String()},
 		AllowedNodes: []string{"node1"},
 	}
 
@@ -199,15 +198,15 @@ func TestImportIfAbsent_ExistingEntryTakesPrecedence(t *testing.T) {
 	s := newTestStore()
 	stateID := testStateID("b6")
 
-	original := &OutputState{
-		StateUpsert:  components.StateUpsert{ID: stateID},
+	original := &prototk.SnapshotState{
+		State:        &prototk.EndorsableState{Id: stateID.String()},
 		AllowedNodes: []string{"node1"},
 	}
 	s.statesByID[stateID.String()] = original
 
 	// Attempt to import different AllowedNodes for the same state.
-	imported := s.ImportIfAbsent(stateID.String(), &OutputState{
-		StateUpsert:  components.StateUpsert{ID: stateID},
+	imported := s.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{
+		State:        &prototk.EndorsableState{Id: stateID.String()},
 		AllowedNodes: []string{"node2"},
 	})
 
@@ -224,7 +223,7 @@ func TestDelete_StateNoLongerVisible(t *testing.T) {
 	stateID := testStateID("b9")
 
 	s.RecordAssemblyOutput(ctx,
-		[]*components.FullState{{ID: stateID}},
+		[]*prototk.EndorsableState{{Id: stateID.String()}},
 		[]*prototk.NewState{{DistributionList: []string{"alice@node1"}}},
 	)
 	require.Len(t, s.GetForNode("node1"), 1)

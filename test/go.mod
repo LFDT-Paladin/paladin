@@ -24,6 +24,7 @@ require (
 	github.com/hyperledger/firefly-common v1.5.9 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2 // indirect
+	go.uber.org/zap v1.28.0 // indirect
 )
 
 require (

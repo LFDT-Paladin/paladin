@@ -45,6 +45,10 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 				default:
 				}
 			}
+			// Release before the dispatch flow: HandleEvent performs synchronous DB/state persistence and
+			// does not touch inFlightTxns or dispatchedAhead. Holding inFlightMutex across it would block the
+			// coordinator event loop (which grabs the same lock in action_NudgeDispatchLoop) behind the DB write.
+			c.inFlightMutex.L.Unlock()
 
 			// Ask the transaction state machine to handle dispatch.
 			log.L(ctx).Debugf("submitting transaction %s for dispatch", tx.GetID().String())
@@ -55,10 +59,10 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			})
 			if err != nil {
 				log.L(ctx).Errorf("error dispatching transaction %s: %v", tx.GetID().String(), err)
-				c.inFlightMutex.L.Unlock()
 				continue
 			}
 
+			c.inFlightMutex.L.Lock()
 			// Only dispatched transactions that result in a sent public transaction count towards max dispatch ahead
 			if tx.HasDispatchedPublicTransaction() {
 				dispatchedAhead++

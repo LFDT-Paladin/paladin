@@ -50,12 +50,12 @@ type PrivateTransactionBuilderForTesting struct {
 	numberOfEndorsers          int
 	numberOfEndorsements       int
 	numberOfOutputStates       int
-	inputStateIDs              []pldtypes.HexBytes
-	readStateIDs               []pldtypes.HexBytes
+	inputStateIDs              []string
+	readStateIDs               []string
 	endorsers                  []*identityForTesting
 	revertReason               *string
 	chainedDependencies        []uuid.UUID
-	preAssemblyOverride        *components.TransactionPreAssembly
+	preAssemblyOverride        *prototk.TransactionPreAssembly
 	postAssemblyOverride       *components.TransactionPostAssembly
 	preparedPrivateTransaction *pldapi.TransactionInput
 	preparedPublicTransaction  *pldapi.TransactionInput
@@ -191,12 +191,12 @@ func (b *PrivateTransactionBuilderForTesting) NumberOfOutputStates(num int) *Pri
 	return b
 }
 
-func (b *PrivateTransactionBuilderForTesting) InputStateIDs(stateIDs ...pldtypes.HexBytes) *PrivateTransactionBuilderForTesting {
+func (b *PrivateTransactionBuilderForTesting) InputStateIDs(stateIDs ...string) *PrivateTransactionBuilderForTesting {
 	b.inputStateIDs = stateIDs
 	return b
 }
 
-func (b *PrivateTransactionBuilderForTesting) ReadStateIDs(stateIDs ...pldtypes.HexBytes) *PrivateTransactionBuilderForTesting {
+func (b *PrivateTransactionBuilderForTesting) ReadStateIDs(stateIDs ...string) *PrivateTransactionBuilderForTesting {
 	b.readStateIDs = stateIDs
 	return b
 }
@@ -218,7 +218,7 @@ func (b *PrivateTransactionBuilderForTesting) ID(id uuid.UUID) *PrivateTransacti
 }
 
 // PreAssembly sets an optional override; when set, Build() uses this instead of BuildPreAssembly().
-func (b *PrivateTransactionBuilderForTesting) PreAssembly(pa *components.TransactionPreAssembly) *PrivateTransactionBuilderForTesting {
+func (b *PrivateTransactionBuilderForTesting) PreAssembly(pa *prototk.TransactionPreAssembly) *PrivateTransactionBuilderForTesting {
 	b.preAssemblyOverride = pa
 	return b
 }
@@ -299,7 +299,11 @@ func (b *PrivateTransactionBuilderForTesting) Build() *components.PrivateTransac
 		postAssembly = b.postAssemblyOverride
 	}
 	if len(b.chainedDependencies) > 0 {
-		preAssembly.ChainedDependsOn = b.chainedDependencies
+		chainedDependsOn := make([]string, len(b.chainedDependencies))
+		for i, id := range b.chainedDependencies {
+			chainedDependsOn[i] = id.String()
+		}
+		preAssembly.ChainedDependsOn = chainedDependsOn
 	}
 	pt := &components.PrivateTransaction{
 		ID:           b.id,
@@ -337,8 +341,8 @@ func (b *PrivateTransactionBuilderForTesting) BuildSparse() *components.PrivateT
 }
 
 // Function BuildPreAssembly creates a new PreAssembly with all fields populated as per the builder's configuration using defaults unless explicitly set
-func (b *PrivateTransactionBuilderForTesting) BuildPreAssembly() *components.TransactionPreAssembly {
-	preAssembly := &components.TransactionPreAssembly{
+func (b *PrivateTransactionBuilderForTesting) BuildPreAssembly() *prototk.TransactionPreAssembly {
+	preAssembly := &prototk.TransactionPreAssembly{
 		RequiredVerifiers: make([]*prototk.ResolveVerifierRequest, b.numberOfEndorsers+1),
 	}
 
@@ -399,7 +403,7 @@ func (b *PrivateTransactionBuilderForTesting) BuildEndorsement(endorserIndex int
 func (b *PrivateTransactionBuilderForTesting) BuildPostAssemblyAndHash() (*components.TransactionPostAssembly, *pldtypes.Bytes32) {
 	postAssembly := b.BuildPostAssembly()
 	hash := sha3.NewLegacyKeccak256()
-	for _, signature := range postAssembly.Signatures {
+	for _, signature := range postAssembly.AssembleResponse.GetSignatures() {
 		hash.Write(signature.Payload)
 	}
 	var h32 pldtypes.Bytes32
@@ -411,18 +415,16 @@ func (b *PrivateTransactionBuilderForTesting) BuildPostAssembly() *components.Tr
 
 	if b.revertReason != nil {
 		return &components.TransactionPostAssembly{
-			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-			RevertReason:   b.revertReason,
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+				RevertReason:   b.revertReason,
+			},
 		}
-	}
-	postAssembly := &components.TransactionPostAssembly{
-		AssemblyResult:    prototk.AssembleTransactionResponse_OK,
-		ResolvedVerifiers: b.buildResolvedVerifiers(),
 	}
 
 	//it is normal to have one AttestationRequest for the originator to sign the pre-assembly
-	postAssembly.AttestationPlan = make([]*prototk.AttestationRequest, b.numberOfEndorsers+1)
-	postAssembly.AttestationPlan[0] = &prototk.AttestationRequest{
+	attestationPlan := make([]*prototk.AttestationRequest, b.numberOfEndorsers+1)
+	attestationPlan[0] = &prototk.AttestationRequest{
 		Name:            "sign",
 		AttestationType: prototk.AttestationType_SIGN,
 		Algorithm:       algorithms.ECDSA_SECP256K1,
@@ -433,7 +435,7 @@ func (b *PrivateTransactionBuilderForTesting) BuildPostAssembly() *components.Tr
 		},
 	}
 
-	postAssembly.Signatures = []*prototk.AttestationResult{
+	signatures := []*prototk.AttestationResult{
 		{
 			Name:            "sign",
 			AttestationType: prototk.AttestationType_SIGN,
@@ -449,7 +451,7 @@ func (b *PrivateTransactionBuilderForTesting) BuildPostAssembly() *components.Tr
 	}
 
 	for i := 0; i < b.numberOfEndorsers; i++ {
-		postAssembly.AttestationPlan[i+1] = &prototk.AttestationRequest{
+		attestationPlan[i+1] = &prototk.AttestationRequest{
 			Name:            fmt.Sprintf("endorse-%d", i),
 			AttestationType: prototk.AttestationType_ENDORSE,
 			Algorithm:       algorithms.ECDSA_SECP256K1,
@@ -461,31 +463,49 @@ func (b *PrivateTransactionBuilderForTesting) BuildPostAssembly() *components.Tr
 		}
 	}
 
-	for i := 0; i < b.numberOfOutputStates; i++ {
-		postAssembly.OutputStates = append(postAssembly.OutputStates, &components.FullState{
-			ID: pldtypes.HexBytes(pldtypes.RandBytes(32)),
-		})
-	}
-
-	for _, inputStateID := range b.inputStateIDs {
-		postAssembly.InputStates = append(postAssembly.InputStates, &components.FullState{
-			ID:     inputStateID,
-			Schema: pldtypes.Bytes32(pldtypes.RandBytes(32)),
-			Data:   pldtypes.JSONString("{\"data\":\"hello\"}"),
-		})
-	}
-
-	for _, readStateID := range b.readStateIDs {
-		postAssembly.ReadStates = append(postAssembly.ReadStates, &components.FullState{
-			ID:     readStateID,
-			Schema: pldtypes.Bytes32(pldtypes.RandBytes(32)),
-			Data:   pldtypes.JSONString("{\"data\":\"hello\"}"),
-		})
-	}
-
-	postAssembly.Endorsements = make([]*prototk.AttestationResult, b.numberOfEndorsements)
+	endorsements := make([]*prototk.AttestationResult, b.numberOfEndorsements)
 	for i := 0; i < b.numberOfEndorsements; i++ {
-		postAssembly.Endorsements[i] = b.BuildEndorsement(i)
+		endorsements[i] = b.BuildEndorsement(i)
+	}
+
+	var endorsableInputStates []*prototk.EndorsableState
+	for _, inputStateID := range b.inputStateIDs {
+		schema := pldtypes.Bytes32(pldtypes.RandBytes(32))
+		endorsableInputStates = append(endorsableInputStates, &prototk.EndorsableState{
+			Id:            inputStateID,
+			SchemaId:      schema.String(),
+			StateDataJson: `{"data":"hello"}`,
+		})
+	}
+
+	var endorsableReadStates []*prototk.EndorsableState
+	for _, readStateID := range b.readStateIDs {
+		schema := pldtypes.Bytes32(pldtypes.RandBytes(32))
+		endorsableReadStates = append(endorsableReadStates, &prototk.EndorsableState{
+			Id:            readStateID,
+			SchemaId:      schema.String(),
+			StateDataJson: `{"data":"hello"}`,
+		})
+	}
+
+	var outputStates []*prototk.EndorsableState
+	for i := 0; i < b.numberOfOutputStates; i++ {
+		outputStates = append(outputStates, &prototk.EndorsableState{
+			Id: pldtypes.HexBytes(pldtypes.RandBytes(32)).String(),
+		})
+	}
+
+	postAssembly := &components.TransactionPostAssembly{
+		AssembleResponse: &prototk.TransactionPostAssembly{
+			AssemblyResult:    prototk.AssembleTransactionResponse_OK,
+			ResolvedVerifiers: b.buildResolvedVerifiers(),
+			AttestationPlan:   attestationPlan,
+			Signatures:        signatures,
+			Endorsements:      endorsements,
+			InputStates:       endorsableInputStates,
+			ReadStates:        endorsableReadStates,
+		},
+		OutputStates: outputStates,
 	}
 	return postAssembly
 

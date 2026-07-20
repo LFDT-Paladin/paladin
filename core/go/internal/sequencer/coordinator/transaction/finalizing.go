@@ -40,10 +40,5 @@ func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *coordinatorT
 
 func (t *coordinatorTransaction) finalizeAsUnknownByOriginator(_ context.Context) error {
 	t.clearTimeoutSchedules()
-	// Note: ResetTransactions is not called here because Event_TransactionUnknownByOriginator
-	// is only handled in State_Assembling, which is before WriteLockStatesForTransaction has
-	// been called -- so no creatingStates or txLocks exist in the domain context for this
-	// transaction's current assembly attempt. If the state machine is ever extended to handle
-	// this event in post-assembly states, ResetTransactions must be added here.
 	return nil
 }

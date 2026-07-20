@@ -64,15 +64,15 @@ func (s *ChainedDependenciesSuite) buildCoordinator() {
 	s.mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
 	s.mocks.EngineIntegration.On("WriteStatesForTransaction", mock.Anything, mock.Anything).Return(nil).Maybe()
 	s.mocks.EngineIntegration.On("MapPotentialStates", mock.Anything, mock.Anything, mock.Anything).Return(([]*components.StateUpsert)(nil), nil).Maybe()
-	s.mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	s.mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	s.mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 	s.mocks.SequencerManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	s.mocks.Domain.On("FixedSigningIdentity").Return("")
 	s.mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	s.mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		tx := args.Get(2).(*components.PrivateTransaction)
+	s.mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		tx := args.Get(3).(*components.PrivateTransaction)
 		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil).Maybe()
 }
@@ -85,7 +85,7 @@ func (s *ChainedDependenciesSuite) newTx(chainedDeps ...uuid.UUID) uuid.UUID {
 		Address(s.builder.GetContractAddress()).
 		Originator(s.originator).
 		NumberOfRequiredEndorsers(1)
-	pa := &components.TransactionPreAssembly{
+	pa := &prototk.TransactionPreAssembly{
 		TransactionSpecification: &prototk.TransactionSpecification{
 			From:   s.originator,
 			Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
@@ -93,7 +93,11 @@ func (s *ChainedDependenciesSuite) newTx(chainedDeps ...uuid.UUID) uuid.UUID {
 	}
 	if len(chainedDeps) > 0 {
 		b.ChainedDependencies(chainedDeps...)
-		pa.ChainedDependsOn = chainedDeps
+		chainedDependsOn := make([]string, len(chainedDeps))
+		for i, id := range chainedDeps {
+			chainedDependsOn[i] = id.String()
+		}
+		pa.ChainedDependsOn = chainedDependsOn
 	}
 	b.PreAssembly(pa)
 	txn := b.BuildSparse()
@@ -132,7 +136,7 @@ func (s *ChainedDependenciesSuite) progressToReadyForDispatch(txIDs ...uuid.UUID
 		s.handleEvent(&transaction.AssembleSuccessEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: id},
 			RequestID:            rec.AssembleKeyForTx(id),
-			PostAssembly:         b.BuildPostAssembly(),
+			PostAssembly:         b.BuildPostAssembly().AssembleResponse,
 		})
 
 		endorser := b.GetEndorserIdentityLocator(0)
@@ -290,7 +294,6 @@ func (s *ChainedDependenciesSuite) TestEvictionCascade() {
 	a := s.newTx()
 	b := s.newTx(a)
 	// Both A and B are evicted and cleaned up; ResetTransactions is called once per eviction.
-	s.mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Times(2)
 
 	s.delegate(a, b)
 	s.assertInState(transaction.State_Assembling, a)
@@ -328,8 +331,6 @@ func (s *ChainedDependenciesSuite) TestLateArrivalAfterEvictedDepCleanedUp() {
 	s.builder.AssembleErrorRetryThreshold(0)
 	s.buildCoordinator()
 	a := s.newTx()
-	// A is evicted and cleaned up; ResetTransactions is called once.
-	s.mocks.DomainContext.On("ResetTransactions", mock.Anything).Return().Once()
 	s.delegate(a)
 	s.assertInState(transaction.State_Assembling, a)
 

@@ -35,6 +35,41 @@ import (
 // partyKeyVerifier is the resolved verifier string used for party key resolution in tests.
 const partyKeyVerifier = "party-verifier"
 
+// matchEndorsementErrorMsg returns a mock.MatchedBy matcher that inspects the EndorsementError
+// proto struct to verify the transaction ID and idempotency key.
+func matchEndorsementErrorMsg(txID, ik string) interface{} {
+	return mock.MatchedBy(func(msg *engineProto.EndorsementError) bool {
+		return msg.TransactionId == txID && msg.IdempotencyKey == ik
+	})
+}
+
+// matchEndorsementRejectionMsg returns a mock.MatchedBy matcher that inspects the
+// EndorsementRejection proto struct, verifying the rejection reason and optional block heights.
+func matchEndorsementRejectionMsg(txID, ik string, reason engineProto.RejectionReason, coordBH, endorserBH, tolerance int64) interface{} {
+	return mock.MatchedBy(func(msg *engineProto.EndorsementRejection) bool {
+		return msg.TransactionId == txID &&
+			msg.IdempotencyKey == ik &&
+			msg.RejectionReason == reason &&
+			msg.CoordinatorBlockHeight == coordBH &&
+			msg.EndorserBlockHeight == endorserBH &&
+			msg.BlockHeightTolerance == tolerance
+	})
+}
+
+// matchEndorsementResponseMsg returns a mock.MatchedBy matcher that inspects the
+// EndorsementResponse proto struct, verifying the key fields that were previously individual args.
+func matchEndorsementResponseMsg(txID, ik, party, attName string, revertReason *string) interface{} {
+	return mock.MatchedBy(func(msg *engineProto.EndorsementResponse) bool {
+		if msg.TransactionId != txID || msg.IdempotencyKey != ik || msg.Party != party || msg.AttestationRequestName != attName {
+			return false
+		}
+		if revertReason != nil {
+			return msg.RevertReason != nil && *msg.RevertReason == *revertReason
+		}
+		return true
+	})
+}
+
 // buildEndorsementEvent creates a minimal EndorsementRequestReceivedEvent for tests.
 func buildEndorsementEvent(fromNode string) *EndorsementRequestReceivedEvent {
 	return &EndorsementRequestReceivedEvent{
@@ -50,28 +85,12 @@ func buildEndorsementEvent(fromNode string) *EndorsementRequestReceivedEvent {
 	}
 }
 
-// setupEndorsementMocks sets up StateManager, DomainContext, and KeyManager mocks for tests
-// that call handleEndorsementRequest directly. The KeyManager is pre-wired to succeed for the
-// party key resolution step (party "party1@<fromNode>" → unqualifiedLookup "party1"). SIGN-path
-// tests should add extra expectations on the returned KeyManager for the signing step.
-// Returns the DomainContext and the shared KeyManager mock.
-func setupEndorsementMocks(t *testing.T, mocks *CoordinatorDependencyMocks) (*componentsmocks.DomainContext, *componentsmocks.KeyManager) {
+// setupEndorsementMocks wires the KeyManager mock for tests that call handleEndorsementRequest
+// directly. The KeyManager is pre-wired to succeed for the party key resolution
+// step (party "party1@<fromNode>" → unqualifiedLookup "party1"). SIGN-path tests should add
+// extra expectations on the returned KeyManager for the signing step.
+func setupEndorsementMocks(t *testing.T, mocks *CoordinatorDependencyMocks) *componentsmocks.KeyManager {
 	t.Helper()
-	mockDomain := componentsmocks.NewDomain(t)
-	contractAddr := pldtypes.RandAddress()
-
-	mocks.DomainAPI.On("Domain").Return(mockDomain).Maybe()
-	mocks.DomainAPI.On("Address").Return(*contractAddr).Maybe()
-
-	mockStateManager := componentsmocks.NewStateManager(t)
-	mockDomainContext := componentsmocks.NewDomainContext(t)
-	mockStateManager.On("NewDomainContext", mock.Anything, mockDomain, *contractAddr).Return(mockDomainContext)
-	mockDomainContext.On("Close").Return().Maybe()
-	mocks.AllComponents.On("StateManager").Return(mockStateManager).Maybe()
-
-	// Party key resolution: buildEndorsementEvent sets Party = "party1@<fromNode>", so the
-	// unqualified lookup is "party1". Uses Maybe() so tests that fail before reaching this
-	// step (e.g. PartyKeyResolveError) don't need to match it.
 	mockKeyManager := componentsmocks.NewKeyManager(t)
 	partyKey := &pldapi.KeyMappingAndVerifier{
 		Verifier: &pldapi.KeyVerifier{Verifier: partyKeyVerifier},
@@ -79,8 +98,7 @@ func setupEndorsementMocks(t *testing.T, mocks *CoordinatorDependencyMocks) (*co
 	mockKeyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, "party1", mock.Anything, mock.Anything).
 		Return(partyKey, nil).Maybe()
 	mocks.AllComponents.On("KeyManager").Return(mockKeyManager).Maybe()
-
-	return mockDomainContext, mockKeyManager
+	return mockKeyManager
 }
 
 // --- validator_IsPrivateStateDataPendingForEndorsement tests ---
@@ -137,9 +155,8 @@ func Test_action_RejectEndorsementPrivateStateDataPending_SendsRejection(t *test
 		Build()
 
 	mocks.TransportWriter.EXPECT().SendEndorsementRejection(
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything, mock.Anything, engineProto.RejectionReason_PRIVATE_STATE_DATA_PENDING,
-		int64(100), int64(0), int64(10),
+		mock.Anything, "node2", matchEndorsementRejectionMsg("tx-1", "ik-1",
+			engineProto.RejectionReason_PRIVATE_STATE_DATA_PENDING, int64(100), int64(0), int64(10)),
 	).Return(nil)
 
 	event := &EndorsementRequestReceivedEvent{
@@ -222,7 +239,6 @@ func Test_validator_IsEndorsementRequestFromSelf_DifferentNode_ReturnsFalse(t *t
 	assert.False(t, result, "request from a different node should not match")
 }
 
-
 func Test_handleEndorsementRequest_SendEndorsementErrorFails_LogsAndContinues(t *testing.T) {
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
@@ -231,7 +247,7 @@ func Test_handleEndorsementRequest_SendEndorsementErrorFails_LogsAndContinues(t 
 
 	// Trigger sendErr via a party identity error (empty identity), and have SendEndorsementError itself fail.
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementError(mock.Anything, "tx-1", "ik-1", mock.Anything, mock.Anything, mock.Anything, mock.Anything, "node2").
+		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
 		Return(fmt.Errorf("transport failure"))
 
 	event := buildEndorsementEvent("node2")
@@ -269,12 +285,12 @@ func Test_action_HandleEndorsementRequest_SpawnsGoroutineThatCompletesEndorsemen
 		Result:   prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "party1@node2"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 
 	done := make(chan struct{})
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(_ context.Context, _, _, _ string, _ *prototk.AttestationResult, _ *components.EndorsementResult, _, _, _, _ string) {
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ string, msg *engineProto.EndorsementResponse) {
 			close(done)
 		}).
 		Return(nil)
@@ -303,8 +319,8 @@ func Test_action_HandleEndorsementRequest_SendsEndorsementError_WhenExpiryAlread
 
 	errorSent := make(chan struct{})
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementError(mock.Anything, "tx-1", "ik-1", mock.Anything, mock.Anything, mock.Anything, mock.Anything, "node2").
-		Run(func(_ context.Context, _, _, _, _, _, _, _ string) { close(errorSent) }).
+		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
+		Run(func(_ context.Context, _ string, _ *engineProto.EndorsementError) { close(errorSent) }).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")
@@ -333,9 +349,9 @@ func Test_handleEndorsementRequest_Revert_SendsResponseWithRevertReason(t *testi
 		RevertReason: &revertMsg,
 		Endorser:     &prototk.ResolvedVerifier{Lookup: "party1@node2"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementResponse(mock.Anything, "tx-1", "ik-1", mock.Anything, mock.Anything, endorsementResult, revertMsg, "att1", "party1@node2", "node2").
+		SendEndorsementResponse(mock.Anything, "node2", matchEndorsementResponseMsg("tx-1", "ik-1", "party1@node2", "att1", &revertMsg)).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")
@@ -356,9 +372,10 @@ func Test_handleEndorsementRequest_Revert_NoRevertReason_UsesDefaultMessage(t *t
 		RevertReason: nil,
 		Endorser:     &prototk.ResolvedVerifier{Lookup: "party1@node2"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	defaultMsg := "(no revert reason)"
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementResponse(mock.Anything, "tx-1", "ik-1", mock.Anything, mock.Anything, endorsementResult, "(no revert reason)", "att1", "party1@node2", "node2").
+		SendEndorsementResponse(mock.Anything, "node2", matchEndorsementResponseMsg("tx-1", "ik-1", "party1@node2", "att1", &defaultMsg)).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")
@@ -372,7 +389,7 @@ func Test_handleEndorsementRequest_PartyIdentityError_SendsEndorsementError(t *t
 		Build()
 
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementError(mock.Anything, "tx-1", "ik-1", mock.Anything, mock.Anything, mock.Anything, mock.Anything, "node2").
+		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
 		Return(nil)
 
 	// Party "@node2" has an empty identity part, causing PrivateIdentityLocator.Identity to fail.
@@ -393,7 +410,7 @@ func Test_handleEndorsementRequest_PartyKeyResolveError_SendsEndorsementError(t 
 	mocks.AllComponents.On("KeyManager").Return(mockKeyManager).Maybe()
 
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementError(mock.Anything, "tx-1", "ik-1", mock.Anything, mock.Anything, mock.Anything, mock.Anything, "node2").
+		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")
@@ -409,10 +426,10 @@ func Test_handleEndorsementRequest_EndorseTransactionError_SendsEndorsementError
 	setupEndorsementMocks(t, mocks)
 	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
 
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("domain error"))
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("domain error"))
 
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementError(mock.Anything, "tx-1", "ik-1", mock.Anything, mock.Anything, mock.Anything, mock.Anything, "node2").
+		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")
@@ -432,13 +449,13 @@ func Test_handleEndorsementRequest_EndorserSubmit_SendsResponseWithConstraint(t 
 		Result:   prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "party1@node2"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 
 	var capturedAttResult *prototk.AttestationResult
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(_ context.Context, _, _, _ string, attResult *prototk.AttestationResult, _ *components.EndorsementResult, _, _, _, _ string) {
-			capturedAttResult = attResult
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ string, msg *engineProto.EndorsementResponse) {
+			capturedAttResult = msg.Endorsement
 		}).
 		Return(nil)
 
@@ -456,7 +473,7 @@ func Test_handleEndorsementRequest_Sign_ThisNode_SignsAndSendsResponse(t *testin
 		WithMockTransportWriter().
 		Build()
 
-	_, km := setupEndorsementMocks(t, mocks)
+	km := setupEndorsementMocks(t, mocks)
 	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
 
 	// EndorseTransaction returns SIGN with endorser on this node.
@@ -465,7 +482,7 @@ func Test_handleEndorsementRequest_Sign_ThisNode_SignsAndSendsResponse(t *testin
 		Endorser: &prototk.ResolvedVerifier{Lookup: "signer@node1"},
 		Payload:  []byte("payload-to-sign"),
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 
 	resolvedKey := &pldapi.KeyMappingAndVerifier{
 		Verifier: &pldapi.KeyVerifier{Verifier: "verifier-value"},
@@ -475,9 +492,9 @@ func Test_handleEndorsementRequest_Sign_ThisNode_SignsAndSendsResponse(t *testin
 
 	var capturedAttResult *prototk.AttestationResult
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(_ context.Context, _, _, _ string, attResult *prototk.AttestationResult, _ *components.EndorsementResult, _, _, _, _ string) {
-			capturedAttResult = attResult
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ string, msg *engineProto.EndorsementResponse) {
+			capturedAttResult = msg.Endorsement
 		}).
 		Return(nil)
 
@@ -500,7 +517,7 @@ func Test_handleEndorsementRequest_Sign_ResolveKeyError_SendsEndorsementError(t 
 		WithMockTransportWriter().
 		Build()
 
-	_, km := setupEndorsementMocks(t, mocks)
+	km := setupEndorsementMocks(t, mocks)
 	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
 
 	// Party key resolution (via setupEndorsementMocks) succeeds. EndorseTransaction returns SIGN.
@@ -509,11 +526,11 @@ func Test_handleEndorsementRequest_Sign_ResolveKeyError_SendsEndorsementError(t 
 		Result:   prototk.EndorseTransactionResponse_SIGN,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "signer@node1"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 	km.EXPECT().ResolveKeyNewDatabaseTX(mock.Anything, "signer", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("key error"))
 
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementError(mock.Anything, "tx-1", "ik-1", mock.Anything, mock.Anything, mock.Anything, mock.Anything, "node2").
+		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")
@@ -527,7 +544,7 @@ func Test_handleEndorsementRequest_Sign_SignError_SendsEndorsementError(t *testi
 		WithMockTransportWriter().
 		Build()
 
-	_, km := setupEndorsementMocks(t, mocks)
+	km := setupEndorsementMocks(t, mocks)
 	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
 
 	// Party key resolution (via setupEndorsementMocks) succeeds. EndorseTransaction returns SIGN.
@@ -536,7 +553,7 @@ func Test_handleEndorsementRequest_Sign_SignError_SendsEndorsementError(t *testi
 		Result:   prototk.EndorseTransactionResponse_SIGN,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "signer@node1"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 
 	resolvedKey := &pldapi.KeyMappingAndVerifier{
 		Verifier: &pldapi.KeyVerifier{Verifier: "verifier-value"},
@@ -545,7 +562,7 @@ func Test_handleEndorsementRequest_Sign_SignError_SendsEndorsementError(t *testi
 	km.EXPECT().Sign(mock.Anything, resolvedKey, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("sign error"))
 
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementError(mock.Anything, "tx-1", "ik-1", mock.Anything, mock.Anything, mock.Anything, mock.Anything, "node2").
+		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")
@@ -569,10 +586,10 @@ func Test_handleEndorsementRequest_Sign_WrongNode_LogsErrorAndSendsResponseUnsig
 		Result:   prototk.EndorseTransactionResponse_SIGN,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "signer@node2"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 	// Response is still sent (with empty payload since we didn't sign).
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")
@@ -592,9 +609,9 @@ func Test_handleEndorsementRequest_SendResponseError_LogsError(t *testing.T) {
 		Result:   prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "party1@node2"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything).
 		Return(fmt.Errorf("transport error"))
 
 	event := buildEndorsementEvent("node2")
@@ -651,11 +668,13 @@ func Test_handleEndorsementRequest_UsesContractAddressFromCoordinator(t *testing
 		Result:   prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "party1@node2"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 
 	// Verify the contract address from c.contractAddress is used (not from the event).
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything, contractAddr.String(), mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.MatchedBy(func(msg *engineProto.EndorsementResponse) bool {
+			return msg.ContractAddress == contractAddr.HexString()
+		})).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")
@@ -676,9 +695,9 @@ func Test_handleEndorsementRequest_IncEndorsedTransactionsOnSuccess(t *testing.T
 		Result:   prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "party1@node2"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")
@@ -703,10 +722,10 @@ func Test_handleEndorsementRequest_Sign_ValidateEndorserError_SendsEndorsementEr
 		Result:   prototk.EndorseTransactionResponse_SIGN,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "@"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
 
 	mocks.TransportWriter.EXPECT().
-		SendEndorsementError(mock.Anything, "tx-1", "ik-1", mock.Anything, mock.Anything, mock.Anything, mock.Anything, "node2").
+		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
 		Return(nil)
 
 	event := buildEndorsementEvent("node2")

@@ -46,14 +46,14 @@ type EngineIntegration interface {
 	// assumes that the coordinator will not assemble any transactions while it is waiting for a signed post assembly for one transaction
 	// . e.g. it might make sense to split out the assembling and gatheringSignatures into separate states on the coordinator side so that it can
 	// single thread assembly and still tolerate latency in the signing phase.
-	AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) (*components.TransactionPostAssembly, error)
+	AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, stateSnapshot *prototk.StateSnapshot, blockHeight int64) (*prototk.TransactionPostAssembly, error)
 }
 
-func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract, domainContext components.DomainContext) EngineIntegration {
+func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract, domainStateWriter components.DomainStateWriter) EngineIntegration {
 	return &engineIntegration{
 		components:          allComponents,
 		domainSmartContract: domainSmartContract,
-		domainContext:       domainContext,
+		domainStateWriter:   domainStateWriter,
 		nodeName:            nodeName,
 	}
 
@@ -62,25 +62,26 @@ func NewEngineIntegration(ctx context.Context, allComponents components.AllCompo
 type engineIntegration struct {
 	components          components.AllComponents
 	domainSmartContract components.DomainSmartContract
-	domainContext       components.DomainContext
+	domainStateWriter   components.DomainStateWriter
 	nodeName            string
 }
 
 func (e *engineIntegration) MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
-	return e.domainSmartContract.MapPotentialStates(e.domainContext, potentialStates, true, createdByTX)
+	return e.domainSmartContract.MapPotentialStates(ctx, potentialStates, true, createdByTX)
 }
 
 func (e *engineIntegration) WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 
-	if (txn.PostAssembly.OutputStatesPotential != nil && txn.PostAssembly.OutputStates == nil) || (txn.PostAssembly.InfoStatesPotential != nil && txn.PostAssembly.InfoStates == nil) {
+	if (txn.PostAssembly.AssembleResponse.GetOutputStatesPotential() != nil && txn.PostAssembly.OutputStates == nil) ||
+		(txn.PostAssembly.AssembleResponse.GetInfoStatesPotential() != nil && txn.PostAssembly.InfoStates == nil) {
 		readTX := e.components.Persistence().NOTX() // no DB transaction required here for the reads from the DB (writes happen on syncpoint flusher)
-		err := e.domainSmartContract.WritePotentialStates(e.domainContext, readTX, txn)
+		err := e.domainSmartContract.WritePotentialStates(ctx, e.domainStateWriter, readTX, txn)
 		if err != nil {
 			// Any error from WritePotentialStates is likely to be caused by an invalid init or assemble of the transaction
 			// which is most likely a programming error in the domain or the domain manager or the sequencer
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, err)
 		} else {
-			log.L(ctx).Debugf("Potential states written %s", e.domainContext.Info().ID)
+			log.L(ctx).Debugf("Potential states written for domain=%s", e.domainSmartContract.Domain().Name())
 		}
 	}
 
@@ -109,21 +110,21 @@ func (e *engineIntegration) CheckPendingPrivateStateData(ctx context.Context, bl
 // assemble a transaction that we are not coordinating, using the provided state locks
 // all errors are assumed to be transient and the request should be retried
 // if the domain as deemed the request as invalid then it will communicate the `revert` directive via the AssembleTransactionResponse_REVERT result without any error
-func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) (*components.TransactionPostAssembly, error) {
+func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, stateSnapshot *prototk.StateSnapshot, blockHeight int64) (*prototk.TransactionPostAssembly, error) {
 
-	log.L(ctx).Debugf("Assembling transaction %s. Creating domain context with coordinator state locks", transactionID)
+	log.L(ctx).Debugf("Assembling transaction %s. Creating domain context with coordinator state snapshot", transactionID)
 
 	// Create a domain context just for this call that the snapshot can be loaded into.
-	dCtx := e.components.StateManager().NewDomainContext(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address())
-	defer dCtx.Close()
+	dqc := e.components.StateManager().NewDomainQueryContext(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address())
+	defer dqc.Close(ctx)
 
-	err := dCtx.ImportSnapshot(ctx, stateLocksJSON)
+	err := dqc.ImportSnapshot(ctx, stateSnapshot)
 	if err != nil {
 		return nil, err
 	}
 
-	resolvedVerifiers := make([]*prototk.ResolvedVerifier, 0, len(preAssembly.RequiredVerifiers))
-	for _, v := range preAssembly.RequiredVerifiers {
+	resolvedVerifiers := make([]*prototk.ResolvedVerifier, 0, len(preAssembly.GetRequiredVerifiers()))
+	for _, v := range preAssembly.GetRequiredVerifiers() {
 		log.L(ctx).Debugf("resolving required verifier %s", v.Lookup)
 		verifier, err := e.components.IdentityResolver().ResolveVerifier(
 			ctx,
@@ -142,7 +143,7 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 		})
 	}
 
-	return e.assembleAndSign(ctx, transactionID, preAssembly, resolvedVerifiers, dCtx)
+	return e.assembleAndSign(ctx, transactionID, preAssembly, resolvedVerifiers, dqc)
 }
 
 func (e *engineIntegration) resolveLocalTransaction(ctx context.Context, transactionID uuid.UUID) (*components.ResolvedTransaction, error) {
@@ -153,7 +154,7 @@ func (e *engineIntegration) resolveLocalTransaction(ctx context.Context, transac
 	return locallyResolvedTx, err
 }
 
-func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, domainContext components.DomainContext) (*components.TransactionPostAssembly, error) {
+func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, domainQueryContext components.DomainQueryContext) (*prototk.TransactionPostAssembly, error) {
 	localTx, err := e.resolveLocalTransaction(ctx, transactionID)
 	if err != nil || localTx.Transaction.Domain != e.domainSmartContract.Domain().Name() || localTx.Transaction.To == nil || *localTx.Transaction.To != e.domainSmartContract.Address() {
 		if err == nil {
@@ -163,30 +164,22 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 		err := i18n.WrapError(ctx, err, msgs.MsgSequencerAssembleRequestInvalid, transactionID)
 		return nil, err
 	}
-	transaction := &components.PrivateTransaction{
-		ID:          transactionID,
-		Domain:      localTx.Transaction.Domain,
-		Address:     *localTx.Transaction.To,
-		PreAssembly: preAssembly,
-	}
 
 	/*
 	 * Assemble
 	 */
-	log.L(ctx).Debugf("Assembling transaction: %+v", transaction)
-	err = e.domainSmartContract.AssembleTransaction(domainContext, e.components.Persistence().NOTX(), transaction, localTx, resolvedVerifiers)
+	log.L(ctx).Debugf("Assembling transaction %s", transactionID)
+	assemblyResponse, err := e.domainSmartContract.AssembleTransaction(ctx, domainQueryContext, e.components.Persistence().NOTX(), transactionID, preAssembly, localTx, resolvedVerifiers)
 	if err != nil {
 		log.L(ctx).Errorf("error assembling transaction: %s", err)
 		return nil, err
 	}
-	if transaction.PostAssembly == nil {
-		// This is most likely a programming error in the domain
-		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "AssembleTransaction returned nil PostAssembly")
-		return nil, err
+	if assemblyResponse == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "AssembleTransaction returned nil")
 	}
 
 	// Some validation that we are confident we can execute the given attestation plan
-	for _, attRequest := range transaction.PostAssembly.AttestationPlan {
+	for _, attRequest := range assemblyResponse.GetAttestationPlan() {
 		switch attRequest.AttestationType {
 		case prototk.AttestationType_ENDORSE:
 		case prototk.AttestationType_SIGN:
@@ -200,7 +193,7 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 	/*
 	 * Sign
 	 */
-	for _, attRequest := range transaction.PostAssembly.AttestationPlan {
+	for _, attRequest := range assemblyResponse.GetAttestationPlan() {
 		if attRequest.AttestationType == prototk.AttestationType_SIGN {
 			for _, partyName := range attRequest.Parties {
 				log.L(ctx).Debugf("validating identity locator for signing party %s", partyName)
@@ -226,7 +219,7 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 					}
 					log.L(ctx).Debugf("payload: %x signed %x by %s (%s)", attRequest.Payload, signaturePayload, unqualifiedLookup, resolvedKey.Verifier.Verifier)
 
-					transaction.PostAssembly.Signatures = append(transaction.PostAssembly.Signatures, &prototk.AttestationResult{
+					assemblyResponse.Signatures = append(assemblyResponse.Signatures, &prototk.AttestationResult{
 						Name:            attRequest.Name,
 						AttestationType: attRequest.AttestationType,
 						Verifier: &prototk.ResolvedVerifier{
@@ -247,14 +240,8 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 		}
 	}
 
-	transaction.PostAssembly.ResolvedVerifiers = resolvedVerifiers
+	assemblyResponse.ResolvedVerifiers = resolvedVerifiers
 
-	if log.IsDebugEnabled() {
-		stateIDs := ""
-		for _, state := range transaction.PostAssembly.OutputStates {
-			stateIDs += "," + state.ID.String()
-		}
-		log.L(ctx).Debugf("Assembled transaction %s, state IDs: %s, result: %s", transactionID, stateIDs, transaction.PostAssembly.AssemblyResult.String())
-	}
-	return transaction.PostAssembly, nil
+	log.L(ctx).Debugf("Assembled transaction %s, result: %s", transactionID, assemblyResponse.GetAssemblyResult())
+	return assemblyResponse, nil
 }

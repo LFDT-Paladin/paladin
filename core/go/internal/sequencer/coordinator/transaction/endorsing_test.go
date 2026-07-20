@@ -44,10 +44,17 @@ func Test_action_NudgeEndorsementRequests_CallsSendEndorsementRequests(t *testin
 func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_InitializesPendingRequests(t *testing.T) {
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				ContractInfo: &prototk.ContractInfo{},
+			},
+		}).
 		PostAssembly(&components.TransactionPostAssembly{
-			AttestationPlan:   []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
-			Endorsements:      []*prototk.AttestationResult{},
-			ResolvedVerifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}},
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AttestationPlan:   []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1@node1"}}},
+				Endorsements:      []*prototk.AttestationResult{},
+				ResolvedVerifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}},
+			},
 		}).
 		UseMockTransportWriter().
 		WithCurrentBlockHeight(100).
@@ -55,9 +62,9 @@ func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_Initialize
 
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
-			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
-			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, "node1", mock.MatchedBy(func(msg *engineProto.EndorsementRequest) bool {
+				return msg.TransactionId == txn.pt.ID.String() && msg.Party == "party1@node1"
+			}),
 		).Return(nil)
 
 	err := action_NudgeEndorsementRequests(ctx, txn, nil)
@@ -70,10 +77,17 @@ func Test_sendEndorsementRequests_SendEndorsementRequestReturnsError_LogsAndCont
 	ctx := t.Context()
 	sendErr := errors.New("transport send failed")
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				ContractInfo: &prototk.ContractInfo{},
+			},
+		}).
 		PostAssembly(&components.TransactionPostAssembly{
-			AttestationPlan:   []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
-			Endorsements:      []*prototk.AttestationResult{},
-			ResolvedVerifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}},
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AttestationPlan:   []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1@node1"}}},
+				Endorsements:      []*prototk.AttestationResult{},
+				ResolvedVerifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}},
+			},
 		}).
 		UseMockTransportWriter().
 		WithCurrentBlockHeight(100).
@@ -81,9 +95,9 @@ func Test_sendEndorsementRequests_SendEndorsementRequestReturnsError_LogsAndCont
 
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
-			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
-			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, "node1", mock.MatchedBy(func(msg *engineProto.EndorsementRequest) bool {
+				return msg.TransactionId == txn.pt.ID.String() && msg.Party == "party1@node1"
+			}),
 		).Return(sendErr)
 
 	err := txn.sendEndorsementRequests(ctx)
@@ -97,6 +111,7 @@ func Test_sendEndorsementRequests_WhenPendingNil_SchedulesTimerAndQueueEventOnFi
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		UseMockClock().
 		UseMockTransportWriter().
+		NumberOfRequiredEndorsers(0).
 		QueueEventForCoordinator(func(ctx context.Context, event common.Event) {
 			if _, ok := event.(*RequestTimeoutIntervalEvent); ok {
 				timeoutEventReceived = true
@@ -110,7 +125,7 @@ func Test_sendEndorsementRequests_WhenPendingNil_SchedulesTimerAndQueueEventOnFi
 		callback := args.Get(2).(func())
 		callback()
 	})
-	mocks.TransportWriter.EXPECT().SendEndorsementRequest(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	mocks.TransportWriter.EXPECT().SendEndorsementRequest(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	err := txn.sendEndorsementRequests(ctx)
 	require.NoError(t, err)
@@ -121,9 +136,16 @@ func Test_sendEndorsementRequests_WhenPendingNil_SchedulesTimerAndQueueEventOnFi
 func Test_sendEndorsementRequests_TwoAttestationNames_CreatesMapPerName(t *testing.T) {
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				ContractInfo: &prototk.ContractInfo{},
+			},
+		}).
 		PostAssembly(&components.TransactionPostAssembly{
-			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}, {Name: "att2", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party2"}}},
-			Endorsements:    []*prototk.AttestationResult{},
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1@node1"}}, {Name: "att2", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party2@node2"}}},
+				Endorsements:    []*prototk.AttestationResult{},
+			},
 		}).
 		UseMockTransportWriter().
 		WithCurrentBlockHeight(100).
@@ -131,15 +153,15 @@ func Test_sendEndorsementRequests_TwoAttestationNames_CreatesMapPerName(t *testi
 
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
-			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
-			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, "node1", mock.MatchedBy(func(msg *engineProto.EndorsementRequest) bool {
+				return msg.TransactionId == txn.pt.ID.String() && msg.Party == "party1@node1"
+			}),
 		).Return(nil)
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
-			ctx, txn.pt.ID, mock.Anything, "party2", mock.Anything,
-			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, "node2", mock.MatchedBy(func(msg *engineProto.EndorsementRequest) bool {
+				return msg.TransactionId == txn.pt.ID.String() && msg.Party == "party2@node2"
+			}),
 		).Return(nil)
 
 	err := txn.sendEndorsementRequests(ctx)
@@ -155,10 +177,12 @@ func Test_sendEndorsementRequests_PermanentlyFailedParty_IsSkipped(t *testing.T)
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
-			AttestationPlan: []*prototk.AttestationRequest{{
-				Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"},
-			}},
-			Endorsements: []*prototk.AttestationResult{},
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				AttestationPlan: []*prototk.AttestationRequest{{
+					Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1@node1"},
+				}},
+				Endorsements: []*prototk.AttestationResult{},
+			},
 		}).
 		UseMockTransportWriter().
 		WithCurrentBlockHeight(100).
@@ -167,7 +191,7 @@ func Test_sendEndorsementRequests_PermanentlyFailedParty_IsSkipped(t *testing.T)
 	// Pre-populate pendingEndorsementRequests so the nil check in the loop is reachable.
 	// The outer map key exists, and the party entry is nil — the permanently-failed sentinel.
 	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
-		"att1": {"party1": nil},
+		"att1": {"party1@node1": nil},
 	}
 
 	// No SendEndorsementRequest expectation registered: any call to it would fail the test.
@@ -176,7 +200,7 @@ func Test_sendEndorsementRequests_PermanentlyFailedParty_IsSkipped(t *testing.T)
 	err := txn.sendEndorsementRequests(ctx)
 	require.NoError(t, err)
 	// The nil sentinel must be preserved — it was not overwritten.
-	assert.Nil(t, txn.pendingEndorsementRequests["att1"]["party1"])
+	assert.Nil(t, txn.pendingEndorsementRequests["att1"]["party1@node1"])
 }
 
 func Test_action_RecordEndorseFailure_UnknownEventType_WarnsAndReturnsNil(t *testing.T) {
@@ -195,7 +219,11 @@ func Test_action_RecordEndorseFailure_UnknownEventType_WarnsAndReturnsNil(t *tes
 func Test_applyEndorsement_NoPendingRequestForAttestationName_IgnoresAndReturnsNil(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
+		PostAssembly(&components.TransactionPostAssembly{
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				Endorsements: []*prototk.AttestationResult{},
+			},
+		}).
 		Build()
 	// No entry for "att1" so applyEndorsement will hit the "no pending request found for attestation request name" path
 
@@ -206,13 +234,17 @@ func Test_applyEndorsement_NoPendingRequestForAttestationName_IgnoresAndReturnsN
 
 	err := txn.applyEndorsement(ctx, endorsement, uuid.New())
 	require.NoError(t, err)
-	assert.Empty(t, txn.pt.PostAssembly.Endorsements)
+	assert.Empty(t, txn.pt.PostAssembly.AssembleResponse.GetEndorsements())
 }
 
 func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
+		PostAssembly(&components.TransactionPostAssembly{
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				Endorsements: []*prototk.AttestationResult{},
+			},
+		}).
 		AddPendingEndorsementRequest().
 		Build()
 
@@ -224,7 +256,7 @@ func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testin
 
 	err := txn.applyEndorsement(ctx, endorsement, wrongRequestID)
 	require.NoError(t, err)
-	assert.Empty(t, txn.pt.PostAssembly.Endorsements)
+	assert.Empty(t, txn.pt.PostAssembly.AssembleResponse.GetEndorsements())
 }
 
 // Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty covers the branch that logs
@@ -234,7 +266,11 @@ func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testin
 func Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty_IgnoresAndReturnsNil(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
+		PostAssembly(&components.TransactionPostAssembly{
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				Endorsements: []*prototk.AttestationResult{},
+			},
+		}).
 		AddPendingEndorsementRequest().
 		Build()
 
@@ -250,13 +286,17 @@ func Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty_IgnoresAndRe
 
 	err := txn.applyEndorsement(ctx, endorsement, wrongRequestID)
 	require.NoError(t, err)
-	assert.Empty(t, txn.pt.PostAssembly.Endorsements, "endorsement with mismatched idempotency key should be ignored")
+	assert.Empty(t, txn.pt.PostAssembly.AssembleResponse.GetEndorsements(), "endorsement with mismatched idempotency key should be ignored")
 }
 
 func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
+		PostAssembly(&components.TransactionPostAssembly{
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				Endorsements: []*prototk.AttestationResult{},
+			},
+		}).
 		AddPendingEndorsementRequest().
 		Build()
 
@@ -268,7 +308,7 @@ func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *test
 
 	err := txn.applyEndorsement(ctx, endorsement, requestID)
 	require.NoError(t, err)
-	assert.Empty(t, txn.pt.PostAssembly.Endorsements)
+	assert.Empty(t, txn.pt.PostAssembly.AssembleResponse.GetEndorsements())
 }
 
 func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testing.T) {
@@ -347,6 +387,31 @@ func Test_extractEndorserNodes_NilPostAssembly_ReturnsEmpty(t *testing.T) {
 	assert.Empty(t, nodes)
 }
 
+func Test_extractEndorserNodes_InvalidPartyLocator_SkipsInvalidEntry(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
+		AssembleResponse: &prototk.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{
+				AttestationType: prototk.AttestationType_ENDORSE,
+				// "a@b@c" has too many @ signs and is an invalid locator; "valid@node1" is valid.
+				Parties: []string{"a@b@c", "valid@node1"},
+			}},
+		},
+	}
+	nodes := txn.extractEndorserNodes(ctx)
+	// The invalid locator is skipped; only the valid one is returned.
+	assert.Equal(t, []string{"node1"}, nodes)
+}
+
+func Test_requestEndorsement_InvalidPartyLocator_ReturnsError(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
+
+	// "a@b@c" has too many @ signs and fails locator parsing.
+	err := txn.requestEndorsement(ctx, uuid.New(), "a@b@c", &prototk.AttestationRequest{})
+	require.Error(t, err)
+}
 
 func Test_action_RecordEndorseFailure_EndorserIsActiveCoordinator_LogsWarning(t *testing.T) {
 	ctx := t.Context()
@@ -385,14 +450,16 @@ func Test_unfulfilledEndorsementRequirements_ThresholdUnset_AllPartiesRequired(t
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		AttestationPlan: []*prototk.AttestationRequest{{
-			Name:            "group-endorse",
-			AttestationType: prototk.AttestationType_ENDORSE,
-			VerifierType:    "ETH_ADDRESS",
-			Parties:         []string{"p1@n1", "p2@n2", "p3@n3"},
-			// Threshold unset → nil → 0 → all parties required
-		}},
-		Endorsements: []*prototk.AttestationResult{
+		AssembleResponse: &prototk.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{
+				Name:            "group-endorse",
+				AttestationType: prototk.AttestationType_ENDORSE,
+				VerifierType:    "ETH_ADDRESS",
+				Parties:         []string{"p1@n1", "p2@n2", "p3@n3"},
+				// Threshold unset → nil → 0 → all parties required
+			}},
+		},
+		CollectedEndorsements: []*prototk.AttestationResult{
 			{
 				Name:            "group-endorse",
 				AttestationType: prototk.AttestationType_ENDORSE,
@@ -415,14 +482,16 @@ func Test_unfulfilledEndorsementRequirements_Threshold1of3_FulfilledAfterOneEndo
 	threshold := int32(1)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		AttestationPlan: []*prototk.AttestationRequest{{
-			Name:            "group-endorse",
-			AttestationType: prototk.AttestationType_ENDORSE,
-			VerifierType:    "ETH_ADDRESS",
-			Parties:         []string{"p1@n1", "p2@n2", "p3@n3"},
-			Threshold:       &threshold,
-		}},
-		Endorsements: []*prototk.AttestationResult{
+		AssembleResponse: &prototk.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{
+				Name:            "group-endorse",
+				AttestationType: prototk.AttestationType_ENDORSE,
+				VerifierType:    "ETH_ADDRESS",
+				Parties:         []string{"p1@n1", "p2@n2", "p3@n3"},
+				Threshold:       &threshold,
+			}},
+		},
+		CollectedEndorsements: []*prototk.AttestationResult{
 			{
 				Name:            "group-endorse",
 				AttestationType: prototk.AttestationType_ENDORSE,
@@ -442,14 +511,16 @@ func Test_unfulfilledEndorsementRequirements_Threshold2of3_NotFulfilledAfterOne(
 	threshold := int32(2)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		AttestationPlan: []*prototk.AttestationRequest{{
-			Name:            "group-endorse",
-			AttestationType: prototk.AttestationType_ENDORSE,
-			VerifierType:    "ETH_ADDRESS",
-			Parties:         []string{"p1@n1", "p2@n2", "p3@n3"},
-			Threshold:       &threshold,
-		}},
-		Endorsements: []*prototk.AttestationResult{
+		AssembleResponse: &prototk.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{
+				Name:            "group-endorse",
+				AttestationType: prototk.AttestationType_ENDORSE,
+				VerifierType:    "ETH_ADDRESS",
+				Parties:         []string{"p1@n1", "p2@n2", "p3@n3"},
+				Threshold:       &threshold,
+			}},
+		},
+		CollectedEndorsements: []*prototk.AttestationResult{
 			{
 				Name:            "group-endorse",
 				AttestationType: prototk.AttestationType_ENDORSE,

@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
@@ -33,7 +34,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -105,8 +105,8 @@ func newMockComponents(t *testing.T, realDB bool) *mockComponents {
 
 func newTestGroupManager(t *testing.T, realDB bool, conf *pldconf.GroupManagerConfig, extraSetup ...func(mc *mockComponents, conf *pldconf.GroupManagerConfig)) (context.Context, *groupManager, *mockComponents, func()) {
 	ctx, cancelCtx := context.WithCancel(context.Background())
-	oldLevel := logrus.GetLevel()
-	logrus.SetLevel(logrus.TraceLevel)
+	oldLevel := log.GetLevel()
+	log.SetLevel("trace")
 
 	mc := newMockComponents(t, realDB)
 	mc.domain.On("FixedSigningIdentity").Return("").Maybe()
@@ -128,7 +128,7 @@ func newTestGroupManager(t *testing.T, realDB bool, conf *pldconf.GroupManagerCo
 
 	return ctx, gm.(*groupManager), mc, func() {
 		if !t.Failed() {
-			logrus.SetLevel(oldLevel)
+			log.SetLevel(oldLevel)
 			cancelCtx()
 			gm.Stop()
 		}
@@ -703,9 +703,9 @@ func mockGetPrivateSmartContract(t *testing.T, mc *mockComponents, schemaID pldt
 	psc := componentsmocks.NewDomainSmartContract(t)
 	mc.domainManager.On("GetSmartContractByAddress", mock.Anything, mock.Anything, *contractAddr).Return(psc, nil)
 	psc.On("Domain").Return(mc.domain).Maybe()
-	mdc := componentsmocks.NewDomainContext(t)
-	mc.stateManager.On("NewDomainContext", mock.Anything, mc.domain, *contractAddr).Return(mdc)
-	mdc.On("Close").Return()
+	mdc := componentsmocks.NewDomainQueryContext(t)
+	mc.stateManager.On("NewDomainQueryContext", mock.Anything, mc.domain, *contractAddr).Return(mdc)
+	mdc.On("Close", mock.Anything).Return()
 	return psc
 }
 

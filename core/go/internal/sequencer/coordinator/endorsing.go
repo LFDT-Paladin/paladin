@@ -17,6 +17,7 @@ package coordinator
 
 import (
 	"context"
+
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
@@ -40,19 +41,17 @@ func action_RejectEndorsementPrivateStateDataPending(ctx context.Context, c *coo
 	e := event.(*EndorsementRequestReceivedEvent)
 	log.L(ctx).Warnf("rejecting endorsement request from %s due to pending private state data (coordinator=%d, endorser=%d, tolerance=%d)",
 		e.FromNode, e.CoordinatorBlockHeight, c.currentBlockHeight, e.BlockHeightTolerance)
-	return c.transportWriter.SendEndorsementRejection(
-		ctx,
-		e.TransactionId,
-		e.IdempotencyKey,
-		c.contractAddress.String(),
-		e.AttestationRequest.Name,
-		e.Party,
-		e.FromNode,
-		engineProto.RejectionReason_PRIVATE_STATE_DATA_PENDING,
-		e.CoordinatorBlockHeight,
-		int64(c.currentBlockHeight),
-		e.BlockHeightTolerance,
-	)
+	return c.transportWriter.SendEndorsementRejection(ctx, e.FromNode, &engineProto.EndorsementRejection{
+		TransactionId:          e.TransactionId,
+		IdempotencyKey:         e.IdempotencyKey,
+		ContractAddress:        c.contractAddress.HexString(),
+		AttestationRequestName: e.AttestationRequest.Name,
+		Party:                  e.Party,
+		RejectionReason:        engineProto.RejectionReason_PRIVATE_STATE_DATA_PENDING,
+		CoordinatorBlockHeight: e.CoordinatorBlockHeight,
+		EndorserBlockHeight:    int64(c.currentBlockHeight),
+		BlockHeightTolerance:   e.BlockHeightTolerance,
+	})
 }
 
 // validator_IsEndorsementBlockHeightToleranceExceeded returns true when the absolute difference
@@ -72,19 +71,17 @@ func validator_IsEndorsementBlockHeightToleranceExceeded(_ context.Context, c *c
 func action_RejectEndorsementBlockHeight(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*EndorsementRequestReceivedEvent)
 	log.L(ctx).Warnf("rejecting endorsement request from %s due to block height tolerance (coordinator=%d, endorser=%d, tolerance=%d)", e.FromNode, e.CoordinatorBlockHeight, c.currentBlockHeight, c.blockHeightTolerance)
-	return c.transportWriter.SendEndorsementRejection(
-		ctx,
-		e.TransactionId,
-		e.IdempotencyKey,
-		c.contractAddress.String(),
-		e.AttestationRequest.Name,
-		e.Party,
-		e.FromNode,
-		engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
-		e.CoordinatorBlockHeight,
-		c.currentBlockHeight,
-		int64(c.blockHeightTolerance),
-	)
+	return c.transportWriter.SendEndorsementRejection(ctx, e.FromNode, &engineProto.EndorsementRejection{
+		TransactionId:          e.TransactionId,
+		IdempotencyKey:         e.IdempotencyKey,
+		ContractAddress:        c.contractAddress.HexString(),
+		AttestationRequestName: e.AttestationRequest.Name,
+		Party:                  e.Party,
+		RejectionReason:        engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
+		CoordinatorBlockHeight: e.CoordinatorBlockHeight,
+		EndorserBlockHeight:    c.currentBlockHeight,
+		BlockHeightTolerance:   int64(c.blockHeightTolerance),
+	})
 }
 
 // action_RejectEndorsementEndorserIsActiveCoordinator sends an EndorsementRejection to the
@@ -94,17 +91,14 @@ func action_RejectEndorsementBlockHeight(ctx context.Context, c *coordinator, ev
 func action_RejectEndorsementEndorserIsActiveCoordinator(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*EndorsementRequestReceivedEvent)
 	log.L(ctx).Warnf("rejecting endorsement request from %s: this node is the active coordinator", e.FromNode)
-	return c.transportWriter.SendEndorsementRejection(
-		ctx,
-		e.TransactionId,
-		e.IdempotencyKey,
-		c.contractAddress.String(),
-		e.AttestationRequest.Name,
-		e.Party,
-		e.FromNode,
-		engineProto.RejectionReason_ENDORSER_IS_ACTIVE_COORDINATOR,
-		0, 0, 0,
-	)
+	return c.transportWriter.SendEndorsementRejection(ctx, e.FromNode, &engineProto.EndorsementRejection{
+		TransactionId:          e.TransactionId,
+		IdempotencyKey:         e.IdempotencyKey,
+		ContractAddress:        c.contractAddress.HexString(),
+		AttestationRequestName: e.AttestationRequest.Name,
+		Party:                  e.Party,
+		RejectionReason:        engineProto.RejectionReason_ENDORSER_IS_ACTIVE_COORDINATOR,
+	})
 }
 
 // validator_IsEndorsementRequestFromHigherPriorityCoordinator returns true when the node
@@ -168,7 +162,14 @@ func action_HandleEndorsementRequest(ctx context.Context, c *coordinator, event 
 func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *EndorsementRequestReceivedEvent) {
 	sendErr := func(errMsg string) {
 		log.L(ctx).Errorf("handleEndorsementRequest error for tx %s: %s", e.TransactionId, errMsg)
-		if err := c.transportWriter.SendEndorsementError(ctx, e.TransactionId, e.IdempotencyKey, c.contractAddress.String(), errMsg, e.Party, e.AttestationRequest.Name, e.FromNode); err != nil {
+		if err := c.transportWriter.SendEndorsementError(ctx, e.FromNode, &engineProto.EndorsementError{
+			TransactionId:          e.TransactionId,
+			IdempotencyKey:         e.IdempotencyKey,
+			ContractAddress:        c.contractAddress.HexString(),
+			ErrorMessage:           errMsg,
+			Party:                  e.Party,
+			AttestationRequestName: e.AttestationRequest.Name,
+		}); err != nil {
 			log.L(ctx).Errorf("handleEndorsementRequest failed to send endorsement error: %s", err)
 		}
 	}
@@ -191,10 +192,10 @@ func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *Endorseme
 		VerifierType: e.AttestationRequest.VerifierType,
 	}
 
-	dCtx := c.components.StateManager().NewDomainContext(ctx, c.domainAPI.Domain(), c.domainAPI.Address())
-	defer dCtx.Close()
+	dc := c.components.StateManager().NewDomainQueryContext(ctx, c.domainAPI.Domain(), c.domainAPI.Address())
+	defer dc.Close(ctx)
 
-	endorsementResult, err := c.domainAPI.EndorseTransaction(dCtx, c.components.Persistence().NOTX(), endorsementRequest)
+	endorsementResult, err := c.domainAPI.EndorseTransaction(ctx, dc, c.components.Persistence().NOTX(), endorsementRequest)
 	if err != nil {
 		sendErr(err.Error())
 		return
@@ -244,19 +245,18 @@ func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *Endorseme
 	}
 
 	c.metrics.IncEndorsedTransactions()
-	err = c.transportWriter.SendEndorsementResponse(
-		ctx,
-		e.TransactionId,
-		e.IdempotencyKey,
-		c.contractAddress.String(),
-		attResult,
-		endorsementResult,
-		revertReason,
-		e.AttestationRequest.Name,
-		e.Party,
-		e.FromNode,
-	)
-	if err != nil {
+	msg := &engineProto.EndorsementResponse{
+		Endorsement:            attResult,
+		TransactionId:          e.TransactionId,
+		IdempotencyKey:         e.IdempotencyKey,
+		AttestationRequestName: e.AttestationRequest.Name,
+		Party:                  e.Party,
+		ContractAddress:        c.contractAddress.HexString(),
+	}
+	if revertReason != "" {
+		msg.RevertReason = &revertReason
+	}
+	if err = c.transportWriter.SendEndorsementResponse(ctx, e.FromNode, msg); err != nil {
 		log.L(ctx).Errorf("handleEndorsementRequest failed to send endorsement response: %s", err)
 	}
 }

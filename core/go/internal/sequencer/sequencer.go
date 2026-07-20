@@ -494,7 +494,11 @@ func (sMgr *sequencerManager) handleTx(ctx context.Context, dbTX persistence.DBT
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "PreAssembly is nil")
 	}
 
-	tx.PreAssembly.ChainedDependsOn = localTx.ChainedDependsOn
+	chainedDependsOn := make([]string, len(localTx.ChainedDependsOn))
+	for i, id := range localTx.ChainedDependsOn {
+		chainedDependsOn[i] = id.String()
+	}
+	tx.PreAssembly.ChainedDependsOn = chainedDependsOn
 
 	sequencer, err := sMgr.LoadSequencer(ctx, dbTX, contractAddr, domainAPI, tx)
 	if err != nil {
@@ -841,11 +845,11 @@ func (sMgr *sequencerManager) CallPrivateSmartContract(ctx context.Context, call
 	}
 
 	// Create a throwaway domain context for this call
-	dCtx := sMgr.components.StateManager().NewDomainContext(ctx, psc.Domain(), psc.Address())
-	defer dCtx.Close()
+	dc := sMgr.components.StateManager().NewDomainQueryContext(ctx, psc.Domain(), psc.Address())
+	defer dc.Close(ctx)
 
 	// Do the actual call
-	return psc.ExecCall(dCtx, sMgr.components.Persistence().NOTX(), call, verifiers)
+	return psc.ExecCall(ctx, dc, sMgr.components.Persistence().NOTX(), call, verifiers)
 }
 
 func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {

@@ -25,10 +25,10 @@ import (
 type EventType int
 
 const (
-	Event_HeartbeatInterval         EventType = iota // emitted on a regular basis, interval defined by the sequencer config
-	Event_TransactionStateTransition                 // transaction state machine transition; originator/coordinator handle cleanup and side effects
-	Event_HeartbeatReceived                          // a heartbeat notification was received from the active coordinator
-	Event_EndorserNodesDiscovered                    // pushed by the coordinator to its co-located originator when new endorser nodes are discovered
+	Event_HeartbeatInterval          EventType = iota // emitted on a regular basis, interval defined by the sequencer config
+	Event_TransactionStateTransition                  // transaction state machine transition; originator/coordinator handle cleanup and side effects
+	Event_HeartbeatReceived                           // a heartbeat notification was received from the active coordinator
+	Event_EndorserNodesDiscovered                     // pushed by the coordinator to its co-located originator when new endorser nodes are discovered
 )
 
 type BaseEvent struct {
@@ -76,9 +76,9 @@ func (*TransactionStateTransitionEvent[S]) TypeString() string {
 
 type HeartbeatReceivedEvent struct {
 	BaseEvent
-	FromNode            string               `json:"from"`
-	ContractAddress     *pldtypes.EthAddress `json:"contractAddress"`
-	CoordinatorSnapshot *CoordinatorSnapshot `json:"coordinatorSnapshot"`
+	FromNode            string
+	ContractAddress     *pldtypes.EthAddress
+	CoordinatorSnapshot *CoordinatorSnapshot
 }
 
 func (*HeartbeatReceivedEvent) Type() EventType {
