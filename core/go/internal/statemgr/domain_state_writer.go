@@ -73,7 +73,7 @@ func (sw *domainStateWriter) checkResetInitUnFlushed(ctx context.Context) error 
 }
 
 func (sw *domainStateWriter) upsertStates(ctx context.Context, dbTX persistence.DBTX, holdingLock bool, stateUpserts ...*components.StateUpsert) ([]*pldapi.State, error) {
-	vss, err := sw.ss.validateStateSet(ctx, sw.domainName, sw.contractAddress, sw.customHashFunction, dbTX, stateUpserts...)
+	vss, err := sw.ss.validateStateUpserts(ctx, sw.domainName, sw.contractAddress, sw.customHashFunction, dbTX, stateUpserts...)
 	if err != nil {
 		return nil, err
 	}

@@ -71,7 +71,7 @@ type Domain interface {
 
 	// The state manager calls this when states are received for a domain that has a custom hash function.
 	// Any nil IDs should be filled in, and any mis-matched IDs should result in an error
-	ValidateStateHashes(ctx context.Context, states []*FullState) ([]pldtypes.HexBytes, error)
+	ValidateStateHashes(ctx context.Context, states []*prototk.EndorsableState) ([]pldtypes.HexBytes, error)
 
 	GetDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (pldtypes.RawJSON, error)
 	BuildDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (pldtypes.RawJSON, error)
@@ -87,7 +87,7 @@ type DomainSmartContract interface {
 	ContractConfig() *prototk.ContractConfig
 
 	InitTransaction(ctx context.Context, ptx *PrivateTransaction, localTx *ResolvedTransaction) error
-	AssembleTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, ptx *PrivateTransaction, localTx *ResolvedTransaction, resolvedVerifiers []*prototk.ResolvedVerifier) error
+	AssembleTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, txID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, localTx *ResolvedTransaction, resolvedVerifiers []*prototk.ResolvedVerifier) (*prototk.TransactionPostAssembly, error)
 	WritePotentialStates(ctx context.Context, dsw DomainStateWriter, readTX persistence.DBTX, tx *PrivateTransaction) error
 	MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, isOutput bool, createdByTX *PrivateTransaction) (stateUpserts []*StateUpsert, err error)
 	EndorseTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, req *PrivateTransactionEndorseRequest) (*EndorsementResult, error)

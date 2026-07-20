@@ -50,16 +50,19 @@ func (t *coordinatorTransaction) revertTransactionFailedAssembly(ctx context.Con
 	tryFinalize()
 }
 
-func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly, requestID uuid.UUID) error {
-	t.pt.PostAssembly = postAssembly
+func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, assemblyResponse *prototk.TransactionPostAssembly, requestID uuid.UUID) error {
+	t.pt.PostAssembly = &components.TransactionPostAssembly{
+		AssembleResponse:      assemblyResponse,
+		CollectedEndorsements: append([]*prototk.AttestationResult{}, assemblyResponse.GetEndorsements()...),
+	}
 
 	t.clearTimeoutSchedules()
 
-	if t.pt.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_REVERT {
-		t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerAssembleRevert), *postAssembly.RevertReason))
+	if assemblyResponse.GetAssemblyResult() == prototk.AssembleTransactionResponse_REVERT {
+		t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerAssembleRevert), assemblyResponse.GetRevertReason()))
 		return nil
 	}
-	if t.pt.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_PARK {
+	if assemblyResponse.GetAssemblyResult() == prototk.AssembleTransactionResponse_PARK {
 		log.L(ctx).Debugf("assembly resulted in transaction %s parked", t.pt.ID.String())
 		return nil
 	}
@@ -71,7 +74,7 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 		// Internal error. Only option is to revert the transaction
 		revertReason := i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err)
 		seqRevertEvent := &AssembleRevertEvent{
-			PostAssembly: &components.TransactionPostAssembly{
+			PostAssembly: &prototk.TransactionPostAssembly{
 				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 				RevertReason:   &revertReason,
 			},
@@ -84,24 +87,26 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 		return err
 	}
 
+	pa := t.pt.PostAssembly
+
 	// Add output states to the grapher for other transactions to use
-	err = t.grapher.AddMinter(ctx, postAssembly.OutputStates, t.pt.ID)
+	err = t.grapher.AddMinter(ctx, pa.OutputStates, t.pt.ID)
 	if err != nil {
 		return err
 	}
 
 	// Record private state visibility after AddMinter succeeds
-	t.stateVisibilityTracker.RecordAssemblyOutput(ctx, postAssembly.OutputStates, postAssembly.OutputStatesPotential)
+	t.stateVisibilityTracker.RecordAssemblyOutput(ctx, pa.OutputStates, pa.AssembleResponse.GetOutputStatesPotential())
 
 	// Add a lock for every output we create.
-	createLocks, err := t.engineIntegration.MapPotentialStates(ctx, postAssembly.OutputStatesPotential, t.pt)
+	createLocks, err := t.engineIntegration.MapPotentialStates(ctx, pa.AssembleResponse.GetOutputStatesPotential(), t.pt)
 	if err != nil {
 		return err
 	}
-	t.grapher.LockMintsOnCreate(ctx, createLocks, postAssembly.OutputStates, t.pt.ID)
+	t.grapher.LockMintsOnCreate(ctx, createLocks, pa.OutputStates, t.pt.ID)
 
 	// Add a lock for every read state and spent state to prevent other transactions using them.
-	t.grapher.LockMintsOnReadAndSpend(ctx, postAssembly.ReadStates, postAssembly.InputStates, t.pt.ID)
+	t.grapher.LockMintsOnReadAndSpend(ctx, pa.AssembleResponse.GetReadStates(), pa.AssembleResponse.GetInputStates(), t.pt.ID)
 
 	return nil
 }
@@ -116,13 +121,21 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	// and nudge the request every requestTimeout event to implement the short retry.
 	// The state machine will deal with the longer state timeout via timeout guards.
 	t.pendingAssembleRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		grapherStatesAndLocks, err := t.grapher.ExportStatesAndLocks(ctx, t.originatorNode)
+		stateSnapshot, err := t.grapher.ExportStatesAndLocks(ctx, t.originatorNode)
 		if err != nil {
-			log.L(ctx).Errorf("failed to export grapher state locks: %s", err)
+			log.L(ctx).Errorf("failed to export grapher state snapshot: %s", err)
 			return err
 		}
-
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStatesAndLocks, t.getBlockHeight(), t.clock.Now().Add(t.stateTimeout), int64(t.blockHeightTolerance))
+		log.L(ctx).Debugf("assemble request state snapshot for tx %s: %d states, %d locks", t.pt.ID, len(stateSnapshot.GetStates()), len(stateSnapshot.GetLocks()))
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, &engineProto.AssembleRequest{
+			TransactionId:          t.pt.ID.String(),
+			AssembleRequestId:      idempotencyKey.String(),
+			ContractAddress:        t.pt.Address.HexString(),
+			StateSnapshot:          stateSnapshot,
+			CoordinatorBlockHeight: t.getBlockHeight(),
+			ExpiryTimeUnixMs:       t.clock.Now().Add(t.stateTimeout).UnixMilli(),
+			BlockHeightTolerance:   int64(t.blockHeightTolerance),
+		})
 	})
 
 	t.scheduleRequestTimeout(ctx)

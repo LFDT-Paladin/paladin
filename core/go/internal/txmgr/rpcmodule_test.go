@@ -804,8 +804,12 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 			Return(mockESHandle, nil)
 		mc.blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return([]*blockindexer.EventStreamDefinition{es}, nil)
-		mc.blockIndexer.On("StartEventStream", mock.Anything, id).Return(nil)
-		mc.blockIndexer.On("StopEventStream", mock.Anything, id).Return(nil)
+		mc.blockIndexer.On("StartEventStream", mock.Anything, id).Run(func(args mock.Arguments) {
+			es.Started = confutil.P(true)
+		}).Return(nil)
+		mc.blockIndexer.On("StopEventStream", mock.Anything, id).Run(func(args mock.Arguments) {
+			es.Started = confutil.P(false)
+		}).Return(nil)
 		mc.blockIndexer.On("RemoveEventStream", mock.Anything, id).Return(nil)
 		mc.blockIndexer.On("GetEventStreamStatus", mock.Anything, id).Return(&blockindexer.EventStreamStatus{}, nil)
 	})
@@ -856,10 +860,28 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, *boolRes)
 
+	err = rpcClient.CallRPC(ctx, &l, "ptx_getBlockchainEventListener", "listener1")
+	require.NoError(t, err)
+	require.NotNil(t, l)
+	require.NotNil(t, l.Started)
+	assert.False(t, *l.Started)
+
+	err = rpcClient.CallRPC(ctx, &listeners, "ptx_queryBlockchainEventListeners", query.NewQueryBuilder().Limit(1).Query())
+	require.NoError(t, err)
+	require.Len(t, listeners, 1)
+	require.NotNil(t, listeners[0].Started)
+	assert.False(t, *listeners[0].Started)
+
 	// Start listener
 	err = rpcClient.CallRPC(ctx, &boolRes, "ptx_startBlockchainEventListener", "listener1")
 	require.NoError(t, err)
 	assert.True(t, *boolRes)
+
+	err = rpcClient.CallRPC(ctx, &l, "ptx_getBlockchainEventListener", "listener1")
+	require.NoError(t, err)
+	require.NotNil(t, l)
+	require.NotNil(t, l.Started)
+	assert.True(t, *l.Started)
 
 	// Delete listener
 	err = rpcClient.CallRPC(ctx, &boolRes, "ptx_deleteBlockchainEventListener", "listener1")

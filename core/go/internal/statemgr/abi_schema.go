@@ -287,7 +287,7 @@ type parsedStateData struct {
 	labelValues filters.PassthroughValueSet
 }
 
-func (as *abiSchema) parseStateData(ctx context.Context, data pldtypes.RawJSON) (*parsedStateData, error) {
+func (as *abiSchema) parseStateData(ctx context.Context, data pldtypes.RawJSON, withLabels bool) (*parsedStateData, error) {
 	var psd parsedStateData
 	err := json.Unmarshal([]byte(data), &psd.jsonTree)
 	if err != nil {
@@ -296,6 +296,10 @@ func (as *abiSchema) parseStateData(ctx context.Context, data pldtypes.RawJSON) 
 	psd.cv, err = as.tc.ParseExternalCtx(ctx, psd.jsonTree)
 	if err != nil {
 		return nil, err
+	}
+
+	if !withLabels {
+		return &psd, nil
 	}
 
 	psd.labelValues = make(filters.PassthroughValueSet)
@@ -327,14 +331,14 @@ func (as *abiSchema) parseStateData(ctx context.Context, data pldtypes.RawJSON) 
 
 // Take the state, parse the value into the type tree of this schema, and from that
 // build the label values to store in the DB for comparison appropriate to the type.
-func (as *abiSchema) ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHashFunction bool) (*components.StateWithLabels, error) {
+func (as *abiSchema) ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHashFunction bool, withLabels bool) (*components.StateWithLabels, error) {
 	ctx = log.WithComponent(ctx, "schema")
 	// We need to re-serialize the data according to the ABI to:
 	// - Ensure it's valid
 	// - Remove anything that is not part of the schema
 	// - Standardize formatting of all the data elements so domains do not need to worry
 	var jsonData []byte
-	psd, err := as.parseStateData(ctx, data)
+	psd, err := as.parseStateData(ctx, data, withLabels)
 	if err == nil {
 		jsonData, err = pldtypes.StandardABISerializer().SerializeJSONCtx(ctx, psd.cv)
 	}
@@ -373,17 +377,8 @@ func (as *abiSchema) ProcessState(ctx context.Context, contractAddress *pldtypes
 		id = pldtypes.HexBytes(hash)
 	}
 
-	for i := range psd.labels {
-		psd.labels[i].DomainName = as.DomainName
-		psd.labels[i].State = id
-	}
-	for i := range psd.int64Labels {
-		psd.int64Labels[i].DomainName = as.DomainName
-		psd.int64Labels[i].State = id
-	}
-
 	now := pldtypes.TimestampNow()
-	return &components.StateWithLabels{
+	state := &components.StateWithLabels{
 		State: &pldapi.State{
 			StateBase: pldapi.StateBase{
 				ID:              id,
@@ -393,16 +388,48 @@ func (as *abiSchema) ProcessState(ctx context.Context, contractAddress *pldtypes
 				ContractAddress: contractAddress,
 				Data:            jsonData,
 			},
-			Labels:      psd.labels,
-			Int64Labels: psd.int64Labels,
 		},
-		LabelValues: addStateBaseLabels(psd.labelValues, id, now),
-	}, nil
+	}
+	if !withLabels {
+		return state, nil
+	}
+
+	for i := range psd.labels {
+		psd.labels[i].DomainName = as.DomainName
+		psd.labels[i].State = id
+	}
+	for i := range psd.int64Labels {
+		psd.int64Labels[i].DomainName = as.DomainName
+		psd.int64Labels[i].State = id
+	}
+	state.Labels = psd.labels
+	state.Int64Labels = psd.int64Labels
+	state.LabelValues = addStateBaseLabels(psd.labelValues, id, now)
+	return state, nil
 }
 
+// RecoverLabels rebuilds the label value set for an already-persisted state. When the state's label
+// rows have been preloaded it uses them directly, avoiding an ABI/JSON re-parse of the state data
+// (the values are identical to those the ABI parse would produce). The schema declares its full
+// label set in as.Labels, and each declared field persists exactly one row across s.Labels /
+// s.Int64Labels, so the rows are complete iff their combined count equals len(as.Labels). When they
+// are absent (not preloaded) it falls back to re-parsing the state data.
 func (as *abiSchema) RecoverLabels(ctx context.Context, s *pldapi.State) (*components.StateWithLabels, error) {
-	ctx = log.WithComponent(ctx, "schema")
-	psd, err := as.parseStateData(ctx, s.Data)
+	if len(s.Labels)+len(s.Int64Labels) == len(as.Labels) {
+		labelValues := make(filters.PassthroughValueSet, len(s.Labels)+len(s.Int64Labels))
+		for _, l := range s.Labels {
+			labelValues[l.Label] = l.Value
+		}
+		for _, l := range s.Int64Labels {
+			labelValues[l.Label] = l.Value
+		}
+		return &components.StateWithLabels{
+			State:       s,
+			LabelValues: addStateBaseLabels(labelValues, s.ID, s.Created),
+		}, nil
+	}
+
+	psd, err := as.parseStateData(ctx, s.Data, true)
 	if err != nil {
 		return nil, err
 	}

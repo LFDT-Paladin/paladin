@@ -1133,15 +1133,6 @@ func TestGetStatesFailCases(t *testing.T) {
 	require.EqualError(t, err, "pop")
 }
 
-func TestMapStateLockType(t *testing.T) {
-	for _, pldType := range pldapi.StateLockType("").Options() {
-		assert.NotNil(t, mapStateLockType(pldapi.StateLockType(pldType)))
-	}
-	assert.Panics(t, func() {
-		_ = mapStateLockType(pldapi.StateLockType("wrong"))
-	})
-}
-
 func TestDomainValidateStateHashesOK(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
 	defer done()
@@ -1159,13 +1150,13 @@ func TestDomainValidateStateHashesOK(t *testing.T) {
 	}
 
 	// no-op
-	validatedIDs, err := td.d.ValidateStateHashes(td.ctx, []*components.FullState{})
+	validatedIDs, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{})
 	require.NoError(t, err)
 	assert.Equal(t, []pldtypes.HexBytes{}, validatedIDs)
 
 	// Success
-	validatedIDs, err = td.d.ValidateStateHashes(td.ctx, []*components.FullState{
-		{ID: stateID1}, {ID: nil /* mocking domain calculation */},
+	validatedIDs, err = td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{
+		{Id: stateID1.String()}, {Id: "" /* mocking domain calculation */},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []pldtypes.HexBytes{stateID1, stateID2}, validatedIDs)
@@ -1182,7 +1173,7 @@ func TestDomainValidateStateHashesFail(t *testing.T) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	_, err := td.d.ValidateStateHashes(td.ctx, []*components.FullState{{ID: stateID1}})
+	_, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{{Id: stateID1.String()}})
 	require.Regexp(t, "PD011651.*pop", err)
 }
 
@@ -1199,7 +1190,7 @@ func TestDomainValidateStateHashesWrongLen(t *testing.T) {
 		}, nil
 	}
 
-	_, err := td.d.ValidateStateHashes(td.ctx, []*components.FullState{{ID: stateID1}})
+	_, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{{Id: stateID1.String()}})
 	require.Regexp(t, "PD011652", err)
 }
 
@@ -1217,7 +1208,7 @@ func TestDomainValidateStateHashesMisMatch(t *testing.T) {
 		}, nil
 	}
 
-	_, err := td.d.ValidateStateHashes(td.ctx, []*components.FullState{{ID: stateID1}, {ID: stateID2}})
+	_, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{{Id: stateID1.String()}, {Id: stateID2.String()}})
 	require.Regexp(t, "PD011652", err)
 }
 
@@ -1234,7 +1225,24 @@ func TestDomainValidateStateHashesBadHex(t *testing.T) {
 		}, nil
 	}
 
-	_, err := td.d.ValidateStateHashes(td.ctx, []*components.FullState{{ID: stateID1}})
+	_, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{{Id: stateID1.String()}})
+	require.Regexp(t, "PD011652", err)
+}
+
+func TestDomainValidateStateHashesBadSuppliedHex(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	returnedID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	td.tp.Functions.ValidateStateHashes = func(ctx context.Context, vshr *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {
+		return &prototk.ValidateStateHashesResponse{
+			StateIds: []string{returnedID.String()},
+		}, nil
+	}
+
+	_, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{{Id: "not-valid-hex"}})
 	require.Regexp(t, "PD011652", err)
 }
 
@@ -1736,6 +1744,18 @@ func TestValidateStates(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, res.States, 1)
+
+	// Good state with the ID supplied on the way in
+	suppliedID := res.States[0].Id
+	res, err = td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{Id: &suppliedID, StateDataJson: string(stateJSON), SchemaId: td.tp.stateSchemas[0].Id},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.States, 1)
+	require.Equal(t, suppliedID, res.States[0].Id)
 
 	// Bad state
 	_, err = td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{

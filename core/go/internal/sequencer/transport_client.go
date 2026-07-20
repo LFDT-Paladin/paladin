@@ -17,7 +17,6 @@ package sequencer
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -89,15 +88,11 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 }
 
 func (sMgr *sequencerManager) logPaladinMessageUnmarshalError(ctx context.Context, message *components.ReceivedMessage, err error) {
-	log.L(ctx).Errorf("<< ERROR unmarshalling proto message%s from %s: %s", message.MessageType, message.FromNode, err)
+	log.L(ctx).Errorf("<< ERROR unmarshalling proto message %s from %s: %s", message.MessageType, message.FromNode, err)
 }
 
 func (sMgr *sequencerManager) logPaladinMessageFieldMissingError(ctx context.Context, message *components.ReceivedMessage, field string) {
 	log.L(ctx).Errorf("<< field %s missing from proto message %s received from %s", field, message.MessageType, message.FromNode)
-}
-
-func (sMgr *sequencerManager) logPaladinMessageJsonUnmarshalError(ctx context.Context, jsonObject string, message *components.ReceivedMessage, err error) {
-	log.L(ctx).Errorf("<< ERROR unmarshalling JSON object %s from proto message %s (received from %s): %s", jsonObject, message.MessageType, message.FromNode, err)
 }
 
 func (sMgr *sequencerManager) parseContractAddressString(ctx context.Context, contractAddressString string, message *components.ReceivedMessage) *pldtypes.EthAddress {
@@ -118,13 +113,7 @@ func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message
 		return
 	}
 
-	preAssembly := &components.TransactionPreAssembly{}
-	err = json.Unmarshal(assembleRequest.PreAssembly, preAssembly)
-	if err != nil {
-		sMgr.logPaladinMessageJsonUnmarshalError(ctx, "TransactionPreAssembly", message, err)
-		return
-	}
-	log.L(ctx).Infof("handling assemble request with %d required verifiers", len(preAssembly.RequiredVerifiers))
+	log.L(ctx).Infof("handling assemble request for transaction %s", assembleRequest.TransactionId)
 
 	contractAddress := sMgr.parseContractAddressString(ctx, assembleRequest.ContractAddress, message)
 	if contractAddress == nil {
@@ -145,8 +134,7 @@ func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message
 	assembleRequestEvent.Coordinator = message.FromNode
 	assembleRequestEvent.CoordinatorBlockHeight = assembleRequest.CoordinatorBlockHeight
 	assembleRequestEvent.BlockHeightTolerance = assembleRequest.BlockHeightTolerance
-	assembleRequestEvent.StateLocksJSON = assembleRequest.StateLocks
-	assembleRequestEvent.PreAssembly = assembleRequest.PreAssembly
+	assembleRequestEvent.StateSnapshot = assembleRequest.GetStateSnapshot()
 	assembleRequestEvent.EventTime = time.Now()
 	if assembleRequest.ExpiryTimeUnixMs != 0 {
 		assembleRequestEvent.Expiry = time.UnixMilli(assembleRequest.ExpiryTimeUnixMs)
@@ -169,17 +157,8 @@ func (sMgr *sequencerManager) handleAssembleResponse(ctx context.Context, messag
 		return
 	}
 
-	postAssembly := &components.TransactionPostAssembly{}
-	err = json.Unmarshal(assembleResponse.PostAssembly, postAssembly)
-	if err != nil {
-		sMgr.logPaladinMessageJsonUnmarshalError(ctx, "TransactionPostAssembly", message, err)
-		return
-	}
-
-	preAssembly := &components.TransactionPreAssembly{}
-	err = json.Unmarshal(assembleResponse.PreAssembly, preAssembly)
-	if err != nil {
-		sMgr.logPaladinMessageJsonUnmarshalError(ctx, "TransactionPreAssembly", message, err)
+	if assembleResponse.PostAssembly == nil {
+		log.L(ctx).Warnf("assemble response for transaction %s has nil post_assembly", assembleResponse.TransactionId)
 		return
 	}
 
@@ -191,12 +170,12 @@ func (sMgr *sequencerManager) handleAssembleResponse(ctx context.Context, messag
 		return
 	}
 
-	switch postAssembly.AssemblyResult {
+	switch assembleResponse.PostAssembly.GetAssemblyResult() {
 	case prototk.AssembleTransactionResponse_OK:
 		assembleResponseEvent := &coordTransaction.AssembleSuccessEvent{}
 		assembleResponseEvent.TransactionID = uuid.MustParse(assembleResponse.TransactionId)
 		assembleResponseEvent.RequestID = uuid.MustParse(assembleResponse.AssembleRequestId)
-		assembleResponseEvent.PostAssembly = postAssembly
+		assembleResponseEvent.PostAssembly = assembleResponse.PostAssembly
 		assembleResponseEvent.EventTime = time.Now()
 		seq.GetCoordinator().QueueEvent(ctx, assembleResponseEvent)
 	case prototk.AssembleTransactionResponse_PARK:
@@ -205,11 +184,11 @@ func (sMgr *sequencerManager) handleAssembleResponse(ctx context.Context, messag
 		assembleResponseEvent := &coordTransaction.AssembleRevertEvent{}
 		assembleResponseEvent.TransactionID = uuid.MustParse(assembleResponse.TransactionId)
 		assembleResponseEvent.RequestID = uuid.MustParse(assembleResponse.AssembleRequestId)
-		assembleResponseEvent.PostAssembly = postAssembly
+		assembleResponseEvent.PostAssembly = assembleResponse.PostAssembly
 		assembleResponseEvent.EventTime = time.Now()
 		seq.GetCoordinator().QueueEvent(ctx, assembleResponseEvent)
 	default:
-		log.L(ctx).Errorf("received unexpected assemble response type %s", postAssembly.AssemblyResult)
+		log.L(ctx).Errorf("received unexpected assemble response type %s", assembleResponse.PostAssembly.GetAssemblyResult())
 	}
 }
 
@@ -291,10 +270,9 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 		return
 	}
 
-	coordinatorSnapshot := &common.CoordinatorSnapshot{}
-	err = json.Unmarshal(heartbeatNotification.CoordinatorSnapshot, coordinatorSnapshot)
+	coordinatorSnapshot, err := common.CoordinatorSnapshotFromProto(ctx, heartbeatNotification.GetCoordinatorSnapshot())
 	if err != nil {
-		sMgr.logPaladinMessageJsonUnmarshalError(ctx, "CoordinatorSnapshot", message, err)
+		log.L(ctx).Errorf("failed to parse coordinator snapshot from heartbeat: %v", err)
 		return
 	}
 
@@ -342,7 +320,7 @@ func (sMgr *sequencerManager) handlePreDispatchRequest(ctx context.Context, mess
 		Coordinator:      message.FromNode,
 		PostAssemblyHash: &postAssemblyHash,
 	}
-	preDispatchRequestReceivedEvent.TransactionID = uuid.MustParse(preDispatchRequest.TransactionId[2:34])
+	preDispatchRequestReceivedEvent.TransactionID = uuid.MustParse(preDispatchRequest.TransactionId)
 	preDispatchRequestReceivedEvent.EventTime = time.Now()
 
 	// TODO - not sure where we should make the decision as to whether or not to approve dispatch.
@@ -379,7 +357,7 @@ func (sMgr *sequencerManager) handlePreDispatchResponse(ctx context.Context, mes
 	dispatchRequestApprovedEvent := &coordTransaction.DispatchRequestApprovedEvent{
 		RequestID: uuid.MustParse(preDispatchResponse.Id),
 	}
-	dispatchRequestApprovedEvent.TransactionID = uuid.MustParse(preDispatchResponse.TransactionId[2:34])
+	dispatchRequestApprovedEvent.TransactionID = uuid.MustParse(preDispatchResponse.TransactionId)
 	dispatchRequestApprovedEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, dispatchRequestApprovedEvent)
 }
@@ -407,7 +385,7 @@ func (sMgr *sequencerManager) handleDispatchedEvent(ctx context.Context, message
 	}
 
 	dispatchConfirmedEvent := &originatorTransaction.DispatchedEvent{}
-	dispatchConfirmedEvent.TransactionID = uuid.MustParse(dispatchedEvent.TransactionId[2:34])
+	dispatchConfirmedEvent.TransactionID = uuid.MustParse(dispatchedEvent.TransactionId)
 	dispatchConfirmedEvent.Coordinator = message.FromNode
 	dispatchConfirmedEvent.EventTime = time.Now()
 
@@ -428,18 +406,31 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 	transactionDelegatedEvent.DelegationID = delegationRequest.DelegationId
 	transactionDelegatedEvent.EventTime = time.Now()
 
-	var contractAddress *pldtypes.EthAddress
-	for _, txBytes := range delegationRequest.PrivateTransactions {
-		privateTransaction := &components.PrivateTransaction{}
-		if err = json.Unmarshal(txBytes, privateTransaction); err != nil {
-			sMgr.logPaladinMessageJsonUnmarshalError(ctx, "PrivateTransaction", message, err)
+	contractAddress := sMgr.parseContractAddressString(ctx, delegationRequest.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	for _, del := range delegationRequest.Transactions {
+		id, err := uuid.Parse(del.GetId())
+		if err != nil {
+			sMgr.logPaladinMessageFieldMissingError(ctx, message, "delegation.id")
 			return
 		}
-		if contractAddress == nil {
-			contractAddress = sMgr.parseContractAddressString(ctx, privateTransaction.PreAssembly.TransactionSpecification.ContractInfo.ContractAddress, message)
-			if contractAddress == nil {
-				return
-			}
+		privateTransaction := &components.PrivateTransaction{
+			ID:          id,
+			Domain:      del.GetDomain(),
+			Address:     *contractAddress,
+			Intent:      del.GetIntent(),
+			PreAssembly: del.GetPreAssembly(),
+		}
+		if privateTransaction.PreAssembly == nil {
+			sMgr.logPaladinMessageFieldMissingError(ctx, message, "delegation.pre_assembly")
+			return
+		}
+		if privateTransaction.PreAssembly.TransactionSpecification == nil {
+			sMgr.logPaladinMessageFieldMissingError(ctx, message, "delegation.pre_assembly.transaction_specification")
+			return
 		}
 		if transactionDelegatedEvent.Originator == "" {
 			transactionDelegatedEvent.Originator = privateTransaction.PreAssembly.TransactionSpecification.From
@@ -447,7 +438,7 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 		transactionDelegatedEvent.Transactions = append(transactionDelegatedEvent.Transactions, privateTransaction)
 	}
 
-	if contractAddress == nil {
+	if len(transactionDelegatedEvent.Transactions) == 0 {
 		log.L(ctx).Warnf("delegation request from %s contained no transactions", message.FromNode)
 		return
 	}
@@ -567,6 +558,7 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 	}
 
 	privateEndorsementRequest := &components.PrivateTransactionEndorseRequest{
+		BlockContext:             endorsementRequest.BlockContext,
 		TransactionSpecification: endorsementRequest.TransactionSpecification,
 		Verifiers:                endorsementRequest.Verifiers,
 		Signatures:               endorsementRequest.Signatures,

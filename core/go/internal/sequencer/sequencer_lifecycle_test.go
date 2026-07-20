@@ -235,7 +235,7 @@ func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	mocks.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 
 	// Setup transport writer creation
-	mocks.transportWriter.EXPECT().SendDispatched(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	mocks.transportWriter.EXPECT().SendDispatched(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Setup originator creation expectations
 
@@ -244,7 +244,7 @@ func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	// Create a mock private transaction
 	tx := &components.PrivateTransaction{
 		ID: uuid.New(),
-		PreAssembly: &components.TransactionPreAssembly{
+		PreAssembly: &prototk.TransactionPreAssembly{
 			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
 				{Lookup: "verifier1@node1"},
 			},
@@ -289,7 +289,7 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer(t *testing.T) {
 	// Create a mock private transaction
 	tx := &components.PrivateTransaction{
 		ID: uuid.New(),
-		PreAssembly: &components.TransactionPreAssembly{
+		PreAssembly: &prototk.TransactionPreAssembly{
 			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
 				{Lookup: "verifier1@node1"},
 			},
@@ -328,7 +328,7 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer_NoCoordinator_Success(
 	// Create a mock private transaction with required verifiers
 	tx := &components.PrivateTransaction{
 		ID: uuid.New(),
-		PreAssembly: &components.TransactionPreAssembly{
+		PreAssembly: &prototk.TransactionPreAssembly{
 			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
 				{Lookup: "verifier1@node1"},
 			},

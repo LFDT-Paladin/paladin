@@ -79,9 +79,9 @@ type domain struct {
 
 type inFlightDomainRequest struct {
 	d        *domain
-	id       string                   // each request gets a unique ID
-	dbTX     persistence.DBTX         // only if there's a DB transactions such as when called by block indexer
-	dqc     components.DomainQueryContext // might be short lived, or managed externally (by private TX manager)
+	id       string                        // each request gets a unique ID
+	dbTX     persistence.DBTX              // only if there's a DB transactions such as when called by block indexer
+	dqc      components.DomainQueryContext // might be short lived, or managed externally (by private TX manager)
 	readOnly bool
 }
 
@@ -237,7 +237,7 @@ func (d *domain) init() {
 func (d *domain) newInFlightDomainRequest(dbTX persistence.DBTX, dc components.DomainQueryContext, readOnly bool) *inFlightDomainRequest {
 	c := &inFlightDomainRequest{
 		d:        d,
-		dqc:     dc,
+		dqc:      dc,
 		id:       pldtypes.ShortID(),
 		dbTX:     dbTX,
 		readOnly: readOnly,
@@ -309,13 +309,6 @@ func toProtoStates(states []*pldapi.State) []*prototk.StoredState {
 			SchemaId:  s.Schema.String(),
 			CreatedAt: s.Created.UnixNano(),
 			DataJson:  string(s.Data),
-			Locks:     []*prototk.StateLock{},
-		}
-		for _, l := range s.Locks {
-			pbStates[i].Locks = append(pbStates[i].Locks, &prototk.StateLock{
-				Type:        mapStateLockType(l.Type.V()),
-				Transaction: l.Transaction.String(),
-			})
 		}
 	}
 	return pbStates
@@ -356,20 +349,6 @@ func (d *domain) FindAvailableStates(ctx context.Context, req *prototk.FindAvail
 		States: toProtoStates(states),
 	}, nil
 
-}
-
-func mapStateLockType(t pldapi.StateLockType) prototk.StateLock_StateLockType {
-	switch t {
-	case pldapi.StateLockTypeCreate:
-		return prototk.StateLock_CREATE
-	case pldapi.StateLockTypeSpend:
-		return prototk.StateLock_SPEND
-	case pldapi.StateLockTypeRead:
-		return prototk.StateLock_READ
-	default:
-		// Unit test covers all valid types and we only use this in fully controlled code
-		panic(fmt.Errorf("invalid type: %s", t))
-	}
 }
 
 func (d *domain) EncodeData(ctx context.Context, encRequest *prototk.EncodeDataRequest) (*prototk.EncodeDataResponse, error) {
@@ -744,18 +723,6 @@ func (d *domain) sign(ctx context.Context, algorithm string, payloadType string,
 	return res.Payload, nil
 }
 
-func (d *domain) toEndorsableList(states []*components.FullState) []*prototk.EndorsableState {
-	endorsableList := make([]*prototk.EndorsableState, len(states))
-	for i, input := range states {
-		endorsableList[i] = &prototk.EndorsableState{
-			Id:            input.ID.String(),
-			SchemaId:      input.Schema.String(),
-			StateDataJson: string(input.Data),
-		}
-	}
-	return endorsableList
-}
-
 func (d *domain) toEndorsableListBase(states []*pldapi.StateBase) []*prototk.EndorsableState {
 	endorsableList := make([]*prototk.EndorsableState, len(states))
 	for i, input := range states {
@@ -778,30 +745,37 @@ func (d *domain) FullStateAvailablityRequired() bool {
 	return d.config.FullStateAvailablityRequired
 }
 
-func (d *domain) ValidateStateHashes(ctx context.Context, states []*components.FullState) ([]pldtypes.HexBytes, error) {
+func (d *domain) ValidateStateHashes(ctx context.Context, states []*prototk.EndorsableState) ([]pldtypes.HexBytes, error) {
 	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
 	if len(states) == 0 {
 		return []pldtypes.HexBytes{}, nil
 	}
 	validateRes, err := d.api.ValidateStateHashes(d.ctx, &prototk.ValidateStateHashesRequest{
-		States: d.toEndorsableList(states),
+		States: states,
 	})
 	if err != nil {
 		return nil, i18n.WrapError(d.ctx, err, msgs.MsgDomainInvalidStates)
 	}
-	validResponse := len(validateRes.StateIds) == len(states)
+	if len(validateRes.StateIds) != len(states) {
+		return nil, i18n.NewError(d.ctx, msgs.MsgDomainInvalidResponseToValidate)
+	}
 	hexIDs := make([]pldtypes.HexBytes, len(states))
-	for i := 0; i < len(states) && validResponse; i++ {
+	for i := range states {
 		hexID, err := pldtypes.ParseHexBytes(ctx, validateRes.StateIds[i])
 		if err != nil || len(hexID) == 0 {
 			return nil, i18n.WrapError(d.ctx, err, msgs.MsgDomainInvalidResponseToValidate)
 		}
 		hexIDs[i] = hexID
 		// If a state ID was supplied on the way in, it must be returned unchanged
-		validResponse = states[i].ID == nil || states[i].ID.Equals(hexID)
-	}
-	if !validResponse {
-		return nil, i18n.NewError(d.ctx, msgs.MsgDomainInvalidResponseToValidate)
+		if suppliedID := states[i].Id; suppliedID != "" {
+			parsedSuppliedID, err := pldtypes.ParseHexBytes(ctx, suppliedID)
+			if err != nil {
+				return nil, i18n.WrapError(d.ctx, err, msgs.MsgDomainInvalidResponseToValidate)
+			}
+			if !parsedSuppliedID.Equals(hexID) {
+				return nil, i18n.NewError(d.ctx, msgs.MsgDomainInvalidResponseToValidate)
+			}
+		}
 	}
 	return hexIDs, nil
 }
@@ -956,16 +930,27 @@ func (d *domain) ValidateStates(ctx context.Context, req *prototk.ValidateStates
 	if err != nil {
 		return nil, err
 	}
-	statesToValidate, err := d.mapPotentialStates(ctx, req.States, false, nil)
-	if err != nil {
-		return nil, err
+	statesToValidate := make([]*prototk.EndorsableState, len(req.States))
+	for i, s := range req.States {
+		schema := d.schemasByID[s.SchemaId]
+		if schema == nil {
+			return nil, i18n.NewError(ctx, msgs.MsgDomainUnknownSchema, s.SchemaId)
+		}
+		es := &prototk.EndorsableState{
+			SchemaId:      schema.ID().String(),
+			StateDataJson: s.StateDataJson,
+		}
+		if s.Id != nil {
+			es.Id = *s.Id
+		}
+		statesToValidate[i] = es
 	}
-	states, err := d.dm.stateStore.ValidateStates(ctx, c.dbTX, d.Name(), c.dqc.ContractAddress(), d.CustomHashFunction(), statesToValidate...)
+	validated, err := d.dm.stateStore.ValidateStates(ctx, c.dbTX, d.Name(), c.dqc.ContractAddress(), d.CustomHashFunction(), statesToValidate...)
 	if err != nil {
 		return nil, err
 	}
 	return &prototk.ValidateStatesResponse{
-		States: d.toEndorsableListBase(states),
+		States: validated,
 	}, nil
 }
 

@@ -20,7 +20,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -47,7 +46,7 @@ func TestAction_ResendPreDispatchResponse_Success(t *testing.T) {
 		From:          "originator@node1",
 	}
 	if txn.pt.PreAssembly == nil {
-		txn.pt.PreAssembly = &components.TransactionPreAssembly{}
+		txn.pt.PreAssembly = &prototk.TransactionPreAssembly{}
 	}
 	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
@@ -82,13 +81,12 @@ func TestAction_ResendPreDispatchResponse_TransportError(t *testing.T) {
 		From:          "originator@node1",
 	}
 	if txn.pt.PreAssembly == nil {
-		txn.pt.PreAssembly = &components.TransactionPreAssembly{}
+		txn.pt.PreAssembly = &prototk.TransactionPreAssembly{}
 	}
 	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
 	expectedError := errors.New("transport error")
 	mocks.TransportWriter.EXPECT().SendPreDispatchResponse(
-		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,

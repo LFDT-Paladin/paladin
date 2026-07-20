@@ -28,10 +28,19 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// snapLock is a test-only convenience for describing a state lock before conversion to its proto
+// wire form in ImportSnapshot.
+type snapLock struct {
+	State       pldtypes.HexBytes
+	Transaction uuid.UUID
+	Type        prototk.SnapshotStateLock_StateLockType
+}
 
 const widgetABI = `{
 	"type": "tuple",
@@ -161,10 +170,28 @@ func TestStateLockingQuery(t *testing.T) {
 	}
 
 	// importSnapshot is a helper that calls ImportSnapshot with the given states and locks.
-	importSnapshot := func(states []*components.StateUpsert, locks []*exportableStateLock) {
-		snapshotJSON, jsonErr := json.Marshal(exportSnapshot{States: states, Locks: locks})
-		require.NoError(t, jsonErr)
-		require.NoError(t, dqc.ImportSnapshot(ctx, snapshotJSON))
+	importSnapshot := func(states []*components.StateUpsert, locks []*snapLock) {
+		protoStates := make([]*prototk.SnapshotState, len(states))
+		for i, u := range states {
+			protoStates[i] = &prototk.SnapshotState{State: &prototk.EndorsableState{
+				Id:            u.ID.String(),
+				SchemaId:      u.Schema.String(),
+				StateDataJson: string(u.Data),
+			}}
+		}
+		protoLocks := make([]*prototk.SnapshotStateLock, len(locks))
+		for i, l := range locks {
+			txStr := l.Transaction.String()
+			protoLocks[i] = &prototk.SnapshotStateLock{
+				StateId:     l.State.String(),
+				Transaction: &txStr,
+				Type:        l.Type,
+			}
+		}
+		require.NoError(t, dqc.ImportSnapshot(ctx, &prototk.StateSnapshot{
+			States: protoStates,
+			Locks:  protoLocks,
+		}))
 	}
 
 	seqQual := pldapi.StateStatusQualifier(dqc.ID().String())
@@ -228,7 +255,7 @@ func TestStateLockingQuery(t *testing.T) {
 
 	importSnapshot(
 		[]*components.StateUpsert{widget5Upsert},
-		[]*exportableStateLock{{State: widgets[5].ID, Transaction: txID1, Type: pldapi.StateLockTypeCreate.Enum()}},
+		[]*snapLock{{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE}},
 	)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // added 5
@@ -242,9 +269,9 @@ func TestStateLockingQuery(t *testing.T) {
 	txID2 := uuid.New()
 	importSnapshot(
 		[]*components.StateUpsert{widget5Upsert},
-		[]*exportableStateLock{
-			{State: widgets[5].ID, Transaction: txID1, Type: pldapi.StateLockTypeCreate.Enum()},
-			{State: widgets[5].ID, Transaction: txID2, Type: pldapi.StateLockTypeSpend.Enum()},
+		[]*snapLock{
+			{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE},
+			{State: widgets[5].ID, Transaction: txID2, Type: prototk.SnapshotStateLock_SPEND},
 		},
 	)
 
@@ -258,7 +285,7 @@ func TestStateLockingQuery(t *testing.T) {
 	// Cancel the spend lock by re-importing without it (ImportSnapshot replaces the whole snapshot).
 	importSnapshot(
 		[]*components.StateUpsert{widget5Upsert},
-		[]*exportableStateLock{{State: widgets[5].ID, Transaction: txID1, Type: pldapi.StateLockTypeCreate.Enum()}},
+		[]*snapLock{{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE}},
 	)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
@@ -301,7 +328,7 @@ func TestStateLockingQuery(t *testing.T) {
 	txID13 := uuid.New()
 	importSnapshot(
 		[]*components.StateUpsert{{Schema: schemaID, Data: widgets[3].Data, ID: widgets[3].ID}},
-		[]*exportableStateLock{{State: widgets[3].ID, Transaction: txID13, Type: pldapi.StateLockTypeCreate.Enum()}},
+		[]*snapLock{{State: widgets[3].ID, Transaction: txID13, Type: prototk.SnapshotStateLock_CREATE}},
 	)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged

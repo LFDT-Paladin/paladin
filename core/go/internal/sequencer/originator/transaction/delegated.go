@@ -62,9 +62,11 @@ func (t *originatorTransaction) updateLastDelegatedTime() {
 }
 
 func action_SendPreDispatchResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
-	// MRW TODO - sending a dispatch response should be based on some sanity check that we are OK for the coordinator
-	// to proceed to dispatch. Not sure if that belongs here, or somewhere else, but at the moment we always reply OK/proceed.
-	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, txn.latestPreDispatchRequestID, txn.pt.PreAssembly.TransactionSpecification)
+	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, &engineProto.PreDispatchResponse{
+		Id:              txn.latestPreDispatchRequestID.String(),
+		TransactionId:   txn.pt.ID.String(),
+		ContractAddress: txn.pt.Address.HexString(),
+	})
 }
 
 func validator_AssembleRequestFromCurrentDelegate(ctx context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
@@ -108,7 +110,12 @@ func validator_PreDispatchRequestFromCurrentDelegate(ctx context.Context, txn *o
 func action_SendPreDispatchRejectionNotCurrentDelegate(ctx context.Context, txn *originatorTransaction, event common.Event) error {
 	e := event.(*PreDispatchRequestReceivedEvent)
 	log.L(ctx).Debugf("rejecting pre-dispatch request from %s: not current delegate (current=%s)", e.Coordinator, txn.currentDelegate)
-	if err := txn.transportWriter.SendPreDispatchRejection(ctx, txn.pt.ID, e.RequestID, e.Coordinator, engineProto.RejectionReason_NOT_CURRENT_DELEGATE); err != nil {
+	if err := txn.transportWriter.SendPreDispatchRejection(ctx, e.Coordinator, &engineProto.PreDispatchRejection{
+		TransactionId:   txn.pt.ID.String(),
+		RequestId:       e.RequestID.String(),
+		ContractAddress: txn.pt.Address.HexString(),
+		RejectionReason: engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
+	}); err != nil {
 		log.L(ctx).Warnf("failed to send pre-dispatch rejection to %s: %s", e.Coordinator, err)
 	}
 	return nil
