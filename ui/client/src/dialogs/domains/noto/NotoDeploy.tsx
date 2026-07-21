@@ -25,7 +25,7 @@ import {
   TextField,
 } from '@mui/material';
 import { useMutation } from '@tanstack/react-query';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TransactionType } from '../../../interfaces';
 import { sendTransaction } from '../../../queries/transactions';
@@ -46,15 +46,13 @@ interface NotoConstructorParams {
 }
 
 type Props = {
-  dialogOpen: boolean;
-  setDialogOpen: Dispatch<SetStateAction<boolean>>;
+  onClose: () => void
   domain: string;
 };
 
 export const NotoDeployDialog: React.FC<Props> = ({
   domain,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
   const { t } = useTranslation();
   const [sender, setSender] = useState<string>('');
@@ -86,8 +84,8 @@ export const NotoDeployDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       fullWidth
       maxWidth="sm"
     >
@@ -173,7 +171,7 @@ export const NotoDeployDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('close')}
           </Button>

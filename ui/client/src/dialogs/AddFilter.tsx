@@ -34,15 +34,13 @@ import { IFilter, IFilterField } from '../interfaces';
 type Props = {
   filterFields: IFilterField[]
   addFilter: (filter: IFilter) => void
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const AddFilterDialog: React.FC<Props> = ({
   filterFields,
   addFilter,
-  dialogOpen,
-  setDialogOpen
+  onClose
 }) => {
 
   const [selectedFilterField, setSelectedFilterField] = useState<IFilterField>();
@@ -52,17 +50,6 @@ export const AddFilterDialog: React.FC<Props> = ({
   const [values, setValues] = useState<JSX.Element[]>([]);
   const [value, setValue] = useState('');
   const { t } = useTranslation();
-
-  useEffect(() => {
-    if (!dialogOpen) {
-      setTimeout(() => {
-        setSelectedFilterField(undefined);
-        setSelectedOperator(undefined);
-        setValue('');
-        setIsCaseSensitive(false);
-      }, 200);
-    }
-  }, [dialogOpen]);
 
   useEffect(() => {
     if (selectedFilterField !== undefined) {
@@ -117,7 +104,7 @@ export const AddFilterDialog: React.FC<Props> = ({
         value,
         caseSensitive: selectedFilterField?.type === 'string' ? isCaseSensitive : undefined
       });
-      setDialogOpen(false);
+      onClose();
     }
   };
 
@@ -137,8 +124,8 @@ export const AddFilterDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       fullWidth
       maxWidth="xs"
     >
@@ -224,7 +211,7 @@ export const AddFilterDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

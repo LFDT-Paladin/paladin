@@ -25,32 +25,24 @@ import {
   TextField
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { getMessage } from '../queries/transport';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const ReliableMessageLookupDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
   const [notFound, setNotFound] = useState(false);
   const [id, setId] = useState('');
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setId('');
-    }
-  }, [dialogOpen]);
 
   const { refetch: messageById } = useQuery({
     queryKey: [`message-by-id-${id}`],
@@ -74,8 +66,8 @@ export const ReliableMessageLookupDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       PaperProps={{ sx: { width: '680px' } }}
       fullWidth
       maxWidth="md"
@@ -116,7 +108,7 @@ export const ReliableMessageLookupDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

@@ -369,10 +369,11 @@ export const EventListeners: React.FC = () => {
           </Box>
         </Box>
       </Fade>
-      <CreateEventListenerDialog
-        dialogOpen={createEventListenerDialogOpen}
-        setDialogOpen={setCreateEventListenerDialogOpen}
-      />
+      {createEventListenerDialogOpen && (
+        <CreateEventListenerDialog
+          onClose={() => setCreateEventListenerDialogOpen(false)}
+        />
+      )}
     </>
   );
 

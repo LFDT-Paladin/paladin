@@ -329,10 +329,11 @@ export const Registries: React.FC = () => {
           }
         </Box>
       </Fade>
-      <ResolveVerifierDialog
-        dialogOpen={resolveVerifierDialogOpen}
-        setDialogOpen={setResolveVerifierDialogOpen}
-      />
+      {resolveVerifierDialogOpen && (
+        <ResolveVerifierDialog
+          onClose={() => setResolveVerifierDialogOpen(false)}
+        />
+      )}
     </>
   );
 };

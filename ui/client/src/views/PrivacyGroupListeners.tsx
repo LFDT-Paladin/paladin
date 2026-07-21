@@ -376,10 +376,11 @@ export const PrivacyGroupListeners: React.FC = () => {
           </Box>
         </Box>
       </Fade>
-      <CreatePrivacyGroupListenerDialog
-        dialogOpen={createPrivacyGroupListenerDialogOpen}
-        setDialogOpen={setCreatePrivacyGroupListenerDialogOpen}
-      />
+      {createPrivacyGroupListenerDialogOpen && (
+        <CreatePrivacyGroupListenerDialog
+          onClose={() => setCreatePrivacyGroupListenerDialogOpen(false)}
+        />
+      )}
     </>
   );
 

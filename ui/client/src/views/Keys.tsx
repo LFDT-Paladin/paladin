@@ -145,8 +145,7 @@ export const Keys: React.FC = () => {
         Icon={<Captions size="18px" />}
         title={entry.algorithm}
         hash={entry.verifier}
-        hideTitle />
-    }
+        hideTitle />}
     return <RemoveIcon color="disabled" />;
   };
 
@@ -158,8 +157,7 @@ export const Keys: React.FC = () => {
           Icon={<Signature size="18px" />}
           title={entries[0].algorithm}
           hash={entries[0].verifier}
-          hideTitle />
-      } else if (entries.length > 1) {
+          hideTitle />} else if (entries.length > 1) {
         return (
           <Button
             variant="contained"
@@ -319,8 +317,7 @@ export const Keys: React.FC = () => {
                   <TableHead>
                     <TableRow>
                       {mode === 'explorer' &&
-                        <TableCell width={1} sx={{ minWidth: '70px', backgroundColor: theme => theme.palette.background.paper }} />
-                      }
+                        <TableCell width={1} sx={{ minWidth: '70px', backgroundColor: theme => theme.palette.background.paper }} />}
                       <TableCell sx={{ backgroundColor: theme => theme.palette.background.paper, maxWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         <TableSortLabel
                           active={sortByPathFirst}
@@ -420,12 +417,12 @@ export const Keys: React.FC = () => {
           }
         </Box>
       </Fade>
-      {selectedVerifiers &&
+      {selectedVerifiers && verifiersDialogOpen && (
         <VerifiersDialog
-          dialogOpen={verifiersDialogOpen}
-          setDialogOpen={setVerifiersDialogOpen}
+          onClose={() => setVerifiersDialogOpen(false)}
           verifiers={selectedVerifiers}
-        />}
+        />
+      )}
 
     </>
   );

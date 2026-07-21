@@ -114,47 +114,54 @@ export const DomainButtons: React.FC<Props> = ({
         {buttons.length === 0 && t('noActions')}
       </Box>
 
-      <NotoMintDialog
-        dialogOpen={notoMintDialogOpen}
-        setDialogOpen={setNotoMintDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoMintDialogOpen && (
+        <NotoMintDialog
+          onClose={() => setNotoMintDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <NotoTransferDialog
-        dialogOpen={notoTransferDialogOpen}
-        setDialogOpen={setNotoTransferDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoTransferDialogOpen && (
+        <NotoTransferDialog
+          onClose={() => setNotoTransferDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <NotoBurnDialog
-        dialogOpen={notoBurnDialogOpen}
-        setDialogOpen={setNotoBurnDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoBurnDialogOpen && (
+        <NotoBurnDialog
+          onClose={() => setNotoBurnDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <ZetoMintDialog
-        dialogOpen={zetoMintDialogOpen}
-        setDialogOpen={setZetoMintDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {zetoMintDialogOpen && (
+        <ZetoMintDialog
+          onClose={() => setZetoMintDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <ZetoTransferDialog
-        dialogOpen={zetoTransferDialogOpen}
-        setDialogOpen={setZetoTransferDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {zetoTransferDialogOpen && (
+        <ZetoTransferDialog
+          onClose={() => setZetoTransferDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <NotoCheckBalanceDialog
-        dialogOpen={notoCheckBalanceDialogOpen}
-        setDialogOpen={setNotoCheckBalanceDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoCheckBalanceDialogOpen && (
+        <NotoCheckBalanceDialog
+          onClose={() => setNotoCheckBalanceDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <ZetoCheckBalanceDialog
-        dialogOpen={zetoCheckBalanceDialogOpen}
-        setDialogOpen={setZetoCheckBalanceDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {zetoCheckBalanceDialogOpen && (
+        <ZetoCheckBalanceDialog
+          onClose={() => setZetoCheckBalanceDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
     </>
   );

@@ -26,21 +26,19 @@ import {
   Typography,
   Grid2,
 } from '@mui/material';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { callBalanceOf, BalanceOfResult } from '../queries/balance';
 
 type Props = {
-  dialogOpen: boolean;
-  setDialogOpen: Dispatch<SetStateAction<boolean>>;
+  onClose: () => void
   domain: string;
   contractAddress: string;
 };
 
 export const CheckBalanceDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
   domain,
   contractAddress,
 }) => {
@@ -57,14 +55,6 @@ export const CheckBalanceDialog: React.FC<Props> = ({
     retry: false,
     staleTime: 0
   });
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setAccount('');
-      setIsError(false);
-      setResult(undefined);
-    }
-  }, [dialogOpen]);
 
   const handleSubmit = () => {
     refetch().then((result) => {
@@ -85,8 +75,8 @@ export const CheckBalanceDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       fullWidth
       maxWidth="sm"
     >
@@ -176,7 +166,7 @@ export const CheckBalanceDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('close')}
           </Button>

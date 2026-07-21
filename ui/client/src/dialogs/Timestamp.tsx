@@ -28,14 +28,12 @@ import { SingleValue } from '../components/SingleValue';
 
 type Props = {
   timestamp: string
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const TimestampDialog: React.FC<Props> = ({
   timestamp,
-  dialogOpen,
-  setDialogOpen
+  onClose
 }) => {
 
   const { t } = useTranslation();
@@ -56,8 +54,8 @@ export const TimestampDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       fullWidth
       maxWidth="sm"
     >
@@ -84,7 +82,7 @@ export const TimestampDialog: React.FC<Props> = ({
       </DialogContent>
       <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
         <Button
-          onClick={() => setDialogOpen(false)}
+          onClick={() => onClose()}
           variant="contained"
           disableElevation>
           {t('close')}

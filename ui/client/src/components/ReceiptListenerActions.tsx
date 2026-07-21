@@ -83,12 +83,13 @@ export const ReceiptListenerActions: React.FC<Props> = ({
         >{t('delete')}
         </ActionButton>
       </Box>
-      <DeleteReceiptListenerDialog
-        listenerName={receiptListener.name}
-        refetch={deleteRefetch ?? refetch}
-        dialogOpen={deleteReceiptListenerDialogOpen}
-        setDialogOpen={setDeleteReceiptListenerDialogOpen}
-      />
+      {deleteReceiptListenerDialogOpen && (
+        <DeleteReceiptListenerDialog
+          listenerName={receiptListener.name}
+          refetch={deleteRefetch ?? refetch}
+          onClose={() => setDeleteReceiptListenerDialogOpen(false)}
+        />
+      )}
     </>
   )
 

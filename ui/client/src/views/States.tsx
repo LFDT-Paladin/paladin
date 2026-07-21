@@ -135,8 +135,7 @@ export const States: React.FC = () => {
   }
 
   if (domains === undefined) {
-    return <></>
-  }
+    return <></>}
 
   const resetPagination = () => {
     setRefEntries([]);
@@ -177,8 +176,7 @@ export const States: React.FC = () => {
       return <>--</>;
     }
     if (component.type.startsWith('byte')) {
-      return <Hash Icon={<Captions size="18px" />} hideTitle title={component.type} hash={value} />
-    }
+      return <Hash Icon={<Captions size="18px" />} hideTitle title={component.type} hash={value} />}
     switch (component.type) {
       case 'address':
         return <Hash Icon={<Captions size="18px" />} hideTitle title={t('address')} hash={value} />
@@ -341,8 +339,7 @@ export const States: React.FC = () => {
                     setFiltersVisible={setFiltersVisible}
                   />
                 </Box>
-              </>
-            }
+              </>}
           </Box>
           <Collapse in={filtersVisible}>
             <Box sx={{ marginBottom: '20px' }}>
@@ -508,13 +505,13 @@ export const States: React.FC = () => {
           }
         </Box>
       </Fade>
-      {selectedDomain !== undefined && selectedSchemaId !== undefined &&
+      {selectedDomain !== undefined && selectedSchemaId !== undefined && stateLookupDialogOpen && (
         <StateLookupDialog
           domain={selectedDomain}
           schemaId={selectedSchemaId}
-          dialogOpen={stateLookupDialogOpen}
-          setDialogOpen={setStateLookupDialogOpen}
-        />}
+          onClose={() => setStateLookupDialogOpen(false)}
+        />
+      )}
     </>
   );
 

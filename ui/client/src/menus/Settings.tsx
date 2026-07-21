@@ -97,10 +97,11 @@ export const SettingsMenu: React.FC<Props> = ({
           </Grid2>
         </Grid2>
       </Menu>
-      <ABIUploadDialog
-        dialogOpen={abiUploadDialogOpen}
-        setDialogOpen={setAbiUploadDialogOpen}
-      />
+      {abiUploadDialogOpen && (
+        <ABIUploadDialog
+          onClose={() => setAbiUploadDialogOpen(false)}
+        />
+      )}
     </>
   );
 

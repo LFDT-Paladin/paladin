@@ -39,11 +39,12 @@ export const StateActions: React.FC<Props> = ({ state }) => {
           {t('send')}
         </ActionButton>
       </Box>
-      <SendStateDialog
-        state={state}
-        dialogOpen={sendStateDialogOpen}
-        setDialogOpen={setSendStateDialogOpen}
-      />
+      {sendStateDialogOpen && (
+        <SendStateDialog
+          state={state}
+          onClose={() => setSendStateDialogOpen(false)}
+        />
+      )}
     </>
   );
 }

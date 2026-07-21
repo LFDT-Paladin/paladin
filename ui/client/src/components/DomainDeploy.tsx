@@ -64,23 +64,25 @@ export const DomainDeploy: React.FC<Props> = ({ domainName }) => {
             onClick={button.action}
             disabled={domainName === 'pente'}
             startIcon={<UploadIcon />}
-          >
+            >
             {t('deployNew')}
           </Button>
         )}
       </Grid2>
 
-      <NotoDeployDialog
-        dialogOpen={notoDeployModalOpen}
-        setDialogOpen={setNotoDeployModalOpen}
-        domain={domainName}
-      />
+      {notoDeployModalOpen && (
+        <NotoDeployDialog
+          onClose={() => setNotoDeployModalOpen(false)}
+          domain={domainName}
+        />
+      )}
 
-      <ZetoDeployDialog
-        dialogOpen={zetoDeployModalOpen}
-        setDialogOpen={setZetoDeployModalOpen}
-        domain={domainName}
-      />
+      {zetoDeployModalOpen && (
+        <ZetoDeployDialog
+          onClose={() => setZetoDeployModalOpen(false)}
+          domain={domainName}
+        />
+      )}
     </>
   );
 };

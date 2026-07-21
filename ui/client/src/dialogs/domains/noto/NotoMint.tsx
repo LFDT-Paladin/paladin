@@ -25,7 +25,7 @@ import {
   TextField,
 } from '@mui/material';
 import { useMutation } from '@tanstack/react-query';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TransactionType } from '../../../interfaces';
 import { sendTransaction } from '../../../queries/transactions';
@@ -34,8 +34,7 @@ import { useNavigate } from 'react-router-dom';
 
 type Props = {
   contractAddress: string;
-  dialogOpen: boolean;
-  setDialogOpen: Dispatch<SetStateAction<boolean>>;
+  onClose: () => void
 };
 
 const mintAbi = {
@@ -64,8 +63,7 @@ const mintAbi = {
 
 export const NotoMintDialog: React.FC<Props> = ({
   contractAddress,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
   const { t } = useTranslation();
   const [sender, setSender] = useState('');
@@ -74,15 +72,6 @@ export const NotoMintDialog: React.FC<Props> = ({
   const [data, setData] = useState('');
   const [errorMessage, setErrorMessage] = useState<string>();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (dialogOpen) {
-        setRecipient('');
-        setSender('');
-        setAmount('');
-        setData('');
-    }
-  }, [dialogOpen]);
 
   const { mutate, error, data: transactionId } = useMutation({
     mutationFn: () =>
@@ -111,8 +100,8 @@ export const NotoMintDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       fullWidth
       maxWidth="sm"
     >
@@ -205,7 +194,7 @@ export const NotoMintDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('close')}
           </Button>

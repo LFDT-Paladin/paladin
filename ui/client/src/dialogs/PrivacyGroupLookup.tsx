@@ -25,32 +25,24 @@ import {
   TextField
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isValidAddress, isValidPrivacyGroupId } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { getPrivacyGroupByAddress, getPrivacyGroupById } from '../queries/privacyGroups';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const PrivacyGroupLookupDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
   const [notFound, setNotFound] = useState(false);
   const [idOrContractAddress, setIdOrContractAddress] = useState('');
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setIdOrContractAddress('');
-    }
-  }, [dialogOpen]);
 
   const { refetch: privacyGroupById } = useQuery({
     queryKey: [`privacy-group-by-id-${idOrContractAddress}`],
@@ -91,8 +83,8 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       PaperProps={{ sx: { width: '680px' } }}
       fullWidth
       maxWidth="md"
@@ -133,7 +125,7 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

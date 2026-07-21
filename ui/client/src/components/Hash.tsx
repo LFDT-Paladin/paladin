@@ -46,7 +46,7 @@ export const Hash: React.FC<Props> = ({ Icon, title, hideTitle, hash, secondary 
         size="small">
         {content}
       </Button>
-      <HashDialog dialogOpen={hashDialogOpen} setDialogOpen={setHashDialogOpen} title={title} hash={hash} />
+      {hashDialogOpen && <HashDialog onClose={() => setHashDialogOpen(false)} title={title} hash={hash} />}
     </>
   );
 

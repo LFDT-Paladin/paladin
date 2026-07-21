@@ -14,26 +14,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Dispatch, SetStateAction } from 'react';
 import { CheckBalanceDialog } from '../../CheckBalance';
 
 type Props = {
   contractAddress: string;
-  dialogOpen: boolean;
-  setDialogOpen: Dispatch<SetStateAction<boolean>>;
+  onClose: () => void;
 };
 
 export const ZetoCheckBalanceDialog: React.FC<Props> = ({
   contractAddress,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
   return (
     <CheckBalanceDialog
       domain="zeto"
       contractAddress={contractAddress}
-      dialogOpen={dialogOpen}
-      setDialogOpen={setDialogOpen}
+      onClose={onClose}
     />
   );
-}; 
+};

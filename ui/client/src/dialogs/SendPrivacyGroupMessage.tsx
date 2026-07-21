@@ -22,8 +22,9 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  TextField} from '@mui/material';
-import { useEffect, useState } from 'react';
+  TextField
+} from '@mui/material';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isValidHex, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
@@ -32,14 +33,12 @@ import { sendPrivacyGroupMessage } from '../queries/privacyGroups';
 
 type Props = {
   preSelectedPrivacyGroupId?: string
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
   preSelectedPrivacyGroupId,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
@@ -49,15 +48,6 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
   const [data, setData] = useState('');
   const [errorMessage, setErrorMessage] = useState<string>();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setTopic('');
-      setCorrelationId('');
-      setData('');
-      setPrivacyGroupId(preSelectedPrivacyGroupId ?? '');
-    }
-  }, [dialogOpen]);
 
   const getData = () => {
     try {
@@ -90,8 +80,8 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       fullWidth
       maxWidth="xs"
     >
@@ -163,7 +153,7 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

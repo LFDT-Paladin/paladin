@@ -26,7 +26,7 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { createPrivacyGroupListener } from '../queries/privacyGroups';
@@ -35,13 +35,11 @@ import { isValidHex, isValidPrivacyGroupListenerName } from '../utils';
 import { useNavigate } from 'react-router-dom';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
@@ -54,19 +52,6 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
   const [topic, setTopic] = useState('');
   const [excludeLocal, setExcludeLocal] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setErrorMessage(undefined);
-      setListenerName('');
-      setStarted(true);
-      setSequenceAbove('');
-      setDomain('');
-      setGroup('');
-      setTopic('');
-      setExcludeLocal(false);
-    }
-  }, [dialogOpen]);
 
   const isValidListenerName = isValidPrivacyGroupListenerName(listenerName);
   const isValidGroup = isValidHex(group);
@@ -101,8 +86,8 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       fullWidth
       maxWidth="xs"
     >
@@ -220,7 +205,7 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
             sx={{ minWidth: '100px' }}
             size="large"
             variant="outlined"
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

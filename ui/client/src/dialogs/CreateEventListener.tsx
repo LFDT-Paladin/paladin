@@ -26,7 +26,7 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { createEventListener } from '../queries/transactions';
@@ -36,13 +36,11 @@ import { IABIEntry, IEventListenerOptions } from '../interfaces';
 import { useNavigate } from 'react-router-dom';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const CreateEventListenerDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
@@ -55,19 +53,6 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
   const [batchSize, setBatchSize] = useState('');
   const [batchTimeout, setBatchTimeout] = useState('');
   const [errorMessage, setErrorMessage] = useState<string>();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setErrorMessage(undefined);
-      setListenerName('');
-      setStarted(true);
-      setAbiText('');
-      setAddress('');
-      setFromBlock('');
-      setBatchSize('');
-      setBatchTimeout('');
-    }
-  }, [dialogOpen]);
 
   const parseAbi = (): IABIEntry[] | undefined => {
     if (abiText.trim().length === 0) {
@@ -131,8 +116,8 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       fullWidth
       maxWidth="xs"
     >
@@ -265,7 +250,7 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
             sx={{ minWidth: '100px' }}
             size="large"
             variant="outlined"
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

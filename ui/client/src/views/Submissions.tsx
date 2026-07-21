@@ -339,12 +339,13 @@ export const Submissions: React.FC = () => {
           </Box>
         </Box>
       </Fade>
-      <TransactionLookupDialog
-        dialogOpen={lookupTransactionDialogOpen}
-        setDialogOpen={setLookupTransactionDialogOpen}
-        label={t('submissionId')}
-        backToSubmissions={true}
-      />
+      {lookupTransactionDialogOpen && (
+        <TransactionLookupDialog
+          onClose={() => setLookupTransactionDialogOpen(false)}
+          label={t('submissionId')}
+          backToSubmissions={true}
+        />
+      )}
     </>
   );
 };

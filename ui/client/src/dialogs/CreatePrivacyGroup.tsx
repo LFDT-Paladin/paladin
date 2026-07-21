@@ -30,7 +30,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isValidPrivacyGroupMemberName, isValidPrivacyGroupName } from '../utils';
 import { useNavigate } from 'react-router-dom';
@@ -39,13 +39,11 @@ import { useMutation } from '@tanstack/react-query';
 import { createPrivacyGroup } from '../queries/privacyGroups';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const CreatePrivacyGroupDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
@@ -55,16 +53,6 @@ export const CreatePrivacyGroupDialog: React.FC<Props> = ({
   const [errorMessage, setErrorMessage] = useState<string>();
   const [showMemberNameError, setShowMemberNameError] = useState(false);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setName('');
-      setMember('');
-      setMembers([]);
-      setShowMemberNameError(false);
-      setErrorMessage(undefined);
-    }
-  }, [dialogOpen]);
 
   const { mutate: handleSubmit } = useMutation({
     mutationFn: () => createPrivacyGroup(name, members),
@@ -92,8 +80,8 @@ export const CreatePrivacyGroupDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       fullWidth
       maxWidth="xs"
     >
@@ -194,7 +182,7 @@ export const CreatePrivacyGroupDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

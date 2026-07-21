@@ -185,10 +185,11 @@ export const Domains: React.FC = () => {
           )}
         </Box>
       </Fade>
-      <DomainContractLookupDialog
-        dialogOpen={lookupDomainContractDialogOpen}
-        setDialogOpen={setLookupDomainContractDialogOpen}
-      />
+      {lookupDomainContractDialogOpen && (
+        <DomainContractLookupDialog
+          onClose={() => setLookupDomainContractDialogOpen(false)}
+        />
+      )}
     </>
   );
 };

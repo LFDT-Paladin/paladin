@@ -42,7 +42,7 @@ export const EventChip: React.FC<Props> = ({ event }) => {
       <span style={{ fontWeight: 600, marginRight: '6px' }}>{t('logN', { n: event.logIndex })}</span>
       {getShortId(event.signature)}
     </Button>
-      <HashDialog dialogOpen={hashDialogOpen} setDialogOpen={setHashDialogOpen} title={t('signature')} hash={event.signature} />
+      {hashDialogOpen && <HashDialog onClose={() => setHashDialogOpen(false)} title={t('signature')} hash={event.signature} />}
 
     </>
   );

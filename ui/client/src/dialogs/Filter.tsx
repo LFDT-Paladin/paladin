@@ -42,8 +42,7 @@ type Props = {
   filterFields: IFilterField[]
   addFilter: (filter: IFilter) => void
   updateFilters: () => void
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const FilterDialog: React.FC<Props> = ({
@@ -51,32 +50,21 @@ export const FilterDialog: React.FC<Props> = ({
   filterFields,
   addFilter,
   updateFilters,
-  dialogOpen,
-  setDialogOpen
+  onClose
 }) => {
 
-  const [selectedFilterField, setSelectedFilterField] = useState<IFilterField>();
+  const [selectedFilterField, setSelectedFilterField] = useState<IFilterField | undefined>(existingFilter?.field);
   const [operators, setOperators] = useState<ReactElement[]>([]);
-  const [selectedOperator, setSelectedOperator] = useState<string>();
-  const [dateValue, setDateValue] = useState<Dayjs | null>();
-  const [isCaseSensitive, setIsCaseSensitive] = useState(false);
+  const [selectedOperator, setSelectedOperator] = useState<string | undefined>(existingFilter?.operator);
+  const [dateValue, setDateValue] = useState<Dayjs | null>(
+    existingFilter?.field.type === 'timestamp' ? dayjs(existingFilter.value as number) : null
+  );
+  const [isCaseSensitive, setIsCaseSensitive] = useState(existingFilter?.caseSensitive ?? false);
   const [values, setValues] = useState<ReactElement[]>([]);
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(
+    existingFilter?.field.type === 'timestamp' ? '' : (existingFilter?.value.toString() ?? '')
+  );
   const { t } = useTranslation();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setSelectedFilterField(existingFilter?.field);
-      setSelectedOperator(existingFilter?.operator);
-      if (existingFilter?.field.type === 'timestamp') {
-        setDateValue(dayjs(existingFilter.value as number));
-      } else {
-        setValue(existingFilter?.value.toString() ?? '');
-        setDateValue(null);
-      }
-      setIsCaseSensitive(existingFilter?.caseSensitive ?? false);
-    }
-  }, [dialogOpen]);
 
   useEffect(() => {
     if (selectedFilterField !== undefined) {
@@ -192,7 +180,7 @@ export const FilterDialog: React.FC<Props> = ({
           caseSensitive: selectedFilterField?.type === 'string' ? isCaseSensitive : undefined
         });
       }
-      setDialogOpen(false);
+      onClose();
     }
   };
 
@@ -215,8 +203,8 @@ export const FilterDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       fullWidth
       maxWidth="xs"
     >
@@ -321,7 +309,7 @@ export const FilterDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

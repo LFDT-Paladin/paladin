@@ -83,12 +83,13 @@ export const PrivacyGroupListenerActions: React.FC<Props> = ({
         >{t('delete')}
         </ActionButton>
       </Box>
-      <DeletePrivacyGroupListenerDialog
-        listenerName={privacyGroupListener.name}
-        refetch={deleteRefetch ?? refetch}
-        dialogOpen={deletePrivacyGroupListenerDialogOpen}
-        setDialogOpen={setDeletePrivacyGroupDialogOpen}
-      />
+      {deletePrivacyGroupListenerDialogOpen && (
+        <DeletePrivacyGroupListenerDialog
+          listenerName={privacyGroupListener.name}
+          refetch={deleteRefetch ?? refetch}
+          onClose={() => setDeletePrivacyGroupDialogOpen(false)}
+        />
+      )}
     </>
   )
 

@@ -24,7 +24,7 @@ import {
   DialogTitle,
   Typography
 } from '@mui/material';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { deleteEventListener } from '../queries/transactions';
@@ -32,31 +32,23 @@ import { deleteEventListener } from '../queries/transactions';
 type Props = {
   listenerName: string
   refetch: () => any
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const DeleteEventListenerDialog: React.FC<Props> = ({
   listenerName,
   refetch,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
   const [errorMessage, setErrorMessage] = useState<string>();
 
-  useEffect(() => {
-    if (dialogOpen) {
-      setErrorMessage(undefined);
-    }
-  }, [dialogOpen]);
-
   const { mutate: handleSubmit } = useMutation({
     mutationFn: () => deleteEventListener(listenerName),
     onSuccess: () => {
       refetch();
-      setDialogOpen(false);
+      onClose();
     },
     onError: error => {
       setErrorMessage(error.message);
@@ -65,8 +57,8 @@ export const DeleteEventListenerDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       fullWidth
       maxWidth="sm"
     >
@@ -102,7 +94,7 @@ export const DeleteEventListenerDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

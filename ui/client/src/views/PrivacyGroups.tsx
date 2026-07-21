@@ -369,14 +369,16 @@ export const PrivacyGroups: React.FC = () => {
           </Box>
         </Box>
       </Fade>
-      <CreatePrivacyGroupDialog
-        dialogOpen={createPrivacyGroupDialogOpen}
-        setDialogOpen={setCreatePrivacyGroupDialogOpen}
-      />
-      <PrivacyGroupLookupDialog
-        dialogOpen={lookupPrivacyGroupDialogOpen}
-        setDialogOpen={setLookupPrivacyGroupDialogOpen}
-      />
+      {createPrivacyGroupDialogOpen && (
+        <CreatePrivacyGroupDialog
+          onClose={() => setCreatePrivacyGroupDialogOpen(false)}
+        />
+      )}
+      {lookupPrivacyGroupDialogOpen && (
+        <PrivacyGroupLookupDialog
+          onClose={() => setLookupPrivacyGroupDialogOpen(false)}
+        />
+      )}
     </>
   );
 

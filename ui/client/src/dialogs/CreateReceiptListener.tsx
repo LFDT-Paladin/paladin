@@ -26,7 +26,7 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { createReceiptListener } from '../queries/transactions';
@@ -36,13 +36,11 @@ import { IReceiptListenerFilters, IReceiptListenerOptions, TransactionType } fro
 import { useNavigate } from 'react-router-dom';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const CreateReceiptListenerDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
@@ -55,19 +53,6 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
   const [domainReceipts, setDomainReceipts] = useState(false);
   const [incompleteStateReceiptBehavior, setIncompleteStateReceiptBehavior] = useState('default');
   const [errorMessage, setErrorMessage] = useState<string>();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setErrorMessage(undefined);
-      setListenerName('');
-      setStarted(true);
-      setSequenceAbove('');
-      setType('all');
-      setDomain('');
-      setDomainReceipts(false);
-      setIncompleteStateReceiptBehavior('default');
-    }
-  }, [dialogOpen]);
 
   const isValidListenerName = isValidPrivacyGroupListenerName(listenerName);
   const isValidSequenceAbove = sequenceAbove.length === 0 || /^\d+$/.test(sequenceAbove);
@@ -112,8 +97,8 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       fullWidth
       maxWidth="xs"
     >
@@ -238,7 +223,7 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
             sx={{ minWidth: '100px' }}
             size="large"
             variant="outlined"
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

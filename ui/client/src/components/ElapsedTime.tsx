@@ -56,11 +56,12 @@ export const ElapsedTime: React.FC<Props> = ({
         onClick={() => setTimestampDialogOpen(true)}>
         {prefix} {displayValue}
       </Button>
-      <TimestampDialog
-        timestamp={timestamp}
-        dialogOpen={timestampDialogOpen}
-        setDialogOpen={setTimestampDialogOpen}
-      />
+      {timestampDialogOpen && (
+        <TimestampDialog
+          timestamp={timestamp}
+          onClose={() => setTimestampDialogOpen(false)}
+        />
+      )}
     </>
   );
 }

@@ -322,10 +322,11 @@ export const TransportMessages: React.FC = () => {
               <Typography>{t('messagesEmptyState')}</Typography>
             </Box>
           }
-          <ReliableMessageLookupDialog
-            dialogOpen={lookupMessageDialogOpen}
-            setDialogOpen={setLookupMessageDialogOpen}
-          />
+          {lookupMessageDialogOpen && (
+            <ReliableMessageLookupDialog
+              onClose={() => setLookupMessageDialogOpen(false)}
+            />
+          )}
         </Box>
       </Fade>
     </>

@@ -25,7 +25,7 @@ import {
   TextField
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isValidHex } from '../utils';
 import { useNavigate } from 'react-router-dom';
@@ -34,27 +34,19 @@ import { getState } from '../queries/states';
 type Props = {
   domain: string
   schemaId: string
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const StateLookupDialog: React.FC<Props> = ({
   domain,
   schemaId,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
   const [notFound, setNotFound] = useState(false);
   const [stateId, setStateId] = useState('');
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setStateId('');
-    }
-  }, [dialogOpen]);
 
   const { refetch: state } = useQuery({
     queryKey: [`state-${domain}-${schemaId}-${stateId}`],
@@ -79,8 +71,8 @@ export const StateLookupDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       PaperProps={{ sx: { width: '680px' } }}
       fullWidth
       maxWidth="md"
@@ -121,7 +113,7 @@ export const StateLookupDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

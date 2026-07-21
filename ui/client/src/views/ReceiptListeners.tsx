@@ -356,10 +356,11 @@ export const ReceiptListeners: React.FC = () => {
           </Box>
         </Box>
       </Fade>
-      <CreateReceiptListenerDialog
-        dialogOpen={createReceiptListenerDialogOpen}
-        setDialogOpen={setCreateReceiptListenerDialogOpen}
-      />
+      {createReceiptListenerDialogOpen && (
+        <CreateReceiptListenerDialog
+          onClose={() => setCreateReceiptListenerDialogOpen(false)}
+        />
+      )}
     </>
   );
 

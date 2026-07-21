@@ -385,15 +385,17 @@ export const PrivacyGroupMessages: React.FC = () => {
               <Typography>{t('privacyGroupMessagesEmptyState')}</Typography>
             </Box>
           }
-          <SendPrivacyGroupMessageDialog
-            preSelectedPrivacyGroupId={getPreselectedPrivacyGroup()}
-            dialogOpen={sendMessageDialogOpen}
-            setDialogOpen={setSendMessageDialogOpen}
-          />
-          <PrivacyGroupMessageLookupDialog
-            dialogOpen={lookupPrivacyGroupMessageDialogOpen}
-            setDialogOpen={setLookupPrivacyGroupMessageDialogOpen}
-          />
+          {sendMessageDialogOpen && (
+            <SendPrivacyGroupMessageDialog
+              preSelectedPrivacyGroupId={getPreselectedPrivacyGroup()}
+              onClose={() => setSendMessageDialogOpen(false)}
+            />
+          )}
+          {lookupPrivacyGroupMessageDialogOpen && (
+            <PrivacyGroupMessageLookupDialog
+              onClose={() => setLookupPrivacyGroupMessageDialogOpen(false)}
+            />
+          )}
         </Box>
       </Fade>
     </>

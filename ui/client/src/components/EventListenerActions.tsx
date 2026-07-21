@@ -83,12 +83,13 @@ export const EventListenerActions: React.FC<Props> = ({
         >{t('delete')}
         </ActionButton>
       </Box>
-      <DeleteEventListenerDialog
-        listenerName={eventListener.name}
-        refetch={deleteRefetch ?? refetch}
-        dialogOpen={deleteEventListenerDialogOpen}
-        setDialogOpen={setDeleteEventListenerDialogOpen}
-      />
+      {deleteEventListenerDialogOpen && (
+        <DeleteEventListenerDialog
+          listenerName={eventListener.name}
+          refetch={deleteRefetch ?? refetch}
+          onClose={() => setDeleteEventListenerDialogOpen(false)}
+        />
+      )}
     </>
   )
 

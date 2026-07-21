@@ -25,22 +25,20 @@ import {
   TextField
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { fetchEnrichedTransaction, fetchPaladinTransaction, fetchTransactionReceipt } from '../queries/transactions';
 import { isValidTransactionHash, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
   label: string
   backToSubmissions?: boolean
 }
 
 export const TransactionLookupDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
   label,
   backToSubmissions
 }) => {
@@ -49,12 +47,6 @@ export const TransactionLookupDialog: React.FC<Props> = ({
   const [notFound, setNotFound] = useState(false);
   const [hashOrId, setHashOrId] = useState('');
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setHashOrId('');
-    }
-  }, [dialogOpen]);
 
   const { refetch: blockchainTransactionByHash } = useQuery({
     queryKey: ["blockchainTransactionByHash", hashOrId],
@@ -112,8 +104,8 @@ export const TransactionLookupDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       PaperProps={{ sx: { width: '680px' } }}
       fullWidth
       maxWidth="md"
@@ -154,7 +146,7 @@ export const TransactionLookupDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

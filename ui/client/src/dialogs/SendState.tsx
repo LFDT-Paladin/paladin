@@ -25,7 +25,7 @@ import {
   TextField
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { customNavigate } from '../utils';
 import { useNavigate } from 'react-router-dom';
@@ -34,14 +34,12 @@ import { pushState } from '../queries/states';
 
 type Props = {
   state: IState
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const SendStateDialog: React.FC<Props> = ({
   state,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
@@ -51,26 +49,12 @@ export const SendStateDialog: React.FC<Props> = ({
   const [lastRecipient, setLastRecipient] = useState<string>();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (dialogOpen) {
-      setRecipient('');
-    }
-  }, [dialogOpen]);
-
   const { refetch: pushMessage } = useQuery({
     queryKey: ['push-state', state, recipient],
     queryFn: () => pushState(state.domain, state.id, recipient),
     retry: false,
     enabled: false
   });
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setErrorMessage(undefined);
-      setMessageId(undefined);
-      setLastRecipient(undefined);
-    }
-  }, [dialogOpen]);
 
   const handleSubmit = () => {
     setErrorMessage(undefined);
@@ -91,8 +75,8 @@ export const SendStateDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       PaperProps={{ sx: { width: '680px' } }}
       fullWidth
       maxWidth="md"
@@ -147,7 +131,7 @@ export const SendStateDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t(lastRecipient !== undefined ? 'close' : 'cancel')}
           </Button>

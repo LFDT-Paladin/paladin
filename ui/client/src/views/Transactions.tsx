@@ -236,11 +236,12 @@ export const Transactions: React.FC = () => {
           }
         </Box>
       </Fade>
-      <TransactionLookupDialog
-        dialogOpen={lookupTransactionDialogOpen}
-        setDialogOpen={setLookupTransactionDialogOpen}
-        label={t('blockchainTransactionHashOrPaladinTransactionId')}
-      />
+      {lookupTransactionDialogOpen && (
+        <TransactionLookupDialog
+          onClose={() => setLookupTransactionDialogOpen(false)}
+          label={t('blockchainTransactionHashOrPaladinTransactionId')}
+        />
+      )}
     </>
   );
 }
