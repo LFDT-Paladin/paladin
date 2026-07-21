@@ -29,14 +29,29 @@ type DistributedSequencerMetrics interface {
 	IncDispatchedTransactions()
 	IncConfirmedTransactions()
 	IncRevertedTransactions()
-	ObserveSequencerTXStateChange(state string, duration time.Duration)
+	ObserveSequencerTXStateChange(role, state string, duration time.Duration)
 	SetActiveCoordinators(numberOfActiveCoordinators int)
 	SetActiveSequencers(numberOfActiveSequencers int)
 	IncCoordinatingTransactions()
 	DecCoordinatingTransactions()
+	ObserveDomainCall(domain, method string, duration time.Duration)
+	ObserveAssembleResponseApply(duration time.Duration)
+	ObserveDispatchQueueWait(duration time.Duration)
+	ObserveDispatchInflightWait(duration time.Duration)
+	ObserveEventProcessing(role, eventType string, duration time.Duration)
+	SetEventQueueDepth(role, priority string, depth int)
+	SetPooledTxns(count int)
+	SetInflightDispatchedTxns(count int)
+	ObserveDispatchBatchSize(kind string, size int)
 }
 
 var METRICS_SUBSYSTEM = "distributed_sequencer"
+
+// durationBuckets covers the ms-scale stage/wait/event timings (~28ms/tx budget at 35 TPS).
+var durationBuckets = []float64{0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500}
+
+// batchSizeBuckets emphasise the low end so a batch-of-1 collapse is visible.
+var batchSizeBuckets = []float64{1, 2, 3, 5, 10, 20, 50, 100}
 
 type distributedSequencerMetrics struct {
 	acceptedTransactions     prometheus.Counter
@@ -49,6 +64,15 @@ type distributedSequencerMetrics struct {
 	activeCoordinators       prometheus.Gauge
 	activeSequencers         prometheus.Gauge
 	coordinatingTransactions prometheus.Gauge
+	domainCall               *prometheus.HistogramVec
+	assembleResponseApply    prometheus.Histogram
+	dispatchQueueWait        prometheus.Histogram
+	dispatchInflightWait     prometheus.Histogram
+	eventProcessing          *prometheus.HistogramVec
+	eventQueueDepth          *prometheus.GaugeVec
+	pooledTransactions       prometheus.Gauge
+	inflightDispatchedTxns   prometheus.Gauge
+	dispatchBatchSize        *prometheus.HistogramVec
 }
 
 func InitMetrics(ctx context.Context, registry *prometheus.Registry) *distributedSequencerMetrics {
@@ -66,14 +90,32 @@ func InitMetrics(ctx context.Context, registry *prometheus.Registry) *distribute
 		Help: "Distributed sequencer confirmed transactions", Subsystem: METRICS_SUBSYSTEM})
 	metrics.revertedTransactions = prometheus.NewCounter(prometheus.CounterOpts{Name: "reverted_txns_total",
 		Help: "Distributed sequencer reverted transactions", Subsystem: METRICS_SUBSYSTEM})
-	metrics.sequencerStage = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "sequencer_stage",
-		Help: "Distributed sequencer stage", Subsystem: METRICS_SUBSYSTEM, Buckets: []float64{5, 10, 20, 40, 80, 200, 400, 800, 1600}}, []string{"stage"})
+	metrics.sequencerStage = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "stage_duration_ms",
+		Help: "Wall time a transaction spent in a state before leaving", Subsystem: METRICS_SUBSYSTEM, Buckets: durationBuckets}, []string{"role", "stage"})
 	metrics.activeCoordinators = prometheus.NewGauge(prometheus.GaugeOpts{Name: "active_coordinators",
 		Help: "Distributed sequencer active coordinators", Subsystem: METRICS_SUBSYSTEM})
 	metrics.activeSequencers = prometheus.NewGauge(prometheus.GaugeOpts{Name: "active_sequencers",
 		Help: "Distributed sequencer active sequencers", Subsystem: METRICS_SUBSYSTEM})
 	metrics.coordinatingTransactions = prometheus.NewGauge(prometheus.GaugeOpts{Name: "coordinating_txns",
 		Help: "Distributed sequencer coordinating transactions", Subsystem: METRICS_SUBSYSTEM})
+	metrics.domainCall = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "domain_call_ms",
+		Help: "Wall time of one domain-plugin RequestReply round-trip", Subsystem: METRICS_SUBSYSTEM, Buckets: durationBuckets}, []string{"domain", "method"})
+	metrics.assembleResponseApply = prometheus.NewHistogram(prometheus.HistogramOpts{Name: "assemble_response_apply_ms",
+		Help: "Coordinator response-queue wait plus applyPostAssembly", Subsystem: METRICS_SUBSYSTEM, Buckets: durationBuckets})
+	metrics.dispatchQueueWait = prometheus.NewHistogram(prometheus.HistogramOpts{Name: "dispatch_queue_wait_ms",
+		Help: "Time from dispatch enqueue to dispatch loop dequeue", Subsystem: METRICS_SUBSYSTEM, Buckets: durationBuckets})
+	metrics.dispatchInflightWait = prometheus.NewHistogram(prometheus.HistogramOpts{Name: "dispatch_inflight_wait_ms",
+		Help: "Time blocked waiting for a free dispatch-ahead slot", Subsystem: METRICS_SUBSYSTEM, Buckets: durationBuckets})
+	metrics.eventProcessing = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "event_processing_ms",
+		Help: "Wall time of one processEvent", Subsystem: METRICS_SUBSYSTEM, Buckets: durationBuckets}, []string{"role", "event_type"})
+	metrics.eventQueueDepth = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "event_queue_depth",
+		Help: "Depth of the event loop queues", Subsystem: METRICS_SUBSYSTEM}, []string{"role", "priority"})
+	metrics.pooledTransactions = prometheus.NewGauge(prometheus.GaugeOpts{Name: "pooled_txns",
+		Help: "Number of transactions in the coordinator pool", Subsystem: METRICS_SUBSYSTEM})
+	metrics.inflightDispatchedTxns = prometheus.NewGauge(prometheus.GaugeOpts{Name: "inflight_dispatched_txns",
+		Help: "Number of in-flight dispatched transactions", Subsystem: METRICS_SUBSYSTEM})
+	metrics.dispatchBatchSize = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "dispatch_batch_size",
+		Help: "Entries per persisted dispatch batch", Subsystem: METRICS_SUBSYSTEM, Buckets: batchSizeBuckets}, []string{"kind"})
 	registry.MustRegister(metrics.acceptedTransactions)
 	registry.MustRegister(metrics.assembledTransactions)
 	registry.MustRegister(metrics.endorsedTransactions)
@@ -84,6 +126,15 @@ func InitMetrics(ctx context.Context, registry *prometheus.Registry) *distribute
 	registry.MustRegister(metrics.activeCoordinators)
 	registry.MustRegister(metrics.activeSequencers)
 	registry.MustRegister(metrics.coordinatingTransactions)
+	registry.MustRegister(metrics.domainCall)
+	registry.MustRegister(metrics.assembleResponseApply)
+	registry.MustRegister(metrics.dispatchQueueWait)
+	registry.MustRegister(metrics.dispatchInflightWait)
+	registry.MustRegister(metrics.eventProcessing)
+	registry.MustRegister(metrics.eventQueueDepth)
+	registry.MustRegister(metrics.pooledTransactions)
+	registry.MustRegister(metrics.inflightDispatchedTxns)
+	registry.MustRegister(metrics.dispatchBatchSize)
 	return metrics
 }
 
@@ -111,8 +162,64 @@ func (dtm *distributedSequencerMetrics) IncRevertedTransactions() {
 	dtm.revertedTransactions.Inc()
 }
 
-func (dtm *distributedSequencerMetrics) ObserveSequencerTXStateChange(state string, duration time.Duration) {
-	dtm.sequencerStage.WithLabelValues(state).Observe(float64(duration.Milliseconds()))
+func (dtm *distributedSequencerMetrics) ObserveSequencerTXStateChange(role, state string, duration time.Duration) {
+	dtm.sequencerStage.WithLabelValues(role, state).Observe(float64(duration.Milliseconds()))
+}
+
+func (dtm *distributedSequencerMetrics) ObserveDomainCall(domain, method string, duration time.Duration) {
+	dtm.domainCall.WithLabelValues(domain, method).Observe(float64(duration.Milliseconds()))
+}
+
+func (dtm *distributedSequencerMetrics) ObserveAssembleResponseApply(duration time.Duration) {
+	dtm.assembleResponseApply.Observe(float64(duration.Milliseconds()))
+}
+
+func (dtm *distributedSequencerMetrics) ObserveDispatchQueueWait(duration time.Duration) {
+	dtm.dispatchQueueWait.Observe(float64(duration.Milliseconds()))
+}
+
+func (dtm *distributedSequencerMetrics) ObserveDispatchInflightWait(duration time.Duration) {
+	dtm.dispatchInflightWait.Observe(float64(duration.Milliseconds()))
+}
+
+func (dtm *distributedSequencerMetrics) ObserveEventProcessing(role, eventType string, duration time.Duration) {
+	dtm.eventProcessing.WithLabelValues(role, eventType).Observe(float64(duration.Milliseconds()))
+}
+
+func (dtm *distributedSequencerMetrics) SetEventQueueDepth(role, priority string, depth int) {
+	dtm.eventQueueDepth.WithLabelValues(role, priority).Set(float64(depth))
+}
+
+func (dtm *distributedSequencerMetrics) SetPooledTxns(count int) {
+	dtm.pooledTransactions.Set(float64(count))
+}
+
+func (dtm *distributedSequencerMetrics) SetInflightDispatchedTxns(count int) {
+	dtm.inflightDispatchedTxns.Set(float64(count))
+}
+
+func (dtm *distributedSequencerMetrics) ObserveDispatchBatchSize(kind string, size int) {
+	dtm.dispatchBatchSize.WithLabelValues(kind).Observe(float64(size))
+}
+
+// EventLoopMetricsAdapter adapts DistributedSequencerMetrics to the role-free, event-loop-shaped sink
+// the generic statemachine package expects, baking in a fixed role label.
+type EventLoopMetricsAdapter struct {
+	metrics DistributedSequencerMetrics
+	role    string
+}
+
+// NewEventLoopMetrics returns a role-scoped event-loop metrics sink backed by the given metrics.
+func NewEventLoopMetrics(metrics DistributedSequencerMetrics, role string) *EventLoopMetricsAdapter {
+	return &EventLoopMetricsAdapter{metrics: metrics, role: role}
+}
+
+func (e *EventLoopMetricsAdapter) ObserveEventProcessing(eventType string, duration time.Duration) {
+	e.metrics.ObserveEventProcessing(e.role, eventType, duration)
+}
+
+func (e *EventLoopMetricsAdapter) SetEventQueueDepth(priority string, depth int) {
+	e.metrics.SetEventQueueDepth(e.role, priority, depth)
 }
 
 func (dtm *distributedSequencerMetrics) SetActiveCoordinators(numberOfActiveCoordinators int) {

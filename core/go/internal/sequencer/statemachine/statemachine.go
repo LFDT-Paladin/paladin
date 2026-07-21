@@ -76,6 +76,16 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
+// EventLoopMetrics is the metrics sink the event loop reports to. It is deliberately narrow and
+// role-free so this package does not depend on any concrete metrics implementation: callers adapt
+// their own metrics to it (e.g. baking in a role label) before passing it in.
+type EventLoopMetrics interface {
+	// ObserveEventProcessing records the wall time of one processEvent call.
+	ObserveEventProcessing(eventType string, duration time.Duration)
+	// SetEventQueueDepth records the current depth of a named queue ("normal" | "priority").
+	SetEventQueueDepth(priority string, depth int)
+}
+
 // State is a constraint for state types - must be comparable (typically int-based enums)
 // and implement String() for use in transition logging.
 type State interface {
@@ -463,6 +473,7 @@ type StateMachineEventLoop[S State, E Lockable] struct {
 	name           string
 	running        bool
 	processEvent   func(ctx context.Context, event common.Event) error
+	metrics        EventLoopMetrics
 }
 
 // StateMachineEventLoopConfig holds configuration for creating a StateMachineEventLoop.
@@ -494,6 +505,10 @@ type StateMachineEventLoopConfig[S State, E Lockable] struct {
 	// If it returns an error, the event is not processed by the state machine.
 	// If it returns true, the event was fully handled and should not be passed to the state machine.
 	PreProcess func(ctx context.Context, entity E, event common.Event) (handled bool, err error)
+
+	// Metrics is required; the event loop records event processing time and queue depth through it.
+	// Callers supply an adapter (e.g. one that bakes in a role label) implementing EventLoopMetrics.
+	Metrics EventLoopMetrics
 }
 
 // NewStateMachineEventLoop creates a new StateMachineEventLoop with all components wired together.
@@ -532,9 +547,18 @@ func NewStateMachineEventLoop[S State, E Lockable](config StateMachineEventLoopC
 		loopStopped:    make(chan struct{}),
 		name:           config.Name,
 		processEvent:   processEvent,
+		metrics:        config.Metrics,
 	}
 
 	return sel
+}
+
+// runEvent processes an event through the loop's pipeline, recording its processing time.
+func (sel *StateMachineEventLoop[S, E]) runEvent(ctx context.Context, event common.Event) error {
+	start := time.Now()
+	err := sel.processEvent(ctx, event)
+	sel.metrics.ObserveEventProcessing(event.TypeString(), time.Since(start))
+	return err
 }
 
 // Start begins the event processing loop. This should be called as a goroutine.
@@ -546,6 +570,8 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 	log.L(ctx).Debugf("%s | %s | event loop started", sel.name, sel.stateMachine.GetCurrentState().String())
 
 	for {
+		sel.metrics.SetEventQueueDepth("normal", len(sel.events))
+		sel.metrics.SetEventQueueDepth("priority", len(sel.eventsPriority))
 		// Drain the priority queue fully before taking work from the main queue
 	drainPriority:
 		for {
@@ -557,7 +583,7 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 					continue
 				}
 				log.L(ctx).Debugf("%s | %s | %s | processing priority", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
-				err := sel.processEvent(ctx, event)
+				err := sel.runEvent(ctx, event)
 				if err != nil {
 					log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString(), err)
 				}
@@ -574,7 +600,7 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 				continue
 			}
 			log.L(ctx).Debugf("%s | %s | %s | processing priority", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
-			err := sel.processEvent(ctx, event)
+			err := sel.runEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString(), err)
 			}
@@ -586,7 +612,7 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 			}
 
 			log.L(ctx).Debugf("%s | %s | %s | processing", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
-			err := sel.processEvent(ctx, event)
+			err := sel.runEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString(), err)
 			}

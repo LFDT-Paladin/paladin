@@ -161,6 +161,7 @@ func (b *TransactionBuilderForTesting) WithCheckPendingPrivateStateDataError(err
 // WithMockClock swaps the real clock for a mock so tests can assert on scheduled retry timers.
 func (b *TransactionBuilderForTesting) WithMockClock() *TransactionBuilderForTesting {
 	b.mockClock = sequencercommonmocks.NewClock(b.t)
+	b.mockClock.On("Now").Return(time.Now()).Maybe()
 	b.clock = b.mockClock
 	return b
 }

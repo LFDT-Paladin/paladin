@@ -260,10 +260,10 @@ func TestObserveSequencerTXStateChange(t *testing.T) {
 	assert.NotNil(t, metrics)
 
 	// Observe different states with different durations
-	metrics.ObserveSequencerTXStateChange("accepted", 50*time.Millisecond)
-	metrics.ObserveSequencerTXStateChange("assembled", 100*time.Millisecond)
-	metrics.ObserveSequencerTXStateChange("accepted", 75*time.Millisecond)
-	metrics.ObserveSequencerTXStateChange("endorsed", 200*time.Millisecond)
+	metrics.ObserveSequencerTXStateChange("coordinator", "accepted", 50*time.Millisecond)
+	metrics.ObserveSequencerTXStateChange("coordinator", "assembled", 100*time.Millisecond)
+	metrics.ObserveSequencerTXStateChange("coordinator", "accepted", 75*time.Millisecond)
+	metrics.ObserveSequencerTXStateChange("coordinator", "endorsed", 200*time.Millisecond)
 
 	metricFamilies, err := registry.Gather()
 	assert.NoError(t, err, "Unexpected error gathering metrics")
@@ -271,21 +271,29 @@ func TestObserveSequencerTXStateChange(t *testing.T) {
 	// Find the sequencer stage metric
 	var stageMetric *dto.MetricFamily
 	for _, mf := range metricFamilies {
-		if mf.GetName() == "distributed_sequencer_sequencer_stage" {
+		if mf.GetName() == "distributed_sequencer_stage_duration_ms" {
 			stageMetric = mf
 			break
 		}
 	}
 
-	assert.NotNil(t, stageMetric, "sequencer_stage metric should exist")
-	assert.Equal(t, dto.MetricType_HISTOGRAM, stageMetric.GetType(), "sequencer_stage should be a histogram")
+	stageLabel := func(metric *dto.Metric) string {
+		for _, l := range metric.GetLabel() {
+			if l.GetName() == "stage" {
+				return l.GetValue()
+			}
+		}
+		return ""
+	}
+
+	assert.NotNil(t, stageMetric, "stage_duration_ms metric should exist")
+	assert.Equal(t, dto.MetricType_HISTOGRAM, stageMetric.GetType(), "stage_duration_ms should be a histogram")
 
 	// Verify observations were recorded for different states
 	metricsFound := 0
 	for _, metric := range stageMetric.GetMetric() {
-		labels := metric.GetLabel()
-		if len(labels) > 0 {
-			stage := labels[0].GetValue()
+		stage := stageLabel(metric)
+		if stage != "" {
 			histogram := metric.GetHistogram()
 			if histogram != nil {
 				sampleCount := histogram.GetSampleCount()
@@ -301,8 +309,7 @@ func TestObserveSequencerTXStateChange(t *testing.T) {
 	// Verify specific observations - check that "accepted" state has 2 observations
 	var acceptedMetric *dto.Metric
 	for _, metric := range stageMetric.GetMetric() {
-		labels := metric.GetLabel()
-		if len(labels) > 0 && labels[0].GetValue() == "accepted" {
+		if stageLabel(metric) == "accepted" {
 			acceptedMetric = metric
 			break
 		}

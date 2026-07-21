@@ -78,6 +78,7 @@ type originatorTransaction struct {
 	clock                            common.Clock
 	resolveRetryBackoff              time.Duration
 	cancelResolveRetry               func() // cancels a pending verifier-resolution retry timer; nil when none is scheduled
+	stateEntryTime                   time.Time
 }
 
 func NewTransaction(

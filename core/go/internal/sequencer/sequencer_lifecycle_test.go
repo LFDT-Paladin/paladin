@@ -110,6 +110,11 @@ func newSequencerLifecycleTestMocksWithPersistence(t *testing.T, sqlPersistence 
 		m.persistence.EXPECT().NOTX().Return(nil).Maybe()
 	}
 
+	// Event loop metrics are emitted by every running state machine - not something
+	// the lifecycle tests assert on.
+	m.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	m.metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything, mock.Anything).Maybe()
+
 	return m
 }
 
