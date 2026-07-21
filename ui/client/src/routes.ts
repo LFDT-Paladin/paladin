@@ -50,7 +50,8 @@ export const AppRouteFactory = {
     params: Record<string, string | number> = {},
     query?: Record<string, string>
   ): string {
-    const path = generatePath(AppRoutes[route], params);
+    // Params are route-specific; the dynamic route key prevents generatePath from narrowing them.
+    const path = generatePath(AppRoutes[route], params as never);
     if (query === undefined) {
       return path;
     }
