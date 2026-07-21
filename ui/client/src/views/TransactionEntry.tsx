@@ -27,6 +27,7 @@ import { EventsOverview } from "../components/EventsOverview";
 import { PaladinTransactionSection } from "../components/PaladinTransactionSection";
 import { ReceiptlessPaladinTransaction } from "../components/ReceiptlessPaladinTransaction";
 import { PaladinTransactionsDetails } from "../components/TransactionDetails";
+import { AppRouteFactory, AppRouteName, AppRoutes } from "../routes";
 
 export const TransactionEntry: React.FC = () => {
 
@@ -39,13 +40,13 @@ export const TransactionEntry: React.FC = () => {
 
   useEffect(() => {
     if (hashOrId === undefined) {
-      navigate('/ui/transactions');
+      navigate(AppRoutes.Transactions);
     } else if (isValidTransactionHash(hashOrId)) {
       setHash(hashOrId);
     } else if (isValidUUID(hashOrId)) {
       setId(hashOrId);
     } else {
-      navigate('/ui/transactions');
+      navigate(AppRoutes.Transactions);
     }
   }, [hashOrId]);
 
@@ -85,6 +86,11 @@ export const TransactionEntry: React.FC = () => {
 
   const back = searchParams.get('back');
   const backTo = (back !== null && ['submissions', 'domains'].includes(back)) ? back : 'transactions';
+  const backRouteBySection: Record<string, AppRouteName> = {
+    submissions: 'Submissions',
+    domains: 'Domains',
+    transactions: 'Transactions',
+  };
 
   return (
     <Fade timeout={600} in={true}>
@@ -99,7 +105,7 @@ export const TransactionEntry: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate(`/ui/${backTo}`)}
+            onClick={() => navigate(AppRouteFactory.getPath(backRouteBySection[backTo]))}
             >
             {t(`backTo${capitalize(backTo)}`)}
           </Button>

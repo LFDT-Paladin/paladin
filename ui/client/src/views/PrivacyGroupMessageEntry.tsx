@@ -23,6 +23,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { getPrivacyGroupMessage } from "../queries/privacyGroups";
+import { AppRoutes } from '../routes';
 
 export const PrivacyGroupMessageEntry: React.FC = () => {
 
@@ -61,7 +62,7 @@ export const PrivacyGroupMessageEntry: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate('/ui/privacy-groups/messages')}
+            onClick={() => navigate(AppRoutes.PrivacyGroupMessages)}
           >
             {t('backToMessages')}
           </Button>

@@ -28,6 +28,7 @@ import { EventChip } from "./EventChip";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useNavigate } from "react-router-dom";
 import { customNavigate } from "../utils";
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   enrichedTransaction: IEnrichedTransaction
@@ -98,7 +99,7 @@ export const EnrichedTransaction: React.FC<Props> = ({
             <Grid alignContent="center">
               <Tooltip arrow title={t('open')}>
                 <IconButton
-                  onClick={event => customNavigate(`/ui/transactions/${enrichedTransaction.hash}`, event, navigate)}
+                  onClick={event => customNavigate(AppRouteFactory.getPath('Transaction', { hashOrId: enrichedTransaction.hash }), event, navigate)}
                 >
                   <OpenInNewIcon color="secondary" fontSize="medium" />
                 </IconButton>

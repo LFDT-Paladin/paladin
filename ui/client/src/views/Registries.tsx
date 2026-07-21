@@ -32,6 +32,7 @@ import { FiltersButton } from "../components/FiltersButton";
 import { Filters } from "../components/Filters";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
+import { AppRouteFactory } from '../routes';
 
 export const Registries: React.FC = () => {
   const { registry } = useApplicationContext();
@@ -290,7 +291,7 @@ export const Registries: React.FC = () => {
                         <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                           <Tooltip title={t('open')} arrow>
                             <IconButton
-                              onClick={mouseEvent => customNavigate(`/ui/registries/${selectedRegistry}/${registryEntry.id}`, mouseEvent, navigate)}>
+                              onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('RegistryEntry', { registry: selectedRegistry, id: registryEntry.id }), mouseEvent, navigate)}>
                               <OpenInNewIcon color="secondary" fontSize="medium" />
                             </IconButton>
                           </Tooltip>

@@ -25,7 +25,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { FiltersButton } from "../components/FiltersButton";
 import { Filters } from "../components/Filters";
-import { AppRoutes } from "../routes";
+import { AppRoutes, AppRouteFactory } from "../routes";
 import CircleIcon from '@mui/icons-material/Circle';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { customNavigate } from "../utils";
@@ -336,7 +336,7 @@ export const PrivacyGroupListeners: React.FC = () => {
                           <TableCell sx={{ padding: '8px' }}>
                             <Tooltip title={t('open')} arrow>
                               <IconButton
-                                onClick={mouseEvent => customNavigate(`/ui/listeners/privacy-groups/${privacyGroupListener.name}`, mouseEvent, navigate)}>
+                                onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('PrivacyGroupListenerEntry', { name: privacyGroupListener.name }), mouseEvent, navigate)}>
                                 <OpenInNewIcon color="secondary" fontSize="medium" />
                               </IconButton>
                             </Tooltip>

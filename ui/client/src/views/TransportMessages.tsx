@@ -31,7 +31,7 @@ import { FiltersButton } from "../components/FiltersButton";
 import { ReliableMessageLookupDialog } from "../dialogs/ReliableMessageLookup";
 import SearchIcon from '@mui/icons-material/Search';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-import { AppRoutes } from "../routes";
+import { AppRoutes, AppRouteFactory } from "../routes";
 import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const TransportMessages: React.FC = () => {
@@ -285,7 +285,7 @@ export const TransportMessages: React.FC = () => {
                         <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                           <Tooltip title={t('open')} arrow>
                             <IconButton
-                              onClick={mouseEvent => customNavigate(`/ui/transports/messages/${message.id}`, mouseEvent, navigate)}>
+                              onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('ReliableMessage', { id: message.id }), mouseEvent, navigate)}>
                               <OpenInNewIcon color="secondary" fontSize="medium" />
                             </IconButton>
                           </Tooltip>

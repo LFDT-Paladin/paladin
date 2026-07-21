@@ -35,6 +35,7 @@ import CircleIcon from '@mui/icons-material/Circle';
 import { isValidPrivacyGroupListenerName } from '../utils';
 import { IReceiptListenerFilters, IReceiptListenerOptions, TransactionType } from '../interfaces';
 import { useNavigate } from 'react-router-dom';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   onClose: () => void
@@ -85,7 +86,7 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
       });
     },
     onSuccess: () => {
-      navigate(`/ui/listeners/receipts/${listenerName}`);
+      navigate(AppRouteFactory.getPath('ReceiptListenerEntry', { id: listenerName }));
     },
     onError: error => {
       setErrorMessage(

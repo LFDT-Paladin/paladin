@@ -30,6 +30,7 @@ import { useTranslation } from 'react-i18next';
 import { isValidHex } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { getState } from '../queries/states';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   domain: string
@@ -60,7 +61,7 @@ export const StateLookupDialog: React.FC<Props> = ({
     setNotFound(false);
     state().then(result => {
       if (result.isSuccess && result.data !== null) {
-        navigate(`/ui/states/${domain}/${schemaId}/${stateId}`);
+        navigate(AppRouteFactory.getPath('State', { domain, schema: schemaId, id: stateId }));
       } else {
         setNotFound(true);
       }

@@ -32,6 +32,7 @@ import { TransactionType } from '../../../interfaces';
 import { sendTransaction } from '../../../queries/transactions';
 import { useNavigate } from 'react-router-dom';
 import { customNavigate } from '../../../utils';
+import { AppRouteFactory } from '../../../routes';
 
 const notoConstructorABI = {
   type: 'constructor',
@@ -112,7 +113,7 @@ export const NotoDeployDialog: React.FC<Props> = ({
             <Alert variant="filled" severity="success"
               action={
                 <Button variant="outlined" color="inherit" size="small"
-                  onClick={event => customNavigate(`/ui/transactions/${transactionId}?back=domains`, event, navigate)}
+                  onClick={event => customNavigate(AppRouteFactory.getPath('Transaction', { hashOrId: transactionId }, { back: 'domains' }), event, navigate)}
                 >{t('view')}</Button>
               }
             >

@@ -38,6 +38,7 @@ import { useNavigate } from 'react-router-dom';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import { useMutation } from '@tanstack/react-query';
 import { createPrivacyGroup } from '../queries/privacyGroups';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   onClose: () => void
@@ -58,7 +59,7 @@ export const CreatePrivacyGroupDialog: React.FC<Props> = ({
   const { mutate: handleSubmit } = useMutation({
     mutationFn: () => createPrivacyGroup(name, members),
     onSuccess: data => {
-      navigate(`/ui/privacy-groups/groups/${data.id}`);
+      navigate(AppRouteFactory.getPath('PrivacyGroup', { idOrAddress: data.id }));
     },
     onError: error => {
       setErrorMessage(error.message);

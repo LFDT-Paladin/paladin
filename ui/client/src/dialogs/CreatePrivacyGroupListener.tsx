@@ -34,6 +34,7 @@ import { createPrivacyGroupListener } from '../queries/privacyGroups';
 import CircleIcon from '@mui/icons-material/Circle';
 import { isValidHex, isValidPrivacyGroupListenerName } from '../utils';
 import { useNavigate } from 'react-router-dom';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   onClose: () => void
@@ -74,7 +75,7 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
       }
     }),
     onSuccess: () => {
-      navigate(`/ui/listeners/privacy-groups/${listenerName}`);
+      navigate(AppRouteFactory.getPath('PrivacyGroupListenerEntry', { name: listenerName }));
     },
     onError: error => {
       setErrorMessage(

@@ -30,6 +30,7 @@ import { isValidHex, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { sendPrivacyGroupMessage } from '../queries/privacyGroups';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   preSelectedPrivacyGroupId?: string
@@ -65,7 +66,7 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
       correlationId: correlationId.length > 0 ? correlationId : undefined,
     }),
     onSuccess: messageId => {
-      navigate(`/ui/privacy-groups/messages/${messageId}`);
+      navigate(AppRouteFactory.getPath('PrivacyGroupMessageEntry', { messageId }));
     },
     onError: error => {
       setErrorMessage(error.message);

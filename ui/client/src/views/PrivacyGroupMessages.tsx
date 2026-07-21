@@ -33,7 +33,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { PrivacyGroupMessageLookupDialog } from "../dialogs/PrivacyGroupMessageLookup";
 import SendIcon from '@mui/icons-material/Send';
 import { SendPrivacyGroupMessageDialog } from "../dialogs/SendPrivacyGroupMessage";
-import { AppRoutes } from "../routes";
+import { AppRoutes, AppRouteFactory } from "../routes";
 import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const PrivacyGroupMessages: React.FC = () => {
@@ -348,7 +348,7 @@ export const PrivacyGroupMessages: React.FC = () => {
                         <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                           <Tooltip title={t('open')} arrow>
                             <IconButton
-                              onClick={mouseEvent => customNavigate(`/ui/privacy-groups/messages/${privacyGroupMessage.id}`, mouseEvent, navigate)}>
+                              onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('PrivacyGroupMessageEntry', { messageId: privacyGroupMessage.id }), mouseEvent, navigate)}>
                               <OpenInNewIcon color="secondary" fontSize="medium" />
                             </IconButton>
                           </Tooltip>

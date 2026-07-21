@@ -24,6 +24,7 @@ import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { getState } from "../queries/states";
 import { StateActions } from "../components/StateActions";
+import { AppRoutes } from '../routes';
 
 export const StateEntry: React.FC = () => {
 
@@ -62,7 +63,7 @@ export const StateEntry: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate('/ui/states')}
+            onClick={() => navigate(AppRoutes.States)}
           >
             {t('backToStates')}
           </Button>

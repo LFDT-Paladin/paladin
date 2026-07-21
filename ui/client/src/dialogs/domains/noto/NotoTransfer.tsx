@@ -32,6 +32,7 @@ import { TransactionType } from '../../../interfaces';
 import { sendTransaction } from '../../../queries/transactions';
 import { customNavigate, encodeHex } from '../../../utils';
 import { useNavigate } from 'react-router-dom';
+import { AppRouteFactory } from '../../../routes';
 
 type Props = {
   contractAddress: string;
@@ -131,7 +132,7 @@ export const NotoTransferDialog: React.FC<Props> = ({
             <Alert variant="filled" severity="success"
               action={
                 <Button variant="outlined" color="inherit" size="small"
-                  onClick={event => customNavigate(`/ui/transactions/${transactionId}?back=domains`, event, navigate)}
+                  onClick={event => customNavigate(AppRouteFactory.getPath('Transaction', { hashOrId: transactionId }, { back: 'domains' }), event, navigate)}
                 >{t('view')}</Button>
               }
             >

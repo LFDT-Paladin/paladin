@@ -30,6 +30,7 @@ import { useTranslation } from 'react-i18next';
 import { isValidAddress } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { getDomainContractByAddress } from '../queries/domains';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   onClose: () => void
@@ -56,7 +57,7 @@ export const DomainContractLookupDialog: React.FC<Props> = ({
     setNotFound(false);
     domainContractByAddress().then(result => {
       if (result.isSuccess) {
-        navigate(`/ui/domains/${address}`);
+        navigate(AppRouteFactory.getPath('DomainContract', { address }));
       } else {
         setNotFound(true);
       }

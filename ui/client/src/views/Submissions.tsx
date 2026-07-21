@@ -32,6 +32,7 @@ import { customNavigate } from "../utils";
 import { useNavigate } from "react-router-dom";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
+import { AppRouteFactory } from '../routes';
 
 export const Submissions: React.FC = () => {
   const { submissions } = useApplicationContext();
@@ -300,7 +301,7 @@ export const Submissions: React.FC = () => {
                           <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                             <Tooltip title={t('open')} arrow>
                               <IconButton
-                                onClick={mouseEvent => customNavigate(`/ui/transactions/${transaction.id}?back=submissions`, mouseEvent, navigate)}>
+                                onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('Transaction', { hashOrId: transaction.id }, { back: 'submissions' }), mouseEvent, navigate)}>
                                 <OpenInNewIcon color="secondary" fontSize="medium" />
                               </IconButton>
                             </Tooltip>

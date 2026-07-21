@@ -30,6 +30,7 @@ import { useTranslation } from 'react-i18next';
 import { fetchEnrichedTransaction, fetchPaladinTransaction, fetchTransactionReceipt } from '../queries/transactions';
 import { isValidTransactionHash, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   onClose: () => void
@@ -73,12 +74,16 @@ export const TransactionLookupDialog: React.FC<Props> = ({
   });
 
   const handleSubmit = () => {
-    const queryParams = backToSubmissions === true? '?back=submissions' : '';
+    const path = AppRouteFactory.getPath(
+      'Transaction',
+      { hashOrId },
+      backToSubmissions === true ? { back: 'submissions' } : undefined
+    );
     setNotFound(false);
     if (isValidTransactionHash(hashOrId)) {
       blockchainTransactionByHash().then(result => {
         if (result.isSuccess) {
-          navigate(`/ui/transactions/${hashOrId}${queryParams}`);
+          navigate(path);
         } else {
           setNotFound(true);
         }
@@ -86,11 +91,11 @@ export const TransactionLookupDialog: React.FC<Props> = ({
     } else if (isValidUUID(hashOrId)) {
       paladinReceiptById().then(result => {
         if (result.isSuccess && result.data !== null) {
-          navigate(`/ui/transactions/${hashOrId}${queryParams}`);
+          navigate(path);
         } else {
           paladinTransactionById().then(result => {
             if (result.isSuccess && result.data !== null) {
-              navigate(`/ui/transactions/${hashOrId}${queryParams}`);
+              navigate(path);
             } else {
               setNotFound(true);
             }

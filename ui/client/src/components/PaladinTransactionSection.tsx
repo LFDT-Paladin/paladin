@@ -21,6 +21,7 @@ import { getShortId, isValidUUID } from "../utils";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PaladinTransactionsDetails } from "./TransactionDetails";
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   receipts: ITransactionReceipt[]
@@ -41,7 +42,7 @@ export const PaladinTransactionSection: React.FC<Props> = ({ receipts }) => {
         value={selectedReceiptId}
         TabIndicatorProps={{ style: { display: 'none' } }}
         onChange={(_event, value) => {
-          navigate(`/ui/transactions/${value}`, { replace: true });
+          navigate(AppRouteFactory.getPath('Transaction', { hashOrId: value }), { replace: true });
           setSelectedReceiptId(value);
         }}
       >

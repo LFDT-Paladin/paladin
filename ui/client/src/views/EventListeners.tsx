@@ -26,7 +26,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { FiltersButton } from "../components/FiltersButton";
 import { Filters } from "../components/Filters";
 import CircleIcon from '@mui/icons-material/Circle';
-import { AppRoutes } from "../routes";
+import { AppRoutes, AppRouteFactory } from "../routes";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { customNavigate } from "../utils";
 import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
@@ -329,7 +329,7 @@ export const EventListeners: React.FC = () => {
                           <TableCell sx={{ padding: '8px' }}>
                             <Tooltip title={t('open')} arrow>
                               <IconButton
-                                onClick={mouseEvent => customNavigate(`/ui/listeners/events/${eventListener.name}`, mouseEvent, navigate)}>
+                                onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('EventListenerEntry', { id: eventListener.name }), mouseEvent, navigate)}>
                                 <OpenInNewIcon color="secondary" fontSize="medium" />
                               </IconButton>
                             </Tooltip>

@@ -35,6 +35,7 @@ import { FiltersButton } from "../components/FiltersButton";
 import { StateLookupDialog } from "../dialogs/StateLookup";
 import SearchIcon from '@mui/icons-material/Search';
 import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
+import { AppRouteFactory } from '../routes';
 
 export const States: React.FC = () => {
   const { states: statesViewState, readOnly } = useApplicationContext();
@@ -466,7 +467,7 @@ export const States: React.FC = () => {
                         <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                           <Tooltip title={t('open')} arrow>
                             <IconButton
-                              onClick={mouseEvent => customNavigate(`/ui/states/${state.domain}/${state.schema}/${state.id}`, mouseEvent, navigate)}>
+                              onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('State', { domain: state.domain, schema: state.schema, id: state.id }), mouseEvent, navigate)}>
                               <OpenInNewIcon color="secondary" fontSize="medium" />
                             </IconButton>
                           </Tooltip>

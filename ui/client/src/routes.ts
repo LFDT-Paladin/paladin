@@ -14,6 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { generatePath } from 'react-router-dom';
+
 export const AppRoutes = {
   Keys: '/ui/keys',
   Submissions: '/ui/submissions',
@@ -38,4 +40,22 @@ export const AppRoutes = {
   ReceiptListenerEntry: '/ui/listeners/receipts/:id',
   PrivacyGroupListeners: '/ui/listeners/privacy-groups',
   PrivacyGroupListenerEntry: '/ui/listeners/privacy-groups/:name',
+} as const;
+
+export type AppRouteName = keyof typeof AppRoutes;
+
+export const AppRouteFactory = {
+  getPath(
+    route: AppRouteName,
+    params: Record<string, string | number> = {},
+    query?: Record<string, string>
+  ): string {
+    const path = generatePath(AppRoutes[route], params);
+    if (query === undefined) {
+      return path;
+    }
+    const searchParams = new URLSearchParams(query);
+    const qs = searchParams.toString();
+    return qs ? `${path}?${qs}` : path;
+  },
 };

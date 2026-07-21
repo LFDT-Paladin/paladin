@@ -30,6 +30,7 @@ import { useTranslation } from 'react-i18next';
 import { isValidAddress, isValidPrivacyGroupId } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { getPrivacyGroupByAddress, getPrivacyGroupById } from '../queries/privacyGroups';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   onClose: () => void
@@ -63,7 +64,7 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
     if (isValidPrivacyGroupId(idOrContractAddress)) {
       privacyGroupById().then(result => {
         if (result.isSuccess) {
-          navigate(`/ui/privacy-groups/groups/${idOrContractAddress}`);
+          navigate(AppRouteFactory.getPath('PrivacyGroup', { idOrAddress: idOrContractAddress }));
         } else {
           setNotFound(true);
         }
@@ -71,7 +72,7 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
     } else if (isValidAddress(idOrContractAddress)) {
       privacyGroupByAddress().then(result => {
         if (result.isSuccess) {
-          navigate(`/ui/privacy-groups/groups/${idOrContractAddress}`);
+          navigate(AppRouteFactory.getPath('PrivacyGroup', { idOrAddress: idOrContractAddress }));
         } else {
           setNotFound(true);
         }

@@ -44,6 +44,7 @@ import { customNavigate } from '../utils';
 import { Captions } from 'lucide-react';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { pagedTableCount, useResetPaginationOnChange } from '../hooks/pagination';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   domainAddress: string
@@ -270,7 +271,7 @@ export const SmartContractsTable: React.FC<Props> = ({
                     <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                       <Tooltip title={t('open')} arrow>
                         <IconButton
-                          onClick={mouseEvent => customNavigate(`/ui/domains/${contract.address}`, mouseEvent, navigate)}>
+                          onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('DomainContract', { address: contract.address }), mouseEvent, navigate)}>
                           <OpenInNewIcon color="secondary" fontSize="medium" />
                         </IconButton>
                       </Tooltip>

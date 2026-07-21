@@ -35,6 +35,7 @@ import CircleIcon from '@mui/icons-material/Circle';
 import { isValidHex, isValidPrivacyGroupListenerName } from '../utils';
 import { IABIEntry, IEventListenerOptions } from '../interfaces';
 import { useNavigate } from 'react-router-dom';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   onClose: () => void
@@ -104,7 +105,7 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
       });
     },
     onSuccess: () => {
-      navigate(`/ui/listeners/events/${listenerName}`);
+      navigate(AppRouteFactory.getPath('EventListenerEntry', { id: listenerName }));
     },
     onError: error => {
       setErrorMessage(

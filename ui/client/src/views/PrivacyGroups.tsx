@@ -34,7 +34,7 @@ import { FiltersButton } from "../components/FiltersButton";
 import { Filters } from "../components/Filters";
 import AddIcon from '@mui/icons-material/Add';
 import { CreatePrivacyGroupDialog } from "../dialogs/CreatePrivacyGroup";
-import { AppRoutes } from "../routes";
+import { AppRoutes, AppRouteFactory } from "../routes";
 import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
 
 export const PrivacyGroups: React.FC = () => {
@@ -329,7 +329,7 @@ export const PrivacyGroups: React.FC = () => {
                           <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                             <Tooltip title={t('open')} arrow>
                               <IconButton
-                                onClick={mouseEvent => customNavigate(`/ui/privacy-groups/groups/${privacyGroup.id}`, mouseEvent, navigate)}>
+                                onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('PrivacyGroup', { idOrAddress: privacyGroup.id }), mouseEvent, navigate)}>
                                 <OpenInNewIcon color="secondary" fontSize="medium" />
                               </IconButton>
                             </Tooltip>

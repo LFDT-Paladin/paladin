@@ -30,6 +30,7 @@ import { useTranslation } from 'react-i18next';
 import { isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { getMessage } from '../queries/transport';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   onClose: () => void
@@ -55,7 +56,7 @@ export const ReliableMessageLookupDialog: React.FC<Props> = ({
     setNotFound(false);
     messageById().then(result => {
       if (result.isSuccess && result.data !== null) {
-        navigate(`/ui/transports/messages/${id}`);
+        navigate(AppRouteFactory.getPath('ReliableMessage', { id }));
       } else {
         setNotFound(true);
       }

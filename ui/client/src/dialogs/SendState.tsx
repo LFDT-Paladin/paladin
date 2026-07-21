@@ -31,6 +31,7 @@ import { customNavigate } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { IState } from '../interfaces';
 import { pushState } from '../queries/states';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   state: IState
@@ -96,7 +97,7 @@ export const SendStateDialog: React.FC<Props> = ({
               <Alert variant="filled" severity="success"
                 action={
                   <Button variant="outlined" color="inherit" size="small"
-                    onClick={event => customNavigate(`/ui/transports/messages/${messageId}`, event, navigate)}
+                    onClick={event => customNavigate(AppRouteFactory.getPath('ReliableMessage', { id: messageId }), event, navigate)}
                   >{t('view')}</Button>
                 }
               >
