@@ -73,6 +73,7 @@ func (sm *signingModule) init() {
 		_, err := sm.api.ConfigureSigningModule(sm.ctx, &prototk.ConfigureSigningModuleRequest{
 			Name:       sm.name,
 			ConfigJson: string(confJSON),
+			LogLevel:   log.GetLevel(),
 		})
 		return true, err
 	})

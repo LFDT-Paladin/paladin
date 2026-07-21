@@ -201,6 +201,7 @@ func (d *domain) init() {
 			ChainId:                 d.dm.ethClientFactory.ChainID(),
 			ConfigJson:              pldtypes.JSONString(d.conf.Config).String(),
 			FixedSigningIdentity:    d.fixedSigningIdentity,
+			LogLevel:                log.GetLevel(),
 		})
 		if err != nil {
 			return true, err

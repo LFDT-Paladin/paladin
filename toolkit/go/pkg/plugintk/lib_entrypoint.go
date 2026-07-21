@@ -31,7 +31,7 @@ type PluginLibraryEntrypoint struct {
 }
 
 func NewPluginLibraryEntrypoint(factory func() PluginBase) *PluginLibraryEntrypoint {
-	// Debug logging until anything different initialized by plugin
+	// Default level until the engine's level arrives on the Configure*Request
 	log.SetLevel("debug")
 	return &PluginLibraryEntrypoint{
 		factory: factory,
