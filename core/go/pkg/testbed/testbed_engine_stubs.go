@@ -224,7 +224,9 @@ func (tb *testbed) gatherEndorsements(ctx context.Context, dc components.DomainQ
 			}
 		}
 	}
-	tx.ptx.PostAssembly.AssembleResponse.Endorsements = attestations
+	// Match the real coordinator: gathered endorsements live in CollectedEndorsements, which is what
+	// allAttestations (prepare) and the ENDORSER_MUST_SUBMIT signer selection both read.
+	tx.ptx.PostAssembly.CollectedEndorsements = attestations
 	return nil
 }
 

@@ -222,7 +222,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      @Override
      protected CompletableFuture<InitTransactionResponse> initTransaction(InitTransactionRequest request) {
          try {
-             var tx = new PenteTransaction(this, request.getTransaction(), null);
+             var tx = new PenteTransaction(this, request.getTransaction());
              var response = InitTransactionResponse.newBuilder();
              response.addRequiredVerifiers(ResolveVerifierRequest.newBuilder().
                      setAlgorithm(Algorithms.ECDSA_SECP256K1).
@@ -495,7 +495,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
                  transitionTX.setRequiredSigner(request.getTransaction().getFrom());
 
                  // TODO: can the transitionHash be reused from a prior step instead of being computed again?
-                 var tx = new PenteTransaction(this, request.getTransaction(), null);
+                 var tx = new PenteTransaction(this, request.getTransaction());
                  var transitionHash = tx.eip712TypedDataEndorsementPayload(
                          request.getInputStatesList().stream().map(EndorsableState::getId).toList(),
                          request.getReadStatesList().stream().map(EndorsableState::getId).toList(),
@@ -611,7 +611,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      @Override
      protected CompletableFuture<InitCallResponse> initCall(InitCallRequest request) {
          try {
-             var tx = new PenteTransaction(this, request.getTransaction(), null);
+             var tx = new PenteTransaction(this, request.getTransaction());
              var response = InitCallResponse.newBuilder();
              response.addRequiredVerifiers(ResolveVerifierRequest.newBuilder().
                      setAlgorithm(Algorithms.ECDSA_SECP256K1).

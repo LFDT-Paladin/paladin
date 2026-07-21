@@ -244,7 +244,7 @@ func (tb *testbed) resolveFunction(invocation *pldapi.TransactionInput) (*abi.En
 func (tb *testbed) resolveTXSigner(tx *testbedTransaction) error {
 	// The testbed implements much simpler checking here than the full private TX manager
 	// on whether the ENDORSER_MUST_SUBMIT constraint clashes with the config on the contract.
-	for _, ar := range tx.ptx.PostAssembly.AssembleResponse.GetEndorsements() {
+	for _, ar := range tx.ptx.PostAssembly.CollectedEndorsements {
 		for _, c := range ar.Constraints {
 			if c == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
 				if tx.ptx.Signer != "" {
@@ -336,7 +336,7 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	log.L(ctx).Infof("Assembled and endorsed inputs=%d outputs=%d signatures=%d endorsements=%d",
-		len(tx.ptx.PostAssembly.AssembleResponse.GetInputStates()), len(tx.ptx.PostAssembly.OutputStates), len(tx.ptx.PostAssembly.AssembleResponse.GetSignatures()), len(tx.ptx.PostAssembly.AssembleResponse.GetEndorsements()))
+		len(tx.ptx.PostAssembly.AssembleResponse.GetInputStates()), len(tx.ptx.PostAssembly.OutputStates), len(tx.ptx.PostAssembly.AssembleResponse.GetSignatures()), len(tx.ptx.PostAssembly.CollectedEndorsements))
 
 	// Pick the signer for the base ledger transaction (we are always the coordinator in the testbed so this logic is much simplified from the private TX manager)
 	if err := tb.resolveTXSigner(tx); err != nil {

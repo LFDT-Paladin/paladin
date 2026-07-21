@@ -353,7 +353,6 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 	heartbeatEvent.FromNode = from
 	heartbeatEvent.ContractAddress = contractAddress
 	heartbeatEvent.CoordinatorSnapshot = coordinatorSnapshot
-	heartbeatEvent.StateSnapshot = heartbeatNotification.GetCoordinatorSnapshot().GetStateSnapshot()
 	heartbeatEvent.EventTime = time.Now()
 	seq.GetOriginator().QueueEvent(ctx, heartbeatEvent)
 	seq.GetCoordinator().QueueEvent(ctx, heartbeatEvent)

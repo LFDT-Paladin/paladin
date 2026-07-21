@@ -17,7 +17,6 @@ package publictxmgr
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -47,6 +46,9 @@ type inMemoryTxState struct {
 
 	managedTxMux sync.Mutex
 	mtx          *managedTx
+
+	// "<from>:<nonce>" string, computed once at construction; the nonce is always allocated before an in-flight tx is constructed
+	signerNonce string
 }
 
 func gasPricingSet(gasPricing pldapi.PublicTxGasPricing) bool {
@@ -74,6 +76,10 @@ func NewInMemoryTxStateManager(ctx context.Context, ptx *DBPublicTxn, ift *inFli
 		imtxs.mtx.FirstSubmit = &firstSub.Created
 		imtxs.mtx.LastSubmittedGasPrice = recoverGasPriceOptions(lastSub.GasPricing)
 	}
+
+	// A nonce is always allocated before an in-flight transaction is constructed
+	imtxs.signerNonce = ptx.From.String() + ":" + strconv.FormatUint(*ptx.Nonce, 10)
+
 	return imtxs
 }
 
@@ -166,11 +172,7 @@ func (imtxs *inMemoryTxState) GetContractAddress() string {
 }
 
 func (imtxs *inMemoryTxState) GetSignerNonce() string {
-	nonceStr := "unassigned"
-	if imtxs.mtx.ptx.Nonce != nil {
-		nonceStr = strconv.FormatUint(*imtxs.mtx.ptx.Nonce, 10)
-	}
-	return fmt.Sprintf("%s:%s", imtxs.mtx.ptx.From, nonceStr)
+	return imtxs.signerNonce
 }
 
 func (imtxs *inMemoryTxState) GetCreatedTime() *pldtypes.Timestamp {
