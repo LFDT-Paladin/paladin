@@ -88,7 +88,7 @@ export const Navigation: React.FC = () => {
         <ListItem>
           <ListItemButton
             onClick={event => customNavigate(AppRoutes.PrivacyGroups, event, navigate)}
-            selected={pathname.startsWith('/ui/privacy-groups')}>
+            selected={pathname.startsWith(AppRoutes.PrivacyGroups)}>
             <ListItemText primary={t('privacyGroups')} />
           </ListItemButton>
         </ListItem>
@@ -102,14 +102,14 @@ export const Navigation: React.FC = () => {
         <ListItem>
           <ListItemButton
             onClick={event => customNavigate(AppRoutes.TransportConnections, event, navigate)}
-            selected={pathname.startsWith('/ui/transports')}>
+            selected={pathname.startsWith(AppRoutes.TransportConnections)}>
             <ListItemText primary={t('transports')} />
           </ListItemButton>
         </ListItem>
         <ListItem>
           <ListItemButton
             onClick={event => customNavigate(AppRoutes.EventListeners, event, navigate)}
-            selected={pathname.startsWith('/ui/listeners')}>
+            selected={pathname.startsWith(AppRoutes.EventListeners)}>
             <ListItemText primary={t('listeners')} />
           </ListItemButton>
         </ListItem>

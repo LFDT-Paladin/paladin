@@ -130,13 +130,6 @@ export const Filters: React.FC<Props> = ({
 
       </Box>
 
-      {/* <AddFilterDialog
-        filterFields={filterFields}
-        addFilter={filter => setFilters([...filters, filter])}
-        dialogOpen={addFilterDialogOpen}
-        setDialogOpen={setAddFilterDialogOpen}
-      /> */}
-
       <FilterDialog
         existingFilter={selectedFilter}
         filterFields={filterFields}
