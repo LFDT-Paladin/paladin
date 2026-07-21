@@ -24,12 +24,6 @@ metadata:
     app.kubernetes.io/name: {{ $name }}
 spec:
   config: |
-    sequencerManager:
-      heartbeatInterval: 5s
-      closingGracePeriod: 1
-      maxInflightTransactions: 5000
-      maxDispatchAhead: 5000
-      delegationBatchInterval: 500ms
     log:
       level: debug
     publicTxManager:
