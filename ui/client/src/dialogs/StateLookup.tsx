@@ -49,7 +49,7 @@ export const StateLookupDialog: React.FC<Props> = ({
   const navigate = useNavigate();
 
   const { refetch: state } = useQuery({
-    queryKey: [`state-${domain}-${schemaId}-${stateId}`],
+    queryKey: ['state', domain, schemaId, stateId],
     queryFn: () => getState(domain, schemaId, stateId!),
     retry: false,
     enabled: false
