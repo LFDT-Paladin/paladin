@@ -82,6 +82,8 @@ type coordinator struct {
 	heartbeatIntervalsSinceLastReceive int
 	transactionsByID                   map[uuid.UUID]transaction.CoordinatorTransaction
 	pooledTransactions                 []transaction.CoordinatorTransaction
+	assemblyInFlight                   bool      // true while a transaction occupies the single assembly slot
+	assemblingTxID                     uuid.UUID // ID of the transaction currently in the assembly slot
 	currentBlockHeight                 int64
 	effectiveBlockHeight               uint64
 	dependencyTracker                  dependencytracker.DependencyTracker
