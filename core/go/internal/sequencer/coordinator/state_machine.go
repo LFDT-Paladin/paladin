@@ -784,9 +784,6 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
 					Actions:   []ActionRule{{Action: action_QueueTransactionForDispatch}},
 				}, {
-					Validator: validator_TransactionStateTransitionFrom(transaction.State_Dispatched),
-					Actions:   []ActionRule{{Action: action_NudgeDispatchLoop}},
-				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Final, transaction.State_Evicted),
 					Actions:   []ActionRule{{Action: action_CleanUpTransaction}},
 				}},

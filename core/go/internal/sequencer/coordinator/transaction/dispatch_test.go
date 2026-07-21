@@ -523,6 +523,17 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Test_PersistDispatch_NoStashedBatch_NoOp covers the case where PersistDispatch runs with no batch
+// stashed by dispatchPrepare (e.g. already persisted, or repooled before persist): it must be a no-op
+// and must not touch syncPoints.
+func Test_PersistDispatch_NoStashedBatch_NoOp(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
+
+	// No dispatchPrepare ran, so pendingDispatchBatch is nil.
+	require.NoError(t, txn.PersistDispatch(ctx))
+}
+
 func Test_dispatch_PersistDispatchBatchReturnsError(t *testing.T) {
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).

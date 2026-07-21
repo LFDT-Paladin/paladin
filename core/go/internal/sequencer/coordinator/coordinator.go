@@ -131,7 +131,7 @@ type coordinator struct {
 	dispatchQueue      chan transaction.CoordinatorTransaction
 	dispatchLoopCancel context.CancelFunc // non-nil iff this coordinator owns a running loop
 	dispatchLoopDone   chan struct{}      // per-run done channel; nil = never started / already stopped+waited
-	inFlightTxns       map[uuid.UUID]transaction.CoordinatorTransaction
+	inFlightTxns       map[uuid.UUID]struct{}
 	inFlightMutex      *sync.Cond
 }
 
@@ -206,7 +206,7 @@ func NewCoordinator(
 
 	c.originatorActivity = make(map[string]int)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
-	c.inFlightTxns = make(map[uuid.UUID]transaction.CoordinatorTransaction, c.maxDispatchAhead)
+	c.inFlightTxns = make(map[uuid.UUID]struct{}, c.maxDispatchAhead)
 	c.pooledTransactions = make([]transaction.CoordinatorTransaction, 0, c.maxInflightTransactions)
 	c.dispatchQueue = make(chan transaction.CoordinatorTransaction, c.maxInflightTransactions)
 
@@ -287,6 +287,21 @@ func (c *coordinator) propagateEventToAllTransactions(ctx context.Context, event
 		}
 	}
 	return nil
+}
+
+// setDispatchedInFlight is called synchronously by a coordinator transaction from within its state
+// transition callback (while it holds its own lock) as it enters or leaves State_Dispatched, but only
+// for transactions that will dispatch a public transaction. The inflight tx map is kept up to date by
+// single tx edits, and the dispatch loop is signalled immediately
+func (c *coordinator) setDispatchedInFlight(txID uuid.UUID, inFlight bool) {
+	c.inFlightMutex.L.Lock()
+	defer c.inFlightMutex.L.Unlock()
+	if inFlight {
+		c.inFlightTxns[txID] = struct{}{}
+	} else {
+		delete(c.inFlightTxns, txID)
+		c.inFlightMutex.Signal()
+	}
 }
 
 func (c *coordinator) getTransactionsInStates(ctx context.Context, states []transaction.State) []transaction.CoordinatorTransaction {

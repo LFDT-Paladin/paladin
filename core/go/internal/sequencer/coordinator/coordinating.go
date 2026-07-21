@@ -261,6 +261,7 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.transportWriter,
 		c.clock,
 		c.queueEventInternal,
+		c.setDispatchedInFlight,
 		c.coordinatorTransactionHandleEvent,
 		c.getCoordinatorTransactionState,
 		func(ctx context.Context, nodes ...string) { c.updateEndorserCandidates(ctx, nodes...) },

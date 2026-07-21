@@ -24,18 +24,17 @@ import (
 )
 
 func (c *coordinator) dispatchLoop(ctx context.Context) {
-	dispatchedAhead := 0 // Number of transactions we've dispatched without confirming they are in the state machine's in-flight list
 	log.L(ctx).Debugf("coordinator dispatch loop started for contract %s", c.contractAddress.String())
 
 	for {
 		select {
 		case tx := <-c.dispatchQueue:
-			log.L(ctx).Debugf("coordinator pulled transaction %s from the dispatch queue. In-flight count: %d, dispatched ahead: %d, max dispatch ahead: %d", tx.GetID().String(), len(c.inFlightTxns), dispatchedAhead, c.maxDispatchAhead)
+			log.L(ctx).Debugf("coordinator pulled transaction %s from the dispatch queue. max dispatch ahead: %d", tx.GetID().String(), c.maxDispatchAhead)
 
 			c.inFlightMutex.L.Lock()
 
 			// Too many in flight - wait for some to be confirmed and re-check cancellation after each wake.
-			for len(c.inFlightTxns)+dispatchedAhead >= c.maxDispatchAhead {
+			for len(c.inFlightTxns) >= c.maxDispatchAhead {
 				c.inFlightMutex.Wait()
 				select {
 				case <-ctx.Done():
@@ -45,12 +44,14 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 				default:
 				}
 			}
-			// Release before the dispatch flow: HandleEvent performs synchronous DB/state persistence and
-			// does not touch inFlightTxns or dispatchedAhead. Holding inFlightMutex across it would block the
-			// coordinator event loop (which grabs the same lock in action_NudgeDispatchLoop) behind the DB write.
+			// Release before the dispatch flow: HandleEvent performs synchronous DB/state persistence.
+			// Holding inFlightMutex across it would block the coordinator event loop (which grabs the same
+			// lock via setDispatchedInFlight) behind the DB write.
 			c.inFlightMutex.L.Unlock()
 
-			// Ask the transaction state machine to handle dispatch.
+			// Ask the transaction state machine to handle dispatch. The transition into State_Dispatched
+			// synchronously adds this transaction to inFlightTxns (via setDispatchedInFlight) when it results
+			// in a public transaction, so len(inFlightTxns) is accurate before the next loop iteration.
 			log.L(ctx).Debugf("submitting transaction %s for dispatch", tx.GetID().String())
 			err := tx.HandleEvent(ctx, &transaction.DispatchedEvent{
 				BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -61,37 +62,14 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 				log.L(ctx).Errorf("error dispatching transaction %s: %v", tx.GetID().String(), err)
 				continue
 			}
-
 			// Persist the batch off the transaction lock so the DB commit doesn't block the coordinator event
-			// loop behind the tx lock.
+			// loop behind the tx lock. The transition into State_Dispatched (in HandleEvent above) has already
+			// added this transaction to inFlightTxns via setDispatchedInFlight when it sent a public transaction,
+			// so len(inFlightTxns) is accurate before the next loop iteration.
 			if err := tx.PersistDispatch(ctx); err != nil {
 				log.L(ctx).Errorf("error persisting dispatch for transaction %s: %v", tx.GetID().String(), err)
 				continue
 			}
-
-			c.inFlightMutex.L.Lock()
-			// Only dispatched transactions that result in a sent public transaction count towards max dispatch ahead
-			if tx.HasDispatchedPublicTransaction() {
-				dispatchedAhead++
-			}
-
-			// We almost never need to wait for the state machine's event loop to process the update to State_Dispatched
-			// but if we hit the max dispatch ahead limit after dispatching this transaction we do, because we can't be sure
-			// in-flight will be accurate on the next loop round
-			if len(c.inFlightTxns)+dispatchedAhead >= c.maxDispatchAhead {
-				for c.inFlightTxns[tx.GetID()] == nil {
-					c.inFlightMutex.Wait()
-					select {
-					case <-ctx.Done():
-						c.inFlightMutex.L.Unlock()
-						log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
-						return
-					default:
-					}
-				}
-				dispatchedAhead = 0
-			}
-			c.inFlightMutex.L.Unlock()
 		case <-ctx.Done():
 			log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
 			return
@@ -136,9 +114,8 @@ func action_StartDispatchLoop(_ context.Context, c *coordinator, _ common.Event)
 }
 
 // action_QueueRestartDispatchLoop defers the dispatch loop restart by queuing a RestartDispatchLoopEvent
-// rather than calling startDispatchLoop directly. This ensures any TransactionStateTransitionEvents
-// that were queued by the loop before it stopped are processed first, so c.inFlightTxns is fully
-// up to date before the loop resumes with dispatchedAhead reset to zero.
+// rather than calling startDispatchLoop directly. This gives the coordinator a chance to process any
+// pending events (e.g. delegations) before the loop resumes.
 func action_QueueRestartDispatchLoop(ctx context.Context, c *coordinator, _ common.Event) error {
 	c.queueEventInternal(ctx, &RestartDispatchLoopEvent{})
 	return nil
@@ -146,22 +123,5 @@ func action_QueueRestartDispatchLoop(ctx context.Context, c *coordinator, _ comm
 
 func action_StopDispatchLoop(_ context.Context, c *coordinator, _ common.Event) error {
 	c.stopDispatchLoop()
-	return nil
-}
-
-func action_NudgeDispatchLoop(ctx context.Context, c *coordinator, _ common.Event) error {
-	// Prod the dispatch loop with an updated in-flight count. This may release new transactions for dispatch
-	c.inFlightMutex.L.Lock()
-	defer c.inFlightMutex.L.Unlock()
-	clear(c.inFlightTxns)
-	dispatchingTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})
-	for _, txn := range dispatchingTransactions {
-		if txn.HasDispatchedPublicTransaction() {
-			// We don't count transactions that result in new private transactions or prepared transactions
-			c.inFlightTxns[txn.GetID()] = txn
-		}
-	}
-	log.L(ctx).Debugf("coordinator has %d dispatching transactions", len(c.inFlightTxns))
-	c.inFlightMutex.Signal()
 	return nil
 }

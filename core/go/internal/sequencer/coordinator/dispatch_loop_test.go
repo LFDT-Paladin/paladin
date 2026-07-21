@@ -53,9 +53,9 @@ func Test_stopDispatchLoop_StopsRunningLoop(t *testing.T) {
 }
 
 // TestDispatchLoop_StopWhileWaitingForInFlightSlot covers the path where the dispatch loop
-// is blocked in the first Wait() (too many in flight) and exits when Stop() sends to
-// stopDispatchLoop and Signals. We pre-populate inFlightTxns so that when the loop
-// pulls the queued tx it sees len(inFlightTxns)+dispatchedAhead >= maxDispatchAhead and enters Wait().
+// is blocked in the Wait() (too many in flight) and exits when stopDispatchLoop cancels and Signals.
+// We pre-populate inFlightTxns so that when the loop pulls the queued tx it sees
+// len(inFlightTxns) >= maxDispatchAhead and enters Wait().
 func TestDispatchLoop_StopWhileWaitingForInFlightSlot(t *testing.T) {
 	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	txnID := uuid.New()
@@ -75,9 +75,9 @@ func TestDispatchLoop_StopWhileWaitingForInFlightSlot(t *testing.T) {
 
 	c.startDispatchLoop()
 
-	// Pre-populate inFlightTxns so the dispatch loop will enter the first Wait() when it pulls the tx
+	// Pre-populate inFlightTxns so the dispatch loop will enter the Wait() when it pulls the tx
 	c.inFlightMutex.L.Lock()
-	c.inFlightTxns[uuid.New()] = coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	c.inFlightTxns[uuid.New()] = struct{}{}
 	c.inFlightMutex.L.Unlock()
 
 	// Queue one tx: transition to Ready_For_Dispatch so it gets sent to dispatchQueue
@@ -87,7 +87,7 @@ func TestDispatchLoop_StopWhileWaitingForInFlightSlot(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Give the dispatch loop time to pull the tx and enter the first Wait() (too many in flight).
+	// Give the dispatch loop time to pull the tx and enter the Wait() (too many in flight).
 	time.Sleep(50 * time.Millisecond)
 }
 
@@ -145,7 +145,6 @@ func TestDispatchLoop_HandleEventError_ContinuesLoop(t *testing.T) {
 		return false
 	})).Return(nil)
 	tx2.EXPECT().PersistDispatch(mock.Anything).Return(nil)
-	tx2.EXPECT().HasDispatchedPublicTransaction().Return(false)
 
 	// Pre-queue both transactions before starting the loop (buffered channel)
 	c.dispatchQueue <- tx1
@@ -169,9 +168,69 @@ func TestDispatchLoop_HandleEventError_ContinuesLoop(t *testing.T) {
 	}
 }
 
-// TestDispatchLoop_TxnWithoutPublicDispatch_DoesNotCountAhead verifies that when a dispatched
-// transaction has HasDispatchedPublicTransaction()==false, dispatchedAhead is not incremented.
-func TestDispatchLoop_TxnWithoutPublicDispatch_DoesNotCountAhead(t *testing.T) {
+// TestDispatchLoop_PersistDispatchError_ContinuesLoop verifies that when PersistDispatch returns an
+// error for a dispatched transaction, the loop logs the error and continues processing subsequent
+// transactions.
+func TestDispatchLoop_PersistDispatchError_ContinuesLoop(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	context.AfterFunc(ctx, func() {
+		c.inFlightMutex.L.Lock()
+		c.inFlightMutex.Broadcast()
+		c.inFlightMutex.L.Unlock()
+	})
+
+	// tx1: HandleEvent succeeds but PersistDispatch fails — the loop should log and continue
+	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	id1 := uuid.New()
+	tx1.EXPECT().GetID().Return(id1).Maybe()
+	tx1.EXPECT().HandleEvent(ctx, mock.MatchedBy(func(e common.Event) bool {
+		de, ok := e.(*transaction.DispatchedEvent)
+		return ok && de.TransactionID == id1
+	})).Return(nil)
+	tx1.EXPECT().PersistDispatch(mock.Anything).Return(fmt.Errorf("persist error"))
+
+	// tx2: dispatched successfully — verifies the loop continued after tx1's persist error
+	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	id2 := uuid.New()
+	tx2.EXPECT().GetID().Return(id2).Maybe()
+	tx2.EXPECT().HandleEvent(ctx, mock.MatchedBy(func(e common.Event) bool {
+		de, ok := e.(*transaction.DispatchedEvent)
+		return ok && de.TransactionID == id2
+	})).Return(nil)
+	dispatched := make(chan struct{}, 1)
+	tx2.EXPECT().PersistDispatch(mock.Anything).Run(func(context.Context) { dispatched <- struct{}{} }).Return(nil)
+
+	c.dispatchQueue <- tx1
+	c.dispatchQueue <- tx2
+
+	done := make(chan struct{})
+	c.dispatchLoopDone = done
+	go func() {
+		defer close(done)
+		c.dispatchLoop(ctx)
+	}()
+
+	select {
+	case <-dispatched:
+	case <-time.After(time.Second):
+		t.Fatal("second transaction was not dispatched after persist error")
+	}
+
+	cancel()
+	select {
+	case <-c.dispatchLoopDone:
+	case <-time.After(time.Second):
+		t.Fatal("dispatch loop did not stop within timeout")
+	}
+}
+
+// TestDispatchLoop_DispatchesQueuedTransaction verifies the happy path: a queued transaction is
+// pulled and handed to the state machine via a DispatchedEvent, and the loop continues.
+func TestDispatchLoop_DispatchesQueuedTransaction(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -186,13 +245,12 @@ func TestDispatchLoop_TxnWithoutPublicDispatch_DoesNotCountAhead(t *testing.T) {
 	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	id := uuid.New()
 	tx.EXPECT().GetID().Return(id).Maybe()
+	dispatched := make(chan struct{}, 1)
 	tx.EXPECT().HandleEvent(ctx, mock.MatchedBy(func(e common.Event) bool {
-		_, ok := e.(*transaction.DispatchedEvent)
-		return ok
-	})).Return(nil)
+		de, ok := e.(*transaction.DispatchedEvent)
+		return ok && de.TransactionID == id
+	})).Run(func(context.Context, common.Event) { dispatched <- struct{}{} }).Return(nil)
 	tx.EXPECT().PersistDispatch(mock.Anything).Return(nil)
-	// HasDispatchedPublicTransaction returns false — dispatchedAhead stays 0
-	tx.EXPECT().HasDispatchedPublicTransaction().Return(false)
 
 	c.dispatchQueue <- tx
 
@@ -203,9 +261,13 @@ func TestDispatchLoop_TxnWithoutPublicDispatch_DoesNotCountAhead(t *testing.T) {
 		c.dispatchLoop(ctx)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-dispatched:
+	case <-time.After(time.Second):
+		t.Fatal("transaction was not dispatched")
+	}
+
 	cancel()
-
 	select {
 	case <-c.dispatchLoopDone:
 	case <-time.After(time.Second):
@@ -213,101 +275,9 @@ func TestDispatchLoop_TxnWithoutPublicDispatch_DoesNotCountAhead(t *testing.T) {
 	}
 }
 
-// TestDispatchLoop_CtxCancelledDuringSecondWait_Exits verifies that when the loop enters the
-// second wait (waiting for the state machine to confirm the tx is in-flight) and the context
-// is cancelled, the loop exits cleanly.
-func TestDispatchLoop_CtxCancelledDuringSecondWait_Exits(t *testing.T) {
-	builder := NewCoordinatorBuilderForTesting(t, State_Active)
-	config := builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(1) // exactly 1 slot — second wait fires after first dispatch
-	builder.OverrideSequencerConfig(config)
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	c, _ := builder.Build()
-
-	// Register the AfterFunc so context cancellation wakes the loop from its Wait()
-	context.AfterFunc(ctx, func() {
-		c.inFlightMutex.L.Lock()
-		c.inFlightMutex.Broadcast()
-		c.inFlightMutex.L.Unlock()
-	})
-
-	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	id := uuid.New()
-	tx.EXPECT().GetID().Return(id).Maybe()
-	tx.EXPECT().HandleEvent(ctx, mock.MatchedBy(func(e common.Event) bool {
-		_, ok := e.(*transaction.DispatchedEvent)
-		return ok
-	})).Return(nil)
-	tx.EXPECT().PersistDispatch(mock.Anything).Return(nil)
-	// HasDispatchedPublicTransaction returns true — dispatchedAhead becomes 1, hitting maxDispatchAhead
-	tx.EXPECT().HasDispatchedPublicTransaction().Return(true)
-
-	c.dispatchQueue <- tx
-
-	done := make(chan struct{})
-	c.dispatchLoopDone = done
-	go func() {
-		defer close(done)
-		c.dispatchLoop(ctx)
-	}()
-
-	// Give the loop time to enter the second wait
-	time.Sleep(50 * time.Millisecond)
-	cancel() // cancelling context triggers AfterFunc → Broadcast → loop exits second wait via ctx.Done()
-
-	select {
-	case <-c.dispatchLoopDone:
-	case <-time.After(time.Second):
-		t.Fatal("dispatch loop did not stop within timeout")
-	}
-}
-
-// TestAction_NudgeDispatchLoop_TxnWithoutPublicDispatch_NotCountedAsInFlight verifies that
-// a State_Dispatched transaction where HasDispatchedPublicTransaction()==false is not added
-// to inFlightTxns.
-func TestAction_NudgeDispatchLoop_TxnWithoutPublicDispatch_NotCountedAsInFlight(t *testing.T) {
-	ctx := context.Background()
-
-	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	id := uuid.New()
-	tx.EXPECT().GetID().Return(id)
-	tx.EXPECT().GetCurrentState().Return(transaction.State_Dispatched)
-	tx.EXPECT().HasDispatchedPublicTransaction().Return(false)
-
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Transactions(tx).Build()
-
-	err := action_NudgeDispatchLoop(ctx, c, nil)
-	require.NoError(t, err)
-	assert.Equal(t, 0, len(c.inFlightTxns), "transaction without public dispatch should not be counted as in-flight")
-}
-
-// TestAction_NudgeDispatchLoop_TxnWithPublicDispatch_CountedAsInFlight verifies that
-// a State_Dispatched transaction where HasDispatchedPublicTransaction()==true IS added
-// to inFlightTxns (covers the true-branch body on line 101).
-func TestAction_NudgeDispatchLoop_TxnWithPublicDispatch_CountedAsInFlight(t *testing.T) {
-	ctx := context.Background()
-
-	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	id := uuid.New()
-	tx.EXPECT().GetID().Return(id)
-	tx.EXPECT().GetCurrentState().Return(transaction.State_Dispatched)
-	tx.EXPECT().HasDispatchedPublicTransaction().Return(true)
-
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Transactions(tx).Build()
-
-	err := action_NudgeDispatchLoop(ctx, c, nil)
-	require.NoError(t, err)
-	assert.Equal(t, 1, len(c.inFlightTxns), "transaction with public dispatch should be counted as in-flight")
-	assert.Equal(t, tx, c.inFlightTxns[id])
-}
-
-// TestDispatchLoop_SecondWait_NormalExit covers the path where the loop enters the second wait
-// (dispatchedAhead hits maxDispatchAhead), then the state machine signals inFlightTxns is updated
-// while ctx is still active (taking the default: case), exits the for loop, and resets dispatchedAhead.
-func TestDispatchLoop_SecondWait_NormalExit(t *testing.T) {
+// TestDispatchLoop_WaitsAtCapacityThenProceeds verifies the loop blocks while len(inFlightTxns)
+// has reached maxDispatchAhead and resumes once a slot is freed via setDispatchedInFlight.
+func TestDispatchLoop_WaitsAtCapacityThenProceeds(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(1)
@@ -327,12 +297,16 @@ func TestDispatchLoop_SecondWait_NormalExit(t *testing.T) {
 	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	id := uuid.New()
 	tx.EXPECT().GetID().Return(id).Maybe()
+	dispatched := make(chan struct{}, 1)
 	tx.EXPECT().HandleEvent(ctx, mock.MatchedBy(func(e common.Event) bool {
 		_, ok := e.(*transaction.DispatchedEvent)
 		return ok
-	})).Return(nil)
+	})).Run(func(context.Context, common.Event) { dispatched <- struct{}{} }).Return(nil)
 	tx.EXPECT().PersistDispatch(mock.Anything).Return(nil)
-	tx.EXPECT().HasDispatchedPublicTransaction().Return(true)
+
+	// Fill the single dispatch-ahead slot so the loop must wait before dispatching tx.
+	occupyingID := uuid.New()
+	c.setDispatchedInFlight(occupyingID, true)
 
 	c.dispatchQueue <- tx
 
@@ -343,17 +317,21 @@ func TestDispatchLoop_SecondWait_NormalExit(t *testing.T) {
 		c.dispatchLoop(ctx)
 	}()
 
-	// Wait for the loop to dispatch the tx and enter the second wait
-	time.Sleep(50 * time.Millisecond)
+	// The loop should be blocked at capacity and must not dispatch yet.
+	select {
+	case <-dispatched:
+		t.Fatal("transaction dispatched while at max dispatch ahead")
+	case <-time.After(50 * time.Millisecond):
+	}
 
-	// Simulate the state machine confirming the tx is in-flight, then signal
-	c.inFlightMutex.L.Lock()
-	c.inFlightTxns[id] = tx
-	c.inFlightMutex.Signal()
-	c.inFlightMutex.L.Unlock()
+	// Free the slot; the loop wakes and dispatches.
+	c.setDispatchedInFlight(occupyingID, false)
 
-	// Give the loop time to exit the second wait (default: branch) and reset dispatchedAhead
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-dispatched:
+	case <-time.After(time.Second):
+		t.Fatal("transaction was not dispatched after slot freed")
+	}
 
 	cancel()
 	select {
@@ -361,4 +339,23 @@ func TestDispatchLoop_SecondWait_NormalExit(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("dispatch loop did not stop within timeout")
 	}
+}
+
+// TestSetDispatchedInFlight_AddAndRemove verifies the in-flight set is maintained by ID and that
+// removal signals the dispatch loop, and is idempotent for unknown IDs.
+func TestSetDispatchedInFlight_AddAndRemove(t *testing.T) {
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	id := uuid.New()
+	c.setDispatchedInFlight(id, true)
+	assert.Equal(t, 1, len(c.inFlightTxns))
+	_, ok := c.inFlightTxns[id]
+	assert.True(t, ok)
+
+	c.setDispatchedInFlight(id, false)
+	assert.Equal(t, 0, len(c.inFlightTxns))
+
+	// Removing an unknown ID is a no-op.
+	c.setDispatchedInFlight(uuid.New(), false)
+	assert.Equal(t, 0, len(c.inFlightTxns))
 }
