@@ -74,19 +74,19 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
   const canSubmit = isValidListenerName && (group.length === 0 || isValidGroup) && isValidSequenceAbove;
 
   const { mutate: handleSubmit } = useMutation({
-    mutationFn: () => createPrivacyGroupListener(
-      listenerName,
+    mutationFn: () => createPrivacyGroupListener({
+      name: listenerName,
       started,
-      {
+      filters: {
         ...(sequenceAbove.length > 0 ? { sequenceAbove: Number(sequenceAbove) } : {}),
         domain,
         group,
         topic
       },
-      {
+      options: {
         excludeLocal
       }
-    ),
+    }),
     onSuccess: () => {
       navigate(`/ui/listeners/privacy-groups/${listenerName}`);
     },

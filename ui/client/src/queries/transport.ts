@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { IFilter, IMessage, IPagedResult, ISortPagingReference, ITransportPeer } from "../interfaces";
+import { IFetchTransportPeersParams, IMessage, IPagedQueryParams, IPagedResult, ISortPagingReference, ITransportPeer } from "../interfaces";
 import { deepMerge, toPagedResult, translateFilters } from "../utils";
 import { generatePostReq, returnResponse } from "./common";
 import { RpcEndpoint, RpcMethods } from "./rpcMethods";
@@ -50,11 +50,9 @@ export const fetchTransportLocalDetails = async (transport: string): Promise<str
 };
 
 export const fetchTransportPeersWithQuery = async (
-  limit: number,
-  sortAscending: boolean,
-  filters: IFilter[],
-  refData?: string
+  params: IFetchTransportPeersParams
 ): Promise<IPagedResult<ITransportPeer>> => {
+  const { limit, sortAscending, filters, refData } = params;
   let translatedFilters = translateFilters(filters);
   let customFilters: any = {};
   if (refData !== undefined) {
@@ -96,12 +94,9 @@ export const buildMessagePagingReference = (
 });
 
 export const queryMessages = async (
-  limit: number,
-  sortBy: string,
-  sortAscending: boolean,
-  filters: IFilter[],
-  pageRef?: ISortPagingReference
+  params: IPagedQueryParams
 ): Promise<IPagedResult<IMessage>> => {
+  const { limit, sortBy, sortAscending, filters, pageRef } = params;
   let translatedFilters = translateFilters(filters);
   const sortDirection = sortAscending ? 'ASC' : 'DESC';
 

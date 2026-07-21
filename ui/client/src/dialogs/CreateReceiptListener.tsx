@@ -91,12 +91,12 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
       if (incompleteStateReceiptBehavior.length > 0 && incompleteStateReceiptBehavior !== 'default') {
         options.incompleteStateReceiptBehavior = incompleteStateReceiptBehavior as IReceiptListenerOptions['incompleteStateReceiptBehavior'];
       }
-      return createReceiptListener(
-        listenerName,
+      return createReceiptListener({
+        name: listenerName,
         started,
         filters,
         options
-      );
+      });
     },
     onSuccess: () => {
       navigate(`/ui/listeners/receipts/${listenerName}`);

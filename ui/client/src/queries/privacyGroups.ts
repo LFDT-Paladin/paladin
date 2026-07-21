@@ -17,7 +17,7 @@
 import i18next from 'i18next';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
-import { IFilter, IPagedResult, IPrivacyGroup, IPrivacyGroupListener, IPrivacyGroupMessage, IPrivacyGroupMessageListenerFilters, IPrivacyGroupMessageListenerOptions, IPrivacyGroupPagingReference, ISortPagingReference } from '../interfaces';
+import { ICreatePrivacyGroupListenerParams, IGetPrivacyGroupMessagesParams, IPagedQueryParams, IPagedResult, IPrivacyGroup, IPrivacyGroupListener, IPrivacyGroupMessage, IPrivacyGroupPagingReference, ISendPrivacyGroupMessageParams, ISortPagingReference } from '../interfaces';
 import { deepMerge, toPagedResult, translateFilters } from '../utils';
 
 export const getPrivacyGroupSortValue = (privacyGroup: IPrivacyGroup, sortBy: string): any => {
@@ -36,12 +36,9 @@ export const buildPrivacyGroupPagingReference = (
 });
 
 export const listPrivacyGroups = async (
-  limit: number,
-  filters: IFilter[],
-  sortBy: string,
-  sortAscending: boolean,
-  pageRef?: IPrivacyGroupPagingReference
+  params: IPagedQueryParams<IPrivacyGroupPagingReference>
 ): Promise<IPagedResult<IPrivacyGroup>> => {
+  const { limit, filters, sortBy, sortAscending, pageRef } = params;
   let translatedFilters = translateFilters(filters);
   const sortDirection = sortAscending ? 'ASC' : 'DESC';
 
@@ -129,12 +126,9 @@ export const buildPrivacyGroupMessagePagingReference = (
 });
 
 export const getPrivacyGroupMessages = async (
-  limit: number,
-  filters: IFilter[],
-  sortAscending: boolean,
-  pageRef?: ISortPagingReference,
-  privacyGroupId?: string
+  params: IGetPrivacyGroupMessagesParams
 ): Promise<IPagedResult<IPrivacyGroupMessage>> => {
+  const { limit, filters, sortAscending, pageRef, privacyGroupId } = params;
 
   let translatedFilters = translateFilters(filters);
   const sortDirection = sortAscending ? 'ASC' : 'DESC';
@@ -251,11 +245,9 @@ export const createPrivacyGroup = async (
 };
 
 export const sendPrivacyGroupMessage = async (
-  group: string,
-  topic: string,
-  data: any,
-  correlationId?: string
+  params: ISendPrivacyGroupMessageParams
 ): Promise<string> => {
+  const { group, topic, data, correlationId } = params;
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
@@ -290,12 +282,9 @@ export const buildPrivacyGroupListenerPagingReference = (
 });
 
 export const listPrivacyGroupListeners = async (
-  limit: number,
-  filters: IFilter[],
-  sortBy: string,
-  sortAscending: boolean,
-  pageRef?: ISortPagingReference
+  params: IPagedQueryParams
 ): Promise<IPagedResult<IPrivacyGroupListener>> => {
+  const { limit, filters, sortBy, sortAscending, pageRef } = params;
   let translatedFilters = translateFilters(filters);
   const sortDirection = sortAscending ? 'ASC' : 'DESC';
 
@@ -395,11 +384,9 @@ export const getPrivacyGroupListener = async (
 };
 
 export const createPrivacyGroupListener = async (
-  name: string,
-  started: boolean,
-  filters: IPrivacyGroupMessageListenerFilters,
-  options: IPrivacyGroupMessageListenerOptions
+  params: ICreatePrivacyGroupListenerParams
 ): Promise<boolean> => {
+  const { name, started, filters, options } = params;
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),

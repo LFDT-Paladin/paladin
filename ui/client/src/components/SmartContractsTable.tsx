@@ -83,7 +83,13 @@ export const SmartContractsTable: React.FC<Props> = ({
     isFetching
   } = useQuery({
     queryKey: ['contracts', domainAddress, sortAscending, page, rowsPerPage, filters, refEntries],
-    queryFn: () => querySmartContractsByDomain(domainAddress, sortAscending, rowsPerPage, filters, refEntries[refEntries.length - 1]),
+    queryFn: () => querySmartContractsByDomain({
+      domainAddress,
+      sortAscending,
+      limit: rowsPerPage,
+      filters,
+      pageRef: refEntries[refEntries.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 

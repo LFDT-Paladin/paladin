@@ -15,7 +15,7 @@
 // limitations under the License.
 
 import i18next from "i18next";
-import { IFilter, IPagedResult, IRegistryEntry } from "../interfaces";
+import { IFetchRegistryEntriesParams, IPagedResult, IRegistryEntry } from "../interfaces";
 import { generatePostReq, returnResponse } from "./common";
 import { RpcEndpoint, RpcMethods } from "./rpcMethods";
 import { deepMerge, toPagedResult, translateFilters } from "../utils";
@@ -36,14 +36,9 @@ export const fetchRegistries = async (): Promise<string[]> => {
 };
 
 export const fetchRegistryEntries = async (
-  registryName: string,
-  filters: IFilter[],
-  tab: 'active' | 'inactive' | 'any',
-  limit: number,
-  pageParam?: string,
-  sortAscending?: boolean,
-  excludeRoot?: boolean
+  params: IFetchRegistryEntriesParams
 ): Promise<IPagedResult<IRegistryEntry>> => {
+  const { registryName, filters, tab, limit, pageParam, sortAscending, excludeRoot } = params;
   const translatedFilters = translateFilters(filters);
   let customFilters: any = {};
   if(excludeRoot === true) {

@@ -77,7 +77,15 @@ export const States: React.FC = () => {
 
   const { data, error: statesError, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['states', selectedDomain, selectedSchemaId, page, rowsPerPage, sortBy, sortAscending, filters, refEntries],
-    queryFn: () => queryStates(selectedDomain!, selectedSchemaId!, rowsPerPage, sortBy, sortAscending, filters, refEntries[refEntries.length - 1]),
+    queryFn: () => queryStates({
+      domain: selectedDomain!,
+      schemaId: selectedSchemaId!,
+      limit: rowsPerPage,
+      sortBy,
+      sortAscending,
+      filters,
+      pageRef: refEntries[refEntries.length - 1],
+    }),
     enabled: selectedSchemaId !== undefined,
     placeholderData: keepPreviousData
   });

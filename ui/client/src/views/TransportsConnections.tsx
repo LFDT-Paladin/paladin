@@ -52,7 +52,12 @@ export const TransportConnections: React.FC = () => {
 
   const { data, error, refetch, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['transports', page, rowsPerPage, sortAscending, filters, refNames],
-    queryFn: () => fetchTransportPeersWithQuery(rowsPerPage, sortAscending, filters, refNames[refNames.length - 1]),
+    queryFn: () => fetchTransportPeersWithQuery({
+      limit: rowsPerPage,
+      sortAscending,
+      filters,
+      refData: refNames[refNames.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 

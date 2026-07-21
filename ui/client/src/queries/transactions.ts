@@ -18,17 +18,17 @@ import i18next from 'i18next';
 import { constants } from '../components/config';
 import {
   IBlock,
+  ICreateEventListenerParams,
+  ICreateReceiptListenerParams,
   IEnrichedTransaction,
   IEvent,
   IEventListener,
-  IEventListenerOptions,
-  IEventListenerSource,
-  IFilter,
+  IFetchIndexedTransactionsParams,
+  IFetchSubmissionsParams,
   IPaladinTransaction,
   IPaladinTransactionPagingReference,
+  IPagedQueryParams,
   IReceiptListener,
-  IReceiptListenerFilters,
-  IReceiptListenerOptions,
   ITransaction,
   ITransactionInput,
   IPagedResult,
@@ -68,11 +68,9 @@ const getTransactionPagingQuery = (pageParam: ITransactionPagingReference) => {
 };
 
 export const fetchIndexedTransactions = async (
-  limit: number,
-  withReceipt: boolean,
-  filters: IFilter[],
-  pageParam?: ITransactionPagingReference
+  params: IFetchIndexedTransactionsParams
 ): Promise<IPagedResult<IEnrichedTransaction>> => {
+  const { limit, withReceipt, filters, pageParam } = params;
   let translatedFilters = translateFilters(filters);
 
   let requestPayload: any = {
@@ -125,12 +123,9 @@ export const buildPaladinTransactionPagingReference = (
 });
 
 export const fetchSubmissions = async (
-  type: 'pending' | 'failed' | 'successful',
-  limit: number,
-  filters: IFilter[],
-  sortAscending?: boolean,
-  pageParam?: IPaladinTransactionPagingReference
+  params: IFetchSubmissionsParams
 ): Promise<IPagedResult<IPaladinTransaction>> => {
+  const { type, limit, filters, sortAscending, pageParam } = params;
   let translatedFilters = translateFilters(filters);
   const sortDirection = sortAscending ? 'ASC' : 'DESC';
 
@@ -165,20 +160,20 @@ export const fetchSubmissions = async (
     ];
   }
 
-  let params: any = [queryParams];
+  let rpcParams: any = [queryParams];
 
   if (['failed', 'successful'].includes(type)) {
-    if (params[0].equal === undefined) {
-      params[0].equal = [];
+    if (rpcParams[0].equal === undefined) {
+      rpcParams[0].equal = [];
     }
-    params[0].equal.push(
+    rpcParams[0].equal.push(
       {
         field: 'success',
         value: type === 'successful'
       }
     );
   } else {
-    params = [...params, true];
+    rpcParams = [...rpcParams, true];
   }
 
   const payload = {
@@ -188,7 +183,7 @@ export const fetchSubmissions = async (
       type === 'pending'
         ? RpcMethods.ptx_QueryPendingTransactions
         : RpcMethods.ptx_QueryTransactionsFull,
-    params
+    params: rpcParams
   };
 
   const results = await returnResponse(
@@ -439,12 +434,9 @@ export const buildEventListenerPagingReference = (
 });
 
 export const listEventListeners = async (
-  limit: number,
-  filters: IFilter[],
-  sortBy: string,
-  sortAscending: boolean,
-  pageRef?: ISortPagingReference
+  params: IPagedQueryParams
 ): Promise<IPagedResult<IEventListener>> => {
+  const { limit, filters, sortBy, sortAscending, pageRef } = params;
   let translatedFilters = translateFilters(filters);
   const sortDirection = sortAscending ? 'ASC' : 'DESC';
 
@@ -527,11 +519,9 @@ export const stopEventListener = async (
 };
 
 export const createEventListener = async (
-  name: string,
-  started: boolean,
-  sources: IEventListenerSource[],
-  options: IEventListenerOptions
+  params: ICreateEventListenerParams
 ): Promise<boolean> => {
+  const { name, started, sources, options } = params;
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
@@ -599,12 +589,9 @@ export const buildReceiptListenerPagingReference = (
 });
 
 export const listReceiptListeners = async (
-  limit: number,
-  filters: IFilter[],
-  sortBy: string,
-  sortAscending: boolean,
-  pageRef?: ISortPagingReference
+  params: IPagedQueryParams
 ): Promise<IPagedResult<IReceiptListener>> => {
+  const { limit, filters, sortBy, sortAscending, pageRef } = params;
   let translatedFilters = translateFilters(filters);
   const sortDirection = sortAscending ? 'ASC' : 'DESC';
 
@@ -687,11 +674,9 @@ export const stopReceiptListener = async (
 };
 
 export const createReceiptListener = async (
-  name: string,
-  started: boolean,
-  filters: IReceiptListenerFilters,
-  options: IReceiptListenerOptions
+  params: ICreateReceiptListenerParams
 ): Promise<boolean> => {
+  const { name, started, filters, options } = params;
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),

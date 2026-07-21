@@ -60,7 +60,13 @@ export const ReceiptListeners: React.FC = () => {
 
   const { data, error, isPlaceholderData, isFetching, refetch } = useQuery({
     queryKey: ['receipt-listeners', page, rowsPerPage, filters, sortBy, sortAscending, refEntries],
-    queryFn: () => listReceiptListeners(rowsPerPage, filters, sortBy, sortAscending, refEntries[refEntries.length - 1]),
+    queryFn: () => listReceiptListeners({
+      limit: rowsPerPage,
+      filters,
+      sortBy,
+      sortAscending,
+      pageRef: refEntries[refEntries.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 

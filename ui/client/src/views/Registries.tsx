@@ -69,7 +69,14 @@ export const Registries: React.FC = () => {
 
   const { data, error: registryError, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['registry', filters, activeFilter, refNames, sortAscending, rowsPerPage, page],
-    queryFn: () => fetchRegistryEntries(selectedRegistry!, filters, activeFilter, rowsPerPage, refNames[refNames.length - 1], sortAscending),
+    queryFn: () => fetchRegistryEntries({
+      registryName: selectedRegistry!,
+      filters,
+      tab: activeFilter,
+      limit: rowsPerPage,
+      pageParam: refNames[refNames.length - 1],
+      sortAscending,
+    }),
     enabled: selectedRegistry !== undefined,
     placeholderData: keepPreviousData
   });

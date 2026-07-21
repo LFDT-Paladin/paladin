@@ -64,7 +64,13 @@ export const PrivacyGroups: React.FC = () => {
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['privacyGroups', page, rowsPerPage, filters, sortBy, sortAscending, refEntries],
-    queryFn: () => listPrivacyGroups(rowsPerPage, filters, sortBy, sortAscending, refEntries[refEntries.length - 1]),
+    queryFn: () => listPrivacyGroups({
+      limit: rowsPerPage,
+      filters,
+      sortBy,
+      sortAscending,
+      pageRef: refEntries[refEntries.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 

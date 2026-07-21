@@ -60,7 +60,13 @@ export const EventListeners: React.FC = () => {
 
   const { data, error, isPlaceholderData, isFetching, refetch } = useQuery({
     queryKey: ['event-listeners', page, rowsPerPage, filters, sortBy, sortAscending, refEntries],
-    queryFn: () => listEventListeners(rowsPerPage, filters, sortBy, sortAscending, refEntries[refEntries.length - 1]),
+    queryFn: () => listEventListeners({
+      limit: rowsPerPage,
+      filters,
+      sortBy,
+      sortAscending,
+      pageRef: refEntries[refEntries.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 

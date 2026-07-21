@@ -15,7 +15,7 @@
 // limitations under the License.
 
 import i18next from "i18next";
-import { IFilter, IPagedResult, ISchema, IState, IStatePagingReference, IStateReceipt } from "../interfaces";
+import { IPagedResult, IQueryStatesParams, ISchema, IState, IStatePagingReference, IStateReceipt } from "../interfaces";
 import { generatePostReq, returnResponse } from "./common";
 import { RpcEndpoint, RpcMethods } from "./rpcMethods";
 import { toPagedResult, translateFilters } from "../utils";
@@ -82,14 +82,9 @@ export const listSchemas = async (domain: string): Promise<ISchema[]> => {
 };
 
 export const queryStates = async (
-  domain: string,
-  schemaId: string,
-  limit: number,
-  sortBy: string,
-  sortAscending: boolean,
-  filters: IFilter[],
-  pageRef?: IStatePagingReference
+  params: IQueryStatesParams
 ): Promise<IPagedResult<IState>> => {
+  const { domain, schemaId, limit, sortBy, sortAscending, filters, pageRef } = params;
 
   let translatedFilters = translateFilters(filters);
   const sortDirection = sortAscending ? 'ASC' : 'DESC';

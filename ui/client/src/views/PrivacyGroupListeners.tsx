@@ -62,7 +62,13 @@ export const PrivacyGroupListeners: React.FC = () => {
 
   const { data, error, isPlaceholderData, isFetching, refetch } = useQuery({
     queryKey: ['privacy-group-listeners', page, rowsPerPage, filters, sortBy, sortAscending, refEntries],
-    queryFn: () => listPrivacyGroupListeners(rowsPerPage, filters, sortBy, sortAscending, refEntries[refEntries.length - 1]),
+    queryFn: () => listPrivacyGroupListeners({
+      limit: rowsPerPage,
+      filters,
+      sortBy,
+      sortAscending,
+      pageRef: refEntries[refEntries.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 

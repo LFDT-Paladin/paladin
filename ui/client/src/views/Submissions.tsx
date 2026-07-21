@@ -58,7 +58,13 @@ export const Submissions: React.FC = () => {
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['submissions', rowsPerPage, section, filters, sortAscending, refEntries, rowsPerPage, page],
-    queryFn: () => fetchSubmissions(section, rowsPerPage, filters, sortAscending, refEntries[refEntries.length - 1]),
+    queryFn: () => fetchSubmissions({
+      type: section,
+      limit: rowsPerPage,
+      filters,
+      sortAscending,
+      pageParam: refEntries[refEntries.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 

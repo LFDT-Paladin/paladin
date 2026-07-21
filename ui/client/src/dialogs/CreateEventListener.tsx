@@ -107,15 +107,15 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
       if (batchTimeout.trim().length > 0) {
         options.batchTimeout = batchTimeout.trim();
       }
-      return createEventListener(
-        listenerName,
+      return createEventListener({
+        name: listenerName,
         started,
-        [{
+        sources: [{
           abi: parsedAbi!,
           ...(address.length > 0 ? { address } : {})
         }],
         options
-      );
+      });
     },
     onSuccess: () => {
       navigate(`/ui/listeners/events/${listenerName}`);

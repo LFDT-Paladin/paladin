@@ -61,7 +61,12 @@ export const PrivacyGroupMessages: React.FC = () => {
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['privacy-group-messages', rowsPerPage, filters, sortAscending, refEntries],
-    queryFn: () => getPrivacyGroupMessages(rowsPerPage, filters, sortAscending, refEntries[refEntries.length - 1]),
+    queryFn: () => getPrivacyGroupMessages({
+      limit: rowsPerPage,
+      filters,
+      sortAscending,
+      pageRef: refEntries[refEntries.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 

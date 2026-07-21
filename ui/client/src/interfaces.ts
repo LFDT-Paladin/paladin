@@ -403,3 +403,101 @@ export interface IReceiptListener {
   filters?: IReceiptListenerFilters
   options?: IReceiptListenerOptions
 }
+
+export interface IPagedQueryParams<TPageRef = ISortPagingReference> {
+  limit: number;
+  filters: IFilter[];
+  sortBy: string;
+  sortAscending: boolean;
+  pageRef?: TPageRef;
+}
+
+export interface IGetPrivacyGroupMessagesParams {
+  limit: number;
+  filters: IFilter[];
+  sortAscending: boolean;
+  pageRef?: ISortPagingReference;
+  privacyGroupId?: string;
+}
+
+export interface IQueryStatesParams extends IPagedQueryParams<IStatePagingReference> {
+  domain: string;
+  schemaId: string;
+}
+
+export interface IQuerySmartContractsByDomainParams {
+  domainAddress: string;
+  sortAscending: boolean;
+  limit: number;
+  filters: IFilter[];
+  pageRef?: ISortPagingReference;
+}
+
+export interface IFetchTransportPeersParams {
+  limit: number;
+  sortAscending: boolean;
+  filters: IFilter[];
+  refData?: string;
+}
+
+export interface IFetchKeysParams {
+  parent: string | undefined;
+  limit: number;
+  sortByPathFirst: boolean;
+  sortOrder: 'asc' | 'desc';
+  filters: IFilter[];
+  refEntry?: IKeyEntry;
+}
+
+export interface IFetchRegistryEntriesParams {
+  registryName: string;
+  filters: IFilter[];
+  tab: RegistryEntryFilter;
+  limit: number;
+  pageParam?: string;
+  sortAscending?: boolean;
+  excludeRoot?: boolean;
+}
+
+export interface IFetchIndexedTransactionsParams {
+  limit: number;
+  withReceipt: boolean;
+  filters: IFilter[];
+  pageParam?: ITransactionPagingReference;
+}
+
+export interface IFetchSubmissionsParams {
+  type: 'pending' | 'failed' | 'successful';
+  limit: number;
+  filters: IFilter[];
+  sortAscending?: boolean;
+  pageParam?: IPaladinTransactionPagingReference;
+}
+
+export interface ICreateEventListenerParams {
+  name: string;
+  started: boolean;
+  sources: IEventListenerSource[];
+  options: IEventListenerOptions;
+}
+
+export interface ICreateReceiptListenerParams {
+  name: string;
+  started: boolean;
+  filters: IReceiptListenerFilters;
+  options: IReceiptListenerOptions;
+}
+
+export interface ICreatePrivacyGroupListenerParams {
+  name: string;
+  started: boolean;
+  filters: IPrivacyGroupMessageListenerFilters;
+  options: IPrivacyGroupMessageListenerOptions;
+}
+
+export interface ISendPrivacyGroupMessageParams {
+  group: string;
+  topic: string;
+  data: any;
+  correlationId?: string;
+}

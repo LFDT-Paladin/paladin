@@ -68,7 +68,12 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
   }
 
   const { mutate: handleSubmit } = useMutation({
-    mutationFn: () => sendPrivacyGroupMessage(privacyGroupId, topic, getData(), correlationId.length > 0? correlationId : undefined),
+    mutationFn: () => sendPrivacyGroupMessage({
+      group: privacyGroupId,
+      topic,
+      data: getData(),
+      correlationId: correlationId.length > 0 ? correlationId : undefined,
+    }),
     onSuccess: messageId => {
       navigate(`/ui/privacy-groups/messages/${messageId}`);
     },

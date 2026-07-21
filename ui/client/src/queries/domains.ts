@@ -17,7 +17,7 @@
 import i18next from 'i18next';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
-import { IDomain, IDomainContract, IFilter, IPagedResult, ISortPagingReference } from '../interfaces';
+import { IDomain, IDomainContract, IPagedResult, IQuerySmartContractsByDomainParams, ISortPagingReference } from '../interfaces';
 import { toPagedResult, translateFilters } from '../utils';
 
 export const listDomains = async (): Promise<string[]> => {
@@ -60,12 +60,9 @@ export const buildDomainContractPagingReference = (
 });
 
 export const querySmartContractsByDomain = async (
-  domainAddress: string,
-  sortAscending: boolean,
-  rowsPerPage: number,
-  filters: IFilter[],
-  pageRef?: ISortPagingReference
+  params: IQuerySmartContractsByDomainParams
 ): Promise<IPagedResult<IDomainContract>> => {
+  const { domainAddress, sortAscending, limit, filters, pageRef } = params;
   let translatedFilters = translateFilters(filters);
   const sortDirection = sortAscending ? 'ASC' : 'DESC';
 
@@ -77,7 +74,7 @@ export const querySmartContractsByDomain = async (
 
   let queryParams: any = {
     ...translatedFilters,
-    limit: rowsPerPage + 1,
+    limit: limit + 1,
     sort: [
       `created ${sortDirection}`,
       `address ${sortDirection}`,
@@ -116,7 +113,7 @@ export const querySmartContractsByDomain = async (
     () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
     i18next.t('errorFetchingSmartContracts')
   );
-  return toPagedResult(results, rowsPerPage);
+  return toPagedResult(results, limit);
 };
 
 export const fetchDomainReceipt = async (

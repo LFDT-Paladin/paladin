@@ -65,7 +65,14 @@ export const Keys: React.FC = () => {
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
     queryKey: ["keys", parent, sortByPathFirst, sortAscending, refEntries, rowsPerPage, filters, mode],
-    queryFn: () => fetchKeys(mode === 'explorer' ? parent : undefined, rowsPerPage, sortByPathFirst, sortAscending ? 'asc' : 'desc', filters, refEntries[refEntries.length - 1]),
+    queryFn: () => fetchKeys({
+      parent: mode === 'explorer' ? parent : undefined,
+      limit: rowsPerPage,
+      sortByPathFirst,
+      sortOrder: sortAscending ? 'asc' : 'desc',
+      filters,
+      refEntry: refEntries[refEntries.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 

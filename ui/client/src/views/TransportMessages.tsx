@@ -60,7 +60,13 @@ export const TransportMessages: React.FC = () => {
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['messages', page, rowsPerPage, sortBy, sortAscending, filters, refEntries],
-    queryFn: () => queryMessages(rowsPerPage, sortBy, sortAscending, filters, refEntries[refEntries.length - 1]),
+    queryFn: () => queryMessages({
+      limit: rowsPerPage,
+      sortBy,
+      sortAscending,
+      filters,
+      pageRef: refEntries[refEntries.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 

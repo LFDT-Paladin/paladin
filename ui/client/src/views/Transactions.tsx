@@ -49,7 +49,12 @@ export const Transactions: React.FC = () => {
 
   const { data, error, isPlaceholderData, isFetching } = useQuery({
     queryKey: ['transactions', refEntries, rowsPerPage, showTxsWithReceipt, filters, page],
-    queryFn: () => fetchIndexedTransactions(rowsPerPage, showTxsWithReceipt, filters, refEntries[refEntries.length - 1]),
+    queryFn: () => fetchIndexedTransactions({
+      limit: rowsPerPage,
+      withReceipt: showTxsWithReceipt,
+      filters,
+      pageParam: refEntries[refEntries.length - 1],
+    }),
     placeholderData: keepPreviousData
   });
 
