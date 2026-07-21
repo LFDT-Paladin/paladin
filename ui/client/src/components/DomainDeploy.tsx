@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Button, Grid2 } from '@mui/material';
+import { Button, Grid2 as Grid } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotoDeployDialog } from '../dialogs/domains/noto/NotoDeploy';
@@ -55,7 +55,7 @@ export const DomainDeploy: React.FC<Props> = ({ domainName }) => {
 
   return (
     <>
-      <Grid2>
+      <Grid>
         {button && (
           <Button
             size="small"
@@ -68,7 +68,7 @@ export const DomainDeploy: React.FC<Props> = ({ domainName }) => {
             {t('deployNew')}
           </Button>
         )}
-      </Grid2>
+      </Grid>
 
       {notoDeployModalOpen && (
         <NotoDeployDialog

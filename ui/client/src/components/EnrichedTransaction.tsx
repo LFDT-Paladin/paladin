@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Box, Chip, Grid2, IconButton, Tooltip, Typography, useTheme } from "@mui/material";
+import { Box, Chip, Grid2 as Grid, IconButton, Tooltip, Typography, useTheme } from "@mui/material";
 import { IEnrichedTransaction } from "../interfaces"
 import { useTranslation } from "react-i18next";
 import { Hash } from "./Hash";
@@ -50,32 +50,32 @@ export const EnrichedTransaction: React.FC<Props> = ({
           borderLeft: `solid 3px ${theme.palette.primary.main}`
         }}>
         <Box sx={{ padding: '10px' }}>
-          <Grid2 container justifyContent="space-between" spacing={3}>
-            <Grid2>
+          <Grid container justifyContent="space-between" spacing={3}>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('transactionHash')}</Typography>
               <Box sx={{ width: '140px' }}>
                 <Hash Icon={<Captions size="18px" />} title={t('hash')} hash={enrichedTransaction.hash} hideTitle />
               </Box>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('block')}</Typography>
               <Typography align="center" variant="h6" color="textPrimary">{enrichedTransaction.blockNumber.toLocaleString()}</Typography>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('transactionIndex')}</Typography>
               <Typography align="center" variant="h6" color="textPrimary">{enrichedTransaction.transactionIndex}</Typography>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('nonce')}</Typography>
               <Typography align="center" variant="h6" color="textPrimary">{enrichedTransaction.nonce}</Typography>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('from')}</Typography>
               <Box sx={{ width: '140px' }}>
                 <Hash Icon={<Captions size="18px" />} title={t('hash')} hash={enrichedTransaction.from} hideTitle />
               </Box>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('to')}</Typography>
               <Box sx={{ width: '140px' }}>
                 {enrichedTransaction.to ?
@@ -84,18 +84,18 @@ export const EnrichedTransaction: React.FC<Props> = ({
                   <Typography align="center" variant="h6" color="textPrimary">--</Typography>
                 }
               </Box>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('status')}</Typography>
               <TransactionStatus transaction={enrichedTransaction} />
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Box sx={{ minWidth: '100px', textAlign: 'center' }}>
                 <Typography align="center" variant="body2" color="textSecondary">{t('time')}</Typography>
                 <ElapsedTime icon={null} timestamp={enrichedTransaction.block.timestamp} />
               </Box>
-            </Grid2>
-            <Grid2 alignContent="center">
+            </Grid>
+            <Grid alignContent="center">
               <Tooltip arrow title={t('open')}>
                 <IconButton
                   onClick={event => customNavigate(`/ui/transactions/${enrichedTransaction.hash}`, event, navigate)}
@@ -103,8 +103,8 @@ export const EnrichedTransaction: React.FC<Props> = ({
                   <OpenInNewIcon color="secondary" fontSize="medium" />
                 </IconButton>
               </Tooltip>
-            </Grid2>
-          </Grid2>
+            </Grid>
+          </Grid>
         </Box>
         <Box
           sx={{

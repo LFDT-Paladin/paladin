@@ -23,7 +23,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
-  Grid2,
+  Grid2 as Grid,
   Radio,
   RadioGroup,
   TextField,
@@ -118,11 +118,11 @@ export const ABIUploadDialog: React.FC<Props> = ({
             value={radioSelection}
             onChange={event => setRadioSelection(event.target.value as 'file' || 'text')}
           >
-            <Grid2 container direction="column">
-              <Grid2>
+            <Grid container direction="column">
+              <Grid>
                 <FormControlLabel value="file" control={<Radio />} label={t('uploadFile')} />
-              </Grid2>
-              <Grid2>
+              </Grid>
+              <Grid>
                 <FileUploader
                   disabled={radioSelection !== 'file'}
                   handleChange={(file: any) => {
@@ -152,14 +152,14 @@ export const ABIUploadDialog: React.FC<Props> = ({
                   }
                   types={['abi']}
                 />
-              </Grid2>
-              <Grid2>
+              </Grid>
+              <Grid>
                 <Box sx={{ height: '25px' }} />
-              </Grid2>
-              <Grid2>
+              </Grid>
+              <Grid>
                 <FormControlLabel value="text" control={<Radio />} label={t('pasteABI')} />
-              </Grid2>
-              <Grid2>
+              </Grid>
+              <Grid>
                 <TextField
                   disabled={radioSelection !== 'text'}
                   fullWidth
@@ -168,8 +168,8 @@ export const ABIUploadDialog: React.FC<Props> = ({
                   value={abiText}
                   onChange={event => setAbiText(event.target.value)}
                 />
-              </Grid2>
-            </Grid2>
+              </Grid>
+            </Grid>
           </RadioGroup>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', paddingBottom: '20px' }}>

@@ -23,7 +23,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
-  Grid2,
+  Grid2 as Grid,
   MenuItem,
   TextField
 } from '@mui/material';
@@ -138,8 +138,8 @@ export const AddFilterDialog: React.FC<Props> = ({
         </DialogTitle>
         <DialogContent>
           <Box sx={{ marginTop: '5px' }}>
-            <Grid2 container spacing={2}>
-              <Grid2 size={{ xs: 12 }}>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12 }}>
                 <TextField
                   label={t('field')}
                   autoComplete="off"
@@ -154,8 +154,8 @@ export const AddFilterDialog: React.FC<Props> = ({
                     <MenuItem key={filterField.name} value={filterField.name}>{filterField.label}</MenuItem>
                   )}
                 </TextField>
-              </Grid2>
-              <Grid2 size={{ xs: 12 }} textAlign="center">
+              </Grid>
+              <Grid size={{ xs: 12 }} textAlign="center">
                 <TextField
                   sx={{ textAlign: 'left' }}
                   label={t('operator')}
@@ -168,8 +168,8 @@ export const AddFilterDialog: React.FC<Props> = ({
                 >
                   {operators}
                 </TextField>
-              </Grid2>
-              <Grid2 size={{ xs: 12 }}>
+              </Grid>
+              <Grid size={{ xs: 12 }}>
                 <TextField
                   type={selectedFilterField?.type === 'number' ? 'number' : 'text'}
                   label={t('value')}
@@ -192,8 +192,8 @@ export const AddFilterDialog: React.FC<Props> = ({
                     control={<Checkbox checked={isCaseSensitive} onChange={event => setIsCaseSensitive(event.target.checked)} />}
                     label={t('caseSensitive')} />
                 </Box>
-              </Grid2>
-            </Grid2>
+              </Grid>
+            </Grid>
           </Box>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', paddingBottom: '20px' }}>

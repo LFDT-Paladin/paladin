@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Fade, Grid2, Tab, Tabs, Typography } from "@mui/material";
+import { Alert, Box, Button, Fade, Grid2 as Grid, Tab, Tabs, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { fetchPaladinTransaction, fetchEnrichedTransaction, fetchTransactionReceipt } from "../queries/transactions";
 import { useEffect, useState } from "react";
@@ -105,8 +105,8 @@ export const TransactionEntry: React.FC = () => {
           </Button>
         </Box>
         {enrichedTransaction !== undefined &&
-          <Grid2 container spacing={3}>
-            <Grid2 size={{ xs: 12, sm: 12, md: 4, lg: 4 }}>
+          <Grid container spacing={3}>
+            <Grid size={{ xs: 12, sm: 12, md: 4, lg: 4 }}>
               <Box>
                 <Typography variant="h6" sx={{ marginBottom: '5px' }}>{t('blockchainTransaction')}</Typography>
                 <TransactionOverview
@@ -119,15 +119,15 @@ export const TransactionEntry: React.FC = () => {
                       events={enrichedTransaction.events} />
                   </>}
               </Box>
-            </Grid2>
-            <Grid2 size={{ xs: 12, sm: 12, md: 8, lg: 8 }}>
+            </Grid>
+            <Grid size={{ xs: 12, sm: 12, md: 8, lg: 8 }}>
               {enrichedTransaction.receipts.length > 0 &&
                 <Box>
                   <Typography variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>
                   <PaladinTransactionSection receipts={enrichedTransaction.receipts} />
                 </Box>}
-            </Grid2>
-          </Grid2>}
+            </Grid>
+          </Grid>}
         {enrichedTransaction === undefined && receipt &&
           <>
             <Typography variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>

@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Box, Button, Grid2, Menu, ToggleButton, ToggleButtonGroup, Typography, useTheme } from "@mui/material";
+import { Box, Button, Grid2 as Grid, Menu, ToggleButton, ToggleButtonGroup, Typography, useTheme } from "@mui/material";
 import { useContext, useState } from "react";
 import { ApplicationContext } from "../contexts/ApplicationContext";
 import LightModeIcon from '@mui/icons-material/LightMode';
@@ -62,8 +62,8 @@ export const SettingsMenu: React.FC<Props> = ({
         keepMounted
         onClose={() => setAnchorEl(null)}
       >
-        <Grid2 container>
-          <Grid2>
+        <Grid container>
+          <Grid>
             <Box sx={{ borderBottom: `solid 1px ${theme.palette.divider}`, padding: '8px 12px 8px 20px', display: 'flex', alignItems: 'center' }}>
               <Typography sx={{ minWidth: '150px', whiteSpace: 'nowrap', marginRight: '8px' }}>{t('modeValue', { value: t(readOnly ? 'readOnly' : 'edit') })}</Typography>
               <ToggleButtonGroup exclusive onChange={(_event, value) => handleModeChange(value)} value={readOnly ? 'readOnly' : 'edit'}>
@@ -94,8 +94,8 @@ export const SettingsMenu: React.FC<Props> = ({
                 onClick={() => { setAnchorEl(null); setAbiUploadDialogOpen(true) }}
               >{t('upload')}</Button>
             </Box>
-          </Grid2>
-        </Grid2>
+          </Grid>
+        </Grid>
       </Menu>
       {abiUploadDialogOpen && (
         <ABIUploadDialog

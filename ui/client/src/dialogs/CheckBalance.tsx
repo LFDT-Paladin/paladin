@@ -24,7 +24,7 @@ import {
   DialogTitle,
   TextField,
   Typography,
-  Grid2,
+  Grid2 as Grid,
 } from '@mui/material';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -100,8 +100,8 @@ export const CheckBalanceDialog: React.FC<Props> = ({
               sx={{ alignItems: 'center', marginTop: '10px' }}
             >
               <Box>
-                <Grid2 container spacing={2} sx={{ textAlign: 'left' }}>
-                  <Grid2 size={4}>
+                <Grid container spacing={2} sx={{ textAlign: 'left' }}>
+                  <Grid size={4}>
                     <Typography variant="body2">
                       <strong>{t('totalBalance')}:</strong>
                     </Typography>
@@ -111,8 +111,8 @@ export const CheckBalanceDialog: React.FC<Props> = ({
                     >
                       {formatBalance(result.totalBalance)}
                     </Typography>
-                  </Grid2>
-                  <Grid2 size={4}>
+                  </Grid>
+                  <Grid size={4}>
                     <Typography variant="body2">
                       <strong>{t('totalStates')}:</strong>
                     </Typography>
@@ -122,8 +122,8 @@ export const CheckBalanceDialog: React.FC<Props> = ({
                     >
                       {formatBalance(result.totalStates)}
                     </Typography>
-                  </Grid2>
-                  <Grid2 size={4}>
+                  </Grid>
+                  <Grid size={4}>
                     <Typography variant="body2">
                       <strong>{t('overflow')}:</strong>
                     </Typography>
@@ -133,8 +133,8 @@ export const CheckBalanceDialog: React.FC<Props> = ({
                     >
                       {result.overflow ? t('true') : t('false')}
                     </Typography>
-                  </Grid2>
-                </Grid2>
+                  </Grid>
+                </Grid>
               </Box>
             </Alert>
           )}

@@ -21,7 +21,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Grid2
+  Grid2 as Grid
 } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import { SingleValue } from '../components/SingleValue';
@@ -64,20 +64,20 @@ export const TimestampDialog: React.FC<Props> = ({
       </DialogTitle>
       <DialogContent>
         <Box sx={{ alignItems: 'center', minWidth: '300px', paddingTop: '5px' }}>
-          <Grid2 container direction="column" spacing={2}>
-            <Grid2>
+          <Grid container direction="column" spacing={2}>
+            <Grid>
               <SingleValue label={t('localTime')} value={date.toLocaleString()} />
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <SingleValue label={t('ISO')} value={timestamp} />
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <SingleValue label={t('UTC')} value={date.toUTCString()} />
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <SingleValue label={t('epoch')} value={getEpoch()} />
-            </Grid2>
-          </Grid2>
+            </Grid>
+          </Grid>
         </Box>
       </DialogContent>
       <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
