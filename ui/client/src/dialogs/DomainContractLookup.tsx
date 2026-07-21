@@ -87,7 +87,6 @@ export const DomainContractLookupDialog: React.FC<Props> = ({
             <TextField
               label={t('contractAddress')}
               autoComplete="off"
-              sx={{ marginBottom: '20px' }}
               fullWidth
               value={address}
               onChange={event => setAddress(event.target.value)}

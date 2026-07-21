@@ -86,7 +86,6 @@ export const PrivacyGroupMessageLookupDialog: React.FC<Props> = ({
             <TextField
               label={t('messageId')}
               autoComplete="off"
-              sx={{ marginBottom: '20px' }}
               fullWidth
               value={id}
               onChange={event => setId(event.target.value)}

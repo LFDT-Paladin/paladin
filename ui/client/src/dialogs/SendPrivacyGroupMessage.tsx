@@ -16,12 +16,12 @@
 
 import {
   Alert,
-  Box,
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  Stack,
   TextField
 } from '@mui/material';
 import { useState } from 'react';
@@ -98,9 +98,8 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
           )}
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ marginTop: '6px' }}>
+          <Stack spacing={3} sx={{ marginTop: '6px' }}>
             <TextField
-              sx={{ marginBottom: '20px' }}
               label={t('privacyGroupId')}
               autoComplete="off"
               fullWidth
@@ -110,7 +109,6 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
               error={privacyGroupId.length > 0 && !isValidPrivacyGroupId}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               label={t('topic')}
               autoComplete="off"
               fullWidth
@@ -118,7 +116,6 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
               onChange={event => setTopic(event.target.value)}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               label={t('correlationIdOptional')}
               autoComplete="off"
               fullWidth
@@ -136,7 +133,7 @@ export const SendPrivacyGroupMessageDialog: React.FC<Props> = ({
               onChange={event => setData(event.target.value)}
               helperText={t('formatValue', { value: typeof getData()})}
             />
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
           <Button

@@ -23,6 +23,7 @@ import {
   DialogContent,
   DialogTitle,
   MenuItem,
+  Stack,
   TextField,
   Typography
 } from '@mui/material';
@@ -104,9 +105,8 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
           )}
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ marginTop: '6px' }}>
+          <Stack spacing={3} sx={{ marginTop: '6px' }}>
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('listenerName')}
@@ -116,7 +116,6 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
               error={listenerName.length > 0 && !isValidListenerName}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               label={t('initialStatus')}
               value={started ? 'started' : 'stopped'}
@@ -145,7 +144,6 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
               </MenuItem>
             </TextField>
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('sequenceAboveOptional')}
@@ -155,7 +153,6 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
               helperText={sequenceAbove.length > 0 && !isValidSequenceAbove ? t('mustBeAValidNumber') : undefined}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('domainOptional')}
@@ -163,7 +160,6 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
               onChange={event => setDomain(event.target.value)}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('groupOptional')}
@@ -173,7 +169,6 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
               helperText={group.length > 0 && !isValidGroup ? t('mustBeAValidHex') : undefined}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('topicOptional')}
@@ -190,7 +185,7 @@ export const CreatePrivacyGroupListenerDialog: React.FC<Props> = ({
               <MenuItem value="include">{t('include')}</MenuItem>
               <MenuItem value="exclude">{t('exclude')}</MenuItem>
             </TextField>
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
           <Button

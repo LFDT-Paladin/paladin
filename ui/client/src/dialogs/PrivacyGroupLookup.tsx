@@ -103,7 +103,6 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
             <TextField
               label={t('privacyGroupIdOrContractAddress')}
               autoComplete="off"
-              sx={{ marginBottom: '20px' }}
               fullWidth
               value={idOrContractAddress}
               onChange={event => setIdOrContractAddress(event.target.value)}

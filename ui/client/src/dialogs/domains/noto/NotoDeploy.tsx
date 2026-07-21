@@ -22,7 +22,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  TextField,
+  Stack,
+  TextField
 } from '@mui/material';
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -106,8 +107,9 @@ export const NotoDeployDialog: React.FC<Props> = ({
           </Box>
         </DialogTitle>
         <DialogContent>
-          {transactionId !== undefined &&
-            <Alert variant="filled" severity="success" sx={{ marginBottom: '20px' }}
+          <Stack spacing={3} sx={{ marginTop: '5px' }}>
+            {transactionId !== undefined &&
+            <Alert variant="filled" severity="success"
               action={
                 <Button variant="outlined" color="inherit" size="small"
                   onClick={event => customNavigate(`/ui/transactions/${transactionId}?back=domains`, event, navigate)}
@@ -116,7 +118,6 @@ export const NotoDeployDialog: React.FC<Props> = ({
             >
               {t('transactionValue', { value: transactionId })}
             </Alert>}
-          <Box sx={{ marginTop: '5px' }}>
             <TextField
               fullWidth
               disabled
@@ -124,8 +125,6 @@ export const NotoDeployDialog: React.FC<Props> = ({
               autoComplete="off"
               value={domain}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('deployer')}
@@ -133,8 +132,6 @@ export const NotoDeployDialog: React.FC<Props> = ({
               value={sender}
               onChange={(event) => setSender(event.target.value)}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('notary')}
@@ -144,8 +141,6 @@ export const NotoDeployDialog: React.FC<Props> = ({
                 setForm({ ...form, notary: event.target.value })
               }
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('notaryMode')}
@@ -153,7 +148,7 @@ export const NotoDeployDialog: React.FC<Props> = ({
               disabled
               value={form.notaryMode}
             />
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', paddingBottom: '20px' }}>
           <Button

@@ -91,7 +91,6 @@ export const StateLookupDialog: React.FC<Props> = ({
             <TextField
               label={t('stateId')}
               autoComplete="off"
-              sx={{ marginBottom: '20px' }}
               fullWidth
               value={stateId}
               onChange={event => setStateId(event.target.value)}

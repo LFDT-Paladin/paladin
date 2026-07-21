@@ -29,6 +29,7 @@ import {
   IconButton,
   Radio,
   RadioGroup,
+  Stack,
   TextField,
   Tooltip,
   Typography
@@ -143,21 +144,22 @@ export const ResolveVerifierDialog: React.FC<Props> = ({
               <Typography component="span">{t('options')}</Typography>
             </AccordionSummary>
             <AccordionDetails>
-              <TextField
-                fullWidth
-                label={t('algorithm')}
-                autoComplete="off"
-                value={algorithm}
-                onChange={event => setAlgorithm(event.target.value)}
-              />
-              <TextField
-                sx={{ marginTop: '20px' }}
-                fullWidth
-                label={t('verifierType')}
-                autoComplete="off"
-                value={verifierType}
-                onChange={event => setVerifierType(event.target.value)}
-              />
+              <Stack spacing={3}>
+                <TextField
+                  fullWidth
+                  label={t('algorithm')}
+                  autoComplete="off"
+                  value={algorithm}
+                  onChange={event => setAlgorithm(event.target.value)}
+                />
+                <TextField
+                  fullWidth
+                  label={t('verifierType')}
+                  autoComplete="off"
+                  value={verifierType}
+                  onChange={event => setVerifierType(event.target.value)}
+                />
+              </Stack>
             </AccordionDetails>
           </Accordion>
         </DialogContent>

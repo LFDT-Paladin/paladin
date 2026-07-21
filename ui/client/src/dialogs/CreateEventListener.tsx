@@ -23,6 +23,7 @@ import {
   DialogContent,
   DialogTitle,
   MenuItem,
+  Stack,
   TextField,
   Typography
 } from '@mui/material';
@@ -134,9 +135,8 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
           )}
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ marginTop: '6px' }}>
+          <Stack spacing={3} sx={{ marginTop: '6px' }}>
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('listenerName')}
@@ -146,7 +146,6 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
               error={listenerName.length > 0 && !isValidListenerName}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               label={t('initialStatus')}
               value={started ? 'started' : 'stopped'}
@@ -175,7 +174,6 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
               </MenuItem>
             </TextField>
             <TextField
-              sx={{ marginBottom: '20px', height: '' }}
               fullWidth
               multiline
               minRows={4}
@@ -188,7 +186,6 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
               helperText={abiText.trim().length > 0 && !isValidAbi ? t('invalidABI') : undefined}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('addressOptional')}
@@ -198,7 +195,6 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
               helperText={address.length > 0 && !isValidAddress ? t('mustBeAValidHex') : undefined}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('fromBlockOptional')}
@@ -210,7 +206,6 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
             <TextField
               type="number"
               sx={{
-                marginBottom: '20px',
                 '& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button': {
                   display: 'none',
                   WebkitAppearance: 'none',
@@ -235,7 +230,7 @@ export const CreateEventListenerDialog: React.FC<Props> = ({
               error={batchTimeout.length > 0 && !isValidBatchTimeout}
               helperText={batchTimeout.length > 0 && !isValidBatchTimeout ? t('invalidDuration') : undefined}
             />
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
           <Button

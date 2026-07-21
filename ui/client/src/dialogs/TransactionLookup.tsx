@@ -124,7 +124,6 @@ export const TransactionLookupDialog: React.FC<Props> = ({
             <TextField
               label={label}
               autoComplete="off"
-              sx={{ marginBottom: '20px' }}
               fullWidth
               value={hashOrId}
               onChange={event => setHashOrId(event.target.value)}

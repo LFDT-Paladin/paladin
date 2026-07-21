@@ -23,6 +23,7 @@ import {
   DialogContent,
   DialogTitle,
   MenuItem,
+  Stack,
   TextField,
   Typography
 } from '@mui/material';
@@ -115,9 +116,8 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
           )}
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ marginTop: '6px' }}>
+          <Stack spacing={3} sx={{ marginTop: '6px' }}>
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('listenerName')}
@@ -127,7 +127,6 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
               error={listenerName.length > 0 && !isValidListenerName}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               label={t('initialStatus')}
               value={started ? 'started' : 'stopped'}
@@ -156,7 +155,6 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
               </MenuItem>
             </TextField>
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('sequenceAboveOptional')}
@@ -166,7 +164,6 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
               helperText={sequenceAbove.length > 0 && !isValidSequenceAbove ? t('mustBeAValidNumber') : undefined}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               label={t('typeOptional')}
               value={type}
@@ -178,7 +175,6 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
               <MenuItem value={TransactionType.PRIVATE}>{t('private')}</MenuItem>
             </TextField>
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               autoComplete="off"
               label={t('domainOptional')}
@@ -186,7 +182,6 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
               onChange={event => setDomain(event.target.value)}
             />
             <TextField
-              sx={{ marginBottom: '20px' }}
               fullWidth
               label={t('domainReceipts')}
               value={domainReceipts ? 'true' : 'false'}
@@ -208,7 +203,7 @@ export const CreateReceiptListenerDialog: React.FC<Props> = ({
               <MenuItem value="process">{t('process')}</MenuItem>
               <MenuItem value="complete_only">{t('completeOnly')}</MenuItem>
             </TextField>
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
           <Button

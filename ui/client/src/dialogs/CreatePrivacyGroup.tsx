@@ -26,6 +26,7 @@ import {
   InputAdornment,
   List,
   ListItem,
+  Stack,
   TextField,
   Tooltip,
   Typography
@@ -98,12 +99,10 @@ export const CreatePrivacyGroupDialog: React.FC<Props> = ({
           )}
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ marginTop: '6px' }}>
-
+          <Stack spacing={3} sx={{ marginTop: '6px' }}>
             <TextField
               label={t('name')}
               autoComplete="off"
-              sx={{ marginBottom: '20px' }}
               fullWidth
               value={name}
               onChange={event => setName(event.target.value)}
@@ -126,7 +125,6 @@ export const CreatePrivacyGroupDialog: React.FC<Props> = ({
                   event.preventDefault();
                 }
               }}
-              sx={{ marginBottom: '20px' }}
               slotProps={{
                 input: {
                   endAdornment: (
@@ -140,32 +138,34 @@ export const CreatePrivacyGroupDialog: React.FC<Props> = ({
                 }
               }}
             />
-            <Typography variant="h6">{t('members')}</Typography>
-            <Box sx={{
-              border: 'solid 1px',
-              borderColor: theme => theme.palette.action.disabled,
-              borderRadius: '4px',
-              minHeight: '180px'
-            }}>
-              <List>
-                {members.map(member =>
-                  <ListItem key={member} value={member}
-                    secondaryAction={
-                      <Tooltip title={t('removeMember')} arrow>
-                        <IconButton edge="end"
-                          onClick={() => {
-                            const updatedMembers = members.filter(currentMember => currentMember !== member);
-                            setMembers(updatedMembers);
-                          }}>
-                          <DeleteOutlineOutlinedIcon />
-                        </IconButton>
-                      </Tooltip>
-                    }
-                  >{member}</ListItem>
-                )}
-              </List>
+            <Box>
+              <Typography variant="h6">{t('members')}</Typography>
+              <Box sx={{
+                border: 'solid 1px',
+                borderColor: theme => theme.palette.action.disabled,
+                borderRadius: '4px',
+                minHeight: '180px'
+              }}>
+                <List>
+                  {members.map(member =>
+                    <ListItem key={member} value={member}
+                      secondaryAction={
+                        <Tooltip title={t('removeMember')} arrow>
+                          <IconButton edge="end"
+                            onClick={() => {
+                              const updatedMembers = members.filter(currentMember => currentMember !== member);
+                              setMembers(updatedMembers);
+                            }}>
+                            <DeleteOutlineOutlinedIcon />
+                          </IconButton>
+                        </Tooltip>
+                      }
+                    >{member}</ListItem>
+                  )}
+                </List>
+              </Box>
             </Box>
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
           <Button

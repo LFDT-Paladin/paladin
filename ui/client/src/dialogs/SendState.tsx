@@ -16,12 +16,12 @@
 
 import {
   Alert,
-  Box,
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  Stack,
   TextField
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
@@ -91,30 +91,29 @@ export const SendStateDialog: React.FC<Props> = ({
             <Alert sx={{ marginTop: '15px' }} variant="filled" severity="warning">{errorMessage}</Alert>}
         </DialogTitle>
         <DialogContent>
-          {messageId !== undefined &&
-            <Alert variant="filled" severity="success" sx={{ marginBottom: '20px' }}
-              action={
-                <Button variant="outlined" color="inherit" size="small"
-                  onClick={event => customNavigate(`/ui/transports/messages/${messageId}`, event, navigate)}
-                >{t('view')}</Button>
-              }
-            >
-              {t('messageValue', { value: messageId })}
-            </Alert>}
-          {messageId === undefined &&
-            <Alert sx={{ marginBottom: '25px' }} variant="filled" severity="warning">
-              {t('sendPrivateStateWarning')}
-            </Alert>}
-          <Box sx={{ marginTop: '6px' }}>
+          <Stack spacing={3} sx={{ marginTop: '6px' }}>
+            {messageId !== undefined &&
+              <Alert variant="filled" severity="success"
+                action={
+                  <Button variant="outlined" color="inherit" size="small"
+                    onClick={event => customNavigate(`/ui/transports/messages/${messageId}`, event, navigate)}
+                  >{t('view')}</Button>
+                }
+              >
+                {t('messageValue', { value: messageId })}
+              </Alert>}
+            {messageId === undefined &&
+              <Alert variant="filled" severity="warning">
+                {t('sendPrivateStateWarning')}
+              </Alert>}
             <TextField
               label={t('recipient')}
               autoComplete="off"
-              sx={{ marginBottom: '20px' }}
               fullWidth
               value={recipient}
               onChange={event => setRecipient(event.target.value)}
             />
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
           <Button
