@@ -2190,7 +2190,7 @@ func TestCoordinator_WhenActiveFLush_TransactionStateTransition_SelectsBeforeTra
 	txPooled.EXPECT().GetID().Return(txPooledID).Maybe()
 	txPooled.EXPECT().GetCurrentState().Return(transaction.State_Pooled).Maybe()
 	// The transition to Active snapshots the coordinator state, which reads the selected tx.
-	txPooled.EXPECT().GetSnapshot(mock.Anything).Return(&common.SnapshotPooledTransaction{ID: txPooledID}, nil, nil, nil).Maybe()
+	txPooled.EXPECT().GetSnapshot(mock.Anything).Return(&engineProto.SnapshotPooledTransaction{Id: txPooledID.String()}, nil, nil, nil).Maybe()
 	txPooled.EXPECT().HandleEvent(mock.Anything, mock.AnythingOfType("*transaction.SelectedEvent")).Return(nil).Once()
 
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Active_Flush).
