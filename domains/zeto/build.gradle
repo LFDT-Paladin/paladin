@@ -49,7 +49,15 @@ configurations {
         canBeConsumed = false
         canBeResolved = true
     }
-    coreGo {
+    commonGo {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+    configGo {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+    sdkGo {
         canBeConsumed = false
         canBeResolved = true
     }
@@ -72,7 +80,9 @@ configurations {
 dependencies {
     contractCompile project(path: ":solidity", configuration: "compiledContracts")
     toolkitGo project(path: ":toolkit:go", configuration: "goSource")
-    coreGo project(path: ":core:go", configuration: "goSource")
+    commonGo project(path: ":common:go", configuration: "goSource")
+    configGo project(path: ":config", configuration: "goSource")
+    sdkGo project(path: ":sdk:go", configuration: "goSource")
 }
 
 task downloadZetoProver(type: Download) {
@@ -190,7 +200,9 @@ task unitTests(type: Exec, dependsOn: [
         ":domains:integration-test:copySolidity" // TODO: find a better way to share this
     ]) {
     inputs.files(configurations.toolkitGo)
-    inputs.files(configurations.coreGo)
+    inputs.files(configurations.commonGo)
+    inputs.files(configurations.configGo)
+    inputs.files(configurations.sdkGo)
     inputs.files(goFiles)
     outputs.dir('coverage')
 
@@ -222,8 +234,10 @@ task test {
 }
 
 task buildGo(type: GoLib, dependsOn: [":toolkit:go:protoc", copySolidity, copyPkgSolidity]) {
-    inputs.files(configurations.coreGo)
     inputs.files(configurations.toolkitGo)
+    inputs.files(configurations.commonGo)
+    inputs.files(configurations.configGo)
+    inputs.files(configurations.sdkGo)
     baseName "zeto"
     sources goFiles
     mainFile 'zeto.go'

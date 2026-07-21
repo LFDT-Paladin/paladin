@@ -32,7 +32,15 @@ configurations {
         canBeConsumed = false
         canBeResolved = true
     }
-    coreGo {
+    commonGo {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+    configGo {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+    sdkGo {
         canBeConsumed = false
         canBeResolved = true
     }
@@ -51,7 +59,9 @@ configurations {
 dependencies {
     contractCompile project(path: ':solidity', configuration: 'compiledContracts')
     toolkitGo project(path: ':toolkit:go', configuration: 'goSource')
-    coreGo project(path: ':core:go', configuration: 'goSource')
+    commonGo project(path: ':common:go', configuration: 'goSource')
+    configGo project(path: ':config', configuration: 'goSource')
+    sdkGo project(path: ':sdk:go', configuration: 'goSource')
 }
 
 task copyInternalSolidity(type: Copy) {
@@ -95,7 +105,9 @@ task copySolidity(dependsOn: [copyInternalSolidity, copyPkgSolidity]) {
 
 task test(type: Exec, dependsOn: [':core:go:makeMocks', copySolidity]) {
     inputs.files(configurations.toolkitGo)
-    inputs.files(configurations.coreGo)
+    inputs.files(configurations.commonGo)
+    inputs.files(configurations.configGo)
+    inputs.files(configurations.sdkGo)
     inputs.files(goFiles)
     outputs.dir('coverage')
     outputs.file('coverage.txt')
@@ -119,8 +131,10 @@ task test(type: Exec, dependsOn: [':core:go:makeMocks', copySolidity]) {
 }
 
 task buildGo(type: GoLib, dependsOn: [':toolkit:go:protoc', copySolidity]) {
-    inputs.files(configurations.coreGo)
     inputs.files(configurations.toolkitGo)
+    inputs.files(configurations.commonGo)
+    inputs.files(configurations.configGo)
+    inputs.files(configurations.sdkGo)
     baseName 'noto'
     sources goFiles
     mainFile 'noto.go'

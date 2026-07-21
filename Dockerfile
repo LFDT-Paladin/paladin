@@ -25,6 +25,11 @@ ARG GO_VERSION
 ARG GRADLE_VERSION
 ARG WASMER_VERSION
 
+# Optional persistent build cache (off by default so CI is unaffected).
+# When true, Go/Gradle/npm caches are redirected into a BuildKit cache mount
+# that persists across local `docker build` runs, making rebuilds incremental.
+ARG USE_BUILD_CACHE=false
+
 # Set environment variables
 ENV LANG=C.UTF-8
 
@@ -94,7 +99,9 @@ WORKDIR /app
 # Initialize gradle and build tasks
 COPY build.gradle settings.gradle ./
 COPY buildSrc buildSrc
-RUN gradle --no-daemon --parallel :buildSrc:jar
+RUN --mount=type=cache,target=/buildcache,id=paladin-build \
+    if [ "$USE_BUILD_CACHE" = "true" ]; then export GRADLE_USER_HOME=/buildcache/gradle; fi; \
+    gradle --no-daemon --parallel :buildSrc:jar
 
 # Copy in a set of thing before the first gradle command that are less likely to change
 COPY solidity solidity
@@ -116,11 +123,16 @@ ENV CC=gcc
 # - Installing gradle with the wrapper
 # - Compiling the groovy buildSrc
 # - Installing a bunch of base Go pre-reqs
-RUN gradle --no-daemon --parallel :toolkit:go:assemble :solidity:compile
+RUN --mount=type=cache,target=/buildcache,id=paladin-build \
+    if [ "$USE_BUILD_CACHE" = "true" ]; then \
+      export GOCACHE=/buildcache/go GOMODCACHE=/buildcache/mod GRADLE_USER_HOME=/buildcache/gradle; \
+    fi; \
+    gradle --no-daemon --parallel :toolkit:go:assemble :solidity:compile
 
 # Stage 2... Full build - currently core/zeto/noto/core are all cop-req'd together
 # (If we untangle this we can get more parallelism and less re-build in our docker build)
 FROM base-builder AS full-builder
+ARG USE_BUILD_CACHE=false
 COPY go.work go.work
 COPY core/go core/go
 COPY core/java core/java
@@ -139,7 +151,12 @@ COPY ui/client ui/client
 COPY testinfra/go.mod testinfra/go.mod
 COPY operator/go.mod operator/go.mod
 COPY test/go.mod test/go.mod
-RUN gradle --no-daemon --parallel assemble
+RUN --mount=type=cache,target=/buildcache,id=paladin-build \
+    if [ "$USE_BUILD_CACHE" = "true" ]; then \
+      export GOCACHE=/buildcache/go GOMODCACHE=/buildcache/mod \
+             GRADLE_USER_HOME=/buildcache/gradle npm_config_cache=/buildcache/npm; \
+    fi; \
+    gradle --no-daemon --parallel assemble
 
 # Stage 3: Pull together runtime
 FROM ubuntu:24.04 AS runtime

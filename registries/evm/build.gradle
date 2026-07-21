@@ -27,6 +27,18 @@ configurations {
         canBeConsumed = false
         canBeResolved = true
     }
+    commonGo {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+    configGo {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+    sdkGo {
+        canBeConsumed = false
+        canBeResolved = true
+    }
     compiledContracts {
         canBeConsumed = false
         canBeResolved = true
@@ -41,6 +53,9 @@ configurations {
 
 dependencies {
     toolkitGo project(path: ":toolkit:go", configuration: "goSource")
+    commonGo project(path: ":common:go", configuration: "goSource")
+    configGo project(path: ":config", configuration: "goSource")
+    sdkGo project(path: ":sdk:go", configuration: "goSource")
     compiledContracts project(path: ":solidity", configuration: "compiledContracts")
 }
 
@@ -61,6 +76,9 @@ task lint(type: Exec, dependsOn: [":installGolangCILint",copyContracts]) {
 
     helpers.lockResource(it, "lint.lock")
     inputs.files(configurations.toolkitGo)
+    inputs.files(configurations.commonGo)
+    inputs.files(configurations.configGo)
+    inputs.files(configurations.sdkGo)
     inputs.files(goFiles);
     environment 'GOGC', '20'
 
@@ -73,6 +91,9 @@ task lint(type: Exec, dependsOn: [":installGolangCILint",copyContracts]) {
 
 task test(type: Exec, dependsOn: [copyContracts]) {
     inputs.files(configurations.toolkitGo)
+    inputs.files(configurations.commonGo)
+    inputs.files(configurations.configGo)
+    inputs.files(configurations.sdkGo)
     inputs.files(goFiles)
     outputs.dir('coverage')
 
@@ -93,6 +114,9 @@ task test(type: Exec, dependsOn: [copyContracts]) {
 
 task buildGo(type: GoLib, dependsOn: [copyContracts]) {
     inputs.files(configurations.toolkitGo)
+    inputs.files(configurations.commonGo)
+    inputs.files(configurations.configGo)
+    inputs.files(configurations.sdkGo)
     baseName "evm"
     sources goFiles
     mainFile 'evm.go'

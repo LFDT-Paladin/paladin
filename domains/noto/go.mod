@@ -50,8 +50,6 @@ require (
 
 replace github.com/LFDT-Paladin/paladin/common/go => ../../common/go
 
-replace github.com/LFDT-Paladin/paladin/core => ../../core/go
-
 replace github.com/LFDT-Paladin/paladin/sdk/go => ../../sdk/go
 
 replace github.com/LFDT-Paladin/paladin/toolkit => ../../toolkit/go

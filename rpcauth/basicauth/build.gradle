@@ -25,7 +25,19 @@ configurations {
         canBeConsumed = false
         canBeResolved = true
     }
-    
+    commonGo {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+    configGo {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+    sdkGo {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+
     goSource {
         canBeConsumed = true
         canBeResolved = false
@@ -39,12 +51,18 @@ configurations {
 
 dependencies {
     toolkitGo project(path: ':toolkit:go', configuration: 'goSource')
+    commonGo project(path: ':common:go', configuration: 'goSource')
+    configGo project(path: ':config', configuration: 'goSource')
+    sdkGo project(path: ':sdk:go', configuration: 'goSource')
 }
 
 task test(type: Exec, dependsOn: [':toolkit:go:protoc']) {
     inputs.files(configurations.toolkitGo)
+    inputs.files(configurations.commonGo)
+    inputs.files(configurations.configGo)
+    inputs.files(configurations.sdkGo)
     inputs.files(goFiles)
-    
+
     workingDir '.'
     executable 'go'
     args 'test'
@@ -57,6 +75,9 @@ task test(type: Exec, dependsOn: [':toolkit:go:protoc']) {
 
 task buildGo(type: GoLib, dependsOn: [':toolkit:go:protoc']) {
     inputs.files(configurations.toolkitGo)
+    inputs.files(configurations.commonGo)
+    inputs.files(configurations.configGo)
+    inputs.files(configurations.sdkGo)
     baseName 'basicauth'
     sources goFiles
     mainFile 'basicauth.go'
