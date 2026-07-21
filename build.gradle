@@ -314,9 +314,16 @@ task clean {
     delete "${buildDir}"
 }
 
+// Local docker builds default to the persistent BuildKit cache mount, making
+// incremental rebuilds fast (see USE_BUILD_CACHE in the Dockerfile). Disable with
+// -PdockerBuildCache=false. CI builds the image via docker/build-push-action and
+// never sets this arg, so CI/release images are unaffected (cache stays off there).
+def dockerBuildCache = (findProperty('dockerBuildCache') ?: 'true').toString()
+
 task docker(type: Exec) {
     executable 'docker'
     args 'build'
+    args '--build-arg', "USE_BUILD_CACHE=${dockerBuildCache}"
     args '-t', 'paladin:test'
     args '.'
 }
@@ -324,6 +331,7 @@ task docker(type: Exec) {
 task dockerx(type: Exec) {
     executable 'docker'
     args 'buildx', 'build'
+    args '--build-arg', "USE_BUILD_CACHE=${dockerBuildCache}"
     args '--platform', 'linux/amd64,linux/arm64'
     args '-t', 'paladin:test'
     args '.'
