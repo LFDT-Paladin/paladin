@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Box, Button } from '@mui/material';
+import { Box } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotoMintDialog } from '../dialogs/domains/noto/NotoMint';
@@ -25,6 +25,7 @@ import { NotoCheckBalanceDialog } from '../dialogs/domains/noto/NotoCheckBalance
 import { ZetoCheckBalanceDialog } from '../dialogs/domains/zeto/ZetoCheckBalance';
 import { NotoBurnDialog } from '../dialogs/domains/noto/NotoBurn';
 import { useApplicationContext } from '../contexts/ApplicationContext';
+import { ActionButton } from './ActionButton';
 
 type Props = {
   domainName: string;
@@ -103,14 +104,12 @@ export const DomainButtons: React.FC<Props> = ({
     <>
       <Box sx={{ display: 'flex', gap: '10px' }}>
         {buttons.map((button) => (
-          <Button
+          <ActionButton
             key={button.name}
-            sx={{ fontWeight: '400', whiteSpace: 'nowrap', minWidth: '70px' }}
-            size="small"
             onClick={button.action}
           >
             {t(button.name)}
-          </Button>
+          </ActionButton>
         ))}
         {buttons.length === 0 && t('noActions')}
       </Box>

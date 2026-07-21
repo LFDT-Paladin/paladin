@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Box, Button } from "@mui/material"
+import { Box } from "@mui/material"
 import { useMutation } from "@tanstack/react-query";
 import { startReceiptListener, stopReceiptListener } from "../queries/transactions";
 import { useTranslation } from "react-i18next";
@@ -22,6 +22,7 @@ import { IReceiptListener } from "../interfaces";
 import { DeleteReceiptListenerDialog } from "../dialogs/DeleteReceiptListener";
 import { useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
+import { ActionButton } from "./ActionButton";
 
 type Props = {
   receiptListener: IReceiptListener
@@ -59,34 +60,28 @@ export const ReceiptListenerActions: React.FC<Props> = ({
         display: 'flex',
         gap: '10px'
       }}>
-        <Button
+        <ActionButton
           disabled={receiptListener.started === true}
-          sx={{ fontWeight: 400, minWidth: '70px' }}
-          size="small"
           onClick={() => {
             startListener(receiptListener.name)
           }}
         >
           {t('start')}
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           disabled={receiptListener.started !== true}
-          sx={{ fontWeight: 400, minWidth: '70px' }}
-          size="small"
           onClick={() => {
             stopListener(receiptListener.name)
           }}
         >{t('stop')}
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           color="error"
-          sx={{ fontWeight: 400, minWidth: '70px' }}
-          size="small"
           onClick={() => {
             setDeleteReceiptListenerDialogOpen(true);
           }}
         >{t('delete')}
-        </Button>
+        </ActionButton>
       </Box>
       <DeleteReceiptListenerDialog
         listenerName={receiptListener.name}

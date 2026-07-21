@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Box, Button } from "@mui/material"
+import { Box } from "@mui/material"
 import { useMutation } from "@tanstack/react-query";
 import { startPrivacyGroupListener, stopPrivacyGroupListener } from "../queries/privacyGroups";
 import { useTranslation } from "react-i18next";
@@ -22,6 +22,7 @@ import { IPrivacyGroupListener } from "../interfaces";
 import { DeletePrivacyGroupListenerDialog } from "../dialogs/DeletePrivacyGroupListener";
 import { useState } from "react";
 import { useApplicationContext } from "../contexts/ApplicationContext";
+import { ActionButton } from "./ActionButton";
 
 type Props = {
   privacyGroupListener: IPrivacyGroupListener
@@ -59,34 +60,28 @@ export const PrivacyGroupListenerActions: React.FC<Props> = ({
         display: 'flex',
         gap: '10px'
       }}>
-        <Button
+        <ActionButton
           disabled={privacyGroupListener.started === true}
-          sx={{ fontWeight: 400, minWidth: '70px' }}
-          size="small"
           onClick={() => {
             startListener(privacyGroupListener.name)
           }}
         >
           {t('start')}
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           disabled={privacyGroupListener.started !== true}
-          sx={{ fontWeight: 400, minWidth: '70px' }}
-          size="small"
           onClick={() => {
             stopListener(privacyGroupListener.name)
           }}
         >{t('stop')}
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           color="error"
-          sx={{ fontWeight: 400, minWidth: '70px' }}
-          size="small"
           onClick={() => {
             setDeletePrivacyGroupDialogOpen(true);
           }}
         >{t('delete')}
-        </Button>
+        </ActionButton>
       </Box>
       <DeletePrivacyGroupListenerDialog
         listenerName={privacyGroupListener.name}
