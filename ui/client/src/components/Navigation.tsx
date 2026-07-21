@@ -53,14 +53,14 @@ export const Navigation: React.FC = () => {
         <ListItem>
           <ListItemButton
             onClick={event => customNavigate(AppRoutes.Transactions, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.Transactions) && !['submissions'].includes(back) }>
+            selected={pathname.startsWith(AppRoutes.Transactions) && !['submissions'].includes(back)}>
             <ListItemText primary={t('transactions')} />
           </ListItemButton>
         </ListItem>
         <ListItem>
           <ListItemButton
             onClick={event => customNavigate(AppRoutes.Submissions, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.Submissions) || back === 'submissions' }>
+            selected={pathname.startsWith(AppRoutes.Submissions) || back === 'submissions'}>
             <ListItemText primary={t('submissions')} />
           </ListItemButton>
         </ListItem>
@@ -88,7 +88,10 @@ export const Navigation: React.FC = () => {
         <ListItem>
           <ListItemButton
             onClick={event => customNavigate(AppRoutes.PrivacyGroups, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.PrivacyGroups)}>
+            selected={
+              pathname.startsWith(AppRoutes.PrivacyGroups)
+              || pathname.startsWith(AppRoutes.PrivacyGroupMessages)
+            }>
             <ListItemText primary={t('privacyGroups')} />
           </ListItemButton>
         </ListItem>
@@ -102,14 +105,21 @@ export const Navigation: React.FC = () => {
         <ListItem>
           <ListItemButton
             onClick={event => customNavigate(AppRoutes.TransportConnections, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.TransportConnections)}>
+            selected={
+              pathname.startsWith(AppRoutes.TransportConnections)
+              || pathname.startsWith(AppRoutes.TransportMessages)
+            }>
             <ListItemText primary={t('transports')} />
           </ListItemButton>
         </ListItem>
         <ListItem>
           <ListItemButton
             onClick={event => customNavigate(AppRoutes.EventListeners, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.EventListeners)}>
+            selected={
+              pathname.startsWith(AppRoutes.EventListeners)
+              || pathname.startsWith(AppRoutes.ReceiptListeners)
+              || pathname.startsWith(AppRoutes.PrivacyGroupListeners)
+            }>
             <ListItemText primary={t('listeners')} />
           </ListItemButton>
         </ListItem>
