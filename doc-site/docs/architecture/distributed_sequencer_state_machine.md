@@ -80,33 +80,29 @@ stateDiagram-v2
     Pooled --> PreAssembly_Blocked
     Pooled --> Reverted
     Pooled --> Evicted
+    Assembling --> Signing
     Assembling --> Endorsement_Gathering
     Assembling --> Confirming_Dispatchable
     Assembling --> Blocked
     Assembling --> Pooled
-    Assembling --> Reverted
     Assembling --> Evicted
+    Assembling --> Reverted
     Assembling --> Final
     Assembling --> PreAssembly_Blocked
+    Signing --> Endorsement_Gathering
+    Signing --> Confirming_Dispatchable
+    Signing --> Blocked
+    Signing --> Pooled
+    Signing --> Evicted
     Endorsement_Gathering --> Confirming_Dispatchable
     Endorsement_Gathering --> Blocked
     Endorsement_Gathering --> Pooled
-    Endorsement_Gathering --> PreAssembly_Blocked
-    Endorsement_Gathering --> Reverted
     Blocked --> Confirming_Dispatchable
-    Blocked --> PreAssembly_Blocked
-    Blocked --> Pooled
-    Blocked --> Reverted
     Confirming_Dispatchable --> Ready_For_Dispatch
     Confirming_Dispatchable --> Pooled
     Confirming_Dispatchable --> Evicted
     Confirming_Dispatchable --> Final
-    Confirming_Dispatchable --> PreAssembly_Blocked
-    Confirming_Dispatchable --> Reverted
     Ready_For_Dispatch --> Dispatched
-    Ready_For_Dispatch --> PreAssembly_Blocked
-    Ready_For_Dispatch --> Pooled
-    Ready_For_Dispatch --> Reverted
     Dispatched --> Confirmed
     Dispatched --> PreAssembly_Blocked
     Dispatched --> Pooled
@@ -125,6 +121,7 @@ stateDiagram-v2
 | **Pooled** | The transaction is waiting in the pool to be selected and sent for assembly to the its originator |
 | **PreAssembly Blocked** | The transaction cannot yet be put in the pool to be selected for assembly because a dependency must be assembled first |
 | **Assembling** | An assemble request has been sent to the originator and we are waiting for the response |
+| **Signing** |  |
 | **Reverted** | The transaction has been reverted, either at assembly time by the originator or on the base ledger |
 | **Endorsement Gathering** | The transaction has been successfully assembled and endorsement requests have been sent |
 | **Blocked** | All endorsements have been received but the transaction cannot proceed due to dependencies not being ready for dispatch |
@@ -172,7 +169,10 @@ stateDiagram-v2
     state "Endorsement Gathering" as Endorsement_Gathering
     [*] --> Initial
     Initial --> Confirmed
+    Initial --> Resolving
     Initial --> Pending
+    Resolving --> Confirmed
+    Resolving --> Pending
     Pending --> Confirmed
     Pending --> Delegated
     Delegated --> Confirmed
@@ -180,9 +180,14 @@ stateDiagram-v2
     Delegated --> Dispatched
     Assembling --> Confirmed
     Assembling --> Delegated
+    Assembling --> Signing
     Assembling --> Endorsement_Gathering
     Assembling --> Reverted
     Assembling --> Parked
+    Signing --> Confirmed
+    Signing --> Delegated
+    Signing --> Endorsement_Gathering
+    Signing --> Assembling
     Endorsement_Gathering --> Confirmed
     Endorsement_Gathering --> Delegated
     Endorsement_Gathering --> Assembling
@@ -216,9 +221,11 @@ stateDiagram-v2
 | State | Description |
 | --- | --- |
 | **Initial** | Transaction state machine created |
+| **Resolving** |  |
 | **Pending** | The transaction has not yet been delegated to a coordinator |
 | **Delegated** | The transaction has been sent to the current active coordinator |
 | **Assembling** | The coordinator has sent an assemble request to us and we have not yet sent the assembled transaction back to the coordinator |
+| **Signing** |  |
 | **Endorsement Gathering** | An assemble response has been sent to the active coordinator, who should now be gathering endorsements for the transaction. A dispatch confirmation request is expected in this state. |
 | **Prepared** | We know that the coordinator has got as far as preparing a public transaction for this transaction |
 | **Dispatched** | The active coordinator that this transaction was delegated to has dispatched the transaction to a public transaction manager for submission to the base ledger |

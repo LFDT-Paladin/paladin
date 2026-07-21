@@ -123,9 +123,9 @@ func action_AssembleAndSign(ctx context.Context, t *coordinatorTransaction, even
 	return nil
 }
 
-// action_SignError increments the shared assemble error count so a pushed signing failure is bounded by the
-// same retry budget as an assemble failure (guard_CanRetryErroredAssemble).
+// action_SignError increments the signing error count so a pushed signing failure is bounded by its own
+// retry budget (guard_CanRetryErroredSign), separate from the assemble error budget.
 func action_SignError(_ context.Context, t *coordinatorTransaction, _ common.Event) error {
-	t.assembleErrorCount++
+	t.signErrorCount++
 	return nil
 }

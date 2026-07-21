@@ -277,6 +277,7 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.closingGracePeriod,
 		c.baseLedgerRevertRetryThreshold,
 		c.assembleErrorRetryThreshhold,
+		c.signErrorRetryThreshhold,
 		c.grapher,
 		c.stateVisibilityTracker,
 		c.dependencyTracker,

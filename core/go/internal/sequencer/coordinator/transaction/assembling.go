@@ -229,6 +229,10 @@ func guard_CanRetryErroredAssemble(ctx context.Context, txn *coordinatorTransact
 	return txn.assembleErrorCount <= txn.assembleErrorRetryThreshhold
 }
 
+func guard_CanRetryErroredSign(ctx context.Context, txn *coordinatorTransaction) bool {
+	return txn.signErrorCount <= txn.signErrorRetryThreshhold
+}
+
 func action_AssembleError(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	t.assembleErrorCount++
 	return nil
