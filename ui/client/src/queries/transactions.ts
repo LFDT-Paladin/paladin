@@ -76,7 +76,7 @@ export const fetchIndexedTransactions = async (
   let requestPayload: any = {
     jsonrpc: '2.0',
     id: Date.now(),
-    method: withReceipt ? RpcMethods.bidx_QueryIndexedTransactionsWithReceipt : RpcMethods.bidx_QueryIndexedTransactions,
+    method: withReceipt ? RpcMethods.bidx_queryIndexedTransactionsWithReceipt : RpcMethods.bidx_queryIndexedTransactions,
     params: [
       {
         ...translatedFilters,
@@ -181,8 +181,8 @@ export const fetchSubmissions = async (
     id: Date.now(),
     method:
       type === 'pending'
-        ? RpcMethods.ptx_QueryPendingTransactions
-        : RpcMethods.ptx_QueryTransactionsFull,
+        ? RpcMethods.ptx_queryPendingTransactions
+        : RpcMethods.ptx_queryTransactionsFull,
     params: rpcParams
   };
 
@@ -235,7 +235,7 @@ export const fetchTransactionReceipts = async (
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
-    method: RpcMethods.ptx_QueryTransactionReceipts,
+    method: RpcMethods.ptx_queryTransactionReceipts,
     params: [
       {
         limit: (transactions.length + 1) * constants.RECEIPTS_PER_TRANSACTION_DEFAULT_LIMIT,
@@ -265,7 +265,7 @@ export const fetchPaladinTransactions = async (
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
-    method: RpcMethods.ptx_QueryTransactionsFull,
+    method: RpcMethods.ptx_queryTransactionsFull,
     params: [
       {
         limit: transactionReceipts.length + 1,
@@ -293,7 +293,7 @@ export const fetchTransactionEvents = async (
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
-    method: RpcMethods.bidx_QueryIndexedEvents,
+    method: RpcMethods.bidx_queryIndexedEvents,
     params: [
       {
         limit: (transactions.length + 1) * constants.EVENTS_PER_TRANSACTION_DEFAULT_LIMIT,

@@ -24,7 +24,7 @@ export const fetchRegistries = async (): Promise<string[]> => {
   const requestPayload = {
     jsonrpc: "2.0",
     id: Date.now(),
-    method: RpcMethods.reg_Registries,
+    method: RpcMethods.reg_registries,
   };
 
   return <Promise<string[]>>(
@@ -51,7 +51,7 @@ export const fetchRegistryEntries = async (
   let requestPayload: any = {
     jsonrpc: "2.0",
     id: Date.now(),
-    method: RpcMethods.reg_QueryEntriesWithProps,
+    method: RpcMethods.reg_queryEntriesWithProps,
     params: [
       registryName,
       {
@@ -84,7 +84,7 @@ export const fetchRegistryEntry = async (
   let requestPayload: any = {
     jsonrpc: "2.0",
     id: Date.now(),
-    method: RpcMethods.reg_QueryEntriesWithProps,
+    method: RpcMethods.reg_queryEntriesWithProps,
     params: [
       registryName,
       {

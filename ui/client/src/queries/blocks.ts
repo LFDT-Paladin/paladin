@@ -23,7 +23,7 @@ export const fetchLatestBlockWithTxs = async (): Promise<ITransaction[]> => {
   const payload = {
     jsonrpc: "2.0",
     id: Date.now(),
-    method: RpcMethods.bidx_QueryIndexedTransactions,
+    method: RpcMethods.bidx_queryIndexedTransactions,
     params: [{ limit: 1, sort: ["blockNumber DESC", "transactionIndex DESC"] }],
   };
 
