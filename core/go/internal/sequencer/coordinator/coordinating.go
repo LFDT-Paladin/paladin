@@ -328,7 +328,7 @@ func (c *coordinator) addToDelegatedTransactions(
 		if c.transactionsByID[txn.ID] != nil {
 			inProgressTransactions++
 			previousTransaction = c.transactionsByID[txn.ID]
-			log.L(ctx).Debugf("transaction %s already being coordinated", txn.ID.String())
+			log.L(ctx).Tracef("transaction %s already being coordinated", txn.ID.String())
 			continue
 		}
 
@@ -442,9 +442,14 @@ func (c *coordinator) selectNextTransactionToAssemble(ctx context.Context) error
 
 	transactionSelectedEvent := &transaction.SelectedEvent{}
 	transactionSelectedEvent.TransactionID = txn.GetID()
-	err := txn.HandleEvent(ctx, transactionSelectedEvent)
-	return err
-
+	if err := txn.HandleEvent(ctx, transactionSelectedEvent); err != nil {
+		return err
+	}
+	// The transaction's Event_Selected handler synchronously transitions it to State_Assembling,
+	// so the slot is authoritatively occupied at this point.
+	c.assemblyInFlight = true
+	c.assemblingTxID = txn.GetID()
+	return nil
 }
 
 func (c *coordinator) addTransactionToBackOfPool(txn transaction.CoordinatorTransaction) {
@@ -536,6 +541,10 @@ func action_CleanUpTransactionsNotYetDispatched(ctx context.Context, c *coordina
 	for _, txn := range txns {
 		c.cleanUpTransaction(ctx, txn.GetID())
 	}
+	// cleanUpTransaction deletes the assembling tx without a state transition, so the slot-freed
+	// handler never fires. Reset the flag here so a re-elected State_Active entry selects again.
+	c.assemblyInFlight = false
+	c.assemblingTxID = uuid.Nil
 	// Drain any Ready_For_Dispatch items still sitting in the dispatch channel.
 	// The dispatch loop is guaranteed to be stopped before this action runs (either by an
 	// explicit action_StopDispatchLoop earlier in the same sequence, or by State_Active's
@@ -570,21 +579,27 @@ func (c *coordinator) cleanUpTransaction(ctx context.Context, txID uuid.UUID) {
 	}
 }
 
+func action_ClearAssemblyInFlight(_ context.Context, c *coordinator, _ common.Event) error {
+	c.assemblyInFlight = false
+	c.assemblingTxID = uuid.Nil
+	return nil
+}
+
 func action_cancelCurrentlyAssemblingTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
 	log.L(ctx).Debug("cancelling any transaction currently being assembled")
-	assemblingTransactions := c.getTransactionsInStates(ctx, []transaction.State{
-		transaction.State_Assembling,
-	})
-	if len(assemblingTransactions) > 0 {
-		log.L(ctx).Debugf("cancelling assembling transaction: %s", assemblingTransactions[0].GetID().String())
-		err := assemblingTransactions[0].HandleEvent(ctx, &transaction.AssembleCancelledEvent{
-			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-				TransactionID: assemblingTransactions[0].GetID(),
-			},
-		})
-		return err
+	if !c.assemblyInFlight {
+		return nil
 	}
-	return nil
+	txn := c.transactionsByID[c.assemblingTxID]
+	if txn == nil {
+		return nil
+	}
+	log.L(ctx).Debugf("cancelling assembling transaction: %s", c.assemblingTxID.String())
+	return txn.HandleEvent(ctx, &transaction.AssembleCancelledEvent{
+		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+			TransactionID: c.assemblingTxID,
+		},
+	})
 }
 
 func validator_HeartBeatState(state ...common.CoordinatorState) statemachine.Validator[*coordinator] {
