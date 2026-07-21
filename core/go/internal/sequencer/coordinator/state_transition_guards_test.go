@@ -197,64 +197,25 @@ func TestGuard_HasTransactionAssembling_NoTransactions(t *testing.T) {
 	assert.False(t, result, "no transactions should return false")
 }
 
-func TestGuard_HasTransactionAssembling_TransactionInAssemblingState(t *testing.T) {
+func TestGuard_HasTransactionAssembling_AssemblySlotOccupied(t *testing.T) {
+	ctx := context.Background()
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	txID := uuid.New()
+	tx.EXPECT().GetID().Return(txID)
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx).AssemblingTransaction(txID).Build()
+	result := guard_HasTransactionAssembling(ctx, c)
+	assert.True(t, result, "occupied assembly slot should return true")
+}
+
+func TestGuard_HasTransactionAssembling_AssemblySlotFree(t *testing.T) {
 	ctx := context.Background()
 	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	tx.EXPECT().GetID().Return(uuid.New())
-	tx.EXPECT().GetCurrentState().Return(transaction.State_Assembling)
 
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx).Build()
 	result := guard_HasTransactionAssembling(ctx, c)
-	assert.True(t, result, "transaction in Assembling should return true")
-}
-
-func TestGuard_HasTransactionAssembling_MultipleTransactionsInAssemblingState(t *testing.T) {
-	ctx := context.Background()
-	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	tx1.EXPECT().GetID().Return(uuid.New())
-	tx1.EXPECT().GetCurrentState().Return(transaction.State_Assembling)
-
-	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	tx2.EXPECT().GetID().Return(uuid.New())
-	tx2.EXPECT().GetCurrentState().Return(transaction.State_Assembling)
-
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2).Build()
-	result := guard_HasTransactionAssembling(ctx, c)
-	assert.True(t, result, "multiple transactions in Assembling should return true")
-}
-
-func TestGuard_HasTransactionAssembling_TransactionInOtherStates(t *testing.T) {
-	ctx := context.Background()
-	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	tx1.EXPECT().GetID().Return(uuid.New())
-	tx1.EXPECT().GetCurrentState().Return(transaction.State_Pooled)
-
-	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	tx2.EXPECT().GetID().Return(uuid.New())
-	tx2.EXPECT().GetCurrentState().Return(transaction.State_Ready_For_Dispatch)
-
-	tx3 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	tx3.EXPECT().GetID().Return(uuid.New())
-	tx3.EXPECT().GetCurrentState().Return(transaction.State_Confirmed)
-
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2, tx3).Build()
-	result := guard_HasTransactionAssembling(ctx, c)
-	assert.False(t, result, "transactions in other states should return false")
-}
-
-func TestGuard_HasTransactionAssembling_MixOfAssemblingAndOtherStates(t *testing.T) {
-	ctx := context.Background()
-	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	tx1.EXPECT().GetID().Return(uuid.New())
-	tx1.EXPECT().GetCurrentState().Return(transaction.State_Assembling)
-
-	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	tx2.EXPECT().GetID().Return(uuid.New())
-	tx2.EXPECT().GetCurrentState().Return(transaction.State_Pooled)
-
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(tx1, tx2).Build()
-	result := guard_HasTransactionAssembling(ctx, c)
-	assert.True(t, result, "mix with Assembling should return true")
+	assert.False(t, result, "free assembly slot should return false")
 }
 
 func TestGuard_ClosingGracePeriodExpired_FalseWhenLessThan(t *testing.T) {
