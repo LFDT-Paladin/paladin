@@ -102,6 +102,8 @@ func (c *coordinator) dispatchBatch(ctx context.Context, batch []transaction.Coo
 	// prepare-completion order instead (e.g. if prepare were ever parallelised) would let nonces follow
 	// completion order rather than selection order, so we must append strictly in pull order.
 	var dispatchBatch *syncpoints.DispatchBatch
+	// TODO: it should be safe to have transactions handle their dispatched event in parallel if needed
+	// to improve dispatch throughput
 	for _, tx := range batch {
 		log.L(ctx).Debugf("submitting transaction %s for dispatch", tx.GetID().String())
 		// HandleEvent transitions the transaction into State_Dispatched under its lock, synchronously adding
