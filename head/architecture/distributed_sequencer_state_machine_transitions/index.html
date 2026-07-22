@@ -17,7 +17,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".mermaid", ".d2"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -1499,9 +1499,16 @@ stateDiagram-v2
     Pooled --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
     Pooled --&gt; Reverted : ChainedDependencyFailed
     Pooled --&gt; Evicted : ChainedDependencyEvicted
+    Assembling --&gt; Signing : AssembleSuccess [!SignRequirementsFulfilled]
     Assembling --&gt; Endorsement_Gathering : AssembleSuccess [!AttestationPlanFulfilled]
     Assembling --&gt; Confirming_Dispatchable : AssembleSuccess [AttestationPlanFulfilled &amp;&amp; !HasDependenciesNotReady]
     Assembling --&gt; Blocked : AssembleSuccess [AttestationPlanFulfilled &amp;&amp; HasDependenciesNotReady]
+    Assembling --&gt; Signing : Signed [!SignRequirementsFulfilled]
+    Assembling --&gt; Endorsement_Gathering : Signed [!AttestationPlanFulfilled]
+    Assembling --&gt; Confirming_Dispatchable : Signed [AttestationPlanFulfilled &amp;&amp; !HasDependenciesNotReady]
+    Assembling --&gt; Blocked : Signed [AttestationPlanFulfilled &amp;&amp; HasDependenciesNotReady]
+    Assembling --&gt; Pooled : SignError [CanRetryErroredSign]
+    Assembling --&gt; Evicted : SignError [!CanRetryErroredSign]
     Assembling --&gt; Pooled : StateTimeoutInterval
     Assembling --&gt; Pooled : AssembleCancelled
     Assembling --&gt; Reverted : AssembleRevert
@@ -1514,39 +1521,25 @@ stateDiagram-v2
     Assembling --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
     Assembling --&gt; Reverted : ChainedDependencyFailed
     Assembling --&gt; Evicted : ChainedDependencyEvicted
+    Signing --&gt; Endorsement_Gathering : Signed [SignRequirementsFulfilled &amp;&amp; !AttestationPlanFulfilled]
+    Signing --&gt; Confirming_Dispatchable : Signed [SignRequirementsFulfilled &amp;&amp; AttestationPlanFulfilled &amp;&amp; !HasDependenciesNotReady]
+    Signing --&gt; Blocked : Signed [SignRequirementsFulfilled &amp;&amp; AttestationPlanFulfilled &amp;&amp; HasDependenciesNotReady]
+    Signing --&gt; Pooled : SignError [CanRetryErroredSign]
+    Signing --&gt; Evicted : SignError [!CanRetryErroredSign]
+    Signing --&gt; Pooled : StateTimeoutInterval
     Endorsement_Gathering --&gt; Confirming_Dispatchable : Endorsed [AttestationPlanFulfilled &amp;&amp; !HasDependenciesNotReady]
     Endorsement_Gathering --&gt; Blocked : Endorsed [AttestationPlanFulfilled &amp;&amp; HasDependenciesNotReady]
     Endorsement_Gathering --&gt; Pooled : EndorseRevert [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --&gt; Pooled : EndorseError [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --&gt; Pooled : EndorseRequestRejected [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --&gt; Pooled : StateTimeoutInterval
-    Endorsement_Gathering --&gt; PreAssembly_Blocked : DependencyReset
-    Endorsement_Gathering --&gt; Pooled : DependencyReset
-    Endorsement_Gathering --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
-    Endorsement_Gathering --&gt; Pooled : DependencyConfirmedReverted
-    Endorsement_Gathering --&gt; Reverted : ChainedDependencyFailed
     Blocked --&gt; Confirming_Dispatchable : DependencyReady [!HasDependenciesNotReady]
-    Blocked --&gt; PreAssembly_Blocked : DependencyReset
-    Blocked --&gt; Pooled : DependencyReset
-    Blocked --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
-    Blocked --&gt; Pooled : DependencyConfirmedReverted
-    Blocked --&gt; Reverted : ChainedDependencyFailed
     Confirming_Dispatchable --&gt; Ready_For_Dispatch : DispatchRequestApproved
     Confirming_Dispatchable --&gt; Pooled : DispatchRequestRejected
     Confirming_Dispatchable --&gt; Evicted : PreDispatchRequestRejected
     Confirming_Dispatchable --&gt; Final : PreDispatchRequestRejected
     Confirming_Dispatchable --&gt; Pooled : StateTimeoutInterval
-    Confirming_Dispatchable --&gt; PreAssembly_Blocked : DependencyReset
-    Confirming_Dispatchable --&gt; Pooled : DependencyReset
-    Confirming_Dispatchable --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
-    Confirming_Dispatchable --&gt; Pooled : DependencyConfirmedReverted
-    Confirming_Dispatchable --&gt; Reverted : ChainedDependencyFailed
     Ready_For_Dispatch --&gt; Dispatched : Dispatched
-    Ready_For_Dispatch --&gt; PreAssembly_Blocked : DependencyReset
-    Ready_For_Dispatch --&gt; Pooled : DependencyReset
-    Ready_For_Dispatch --&gt; PreAssembly_Blocked : DependencyConfirmedReverted
-    Ready_For_Dispatch --&gt; Pooled : DependencyConfirmedReverted
-    Ready_For_Dispatch --&gt; Reverted : ChainedDependencyFailed
     Dispatched --&gt; Confirmed : ConfirmedSuccess
     Dispatched --&gt; PreAssembly_Blocked : ConfirmedReverted [CanRetryRevert &amp;&amp; HasUnassembledDependencies]
     Dispatched --&gt; Pooled : ConfirmedReverted [CanRetryRevert &amp;&amp; !HasUnassembledDependencies]
@@ -1666,6 +1659,14 @@ stateDiagram-v2
 <td></td>
 </tr>
 <tr>
+<td><strong>SignError</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Signed</strong></td>
+<td></td>
+</tr>
+<tr>
 <td><strong>StateTimeoutInterval</strong></td>
 <td></td>
 </tr>
@@ -1722,7 +1723,11 @@ stateDiagram-v2
     state "Endorsement Gathering" as Endorsement_Gathering
     [*] --&gt; Initial
     Initial --&gt; Confirmed : ConfirmedSuccess
+    Initial --&gt; Resolving : Created [HasRequiredVerifiers]
     Initial --&gt; Pending : Created
+    Resolving --&gt; Confirmed : ConfirmedSuccess
+    Resolving --&gt; Confirmed : ConfirmedReverted
+    Resolving --&gt; Pending : VerifiersResolved
     Pending --&gt; Confirmed : ConfirmedSuccess
     Pending --&gt; Confirmed : ConfirmedReverted
     Pending --&gt; Delegated : Delegated
@@ -1733,20 +1738,27 @@ stateDiagram-v2
     Assembling --&gt; Confirmed : ConfirmedSuccess
     Assembling --&gt; Confirmed : ConfirmedReverted
     Assembling --&gt; Delegated : Delegated
-    Assembling --&gt; Endorsement_Gathering : AssembleAndSignSuccess
+    Assembling --&gt; Signing : AssembleSuccess [HasLocalSignRequirement]
+    Assembling --&gt; Endorsement_Gathering : AssembleSuccess
     Assembling --&gt; Reverted : AssembleRevert
     Assembling --&gt; Parked : AssemblePark
     Assembling --&gt; Delegated : AssembleError
+    Signing --&gt; Confirmed : ConfirmedSuccess
+    Signing --&gt; Confirmed : ConfirmedReverted
+    Signing --&gt; Delegated : Delegated
+    Signing --&gt; Endorsement_Gathering : SignSuccess
+    Signing --&gt; Delegated : SignError
+    Signing --&gt; Assembling : AssembleRequestReceived
     Endorsement_Gathering --&gt; Confirmed : ConfirmedSuccess
     Endorsement_Gathering --&gt; Confirmed : ConfirmedReverted
     Endorsement_Gathering --&gt; Delegated : Delegated
-    Endorsement_Gathering --&gt; Assembling : AssembleRequestReceived [!AssembleRequestMatchesPreviousResponse]
+    Endorsement_Gathering --&gt; Assembling : AssembleRequestReceived
     Endorsement_Gathering --&gt; Prepared : PreDispatchRequestReceived
     Prepared --&gt; Confirmed : ConfirmedSuccess
     Prepared --&gt; Confirmed : ConfirmedReverted
     Prepared --&gt; Delegated : Delegated
     Prepared --&gt; Dispatched : Dispatched
-    Prepared --&gt; Assembling : AssembleRequestReceived [!AssembleRequestMatchesPreviousResponse]
+    Prepared --&gt; Assembling : AssembleRequestReceived
     Dispatched --&gt; Confirmed : ConfirmedSuccess
     Dispatched --&gt; Delegated : ConfirmedReverted
     Dispatched --&gt; Confirmed : ConfirmedReverted
@@ -1782,10 +1794,6 @@ stateDiagram-v2
 </thead>
 <tbody>
 <tr>
-<td><strong>AssembleAndSignSuccess</strong></td>
-<td></td>
-</tr>
-<tr>
 <td><strong>AssembleError</strong></td>
 <td></td>
 </tr>
@@ -1799,6 +1807,10 @@ stateDiagram-v2
 </tr>
 <tr>
 <td><strong>AssembleRevert</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>AssembleSuccess</strong></td>
 <td></td>
 </tr>
 <tr>
@@ -1838,7 +1850,19 @@ stateDiagram-v2
 <td></td>
 </tr>
 <tr>
+<td><strong>SignError</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>SignSuccess</strong></td>
+<td></td>
+</tr>
+<tr>
 <td><strong>Submitted</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>VerifiersResolved</strong></td>
 <td></td>
 </tr>
 </tbody>

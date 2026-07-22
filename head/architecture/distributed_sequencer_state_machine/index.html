@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".mermaid", ".d2"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -1567,33 +1567,29 @@ stateDiagram-v2
     Pooled --&gt; PreAssembly_Blocked
     Pooled --&gt; Reverted
     Pooled --&gt; Evicted
+    Assembling --&gt; Signing
     Assembling --&gt; Endorsement_Gathering
     Assembling --&gt; Confirming_Dispatchable
     Assembling --&gt; Blocked
     Assembling --&gt; Pooled
-    Assembling --&gt; Reverted
     Assembling --&gt; Evicted
+    Assembling --&gt; Reverted
     Assembling --&gt; Final
     Assembling --&gt; PreAssembly_Blocked
+    Signing --&gt; Endorsement_Gathering
+    Signing --&gt; Confirming_Dispatchable
+    Signing --&gt; Blocked
+    Signing --&gt; Pooled
+    Signing --&gt; Evicted
     Endorsement_Gathering --&gt; Confirming_Dispatchable
     Endorsement_Gathering --&gt; Blocked
     Endorsement_Gathering --&gt; Pooled
-    Endorsement_Gathering --&gt; PreAssembly_Blocked
-    Endorsement_Gathering --&gt; Reverted
     Blocked --&gt; Confirming_Dispatchable
-    Blocked --&gt; PreAssembly_Blocked
-    Blocked --&gt; Pooled
-    Blocked --&gt; Reverted
     Confirming_Dispatchable --&gt; Ready_For_Dispatch
     Confirming_Dispatchable --&gt; Pooled
     Confirming_Dispatchable --&gt; Evicted
     Confirming_Dispatchable --&gt; Final
-    Confirming_Dispatchable --&gt; PreAssembly_Blocked
-    Confirming_Dispatchable --&gt; Reverted
     Ready_For_Dispatch --&gt; Dispatched
-    Ready_For_Dispatch --&gt; PreAssembly_Blocked
-    Ready_For_Dispatch --&gt; Pooled
-    Ready_For_Dispatch --&gt; Reverted
     Dispatched --&gt; Confirmed
     Dispatched --&gt; PreAssembly_Blocked
     Dispatched --&gt; Pooled
@@ -1626,6 +1622,10 @@ stateDiagram-v2
 <tr>
 <td><strong>Assembling</strong></td>
 <td>An assemble request has been sent to the originator and we are waiting for the response</td>
+</tr>
+<tr>
+<td><strong>Signing</strong></td>
+<td></td>
 </tr>
 <tr>
 <td><strong>Reverted</strong></td>
@@ -1712,7 +1712,10 @@ stateDiagram-v2
     state "Endorsement Gathering" as Endorsement_Gathering
     [*] --&gt; Initial
     Initial --&gt; Confirmed
+    Initial --&gt; Resolving
     Initial --&gt; Pending
+    Resolving --&gt; Confirmed
+    Resolving --&gt; Pending
     Pending --&gt; Confirmed
     Pending --&gt; Delegated
     Delegated --&gt; Confirmed
@@ -1720,9 +1723,14 @@ stateDiagram-v2
     Delegated --&gt; Dispatched
     Assembling --&gt; Confirmed
     Assembling --&gt; Delegated
+    Assembling --&gt; Signing
     Assembling --&gt; Endorsement_Gathering
     Assembling --&gt; Reverted
     Assembling --&gt; Parked
+    Signing --&gt; Confirmed
+    Signing --&gt; Delegated
+    Signing --&gt; Endorsement_Gathering
+    Signing --&gt; Assembling
     Endorsement_Gathering --&gt; Confirmed
     Endorsement_Gathering --&gt; Delegated
     Endorsement_Gathering --&gt; Assembling
@@ -1763,6 +1771,10 @@ stateDiagram-v2
 <td>Transaction state machine created</td>
 </tr>
 <tr>
+<td><strong>Resolving</strong></td>
+<td></td>
+</tr>
+<tr>
 <td><strong>Pending</strong></td>
 <td>The transaction has not yet been delegated to a coordinator</td>
 </tr>
@@ -1773,6 +1785,10 @@ stateDiagram-v2
 <tr>
 <td><strong>Assembling</strong></td>
 <td>The coordinator has sent an assemble request to us and we have not yet sent the assembled transaction back to the coordinator</td>
+</tr>
+<tr>
+<td><strong>Signing</strong></td>
+<td></td>
 </tr>
 <tr>
 <td><strong>Endorsement Gathering</strong></td>
