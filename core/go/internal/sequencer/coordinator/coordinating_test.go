@@ -18,6 +18,9 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
@@ -1353,4 +1356,101 @@ func Test_nudgeHandoverRequest_WithPendingRequest_CallsNudge(t *testing.T) {
 	err := c.nudgeHandoverRequest(ctx)
 
 	require.NoError(t, err)
+}
+
+// Part A: signing-identity synchronization. The signingIdentityState leaf mutex guards concurrent
+// access to value/used from the accessor, the rotation writer, and the flush guard.
+
+func Test_getCoordinatorSigningIdentity_SetsUsedAndReturnsValue(t *testing.T) {
+	ctx := t.Context()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	// Seed the initial signing identity the way the Active state transition does; this sets value and clears used.
+	require.NoError(t, action_NewSigningIdentity(ctx, c, nil))
+	require.NotEmpty(t, c.signingIdentity.value)
+	assert.False(t, c.signingIdentity.used, "used must be false before the accessor is called")
+
+	got := c.getCoordinatorSigningIdentity()
+
+	assert.Equal(t, c.signingIdentity.value, got, "accessor must return the current signing identity value")
+	assert.True(t, c.signingIdentity.used, "accessor must mark the signing identity as used")
+}
+
+func Test_action_NewSigningIdentity_RotatesValueAndClearsUsed(t *testing.T) {
+	ctx := t.Context()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	// Seed the initial signing identity, then consume it so used is true, capturing the value to prove rotation changes it.
+	require.NoError(t, action_NewSigningIdentity(ctx, c, nil))
+	c.getCoordinatorSigningIdentity()
+	require.True(t, c.signingIdentity.used)
+	prev := c.signingIdentity.value
+	require.NotEmpty(t, prev)
+
+	err := action_NewSigningIdentity(ctx, c, nil)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, prev, c.signingIdentity.value, "rotation must generate a new signing identity value")
+	assert.NotEmpty(t, c.signingIdentity.value, "rotated signing identity value must be non-empty")
+	assert.False(t, c.signingIdentity.used, "rotation must clear the used flag")
+}
+
+// Test_getCoordinatorSigningIdentity_ConcurrentWithRotation is the Part A race test: the accessor,
+// the rotation writer, and the flush guard all touch signingIdentityState concurrently. It must run
+// clean under -race, and every value the accessor returns must be a well-formed identity string.
+func Test_getCoordinatorSigningIdentity_ConcurrentWithRotation(t *testing.T) {
+	ctx := t.Context()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	// Seed an initial identity so readers never observe the pre-rotation empty value.
+	require.NoError(t, action_NewSigningIdentity(ctx, c, nil))
+
+	const (
+		readers    = 8
+		rotators   = 4
+		guards     = 2
+		iterations = 200
+	)
+
+	var malformed atomic.Bool
+	var wg sync.WaitGroup
+
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				got := c.getCoordinatorSigningIdentity()
+				if got == "" || !strings.HasPrefix(got, "domains.") {
+					malformed.Store(true)
+				}
+			}
+		}()
+	}
+
+	for range rotators {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				if err := action_NewSigningIdentity(ctx, c, nil); err != nil {
+					malformed.Store(true)
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < guards; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = guard_MustFlushToRotateSigningIdentity(ctx, c)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	assert.False(t, malformed.Load(), "every returned signing identity must be a well-formed non-empty domains.* value")
 }

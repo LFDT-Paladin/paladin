@@ -816,7 +816,7 @@ var stateDefinitionsMap = StateDefinitions{
 				Handlers: []EventHandler{{
 					Actions: []ActionRule{
 						{Action: action_AllocateSigningIdentity},
-						{Action: action_Dispatch},
+						{Action: action_DispatchPrepare},
 					},
 					Transitions: []Transition{
 						{
@@ -837,8 +837,12 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Dispatched: {
 		OnTransitionTo: []ActionRule{
+			{If: guard_HasDispatchedPublicTransaction, Action: action_MarkDispatchedInFlight},
 			{Action: action_NotifyDispatched},
 			{Action: action_CleanUpAssemblyPayload},
+		},
+		OnTransitionFrom: []ActionRule{
+			{Action: action_ClearDispatchedInFlight},
 		},
 		Events: map[EventType]EventHandlers{
 			Event_Collected: {

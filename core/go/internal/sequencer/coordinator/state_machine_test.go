@@ -48,8 +48,6 @@ func newDispatchedTxMock(t *testing.T) (*coordinatortransactionmocks.Coordinator
 	tx.EXPECT().GetSnapshot(mock.Anything).Return(nil, &engineProto.SnapshotDispatchedTransaction{Id: txID.String()}, nil, nil).Maybe()
 	// HandleEvent is called by action_PropagateHeartbeatIntervalToTransactions on each heartbeat tick.
 	tx.EXPECT().HandleEvent(mock.Anything, mock.AnythingOfType("*common.HeartbeatIntervalEvent")).Return(nil).Maybe()
-	// HasDispatchedPublicTransaction is called by action_NudgeDispatchLoop to track in-flight counts.
-	tx.EXPECT().HasDispatchedPublicTransaction().Return(true).Maybe()
 	// GetOriginatorNode is called by updateOriginatorActivity in STATIC/SENDER modes.
 	tx.EXPECT().GetOriginatorNode().Return("originator-node").Maybe()
 	return tx, txID
@@ -862,7 +860,7 @@ func TestCoordinator_WhenElect_EndorsementRequestReceived_HigherPriority_Infligh
 		CoordinatorPriorityList("node1", "node2", "node3").
 		Transactions(tx).
 		Build()
-	c.inFlightTxns[txID] = tx // mark as unconfirmed dispatched
+	c.inFlightTxns[txID] = struct{}{} // mark as unconfirmed dispatched
 
 	event := newEndorsementEventForStateMachineTest(t, "node1", mocks, true)
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, event))
@@ -1365,7 +1363,7 @@ func TestCoordinator_WhenPrepared_EndorsementRequestReceived_HigherPriority_Infl
 		CoordinatorPriorityList("node1", "node2", "node3").
 		Transactions(tx).
 		Build()
-	c.inFlightTxns[txID] = tx // mark as unconfirmed dispatched
+	c.inFlightTxns[txID] = struct{}{} // mark as unconfirmed dispatched
 
 	event := newEndorsementEventForStateMachineTest(t, "node1", mocks, true)
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, event))
@@ -1704,8 +1702,6 @@ func TestCoordinator_WhenActive_TransactionStateTransition_ToPooled_PoolsAndSele
 	txReverting.EXPECT().GetID().Return(txID).Maybe()
 	txReverting.EXPECT().GetCurrentState().Return(transaction.State_Dispatched).Maybe()
 	txReverting.EXPECT().GetSnapshot(mock.Anything).Return(nil, &engineProto.SnapshotDispatchedTransaction{Id: txID.String()}, nil, nil).Maybe()
-	// action_NudgeDispatchLoop calls HasDispatchedPublicTransaction on each dispatched transaction.
-	txReverting.EXPECT().HasDispatchedPublicTransaction().Return(true).Maybe()
 	// action_SelectTransaction will call HandleEvent(SelectedEvent) after pooling.
 	txReverting.EXPECT().HandleEvent(mock.Anything, mock.AnythingOfType("*transaction.SelectedEvent")).Return(nil).Once()
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).
@@ -1912,7 +1908,7 @@ func TestCoordinator_WhenActive_EndorsementRequestReceived_HigherPriority_Unconf
 		CoordinatorPriorityList("node1", "node2").
 		Transactions(tx).
 		Build()
-	c.inFlightTxns[txID] = tx
+	c.inFlightTxns[txID] = struct{}{}
 
 	event := newEndorsementEventForStateMachineTest(t, "node1", mocks, true)
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, event))
@@ -2304,7 +2300,7 @@ func TestCoordinator_WhenActiveFLush_EndorsementRequestReceived_HigherPriority_T
 		CoordinatorPriorityList("node1", "node2").
 		Transactions(tx).
 		Build()
-	c.inFlightTxns[txID] = tx
+	c.inFlightTxns[txID] = struct{}{}
 
 	event := newEndorsementEventForStateMachineTest(t, "node1", mocks, true)
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, event))

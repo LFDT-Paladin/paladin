@@ -82,6 +82,7 @@ type CoordinatorDependencyMocks struct {
 	DomainQueryContext  *componentsmocks.DomainQueryContext
 	TXManager           *componentsmocks.TXManager
 	SequencerManager    *componentsmocks.SequencerManager
+	Persistence         *mockpersistence.SQLMockProvider
 }
 
 // copySequencerDefaultsForTest returns a deep copy of SequencerDefaults so tests that mutate
@@ -348,6 +349,7 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 	if err != nil {
 		panic(err)
 	}
+	mocks.Persistence = mp
 
 	localNode := "node1"
 	if b.localNodeName != "" {

@@ -63,6 +63,7 @@ type TransactionBuilderForTesting struct {
 	originator                         string
 	originatorNode                     string
 	queueEventForCoordinator           func(context.Context, common.Event)
+	setDispatchedInFlight              func(txID uuid.UUID, inFlight bool)
 	domainSigningIdentity              string
 	coordinatorSigningIdentity         string
 	signerAddress                      *pldtypes.EthAddress
@@ -107,6 +108,7 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		originator:                "sender@node1",
 		originatorNode:            "node1",
 		queueEventForCoordinator:  func(context.Context, common.Event) {},
+		setDispatchedInFlight:     func(uuid.UUID, bool) {},
 		signerAddress:             nil,
 		latestSubmissionHash:      nil,
 		state:                     state,
@@ -259,6 +261,11 @@ func (b *TransactionBuilderForTesting) CoordinatorSigningIdentity(identity strin
 
 func (b *TransactionBuilderForTesting) QueueEventForCoordinator(queueFn func(context.Context, common.Event)) *TransactionBuilderForTesting {
 	b.queueEventForCoordinator = queueFn
+	return b
+}
+
+func (b *TransactionBuilderForTesting) SetDispatchedInFlight(fn func(txID uuid.UUID, inFlight bool)) *TransactionBuilderForTesting {
+	b.setDispatchedInFlight = fn
 	return b
 }
 
@@ -558,6 +565,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		transportWriter,
 		clock,
 		b.queueEventForCoordinator,
+		b.setDispatchedInFlight,
 		coordinatorTransactionHandleEvent(b.coordinatorTransactions),
 		coordinatorTransactionStateLookup(b.coordinatorTransactions),
 		func(context.Context, ...string) {}, // notifyEndorserCandidates

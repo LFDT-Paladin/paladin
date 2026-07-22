@@ -40,8 +40,11 @@ import (
 )
 
 // signingIdentityState groups the coordinator's current signing key with a flag that tracks
-// whether any transaction has consumed it since the last key rotation.
+// whether any transaction has consumed it since the last key rotation. Its own mutex guards all
+// access because the dispatch path reads and writes it while holding a transaction lock (not the
+// coordinator lock).
 type signingIdentityState struct {
+	mu    sync.Mutex
 	value string
 	used  bool // set when a transaction first retrieves the signing identity; cleared on key rotation
 }
@@ -115,6 +118,7 @@ type coordinator struct {
 	coordinatorSelectionBlockRange uint64
 	maxInflightTransactions        int
 	maxDispatchAhead               int
+	maxDispatchBatchSize           int
 	coordinatorSelection           prototk.ContractConfig_CoordinatorSelection
 
 	/* Dependencies */
@@ -134,7 +138,7 @@ type coordinator struct {
 	dispatchQueue      chan transaction.CoordinatorTransaction
 	dispatchLoopCancel context.CancelFunc // non-nil iff this coordinator owns a running loop
 	dispatchLoopDone   chan struct{}      // per-run done channel; nil = never started / already stopped+waited
-	inFlightTxns       map[uuid.UUID]transaction.CoordinatorTransaction
+	inFlightTxns       map[uuid.UUID]struct{}
 	inFlightMutex      *sync.Cond
 }
 
@@ -183,6 +187,7 @@ func NewCoordinator(
 	coordinatorPriorityEventQueueSize := confutil.IntMin(configuration.CoordinatorPriorityEventQueueSize, pldconf.SequencerMinimum.CoordinatorPriorityEventQueueSize, *pldconf.SequencerDefaults.CoordinatorPriorityEventQueueSize)
 	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c.maxDispatchAhead = confutil.IntMinIfPositive(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
+	c.maxDispatchBatchSize = confutil.IntMin(configuration.MaxDispatchBatchSize, pldconf.SequencerMinimum.MaxDispatchBatchSize, *pldconf.SequencerDefaults.MaxDispatchBatchSize)
 	c.requestTimeout = confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
 	c.stateTimeout = confutil.DurationMin(configuration.StateTimeout, pldconf.SequencerMinimum.StateTimeout, *pldconf.SequencerDefaults.StateTimeout)
 	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
@@ -210,7 +215,7 @@ func NewCoordinator(
 
 	c.originatorActivity = make(map[string]int)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
-	c.inFlightTxns = make(map[uuid.UUID]transaction.CoordinatorTransaction, c.maxDispatchAhead)
+	c.inFlightTxns = make(map[uuid.UUID]struct{}, c.maxDispatchAhead)
 	c.pooledTransactions = make([]transaction.CoordinatorTransaction, 0, c.maxInflightTransactions)
 	c.dispatchQueue = make(chan transaction.CoordinatorTransaction, c.maxInflightTransactions)
 
@@ -291,6 +296,21 @@ func (c *coordinator) propagateEventToAllTransactions(ctx context.Context, event
 		}
 	}
 	return nil
+}
+
+// setDispatchedInFlight is called synchronously by a coordinator transaction from within its state
+// transition callback (while it holds its own lock) as it enters or leaves State_Dispatched, but only
+// for transactions that will dispatch a public transaction. The inflight tx map is kept up to date by
+// single tx edits, and the dispatch loop is signalled immediately
+func (c *coordinator) setDispatchedInFlight(txID uuid.UUID, inFlight bool) {
+	c.inFlightMutex.L.Lock()
+	defer c.inFlightMutex.L.Unlock()
+	if inFlight {
+		c.inFlightTxns[txID] = struct{}{}
+	} else {
+		delete(c.inFlightTxns, txID)
+		c.inFlightMutex.Signal()
+	}
 }
 
 func (c *coordinator) getTransactionsInStates(ctx context.Context, states []transaction.State) []transaction.CoordinatorTransaction {

@@ -30,6 +30,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -1317,6 +1318,7 @@ func TestCoordinatorTransaction_ConfirmingDispatch_ToPooled_OnStateTimeout(t *te
 
 func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *testing.T) {
 	ctx := context.Background()
+	var inFlightCalls []bool
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		PreAssembly(&prototk.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
@@ -1325,13 +1327,13 @@ func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *te
 			},
 		}).
 		PostAssembly(&components.TransactionPostAssembly{}).
+		SetDispatchedInFlight(func(_ uuid.UUID, inFlight bool) { inFlightCalls = append(inFlightCalls, inFlight) }).
 		Build()
 	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		tx := args.Get(3).(*components.PrivateTransaction)
 		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, &DispatchedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -1340,6 +1342,75 @@ func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *te
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+
+	// PREPARE_TRANSACTION intent produces no public transaction, so entering Dispatched must not mark in-flight.
+	assert.Empty(t, inFlightCalls, "no public transaction dispatched, so setDispatchedInFlight must not be called")
+
+	// The prepared dispatch is committed off-lock by the dispatch loop after the transition to
+	// State_Dispatched, so preparing on entry to Dispatched must not itself persist. The transaction's
+	// only responsibility is to make the prepared dispatch available; the loop batches and commits it.
+	mocks.SyncPoints.AssertNotCalled(t, "PersistDispatchBatch")
+	require.NotNil(t, txn.PendingDispatch(ctx))
+}
+
+// TestCoordinatorTransaction_ToDispatched_WithPublicTx_MarksInFlight verifies that entering
+// State_Dispatched with a dispatched public transaction marks the transaction in-flight.
+func TestCoordinatorTransaction_ToDispatched_WithPublicTx_MarksInFlight(t *testing.T) {
+	ctx := context.Background()
+	gasVal := pldtypes.HexUint64(21000)
+	var inFlightCalls []bool
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Signer("signer@node1").
+		NodeName("node1").
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+				From:   "sender@node1",
+			},
+		}).
+		PostAssembly(&components.TransactionPostAssembly{}).
+		PreparedPublicTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				Data:            pldtypes.RawJSON("[]"),
+				PublicTxOptions: pldapi.PublicTxOptions{Gas: &gasVal},
+			},
+			ABI: abi.ABI{&abi.Entry{Type: abi.Function, Name: "test", Inputs: abi.ParameterArray{}}},
+		}).
+		SetDispatchedInFlight(func(_ uuid.UUID, inFlight bool) { inFlightCalls = append(inFlightCalls, inFlight) }).
+		Build()
+	// PrepareTransaction leaves the builder-set PreparedPublicTransaction in place (public SEND branch).
+	// dispatchPrepare (phase 1, in HandleEvent) builds and stashes the batch but does not persist it; the
+	// in-flight marking happens on the transition to State_Dispatched, so PersistDispatch is not needed here.
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.KeyManager.On("ResolveEthAddressNewDatabaseTX", mock.Anything, "signer").Return(pldtypes.RandAddress(), nil)
+	mocks.PublicTxManager.On("ValidateTransaction", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
+
+	err := txn.HandleEvent(ctx, &DispatchedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Dispatched, txn.GetCurrentState())
+	assert.Equal(t, []bool{true}, inFlightCalls, "entering Dispatched with a public transaction must mark in-flight exactly once")
+}
+
+// TestCoordinatorTransaction_LeavingDispatched_MarksNotInFlight verifies the state transition
+// callback clears the in-flight marker when a transaction leaves State_Dispatched.
+func TestCoordinatorTransaction_LeavingDispatched_MarksNotInFlight(t *testing.T) {
+	ctx := context.Background()
+	var inFlightCalls []bool
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		SetDispatchedInFlight(func(_ uuid.UUID, inFlight bool) { inFlightCalls = append(inFlightCalls, inFlight) }).
+		Build()
+
+	nonce := pldtypes.HexUint64(77)
+	err := txn.HandleEvent(ctx, &ConfirmedSuccessEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+		Nonce:                &nonce,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+	assert.Equal(t, []bool{false}, inFlightCalls, "leaving Dispatched must clear the in-flight marker exactly once")
 }
 
 func TestCoordinatorTransaction_Dispatched_NoTransition_OnCollected(t *testing.T) {

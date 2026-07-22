@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
@@ -41,6 +42,17 @@ import (
 	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// getSnapshotUnderLock reads a coordinator snapshot while holding the coordinator's read lock.
+// In production getSnapshot is only ever called from within the state machine event loop, which
+// holds the coordinator's write lock for the duration of each event; tests inspecting the snapshot
+// from a separate goroutine must take the read lock to serialize against that loop. This matters in
+// tests if we want to run with the -race option and not get false positives from tests
+func getSnapshotUnderLock(ctx context.Context, c *coordinator) *engineProto.CoordinatorSnapshot {
+	c.RLock()
+	defer c.RUnlock()
+	return c.getSnapshot(ctx)
+}
 
 func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	// Test the progression of a single transaction through the coordinator's lifecycle
@@ -73,7 +85,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		cancel()
 		c.WaitForDone(t.Context())
 	}()
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything).Return(nil).Once()
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -97,7 +109,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that snapshot contains a transaction with matching ID
 	require.Eventually(t, func() bool {
-		snapshot = c.getSnapshot(ctx)
+		snapshot = getSnapshotUnderLock(ctx, c)
 		return snapshot != nil && len(snapshot.PooledTransactions) == 1
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain one pooled transaction")
 
@@ -121,7 +133,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	}, 100*time.Millisecond, 1*time.Millisecond, "Endorsement request should be sent")
 
 	// Assert that snapshot still contains the same single transaction in the pooled transactions
-	snapshot = c.getSnapshot(ctx)
+	snapshot = getSnapshotUnderLock(ctx, c)
 	require.NotNil(t, snapshot)
 	require.Equal(t, 1, len(snapshot.PooledTransactions))
 	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].Id, "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
@@ -141,7 +153,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	}, 100*time.Millisecond, 1*time.Millisecond, "Dispatch confirmation request should be sent")
 
 	// Assert that snapshot still contains the same single transaction in the pooled transactions
-	snapshot = c.getSnapshot(ctx)
+	snapshot = getSnapshotUnderLock(ctx, c)
 	require.NotNil(t, snapshot)
 	require.Equal(t, 1, len(snapshot.PooledTransactions))
 	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].Id, "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
@@ -164,7 +176,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	// Assert that snapshot no longer contains that transaction in the pooled transactions but does contain it in the dispatched transactions
 	//NOTE: This is a key design point.  When a transaction is ready to be dispatched, we communicate to other nodes, via the heartbeat snapshot, that the transaction is dispatched.
 	assert.Eventually(t, func() bool {
-		snapshot := c.getSnapshot(ctx)
+		snapshot := getSnapshotUnderLock(ctx, c)
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
@@ -178,6 +190,19 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		},
 	})
 
+	// Committing the dispatch runs off-lock; the real dispatchLoop drives it after the transition to
+	// State_Dispatched. The loop is disabled for this test (MaxDispatchAhead=-1), so drive it manually:
+	// detach the prepared dispatch, append it to a batch and commit.
+	require.Eventually(t, func() bool {
+		return len(c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})) == 1
+	}, 100*time.Millisecond, 1*time.Millisecond, "transaction should reach State_Dispatched")
+	dispatched := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})
+	pd := dispatched[0].PendingDispatch(ctx)
+	require.NotNil(t, pd)
+	batch := &syncpoints.DispatchBatch{DomainStateWriter: c.dsw, ContractAddress: *c.contractAddress}
+	batch.Append(pd)
+	require.NoError(t, c.syncPoints.PersistDispatchBatch(ctx, batch))
+
 	// Simulate the public transaction manager collecting the dispatched transaction and associating a signing address with it
 	signerAddress := pldtypes.RandAddress()
 	c.QueueEvent(ctx, &transaction.CollectedEvent{
@@ -189,7 +214,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that we now have a signer address in the snapshot
 	assert.Eventually(t, func() bool {
-		snapshot := c.getSnapshot(ctx)
+		snapshot := getSnapshotUnderLock(ctx, c)
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
@@ -207,7 +232,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that the nonce is now included in the snapshot
 	assert.Eventually(t, func() bool {
-		snapshot := c.getSnapshot(ctx)
+		snapshot := getSnapshotUnderLock(ctx, c)
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
@@ -227,7 +252,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that the hash is now included in the snapshot
 	assert.Eventually(t, func() bool {
-		snapshot := c.getSnapshot(ctx)
+		snapshot := getSnapshotUnderLock(ctx, c)
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
@@ -248,7 +273,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that snapshot contains a confirmed transaction with matching ID
 	assert.Eventually(t, func() bool {
-		snapshot := c.getSnapshot(ctx)
+		snapshot := getSnapshotUnderLock(ctx, c)
 		return snapshot != nil &&
 			len(snapshot.ConfirmedTransactions) == 1 &&
 			snapshot.ConfirmedTransactions[0].Id == txn.ID.String()

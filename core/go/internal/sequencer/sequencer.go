@@ -334,14 +334,14 @@ func (sMgr *sequencerManager) evaluateDeployment(ctx context.Context, domain com
 		},
 	}
 	sequence.PublicTxs = publicTXs
-	dispatchBatch := &syncpoints.DispatchBatch{
+	deployDispatch := &syncpoints.TransactionDispatch{
 		PublicDispatches: []*syncpoints.PublicDispatch{
 			sequence,
 		},
 	}
 
 	// as this is a deploy we specify the null address
-	err = sMgr.syncPoints.PersistDeployDispatchBatch(ctx, tx.ID, dispatchBatch)
+	err = sMgr.syncPoints.PersistDeployTransactionDispatch(ctx, tx.ID, deployDispatch)
 	if err != nil {
 		log.L(ctx).Errorf("error persisting batch: %s", err)
 		return sMgr.revertDeploy(ctx, tx, err)

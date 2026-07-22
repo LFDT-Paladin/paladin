@@ -20,6 +20,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
@@ -31,6 +32,35 @@ func action_NotifyDispatched(ctx context.Context, t *coordinatorTransaction, _ c
 		TransactionId:   t.pt.ID.String(),
 	}
 	return t.transportWriter.SendDispatched(ctx, t.originatorNode, msg)
+}
+
+// guard_HasDispatchedPublicTransaction reports whether dispatching this transaction will send a public
+// transaction (rather than producing new private/prepared transactions), gating whether it counts
+// towards the coordinator's dispatch-ahead limit.
+func guard_HasDispatchedPublicTransaction(_ context.Context, t *coordinatorTransaction) bool {
+	return t.pt.PreparedPublicTransaction != nil &&
+		t.pt.PreAssembly.TransactionSpecification.Intent == prototk.TransactionSpecification_SEND_TRANSACTION
+}
+
+// action_MarkDispatchedInFlight records this transaction against the coordinator's dispatch-ahead
+// count when it enters State_Dispatched. Tracking it here (and clearing it in
+// action_ClearDispatchedInFlight on exit) keeps the count exact across revert-and-redispatch, since
+// both run synchronously within the state transition.
+func action_MarkDispatchedInFlight(_ context.Context, t *coordinatorTransaction, _ common.Event) error {
+	if t.setDispatchedInFlight != nil {
+		t.setDispatchedInFlight(t.pt.ID, true)
+	}
+	return nil
+}
+
+// action_ClearDispatchedInFlight clears this transaction from the coordinator's dispatch-ahead count
+// when it leaves State_Dispatched. It is idempotent, so it is safe even when the transaction was not
+// counted on entry (i.e. it did not dispatch a public transaction).
+func action_ClearDispatchedInFlight(_ context.Context, t *coordinatorTransaction, _ common.Event) error {
+	if t.setDispatchedInFlight != nil {
+		t.setDispatchedInFlight(t.pt.ID, false)
+	}
+	return nil
 }
 
 // action_CleanUpAssemblyPayload releases the heavy post-assembly and prepared-dispatch

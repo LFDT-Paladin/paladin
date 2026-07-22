@@ -36,9 +36,9 @@ import (
 
 type CoordinatorTransaction interface {
 	HandleEvent(ctx context.Context, event common.Event) error
+	PendingDispatch(ctx context.Context) *syncpoints.PendingDispatch
 	GetID() uuid.UUID
 	GetCurrentState() State
-	HasDispatchedPublicTransaction() bool
 	GetSnapshot(ctx context.Context) (*engineProto.SnapshotPooledTransaction, *engineProto.SnapshotDispatchedTransaction, *engineProto.SnapshotConfirmedTransaction, *engineProto.SnapshotRevertedTransaction)
 	GetOriginatorNode() string
 }
@@ -82,6 +82,9 @@ type coordinatorTransaction struct {
 	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingPreDispatchRequest    *common.IdempotentRequest
 
+	pendingDispatch                 *syncpoints.TransactionDispatch
+	pendingRemoteStateDistributions []*components.StateDistribution
+
 	//Configuration
 	blockHeightTolerance           uint64
 	requestTimeout                 time.Duration
@@ -105,6 +108,7 @@ type coordinatorTransaction struct {
 	domainAPI                         components.DomainSmartContract
 	dsw                               components.DomainStateWriter
 	queueEventForCoordinator          func(context.Context, common.Event)
+	setDispatchedInFlight             func(txID uuid.UUID, inFlight bool) // called synchronously as the transaction enters/leaves State_Dispatched having dispatched a public transaction
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error
 	getCoordinatorTransactionState    func(context.Context, uuid.UUID) (State, bool)
 	notifyEndorserCandidates          func(context.Context, ...string) // called once when endorsement requests are first sent; passes endorser node names to the coordinator for pool updates
@@ -120,6 +124,7 @@ func NewTransaction(ctx context.Context,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
+	setDispatchedInFlight func(txID uuid.UUID, inFlight bool),
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	notifyEndorserCandidates func(context.Context, ...string),
@@ -152,6 +157,7 @@ func NewTransaction(ctx context.Context,
 		transportWriter,
 		clock,
 		queueEventForCoordinator,
+		setDispatchedInFlight,
 		coordinatorTransactionHandleEvent,
 		getCoordinatorTransactionState,
 		notifyEndorserCandidates,
@@ -186,6 +192,7 @@ func newTransaction(
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
+	setDispatchedInFlight func(txID uuid.UUID, inFlight bool),
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	notifyEndorserCandidates func(context.Context, ...string),
@@ -218,6 +225,7 @@ func newTransaction(
 		transportWriter:                   transportWriter,
 		clock:                             clock,
 		queueEventForCoordinator:          queueEventForCoordinator,
+		setDispatchedInFlight:             setDispatchedInFlight,
 		coordinatorTransactionHandleEvent: coordinatorTransactionHandleEvent,
 		getCoordinatorTransactionState:    getCoordinatorTransactionState,
 		notifyEndorserCandidates:          notifyEndorserCandidates,
@@ -293,13 +301,6 @@ func (t *coordinatorTransaction) GetID() uuid.UUID {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.ID
-}
-
-func (t *coordinatorTransaction) HasDispatchedPublicTransaction() bool {
-	t.RLock()
-	defer t.RUnlock()
-	return t.pt.PreparedPublicTransaction != nil &&
-		t.pt.PreAssembly.TransactionSpecification.Intent == prototk.TransactionSpecification_SEND_TRANSACTION
 }
 
 func (t *coordinatorTransaction) GetOriginatorNode() string {

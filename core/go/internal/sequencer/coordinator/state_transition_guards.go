@@ -67,5 +67,8 @@ func guard_IsHigherPriorityThanCurrentActive(_ context.Context, c *coordinator) 
 // can read like a spec; however, this particular check self describes better by being combined
 // into a new single guard function.
 func guard_MustFlushToRotateSigningIdentity(ctx context.Context, c *coordinator) bool {
-	return c.signingIdentity.used && guard_HasUnconfirmedDispatchedTransactions(ctx, c)
+	c.signingIdentity.mu.Lock()
+	used := c.signingIdentity.used
+	c.signingIdentity.mu.Unlock()
+	return used && guard_HasUnconfirmedDispatchedTransactions(ctx, c)
 }

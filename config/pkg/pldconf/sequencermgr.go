@@ -32,6 +32,7 @@ type SequencerConfig struct {
 	IdleSequencerCleanupInterval      *string           `json:"idleSequencerCleanupInterval"`
 	InactiveGracePeriod               *int              `json:"inactiveGracePeriod"`
 	MaxDispatchAhead                  *int              `json:"maxDispatchAhead"`
+	MaxDispatchBatchSize              *int              `json:"maxDispatchBatchSize"`
 	MaxInflightTransactions           *int              `json:"maxInflightTransactions"`
 	OriginatorEventQueueSize          *int              `json:"originatorEventQueueSize"`
 	OriginatorPriorityEventQueueSize  *int              `json:"originatorPriorityEventQueueSize"`
@@ -57,6 +58,7 @@ type SequencerMinimumConfig struct {
 	IdleSequencerCleanupInterval      time.Duration
 	InactiveGracePeriod               int
 	MaxDispatchAhead                  int
+	MaxDispatchBatchSize              int
 	MaxInflightTransactions           int
 	OriginatorEventQueueSize          int
 	OriginatorPriorityEventQueueSize  int
@@ -81,6 +83,7 @@ var SequencerDefaults = SequencerConfig{
 	IdleSequencerCleanupInterval:      confutil.P("1m"),
 	InactiveGracePeriod:               confutil.P(2),
 	MaxDispatchAhead:                  confutil.P(50),
+	MaxDispatchBatchSize:              confutil.P(20),
 	MaxInflightTransactions:           confutil.P(500),
 	OriginatorEventQueueSize:          confutil.P(50),
 	OriginatorPriorityEventQueueSize:  confutil.P(500),
@@ -110,6 +113,7 @@ var SequencerMinimum = SequencerMinimumConfig{
 	IdleSequencerCleanupInterval:      10 * time.Second,
 	InactiveGracePeriod:               1,
 	MaxDispatchAhead:                  1,
+	MaxDispatchBatchSize:              1,
 	MaxInflightTransactions:           1,
 	OriginatorEventQueueSize:          1,
 	OriginatorPriorityEventQueueSize:  1,

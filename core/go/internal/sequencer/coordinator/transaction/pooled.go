@@ -39,6 +39,11 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	t.dependencyTracker.GetChainedDeps().ForgetChainedChild(ctx, t.pt.ID)
 	// Clear post-assembly dependencies. Chained dependencies are tracked separately and persist.
 	t.pendingPreDispatchRequest = nil
+	// Deliberately do NOT clear pendingDispatch / pendingRemoteStateDistributions here. Dispatch is a point
+	// of no return: once dispatchPrepare has stashed a dispatch it will be persisted, and the dispatch loop
+	// reads it via PendingDispatch. A repool that runs before the loop reads it must leave the stash in
+	// place so the prepared work is not silently discarded; a genuine re-dispatch re-runs dispatchPrepare
+	// and overwrites the stash before the next read.
 	t.grapher.ForgetTransactionAndLocks(ctx, t.pt.ID)
 	t.clearTimeoutSchedules()
 	t.resetEndorsementRequests(ctx)
