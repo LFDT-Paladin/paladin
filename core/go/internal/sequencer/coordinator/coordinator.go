@@ -111,6 +111,7 @@ type coordinator struct {
 	inactiveGracePeriod            int // expressed as a multiple of heartbeat intervals
 	baseLedgerRevertRetryThreshold int
 	assembleErrorRetryThreshhold   int
+	signErrorRetryThreshhold       int
 	requestTimeout                 time.Duration
 	stateTimeout                   time.Duration
 	nodeName                       string
@@ -194,6 +195,7 @@ func NewCoordinator(
 	c.inactiveGracePeriod = confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod)
 	c.baseLedgerRevertRetryThreshold = confutil.IntMin(configuration.BaseLedgerRevertRetryThreshold, pldconf.SequencerMinimum.BaseLedgerRevertRetryThreshold, *pldconf.SequencerDefaults.BaseLedgerRevertRetryThreshold)
 	c.assembleErrorRetryThreshhold = confutil.IntMin(configuration.AssembleErrorRetryThreshold, pldconf.SequencerMinimum.AssembleErrorRetryThreshold, *pldconf.SequencerDefaults.AssembleErrorRetryThreshold)
+	c.signErrorRetryThreshhold = confutil.IntMin(configuration.SignErrorRetryThreshold, pldconf.SequencerMinimum.SignErrorRetryThreshold, *pldconf.SequencerDefaults.SignErrorRetryThreshold)
 	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
 

@@ -812,6 +812,7 @@
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
 | originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
+| signErrorRetryThreshold | Maximum number of times a transaction can error on the signing of its assembled attestations before being evicted | `int` | `3` |
 | stateTimeout | Timeout for request-driven transaction states before repooling | `string` | `"10s"` |
 | targetActiveSequencers | Target number of active sequencers | `int` | `50` |
 | transactionResumeMaxTransactions | Maximum number of pending transactions to resume | `int` | `100000` |

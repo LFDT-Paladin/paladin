@@ -50,6 +50,8 @@ type TransportWriter interface {
 	SendAssembleResponse(ctx context.Context, node string, msg *engineProto.AssembleResponse) error
 	SendAssembleError(ctx context.Context, node string, msg *engineProto.AssembleError) error
 	SendAssembleRejection(ctx context.Context, node string, msg *engineProto.AssembleRejection) error
+	SendSignResponse(ctx context.Context, node string, msg *engineProto.SignResponse) error
+	SendSignError(ctx context.Context, node string, msg *engineProto.SignError) error
 	SendNonceAssigned(ctx context.Context, node string, msg *engineProto.NonceAssigned) error
 	SendTransactionSubmitted(ctx context.Context, node string, msg *engineProto.TransactionSubmitted) error
 	SendTransactionConfirmed(ctx context.Context, node string, msg *engineProto.TransactionConfirmed) error
@@ -156,6 +158,14 @@ func (tw *transportWriter) SendAssembleError(ctx context.Context, node string, m
 
 func (tw *transportWriter) SendAssembleRejection(ctx context.Context, node string, msg *engineProto.AssembleRejection) error {
 	return tw.marshalAndSend(ctx, node, MessageType_AssembleRejection, msg)
+}
+
+func (tw *transportWriter) SendSignResponse(ctx context.Context, node string, msg *engineProto.SignResponse) error {
+	return tw.marshalAndSend(ctx, node, MessageType_SignResponse, msg)
+}
+
+func (tw *transportWriter) SendSignError(ctx context.Context, node string, msg *engineProto.SignError) error {
+	return tw.marshalAndSend(ctx, node, MessageType_SignError, msg)
 }
 
 func (tw *transportWriter) SendNonceAssigned(ctx context.Context, node string, msg *engineProto.NonceAssigned) error {

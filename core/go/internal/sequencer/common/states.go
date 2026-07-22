@@ -85,9 +85,11 @@ type OriginatorTransactionState int
 
 const (
 	OriginatorTransactionState_Initial OriginatorTransactionState = iota
+	OriginatorTransactionState_Resolving
 	OriginatorTransactionState_Pending
 	OriginatorTransactionState_Delegated
 	OriginatorTransactionState_Assembling
+	OriginatorTransactionState_Signing
 	OriginatorTransactionState_Endorsement_Gathering
 	OriginatorTransactionState_Prepared
 	OriginatorTransactionState_Dispatched
@@ -103,12 +105,16 @@ func (s OriginatorTransactionState) String() string {
 	switch s {
 	case OriginatorTransactionState_Initial:
 		return "Initial"
+	case OriginatorTransactionState_Resolving:
+		return "Resolving"
 	case OriginatorTransactionState_Pending:
 		return "Pending"
 	case OriginatorTransactionState_Delegated:
 		return "Delegated"
 	case OriginatorTransactionState_Assembling:
 		return "Assembling"
+	case OriginatorTransactionState_Signing:
+		return "Signing"
 	case OriginatorTransactionState_Endorsement_Gathering:
 		return "Endorsement_Gathering"
 	case OriginatorTransactionState_Prepared:
@@ -139,6 +145,7 @@ const (
 	CoordinatorTransactionState_Pooled
 	CoordinatorTransactionState_PreAssembly_Blocked
 	CoordinatorTransactionState_Assembling
+	CoordinatorTransactionState_Signing
 	CoordinatorTransactionState_Reverted
 	CoordinatorTransactionState_Endorsement_Gathering
 	CoordinatorTransactionState_Blocked
@@ -160,6 +167,8 @@ func (s CoordinatorTransactionState) String() string {
 		return "PreAssembly_Blocked"
 	case CoordinatorTransactionState_Assembling:
 		return "Assembling"
+	case CoordinatorTransactionState_Signing:
+		return "Signing"
 	case CoordinatorTransactionState_Reverted:
 		return "Reverted"
 	case CoordinatorTransactionState_Endorsement_Gathering:

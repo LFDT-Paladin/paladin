@@ -169,22 +169,22 @@ func TestAssembleRequestReceivedEvent_Fields(t *testing.T) {
 	assert.Equal(t, stateSnapshot, event.StateSnapshot)
 }
 
-func TestAssembleAndSignSuccessEvent_Type(t *testing.T) {
-	event := &AssembleAndSignSuccessEvent{}
-	assert.Equal(t, Event_AssembleAndSignSuccess, event.Type())
+func TestAssembleSuccessEvent_Type(t *testing.T) {
+	event := &AssembleSuccessEvent{}
+	assert.Equal(t, Event_AssembleSuccess, event.Type())
 }
 
-func TestAssembleAndSignSuccessEvent_TypeString(t *testing.T) {
-	event := &AssembleAndSignSuccessEvent{}
-	assert.Equal(t, "Event_AssembleAndSignSuccess", event.TypeString())
+func TestAssembleSuccessEvent_TypeString(t *testing.T) {
+	event := &AssembleSuccessEvent{}
+	assert.Equal(t, "Event_AssembleSuccess", event.TypeString())
 }
 
-func TestAssembleAndSignSuccessEvent_Fields(t *testing.T) {
+func TestAssembleSuccessEvent_Fields(t *testing.T) {
 	txID := uuid.New()
 	requestID := uuid.New()
 	postAssembly := &components.TransactionPostAssembly{}
 
-	event := &AssembleAndSignSuccessEvent{
+	event := &AssembleSuccessEvent{
 		BaseEvent: BaseEvent{
 			TransactionID: txID,
 		},
@@ -410,7 +410,7 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 		&AssembleRequestReceivedEvent{
 			BaseEvent: BaseEvent{TransactionID: txID},
 		},
-		&AssembleAndSignSuccessEvent{
+		&AssembleSuccessEvent{
 			BaseEvent: BaseEvent{TransactionID: txID},
 		},
 		&AssembleRevertEvent{

@@ -191,6 +191,21 @@ message AssembleRejection {
     int64 assembler_block_height = 6;
 }
 
+message SignResponse {
+    string transaction_id = 1;
+    string assemble_request_id = 2;
+    string contract_address = 3;
+    io.kaleido.paladin.toolkit.AttestationResult attestation_result = 4;
+    io.kaleido.paladin.toolkit.TransactionPostAssembly post_assembly = 5;
+}
+
+message SignError {
+    string transaction_id = 1;
+    string assemble_request_id = 2;
+    string contract_address = 3;
+    string error_message = 4;
+}
+
 message PreDispatchRequest {
     string id = 1;
     string transaction_id = 2;

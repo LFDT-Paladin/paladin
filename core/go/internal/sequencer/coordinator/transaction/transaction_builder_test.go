@@ -92,6 +92,8 @@ type TransactionBuilderForTesting struct {
 	baseLedgerRevertRetryThreshold     int
 	assembleErrorCount                 int
 	assembleErrorRetryThreshhold       int
+	signErrorCount                     int
+	signErrorRetryThreshhold           int
 	endorseToleranceByRequirement      map[string]int
 	revertCount                        int
 	currentBlockHeight                 int64
@@ -382,6 +384,16 @@ func (b *TransactionBuilderForTesting) AssembleErrorRetryThreshold(threshold int
 	return b
 }
 
+func (b *TransactionBuilderForTesting) SignErrorCount(count int) *TransactionBuilderForTesting {
+	b.signErrorCount = count
+	return b
+}
+
+func (b *TransactionBuilderForTesting) SignErrorRetryThreshold(threshold int) *TransactionBuilderForTesting {
+	b.signErrorRetryThreshhold = threshold
+	return b
+}
+
 func (b *TransactionBuilderForTesting) EndorseTolerance(tolerance int) *TransactionBuilderForTesting {
 	b.endorseToleranceByRequirement = map[string]int{"endorse-0": tolerance}
 	return b
@@ -570,6 +582,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.finalizingGracePeriod,
 		b.baseLedgerRevertRetryThreshold,
 		b.assembleErrorRetryThreshhold,
+		b.signErrorRetryThreshhold,
 		b.grapher,
 		b.stateVisibilityTracker,
 		b.dependencyTracker,
@@ -588,6 +601,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.revertReason = b.revertReason
 	txn.revertCount = b.revertCount
 	txn.assembleErrorCount = b.assembleErrorCount
+	txn.signErrorCount = b.signErrorCount
 	if b.endorseToleranceByRequirement != nil {
 		txn.endorseToleranceByRequirement = b.endorseToleranceByRequirement
 	}

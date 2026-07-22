@@ -283,6 +283,11 @@ func (b *CoordinatorBuilderForTesting) AssembleErrorRetryThreshold(n int) *Coord
 	return b
 }
 
+func (b *CoordinatorBuilderForTesting) SignErrorRetryThreshold(n int) *CoordinatorBuilderForTesting {
+	b.sequencerConfig.SignErrorRetryThreshold = confutil.P(n)
+	return b
+}
+
 func (b *CoordinatorBuilderForTesting) BlockHeightTolerance(n uint64) *CoordinatorBuilderForTesting {
 	b.sequencerConfig.BlockHeightTolerance = confutil.P(n)
 	return b

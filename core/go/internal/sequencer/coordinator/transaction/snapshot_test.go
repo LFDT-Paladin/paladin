@@ -93,6 +93,20 @@ func TestGetSnapshot_PooledStates_StateAssembling(t *testing.T) {
 	assert.Equal(t, txn.pt.ID.String(), pooledSnapshot.Id)
 }
 
+func TestGetSnapshot_PooledStates_StateSigning(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Signing).
+		Originator("sender@node1").
+		Build()
+
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot, revertedSnapshot := txn.GetSnapshot(ctx)
+	require.NotNil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+	assert.Nil(t, revertedSnapshot)
+	assert.Equal(t, txn.pt.ID.String(), pooledSnapshot.Id)
+}
+
 func TestGetSnapshot_PooledStates_StatePooled(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).

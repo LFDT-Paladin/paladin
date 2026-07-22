@@ -535,10 +535,6 @@ func TestImportSnapshot(t *testing.T) {
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 	defer dqc.Close(ctx)
 
-	// Use a writer to pre-write states into the DB (simulating them being already confirmed)
-	_, sw := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
-	sw.contractAddress = *contractAddress
-
 	s1, err := schema1.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
 		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
@@ -564,43 +560,6 @@ func TestImportSnapshot(t *testing.T) {
 	transactionID1 := uuid.New()
 	transactionID2 := uuid.New()
 	transactionID3 := uuid.New()
-
-	stateUpserts := []*components.StateUpsert{
-		{
-			ID:     s1.ID,
-			Schema: schema1.ID(),
-			Data:   s1.Data,
-		},
-		{
-			ID:     s2.ID,
-			Schema: schema1.ID(),
-			Data:   s2.Data,
-		},
-		{
-			ID:     s4.ID,
-			Schema: schema1.ID(),
-			Data:   s4.Data,
-		},
-		{
-			ID:     s5.ID,
-			Schema: schema1.ID(),
-			Data:   s5.Data,
-		},
-	}
-	// Write them via the writer so they exist in DB
-	tx0 := uuid.New()
-	upsertWithCreate := make([]*components.StateUpsert, len(stateUpserts))
-	for i, u := range stateUpserts {
-		upsertWithCreate[i] = &components.StateUpsert{
-			ID:        u.ID,
-			Schema:    u.Schema,
-			Data:      u.Data,
-			CreatedBy: &tx0,
-		}
-	}
-	_, err = sw.StageStateUpserts(ctx, ss.p.NOTX(), upsertWithCreate...)
-	require.NoError(t, err)
-	syncFlushWriter(t, ctx, sw)
 
 	//imported locks include
 	// - state1 created by transaction1 for which we have the data
