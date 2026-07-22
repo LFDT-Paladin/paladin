@@ -38,6 +38,7 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*engineProto.
 		State_Endorsement_Gathering,
 		State_PreAssembly_Blocked,
 		State_Assembling,
+		State_Signing,
 		State_Pooled:
 		return &engineProto.SnapshotPooledTransaction{Id: t.pt.ID.String()}, nil, nil, nil
 

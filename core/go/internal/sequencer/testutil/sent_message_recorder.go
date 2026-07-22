@@ -55,6 +55,8 @@ type SentMessageRecorder struct {
 	preDispatchRejectionReason     engineProto.RejectionReason
 	hasSentDelegationRequest       bool
 	delegatedTransactionIDs        []uuid.UUID
+	sentSignResponses              []*engineProto.SignResponse
+	hasSentSignError               bool
 }
 
 func NewSentMessageRecorder() *SentMessageRecorder {
@@ -87,6 +89,8 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.hasSentAssembleRejection = false
 	r.hasSentPreDispatchRejection = false
 	r.preDispatchRejectionReason = 0
+	r.sentSignResponses = nil
+	r.hasSentSignError = false
 	r.hasSentDelegationRequest = false
 	r.delegatedTransactionIDs = nil
 	// per-tx maps are NOT reset — they accumulate across the full test
@@ -226,6 +230,24 @@ func (r *SentMessageRecorder) HasSentAssembleParkResponse() bool {
 func (r *SentMessageRecorder) SendAssembleError(ctx context.Context, node string, msg *engineProto.AssembleError) error {
 	r.hasSentAssembleError = true
 	return nil
+}
+
+func (r *SentMessageRecorder) SendSignResponse(ctx context.Context, node string, msg *engineProto.SignResponse) error {
+	r.sentSignResponses = append(r.sentSignResponses, msg)
+	return nil
+}
+
+func (r *SentMessageRecorder) SendSignError(ctx context.Context, node string, msg *engineProto.SignError) error {
+	r.hasSentSignError = true
+	return nil
+}
+
+func (r *SentMessageRecorder) SentSignResponses() []*engineProto.SignResponse {
+	return r.sentSignResponses
+}
+
+func (r *SentMessageRecorder) HasSentSignError() bool {
+	return r.hasSentSignError
 }
 
 func (r *SentMessageRecorder) SendAssembleRejection(ctx context.Context, node string, msg *engineProto.AssembleRejection) error {

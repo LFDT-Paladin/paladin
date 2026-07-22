@@ -3410,3 +3410,41 @@ func TestSendPreDispatchRejection_ProtoMarshalError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forced proto error")
 }
+
+func TestSendSignResponse_Success(t *testing.T) {
+	ctx := context.Background()
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTM := componentsmocks.NewTransportManager(t)
+	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
+	mockTM.On("LocalNodeName").Return("local-node").Maybe()
+	mockTM.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		if msg.MessageType != MessageType_SignResponse || msg.Node != "coordinator-node" {
+			return false
+		}
+		var sr engineProto.SignResponse
+		return proto.Unmarshal(msg.Payload, &sr) == nil && sr.TransactionId == "tx1"
+	})).Return(nil)
+
+	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
+
+	err := tw.SendSignResponse(ctx, "coordinator-node", &engineProto.SignResponse{TransactionId: "tx1"})
+	require.NoError(t, err)
+}
+
+func TestSendSignError_Success(t *testing.T) {
+	ctx := context.Background()
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTM := componentsmocks.NewTransportManager(t)
+	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
+	mockTM.On("LocalNodeName").Return("local-node").Maybe()
+	mockTM.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		return msg.MessageType == MessageType_SignError && msg.Node == "coordinator-node"
+	})).Return(nil)
+
+	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
+
+	err := tw.SendSignError(ctx, "coordinator-node", &engineProto.SignError{TransactionId: "tx1"})
+	require.NoError(t, err)
+}

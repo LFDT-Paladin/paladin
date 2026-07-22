@@ -54,6 +54,7 @@ type originatorTransaction struct {
 	sync.RWMutex
 	stateMachine                     *StateMachine
 	pt                               *components.PrivateTransaction
+	nodeName                         string
 	engineIntegration                common.EngineIntegration
 	transportWriter                  transport.TransportWriter
 	queueEventForOriginator          func(context.Context, common.Event)
@@ -70,17 +71,24 @@ type originatorTransaction struct {
 	getBlockHeight                   func() int64
 	cancelCurrentAssembly            context.CancelFunc
 	currentAssemblyRequestID         uuid.UUID
+	cancelCurrentSign                context.CancelFunc
+	clock                            common.Clock
+	resolveRetryBackoff              time.Duration
+	cancelResolveRetry               func() // cancels a pending verifier-resolution retry timer; nil when none is scheduled
 }
 
 func NewTransaction(
 	ctx context.Context,
 	pt *components.PrivateTransaction,
+	nodeName string,
 	transportWriter transport.TransportWriter,
 	queueEventForOriginator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	metrics metrics.DistributedSequencerMetrics,
 	refreshBlockHeight func(context.Context),
 	getBlockHeight func() int64,
+	clock common.Clock,
+	resolveRetryBackoff time.Duration,
 ) (OriginatorTransaction, error) {
 	if pt == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "cannot create transaction without private tx")
@@ -88,32 +96,41 @@ func NewTransaction(
 
 	return newTransaction(
 		pt,
+		nodeName,
 		engineIntegration,
 		transportWriter,
 		queueEventForOriginator,
 		metrics,
 		refreshBlockHeight,
 		getBlockHeight,
+		clock,
+		resolveRetryBackoff,
 	), nil
 }
 
 func newTransaction(
 	pt *components.PrivateTransaction,
+	nodeName string,
 	engineIntegration common.EngineIntegration,
 	transportWriter transport.TransportWriter,
 	queueEventForOriginator func(context.Context, common.Event),
 	metrics metrics.DistributedSequencerMetrics,
 	refreshBlockHeight func(context.Context),
 	getBlockHeight func() int64,
+	clock common.Clock,
+	resolveRetryBackoff time.Duration,
 ) *originatorTransaction {
 	txn := &originatorTransaction{
 		pt:                      pt,
+		nodeName:                nodeName,
 		engineIntegration:       engineIntegration,
 		transportWriter:         transportWriter,
 		queueEventForOriginator: queueEventForOriginator,
 		metrics:                 metrics,
 		refreshBlockHeight:      refreshBlockHeight,
 		getBlockHeight:          getBlockHeight,
+		clock:                   clock,
+		resolveRetryBackoff:     resolveRetryBackoff,
 	}
 	txn.initializeStateMachine(State_Initial)
 	return txn
