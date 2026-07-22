@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Box, CssBaseline, useMediaQuery } from "@mui/material";
+import { CssBaseline } from "@mui/material";
 import { createTheme, PaletteMode, ThemeProvider } from "@mui/material/styles";
 import {
   MutationCache,
@@ -23,37 +23,10 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { constants } from "./components/config";
-import { Header } from "./components/Header";
 import { ApplicationContextProvider } from "./contexts/ApplicationContext";
-import { AppRoutes } from "./routes";
+import { Router } from "./Router";
 import { darkThemeOptions, lightThemeOptions } from "./themes/default";
-import { getBasePath } from "./utils";
-import { Domains } from "./views/Domains";
-import { Keys } from "./views/Keys";
-import { Registries } from "./views/Registries";
-import { Transactions } from "./views/Transactions";
-import { TransactionEntry } from "./views/TransactionEntry";
-import { Submissions } from "./views/Submissions";
-import { DomainContract } from "./views/DomainContract";
-import { PrivacyGroups } from "./views/PrivacyGroups";
-import { PrivacyGroupEntry } from "./views/PrivacyGroupEntry";
-import { Navigation } from "./components/Navigation";
-import { States } from "./views/States";
-import { MessageEntry } from "./views/ReliableMessageEntry";
-import { StateEntry } from "./views/StateEntry";
-import { RegistryEntry } from "./views/RegistryEntry";
-import { PrivacyGroupMessageEntry } from "./views/PrivacyGroupMessageEntry";
-import { TransportConnections } from "./views/TransportsConnections";
-import { TransportMessages } from "./views/TransportMessages";
-import { PrivacyGroupListeners } from "./views/PrivacyGroupListeners";
-import { PrivacyGroupListenerEntry } from "./views/PrivacyGroupListenerEntry";
-import { PrivacyGroupMessages } from "./views/PrivacyGroupMessages";
-import { EventListeners } from "./views/EventListeners";
-import { EventListenerEntry } from "./views/EventListenerEntry";
-import { ReceiptListeners } from "./views/ReceiptListeners";
-import { ReceiptListenerEntry } from "./views/ReceiptListenerEntry";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({}),
@@ -106,51 +79,12 @@ function App() {
     [systemTheme]
   );
 
-  const basePath = getBasePath();
-  const lessThanLarge = useMediaQuery(theme.breakpoints.down("lg"));
-
   return (
     <QueryClientProvider client={queryClient}>
       <ApplicationContextProvider colorMode={colorMode}>
         <ThemeProvider theme={theme}>
           <CssBaseline />
-          <BrowserRouter
-            basename={basePath}
-            future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
-          >
-            {lessThanLarge && <Header />}
-            <Box sx={{ display: "flex" }}>
-              <Navigation />
-              <Box sx={{ flexGrow: 1, maxWidth: "100vw", minWidth: 0 }}>
-                <Routes>
-                  <Route path={AppRoutes.Transactions} element={<Transactions />} />
-                  <Route path={AppRoutes.Submissions} element={<Submissions />} />
-                  <Route path={AppRoutes.Transaction} element={<TransactionEntry />} />
-                  <Route path={AppRoutes.Keys} element={<Keys />} />
-                  <Route path={AppRoutes.Registries} element={<Registries />} />
-                  <Route path={AppRoutes.Domains} element={<Domains />} />
-                  <Route path={AppRoutes.DomainContract} element={<DomainContract />} />
-                  <Route path={AppRoutes.PrivacyGroups} element={<PrivacyGroups />} />
-                  <Route path={AppRoutes.PrivacyGroupMessages} element={<PrivacyGroupMessages />} />
-                  <Route path={AppRoutes.PrivacyGroupListeners} element={<PrivacyGroupListeners />} />
-                  <Route path={AppRoutes.PrivacyGroup} element={<PrivacyGroupEntry />} />
-                  <Route path={AppRoutes.PrivacyGroupMessageEntry} element={<PrivacyGroupMessageEntry />} />
-                  <Route path={AppRoutes.PrivacyGroupListenerEntry} element={<PrivacyGroupListenerEntry />} />
-                  <Route path={AppRoutes.States} element={<States />} />
-                  <Route path={AppRoutes.State} element={<StateEntry />} />
-                  <Route path={AppRoutes.RegistryEntry} element={<RegistryEntry />} />
-                  <Route path={AppRoutes.ReliableMessage} element={<MessageEntry />} />
-                  <Route path={AppRoutes.TransportConnections} element={<TransportConnections />} />
-                  <Route path={AppRoutes.TransportMessages} element={<TransportMessages />} />
-                  <Route path={AppRoutes.EventListeners} element={<EventListeners />} />
-                  <Route path={AppRoutes.EventListenerEntry} element={<EventListenerEntry />} />
-                  <Route path={AppRoutes.ReceiptListeners} element={<ReceiptListeners />} />
-                  <Route path={AppRoutes.ReceiptListenerEntry} element={<ReceiptListenerEntry />} />
-                  <Route path="*" element={<Navigate to={AppRoutes.Transactions} replace />} />
-                </Routes>
-              </Box>
-            </Box>
-          </BrowserRouter>
+          <Router />
         </ThemeProvider>
       </ApplicationContextProvider>
     </QueryClientProvider>
