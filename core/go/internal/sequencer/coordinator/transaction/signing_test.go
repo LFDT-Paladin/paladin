@@ -121,10 +121,10 @@ func TestAction_Signed(t *testing.T) {
 
 func TestAction_SignError_IncrementsCount(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Signing).PostAssembly(coordSignPlan("alice@node1")).Build()
-	before := txn.assembleErrorCount
+	before := txn.signErrorCount
 	err := action_SignError(context.Background(), txn, &SignErrorEvent{})
 	require.NoError(t, err)
-	assert.Equal(t, before+1, txn.assembleErrorCount)
+	assert.Equal(t, before+1, txn.signErrorCount)
 }
 
 func TestValidator_MatchesPendingAssembleRequest_SignEvents(t *testing.T) {
@@ -177,7 +177,7 @@ func TestCoordinator_Signing_SignError_RepoolUnderThreshold(t *testing.T) {
 	b := NewTransactionBuilderForTesting(t, State_Signing).
 		PostAssembly(coordSignPlan("alice@node1")).
 		AddPendingAssembleRequest().
-		AssembleErrorRetryThreshold(3)
+		SignErrorRetryThreshold(3)
 	txn, _ := b.Build()
 	reqID := txn.pendingAssembleRequest.IdempotencyKey()
 
@@ -194,9 +194,9 @@ func TestCoordinator_Signing_SignError_EvictOverThreshold(t *testing.T) {
 	b := NewTransactionBuilderForTesting(t, State_Signing).
 		PostAssembly(coordSignPlan("alice@node1")).
 		AddPendingAssembleRequest().
-		AssembleErrorRetryThreshold(0)
+		SignErrorRetryThreshold(0)
 	txn, _ := b.Build()
-	txn.assembleErrorCount = 1 // already over threshold before this error increments further
+	txn.signErrorCount = 1 // already over threshold before this error increments further
 	reqID := txn.pendingAssembleRequest.IdempotencyKey()
 
 	err := txn.HandleEvent(ctx, &SignErrorEvent{
@@ -296,7 +296,7 @@ func TestCoordinator_Assembling_SignedFastForward_NilPostAssemblyDropped(t *test
 
 func TestCoordinator_Assembling_SignError_RepoolUnderThreshold(t *testing.T) {
 	ctx := context.Background()
-	b := NewTransactionBuilderForTesting(t, State_Assembling).AddPendingAssembleRequest().AssembleErrorRetryThreshold(3)
+	b := NewTransactionBuilderForTesting(t, State_Assembling).AddPendingAssembleRequest().SignErrorRetryThreshold(3)
 	txn, _ := b.Build()
 	reqID := txn.pendingAssembleRequest.IdempotencyKey()
 
@@ -310,9 +310,9 @@ func TestCoordinator_Assembling_SignError_RepoolUnderThreshold(t *testing.T) {
 
 func TestCoordinator_Assembling_SignError_EvictOverThreshold(t *testing.T) {
 	ctx := context.Background()
-	b := NewTransactionBuilderForTesting(t, State_Assembling).AddPendingAssembleRequest().AssembleErrorRetryThreshold(0)
+	b := NewTransactionBuilderForTesting(t, State_Assembling).AddPendingAssembleRequest().SignErrorRetryThreshold(0)
 	txn, _ := b.Build()
-	txn.assembleErrorCount = 1
+	txn.signErrorCount = 1
 	reqID := txn.pendingAssembleRequest.IdempotencyKey()
 
 	err := txn.HandleEvent(ctx, &SignErrorEvent{

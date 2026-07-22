@@ -796,7 +796,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| assembleErrorRetryThreshold | Maximum number of times a transaction can error on assembly (or on the signing of its assembled attestations) before being evicted | `int` | `3` |
+| assembleErrorRetryThreshold | Maximum number of times a transaction can error on assembly before being evicted | `int` | `3` |
 | baseLedgerRevertRetryThreshold | Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed | `int` | `3` |
 | blockHeightTolerance | Tolerance for block height differences. Must be the same for all nodes participating in a domain instance. | `uint64` | `5` |
 | blockRange | Block range size for sequencer operations. Must be the same for all nodes participating in a domain instance. | `uint64` | `100` |
@@ -812,6 +812,7 @@
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
 | originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
+| signErrorRetryThreshold | Maximum number of times a transaction can error on the signing of its assembled attestations before being evicted | `int` | `3` |
 | stateTimeout | Timeout for request-driven transaction states before repooling | `string` | `"10s"` |
 | targetActiveSequencers | Target number of active sequencers | `int` | `50` |
 | transactionResumeMaxTransactions | Maximum number of pending transactions to resume | `int` | `100000` |

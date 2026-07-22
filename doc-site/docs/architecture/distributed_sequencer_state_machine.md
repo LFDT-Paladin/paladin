@@ -85,8 +85,8 @@ stateDiagram-v2
     Assembling --> Confirming_Dispatchable
     Assembling --> Blocked
     Assembling --> Pooled
-    Assembling --> Reverted
     Assembling --> Evicted
+    Assembling --> Reverted
     Assembling --> Final
     Assembling --> PreAssembly_Blocked
     Signing --> Endorsement_Gathering

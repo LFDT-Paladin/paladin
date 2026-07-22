@@ -582,11 +582,10 @@ func Test_action_cancelCurrentlyAssemblingTransaction_WithAssemblingTransaction_
 	txID := uuid.New()
 	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	txn.EXPECT().GetID().Return(txID)
-	txn.EXPECT().GetCurrentState().Return(transaction.State_Assembling)
 	// Transaction should receive AssembleCancelledEvent
 	txn.EXPECT().HandleEvent(mock.Anything, mock.AnythingOfType("*transaction.AssembleCancelledEvent")).Return(nil)
 
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).AssemblingTransaction(txID).Build()
 
 	err := action_cancelCurrentlyAssemblingTransaction(t.Context(), c, nil)
 	require.NoError(t, err)

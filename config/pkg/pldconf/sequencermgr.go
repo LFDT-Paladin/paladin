@@ -37,6 +37,7 @@ type SequencerConfig struct {
 	OriginatorEventQueueSize          *int              `json:"originatorEventQueueSize"`
 	OriginatorPriorityEventQueueSize  *int              `json:"originatorPriorityEventQueueSize"`
 	RequestTimeout                    *string           `json:"requestTimeout"`
+	SignErrorRetryThreshold           *int              `json:"signErrorRetryThreshold"`
 	StateTimeout                      *string           `json:"stateTimeout"`
 	TargetActiveSequencers            *int              `json:"targetActiveSequencers"`
 	TransactionResumeMaxTransactions  *int              `json:"transactionResumeMaxTransactions"`
@@ -62,6 +63,7 @@ type SequencerMinimumConfig struct {
 	OriginatorEventQueueSize          int
 	OriginatorPriorityEventQueueSize  int
 	RequestTimeout                    time.Duration
+	SignErrorRetryThreshold           int
 	StateTimeout                      time.Duration
 	TargetActiveSequencers            int
 	TransactionResumeMaxTransactions  int
@@ -85,7 +87,8 @@ var SequencerDefaults = SequencerConfig{
 	MaxInflightTransactions:           confutil.P(500),
 	OriginatorEventQueueSize:          confutil.P(50),
 	OriginatorPriorityEventQueueSize:  confutil.P(500),
-	RequestTimeout:                    confutil.P("3s"),  // Time before sending 1 retry of an assemble request, endorsement request etc
+	RequestTimeout:                    confutil.P("3s"), // Time before sending 1 retry of an assemble request, endorsement request etc
+	SignErrorRetryThreshold:           confutil.P(3),
 	StateTimeout:                      confutil.P("10s"), // Time before giving up on request-driven transaction state progress and re-pooling
 	TargetActiveSequencers:            confutil.P(50),
 	TransactionResumeMaxTransactions:  confutil.P(100000),
@@ -115,6 +118,7 @@ var SequencerMinimum = SequencerMinimumConfig{
 	OriginatorEventQueueSize:          1,
 	OriginatorPriorityEventQueueSize:  1,
 	RequestTimeout:                    1 * time.Second,
+	SignErrorRetryThreshold:           0,
 	StateTimeout:                      1 * time.Second,
 	TargetActiveSequencers:            10,
 	TransactionResumeMaxTransactions:  0,

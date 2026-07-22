@@ -346,7 +346,7 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			// A SignError can likewise win the race. Abandon the in-flight assembly and repool or evict
-			// against the shared assemble retry budget, mirroring the State_Signing Event_SignError handler.
+			// against the signing retry budget, mirroring the State_Signing Event_SignError handler.
 			Event_SignError: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
@@ -354,12 +354,12 @@ var stateDefinitionsMap = StateDefinitions{
 					Actions:   []ActionRule{{Action: action_SignError}},
 					Transitions: []Transition{
 						{
-							If:      guard_CanRetryErroredAssemble,
+							If:      guard_CanRetryErroredSign,
 							To:      State_Pooled,
 							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
 						},
 						{
-							If: statemachine.GuardNot(guard_CanRetryErroredAssemble),
+							If: statemachine.GuardNot(guard_CanRetryErroredSign),
 							To: State_Evicted,
 						},
 					},
@@ -552,12 +552,12 @@ var stateDefinitionsMap = StateDefinitions{
 					Actions:   []ActionRule{{Action: action_SignError}},
 					Transitions: []Transition{
 						{
-							If:      guard_CanRetryErroredAssemble,
+							If:      guard_CanRetryErroredSign,
 							To:      State_Pooled,
 							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
 						},
 						{
-							If: statemachine.GuardNot(guard_CanRetryErroredAssemble),
+							If: statemachine.GuardNot(guard_CanRetryErroredSign),
 							To: State_Evicted,
 						},
 					},

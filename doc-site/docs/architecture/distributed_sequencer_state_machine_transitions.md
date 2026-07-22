@@ -105,6 +105,12 @@ stateDiagram-v2
     Assembling --> Endorsement_Gathering : AssembleSuccess [!AttestationPlanFulfilled]
     Assembling --> Confirming_Dispatchable : AssembleSuccess [AttestationPlanFulfilled && !HasDependenciesNotReady]
     Assembling --> Blocked : AssembleSuccess [AttestationPlanFulfilled && HasDependenciesNotReady]
+    Assembling --> Signing : Signed [!SignRequirementsFulfilled]
+    Assembling --> Endorsement_Gathering : Signed [!AttestationPlanFulfilled]
+    Assembling --> Confirming_Dispatchable : Signed [AttestationPlanFulfilled && !HasDependenciesNotReady]
+    Assembling --> Blocked : Signed [AttestationPlanFulfilled && HasDependenciesNotReady]
+    Assembling --> Pooled : SignError [CanRetryErroredSign]
+    Assembling --> Evicted : SignError [!CanRetryErroredSign]
     Assembling --> Pooled : StateTimeoutInterval
     Assembling --> Pooled : AssembleCancelled
     Assembling --> Reverted : AssembleRevert
@@ -120,8 +126,8 @@ stateDiagram-v2
     Signing --> Endorsement_Gathering : Signed [SignRequirementsFulfilled && !AttestationPlanFulfilled]
     Signing --> Confirming_Dispatchable : Signed [SignRequirementsFulfilled && AttestationPlanFulfilled && !HasDependenciesNotReady]
     Signing --> Blocked : Signed [SignRequirementsFulfilled && AttestationPlanFulfilled && HasDependenciesNotReady]
-    Signing --> Pooled : SignError [CanRetryErroredAssemble]
-    Signing --> Evicted : SignError [!CanRetryErroredAssemble]
+    Signing --> Pooled : SignError [CanRetryErroredSign]
+    Signing --> Evicted : SignError [!CanRetryErroredSign]
     Signing --> Pooled : StateTimeoutInterval
     Endorsement_Gathering --> Confirming_Dispatchable : Endorsed [AttestationPlanFulfilled && !HasDependenciesNotReady]
     Endorsement_Gathering --> Blocked : Endorsed [AttestationPlanFulfilled && HasDependenciesNotReady]

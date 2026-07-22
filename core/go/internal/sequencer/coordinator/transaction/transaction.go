@@ -70,6 +70,7 @@ type coordinatorTransaction struct {
 	revertCount                        int
 	lastCanRetryRevert                 bool
 	assembleErrorCount                 int
+	signErrorCount                     int
 	endorseToleranceByRequirement      map[string]int
 	endorseFailureCountByRequirement   map[string]int
 	heartbeatIntervalsSinceStateChange int
@@ -88,6 +89,7 @@ type coordinatorTransaction struct {
 	finalizingGracePeriod          int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
 	baseLedgerRevertRetryThreshold int
 	assembleErrorRetryThreshhold   int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
+	signErrorRetryThreshhold       int // this is for rare errors where the originator failed to sign its assembled attestations
 
 	// Dependencies
 	clock                             common.Clock
@@ -134,6 +136,7 @@ func NewTransaction(ctx context.Context,
 	finalizingGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
+	signErrorRetryThreshhold int,
 	grapher grapher.Grapher,
 	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
 	dependencyTracker dependencytracker.DependencyTracker,
@@ -165,6 +168,7 @@ func NewTransaction(ctx context.Context,
 		finalizingGracePeriod,
 		baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold,
+		signErrorRetryThreshhold,
 		grapher,
 		stateVisibilityTracker,
 		dependencyTracker,
@@ -198,6 +202,7 @@ func newTransaction(
 	finalizingGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
+	signErrorRetryThreshhold int,
 	grapher grapher.Grapher,
 	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
 	dependencyTracker dependencytracker.DependencyTracker,
@@ -232,6 +237,7 @@ func newTransaction(
 		finalizingGracePeriod:             finalizingGracePeriod,
 		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
+		signErrorRetryThreshhold:          signErrorRetryThreshhold,
 		grapher:                           grapher,
 		stateVisibilityTracker:            stateVisibilityTracker,
 		dependencyTracker:                 dependencyTracker,
