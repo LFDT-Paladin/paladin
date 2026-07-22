@@ -803,6 +803,7 @@
 | closingGracePeriod | Grace period for closing operations | `int` | `2` |
 | coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
+| delegationBatchInterval | Interval over which originator delegation requests are coalesced into a single batched send while in the sending state | `string` | `"100ms"` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
 | idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
 | inactiveGracePeriod | Number of heartbeat intervals without activity before a node is considered inactive | `int` | `2` |

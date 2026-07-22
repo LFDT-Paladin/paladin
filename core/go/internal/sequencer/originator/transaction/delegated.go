@@ -30,6 +30,14 @@ func action_Delegated(ctx context.Context, t *originatorTransaction, event commo
 	if e.Coordinator == "" {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction delegate cannot be set to an empty node identity")
 	}
+	// Reset the first-delegation timestamp whenever the transaction is delegated to a different
+	// coordinator: the dropped-transaction grace must restart so the new coordinator has a chance to
+	// report the transaction in a snapshot before it can be considered dropped. Re-delegations to the
+	// same coordinator (e.g. the partial FIFO resend) leave it untouched so the grace reflects how long
+	// the transaction has genuinely been in flight there.
+	if t.firstDelegatedTime == nil || e.Coordinator != t.currentDelegate {
+		t.firstDelegatedTime = ptrTo(t.clock.Now())
+	}
 	t.currentDelegate = e.Coordinator
 	t.updateLastDelegatedTime()
 	return nil

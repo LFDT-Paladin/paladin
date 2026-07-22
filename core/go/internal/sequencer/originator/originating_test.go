@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
@@ -190,6 +191,7 @@ func Test_hasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *testing.T)
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		Transactions(mockTxn).
 		Build()
@@ -198,12 +200,32 @@ func Test_hasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *testing.T)
 	}
 	assert.True(t, o.hasDroppedTransactions(ctx, snapshot))
 }
+
+// A transaction delegated less than a heartbeat interval ago races the coordinator snapshot: the
+// snapshot may have been generated before the delegation arrived, so its absence is expected and must
+// not trigger a full redelegation of the backlog.
+func Test_hasDroppedTransactions_FalseWhenDelegatedTxnWithinGracePeriod(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID).Maybe()
+	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(ptrTo(time.Now()))
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(mockTxn).
+		Build()
+	snapshot := &common.CoordinatorSnapshot{
+		PooledTransactions: []*common.SnapshotPooledTransaction{},
+	}
+	assert.False(t, o.hasDroppedTransactions(ctx, snapshot), "a freshly-delegated transaction racing the snapshot must not be treated as dropped")
+}
 func Test_hasDroppedTransactions_FalseWhenDelegatedTxnInSnapshot(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		Transactions(mockTxn).
 		Build()
@@ -301,12 +323,270 @@ func Test_sendDelegationRequest_HandleEventError_ReturnsWrappedError(t *testing.
 		Transactions(mockTxn).
 		CurrentActiveCoordinator("coordinator@coordinatorNode").
 		Build()
-	err := sendDelegationRequest(ctx, o)
+	err := sendDelegationRequest(ctx, o, true)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "error handling delegated event for transaction")
 	assert.Contains(t, err.Error(), txnID.String())
 	assert.Contains(t, err.Error(), expectedErr.Error())
 }
+
+// newDelegatableMockTxn builds a mock originator transaction that expects to be included in a
+// delegation request: it will be asked for its state, private transaction and ID and will receive a
+// DelegatedEvent via HandleEvent.
+func newDelegatableMockTxn(t *testing.T, state transaction.State) (*originatortransactionmocks.OriginatorTransaction, uuid.UUID) {
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID)
+	mockTxn.On("GetCurrentState").Return(state)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime()).Maybe()
+	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
+	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
+	return mockTxn, txID
+}
+
+// staleDelegatedTime returns a delegation timestamp far enough in the past that the dropped-transaction
+// grace period has elapsed, so a transaction absent from the coordinator snapshot registers as dropped
+// rather than as merely racing a snapshot generated before it was delegated.
+func staleDelegatedTime() *time.Time {
+	return ptrTo(time.Now().Add(-time.Hour))
+}
+
+// newExcludedMockTxn builds a mock originator transaction that must NOT be delegated on the partial
+// path. It only permits GetID/GetCurrentState; any GetPrivateTransaction or HandleEvent (DelegatedEvent)
+// call is an unexpected-call failure, which is exactly the assertion we want — an excluded transaction
+// receives no DelegatedEvent and contributes no protobuf entry.
+func newExcludedMockTxn(t *testing.T, state transaction.State) (*originatortransactionmocks.OriginatorTransaction, uuid.UUID) {
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID).Maybe()
+	mockTxn.On("GetCurrentState").Return(state)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime()).Maybe()
+	return mockTxn, txID
+}
+
+// On the golden (partial) path, transactions that the coordinator already knows about (Assembling or
+// beyond) are skipped: they get neither a DelegatedEvent nor a protobuf entry. Only Pending/Delegated
+// transactions are (re)sent.
+func Test_sendDelegationRequest_Partial_ExcludesAssembledTransactions(t *testing.T) {
+	ctx := context.Background()
+	assembledTxn, assembledID := newExcludedMockTxn(t, transaction.State_Assembling)
+	delegatedTxn, delegatedID := newDelegatableMockTxn(t, transaction.State_Delegated)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	// Order matters: the un-assembled transactions form the contiguous FIFO suffix.
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembledTxn, delegatedTxn, pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := sendDelegationRequest(ctx, o, false)
+	require.NoError(t, err)
+
+	assert.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest())
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(delegatedID), "Delegated txn must be included")
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID), "Pending txn must be included")
+	assert.False(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "Assembling txn must be excluded on the partial path")
+}
+
+// The full (recovery) path re-delegates everything in the resolved prefix, including already-assembled
+// transactions, because the coordinator may be missing state.
+func Test_sendDelegationRequest_Full_IncludesAssembledTransactions(t *testing.T) {
+	ctx := context.Background()
+	assembledTxn, assembledID := newDelegatableMockTxn(t, transaction.State_Assembling)
+	delegatedTxn, delegatedID := newDelegatableMockTxn(t, transaction.State_Delegated)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembledTxn, delegatedTxn, pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := sendDelegationRequest(ctx, o, true)
+	require.NoError(t, err)
+
+	assert.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest())
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "full resend must include the assembled txn")
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(delegatedID))
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID))
+}
+
+// A partial delegation with nothing left to send (every resolved transaction is already assembled)
+// must not emit a delegation request at all.
+func Test_sendDelegationRequest_Partial_AllAssembled_DoesNotSend(t *testing.T) {
+	ctx := context.Background()
+	assembled1, _ := newExcludedMockTxn(t, transaction.State_Assembling)
+	assembled2, _ := newExcludedMockTxn(t, transaction.State_Dispatched)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembled1, assembled2).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := sendDelegationRequest(ctx, o, false)
+	require.NoError(t, err)
+
+	assert.False(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "partial resend with nothing to delegate must not send a request")
+}
+
+// action_SignalDelegateNew is the golden-path action: it raises the partial dirty flag and must NOT
+// send anything synchronously (the batching goroutine flushes later).
+func Test_action_SignalDelegateNew_RaisesPartialFlagOnly(t *testing.T) {
+	ctx := context.Background()
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	o.delegateFullSignal = make(chan struct{}, 1)
+	o.delegatePartialSignal = make(chan struct{}, 1)
+
+	err := action_SignalDelegateNew(ctx, o, nil)
+	require.NoError(t, err)
+
+	assert.Len(t, o.delegatePartialSignal, 1, "partial flag must be raised")
+	assert.Len(t, o.delegateFullSignal, 0, "full flag must not be raised")
+	assert.False(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "signalling must not send synchronously")
+}
+
+// action_SignalDelegateAll is the recovery-path action: it raises the full dirty flag and must NOT
+// send synchronously.
+func Test_action_SignalDelegateAll_RaisesFullFlagOnly(t *testing.T) {
+	ctx := context.Background()
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	o.delegateFullSignal = make(chan struct{}, 1)
+	o.delegatePartialSignal = make(chan struct{}, 1)
+
+	err := action_SignalDelegateAll(ctx, o, nil)
+	require.NoError(t, err)
+
+	assert.Len(t, o.delegateFullSignal, 1, "full flag must be raised")
+	assert.Len(t, o.delegatePartialSignal, 0, "partial flag must not be raised")
+	assert.False(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "signalling must not send synchronously")
+}
+
+// signalDelegate uses a non-blocking send, so repeated signals coalesce to a single pending flag.
+func Test_signalDelegate_Coalesces(t *testing.T) {
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).Build()
+	o.delegatePartialSignal = make(chan struct{}, 1)
+
+	o.signalDelegate(false)
+	o.signalDelegate(false)
+	o.signalDelegate(false)
+
+	assert.Len(t, o.delegatePartialSignal, 1, "repeated partial signals must coalesce")
+}
+
+// signalDelegate is a no-op when the channels are nil (outside State_Sending / loop not running).
+func Test_signalDelegate_NilChannelsIsNoOp(t *testing.T) {
+	o, _ := NewOriginatorBuilderForTesting(t, State_Idle).Build()
+	assert.Nil(t, o.delegateFullSignal)
+	assert.NotPanics(t, func() {
+		o.signalDelegate(true)
+		o.signalDelegate(false)
+	})
+}
+
+// startDelegationLoop / stopDelegationLoop can be cycled repeatedly, are individually idempotent, and
+// fully tear down their per-run state on stop.
+func Test_delegationLoop_StartStopLifecycle(t *testing.T) {
+	o, _ := NewOriginatorBuilderForTesting(t, State_Idle).Build()
+	o.ctx = context.Background()
+
+	o.startDelegationLoop()
+	require.NotNil(t, o.delegateFullSignal)
+	require.NotNil(t, o.delegatePartialSignal)
+	require.NotNil(t, o.delegationLoopCancel)
+	require.NotNil(t, o.delegationLoopDone)
+
+	// A second start while running is a no-op: the channels are not replaced.
+	full, partial := o.delegateFullSignal, o.delegatePartialSignal
+	o.startDelegationLoop()
+	assert.True(t, full == o.delegateFullSignal, "second start must not replace the full channel")
+	assert.True(t, partial == o.delegatePartialSignal, "second start must not replace the partial channel")
+
+	// Stop tears everything down and is idempotent.
+	o.stopDelegationLoop()
+	assert.Nil(t, o.delegateFullSignal)
+	assert.Nil(t, o.delegatePartialSignal)
+	assert.Nil(t, o.delegationLoopCancel)
+	assert.Nil(t, o.delegationLoopDone)
+	assert.NotPanics(t, o.stopDelegationLoop)
+
+	// The loop can be started again after stopping (Sending is re-entered over the originator's life).
+	o.startDelegationLoop()
+	require.NotNil(t, o.delegationLoopCancel)
+	o.stopDelegationLoop()
+	assert.Nil(t, o.delegationLoopCancel)
+}
+
+// startDelegationLoop is a no-op before the originator has started (o.ctx not yet set).
+func Test_startDelegationLoop_NoOpBeforeStart(t *testing.T) {
+	o, _ := NewOriginatorBuilderForTesting(t, State_Idle).Build()
+	o.ctx = nil
+	o.startDelegationLoop()
+	assert.Nil(t, o.delegationLoopCancel, "loop must not start before the originator context is set")
+	assert.Nil(t, o.delegateFullSignal)
+}
+
+// chooseFlush: full wins over partial; nothing sent when neither flag was set.
+func Test_chooseFlush(t *testing.T) {
+	tests := []struct {
+		name                 string
+		gotFull, gotPartial  bool
+		wantSend, wantIsFull bool
+	}{
+		{"neither", false, false, false, false},
+		{"partial only", false, true, true, false},
+		{"full only", true, false, true, true},
+		{"both -> full wins", true, true, true, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			send, isFull := chooseFlush(tc.gotFull, tc.gotPartial)
+			assert.Equal(t, tc.wantSend, send)
+			assert.Equal(t, tc.wantIsFull, isFull)
+		})
+	}
+}
+
+// action_FlushDelegation performs the coalesced send. A partial flush excludes assembled transactions.
+func Test_action_FlushDelegation_Partial_ExcludesAssembled(t *testing.T) {
+	ctx := context.Background()
+	assembledTxn, assembledID := newExcludedMockTxn(t, transaction.State_Assembling)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembledTxn, pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(100))
+
+	err := action_FlushDelegation(ctx, o, &DelegateFlushEvent{Full: false})
+	require.NoError(t, err)
+
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID))
+	assert.False(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID))
+}
+
+// A full flush re-delegates the whole backlog including assembled transactions.
+func Test_action_FlushDelegation_Full_IncludesAssembled(t *testing.T) {
+	ctx := context.Background()
+	assembledTxn, assembledID := newDelegatableMockTxn(t, transaction.State_Assembling)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembledTxn, pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(100))
+
+	err := action_FlushDelegation(ctx, o, &DelegateFlushEvent{Full: true})
+	require.NoError(t, err)
+
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "full flush must include the assembled txn")
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID))
+}
+
 func Test_validator_TransactionDoesNotExist_InvalidEventTypeReturnsFalse(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(t, State_Observing)
@@ -403,10 +683,11 @@ func Test_sendDelegationRequest_TransportError_ReturnsError(t *testing.T) {
 		SendDelegationRequest(mock.Anything, mock.Anything, mock.Anything).
 		Return(fmt.Errorf("transport error"))
 
-	err := sendDelegationRequest(ctx, o)
+	err := sendDelegationRequest(ctx, o, true)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "transport error")
 }
+
 
 func Test_action_UpdateEndorserCandidates_DoesNotChangeCurrentActiveCoordinator(t *testing.T) {
 	ctx := context.Background()
@@ -597,27 +878,16 @@ func Test_resetFailoverIndex_CalledByHandleDelegationRejected_NoChangeOnLowerPri
 
 // ── action_FailoverToNextCoordinator ─────────────────────────────────────────
 
+// action_FailoverToNextCoordinator advances the coordinator/failoverIndex and raises the full
+// delegation signal; the actual send is performed later by the batching goroutine's flush.
 func Test_action_FailoverToNextCoordinator_WithPriorityList_AdvancesCoordinatorAndResetsCounter(t *testing.T) {
 	ctx := context.Background()
-	txID := uuid.New()
-	pt := &components.PrivateTransaction{ID: txID}
-	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
-	mockTxn.On("GetCurrentState").Return(transaction.State_Pending)
-	mockTxn.On("GetID").Return(txID)
-	mockTxn.On("GetPrivateTransaction").Return(pt)
-	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
-	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		CoordinatorPriorityList("A", "B", "C").
 		CurrentActiveCoordinator("A").
 		FailoverIndex(1).
 		HeartbeatIntervalsSinceLastReceive(5).
-		Transactions(mockTxn).
-		WithMockTransportWriter(t).
 		Build()
-
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "B", mock.Anything).
-		Return(nil).Once()
 
 	err := action_FailoverToNextCoordinator(ctx, o, nil)
 	require.NoError(t, err)
@@ -625,56 +895,32 @@ func Test_action_FailoverToNextCoordinator_WithPriorityList_AdvancesCoordinatorA
 	assert.Equal(t, "B", o.currentActiveCoordinator)
 	assert.Equal(t, 2, o.failoverIndex)
 	assert.Equal(t, 0, o.heartbeatIntervalsSinceLastReceive, "liveness counter must be reset on failover")
+	assert.Len(t, o.delegateFullSignal, 1, "failover must raise the full delegation signal")
 }
 
 func Test_action_FailoverToNextCoordinator_WrapAround_CyclesBackToStart(t *testing.T) {
 	ctx := context.Background()
-	txID := uuid.New()
-	pt := &components.PrivateTransaction{ID: txID}
-	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
-	mockTxn.On("GetCurrentState").Return(transaction.State_Pending)
-	mockTxn.On("GetID").Return(txID)
-	mockTxn.On("GetPrivateTransaction").Return(pt)
-	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
-	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		CoordinatorPriorityList("A", "B", "C").
 		CurrentActiveCoordinator("B").
 		FailoverIndex(2). // pointing to last slot
-		Transactions(mockTxn).
-		WithMockTransportWriter(t).
 		Build()
-
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "C", mock.Anything).
-		Return(nil).Once()
 
 	err := action_FailoverToNextCoordinator(ctx, o, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "C", o.currentActiveCoordinator)
 	assert.Equal(t, 0, o.failoverIndex, "failoverIndex must wrap to 0 after the last position")
+	assert.Len(t, o.delegateFullSignal, 1, "failover must raise the full delegation signal")
 }
 
 func Test_action_FailoverToNextCoordinator_EmptyPriorityList_DelegatesWithoutReset(t *testing.T) {
 	ctx := context.Background()
-	txID := uuid.New()
-	pt := &components.PrivateTransaction{ID: txID}
-	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
-	mockTxn.On("GetCurrentState").Return(transaction.State_Pending)
-	mockTxn.On("GetID").Return(txID)
-	mockTxn.On("GetPrivateTransaction").Return(pt)
-	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
-	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		CurrentActiveCoordinator("static-coordinator").
 		FailoverIndex(0).
 		HeartbeatIntervalsSinceLastReceive(3).
-		Transactions(mockTxn).
-		WithMockTransportWriter(t).
 		Build()
-
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "static-coordinator", mock.Anything).
-		Return(nil).Once()
 
 	err := action_FailoverToNextCoordinator(ctx, o, nil)
 	require.NoError(t, err)
@@ -682,6 +928,7 @@ func Test_action_FailoverToNextCoordinator_EmptyPriorityList_DelegatesWithoutRes
 	assert.Equal(t, "static-coordinator", o.currentActiveCoordinator, "STATIC/SENDER mode: coordinator must not change")
 	assert.Equal(t, 0, o.failoverIndex, "STATIC/SENDER mode: failoverIndex must not change")
 	assert.Equal(t, 3, o.heartbeatIntervalsSinceLastReceive, "STATIC/SENDER mode: counter must not be reset")
+	assert.Len(t, o.delegateFullSignal, 1, "even without a priority list, failover must raise the full delegation signal")
 }
 
 // ── action_ResetToTopPriorityCoordinator ─────────────────────────────────────

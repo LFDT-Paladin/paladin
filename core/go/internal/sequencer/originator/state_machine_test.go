@@ -30,6 +30,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// runDelegationTick simulates one tick of the batching goroutine against a synchronously-driven
+// originator: it drains the dirty flags, decides via chooseFlush, and processes the resulting
+// DelegateFlushEvent (if any) through the event loop, returning whether a flush was sent.
+func runDelegationTick(t *testing.T, ctx context.Context, o *originator) bool {
+	send, isFull := chooseFlush(drainSignal(o.delegateFullSignal), drainSignal(o.delegatePartialSignal))
+	if send {
+		require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &DelegateFlushEvent{Full: isFull}))
+	}
+	return send
+}
+
 // ── State_Initial ─────────────────────────────────────────────────────────────
 
 // OriginatorCreatedEvent from Initial transitions unconditionally to Idle.
@@ -206,7 +217,9 @@ func TestStateMachine_Idle_TransactionCreated_TransitionsToSending_DefersDelegat
 		WithMockTransportWriter(t)
 	o, mocks := builder.Build()
 
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Times(2)
+	// Only the Idle TransactionCreated handler refreshes the block height now; the Sending entry hook
+	// no longer does (delegation is deferred to the batching goroutine).
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: txn}))
@@ -314,9 +327,10 @@ func TestStateMachine_Observing_TransactionCreated_TransitionsToSending_DefersDe
 	builder := NewOriginatorBuilderForTesting(t, State_Observing).
 		CurrentActiveCoordinator("coordinator@node1").
 		WithMockTransportWriter(t)
-	o, mocks := builder.Build()
+	o, _ := builder.Build()
 
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
+	// Neither the Observing handler nor the Sending entry hook refreshes the block height now, so
+	// GetBlockHeight is not called on this path (delegation is deferred to the batching goroutine).
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: txn}))
@@ -545,6 +559,8 @@ func TestStateMachine_Sending_TransactionCreated_CreatesTxnDefersDelegation(t *t
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: txn}))
+	// Even when the batch tick flushes, the new transaction is not delegated: it is still resolving.
+	runDelegationTick(t, ctx, o)
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Len(t, o.transactionsByID, 1, "new transaction must be tracked")
@@ -570,6 +586,68 @@ func TestStateMachine_Sending_TransactionCreated_DuplicateID_NoDelegation(t *tes
 	assert.Len(t, o.transactionsByID, 1, "duplicate must not be tracked twice")
 }
 
+// TransactionCreated in Sending is the golden path and delegates partially: an already-assembled
+// in-flight transaction is skipped (no DelegatedEvent, no protobuf entry) while a still-Pending one is
+// re-sent. The freshly created transaction defers until its verifiers resolve.
+func TestStateMachine_Sending_TransactionCreated_PartialResend_SkipsAssembled(t *testing.T) {
+	ctx := context.Background()
+
+	assembledTxn, assembledID := newExcludedMockTxn(t, transaction.State_Assembling)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	builder := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Transactions(assembledTxn, pendingTxn)
+	o, mocks := builder.Build()
+	ca := builder.GetContractAddress()
+
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
+
+	newTxn := testutil.NewPrivateTransactionBuilderForTesting().Address(ca).Originator("sender@node1").Build()
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: newTxn}))
+	// The hot path only raised the partial dirty flag; the batch tick performs the coalesced send.
+	require.True(t, runDelegationTick(t, ctx, o), "a partial flush must be sent")
+
+	assert.Equal(t, State_Sending, o.GetCurrentState())
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID), "Pending txn must be re-delegated on the hot path")
+	assert.False(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "assembled txn must be skipped on the hot path")
+	// The new transaction defers delegation until its verifiers resolve.
+	assert.Equal(t, transaction.State_Resolving, o.transactionsByID[newTxn.ID].GetCurrentState())
+}
+
+// HeartbeatReceived reporting a dropped transaction is a recovery path and re-delegates the FULL
+// backlog, including already-assembled transactions, because the coordinator may be missing state.
+func TestStateMachine_Sending_HeartbeatReceived_DroppedTransaction_FullResendIncludesAssembled(t *testing.T) {
+	ctx := context.Background()
+
+	assembledTxn, assembledID := newDelegatableMockTxn(t, transaction.State_Assembling)
+	delegatedTxn, delegatedID := newDelegatableMockTxn(t, transaction.State_Delegated)
+
+	builder := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Transactions(assembledTxn, delegatedTxn)
+	o, mocks := builder.Build()
+	ca := builder.GetContractAddress()
+
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
+
+	// Empty snapshot from our coordinator ⇒ both transactions look dropped ⇒ full redelegate.
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatReceivedEvent{
+		FromNode:        "coordinator@node1",
+		ContractAddress: &ca,
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{
+			CoordinatorState: common.CoordinatorState_Active,
+		},
+	}))
+
+	// The dropped-transaction recovery raised the full dirty flag; the batch tick performs the send.
+	require.True(t, runDelegationTick(t, ctx, o), "a full flush must be sent")
+
+	assert.Equal(t, State_Sending, o.GetCurrentState())
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "dropped-transaction recovery must re-send the assembled txn")
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(delegatedID))
+}
+
 // HeartbeatReceived in Sending with dropped transaction → redelegate.
 func TestStateMachine_Sending_HeartbeatReceived_DroppedTransaction_Redelegates(t *testing.T) {
 	ctx := context.Background()
@@ -577,6 +655,7 @@ func TestStateMachine_Sending_HeartbeatReceived_DroppedTransaction_Redelegates(t
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
@@ -599,6 +678,7 @@ func TestStateMachine_Sending_HeartbeatReceived_DroppedTransaction_Redelegates(t
 			CoordinatorState: common.CoordinatorState_Active,
 		},
 	}))
+	require.True(t, runDelegationTick(t, ctx, o), "dropped-transaction recovery must flush a delegation")
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 }
@@ -610,6 +690,7 @@ func TestStateMachine_Sending_HeartbeatReceived_NoDroppedTransactions_NoRedelega
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
 		CurrentActiveCoordinator("coordinator@node1").
 		Transactions(mockTxn)
@@ -639,6 +720,7 @@ func TestStateMachine_Sending_HeartbeatReceived_HigherPriorityActiveNode_Redirec
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated) // called by validator_HasDroppedTransactions (step 5)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
@@ -662,6 +744,8 @@ func TestStateMachine_Sending_HeartbeatReceived_HigherPriorityActiveNode_Redirec
 			CoordinatorState: common.CoordinatorState_Active,
 		},
 	}))
+
+	require.True(t, runDelegationTick(t, ctx, o), "redirect must flush a delegation to the new coordinator")
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Equal(t, "node1", o.currentActiveCoordinator, "coordinator must be redirected to higher-priority node")
@@ -701,12 +785,14 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_NoEndorserMode_Red
 		Transactions(mockTxn)
 	o, mocks := builder.Build()
 
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
+	// Twice: once by the retained failover-path refresh (feeds coordinator selection), once by the flush.
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Times(2)
 	mocks.TransportWriter.EXPECT().
 		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything).
 		Return(nil).Once()
 
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
+	require.True(t, runDelegationTick(t, ctx, o), "grace-exceeded redelegate must flush")
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	// Counter is incremented by action_IncrementHeartbeatIntervalCounts but NOT reset (no priority list).
@@ -733,12 +819,15 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_EndorserMode_Failo
 		Transactions(mockTxn)
 	o, mocks := builder.Build()
 
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
+	// Twice: once by the retained failover-path refresh (feeds coordinator selection), once by the flush.
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Times(2)
 	mocks.TransportWriter.EXPECT().
 		SendDelegationRequest(mock.Anything, "B", mock.Anything).
 		Return(nil).Once()
 
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
+
+	require.True(t, runDelegationTick(t, ctx, o), "failover must flush a delegation to the new coordinator")
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Equal(t, "B", o.currentActiveCoordinator, "must failover to next priority node")
@@ -766,12 +855,15 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_EndorserMode_WrapA
 		Transactions(mockTxn)
 	o, mocks := builder.Build()
 
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
+	// Twice: once by the retained failover-path refresh (feeds coordinator selection), once by the flush.
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Times(2)
 	mocks.TransportWriter.EXPECT().
 		SendDelegationRequest(mock.Anything, "C", mock.Anything).
 		Return(nil).Once()
 
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
+
+	require.True(t, runDelegationTick(t, ctx, o), "failover must flush a delegation to the new coordinator")
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Equal(t, "C", o.currentActiveCoordinator, "must failover to last-priority node")
@@ -806,6 +898,7 @@ func TestStateMachine_Sending_DelegationRejected_HigherPriority_RedirectsAndRede
 		RejectionReason:   engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
 		ActiveCoordinator: "node1",
 	}))
+	require.True(t, runDelegationTick(t, ctx, o), "redirect must flush a delegation to the new coordinator")
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Equal(t, "node1", o.currentActiveCoordinator)
@@ -826,6 +919,8 @@ func TestStateMachine_Sending_DelegationRejected_LowerPriority_NoChange(t *testi
 		RejectionReason:   engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
 		ActiveCoordinator: "node3",
 	}))
+	// Still redelegates to the same coordinator: the full flag was raised and the flush sends it.
+	require.True(t, runDelegationTick(t, ctx, o), "lower-priority rejection must still flush a redelegate")
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Equal(t, "node1", o.currentActiveCoordinator, "lower-priority coordinator must be ignored")
@@ -967,6 +1062,7 @@ func TestStateMachine_Sending_HeartbeatReceived_Step3_GraceExceeded_SwitchesCoor
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
@@ -995,6 +1091,8 @@ func TestStateMachine_Sending_HeartbeatReceived_Step3_GraceExceeded_SwitchesCoor
 			CoordinatorState: common.CoordinatorState_Active,
 		},
 	}))
+
+	require.True(t, runDelegationTick(t, ctx, o), "coordinator switch must flush a delegation to the new coordinator")
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Equal(t, "node3", o.currentActiveCoordinator, "coordinator must switch to the now-active node when grace expires")

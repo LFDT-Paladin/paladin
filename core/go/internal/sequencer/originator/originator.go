@@ -73,12 +73,23 @@ type originator struct {
 	coordinatorPriorityList            []string // COORDINATOR_ENDORSER mode: priority-ordered list computed independently from endorserCandidates + effectiveBlockHeight + blockRangeSize
 	failoverIndex                      int      // COORDINATOR_ENDORSER mode: the next position in coordinatorPriorityList to try when the current active coordinator exceeds the inactive grace period
 
+	/* Delegation batching - a goroutine started/stopped on entry/exit to State_Sending that coalesces
+	   delegation requests. delegateFullSignal/delegatePartialSignal are length-1 dirty flags raised
+	   (non-blocking) by actions on the event loop; the goroutine drains them on each batch tick and
+	   enqueues a DelegateFlushEvent. All fields are owned by the event-loop goroutine. */
+	delegateFullSignal    chan struct{}
+	delegatePartialSignal chan struct{}
+	delegationLoopCancel  context.CancelFunc
+	delegationLoopDone    chan struct{} // per-run done channel; nil = never started / already stopped+waited
+
 	/* Config */
-	nodeName            string
-	blockRange          uint64
-	contractAddress     *pldtypes.EthAddress
-	inactiveGracePeriod int // expressed as a multiple of heartbeat intervals
-	resolveRetryBackoff time.Duration
+	nodeName                string
+	blockRange              uint64
+	contractAddress         *pldtypes.EthAddress
+	inactiveGracePeriod     int // expressed as a multiple of heartbeat intervals
+	resolveRetryBackoff     time.Duration
+	delegationBatchInterval time.Duration
+	heartbeatInterval       time.Duration // grace before a delegated-but-unsnapshotted transaction counts as dropped
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
@@ -97,16 +108,18 @@ func NewOriginator(
 	selectionConfig *common.CoordinatorSelectionConfig,
 ) *originator {
 	o := &originator{
-		nodeName:            nodeName,
-		transactionsByID:    make(map[uuid.UUID]transaction.OriginatorTransaction),
-		transportWriter:     transportWriter,
-		blockRange:          confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
-		contractAddress:     contractAddress,
-		engineIntegration:   engineIntegration,
-		metrics:             metrics,
-		inactiveGracePeriod: confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod),
-		resolveRetryBackoff: confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout),
-		clock:               common.RealClock(),
+		nodeName:                nodeName,
+		transactionsByID:        make(map[uuid.UUID]transaction.OriginatorTransaction),
+		transportWriter:         transportWriter,
+		blockRange:              confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
+		contractAddress:         contractAddress,
+		engineIntegration:       engineIntegration,
+		metrics:                 metrics,
+		inactiveGracePeriod:     confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod),
+		resolveRetryBackoff:     confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout),
+		delegationBatchInterval: confutil.DurationMin(configuration.DelegationBatchInterval, pldconf.SequencerMinimum.DelegationBatchInterval, *pldconf.SequencerDefaults.DelegationBatchInterval),
+		heartbeatInterval:       confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
+		clock:                   common.RealClock(),
 	}
 
 	switch selectionConfig.Mode {
@@ -146,6 +159,104 @@ func (o *originator) WaitForDone(ctx context.Context) {
 		return
 	}
 	o.stateMachineEventLoop.WaitForDone(ctx)
+}
+
+// startDelegationLoop creates the signal channels and starts the batching goroutine. Called from the
+// State_Sending entry hook on the event-loop goroutine. No-op if the originator has not started yet
+// or the loop is already running (nil-guarded like the coordinator dispatch loop).
+func (o *originator) startDelegationLoop() {
+	if o.ctx == nil || o.delegationLoopCancel != nil {
+		return
+	}
+	o.delegateFullSignal = make(chan struct{}, 1)
+	o.delegatePartialSignal = make(chan struct{}, 1)
+	loopCtx, cancel := context.WithCancel(o.ctx)
+	done := make(chan struct{})
+	o.delegationLoopCancel = cancel
+	o.delegationLoopDone = done
+	// Capture the channels as locals so stopDelegationLoop nil-ing the struct fields never races the goroutine.
+	full, partial, interval := o.delegateFullSignal, o.delegatePartialSignal, o.delegationBatchInterval
+	go func() {
+		defer close(done)
+		o.delegationLoop(loopCtx, interval, full, partial)
+	}()
+}
+
+// stopDelegationLoop cancels the batching goroutine and waits for it to exit. Called from the
+// State_Sending exit hook on the event-loop goroutine. cancel() is called before the join so a
+// goroutine blocked queueing a flush event is released via the queue's ctx.Done() branch.
+func (o *originator) stopDelegationLoop() {
+	if o.delegationLoopCancel == nil {
+		return
+	}
+	o.delegationLoopCancel()
+	<-o.delegationLoopDone
+	o.delegationLoopCancel = nil
+	o.delegationLoopDone = nil
+	o.delegateFullSignal = nil
+	o.delegatePartialSignal = nil
+}
+
+// delegationLoop coalesces delegation requests. On each batch tick it drains both dirty-flag
+// channels and, if anything was requested, queues a single DelegateFlushEvent onto the event loop.
+// full takes priority over partial (a full resend is a superset of a partial one). Both channels are
+// drained every tick so a stale partial signal cannot linger behind a full one.
+func (o *originator) delegationLoop(ctx context.Context, interval time.Duration, full, partial chan struct{}) {
+	log.L(ctx).Debugf("delegation batching loop started for %s (interval %s)", o.contractAddress, interval)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			// Drain both channels every tick so a stale partial signal cannot linger behind a full one.
+			if send, isFull := chooseFlush(drainSignal(full), drainSignal(partial)); send {
+				o.queueEventInternal(ctx, &DelegateFlushEvent{Full: isFull})
+			}
+		case <-ctx.Done():
+			log.L(ctx).Debugf("delegation batching loop stopped for %s", o.contractAddress)
+			return
+		}
+	}
+}
+
+// chooseFlush decides which delegation flush (if any) to emit given which dirty flags were set during
+// the batch window. A full resend is a superset of a partial one, so full takes priority.
+func chooseFlush(gotFull, gotPartial bool) (send bool, full bool) {
+	switch {
+	case gotFull:
+		return true, true
+	case gotPartial:
+		return true, false
+	default:
+		return false, false
+	}
+}
+
+// drainSignal performs a non-blocking receive, reporting whether the dirty flag was set.
+func drainSignal(ch chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// signalDelegate raises the full or partial dirty flag with a non-blocking send. Only ever called
+// from actions running on the event-loop goroutine, so reading the channel fields is race-free. A
+// no-op when the channels are nil (outside State_Sending / loop not running).
+func (o *originator) signalDelegate(full bool) {
+	ch := o.delegatePartialSignal
+	if full {
+		ch = o.delegateFullSignal
+	}
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
 }
 
 func (o *originator) GetCurrentState() State {

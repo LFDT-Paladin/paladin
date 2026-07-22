@@ -57,6 +57,35 @@ func Test_action_Delegated_SetsDelegateAndUpdatesTime(t *testing.T) {
 	assert.NotNil(t, txn.lastDelegatedTime)
 }
 
+func Test_action_Delegated_FirstDelegatedTime_ResetOnlyOnCoordinatorChange(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Pending)
+	txn, _ := builder.BuildWithMocks()
+
+	// First delegation records the first-delegation timestamp for the coordinator.
+	require.NoError(t, action_Delegated(ctx, txn, &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
+		Coordinator: "coord@node1",
+	}))
+	require.NotNil(t, txn.firstDelegatedTime)
+	first := txn.firstDelegatedTime
+
+	// Re-delegation to the same coordinator (the partial FIFO resend) must not move it, so the
+	// dropped-transaction grace reflects how long the transaction has genuinely been in flight there.
+	require.NoError(t, action_Delegated(ctx, txn, &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
+		Coordinator: "coord@node1",
+	}))
+	assert.Same(t, first, txn.firstDelegatedTime, "re-delegation to the same coordinator must not reset the first-delegation time")
+
+	// Delegation to a different coordinator restarts the grace against the new coordinator's snapshots.
+	require.NoError(t, action_Delegated(ctx, txn, &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
+		Coordinator: "coord@node2",
+	}))
+	assert.NotSame(t, first, txn.firstDelegatedTime, "delegation to a new coordinator must reset the first-delegation time")
+}
+
 func TestAction_SendPreDispatchResponse_Success(t *testing.T) {
 	// Test that action_SendPreDispatchResponse calls SendPreDispatchResponse with correct parameters
 	ctx := context.Background()

@@ -141,10 +141,35 @@ func (o *originator) processRevertedTransactions(ctx context.Context, event *com
 	return nil
 }
 
-// hasDroppedTransactions returns true if any non-final transaction is absent from the coordinator's
-// snapshot, implying the coordinator has dropped it and we need to redelegate everything.
+// hasDroppedTransactions returns true if any transaction that should be in-flight on the coordinator
+// is absent from its snapshot, implying the coordinator has dropped it and we need to redelegate
+// everything.
 func (o *originator) hasDroppedTransactions(ctx context.Context, snapshot *common.CoordinatorSnapshot) bool {
-	for _, txn := range o.getTransactionsNotInStates([]transaction.State{transaction.State_Final, transaction.State_Confirmed, transaction.State_Reverted}) {
+	// Two groups of transactions are excluded from the dropped check:
+	//   - pre-delegation states (Initial, Resolving, Pending): never sent to a coordinator, so their
+	//     absence from a snapshot is expected and does not indicate a drop.
+	//   - terminal states (Confirmed, Reverted, Final): although a coordinator does report these in its
+	//     snapshot, they have already been finalized so there is no purpose in redelegating them.
+	excludedStates := []transaction.State{
+		transaction.State_Initial,
+		transaction.State_Resolving,
+		transaction.State_Pending,
+		transaction.State_Confirmed,
+		transaction.State_Reverted,
+		transaction.State_Final,
+	}
+	for _, txn := range o.getTransactionsNotInStates(excludedStates) {
+		// A freshly-delegated transaction races the coordinator's snapshot: the snapshot we are checking
+		// against may have been generated before the delegation reached the coordinator, so its absence is
+		// expected rather than a drop. Only consider a transaction dropped once at least one full heartbeat
+		// interval has elapsed since it was first delegated to the current coordinator, by which point that
+		// coordinator has had the chance to include it in a snapshot. The first-delegation time is reset if
+		// the transaction is redirected to a different coordinator, so the grace restarts on each handover
+		// but is not extended by the partial FIFO resend to the same coordinator.
+		firstDelegated := txn.GetFirstDelegatedTime()
+		if firstDelegated == nil || o.clock.Now().Sub(*firstDelegated) < o.heartbeatInterval {
+			continue
+		}
 		if !transactionFoundInSnapshot(snapshot, txn) {
 			log.L(ctx).Debugf("transaction %s not found in latest coordinator snapshot, assuming dropped", txn.GetID())
 			return true
