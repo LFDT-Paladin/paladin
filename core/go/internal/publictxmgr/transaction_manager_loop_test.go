@@ -68,7 +68,7 @@ func TestNewEnginePollingStoppingAnOrchestratorForFairnessControl(t *testing.T) 
 	existingOrchestrator.orchestratorLoopDone = make(chan struct{})
 	existingOrchestrator.orchestratorLoop()
 	<-existingOrchestrator.orchestratorLoopDone
-	assert.Equal(t, OrchestratorStateStopped, existingOrchestrator.state)
+	assert.Equal(t, OrchestratorStateStopped, existingOrchestrator.getState())
 }
 
 func TestNewEnginePollingExcludePausedOrchestrator(t *testing.T) {
