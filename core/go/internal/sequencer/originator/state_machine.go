@@ -298,6 +298,14 @@ var stateDefinitionsMap = StateDefinitions{
 						validator_OriginatorTransactionStateTransitionToReverted,
 					),
 					Actions: []ActionRule{{Action: action_FinalizeTransaction}},
+				}, {
+					// A transaction has finished resolving its verifiers and is now eligible for delegation.
+					// Delegate immediately (the resolved contiguous prefix) rather than waiting for the next heartbeat.
+					Validator: validator_OriginatorTransactionStateTransitionFromResolving,
+					Actions: []ActionRule{
+						{Action: action_RefreshBlockHeight},
+						{Action: action_SendDelegationRequest},
+					},
 				}},
 			},
 			common.Event_EndorserNodesDiscovered: {

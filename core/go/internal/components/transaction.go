@@ -72,25 +72,26 @@ type TransactionPostAssembly struct {
 type PrivateTransaction struct {
 
 	// The identifier for the transaction
-	ID      uuid.UUID           `json:"id"`
-	Domain  string              `json:"domain"`
-	Address pldtypes.EthAddress `json:"address"`
+	ID      uuid.UUID
+	Domain  string
+	Address pldtypes.EthAddress
 
 	// This enum describes the point in the private transaction flow where processing of the transaction should stop
-	Intent prototk.TransactionSpecification_Intent `json:"intent"`
+	Intent prototk.TransactionSpecification_Intent
 
 	// ASSEMBLY PHASE: Items that get added to the transaction as it goes on its journey through
 	// assembly, signing and endorsement (possibly going back through the journey many times)
-	PreAssembly  *prototk.TransactionPreAssembly `json:"pre_assembly"`  // the bit of the assembly phase state that can be retained across re-assembly
-	PostAssembly *TransactionPostAssembly        `json:"post_assembly"` // the bit of the assembly phase state that must be completely discarded on re-assembly
+	PreAssembly       *prototk.TransactionPreAssembly // the bit of the assembly phase state that can be retained across re-assembly
+	PostAssembly      *TransactionPostAssembly        // the bit of the assembly phase state that must be completely discarded on re-assembly
+	ResolvedVerifiers []*prototk.ResolvedVerifier     // Verifiers resolved before delegation and consumed by assembly
 
 	// DISPATCH PHASE: Once the transaction has reached sufficient confidence of success, we move on to submission.
 	// Each private transaction may result in a public transaction which should be submitted to the
 	// base ledger, or another private transaction which should go around the transaction loop again.
-	Signer                     string                   `json:"signer"`
-	PreparedPublicTransaction  *pldapi.TransactionInput `json:"-"`
-	PreparedPrivateTransaction *pldapi.TransactionInput `json:"-"`
-	PreparedMetadata           pldtypes.RawJSON         `json:"-"`
+	Signer                     string
+	PreparedPublicTransaction  *pldapi.TransactionInput
+	PreparedPrivateTransaction *pldapi.TransactionInput
+	PreparedMetadata           pldtypes.RawJSON
 }
 
 // CleanUpPostAssemblyData releases the heavy post-assembly and prepared-dispatch

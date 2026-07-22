@@ -30,7 +30,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/mock"
 )
 
 const (
@@ -196,6 +198,11 @@ func (b *OriginatorBuilderForTesting) Build() (*originator, *OriginatorDependenc
 	if b.useMockTransportWriter {
 		mocks.TransportWriter = sequencertransportmocks.NewTransportWriter(b.t)
 	}
+
+	// Default no-op verifier resolution so transactions created via the normal flow (Initial → Resolving)
+	// don't fail on an unexpected mock call. Tests that assert on resolution set their own expectation.
+	mocks.EngineIntegration.On("ResolveVerifiers", mock.Anything, mock.Anything).
+		Return([]*prototk.ResolvedVerifier{}, nil).Maybe()
 
 	seqConfig := b.sequencerConfig
 	if seqConfig == nil {

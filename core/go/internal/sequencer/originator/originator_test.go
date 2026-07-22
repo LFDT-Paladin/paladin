@@ -70,28 +70,26 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 	txn := transactionBuilder.BuildSparse()
 	postAssembly, postAssemblyHash := transactionBuilder.BuildPostAssemblyAndHash()
 	mocks.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
+		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 	).Return(postAssembly.AssembleResponse, nil)
-	// Queue TransactionCreated and the coordinator's assemble request together
 	o.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: txn})
-	// Simulate the coordinator sending an assemble request
+	// Delegation happens asynchronously: the transaction first resolves its required verifiers
+	// (Initial → Resolving) and is only delegated once resolution completes (Resolving → Pending).
+	require.Eventually(t, mocks.SentMessageRecorder.HasSentDelegationRequest, 2*time.Second, 10*time.Millisecond, "Delegation request should be sent")
+	// The transaction is now delegated, so the coordinator sends an assemble request.
 	assembleRequestIdempotencyKey := uuid.New()
 	o.QueueEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{TransactionID: txn.ID},
 		RequestID: assembleRequestIdempotencyKey, Coordinator: coordinatorNode,
 		CoordinatorBlockHeight: 0, StateSnapshot: &prototk.StateSnapshot{},
 	})
-	sync = statemachine.NewSyncEvent()
-	o.QueueEvent(ctx, sync)
-	<-sync.Done
-	assert.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Delegation request should be sent")
-	// Assert that the transaction was assembled and a response sent. Assembly runs in a background
-	// goroutine so use Eventually to wait for the originator to process the result event.
+	// Assembly runs in a background goroutine so use Eventually to wait for the response.
 	require.Eventually(t, mocks.SentMessageRecorder.HasSentAssembleSuccessResponse, 2*time.Second, 10*time.Millisecond, "Assemble success response should be sent")
 	// Simulate the coordinator sending a dispatch confirmation
 	o.QueueEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
@@ -193,21 +191,24 @@ func TestOriginator_CreateTransaction_ErrorFromNewTransaction(t *testing.T) {
 }
 
 func TestOriginator_EventLoop_ErrorHandling(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 	originatorLocator := "sender@senderNode"
 	builder := NewOriginatorBuilderForTesting(t, State_Observing)
 	o, mocks := builder.Build()
 	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(0))
-	// Process a TransactionCreatedEvent with a nil transaction to trigger an error
-	_ = o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: nil})
+	o.Start(ctx)
+	defer func() {
+		cancel()
+		o.WaitForDone(t.Context())
+	}()
+	// Queue a TransactionCreatedEvent with a nil transaction to trigger a handled error
+	o.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: nil})
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
-	validEvent := &TransactionCreatedEvent{
-		Transaction: txn,
-	}
-	// Process a valid event to verify the originator is still working
-	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, validEvent))
-	assert.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Originator should still process valid event after error")
+	// Queue a valid event to verify the originator is still working after the error. Delegation is
+	// asynchronous (verifiers are resolved before delegation), so wait for it to be sent.
+	o.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: txn})
+	require.Eventually(t, mocks.SentMessageRecorder.HasSentDelegationRequest, 2*time.Second, 10*time.Millisecond, "Originator should still process valid event after error")
 }
 
 func Test_getTransactionsInStates_ReturnsOnlyTransactionsWhoseStateIsListed(t *testing.T) {

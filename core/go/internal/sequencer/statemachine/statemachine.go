@@ -113,7 +113,8 @@ const (
 	// is logged because subsequent handlers are unreachable.
 	MatchFirst MatchMode = iota
 	// MatchAll: every handler whose Validator passes is executed in order.
-	// Execution stops early if any handler causes a state transition.
+	// Execution stops early if any handler causes a state transition, or after a
+	// matched handler with Stop set (see EventHandler.Stop).
 	MatchAll
 )
 
@@ -144,10 +145,15 @@ type Validator[E any] func(ctx context.Context, entity E, event common.Event) (b
 // Validator: Optional function to validate the event
 // Actions: List of guarded actions to execute when the event is received
 // Transitions: Ordered list of possible transitions - first matching transition is taken
+// Stop: In MatchAll, if this handler matches and runs, processing halts afterward even if
+//
+//	no transition occurred (a transition already halts). No effect in MatchFirst, where the
+//	first match always halts.
 type EventHandler[S State, E any] struct {
 	Validator   Validator[E]
 	Actions     []ActionRule[E]
 	Transitions []Transition[S, E]
+	Stop        bool
 }
 
 // EventHandlers groups the handlers for a single event type with their dispatch mode.
@@ -319,6 +325,9 @@ func (sm *StateMachine[S, E]) processMatchAll(
 		transitioned, err := sm.evaluateTransitions(ctx, entity, event, *h)
 		if err != nil || transitioned {
 			return err
+		}
+		if h.Stop {
+			return nil
 		}
 	}
 	return nil

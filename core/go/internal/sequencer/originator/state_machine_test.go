@@ -98,9 +98,6 @@ func TestStateMachine_Idle_TransactionCreated_EpochBoundary_EndorserMode_ResetsT
 	o, mocks := builder.Build()
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(10))
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "A", mock.Anything).
-		Return(nil).Once()
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: txn}))
@@ -108,6 +105,8 @@ func TestStateMachine_Idle_TransactionCreated_EpochBoundary_EndorserMode_ResetsT
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Equal(t, "A", o.currentActiveCoordinator, "must reset to top priority on epoch boundary before sending")
 	assert.Equal(t, 1, o.failoverIndex, "failoverIndex must be 1 after reset to top priority")
+	// Delegation is deferred until the transaction's verifiers resolve.
+	assert.Equal(t, transaction.State_Resolving, o.transactionsByID[txn.ID].GetCurrentState())
 }
 
 // HeartbeatReceived in Idle from a node in Active state → Observing; coordinator updated; timer reset;
@@ -199,8 +198,8 @@ func TestStateMachine_Idle_HeartbeatReceived_NewSender_UpdatesEndorserCandidates
 	assert.Len(t, o.coordinatorPriorityList, 2)
 }
 
-// TransactionCreated in Idle → Sending; delegation request sent.
-func TestStateMachine_Idle_TransactionCreated_TransitionsToSending_SendsDelegationRequest(t *testing.T) {
+// TransactionCreated in Idle → Sending; delegation is deferred until the transaction's verifiers resolve.
+func TestStateMachine_Idle_TransactionCreated_TransitionsToSending_DefersDelegationUntilResolved(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(t, State_Idle).
 		CurrentActiveCoordinator("coordinator@node1").
@@ -208,15 +207,15 @@ func TestStateMachine_Idle_TransactionCreated_TransitionsToSending_SendsDelegati
 	o, mocks := builder.Build()
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Times(2)
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything).
-		Return(nil).Once()
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: txn}))
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Len(t, o.transactionsByID, 1, "transaction must be tracked")
+	// Delegation is gated on verifier resolution: the transaction sits in State_Resolving and no
+	// delegation is sent to the coordinator yet.
+	assert.Equal(t, transaction.State_Resolving, o.transactionsByID[txn.ID].GetCurrentState())
 }
 
 // Duplicate TransactionCreated (same ID) in Idle → no state change; no double tracking.
@@ -309,8 +308,8 @@ func TestStateMachine_Idle_TransactionStateTransition_ToReverted_FinalizesAndSta
 
 // ── State_Observing ───────────────────────────────────────────────────────────
 
-// TransactionCreated in Observing → Sending; delegation request sent.
-func TestStateMachine_Observing_TransactionCreated_TransitionsToSending_SendsDelegation(t *testing.T) {
+// TransactionCreated in Observing → Sending; delegation is deferred until the transaction's verifiers resolve.
+func TestStateMachine_Observing_TransactionCreated_TransitionsToSending_DefersDelegationUntilResolved(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(t, State_Observing).
 		CurrentActiveCoordinator("coordinator@node1").
@@ -318,15 +317,14 @@ func TestStateMachine_Observing_TransactionCreated_TransitionsToSending_SendsDel
 	o, mocks := builder.Build()
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything).
-		Return(nil).Once()
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: txn}))
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Len(t, o.transactionsByID, 1)
+	// Delegation is gated on verifier resolution.
+	assert.Equal(t, transaction.State_Resolving, o.transactionsByID[txn.ID].GetCurrentState())
 }
 
 // HeartbeatReceived in Observing from Active node → coordinator updated; timer reset;
@@ -534,8 +532,9 @@ func TestStateMachine_Observing_TransactionStateTransition_ToReverted_FinalizesA
 
 // ── State_Sending ─────────────────────────────────────────────────────────────
 
-// TransactionCreated in Sending → creates txn and sends delegation; stays Sending.
-func TestStateMachine_Sending_TransactionCreated_CreatesTxnAndDelegates(t *testing.T) {
+// TransactionCreated in Sending → creates txn and stays Sending; delegation is deferred until the
+// transaction's verifiers resolve.
+func TestStateMachine_Sending_TransactionCreated_CreatesTxnDefersDelegation(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
 		CurrentActiveCoordinator("coordinator@node1").
@@ -543,15 +542,14 @@ func TestStateMachine_Sending_TransactionCreated_CreatesTxnAndDelegates(t *testi
 	o, mocks := builder.Build()
 
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0)).Once()
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything).
-		Return(nil).Once()
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator("sender@node1").Build()
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &TransactionCreatedEvent{Transaction: txn}))
 
 	assert.Equal(t, State_Sending, o.GetCurrentState())
 	assert.Len(t, o.transactionsByID, 1, "new transaction must be tracked")
+	// Delegation is gated on verifier resolution.
+	assert.Equal(t, transaction.State_Resolving, o.transactionsByID[txn.ID].GetCurrentState())
 }
 
 // Duplicate TransactionCreated in Sending → validator blocks; no double delegation.
@@ -692,6 +690,7 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_NoEndorserMode_Red
 	txID := uuid.New()
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
+	mockTxn.On("GetCurrentState").Return(transaction.State_Pending)
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
@@ -721,6 +720,7 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_EndorserMode_Failo
 	txID := uuid.New()
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
+	mockTxn.On("GetCurrentState").Return(transaction.State_Pending)
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
@@ -753,6 +753,7 @@ func TestStateMachine_Sending_HeartbeatInterval_GraceExceeded_EndorserMode_WrapA
 	txID := uuid.New()
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
+	mockTxn.On("GetCurrentState").Return(transaction.State_Pending)
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).
@@ -785,6 +786,7 @@ func TestStateMachine_Sending_DelegationRejected_HigherPriority_RedirectsAndRede
 	txID := uuid.New()
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
+	mockTxn.On("GetCurrentState").Return(transaction.State_Pending)
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	builder := NewOriginatorBuilderForTesting(t, State_Sending).

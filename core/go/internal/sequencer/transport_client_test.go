@@ -124,6 +124,8 @@ func TestHandlePaladinMsg_Routing(t *testing.T) {
 		{"AssembleRequest", transport.MessageType_AssembleRequest},
 		{"AssembleResponse", transport.MessageType_AssembleResponse},
 		{"AssembleError", transport.MessageType_AssembleError},
+		{"SignResponse", transport.MessageType_SignResponse},
+		{"SignError", transport.MessageType_SignError},
 		{"CoordinatorHeartbeatNotification", transport.MessageType_CoordinatorHeartbeatNotification},
 		{"DelegationRequest", transport.MessageType_DelegationRequest},
 		{"DelegationResponse", transport.MessageType_DelegationResponse},
@@ -2607,4 +2609,159 @@ func TestHandlePreDispatchRejection_SequencerNotLoaded(t *testing.T) {
 		ContractAddress: contractAddr.String(), TransactionId: uuid.New().String(), RequestId: uuid.New().String(),
 	})
 	sm.handlePreDispatchRejection(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_PreDispatchRejection, Payload: payload})
+}
+
+func TestHandleSignResponse_Success(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New()
+	requestID := uuid.New()
+	payload, _ := proto.Marshal(&engineProto.SignResponse{
+		TransactionId:     txID.String(),
+		AssembleRequestId: requestID.String(),
+		ContractAddress:   contractAddr.String(),
+		AttestationResult: &prototk.AttestationResult{Name: "sig"},
+		PostAssembly:      &prototk.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_OK},
+	})
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordTransaction.SignedEvent)
+		return ok && event.TransactionID == txID && event.RequestID == requestID && event.AttestationResult.Name == "sig" &&
+			event.PostAssembly != nil && event.PostAssembly.GetAssemblyResult() == prototk.AssembleTransactionResponse_OK
+	})).Once()
+
+	sm.handleSignResponse(ctx, &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_SignResponse,
+		Payload:     payload,
+	})
+	mocks.coordinator.AssertExpectations(t)
+}
+
+func TestHandleSignResponse_UnmarshalError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	sm.handleSignResponse(ctx, &components.ReceivedMessage{
+		FromNode: "test-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_SignResponse, Payload: []byte("invalid-proto"),
+	})
+}
+
+func TestHandleSignResponse_InvalidContractAddress(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	payload, _ := proto.Marshal(&engineProto.SignResponse{
+		TransactionId: uuid.New().String(), AssembleRequestId: uuid.New().String(),
+		ContractAddress: "invalid-address", AttestationResult: &prototk.AttestationResult{Name: "sig"},
+	})
+	sm.handleSignResponse(ctx, &components.ReceivedMessage{
+		FromNode: "test-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_SignResponse, Payload: payload,
+	})
+}
+
+func TestHandleSignResponse_NilAttestationResult(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+	payload, _ := proto.Marshal(&engineProto.SignResponse{
+		TransactionId: uuid.New().String(), AssembleRequestId: uuid.New().String(),
+		ContractAddress: contractAddr.String(),
+	})
+	sm.handleSignResponse(ctx, &components.ReceivedMessage{
+		FromNode: "test-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_SignResponse, Payload: payload,
+	})
+}
+
+func TestHandleSignResponse_SequencerNotLoaded(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+	payload, _ := proto.Marshal(&engineProto.SignResponse{
+		TransactionId: uuid.New().String(), AssembleRequestId: uuid.New().String(),
+		ContractAddress: contractAddr.String(), AttestationResult: &prototk.AttestationResult{Name: "sig"},
+	})
+	sm.handleSignResponse(ctx, &components.ReceivedMessage{
+		FromNode: "test-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_SignResponse, Payload: payload,
+	})
+}
+
+func TestHandleSignError_Success(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New()
+	requestID := uuid.New()
+	payload, _ := proto.Marshal(&engineProto.SignError{
+		TransactionId: txID.String(), AssembleRequestId: requestID.String(),
+		ContractAddress: contractAddr.String(), ErrorMessage: "sign failed",
+	})
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordTransaction.SignErrorEvent)
+		return ok && event.TransactionID == txID && event.RequestID == requestID
+	})).Once()
+
+	sm.handleSignError(ctx, &components.ReceivedMessage{
+		FromNode: "test-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_SignError, Payload: payload,
+	})
+	mocks.coordinator.AssertExpectations(t)
+}
+
+func TestHandleSignError_UnmarshalError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	sm.handleSignError(ctx, &components.ReceivedMessage{
+		FromNode: "test-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_SignError, Payload: []byte("invalid-proto"),
+	})
+}
+
+func TestHandleSignError_InvalidContractAddress(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	payload, _ := proto.Marshal(&engineProto.SignError{
+		TransactionId: uuid.New().String(), AssembleRequestId: uuid.New().String(),
+		ContractAddress: "invalid-address",
+	})
+	sm.handleSignError(ctx, &components.ReceivedMessage{
+		FromNode: "test-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_SignError, Payload: payload,
+	})
+}
+
+func TestHandleSignError_SequencerNotLoaded(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+	payload, _ := proto.Marshal(&engineProto.SignError{
+		TransactionId: uuid.New().String(), AssembleRequestId: uuid.New().String(),
+		ContractAddress: contractAddr.String(),
+	})
+	sm.handleSignError(ctx, &components.ReceivedMessage{
+		FromNode: "test-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_SignError, Payload: payload,
+	})
 }
