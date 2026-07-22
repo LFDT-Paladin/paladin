@@ -17,7 +17,6 @@
 package pldtypes
 
 import (
-	"bytes"
 	"context"
 	"database/sql/driver"
 	"encoding/hex"
@@ -75,22 +74,11 @@ func (hi *HexInt256) setJSONString(text string) error {
 
 // Parses with/without 0x in any case
 func (hi *HexInt256) UnmarshalJSON(b []byte) error {
-	var iVal interface{}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.UseNumber() // It's not safe to use a JSON number decoder as it uses float64, so can (and does) lose precision
-	err := decoder.Decode(&iVal)
-	if err == nil {
-		// Note JSON string decoding rules are NOT the same as DB decoding rules in Scan below
-		switch v := iVal.(type) {
-		case string:
-			err = hi.setJSONString(v)
-		case json.Number:
-			err = hi.setJSONString(v.String())
-		default:
-			err = i18n.NewError(context.Background(), pldmsgs.MsgTypesScanFail, iVal, hi)
-		}
+	text, ok := jsonNumericText(b)
+	if !ok {
+		return i18n.NewError(context.Background(), pldmsgs.MsgTypesScanFail, string(b), hi)
 	}
-	return err
+	return hi.setJSONString(text)
 }
 
 func (hi *HexInt256) Int() *big.Int {
