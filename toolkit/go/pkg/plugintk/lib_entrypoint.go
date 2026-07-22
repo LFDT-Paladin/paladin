@@ -32,7 +32,7 @@ type PluginLibraryEntrypoint struct {
 
 func NewPluginLibraryEntrypoint(factory func() PluginBase) *PluginLibraryEntrypoint {
 	// Default level until the engine's level arrives on the Configure*Request
-	log.SetLevel("debug")
+	log.SetLevel("info")
 	return &PluginLibraryEntrypoint{
 		factory: factory,
 		plugins: make(map[string]PluginBase),
