@@ -60,6 +60,10 @@ type TransactionPostAssembly struct {
 	OutputStates []*prototk.EndorsableState
 	InfoStates   []*prototk.EndorsableState
 
+	// StatesToStage carries the output+info states resolved at assembly, held in memory so they can be
+	// staged into the domain state writer atomically with their nullifiers at dispatch.
+	StatesToStage []*StateWithLabels
+
 	// Endorsements accumulated during the EndorsementGathering phase by the coordinator.
 	// Seeded from AssemblyResponse.Endorsements so any pre-assembly endorsements included
 	// by the originator are also counted.

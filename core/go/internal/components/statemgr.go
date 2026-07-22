@@ -94,12 +94,15 @@ type StateQueryOptions struct {
 
 // DomainStateWriter is a long-lived write buffer used for flushing domain states and nullifiers to the DB.
 type DomainStateWriter interface {
-	// StageStateUpserts creates or updates states in the in-memory write buffer.
-	StageStateUpserts(ctx context.Context, dbTX persistence.DBTX, states ...*StateUpsert) (s []*pldapi.State, err error)
+	// ResolveStates validates proto states at the trust boundary and resolves them to states
+	// (computing IDs and label values) without staging them in the write buffer. Callers stage
+	// the results later via StageWrites.
+	ResolveStates(ctx context.Context, dbTX persistence.DBTX, states ...*prototk.EndorsableState) (s []*StateWithLabels, err error)
 
-	// StageNullifierUpserts creates nullifier records associated with states.
-	// Nullifiers will be written to the DB on the next flush.
-	StageNullifierUpserts(ctx context.Context, nullifiers ...*NullifierUpsert) error
+	// StageWrites validates the nullifiers against the supplied states and, only if the whole batch is
+	// consistent, atomically appends both the states and their nullifiers to the in-memory write buffer.
+	// The nullified state must be present in the states passed to this same call. Written on the next flush.
+	StageWrites(ctx context.Context, states []*StateWithLabels, nullifiers ...*NullifierUpsert) error
 
 	// Flush writes all pending states and nullifiers to the database within the given transaction.
 	// Must be called within an active DB transaction. Returns an error if a flush is already in
@@ -141,13 +144,6 @@ type DomainQueryContext interface {
 
 	// Close deregisters the context from the state manager and prevents further use.
 	Close(ctx context.Context)
-}
-
-type StateUpsert struct {
-	ID        pldtypes.HexBytes `json:"id"`
-	Schema    pldtypes.Bytes32  `json:"schema"`
-	Data      pldtypes.RawJSON  `json:"data"`
-	CreatedBy *uuid.UUID        `json:"createdBy,omitempty"` // not exported
 }
 
 type StateUpsertOutsideContext struct {

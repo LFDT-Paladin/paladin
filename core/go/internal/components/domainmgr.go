@@ -88,8 +88,7 @@ type DomainSmartContract interface {
 
 	InitTransaction(ctx context.Context, ptx *PrivateTransaction, localTx *ResolvedTransaction) error
 	AssembleTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, txID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, localTx *ResolvedTransaction, resolvedVerifiers []*prototk.ResolvedVerifier) (*prototk.TransactionPostAssembly, error)
-	WritePotentialStates(ctx context.Context, dsw DomainStateWriter, readTX persistence.DBTX, tx *PrivateTransaction) error
-	MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, isOutput bool, createdByTX *PrivateTransaction) (stateUpserts []*StateUpsert, err error)
+	ResolvePotentialStates(ctx context.Context, dsw DomainStateWriter, readTX persistence.DBTX, tx *PrivateTransaction) error
 	EndorseTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, req *PrivateTransactionEndorseRequest) (*EndorsementResult, error)
 	PrepareTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, tx *PrivateTransaction) error
 

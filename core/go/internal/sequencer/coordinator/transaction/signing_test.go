@@ -247,8 +247,7 @@ func TestCoordinator_Assembling_SignedFastForward_AppliesAssemblyAndSignature(t 
 	reqID := txn.pendingAssembleRequest.IdempotencyKey()
 	signedPlan := twoSignPlan()
 
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
-	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, &SignedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},

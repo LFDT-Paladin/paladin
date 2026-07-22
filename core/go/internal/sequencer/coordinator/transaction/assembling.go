@@ -67,8 +67,7 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, assembly
 		return nil
 	}
 
-	// This should create state IDs when mapping from output potential states to output states. However, the IDs are lost below.
-	err := t.writeStates(ctx)
+	err := t.engineIntegration.ResolveStatesForTransaction(ctx, t.pt)
 
 	if err != nil {
 		// Internal error. Only option is to revert the transaction
@@ -99,11 +98,7 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, assembly
 	t.stateVisibilityTracker.RecordAssemblyOutput(ctx, pa.OutputStates, pa.AssembleResponse.GetOutputStatesPotential())
 
 	// Add a lock for every output we create.
-	createLocks, err := t.engineIntegration.MapPotentialStates(ctx, pa.AssembleResponse.GetOutputStatesPotential(), t.pt)
-	if err != nil {
-		return err
-	}
-	t.grapher.LockMintsOnCreate(ctx, createLocks, pa.OutputStates, t.pt.ID)
+	t.grapher.LockMintsOnCreate(ctx, pa.OutputStates, t.pt.ID)
 
 	// Add a lock for every read state and spent state to prevent other transactions using them.
 	t.grapher.LockMintsOnReadAndSpend(ctx, pa.AssembleResponse.GetReadStates(), pa.AssembleResponse.GetInputStates(), t.pt.ID)
@@ -182,10 +177,6 @@ func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context
 		}
 	}
 	return nil
-}
-
-func (t *coordinatorTransaction) writeStates(ctx context.Context) error {
-	return t.engineIntegration.WriteStatesForTransaction(ctx, t.pt)
 }
 
 func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {

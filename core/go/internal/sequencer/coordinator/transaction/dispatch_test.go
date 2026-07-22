@@ -464,7 +464,7 @@ func Test_dispatch_BuildNullifiersReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "build nullifiers failed")
 }
 
-func Test_dispatch_StageNullifierUpsertsReturnsError(t *testing.T) {
+func Test_dispatch_StageWritesReturnsError(t *testing.T) {
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		PreAssembly(&prototk.TransactionPreAssembly{
@@ -480,7 +480,7 @@ func Test_dispatch_StageNullifierUpsertsReturnsError(t *testing.T) {
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return([]*components.NullifierUpsert{{}}, nil)
-	mocks.DomainStateWriter.On("StageNullifierUpserts", mock.Anything, mock.Anything).Return(errors.New("upsert nullifiers failed"))
+	mocks.DomainStateWriter.On("StageWrites", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("upsert nullifiers failed"))
 
 	err := txn.dispatch(ctx)
 	require.Error(t, err)
@@ -504,7 +504,7 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).
 		Return([]*components.NullifierUpsert{{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}}, nil)
-	mocks.DomainStateWriter.On("StageNullifierUpserts", mock.Anything, mock.Anything).Return(nil)
+	mocks.DomainStateWriter.On("StageWrites", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.DB.ExpectBegin()

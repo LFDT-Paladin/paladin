@@ -320,8 +320,8 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 
 	// The testbed always chooses to take the assemble output and progress to endorse
 	// (no complex sequence selection routine that might result in abandonment).
-	// So just write the states
-	if err := tx.psc.WritePotentialStates(ctx, dsw, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
+	// So just resolve the states (staging into the writer happens with the nullifiers below)
+	if err := tx.psc.ResolvePotentialStates(ctx, dsw, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
 		return err
 	}
 

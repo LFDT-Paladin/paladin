@@ -67,31 +67,30 @@ const widgetABI = `{
 	]
 }`
 
-func genWidget(t *testing.T, schemaID pldtypes.Bytes32, txID *uuid.UUID, withoutSalt string) *components.StateUpsert {
+func genWidget(t *testing.T, schemaID pldtypes.Bytes32, withoutSalt string) *prototk.EndorsableState {
 	var ij map[string]interface{}
 	err := json.Unmarshal([]byte(withoutSalt), &ij)
 	require.NoError(t, err)
 	ij["salt"] = pldtypes.RandHex(32)
 	withSalt, err := json.Marshal(ij)
 	require.NoError(t, err)
-	return &components.StateUpsert{
-		Schema:    schemaID,
-		Data:      withSalt,
-		CreatedBy: txID,
+	return &prototk.EndorsableState{
+		SchemaId:      schemaID.String(),
+		StateDataJson: string(withSalt),
 	}
 }
 
 func makeWidgets(t *testing.T, ctx context.Context, ss *stateManager, domainName string, contractAddress *pldtypes.EthAddress, schemaID pldtypes.Bytes32, withoutSalt []string) []*pldapi.State {
 	states := make([]*pldapi.State, len(withoutSalt))
 	for i, w := range withoutSalt {
-		withSalt := genWidget(t, schemaID, nil, w)
+		withSalt := genWidget(t, schemaID, w)
 		var newStates []*pldapi.State
 		err := ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
 			newStates, err = ss.WritePreVerifiedStates(ctx, dbTX, domainName, []*components.StateUpsertOutsideContext{
 				{
 					ContractAddress: contractAddress,
 					SchemaID:        schemaID,
-					Data:            withSalt.Data,
+					Data:            pldtypes.RawJSON(withSalt.StateDataJson),
 				},
 			})
 			return err
@@ -170,14 +169,10 @@ func TestStateLockingQuery(t *testing.T) {
 	}
 
 	// importSnapshot is a helper that calls ImportSnapshot with the given states and locks.
-	importSnapshot := func(states []*components.StateUpsert, locks []*snapLock) {
+	importSnapshot := func(states []*prototk.EndorsableState, locks []*snapLock) {
 		protoStates := make([]*prototk.SnapshotState, len(states))
 		for i, u := range states {
-			protoStates[i] = &prototk.SnapshotState{State: &prototk.EndorsableState{
-				Id:            u.ID.String(),
-				SchemaId:      u.Schema.String(),
-				StateDataJson: string(u.Data),
-			}}
+			protoStates[i] = &prototk.SnapshotState{State: u}
 		}
 		protoLocks := make([]*prototk.SnapshotStateLock, len(locks))
 		for i, l := range locks {
@@ -241,20 +236,20 @@ func TestStateLockingQuery(t *testing.T) {
 	// This mirrors what the coordinator does: the DSW flushes the state to DB, then the
 	// assembler's DQC receives a snapshot via ImportSnapshot.
 	txID1 := uuid.New()
-	widget5Upsert := genWidget(t, schemaID, &txID1, `{"size": 66666, "color": "blue", "price": 600}`)
+	widget5State := genWidget(t, schemaID, `{"size": 66666, "color": "blue", "price": 600}`)
 	var widget5States []*pldapi.State
 	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
 		widget5States, err = ss.WritePreVerifiedStates(ctx, dbTX, "domain1", []*components.StateUpsertOutsideContext{
-			{ContractAddress: contractAddress, SchemaID: schemaID, Data: widget5Upsert.Data},
+			{ContractAddress: contractAddress, SchemaID: schemaID, Data: pldtypes.RawJSON(widget5State.StateDataJson)},
 		})
 		return err
 	})
 	require.NoError(t, err)
 	widgets = append(widgets, widget5States[0])
-	widget5Upsert.ID = widgets[5].ID // ID is computed by WritePreVerifiedStates; set here so importSnapshot doesn't see a zero "0x" ID
+	widget5State.Id = widgets[5].ID.String() // ID is computed by WritePreVerifiedStates; set here so importSnapshot doesn't see a zero "0x" ID
 
 	importSnapshot(
-		[]*components.StateUpsert{widget5Upsert},
+		[]*prototk.EndorsableState{widget5State},
 		[]*snapLock{{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE}},
 	)
 
@@ -268,7 +263,7 @@ func TestStateLockingQuery(t *testing.T) {
 	// Add a spend lock for widget[5]: re-import the full snapshot with both create and spend locks.
 	txID2 := uuid.New()
 	importSnapshot(
-		[]*components.StateUpsert{widget5Upsert},
+		[]*prototk.EndorsableState{widget5State},
 		[]*snapLock{
 			{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE},
 			{State: widgets[5].ID, Transaction: txID2, Type: prototk.SnapshotStateLock_SPEND},
@@ -284,7 +279,7 @@ func TestStateLockingQuery(t *testing.T) {
 
 	// Cancel the spend lock by re-importing without it (ImportSnapshot replaces the whole snapshot).
 	importSnapshot(
-		[]*components.StateUpsert{widget5Upsert},
+		[]*prototk.EndorsableState{widget5State},
 		[]*snapLock{{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE}},
 	)
 
@@ -327,7 +322,7 @@ func TestStateLockingQuery(t *testing.T) {
 	// the seqQual can see it once the coordinator sends its snapshot.
 	txID13 := uuid.New()
 	importSnapshot(
-		[]*components.StateUpsert{{Schema: schemaID, Data: widgets[3].Data, ID: widgets[3].ID}},
+		[]*prototk.EndorsableState{{SchemaId: schemaID.String(), StateDataJson: string(widgets[3].Data), Id: widgets[3].ID.String()}},
 		[]*snapLock{{State: widgets[3].ID, Transaction: txID13, Type: prototk.SnapshotStateLock_CREATE}},
 	)
 
