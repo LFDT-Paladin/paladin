@@ -54,6 +54,7 @@ type originatorTransaction struct {
 	sync.RWMutex
 	stateMachine                     *StateMachine
 	pt                               *components.PrivateTransaction
+	localTx                          *components.ResolvedTransaction // resolved before delegation and reused on the assemble path to avoid a per-assembly DB read
 	nodeName                         string
 	engineIntegration                common.EngineIntegration
 	transportWriter                  transport.TransportWriter
@@ -80,6 +81,7 @@ type originatorTransaction struct {
 func NewTransaction(
 	ctx context.Context,
 	pt *components.PrivateTransaction,
+	localTx *components.ResolvedTransaction,
 	nodeName string,
 	transportWriter transport.TransportWriter,
 	queueEventForOriginator func(context.Context, common.Event),
@@ -96,6 +98,7 @@ func NewTransaction(
 
 	return newTransaction(
 		pt,
+		localTx,
 		nodeName,
 		engineIntegration,
 		transportWriter,
@@ -110,6 +113,7 @@ func NewTransaction(
 
 func newTransaction(
 	pt *components.PrivateTransaction,
+	localTx *components.ResolvedTransaction,
 	nodeName string,
 	engineIntegration common.EngineIntegration,
 	transportWriter transport.TransportWriter,
@@ -122,6 +126,7 @@ func newTransaction(
 ) *originatorTransaction {
 	txn := &originatorTransaction{
 		pt:                      pt,
+		localTx:                 localTx,
 		nodeName:                nodeName,
 		engineIntegration:       engineIntegration,
 		transportWriter:         transportWriter,

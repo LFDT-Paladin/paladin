@@ -537,7 +537,7 @@ func Test_action_ProcessCurrentCoordinatorHeartbeat_DispatchedTransactionWithHas
 		Originator(originatorLocator).
 		NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
-	require.NoError(t, o.addToTransactions(ctx, txn, o.newOriginatorTransaction))
+	require.NoError(t, o.addToTransactions(ctx, txn, nil, o.newOriginatorTransaction))
 
 	signerAddress := pldtypes.RandAddress()
 	submissionHash := pldtypes.RandBytes32()
@@ -577,7 +577,7 @@ func Test_action_ProcessCurrentCoordinatorHeartbeat_DispatchedTransactionWithNon
 		Originator(originatorLocator).
 		NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
-	require.NoError(t, o.addToTransactions(ctx, txn, o.newOriginatorTransaction))
+	require.NoError(t, o.addToTransactions(ctx, txn, nil, o.newOriginatorTransaction))
 
 	nonce := uint64(42)
 	contractAddress := builder.GetContractAddress()

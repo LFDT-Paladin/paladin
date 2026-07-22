@@ -280,10 +280,10 @@ func Test_addToTransactions_HandleCreatedEventError_ReturnsError(t *testing.T) {
 	expectedErr := fmt.Errorf("created event handling failed")
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(expectedErr)
-	createTransaction := func(context.Context, *components.PrivateTransaction) (transaction.OriginatorTransaction, error) {
+	createTransaction := func(context.Context, *components.PrivateTransaction, *components.ResolvedTransaction) (transaction.OriginatorTransaction, error) {
 		return mockTxn, nil
 	}
-	err := o.addToTransactions(ctx, pt, createTransaction)
+	err := o.addToTransactions(ctx, pt, nil, createTransaction)
 	require.Error(t, err)
 	assert.Equal(t, expectedErr, err)
 }

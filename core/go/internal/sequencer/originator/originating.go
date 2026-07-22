@@ -48,7 +48,7 @@ func action_LogDelegationBlockHeightRejection(ctx context.Context, _ *originator
 
 func action_TransactionCreated(ctx context.Context, o *originator, event common.Event) error {
 	e := event.(*TransactionCreatedEvent)
-	return o.addToTransactions(ctx, e.Transaction, o.newOriginatorTransaction)
+	return o.addToTransactions(ctx, e.Transaction, e.ResolvedTransaction, o.newOriginatorTransaction)
 }
 
 // refreshBlockHeight queries the live block height, updates currentBlockHeight, and updates
@@ -63,10 +63,11 @@ func (o *originator) refreshBlockHeight(ctx context.Context) {
 	}
 }
 
-func (o *originator) newOriginatorTransaction(ctx context.Context, pt *components.PrivateTransaction) (transaction.OriginatorTransaction, error) {
+func (o *originator) newOriginatorTransaction(ctx context.Context, pt *components.PrivateTransaction, localTx *components.ResolvedTransaction) (transaction.OriginatorTransaction, error) {
 	return transaction.NewTransaction(
 		ctx,
 		pt,
+		localTx,
 		o.nodeName,
 		o.transportWriter,
 		o.queueEventInternal,
@@ -82,10 +83,12 @@ func (o *originator) newOriginatorTransaction(ctx context.Context, pt *component
 func (o *originator) addToTransactions(
 	ctx context.Context,
 	txn *components.PrivateTransaction,
+	localTx *components.ResolvedTransaction,
 	createTransaction func(
 		ctx context.Context,
-		pt *components.PrivateTransaction) (transaction.OriginatorTransaction, error)) error {
-	newTxn, err := createTransaction(ctx, txn)
+		pt *components.PrivateTransaction,
+		localTx *components.ResolvedTransaction) (transaction.OriginatorTransaction, error)) error {
+	newTxn, err := createTransaction(ctx, txn, localTx)
 	if err != nil {
 		log.L(ctx).Errorf("error creating transaction: %v", err)
 		return err
