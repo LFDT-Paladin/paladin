@@ -143,6 +143,7 @@ func (dp *domainHandler) RequestToPlugin(ctx context.Context, iReq PluginMessage
 	var err error
 	switch input := req.RequestToDomain.(type) {
 	case *prototk.DomainMessage_ConfigureDomain:
+		applyLogLevel(input.ConfigureDomain.LogLevel)
 		resMsg := &prototk.DomainMessage_ConfigureDomainRes{}
 		resMsg.ConfigureDomainRes, err = dp.api.ConfigureDomain(ctx, input.ConfigureDomain)
 		res.ResponseFromDomain = resMsg

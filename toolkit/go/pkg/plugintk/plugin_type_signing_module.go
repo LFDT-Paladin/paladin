@@ -117,6 +117,7 @@ func (smh *signingModuleHandler) RequestToPlugin(ctx context.Context, iReq Plugi
 	var err error
 	switch input := req.RequestToSigningModule.(type) {
 	case *prototk.SigningModuleMessage_ConfigureSigningModule:
+		applyLogLevel(input.ConfigureSigningModule.LogLevel)
 		resMsg := &prototk.SigningModuleMessage_ConfigureSigningModuleRes{}
 		resMsg.ConfigureSigningModuleRes, err = smh.api.ConfigureSigningModule(ctx, input.ConfigureSigningModule)
 		res.ResponseFromSigningModule = resMsg

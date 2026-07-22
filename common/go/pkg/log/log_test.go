@@ -88,6 +88,20 @@ func TestEntryLevelGating(t *testing.T) {
 	// A line at/above the active level still emits.
 	e.Errorf("emitted %d", 2)
 	assert.Contains(t, buf.String(), "ERROR emitted 2")
+
+	// Above every emitting level, all gated helpers must short-circuit.
+	atomLevel.SetLevel(zapcore.FatalLevel)
+	buf.Reset()
+	e.Tracef("t %d", 1)
+	e.Infof("i %d", 1)
+	e.Printf("p %d", 1)
+	e.Warnf("w %d", 1)
+	e.Errorf("e %d", 1)
+	e.Trace("t")
+	e.Info("i")
+	e.Warn("w")
+	e.Error("e")
+	assert.Empty(t, buf.String())
 }
 
 func TestEntryWithError(t *testing.T) {

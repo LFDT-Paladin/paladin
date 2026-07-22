@@ -76,6 +76,7 @@ func (t *transport) init() {
 		_, err := t.api.ConfigureTransport(t.ctx, &prototk.ConfigureTransportRequest{
 			Name:       t.name,
 			ConfigJson: string(confJSON),
+			LogLevel:   log.GetLevel(),
 		})
 		return true, err
 	})

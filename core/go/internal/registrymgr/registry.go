@@ -85,6 +85,7 @@ func (r *registry) init() {
 		res, err := r.api.ConfigureRegistry(r.ctx, &prototk.ConfigureRegistryRequest{
 			Name:       r.name,
 			ConfigJson: string(confJSON),
+			LogLevel:   log.GetLevel(),
 		})
 		if err == nil {
 			r.config = res.RegistryConfig

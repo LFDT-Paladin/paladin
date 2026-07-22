@@ -66,52 +66,129 @@ type (
 // WithFields — used throughout Paladin, so L(ctx) call sites need no changes. Each
 // method forwards to its zap equivalent.
 type Entry struct {
-	logger *zap.SugaredLogger
+	logger *zap.SugaredLogger // base logger, without the pending fields bound
+	fields []any              // pending key/value pairs, encoded lazily on emit
+}
+
+// materialize binds any pending fields onto the base logger. The clone+encode cost
+// (SugaredLogger.With) is paid here, only after an emit has passed its level gate, so
+// WithField/WithComponent/etc. on suppressed levels allocate nothing beyond the pending
+// slice. Field order matches sequential .With() calls, so output is byte-identical.
+func (e *Entry) materialize() *zap.SugaredLogger {
+	if len(e.fields) == 0 {
+		return e.logger
+	}
+	return e.logger.With(e.fields...)
 }
 
 func defaultRootEntry() *Entry {
 	return &Entry{logger: newZapLogger(os.Stderr, &Formatting{TimestampFormat: defaultTimestampFormat})}
 }
 
-// Printf-style methods. Trace has no dedicated zap method, so it routes through the
-// generic Logf at LevelTrace; the rest forward to the SugaredLogger's own methods.
-func (e *Entry) Tracef(format string, args ...any) { e.logger.Logf(LevelTrace, format, args...) }
-func (e *Entry) Debugf(format string, args ...any) { e.logger.Debugf(format, args...) }
-func (e *Entry) Infof(format string, args ...any)  { e.logger.Infof(format, args...) }
-func (e *Entry) Printf(format string, args ...any) { e.logger.Infof(format, args...) }
-func (e *Entry) Warnf(format string, args ...any)  { e.logger.Warnf(format, args...) }
-func (e *Entry) Errorf(format string, args ...any) { e.logger.Errorf(format, args...) }
+// Printf-style methods. Each gates on the atomic level first so a suppressed line skips
+// materialize() (the clone+encode of pending fields) entirely. Trace has no dedicated zap
+// method, so it routes through the generic Logf at LevelTrace; the rest forward to the
+// SugaredLogger's own methods. materialize() is invoked inline (not via a helper frame) so
+// the detailed format's AddCallerSkip(1) still reports the true call site.
+func (e *Entry) Tracef(format string, args ...any) {
+	if !atomLevel.Enabled(LevelTrace) {
+		return
+	}
+	e.materialize().Logf(LevelTrace, format, args...)
+}
+func (e *Entry) Debugf(format string, args ...any) {
+	if !atomLevel.Enabled(zapcore.DebugLevel) {
+		return
+	}
+	e.materialize().Debugf(format, args...)
+}
+func (e *Entry) Infof(format string, args ...any) {
+	if !atomLevel.Enabled(zapcore.InfoLevel) {
+		return
+	}
+	e.materialize().Infof(format, args...)
+}
+func (e *Entry) Printf(format string, args ...any) {
+	if !atomLevel.Enabled(zapcore.InfoLevel) {
+		return
+	}
+	e.materialize().Infof(format, args...)
+}
+func (e *Entry) Warnf(format string, args ...any) {
+	if !atomLevel.Enabled(zapcore.WarnLevel) {
+		return
+	}
+	e.materialize().Warnf(format, args...)
+}
+func (e *Entry) Errorf(format string, args ...any) {
+	if !atomLevel.Enabled(zapcore.ErrorLevel) {
+		return
+	}
+	e.materialize().Errorf(format, args...)
+}
 
 // Fatalf/Panicf delegate to zap's native terminal methods, which log then
 // os.Exit(1) / panic(message) exactly as logrus did.
-func (e *Entry) Fatalf(format string, args ...any) { e.logger.Fatalf(format, args...) }
-func (e *Entry) Panicf(format string, args ...any) { e.logger.Panicf(format, args...) }
+func (e *Entry) Fatalf(format string, args ...any) { e.materialize().Fatalf(format, args...) }
+func (e *Entry) Panicf(format string, args ...any) { e.materialize().Panicf(format, args...) }
 
 // Print-style methods
-func (e *Entry) Trace(args ...any) { e.logger.Log(LevelTrace, args...) }
-func (e *Entry) Debug(args ...any) { e.logger.Debug(args...) }
-func (e *Entry) Info(args ...any)  { e.logger.Info(args...) }
-func (e *Entry) Warn(args ...any)  { e.logger.Warn(args...) }
-func (e *Entry) Error(args ...any) { e.logger.Error(args...) }
-func (e *Entry) Fatal(args ...any) { e.logger.Fatal(args...) }
-func (e *Entry) Panic(args ...any) { e.logger.Panic(args...) }
+func (e *Entry) Trace(args ...any) {
+	if !atomLevel.Enabled(LevelTrace) {
+		return
+	}
+	e.materialize().Log(LevelTrace, args...)
+}
+func (e *Entry) Debug(args ...any) {
+	if !atomLevel.Enabled(zapcore.DebugLevel) {
+		return
+	}
+	e.materialize().Debug(args...)
+}
+func (e *Entry) Info(args ...any) {
+	if !atomLevel.Enabled(zapcore.InfoLevel) {
+		return
+	}
+	e.materialize().Info(args...)
+}
+func (e *Entry) Warn(args ...any) {
+	if !atomLevel.Enabled(zapcore.WarnLevel) {
+		return
+	}
+	e.materialize().Warn(args...)
+}
+func (e *Entry) Error(args ...any) {
+	if !atomLevel.Enabled(zapcore.ErrorLevel) {
+		return
+	}
+	e.materialize().Error(args...)
+}
+func (e *Entry) Fatal(args ...any) { e.materialize().Fatal(args...) }
+func (e *Entry) Panic(args ...any) { e.materialize().Panic(args...) }
 
-// Field builders return a new *Entry (mirroring logrus's immutable chaining).
-// SugaredLogger.With takes loosely-typed key, value pairs.
+// Field builders return a new *Entry (mirroring logrus's immutable chaining). Fields are
+// accumulated as loosely-typed key/value pairs and left un-encoded; the clone+encode is
+// deferred to materialize() on emit. Each builder copies the parent's pending slice so
+// sibling chains don't alias.
 func (e *Entry) WithField(key string, value any) *Entry {
-	return &Entry{logger: e.logger.With(key, value)}
+	f := make([]any, len(e.fields), len(e.fields)+2)
+	copy(f, e.fields)
+	return &Entry{logger: e.logger, fields: append(f, key, value)}
 }
 
 func (e *Entry) WithError(err error) *Entry {
-	return &Entry{logger: e.logger.With("error", err)}
+	f := make([]any, len(e.fields), len(e.fields)+2)
+	copy(f, e.fields)
+	return &Entry{logger: e.logger, fields: append(f, "error", err)}
 }
 
 func (e *Entry) WithFields(fields map[string]any) *Entry {
-	args := make([]any, 0, len(fields)*2)
+	f := make([]any, len(e.fields), len(e.fields)+len(fields)*2)
+	copy(f, e.fields)
 	for k, v := range fields {
-		args = append(args, k, v)
+		f = append(f, k, v)
 	}
-	return &Entry{logger: e.logger.With(args...)}
+	return &Entry{logger: e.logger, fields: f}
 }
 
 func InitConfig(conf *pldconf.LogConfig) {
@@ -197,7 +274,9 @@ func WithComponent(ctx context.Context, component Component) context.Context {
 	if len(component) > 61 {
 		component = component[0:61] + "..."
 	}
-	return WithLogger(ctx, loggerFromContext(ctx).WithField("component", component))
+	// Pass a plain string so zap.Any hits the string fast path rather than falling
+	// through to reflect/AddReflected for the named Component type.
+	return WithLogger(ctx, loggerFromContext(ctx).WithField("component", string(component)))
 }
 
 // loggerFromContext returns the logger for the current context, or the root logger if there is none
