@@ -27,7 +27,8 @@ type Event interface {
 
 type TransactionCreatedEvent struct {
 	common.BaseEvent
-	Transaction *components.PrivateTransaction
+	Transaction         *components.PrivateTransaction
+	ResolvedTransaction *components.ResolvedTransaction
 }
 
 func (*TransactionCreatedEvent) Type() EventType {

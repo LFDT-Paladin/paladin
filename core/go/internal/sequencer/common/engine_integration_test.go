@@ -276,8 +276,6 @@ func TestAssemble_UsesStoredVerifiers(t *testing.T) {
 			},
 		},
 	}
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(localTx, nil).Once()
-
 	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&prototk.TransactionPostAssembly{
 			AssemblyResult:  prototk.AssembleTransactionResponse_OK,
@@ -287,7 +285,7 @@ func TestAssemble_UsesStoredVerifiers(t *testing.T) {
 	beforeJSON, err := json.Marshal(preAssembly)
 	require.NoError(t, err)
 
-	postAssembly, err := ei.Assemble(ctx, txID, preAssembly, resolvedVerifiers, &prototk.StateSnapshot{}, 100)
+	postAssembly, err := ei.Assemble(ctx, txID, preAssembly, resolvedVerifiers, &prototk.StateSnapshot{}, 100, localTx)
 
 	require.NoError(t, err)
 	require.NotNil(t, postAssembly)
@@ -298,6 +296,55 @@ func TestAssemble_UsesStoredVerifiers(t *testing.T) {
 	require.Len(t, postAssembly.GetResolvedVerifiers(), 1)
 	assert.Equal(t, "alice@node1", postAssembly.GetResolvedVerifiers()[0].Lookup)
 	assert.Equal(t, resolvedVerifierStr, postAssembly.GetResolvedVerifiers()[0].Verifier)
+}
+
+// TestAssemble_UsesSuppliedLocalTx verifies that when the resolved transaction is passed in
+// (already held in memory on the originator), Assemble consumes it directly and performs no
+// GetResolvedTransactionByID database read.
+func TestAssemble_UsesSuppliedLocalTx(t *testing.T) {
+	ctx := context.Background()
+	ei, m := newTestEngineIntegration(t)
+
+	txID := uuid.New()
+	contractAddr := *pldtypes.RandAddress()
+	domainName := "test-domain"
+	preAssembly := &prototk.TransactionPreAssembly{}
+
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+	m.allComponents.On("Persistence").Return(mp.P)
+
+	m.domainSmartContract.On("Domain").Return(m.domain)
+	m.domainSmartContract.On("Address").Return(contractAddr)
+	m.domain.On("Name").Return(domainName)
+
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, contractAddr).
+		Return(mockDqc).Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+
+	localTx := &components.ResolvedTransaction{
+		Transaction: &pldapi.Transaction{
+			ID: &txID,
+			TransactionBase: pldapi.TransactionBase{
+				Domain: domainName,
+				To:     &contractAddr,
+			},
+		},
+	}
+
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&prototk.TransactionPostAssembly{
+			AssemblyResult:  prototk.AssembleTransactionResponse_OK,
+			AttestationPlan: []*prototk.AttestationRequest{},
+		}, nil).Once()
+
+	postAssembly, err := ei.Assemble(ctx, txID, preAssembly, nil, &prototk.StateSnapshot{}, 100, localTx)
+	require.NoError(t, err)
+	require.NotNil(t, postAssembly)
+
+	m.txManager.AssertNotCalled(t, "GetResolvedTransactionByID", mock.Anything, mock.Anything)
 }
 
 func TestEngineIntegration_Assemble_ImportSnapshotError(t *testing.T) {
@@ -316,7 +363,7 @@ func TestEngineIntegration_Assemble_ImportSnapshotError(t *testing.T) {
 	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).
 		Return(fmt.Errorf("snapshot error")).Once()
 
-	_, err := ei.Assemble(ctx, txID, preAssembly, nil, &prototk.StateSnapshot{}, 100)
+	_, err := ei.Assemble(ctx, txID, preAssembly, nil, &prototk.StateSnapshot{}, 100, nil)
 	require.ErrorContains(t, err, "snapshot error")
 }
 
@@ -382,50 +429,6 @@ func TestEngineIntegration_ResolveVerifiers_FirstErrorReturned(t *testing.T) {
 	assert.Nil(t, resolved)
 }
 
-func TestEngineIntegration_Assemble_TxNotFound(t *testing.T) {
-	// GetResolvedTransactionByID returns nil, nil → wrapped "not found" error.
-	ctx := context.Background()
-	ei, m := newTestEngineIntegration(t)
-
-	txID := uuid.New()
-	preAssembly := &prototk.TransactionPreAssembly{}
-
-	m.domainSmartContract.On("Domain").Return(m.domain)
-	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	mockDqc := componentsmocks.NewDomainQueryContext(t)
-	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
-		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
-	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).
-		Return(nil, nil).Once()
-
-	_, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
-	require.Error(t, err)
-}
-
-func TestEngineIntegration_Assemble_TxLookupError(t *testing.T) {
-	// GetResolvedTransactionByID returns an error.
-	ctx := context.Background()
-	ei, m := newTestEngineIntegration(t)
-
-	txID := uuid.New()
-	preAssembly := &prototk.TransactionPreAssembly{}
-
-	m.domainSmartContract.On("Domain").Return(m.domain)
-	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	mockDqc := componentsmocks.NewDomainQueryContext(t)
-	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
-		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
-	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).
-		Return(nil, fmt.Errorf("db error")).Once()
-
-	_, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
-	require.ErrorContains(t, err, "db error")
-}
-
 func TestEngineIntegration_Assemble_WrongDomain(t *testing.T) {
 	// Transaction exists but is for a different domain → logs error and returns.
 	ctx := context.Background()
@@ -445,16 +448,16 @@ func TestEngineIntegration_Assemble_WrongDomain(t *testing.T) {
 	mockDqc.On("Close", mock.Anything).Return().Once()
 	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
+	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
 			TransactionBase: pldapi.TransactionBase{
 				Domain: "other-domain",
 				To:     &contractAddr,
 			},
 		},
-	}, nil).Once()
+	}
 
-	_, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
+	_, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100, localTx)
 	require.Error(t, err)
 }
 
@@ -480,19 +483,19 @@ func TestEngineIntegration_Assemble_AssembleTransactionError(t *testing.T) {
 	mockDqc.On("Close", mock.Anything).Return().Once()
 	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
+	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
 			TransactionBase: pldapi.TransactionBase{
 				Domain: "domain1",
 				To:     &contractAddr,
 			},
 		},
-	}, nil).Once()
+	}
 
 	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, fmt.Errorf("assemble failed")).Once()
 
-	_, err = ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
+	_, err = ei.Assemble(ctx, txID, preAssembly, nil, nil, 100, localTx)
 	require.ErrorContains(t, err, "assemble failed")
 }
 
@@ -518,17 +521,17 @@ func TestEngineIntegration_Assemble_NilPostAssembly(t *testing.T) {
 	mockDqc.On("Close", mock.Anything).Return().Once()
 	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
+	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
 			TransactionBase: pldapi.TransactionBase{Domain: "domain1", To: &contractAddr},
 		},
-	}, nil).Once()
+	}
 
 	// AssembleTransaction returns nil PostAssembly (no error) — treated as internal error.
 	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, nil).Once()
 
-	_, err = ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
+	_, err = ei.Assemble(ctx, txID, preAssembly, nil, nil, 100, localTx)
 	require.Error(t, err)
 }
 
@@ -554,11 +557,11 @@ func TestEngineIntegration_Assemble_UnsupportedAttestationType(t *testing.T) {
 	mockDqc.On("Close", mock.Anything).Return().Once()
 	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
+	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
 			TransactionBase: pldapi.TransactionBase{Domain: "domain1", To: &contractAddr},
 		},
-	}, nil).Once()
+	}
 
 	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&prototk.TransactionPostAssembly{
@@ -567,7 +570,7 @@ func TestEngineIntegration_Assemble_UnsupportedAttestationType(t *testing.T) {
 			},
 		}, nil).Once()
 
-	_, err = ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
+	_, err = ei.Assemble(ctx, txID, preAssembly, nil, nil, 100, localTx)
 	require.Error(t, err)
 }
 
@@ -637,11 +640,11 @@ func TestEngineIntegration_Assemble_EndorseAttestationType(t *testing.T) {
 	mockDqc.On("Close", mock.Anything).Return().Once()
 	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
+	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
 			TransactionBase: pldapi.TransactionBase{Domain: "domain1", To: &contractAddr},
 		},
-	}, nil).Once()
+	}
 
 	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&prototk.TransactionPostAssembly{
@@ -651,7 +654,7 @@ func TestEngineIntegration_Assemble_EndorseAttestationType(t *testing.T) {
 			},
 		}, nil).Once()
 
-	result, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
+	result, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100, localTx)
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 }
@@ -714,11 +717,11 @@ func TestEngineIntegration_Assemble_DebugLogging(t *testing.T) {
 	mockDqc.On("Close", mock.Anything).Return().Once()
 	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
+	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
 			TransactionBase: pldapi.TransactionBase{Domain: "domain1", To: &contractAddr},
 		},
-	}, nil).Once()
+	}
 
 	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&prototk.TransactionPostAssembly{
@@ -726,7 +729,7 @@ func TestEngineIntegration_Assemble_DebugLogging(t *testing.T) {
 			AttestationPlan: []*prototk.AttestationRequest{},
 		}, nil).Once()
 
-	result, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
+	result, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100, localTx)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 }
@@ -780,11 +783,11 @@ func TestEngineIntegration_Assemble_DoesNotSign(t *testing.T) {
 	mockDqc.On("Close", mock.Anything).Return().Once()
 	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
+	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
 			TransactionBase: pldapi.TransactionBase{Domain: "domain1", To: &contractAddr},
 		},
-	}, nil).Once()
+	}
 
 	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&prototk.TransactionPostAssembly{
@@ -798,7 +801,7 @@ func TestEngineIntegration_Assemble_DoesNotSign(t *testing.T) {
 			},
 		}, nil).Once()
 
-	result, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
+	result, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100, localTx)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Empty(t, result.GetSignatures())

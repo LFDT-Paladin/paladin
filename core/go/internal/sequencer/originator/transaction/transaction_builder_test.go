@@ -226,6 +226,7 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 	}
 
 	txn := newTransaction(privateTransaction,
+		nil,
 		"node1",
 		b.fakeEngineIntegration,
 		transportWriter,
@@ -317,6 +318,7 @@ func (m *TransactionDependencyFakes) MockForAssembleRequestOK() *mock.Call {
 		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
+		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -332,6 +334,7 @@ func (m *TransactionDependencyFakes) MockForAssembleRequestRevert() *mock.Call {
 		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
+		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 		RevertReason:   ptrTo("test revert reason"),
@@ -348,6 +351,7 @@ func (m *TransactionDependencyFakes) MockForAssembleRequestPark() *mock.Call {
 		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
+		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_PARK,
 		RevertReason:   ptrTo("test revert reason"),

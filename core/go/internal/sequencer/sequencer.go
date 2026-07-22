@@ -505,7 +505,8 @@ func (sMgr *sequencerManager) handleTx(ctx context.Context, dbTX persistence.DBT
 		return err
 	}
 	txCreatedEvent := &originator.TransactionCreatedEvent{
-		Transaction: tx,
+		Transaction:         tx,
+		ResolvedTransaction: localTx,
 	}
 
 	if !resume {

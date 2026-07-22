@@ -103,6 +103,7 @@ func action_Assemble(ctx context.Context, txn *originatorTransaction, _ common.E
 	preAssembly := txn.pt.PreAssembly
 	resolvedVerifiers := txn.pt.ResolvedVerifiers
 	txID := txn.pt.ID
+	localTx := txn.localTx
 
 	// Always create a cancellable context so a superseding request can abort this goroutine
 	assembleCtx, cancel := context.WithCancel(ctx)
@@ -114,13 +115,13 @@ func action_Assemble(ctx context.Context, txn *originatorTransaction, _ common.E
 
 	go func() {
 		defer cancel()
-		txn.handleAssemble(assembleCtx, txID, req, preAssembly, resolvedVerifiers)
+		txn.handleAssemble(assembleCtx, txID, req, preAssembly, resolvedVerifiers, localTx)
 	}()
 	return nil
 }
 
-func (txn *originatorTransaction) handleAssemble(ctx context.Context, txID uuid.UUID, req assembleRequestFromCoordinator, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier) {
-	assembleResponse, err := txn.engineIntegration.Assemble(ctx, txID, preAssembly, resolvedVerifiers, req.stateSnapshot, req.coordinatorsBlockHeight)
+func (txn *originatorTransaction) handleAssemble(ctx context.Context, txID uuid.UUID, req assembleRequestFromCoordinator, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, localTx *components.ResolvedTransaction) {
+	assembleResponse, err := txn.engineIntegration.Assemble(ctx, txID, preAssembly, resolvedVerifiers, req.stateSnapshot, req.coordinatorsBlockHeight, localTx)
 	if err != nil {
 		if ctx.Err() != nil {
 			log.L(ctx).Debugf("abandoning assembly for transaction %s: request expired", txID)
