@@ -1683,6 +1683,7 @@ func TestCoordinator_WhenActive_TransactionStateTransition_DispatchedToPooled_Wi
 		NodeName("node1").
 		CurrentActiveCoordinator("node1").
 		Transactions(txAssembling, txDispatched).
+		AssemblingTransaction(txAssemblingID).
 		Build()
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txDispatchedID,
@@ -1713,8 +1714,47 @@ func TestCoordinator_WhenActive_TransactionStateTransition_ToPooled_PoolsAndSele
 		TransactionID: txID,
 		ToState:       transaction.State_Pooled,
 	}))
-	// action_PoolTransaction added it to pool; action_SelectTransaction immediately selected it.
+	// action_PoolTransaction added it to pool; the trailing select handler immediately selected it.
 	assert.Equal(t, State_Active, c.GetCurrentState())
+}
+
+func TestCoordinator_WhenActive_TransactionStateTransition_AssemblingToPooled_RepoolSelectsExactlyOnce(t *testing.T) {
+	ctx := t.Context()
+
+	// The transaction currently occupying the single assembly slot, being repooled (Assembling -> Pooled).
+	// It is pushed to the BACK of the pool, so it must NOT be the one re-selected — hence no SelectedEvent
+	// expectation. If the repool caused a double-select it would be popped and this test would fail.
+	txRepool := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	txRepoolID := uuid.New()
+	txRepool.EXPECT().GetID().Return(txRepoolID).Maybe()
+	txRepool.EXPECT().GetCurrentState().Return(transaction.State_Pooled).Maybe()
+
+	// A transaction already waiting at the front of the pool; this is the one that must be selected — once.
+	txPooled := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	txPooledID := uuid.New()
+	txPooled.EXPECT().GetID().Return(txPooledID).Maybe()
+	txPooled.EXPECT().GetCurrentState().Return(transaction.State_Pooled).Maybe()
+	txPooled.EXPECT().HandleEvent(mock.Anything, mock.AnythingOfType("*transaction.SelectedEvent")).Return(nil).Once()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).
+		NodeName("node1").
+		CurrentActiveCoordinator("node1").
+		Transactions(txRepool).
+		PooledTransactions(txPooled).
+		AssemblingTransaction(txRepoolID).
+		Build()
+	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.TransactionStateTransitionEvent[transaction.State]{
+		TransactionID: txRepoolID,
+		FromState:     transaction.State_Assembling,
+		ToState:       transaction.State_Pooled,
+	}))
+	// Exactly one selection: the slot-freed handler cleared the flag, then the trailing select handler
+	// popped the front of the pool (txPooled) once. txRepool sits at the back, unselected.
+	assert.Equal(t, State_Active, c.GetCurrentState())
+	assert.True(t, c.assemblyInFlight, "slot must be re-occupied by the single selection")
+	assert.Equal(t, txPooledID, c.assemblingTxID, "the front-of-queue pooled tx must be the one selected")
+	require.Len(t, c.pooledTransactions, 1, "repooled tx must remain waiting at the back of the pool")
+	assert.Equal(t, txRepoolID, c.pooledTransactions[0].GetID())
 }
 
 func TestCoordinator_WhenActive_TransactionStateTransition_ToReadyForDispatch_QueuesForDispatch(t *testing.T) {
@@ -2134,6 +2174,38 @@ func TestCoordinator_WhenActiveFLushCompletesAndStillCurrentCoordinator_Transiti
 	assert.NotEmpty(t, c.signingIdentity.value, "OnTransitionTo Active must set signing identity")
 }
 
+func TestCoordinator_WhenActiveFLush_TransactionStateTransition_SelectsBeforeTransitioningToActive(t *testing.T) {
+	ctx := t.Context()
+	// The last dispatched tx finalising both drains the flush AND matches the transition-to-Active handler.
+	txDispatched, txDispatchedID := newDispatchedTxMock(t)
+
+	// Pooled work waiting with the slot free. The trailing select handler is positioned BEFORE the
+	// transition handler precisely because MatchAll stops at the first transition; this test locks that in.
+	txPooled := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	txPooledID := uuid.New()
+	txPooled.EXPECT().GetID().Return(txPooledID).Maybe()
+	txPooled.EXPECT().GetCurrentState().Return(transaction.State_Pooled).Maybe()
+	// The transition to Active snapshots the coordinator state, which reads the selected tx.
+	txPooled.EXPECT().GetSnapshot(mock.Anything).Return(&engineProto.SnapshotPooledTransaction{Id: txPooledID.String()}, nil, nil, nil).Maybe()
+	txPooled.EXPECT().HandleEvent(mock.Anything, mock.AnythingOfType("*transaction.SelectedEvent")).Return(nil).Once()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active_Flush).
+		NodeName("node1").
+		CurrentActiveCoordinator("node1").
+		Transactions(txDispatched).
+		PooledTransactions(txPooled).
+		Build()
+	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.TransactionStateTransitionEvent[transaction.State]{
+		TransactionID: txDispatchedID,
+		FromState:     transaction.State_Dispatched,
+		ToState:       transaction.State_Final,
+	}))
+	// Select ran (pooled tx picked up) even though the same event transitioned us out of the flush state.
+	assert.Equal(t, State_Active, c.GetCurrentState())
+	assert.True(t, c.assemblyInFlight, "select handler must run before the transition-to-Active handler")
+	assert.Equal(t, txPooledID, c.assemblingTxID)
+}
+
 func TestCoordinator_WhenActiveFLush_TransactionStateTransition_DispatchedToPooled_WithAssembling_StaysActiveFLush(t *testing.T) {
 	ctx := t.Context()
 	txAssembling := coordinatortransactionmocks.NewCoordinatorTransaction(t)
@@ -2148,6 +2220,7 @@ func TestCoordinator_WhenActiveFLush_TransactionStateTransition_DispatchedToPool
 		NodeName("node1").
 		CurrentActiveCoordinator("node1").
 		Transactions(txAssembling, txDispatched1, txDispatched2).
+		AssemblingTransaction(txAssemblingID).
 		Build()
 	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txDispatched1ID,

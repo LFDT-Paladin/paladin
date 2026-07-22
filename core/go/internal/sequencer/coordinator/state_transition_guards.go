@@ -44,13 +44,8 @@ func guard_ClosingGracePeriodExpired(_ context.Context, c *coordinator) bool {
 	return c.heartbeatIntervalsSinceStateChange > c.closingGracePeriod
 }
 
-func guard_HasTransactionAssembling(ctx context.Context, c *coordinator) bool {
-	//TODO this could be optimized by keeping track of a boolean that is switched from the onStateChange handler
-	return len(
-		c.getTransactionsInStates(ctx, []transaction.State{
-			transaction.State_Assembling,
-		}),
-	) > 0
+func guard_HasTransactionAssembling(_ context.Context, c *coordinator) bool {
+	return c.assemblyInFlight
 }
 
 // guard_InactiveGracePeriodExceeded returns true when no heartbeat has been received for at least

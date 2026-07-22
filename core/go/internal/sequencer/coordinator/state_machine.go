@@ -779,13 +779,18 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
 					Actions:   []ActionRule{{Action: action_PoolTransaction}},
 				}, {
-					Actions: []ActionRule{{If: statemachine.GuardNot(guard_HasTransactionAssembling), Action: action_SelectTransaction}},
+					Validator: validator_TransactionStateTransitionFrom(transaction.State_Assembling),
+					Actions:   []ActionRule{{Action: action_ClearAssemblyInFlight}},
 				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
 					Actions:   []ActionRule{{Action: action_QueueTransactionForDispatch}},
 				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Final, transaction.State_Evicted),
 					Actions:   []ActionRule{{Action: action_CleanUpTransaction}},
+				}, {
+					Actions: []ActionRule{
+						{If: statemachine.GuardNot(guard_HasTransactionAssembling), Action: action_SelectTransaction},
+					},
 				}},
 			},
 			Event_EpochBoundaryReached: {
@@ -963,13 +968,18 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
 					Actions:   []ActionRule{{Action: action_PoolTransaction}},
 				}, {
-					Actions: []ActionRule{{If: statemachine.GuardNot(guard_HasTransactionAssembling), Action: action_SelectTransaction}},
+					Validator: validator_TransactionStateTransitionFrom(transaction.State_Assembling),
+					Actions:   []ActionRule{{Action: action_ClearAssemblyInFlight}},
 				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
 					Actions:   []ActionRule{{Action: action_QueueTransactionForDispatch}},
 				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Final, transaction.State_Evicted),
 					Actions:   []ActionRule{{Action: action_CleanUpTransaction}},
+				}, {
+					Actions: []ActionRule{
+						{If: statemachine.GuardNot(guard_HasTransactionAssembling), Action: action_SelectTransaction},
+					},
 				}, {
 					Validator: validator_TransactionStateTransitionFrom(transaction.State_Dispatched),
 					Transitions: []Transition{{

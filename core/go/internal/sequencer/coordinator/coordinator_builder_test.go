@@ -36,6 +36,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/mock"
 )
@@ -48,6 +49,7 @@ type CoordinatorBuilderForTesting struct {
 	currentEffectiveBlockHeight              *uint64
 	transactions                             []transaction.CoordinatorTransaction
 	pooledTransactions                       []transaction.CoordinatorTransaction
+	assemblingTxID                           *uuid.UUID
 	heartbeatsUntilClosingGracePeriodExpires *int
 	metrics                                  metrics.DistributedSequencerMetrics
 	sequencerConfig                          *pldconf.SequencerConfig
@@ -191,6 +193,13 @@ func (b *CoordinatorBuilderForTesting) Transactions(transactions ...transaction.
 
 func (b *CoordinatorBuilderForTesting) PooledTransactions(transactions ...transaction.CoordinatorTransaction) *CoordinatorBuilderForTesting {
 	b.pooledTransactions = transactions
+	return b
+}
+
+// AssemblingTransaction marks the single assembly slot as occupied by the given transaction ID,
+// mirroring the state the coordinator holds while a transaction is being assembled.
+func (b *CoordinatorBuilderForTesting) AssemblingTransaction(txID uuid.UUID) *CoordinatorBuilderForTesting {
+	b.assemblingTxID = &txID
 	return b
 }
 
@@ -398,6 +407,10 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 			coordinator.transactionsByID[tx.GetID()] = tx
 			coordinator.pooledTransactions = append(coordinator.pooledTransactions, tx)
 		}
+	}
+	if b.assemblingTxID != nil {
+		coordinator.assemblyInFlight = true
+		coordinator.assemblingTxID = *b.assemblingTxID
 	}
 	coordinator.stateMachineEventLoop.StateMachine().SetCurrentState(b.state)
 
