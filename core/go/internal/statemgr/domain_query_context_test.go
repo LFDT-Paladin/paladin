@@ -613,14 +613,14 @@ func TestFindNullifiersSpendingExclusion(t *testing.T) {
 	nullID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	nullID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	tx1 := uuid.New()
-	states1, err := sw.StageStateUpserts(ctx, ss.p.NOTX(),
-		genWidget(t, schema1.ID(), &tx1, fmt.Sprintf(`{"amount": 11, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
-		genWidget(t, schema1.ID(), &tx1, fmt.Sprintf(`{"amount": 22, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
+	states1, err := sw.ResolveStates(ctx, ss.p.NOTX(),
+		genWidget(t, schema1.ID(), fmt.Sprintf(`{"amount": 11, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
+		genWidget(t, schema1.ID(), fmt.Sprintf(`{"amount": 22, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
 	)
 	require.NoError(t, err)
 	require.Len(t, states1, 2)
 
-	err = sw.StageNullifierUpserts(ctx,
+	err = sw.StageWrites(ctx, states1,
 		&components.NullifierUpsert{State: states1[0].ID, ID: nullID1},
 		&components.NullifierUpsert{State: states1[1].ID, ID: nullID2},
 	)

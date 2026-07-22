@@ -29,8 +29,7 @@ import (
 )
 
 type EngineIntegration interface {
-	WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error
-	MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error)
+	ResolveStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error
 	GetBlockHeight(ctx context.Context) int64
 	// Domain returns the domain associated with the contract being sequenced.
 	Domain() components.Domain
@@ -68,22 +67,18 @@ type engineIntegration struct {
 	nodeName            string
 }
 
-func (e *engineIntegration) MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
-	return e.domainSmartContract.MapPotentialStates(ctx, potentialStates, true, createdByTX)
-}
-
-func (e *engineIntegration) WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
+func (e *engineIntegration) ResolveStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 
 	if (txn.PostAssembly.AssembleResponse.GetOutputStatesPotential() != nil && txn.PostAssembly.OutputStates == nil) ||
 		(txn.PostAssembly.AssembleResponse.GetInfoStatesPotential() != nil && txn.PostAssembly.InfoStates == nil) {
 		readTX := e.components.Persistence().NOTX() // no DB transaction required here for the reads from the DB (writes happen on syncpoint flusher)
-		err := e.domainSmartContract.WritePotentialStates(ctx, e.domainStateWriter, readTX, txn)
+		err := e.domainSmartContract.ResolvePotentialStates(ctx, e.domainStateWriter, readTX, txn)
 		if err != nil {
-			// Any error from WritePotentialStates is likely to be caused by an invalid init or assemble of the transaction
+			// Any error from ResolvePotentialStates is likely to be caused by an invalid init or assemble of the transaction
 			// which is most likely a programming error in the domain or the domain manager or the sequencer
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, err)
 		} else {
-			log.L(ctx).Debugf("Potential states written for domain=%s", e.domainSmartContract.Domain().Name())
+			log.L(ctx).Debugf("Potential states resolved for domain=%s", e.domainSmartContract.Domain().Name())
 		}
 	}
 

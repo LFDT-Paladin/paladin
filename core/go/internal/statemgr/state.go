@@ -472,11 +472,6 @@ func (ss *stateManager) findStatesCommon(
 	return schema, states, nil
 }
 
-type validatedStateSet struct {
-	states     []*pldapi.State
-	withValues []*components.StateWithLabels
-}
-
 // processStateForSet validates a single (id, schema, data) triple against its schema, recomputing the
 // state hash at the trust boundary and extracting label values for in-memory query filtering
 func (ss *stateManager) processStateForSet(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, dbTX persistence.DBTX, id pldtypes.HexBytes, schemaID pldtypes.Bytes32, data pldtypes.RawJSON, withLabels bool) (*components.StateWithLabels, error) {
@@ -487,21 +482,18 @@ func (ss *stateManager) processStateForSet(ctx context.Context, domainName strin
 	return schema.ProcessState(ctx, &contractAddress, data, id, customHashFunction, withLabels)
 }
 
-// validateStateUpserts validates state upserts against their schemas (write-buffer path).
-func (ss *stateManager) validateStateUpserts(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, dbTX persistence.DBTX, stateUpserts ...*components.StateUpsert) (*validatedStateSet, error) {
-	vss := &validatedStateSet{
-		states:     make([]*pldapi.State, len(stateUpserts)),
-		withValues: make([]*components.StateWithLabels, len(stateUpserts)),
-	}
-	for i, ns := range stateUpserts {
-		vs, err := ss.processStateForSet(ctx, domainName, contractAddress, customHashFunction, dbTX, ns.ID, ns.Schema, ns.Data, true)
+// validateStates validates proto-native states against their schemas at the write-buffer / mint trust
+// boundary, recomputing each state hash and extracting label values.
+func (ss *stateManager) validateStates(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, dbTX persistence.DBTX, states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error) {
+	withValues := make([]*components.StateWithLabels, len(states))
+	for i, es := range states {
+		vs, err := ss.validateAndConvertEndorsableState(ctx, domainName, contractAddress, customHashFunction, dbTX, es, true)
 		if err != nil {
 			return nil, err
 		}
-		vss.withValues[i] = vs
-		vss.states[i] = vs.State
+		withValues[i] = vs
 	}
-	return vss, nil
+	return withValues, nil
 }
 
 // validateAndConvertEndorsableState validates a single proto-native state at a cross-node trust boundary.

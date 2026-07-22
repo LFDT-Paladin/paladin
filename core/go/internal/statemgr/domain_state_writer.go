@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 // domainStateWriter implements components.DomainStateWriter.
@@ -72,58 +73,27 @@ func (sw *domainStateWriter) checkResetInitUnFlushed(ctx context.Context) error 
 	return nil
 }
 
-func (sw *domainStateWriter) upsertStates(ctx context.Context, dbTX persistence.DBTX, holdingLock bool, stateUpserts ...*components.StateUpsert) ([]*pldapi.State, error) {
-	vss, err := sw.ss.validateStateUpserts(ctx, sw.domainName, sw.contractAddress, sw.customHashFunction, dbTX, stateUpserts...)
-	if err != nil {
-		return nil, err
-	}
-
-	if !holdingLock {
-		sw.stateLock.Lock()
-		defer sw.stateLock.Unlock()
-	}
-	if flushErr := sw.checkResetInitUnFlushed(ctx); flushErr != nil {
-		return nil, flushErr
-	}
-
-	sw.unFlushed.states = append(sw.unFlushed.states, vss.withValues...)
-	return vss.states, nil
+func (sw *domainStateWriter) ResolveStates(ctx context.Context, dbTX persistence.DBTX, states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error) {
+	return sw.ss.validateStates(ctx, sw.domainName, sw.contractAddress, sw.customHashFunction, dbTX, states...)
 }
 
-// StageStateUpserts creates or updates states in the in-memory write buffer.
-func (sw *domainStateWriter) StageStateUpserts(ctx context.Context, dbTX persistence.DBTX, stateUpserts ...*components.StateUpsert) (states []*pldapi.State, err error) {
-	return sw.upsertStates(ctx, dbTX, false, stateUpserts...)
-}
-
-// StageNullifierUpserts creates nullifier records to be written on the next flush.
-// The state being nullified must already be staged in this writer's unFlushed or flushing buffer.
-func (sw *domainStateWriter) StageNullifierUpserts(ctx context.Context, nullifiers ...*components.NullifierUpsert) error {
-	sw.stateLock.Lock()
-	defer sw.stateLock.Unlock()
-	if flushErr := sw.checkResetInitUnFlushed(ctx); flushErr != nil {
-		return flushErr
-	}
-
+// StageWrites validates the nullifiers against the supplied states and, only once the whole batch is
+// consistent, appends the states and their nullifiers to the unFlushed buffer under a single lock.
+// Each nullified state must be present in the states passed to this call, which holds because nullifiers
+// only ever target the same transaction's own output/info states.
+func (sw *domainStateWriter) StageWrites(ctx context.Context, states []*components.StateWithLabels, nullifiers ...*components.NullifierUpsert) error {
+	stateNullifiers := make([]*pldapi.StateNullifier, 0, len(nullifiers))
 	for _, nullifierInput := range nullifiers {
 		nullifier := &pldapi.StateNullifier{
 			DomainName: sw.domainName,
 			ID:         nullifierInput.ID,
 			State:      nullifierInput.State,
 		}
-		// Locate the state in the pending write buffers to validate it exists and detect conflicts.
 		var creatingState *components.StateWithLabels
-		for _, s := range sw.unFlushed.states {
+		for _, s := range states {
 			if s.ID.Equals(nullifier.State) {
 				creatingState = s
 				break
-			}
-		}
-		if creatingState == nil && sw.flushing != nil {
-			for _, s := range sw.flushing.states {
-				if s.ID.Equals(nullifier.State) {
-					creatingState = s
-					break
-				}
 			}
 		}
 		if creatingState == nil {
@@ -132,9 +102,16 @@ func (sw *domainStateWriter) StageNullifierUpserts(ctx context.Context, nullifie
 			return i18n.NewError(ctx, msgs.MsgStateNullifierConflict, nullifier.State, creatingState.Nullifier.ID)
 		}
 		creatingState.Nullifier = nullifier
-		sw.unFlushed.stateNullifiers = append(sw.unFlushed.stateNullifiers, nullifier)
+		stateNullifiers = append(stateNullifiers, nullifier)
 	}
 
+	sw.stateLock.Lock()
+	defer sw.stateLock.Unlock()
+	if flushErr := sw.checkResetInitUnFlushed(ctx); flushErr != nil {
+		return flushErr
+	}
+	sw.unFlushed.states = append(sw.unFlushed.states, states...)
+	sw.unFlushed.stateNullifiers = append(sw.unFlushed.stateNullifiers, stateNullifiers...)
 	return nil
 }
 
@@ -171,14 +148,37 @@ func (sw *domainStateWriter) Reset() {
 func (sw *domainStateWriter) Flush(ctx context.Context, dbTX persistence.DBTX) error {
 	log.L(ctx).Infof("Flushing domain state writer domain=%s", sw.domainName)
 
+	flushing, err := sw.rotateForFlush(ctx)
+	if err != nil || flushing == nil {
+		return err
+	}
+
+	// The DB write runs lock-free. rotateForFlush already swapped this buffer into flushing
+	// status under the lock, after which it is stable for exec's reads, so the coordinator's
+	// StageWrites append no longer waits behind DB I/O.
+	if syncFlushError := flushing.exec(ctx, dbTX); syncFlushError != nil {
+		sw.stateLock.Lock()
+		flushing.setError(syncFlushError)
+		sw.stateLock.Unlock()
+		return syncFlushError
+	}
+
+	dbTX.AddFinalizer(sw.finalizer)
+	return nil
+}
+
+// rotateForFlush runs the single-flush guard and the buffer swap under stateLock, returning
+// the buffer to flush. The returned buffer is safe to write to the DB lock-free. A nil buffer
+// with nil error means there was nothing pending to flush.
+func (sw *domainStateWriter) rotateForFlush(ctx context.Context) (*pendingStateWrites, error) {
 	sw.stateLock.Lock()
 	defer sw.stateLock.Unlock()
 
 	if sw.flushing != nil {
 		if sw.flushing.flushResult != nil {
-			return sw.flushing.flushResult
+			return nil, sw.flushing.flushResult
 		}
-		return i18n.NewError(ctx, msgs.MsgStateFlushInProgress)
+		return nil, i18n.NewError(ctx, msgs.MsgStateFlushInProgress)
 	}
 
 	sw.flushing = sw.unFlushed
@@ -186,20 +186,8 @@ func (sw *domainStateWriter) Flush(ctx context.Context, dbTX persistence.DBTX) e
 
 	if sw.flushing == nil {
 		log.L(ctx).Debugf("nothing pending to flush in domain state writer")
-		return nil
+		return nil, nil
 	}
 
-	var syncFlushError error
-	defer func() {
-		if syncFlushError != nil {
-			sw.flushing.setError(syncFlushError)
-		}
-	}()
-	syncFlushError = sw.flushing.exec(ctx, dbTX)
-	if syncFlushError != nil {
-		return syncFlushError
-	}
-
-	dbTX.AddFinalizer(sw.finalizer)
-	return nil
+	return sw.flushing, nil
 }

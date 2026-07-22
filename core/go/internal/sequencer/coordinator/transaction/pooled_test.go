@@ -105,15 +105,13 @@ func Test_guard_HasDependenciesNotReady(t *testing.T) {
 
 	assert.False(t, guard_HasDependenciesNotReady(ctx, txn1))
 
-	txn2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-	txn2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	txn2Mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := txn2.HandleEvent(ctx, txn2Builder.BuildAssembleSuccessEvent())
 	require.NoError(t, err)
 	assert.True(t, guard_HasDependenciesNotReady(ctx, txn2))
 
-	txn3Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-	txn3Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	txn3Mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err = txn3.HandleEvent(ctx, txn3Builder.BuildAssembleSuccessEvent())
 	require.NoError(t, err)
@@ -136,8 +134,7 @@ func Test_guard_HasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 		AddPendingAssembleRequest().
 		InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].GetId())
 	txn2, txn2Mocks := txn2Builder.Build()
-	txn2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-	txn2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	txn2Mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	txByID := map[uuid.UUID]CoordinatorTransaction{
 		dep2.pt.ID: dep2,
@@ -168,8 +165,7 @@ func Test_guard_HasDependenciesNotReady_DependencyReadyForDispatch(t *testing.T)
 		AddPendingAssembleRequest().
 		InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].GetId())
 	txn3, txn3Mocks := txn3Builder.Build()
-	txn3Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-	txn3Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	txn3Mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	txByID := map[uuid.UUID]CoordinatorTransaction{
 		dep3.pt.ID: dep3,

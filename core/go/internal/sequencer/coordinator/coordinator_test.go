@@ -55,8 +55,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	builder.OverrideSequencerConfig(config)
 	c, mocks := builder.Build()
 	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(0))
-	mocks.EngineIntegration.On("WriteStatesForTransaction", mock.Anything, mock.Anything).Return(nil)
-	mocks.EngineIntegration.On("MapPotentialStates", mock.Anything, mock.Anything, mock.Anything).Return(([]*components.StateUpsert)(nil), nil)
+	mocks.EngineIntegration.On("ResolveStatesForTransaction", mock.Anything, mock.Anything).Return(nil)
 	mocks.SequencerManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil).Once()
 	mocks.Domain.On("FixedSigningIdentity").Return("")
 	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
