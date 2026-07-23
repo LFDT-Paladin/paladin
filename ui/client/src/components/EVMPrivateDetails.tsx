@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -42,7 +42,7 @@ export const EVMPrivateDetails: React.FC<Props> = ({
   const evmTransactionData = domainReceipt?.transaction;
   const evmReceipt = domainReceipt?.receipt;
   const hasTransaction = typeof evmTransactionData === 'object';
-  const hasReceipt = typeof evmTransactionData === 'object';
+  const hasReceipt = typeof evmReceipt === 'object';
 
   return (
     (hasTransaction || hasReceipt) ? 

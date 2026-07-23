@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -24,6 +24,7 @@ import { getDomainContractByAddress } from "../queries/domains";
 import { JSONBox } from "../components/JSONBox";
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { DomainButtons } from "../components/DomainButtons";
+import { AppRoutes } from '../routes';
 
 export const DomainContract: React.FC = () => {
 
@@ -59,12 +60,12 @@ export const DomainContract: React.FC = () => {
         <Box sx={{ marginBottom: '20px' }}>
           <Button
             startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate('/ui/domains')}
+            onClick={() => navigate(AppRoutes.Domains)}
           >
             {t('backToDomains')}
           </Button>
         </Box>
-        <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('domainSmartContract')}</Typography>
+        <Typography variant="h6" sx={{ marginBottom: '15px' }}>{t('domainSmartContract')}</Typography>
         <Tabs value="contract"
           TabIndicatorProps={{ style: { display: 'none' } }}
         >

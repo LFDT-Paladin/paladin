@@ -19,6 +19,15 @@ runs:
       distribution: 'temurin'
       java-version: 21
 
+  # Set up Node (UI client build + Playwright e2e)
+  - name: Setup Node
+    uses: actions/setup-node@v7
+    with:
+      node-version: '20'
+      cache: 'npm'
+      cache-dependency-path: |
+        ui/**/package-lock.json
+
   # Set up Go
   - name: Set up Go
     uses: actions/setup-go@v5

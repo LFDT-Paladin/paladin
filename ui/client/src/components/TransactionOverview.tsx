@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -20,7 +20,7 @@ import { useTranslation } from "react-i18next";
 import { Hash } from "./Hash";
 import { Captions } from "lucide-react";
 import { TransactionStatus } from "./TransactionStatus";
-import { EllapsedTime } from "./EllapsedTime";
+import { ElapsedTime } from "./ElapsedTime";
 
 type Props = {
   transaction: ITransaction
@@ -126,7 +126,7 @@ export const TransactionOverview: React.FC<Props> = ({ transaction }) => {
               <Typography variant="body2" color="textSecondary">{t('time')}</Typography>
             </TableCell>
             <TableCell sx={{ paddingTop: 0, paddingBottom: 0 }}>
-              <EllapsedTime icon={<></>} timestamp={transaction.block.timestamp} />
+              <ElapsedTime icon={<></>} timestamp={transaction.block.timestamp} />
             </TableCell>
           </TableRow>
         </TableBody>

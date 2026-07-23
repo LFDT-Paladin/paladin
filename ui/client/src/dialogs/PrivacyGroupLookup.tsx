@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -25,32 +25,25 @@ import {
   TextField
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isValidAddress, isValidPrivacyGroupId } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { getPrivacyGroupByAddress, getPrivacyGroupById } from '../queries/privacyGroups';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const PrivacyGroupLookupDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
   const [notFound, setNotFound] = useState(false);
   const [idOrContractAddress, setIdOrContractAddress] = useState('');
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setIdOrContractAddress('');
-    }
-  }, [dialogOpen]);
 
   const { refetch: privacyGroupById } = useQuery({
     queryKey: [`privacy-group-by-id-${idOrContractAddress}`],
@@ -70,16 +63,16 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
     setNotFound(false);
     if (isValidPrivacyGroupId(idOrContractAddress)) {
       privacyGroupById().then(result => {
-        if (result.data !== null) {
-          navigate(`/ui/privacy-groups/${idOrContractAddress}`);
+        if (result.isSuccess) {
+          navigate(AppRouteFactory.getPath('PrivacyGroup', { idOrAddress: idOrContractAddress }));
         } else {
           setNotFound(true);
         }
       });
     } else if (isValidAddress(idOrContractAddress)) {
       privacyGroupByAddress().then(result => {
-        if (result.data !== null) {
-          navigate(`/ui/privacy-groups/${idOrContractAddress}`);
+        if (result.isSuccess) {
+          navigate(AppRouteFactory.getPath('PrivacyGroup', { idOrAddress: idOrContractAddress }));
         } else {
           setNotFound(true);
         }
@@ -91,8 +84,8 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       PaperProps={{ sx: { width: '680px' } }}
       fullWidth
       maxWidth="md"
@@ -104,14 +97,13 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
         <DialogTitle>
           {t('lookup')}
           {notFound &&
-            <Alert sx={{ marginTop: '15px' }} variant="filled" severity="warning">{t('domainSmartContractNotFound')}</Alert>}
+            <Alert sx={{ marginTop: '15px' }} variant="filled" severity="warning">{t('privacyGroupNotFound')}</Alert>}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ marginTop: '6px' }}>
             <TextField
               label={t('privacyGroupIdOrContractAddress')}
-              autoComplete="OFF"
-              sx={{ marginBottom: '20px' }}
+              autoComplete="off"
               fullWidth
               value={idOrContractAddress}
               onChange={event => setIdOrContractAddress(event.target.value)}
@@ -133,7 +125,7 @@ export const PrivacyGroupLookupDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

@@ -1,6 +1,6 @@
 # Dependency versions (some used by builder and runtime)
 ARG JAVA_VERSION=21.0.4+7
-ARG NODE_VERSION=20.17.0
+ARG NODE_VERSION=20.19.0
 ARG PROTO_VERSION=28.2
 ARG GO_VERSION=1.25.11
 ARG GO_MIGRATE_VERSION=4.18.3
@@ -135,6 +135,7 @@ COPY rpcauth/basicauth rpcauth/basicauth
 COPY signingmodules/example signingmodules/example
 COPY transports/grpc transports/grpc
 COPY ui/client ui/client
+COPY ui/e2e ui/e2e
 # No build of these four, but we need to go.mod to make the go.work valid
 COPY testinfra/go.mod testinfra/go.mod
 COPY operator/go.mod operator/go.mod

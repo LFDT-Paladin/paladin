@@ -1,0 +1,416 @@
+[
+  {
+    "isKey": false,
+    "hasChildren": true,
+    "parent": "",
+    "path": "org1",
+    "name": "org1",
+    "index": 0,
+    "wallet": "",
+    "keyHandle": "",
+    "verifiers": null
+  },
+  {
+    "isKey": true,
+    "hasChildren": true,
+    "parent": "",
+    "path": "org2",
+    "name": "org2",
+    "index": 1,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/1",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000001",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "",
+    "path": "rootkey1",
+    "name": "rootkey1",
+    "index": 2,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/2",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000002",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "",
+    "path": "rootkey2",
+    "name": "rootkey2",
+    "index": 3,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/3",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000003",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      },
+      {
+        "verifier": "0xb000000000000000000000000000000000000000000000000000000000000003",
+        "type": "eth_address_bytes",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "",
+    "path": "rootkey3",
+    "name": "rootkey3",
+    "index": 4,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/4",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000004",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "",
+    "path": "rootkey4",
+    "name": "rootkey4",
+    "index": 5,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/5",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000005",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "",
+    "path": "rootkey5",
+    "name": "rootkey5",
+    "index": 6,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/6",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000006",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      },
+      {
+        "verifier": "0xb000000000000000000000000000000000000000000000000000000000000006",
+        "type": "eth_address_bytes",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org1",
+    "path": "org1.org1key1",
+    "name": "org1key1",
+    "index": 0,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/7",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000007",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org1",
+    "path": "org1.org1key2",
+    "name": "org1key2",
+    "index": 1,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/8",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000008",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org1",
+    "path": "org1.org1key3",
+    "name": "org1key3",
+    "index": 2,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/9",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000009",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      },
+      {
+        "verifier": "0xb000000000000000000000000000000000000000000000000000000000000009",
+        "type": "eth_address_bytes",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org1",
+    "path": "org1.org1key4",
+    "name": "org1key4",
+    "index": 3,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/10",
+    "verifiers": [
+      {
+        "verifier": "0xa00000000000000000000000000000000000000a",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org1",
+    "path": "org1.org1key5",
+    "name": "org1key5",
+    "index": 4,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/11",
+    "verifiers": [
+      {
+        "verifier": "0xa00000000000000000000000000000000000000b",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": false,
+    "hasChildren": true,
+    "parent": "org1",
+    "path": "org1.suborg1",
+    "name": "suborg1",
+    "index": 5,
+    "wallet": "",
+    "keyHandle": "",
+    "verifiers": null
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org1.suborg1",
+    "path": "org1.suborg1.suborg1key1",
+    "name": "suborg1key1",
+    "index": 0,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/12",
+    "verifiers": [
+      {
+        "verifier": "0xa00000000000000000000000000000000000000c",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      },
+      {
+        "verifier": "0xb00000000000000000000000000000000000000000000000000000000000000c",
+        "type": "eth_address_bytes",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org1.suborg1",
+    "path": "org1.suborg1.suborg1key2",
+    "name": "suborg1key2",
+    "index": 1,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/13",
+    "verifiers": [
+      {
+        "verifier": "0xa00000000000000000000000000000000000000d",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org1.suborg1",
+    "path": "org1.suborg1.suborg1key3",
+    "name": "suborg1key3",
+    "index": 2,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/14",
+    "verifiers": [
+      {
+        "verifier": "0xa00000000000000000000000000000000000000e",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org1.suborg1",
+    "path": "org1.suborg1.suborg1key4",
+    "name": "suborg1key4",
+    "index": 3,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/15",
+    "verifiers": [
+      {
+        "verifier": "0xa00000000000000000000000000000000000000f",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      },
+      {
+        "verifier": "0xb00000000000000000000000000000000000000000000000000000000000000f",
+        "type": "eth_address_bytes",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org1.suborg1",
+    "path": "org1.suborg1.suborg1key5",
+    "name": "suborg1key5",
+    "index": 4,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/16",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000010",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org2",
+    "path": "org2.org2key1",
+    "name": "org2key1",
+    "index": 0,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/17",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000011",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org2",
+    "path": "org2.org2key2",
+    "name": "org2key2",
+    "index": 1,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/18",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000012",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      },
+      {
+        "verifier": "0xb000000000000000000000000000000000000000000000000000000000000012",
+        "type": "eth_address_bytes",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org2",
+    "path": "org2.org2key3",
+    "name": "org2key3",
+    "index": 2,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/19",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000013",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org2",
+    "path": "org2.org2key4",
+    "name": "org2key4",
+    "index": 3,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/20",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000014",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  },
+  {
+    "isKey": true,
+    "hasChildren": false,
+    "parent": "org2",
+    "path": "org2.org2key5",
+    "name": "org2key5",
+    "index": 4,
+    "wallet": "hdwallet1",
+    "keyHandle": "m/44'/60'/0'/0/21",
+    "verifiers": [
+      {
+        "verifier": "0xa000000000000000000000000000000000000015",
+        "type": "eth_address",
+        "algorithm": "ecdsa:secp256k1"
+      },
+      {
+        "verifier": "0xb000000000000000000000000000000000000000000000000000000000000015",
+        "type": "eth_address_bytes",
+        "algorithm": "ecdsa:secp256k1"
+      }
+    ]
+  }
+]

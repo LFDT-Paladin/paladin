@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -16,9 +16,10 @@
 
 import { useTranslation } from "react-i18next";
 import { IState } from "../interfaces";
-import { Box, Button } from "@mui/material";
+import { Box } from "@mui/material";
 import { SendStateDialog } from "../dialogs/SendState";
 import { useState } from "react";
+import { ActionButton } from "./ActionButton";
 
 type Props = {
   state: IState
@@ -32,19 +33,18 @@ export const StateActions: React.FC<Props> = ({ state }) => {
   return (
     <>
       <Box sx={{ display: 'flex', gap: '20px' }}>
-        <Button
-          sx={{ fontWeight: '400' }}
-          size="small"
+        <ActionButton
           onClick={() => setSendStateDialogOpen(true)}
         >
           {t('send')}
-        </Button>
+        </ActionButton>
       </Box>
-      <SendStateDialog
-        state={state}
-        dialogOpen={sendStateDialogOpen}
-        setDialogOpen={setSendStateDialogOpen}
-      />
+      {sendStateDialogOpen && (
+        <SendStateDialog
+          state={state}
+          onClose={() => setSendStateDialogOpen(false)}
+        />
+      )}
     </>
   );
 }

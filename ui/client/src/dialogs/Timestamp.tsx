@@ -21,21 +21,19 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Grid2
+  Grid2 as Grid
 } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import { SingleValue } from '../components/SingleValue';
 
 type Props = {
   timestamp: string
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const TimestampDialog: React.FC<Props> = ({
   timestamp,
-  dialogOpen,
-  setDialogOpen
+  onClose
 }) => {
 
   const { t } = useTranslation();
@@ -56,8 +54,8 @@ export const TimestampDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       fullWidth
       maxWidth="sm"
     >
@@ -66,25 +64,25 @@ export const TimestampDialog: React.FC<Props> = ({
       </DialogTitle>
       <DialogContent>
         <Box sx={{ alignItems: 'center', minWidth: '300px', paddingTop: '5px' }}>
-          <Grid2 container direction="column" spacing={2}>
-            <Grid2>
+          <Grid container direction="column" spacing={2}>
+            <Grid>
               <SingleValue label={t('localTime')} value={date.toLocaleString()} />
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <SingleValue label={t('ISO')} value={timestamp} />
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <SingleValue label={t('UTC')} value={date.toUTCString()} />
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <SingleValue label={t('epoch')} value={getEpoch()} />
-            </Grid2>
-          </Grid2>
+            </Grid>
+          </Grid>
         </Box>
       </DialogContent>
       <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
         <Button
-          onClick={() => setDialogOpen(false)}
+          onClick={() => onClose()}
           variant="contained"
           disableElevation>
           {t('close')}

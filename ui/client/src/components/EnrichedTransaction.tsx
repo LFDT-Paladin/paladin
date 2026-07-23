@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -14,13 +14,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Box, Chip, Grid2, IconButton, Tooltip, Typography, useTheme } from "@mui/material";
+import { Box, Chip, Grid2 as Grid, IconButton, Tooltip, Typography, useTheme } from "@mui/material";
 import { IEnrichedTransaction } from "../interfaces"
 import { useTranslation } from "react-i18next";
 import { Hash } from "./Hash";
 import { Captions } from "lucide-react";
 import { TransactionStatus } from "./TransactionStatus";
-import { EllapsedTime } from "./EllapsedTime";
+import { ElapsedTime } from "./ElapsedTime";
 import iconLight from '../../public/paladin-icon-light.svg';
 import { PaladinReceiptChip } from "./PaladinReceiptChip";
 import DnsIcon from '@mui/icons-material/Dns';
@@ -28,6 +28,7 @@ import { EventChip } from "./EventChip";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useNavigate } from "react-router-dom";
 import { customNavigate } from "../utils";
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   enrichedTransaction: IEnrichedTransaction
@@ -50,32 +51,32 @@ export const EnrichedTransaction: React.FC<Props> = ({
           borderLeft: `solid 3px ${theme.palette.primary.main}`
         }}>
         <Box sx={{ padding: '10px' }}>
-          <Grid2 container justifyContent="space-between" spacing={3}>
-            <Grid2>
+          <Grid container justifyContent="space-between" spacing={3}>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('transactionHash')}</Typography>
               <Box sx={{ width: '140px' }}>
                 <Hash Icon={<Captions size="18px" />} title={t('hash')} hash={enrichedTransaction.hash} hideTitle />
               </Box>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('block')}</Typography>
               <Typography align="center" variant="h6" color="textPrimary">{enrichedTransaction.blockNumber.toLocaleString()}</Typography>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('transactionIndex')}</Typography>
               <Typography align="center" variant="h6" color="textPrimary">{enrichedTransaction.transactionIndex}</Typography>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('nonce')}</Typography>
               <Typography align="center" variant="h6" color="textPrimary">{enrichedTransaction.nonce}</Typography>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('from')}</Typography>
               <Box sx={{ width: '140px' }}>
                 <Hash Icon={<Captions size="18px" />} title={t('hash')} hash={enrichedTransaction.from} hideTitle />
               </Box>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('to')}</Typography>
               <Box sx={{ width: '140px' }}>
                 {enrichedTransaction.to ?
@@ -84,27 +85,27 @@ export const EnrichedTransaction: React.FC<Props> = ({
                   <Typography align="center" variant="h6" color="textPrimary">--</Typography>
                 }
               </Box>
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Typography align="center" variant="body2" color="textSecondary">{t('status')}</Typography>
               <TransactionStatus transaction={enrichedTransaction} />
-            </Grid2>
-            <Grid2>
+            </Grid>
+            <Grid>
               <Box sx={{ minWidth: '100px', textAlign: 'center' }}>
                 <Typography align="center" variant="body2" color="textSecondary">{t('time')}</Typography>
-                <EllapsedTime icon={null} timestamp={enrichedTransaction.block.timestamp} />
+                <ElapsedTime icon={null} timestamp={enrichedTransaction.block.timestamp} />
               </Box>
-            </Grid2>
-            <Grid2 alignContent="center">
+            </Grid>
+            <Grid alignContent="center">
               <Tooltip arrow title={t('open')}>
                 <IconButton
-                  onClick={event => customNavigate(`/ui/transactions/${enrichedTransaction.hash}`, event, navigate)}
+                  onClick={event => customNavigate(AppRouteFactory.getPath('Transaction', { hashOrId: enrichedTransaction.hash }), event, navigate)}
                 >
                   <OpenInNewIcon color="secondary" fontSize="medium" />
                 </IconButton>
               </Tooltip>
-            </Grid2>
-          </Grid2>
+            </Grid>
+          </Grid>
         </Box>
         <Box
           sx={{
@@ -148,7 +149,7 @@ export const EnrichedTransaction: React.FC<Props> = ({
             <Typography variant="body2">{t('events')}</Typography>
             <Chip label={enrichedTransaction.events.length} sx={{ borderRadius: '4px', height: '25px' }} />
             <Box sx={{ width: '20px' }} />
-            {enrichedTransaction.events.sort((a, b) => a.logIndex - b.logIndex).map(event =>
+            {[...enrichedTransaction.events].sort((a, b) => a.logIndex - b.logIndex).map(event =>
               <EventChip key={`${event.transactionHash}-${event.logIndex}`} event={event} />
             )}
           </Box>

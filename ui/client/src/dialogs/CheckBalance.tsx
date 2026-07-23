@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -24,23 +24,21 @@ import {
   DialogTitle,
   TextField,
   Typography,
-  Grid2,
+  Grid2 as Grid,
 } from '@mui/material';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { callBalanceOf, BalanceOfResult } from '../queries/balance';
 
 type Props = {
-  dialogOpen: boolean;
-  setDialogOpen: Dispatch<SetStateAction<boolean>>;
+  onClose: () => void
   domain: string;
   contractAddress: string;
 };
 
 export const CheckBalanceDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
   domain,
   contractAddress,
 }) => {
@@ -57,14 +55,6 @@ export const CheckBalanceDialog: React.FC<Props> = ({
     retry: false,
     staleTime: 0
   });
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setAccount('');
-      setIsError(false);
-      setResult(undefined);
-    }
-  }, [dialogOpen]);
 
   const handleSubmit = () => {
     refetch().then((result) => {
@@ -85,8 +75,8 @@ export const CheckBalanceDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       fullWidth
       maxWidth="sm"
     >
@@ -110,8 +100,8 @@ export const CheckBalanceDialog: React.FC<Props> = ({
               sx={{ alignItems: 'center', marginTop: '10px' }}
             >
               <Box>
-                <Grid2 container spacing={2} sx={{ textAlign: 'left' }}>
-                  <Grid2 size={4}>
+                <Grid container spacing={2} sx={{ textAlign: 'left' }}>
+                  <Grid size={4}>
                     <Typography variant="body2">
                       <strong>{t('totalBalance')}:</strong>
                     </Typography>
@@ -121,8 +111,8 @@ export const CheckBalanceDialog: React.FC<Props> = ({
                     >
                       {formatBalance(result.totalBalance)}
                     </Typography>
-                  </Grid2>
-                  <Grid2 size={4}>
+                  </Grid>
+                  <Grid size={4}>
                     <Typography variant="body2">
                       <strong>{t('totalStates')}:</strong>
                     </Typography>
@@ -132,8 +122,8 @@ export const CheckBalanceDialog: React.FC<Props> = ({
                     >
                       {formatBalance(result.totalStates)}
                     </Typography>
-                  </Grid2>
-                  <Grid2 size={4}>
+                  </Grid>
+                  <Grid size={4}>
                     <Typography variant="body2">
                       <strong>{t('overflow')}:</strong>
                     </Typography>
@@ -143,8 +133,8 @@ export const CheckBalanceDialog: React.FC<Props> = ({
                     >
                       {result.overflow ? t('true') : t('false')}
                     </Typography>
-                  </Grid2>
-                </Grid2>
+                  </Grid>
+                </Grid>
               </Box>
             </Alert>
           )}
@@ -176,7 +166,7 @@ export const CheckBalanceDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('close')}
           </Button>

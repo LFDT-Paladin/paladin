@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { IFilter, IMessage, ITransportPeer } from "../interfaces";
-import { translateFilters } from "../utils";
+import { IFetchTransportPeersParams, IMessage, IPagedQueryParams, IPagedResult, ISortPagingReference, ITransportPeer } from "../interfaces";
+import { deepMerge, toPagedResult, translateFilters } from "../utils";
 import { generatePostReq, returnResponse } from "./common";
 import { RpcEndpoint, RpcMethods } from "./rpcMethods";
 import i18next from "i18next";
@@ -26,7 +26,6 @@ export const fetchTransportNodeName = async (): Promise<string> => {
     id: Date.now(),
     method: RpcMethods.transport_nodeName,
   };
-
   return <Promise<string>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
@@ -42,7 +41,6 @@ export const fetchTransportLocalDetails = async (transport: string): Promise<str
     method: RpcMethods.transport_localTransportDetails,
     params: [transport]
   };
-
   return <Promise<string>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
@@ -51,59 +49,99 @@ export const fetchTransportLocalDetails = async (transport: string): Promise<str
   );
 };
 
-export const fetchTransportPeers = async (): Promise<ITransportPeer[]> => {
+export const fetchTransportPeersWithQuery = async (
+  params: IFetchTransportPeersParams
+): Promise<IPagedResult<ITransportPeer>> => {
+  const { limit, sortAscending, filters, refData } = params;
+  let translatedFilters = translateFilters(filters);
+  let customFilters: any = {};
+  if (refData !== undefined) {
+    if (sortAscending) {
+      customFilters.greaterThan = [{
+        field: 'name',
+        value: refData
+      }];
+    } else {
+      customFilters.lessThan = [{
+        field: 'name',
+        value: refData
+      }];
+    }
+  };
   const requestPayload = {
     jsonrpc: "2.0",
     id: Date.now(),
-    method: RpcMethods.transport_peers,
+    method: RpcMethods.transport_queryPeers,
+    params: [{
+      ...deepMerge(translatedFilters, customFilters),
+      limit: limit + 1,
+      sort: [`name ${sortAscending ? 'ASC' : 'DESC'}`]
+    }]
   };
-
-  return <Promise<ITransportPeer[]>>(
-    returnResponse(
-      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
-      i18next.t("errorFetchingTransportPeers")
-    )
+  const results = await returnResponse(
+    () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
+    i18next.t("errorFetchingTransportPeers")
   );
+  return toPagedResult(results, limit);
 };
 
-export const queryMessages = async (
-  limit: number,
-  sortAscending: boolean,
-  filters: IFilter[],
-  refTimestamp?: string
-): Promise<IMessage[]> => {
+export const buildMessagePagingReference = (
+  message: IMessage,
+  sortBy: string,
+): ISortPagingReference => ({
+  sortValue: sortBy === 'created' ? message.created : message[sortBy as keyof IMessage],
+  tiebreaker: message.id,
+});
 
+export const queryMessages = async (
+  params: IPagedQueryParams
+): Promise<IPagedResult<IMessage>> => {
+  const { limit, sortBy, sortAscending, filters, pageRef } = params;
   let translatedFilters = translateFilters(filters);
-  
+  const sortDirection = sortAscending ? 'ASC' : 'DESC';
+
+  let queryParams: any = {
+    ...translatedFilters,
+    limit: limit + 1,
+    sort: [
+      `${sortBy} ${sortDirection}`,
+      `id ${sortDirection}`,
+    ],
+  };
+
+  if (pageRef !== undefined) {
+    const comparison = sortAscending ? 'greaterThan' : 'lessThan';
+    queryParams.or = [
+      {
+        [comparison]: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+      },
+      {
+        equal: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+        [comparison]: [{
+          field: 'id',
+          value: pageRef.tiebreaker,
+        }],
+      },
+    ];
+  }
+
   const requestPayload = {
     jsonrpc: "2.0",
     id: Date.now(),
     method: RpcMethods.transport_queryReliableMessages,
-    params: [{
-      ...translatedFilters,
-      limit,
-      sort: [`created ${sortAscending ? 'ASC' : 'DESC'}`],
-      greaterThan: refTimestamp !== undefined && sortAscending ? [
-        {
-          field: 'created',
-          value: refTimestamp
-        }
-      ] : undefined,
-      lessThan: refTimestamp !== undefined && !sortAscending ? [
-        {
-          field: 'created',
-          value: refTimestamp
-        }
-      ] : undefined
-    }]
+    params: [queryParams]
   };
-
-  return <Promise<IMessage[]>>(
-    returnResponse(
-      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
-      i18next.t("errorFetchingMessages")
-    )
+  const results = await returnResponse(
+    () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
+    i18next.t("errorFetchingMessages")
   );
+  return toPagedResult(results, limit);
 };
 
 export const getMessage = async (

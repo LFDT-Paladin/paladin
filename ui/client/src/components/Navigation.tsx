@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -15,10 +15,10 @@
 // limitations under the License.
 
 import { Box, ButtonBase, Drawer, IconButton, List, ListItem, ListItemButton, ListItemText, useTheme } from "@mui/material";
-import { useLocation, useNavigate } from "react-router-dom";
-import { useContext, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ApplicationContext } from "../contexts/ApplicationContext";
+import { useApplicationContext } from "../contexts/ApplicationContext";
 import { CONSTANTS, customNavigate } from "../utils";
 import { AppRoutes } from "../routes";
 import logoDark from '../../public/paladin-title-dark.svg';
@@ -26,27 +26,19 @@ import logoLight from '../../public/paladin-title-light.svg';
 import { SettingsMenu } from "../menus/Settings";
 import SettingsIcon from '@mui/icons-material/Settings';
 
-interface Props {
-  navigationVisible: boolean;
-  setNavigationVisible: React.Dispatch<React.SetStateAction<boolean>>;
-}
-
-export const Navigation: React.FC<Props> = ({
-  navigationVisible,
-  setNavigationVisible
-}) => {
-
-  const { } = useContext(ApplicationContext);
+export const Navigation: React.FC = () => {
+  const { navigationVisible, setNavigationVisible } = useApplicationContext();
   const navigate = useNavigate();
   const pathname = useLocation().pathname.toLowerCase();
   const { t } = useTranslation();
   const theme = useTheme();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
+  const [searchParams] = useSearchParams();
+  const back = searchParams.get('back') ?? '';
+
   const drawerContent = (
     <>
-      {/* <Toolbar className="mainNavigation" /> */}
-
       <ButtonBase
         sx={{
           marginTop: '20px',
@@ -61,14 +53,14 @@ export const Navigation: React.FC<Props> = ({
         <ListItem>
           <ListItemButton
             onClick={event => customNavigate(AppRoutes.Transactions, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.Transactions)}>
+            selected={pathname.startsWith(AppRoutes.Transactions) && !['submissions'].includes(back)}>
             <ListItemText primary={t('transactions')} />
           </ListItemButton>
         </ListItem>
         <ListItem>
           <ListItemButton
             onClick={event => customNavigate(AppRoutes.Submissions, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.Submissions)}>
+            selected={pathname.startsWith(AppRoutes.Submissions) || back === 'submissions'}>
             <ListItemText primary={t('submissions')} />
           </ListItemButton>
         </ListItem>
@@ -81,9 +73,9 @@ export const Navigation: React.FC<Props> = ({
         </ListItem>
         <ListItem>
           <ListItemButton
-            onClick={event => customNavigate(AppRoutes.Registry, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.Registry)}>
-            <ListItemText primary={t('registry')} />
+            onClick={event => customNavigate(AppRoutes.Registries, event, navigate)}
+            selected={pathname.startsWith(AppRoutes.Registries)}>
+            <ListItemText primary={t('registries')} />
           </ListItemButton>
         </ListItem>
         <ListItem>
@@ -95,8 +87,11 @@ export const Navigation: React.FC<Props> = ({
         </ListItem>
         <ListItem>
           <ListItemButton
-            onClick={event => customNavigate(AppRoutes.PrivactGroups, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.PrivactGroups)}>
+            onClick={event => customNavigate(AppRoutes.PrivacyGroups, event, navigate)}
+            selected={
+              pathname.startsWith(AppRoutes.PrivacyGroups)
+              || pathname.startsWith(AppRoutes.PrivacyGroupMessages)
+            }>
             <ListItemText primary={t('privacyGroups')} />
           </ListItemButton>
         </ListItem>
@@ -109,14 +104,29 @@ export const Navigation: React.FC<Props> = ({
         </ListItem>
         <ListItem>
           <ListItemButton
-            onClick={event => customNavigate(AppRoutes.Messages, event, navigate)}
-            selected={pathname.startsWith(AppRoutes.Messages)}>
-            <ListItemText primary={t('messages')} />
+            onClick={event => customNavigate(AppRoutes.TransportConnections, event, navigate)}
+            selected={
+              pathname.startsWith(AppRoutes.TransportConnections)
+              || pathname.startsWith(AppRoutes.TransportMessages)
+            }>
+            <ListItemText primary={t('transports')} />
+          </ListItemButton>
+        </ListItem>
+        <ListItem>
+          <ListItemButton
+            onClick={event => customNavigate(AppRoutes.EventListeners, event, navigate)}
+            selected={
+              pathname.startsWith(AppRoutes.EventListeners)
+              || pathname.startsWith(AppRoutes.ReceiptListeners)
+              || pathname.startsWith(AppRoutes.PrivacyGroupListeners)
+            }>
+            <ListItemText primary={t('listeners')} />
           </ListItemButton>
         </ListItem>
       </List>
       <Box sx={{ display: 'flex', height: '100%', padding: '5px' }}>
         <IconButton
+          id="settings"
           size="large"
           sx={{
             marginTop: 'auto'

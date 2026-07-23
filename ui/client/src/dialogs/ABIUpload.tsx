@@ -23,27 +23,25 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
-  Grid2,
+  Grid2 as Grid,
   Radio,
   RadioGroup,
   TextField,
   Typography
 } from '@mui/material';
 import { FileUploader } from 'react-drag-drop-files';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { UploadFile } from '@mui/icons-material';
 import { useMutation } from '@tanstack/react-query';
 import { uploadABI } from '../queries/storeABI';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: Dispatch<SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const ABIUploadDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen
+  onClose
 }) => {
 
   const { t } = useTranslation();
@@ -56,16 +54,6 @@ export const ABIUploadDialog: React.FC<Props> = ({
   const { mutate, data, reset, error } = useMutation({
     mutationFn: (value: Object) => uploadABI(value)
   });
-
-  useEffect(() => {
-    if (dialogOpen) {
-      reset();
-      setRadioSelection('file');
-      setFileSelected(null);
-      setAbiText('');
-      setErrorMessage(undefined);
-    }
-  }, [dialogOpen]);
 
   useEffect(() => {
     if(error !== null) {
@@ -100,10 +88,10 @@ export const ABIUploadDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      open={dialogOpen}
+      open
       fullWidth
       maxWidth="md"
-      onClose={() => setDialogOpen(false)}
+      onClose={onClose}
     >
       <form onSubmit={(event) => {
         event.preventDefault();
@@ -130,11 +118,11 @@ export const ABIUploadDialog: React.FC<Props> = ({
             value={radioSelection}
             onChange={event => setRadioSelection(event.target.value as 'file' || 'text')}
           >
-            <Grid2 container direction="column">
-              <Grid2>
+            <Grid container direction="column">
+              <Grid>
                 <FormControlLabel value="file" control={<Radio />} label={t('uploadFile')} />
-              </Grid2>
-              <Grid2>
+              </Grid>
+              <Grid>
                 <FileUploader
                   disabled={radioSelection !== 'file'}
                   handleChange={(file: any) => {
@@ -164,14 +152,14 @@ export const ABIUploadDialog: React.FC<Props> = ({
                   }
                   types={['abi']}
                 />
-              </Grid2>
-              <Grid2>
+              </Grid>
+              <Grid>
                 <Box sx={{ height: '25px' }} />
-              </Grid2>
-              <Grid2>
+              </Grid>
+              <Grid>
                 <FormControlLabel value="text" control={<Radio />} label={t('pasteABI')} />
-              </Grid2>
-              <Grid2>
+              </Grid>
+              <Grid>
                 <TextField
                   disabled={radioSelection !== 'text'}
                   fullWidth
@@ -180,8 +168,8 @@ export const ABIUploadDialog: React.FC<Props> = ({
                   value={abiText}
                   onChange={event => setAbiText(event.target.value)}
                 />
-              </Grid2>
-            </Grid2>
+              </Grid>
+            </Grid>
           </RadioGroup>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', paddingBottom: '20px' }}>
@@ -199,7 +187,7 @@ export const ABIUploadDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t(abiUploadCount === 0 ? 'cancel' : 'close')}
           </Button>

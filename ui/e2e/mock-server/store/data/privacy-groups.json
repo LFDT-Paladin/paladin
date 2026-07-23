@@ -1,0 +1,515 @@
+[
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000001",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.999Z",
+    "name": "group01",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000001",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000001",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000001",
+    "contractAddress": "0x4000000000000000000000000000000000000001"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000002",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.998Z",
+    "name": "group02",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000002",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000002",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000002",
+    "contractAddress": "0x4000000000000000000000000000000000000002"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000003",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.997Z",
+    "name": "group03",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000003",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000003",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000003",
+    "contractAddress": "0x4000000000000000000000000000000000000003"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000004",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.996Z",
+    "name": "group04",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000004",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000004",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000004",
+    "contractAddress": "0x4000000000000000000000000000000000000004"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000005",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.995Z",
+    "name": "group05",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000005",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000005",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000005",
+    "contractAddress": "0x4000000000000000000000000000000000000005"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000006",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.994Z",
+    "name": "group06",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000006",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000006",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000006",
+    "contractAddress": "0x4000000000000000000000000000000000000006"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000007",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.993Z",
+    "name": "group07",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000007",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000007",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000007",
+    "contractAddress": "0x4000000000000000000000000000000000000007"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000008",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.992Z",
+    "name": "group08",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000008",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000008",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000008",
+    "contractAddress": "0x4000000000000000000000000000000000000008"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000009",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.991Z",
+    "name": "group09",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000009",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000009",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000009",
+    "contractAddress": "0x4000000000000000000000000000000000000009"
+  },
+  {
+    "id": "0xe00000000000000000000000000000000000000000000000000000000000000a",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.990Z",
+    "name": "group10",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x500000000000000000000000000000000000000000000000000000000000000a",
+    "genesisSchema": "0x600000000000000000000000000000000000000000000000000000000000000a",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000010",
+    "contractAddress": "0x400000000000000000000000000000000000000a"
+  },
+  {
+    "id": "0xe00000000000000000000000000000000000000000000000000000000000000b",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.989Z",
+    "name": "group11",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x500000000000000000000000000000000000000000000000000000000000000b",
+    "genesisSchema": "0x600000000000000000000000000000000000000000000000000000000000000b",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000011",
+    "contractAddress": "0x400000000000000000000000000000000000000b"
+  },
+  {
+    "id": "0xe00000000000000000000000000000000000000000000000000000000000000c",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.988Z",
+    "name": "group12",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x500000000000000000000000000000000000000000000000000000000000000c",
+    "genesisSchema": "0x600000000000000000000000000000000000000000000000000000000000000c",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000012",
+    "contractAddress": "0x400000000000000000000000000000000000000c"
+  },
+  {
+    "id": "0xe00000000000000000000000000000000000000000000000000000000000000d",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.987Z",
+    "name": "group13",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x500000000000000000000000000000000000000000000000000000000000000d",
+    "genesisSchema": "0x600000000000000000000000000000000000000000000000000000000000000d",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000013",
+    "contractAddress": "0x400000000000000000000000000000000000000d"
+  },
+  {
+    "id": "0xe00000000000000000000000000000000000000000000000000000000000000e",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.986Z",
+    "name": "group14",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x500000000000000000000000000000000000000000000000000000000000000e",
+    "genesisSchema": "0x600000000000000000000000000000000000000000000000000000000000000e",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000014",
+    "contractAddress": "0x400000000000000000000000000000000000000e"
+  },
+  {
+    "id": "0xe00000000000000000000000000000000000000000000000000000000000000f",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.985Z",
+    "name": "group15",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x500000000000000000000000000000000000000000000000000000000000000f",
+    "genesisSchema": "0x600000000000000000000000000000000000000000000000000000000000000f",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000015",
+    "contractAddress": "0x400000000000000000000000000000000000000f"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000010",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.984Z",
+    "name": "group16",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000010",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000010",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000016",
+    "contractAddress": "0x4000000000000000000000000000000000000010"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000011",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.983Z",
+    "name": "group17",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000011",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000011",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000017",
+    "contractAddress": "0x4000000000000000000000000000000000000011"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000012",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.982Z",
+    "name": "group18",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000012",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000012",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000018",
+    "contractAddress": "0x4000000000000000000000000000000000000012"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000013",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.981Z",
+    "name": "group19",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000013",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000013",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000019",
+    "contractAddress": "0x4000000000000000000000000000000000000013"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000014",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.980Z",
+    "name": "group20",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000014",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000014",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000020",
+    "contractAddress": "0x4000000000000000000000000000000000000014"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000015",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.979Z",
+    "name": "group21",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000015",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000015",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000021",
+    "contractAddress": "0x4000000000000000000000000000000000000015"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000016",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.978Z",
+    "name": "group22",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000016",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000016",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000022",
+    "contractAddress": "0x4000000000000000000000000000000000000016"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000017",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.977Z",
+    "name": "group23",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000017",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000017",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000023",
+    "contractAddress": "0x4000000000000000000000000000000000000017"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000018",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.976Z",
+    "name": "group24",
+    "members": [
+      "alice@node1",
+      "bob@node2"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000018",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000018",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000024",
+    "contractAddress": "0x4000000000000000000000000000000000000018"
+  },
+  {
+    "id": "0xe000000000000000000000000000000000000000000000000000000000000019",
+    "domain": "pente",
+    "created": "2026-01-01T12:00:00.975Z",
+    "name": "group25",
+    "members": [
+      "alice@node1",
+      "bob@node2",
+      "carol@node3"
+    ],
+    "properties": {},
+    "configuration": {
+      "endorsementType": "group",
+      "evmVersion": "shanghai",
+      "externalCallsEnabled": true
+    },
+    "genesisSalt": "0x5000000000000000000000000000000000000000000000000000000000000019",
+    "genesisSchema": "0x6000000000000000000000000000000000000000000000000000000000000019",
+    "genesisTransaction": "00000000-0000-1000-8000-200000000025",
+    "contractAddress": "0x4000000000000000000000000000000000000019"
+  }
+]
