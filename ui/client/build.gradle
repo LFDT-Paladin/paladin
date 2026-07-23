@@ -15,6 +15,7 @@
 
 task install(type: Exec) {
     // npm bug: optional native deps for rolldown aren't installed on first pass (https://github.com/npm/cli/issues/4828)
+    // note: fix has been fixed upstream, but until npm dependency is moved to 11.3+, this workaround will be needed
     executable 'bash'
     args '-c', 'npm install && npm install'
 
