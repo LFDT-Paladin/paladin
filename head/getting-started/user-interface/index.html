@@ -596,9 +596,9 @@
 <nav aria-label="Interacting with the UI" class="md-nav">
 <ul class="md-nav__list">
 <li class="md-nav__item">
-<a class="md-nav__link" href="#indexer">
+<a class="md-nav__link" href="#transactions">
 <span class="md-ellipsis">
-      Indexer
+      Transactions
     </span>
 </a>
 </li>
@@ -610,9 +610,51 @@
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="#registry">
+<a class="md-nav__link" href="#keys">
 <span class="md-ellipsis">
-      Registry
+      Keys
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#registries">
+<span class="md-ellipsis">
+      Registries
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#domains">
+<span class="md-ellipsis">
+      Domains
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#privacy-groups">
+<span class="md-ellipsis">
+      Privacy Groups
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#states">
+<span class="md-ellipsis">
+      States
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#transports">
+<span class="md-ellipsis">
+      Transports
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#listeners">
+<span class="md-ellipsis">
+      Listeners
     </span>
 </a>
 </li>
@@ -1380,9 +1422,9 @@
 <nav aria-label="Interacting with the UI" class="md-nav">
 <ul class="md-nav__list">
 <li class="md-nav__item">
-<a class="md-nav__link" href="#indexer">
+<a class="md-nav__link" href="#transactions">
 <span class="md-ellipsis">
-      Indexer
+      Transactions
     </span>
 </a>
 </li>
@@ -1394,9 +1436,51 @@
 </a>
 </li>
 <li class="md-nav__item">
-<a class="md-nav__link" href="#registry">
+<a class="md-nav__link" href="#keys">
 <span class="md-ellipsis">
-      Registry
+      Keys
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#registries">
+<span class="md-ellipsis">
+      Registries
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#domains">
+<span class="md-ellipsis">
+      Domains
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#privacy-groups">
+<span class="md-ellipsis">
+      Privacy Groups
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#states">
+<span class="md-ellipsis">
+      States
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#transports">
+<span class="md-ellipsis">
+      Transports
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#listeners">
+<span class="md-ellipsis">
+      Listeners
     </span>
 </a>
 </li>
@@ -1412,7 +1496,8 @@
 <article class="md-content__inner md-typeset">
 <h1 id="user-interface">User Interface<a class="headerlink" href="#user-interface" title="Permanent link">¶</a></h1>
 <h2 id="introduction">Introduction<a class="headerlink" href="#introduction" title="Permanent link">¶</a></h2>
-<p>The graphical user interface makes it easy to visualize activity in Paladin nodes. This includes transactions, events, submissions and node registry.</p>
+<p>The graphical user interface makes it easy to visualize activity in Paladin nodes. Panels cover transactions, submissions, keys, registries, domains, privacy groups, states, transports, and listeners.</p>
+<p>The UI supports <strong>read-only</strong> and <strong>edit</strong> modes (available from Settings). Read-only is the default and is a convenience for exploration. Switch to edit mode when you need to create or modify resources through the UI.</p>
 <h2 id="accessing-the-ui">Accessing the UI<a class="headerlink" href="#accessing-the-ui" title="Permanent link">¶</a></h2>
 <p>Each Paladin node runs an instance of the Paladin UI at the path <code>/ui</code>. If you used the provided kind config
 (or a similar port mapping) with devnet, you should be able to access the UI for each node:</p>
@@ -1422,17 +1507,24 @@
 <li><a href="http://localhost:31748/ui">http://localhost:31748/ui</a></li>
 </ul>
 <h2 id="interacting-with-the-ui">Interacting with the UI<a class="headerlink" href="#interacting-with-the-ui" title="Permanent link">¶</a></h2>
-<h3 id="indexer">Indexer<a class="headerlink" href="#indexer" title="Permanent link">¶</a></h3>
-<p>The indexer panel displays recent transactions and events. </p>
-<p><img alt="Indexer" src="../../images/ui-indexer.png" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57"/></p>
-<p>Clicking on <code>View Details</code> brings up detailed information on a transaction or event:</p>
-<p><img alt="Transaction" src="../../images/ui-transaction.png" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57"/></p>
+<h3 id="transactions">Transactions<a class="headerlink" href="#transactions" title="Permanent link">¶</a></h3>
+<p><img alt="Transactions" src="../../images/ui-transactions.png" style="box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57)"/></p>
 <h3 id="submissions">Submissions<a class="headerlink" href="#submissions" title="Permanent link">¶</a></h3>
-<p>The submissions panel displays recent transactions that have been submitted with an option to display only those in pending state.</p>
-<p><img alt="Submissions" src="../../images/ui-submissions.png" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57"/></p>
-<h3 id="registry">Registry<a class="headerlink" href="#registry" title="Permanent link">¶</a></h3>
-<p>The registry panel displays the list of Paladin nodes.</p>
-<p><img alt="Registry" src="../../images/ui-registry.png" style=" box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57"/></p>
+<p><img alt="Submissions" src="../../images/ui-submissions.png" style="box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57)"/></p>
+<h3 id="keys">Keys<a class="headerlink" href="#keys" title="Permanent link">¶</a></h3>
+<p><img alt="Keys" src="../../images/ui-keys.png" style="box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57)"/></p>
+<h3 id="registries">Registries<a class="headerlink" href="#registries" title="Permanent link">¶</a></h3>
+<p><img alt="Registries" src="../../images/ui-registries.png" style="box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57)"/></p>
+<h3 id="domains">Domains<a class="headerlink" href="#domains" title="Permanent link">¶</a></h3>
+<p><img alt="Domains" src="../../images/ui-domains.png" style="box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57)"/></p>
+<h3 id="privacy-groups">Privacy Groups<a class="headerlink" href="#privacy-groups" title="Permanent link">¶</a></h3>
+<p><img alt="Privacy Groups" src="../../images/ui-privacy-groups.png" style="box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57)"/></p>
+<h3 id="states">States<a class="headerlink" href="#states" title="Permanent link">¶</a></h3>
+<p><img alt="States" src="../../images/ui-states.png" style="box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57)"/></p>
+<h3 id="transports">Transports<a class="headerlink" href="#transports" title="Permanent link">¶</a></h3>
+<p><img alt="Transports" src="../../images/ui-transports.png" style="box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57)"/></p>
+<h3 id="listeners">Listeners<a class="headerlink" href="#listeners" title="Permanent link">¶</a></h3>
+<p><img alt="Listeners" src="../../images/ui-listeners.png" style="box-shadow: 0px 0px 15px 0px rgba(0,0,0,0.57)"/></p>
 </article>
 </div>
 <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
