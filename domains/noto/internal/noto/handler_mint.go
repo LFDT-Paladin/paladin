@@ -208,14 +208,14 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 	if tx.DomainConfig.IsV0() {
 		paramsJSON, err = json.Marshal(&NotoMint_V0_Params{
 			TxId:      req.Transaction.TransactionId,
-			Outputs:   endorsableStateIDs(ctx, req.OutputStates, false),
+			Outputs:   h.noto.endorsableStateIDs(ctx, req.OutputStates, false),
 			Signature: sender.Payload,
 			Data:      data,
 		})
 	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		paramsJSON, err = json.Marshal(&NotoMintParams{
 			TxId:    req.Transaction.TransactionId,
-			Outputs: endorsableStateIDs(ctx, req.OutputStates, false),
+			Outputs: h.noto.endorsableStateIDs(ctx, req.OutputStates, false),
 			Proof:   payload,
 			Data:    data,
 		})

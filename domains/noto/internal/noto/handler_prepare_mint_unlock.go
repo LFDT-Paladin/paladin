@@ -235,7 +235,7 @@ func (h *prepareMintUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *typ
 	}
 
 	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
-	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, []*prototk.EndorsableState{}, spendOutputs, []*prototk.EndorsableState{}, req.InfoStates)
+	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, req.StateQueryContext, lockTransition, sender.Payload, []*prototk.EndorsableState{}, spendOutputs, []*prototk.EndorsableState{}, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}

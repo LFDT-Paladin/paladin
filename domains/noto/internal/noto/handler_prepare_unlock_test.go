@@ -317,17 +317,17 @@ func TestPrepareUnlock(t *testing.T) {
 	cancelTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
 	require.NoError(t, err)
 	notoParams := decodeSingleABITuple[types.NotoUpdateLockArgs](t, types.NotoUpdateLockArgsABI, fnParams.UpdateArgs)
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), endorsableStateIDs(ctx, readStates, false), endorsableStateIDs(ctx, infoStates[1:2], false), unlockTxData)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), n.endorsableStateIDs(ctx, readStates, false), n.endorsableStateIDs(ctx, infoStates[1:2], false), unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), endorsableStateIDs(ctx, readStates, false), endorsableStateIDs(ctx, infoStates[2:3], false), cancelTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), n.endorsableStateIDs(ctx, readStates, false), n.endorsableStateIDs(ctx, infoStates[2:3], false), cancelTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
 
 	// Validate the encoded noto parameters passed in
 	require.Equal(t, &types.NotoUpdateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Contents:     endorsableStateIDs(ctx, readStates, false),
+		Contents:     n.endorsableStateIDs(ctx, readStates, false),
 		OldLockState: pldtypes.MustParseBytes32(inputLockInfo.Id),
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
 		Options:      types.NotoLockOptions{SpendTxId: lockInfo.SpendTxId},
@@ -745,5 +745,5 @@ func TestPrepareUnlock_V0(t *testing.T) {
 }
 
 func unlockHashFromStates_V0(ctx context.Context, n *Noto, contract *ethtypes.Address0xHex, lockedInputs, lockedOutputs, outputs []*prototk.EndorsableState, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {
-	return n.unlockHashFromIDs_V0(ctx, contract, endorsableStateIDs(ctx, lockedInputs, false), endorsableStateIDs(ctx, lockedOutputs, false), endorsableStateIDs(ctx, outputs, false), data)
+	return n.unlockHashFromIDs_V0(ctx, contract, n.endorsableStateIDs(ctx, lockedInputs, false), n.endorsableStateIDs(ctx, lockedOutputs, false), n.endorsableStateIDs(ctx, outputs, false), data)
 }

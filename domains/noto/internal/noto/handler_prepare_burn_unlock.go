@@ -267,7 +267,7 @@ func (h *prepareBurnUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *typ
 	}
 
 	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
-	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
+	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, req.StateQueryContext, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}

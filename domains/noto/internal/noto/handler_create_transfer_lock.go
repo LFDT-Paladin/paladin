@@ -292,6 +292,7 @@ func (h *createTransferLockHandler) baseLedgerInvoke(ctx context.Context, tx *ty
 	functionName := "createLock"
 	paramsJSON, err := h.buildCreateLockParams(ctx,
 		tx,
+		req.StateQueryContext,
 		lockTransition,
 		sender.Payload,
 		inputCoinStates,

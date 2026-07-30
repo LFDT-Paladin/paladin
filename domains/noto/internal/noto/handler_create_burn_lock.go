@@ -274,6 +274,7 @@ func (h *createBurnLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 	functionName := "createLock"
 	paramsJSON, err := h.buildCreateLockParams(ctx,
 		tx,
+		req.StateQueryContext,
 		lockTransition,
 		sender.Payload,
 		inputCoinStates,

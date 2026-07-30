@@ -191,16 +191,16 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 	if tx.DomainConfig.IsV0() {
 		paramsJSON, err = json.Marshal(&NotoTransfer_V0_Params{
 			TxId:      req.Transaction.TransactionId,
-			Inputs:    endorsableStateIDs(ctx, req.InputStates, false),
-			Outputs:   endorsableStateIDs(ctx, req.OutputStates, false),
+			Inputs:    h.noto.endorsableStateIDs(ctx, req.InputStates, false),
+			Outputs:   h.noto.endorsableStateIDs(ctx, req.OutputStates, false),
 			Signature: sender.Payload,
 			Data:      data,
 		})
 	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		paramsJSON, err = json.Marshal(&NotoTransferParams{
 			TxId:    req.Transaction.TransactionId,
-			Inputs:  endorsableStateIDs(ctx, req.InputStates, useNullifier),
-			Outputs: endorsableStateIDs(ctx, req.OutputStates, false),
+			Inputs:  h.noto.endorsableStateIDs(ctx, req.InputStates, useNullifier),
+			Outputs: h.noto.endorsableStateIDs(ctx, req.OutputStates, false),
 			Proof:   proof,
 			Data:    data,
 		})

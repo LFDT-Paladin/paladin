@@ -201,16 +201,16 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 	if tx.DomainConfig.IsV0() {
 		paramsJSON, err = json.Marshal(&NotoTransfer_V0_Params{
 			TxId:      req.Transaction.TransactionId,
-			Inputs:    endorsableStateIDs(ctx, req.InputStates, false),
-			Outputs:   endorsableStateIDs(ctx, req.OutputStates, false),
+			Inputs:    h.noto.endorsableStateIDs(ctx, req.InputStates, false),
+			Outputs:   h.noto.endorsableStateIDs(ctx, req.OutputStates, false),
 			Signature: signature.Payload,
 			Data:      data,
 		})
 	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		paramsJSON, err = json.Marshal(&NotoTransferParams{
 			TxId:    req.Transaction.TransactionId,
-			Inputs:  endorsableStateIDs(ctx, req.InputStates, useNullifiers),
-			Outputs: endorsableStateIDs(ctx, req.OutputStates, false),
+			Inputs:  h.noto.endorsableStateIDs(ctx, req.InputStates, useNullifiers),
+			Outputs: h.noto.endorsableStateIDs(ctx, req.OutputStates, false),
 			Proof:   proof,
 			Data:    data,
 		})
