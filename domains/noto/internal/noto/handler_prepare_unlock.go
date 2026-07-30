@@ -102,6 +102,11 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		if err != nil {
 			return nil, err
 		}
+		// The cancel outputs are returned to the lock owner if the lock is cancelled, so like any
+		// other unlocked coin they need a nullifier to be spendable
+		if tx.DomainConfig.IsNullifierVariant() {
+			h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier)
+		}
 	}
 
 	unlockInfo, err := h.buildUnlockInfo(ctx, tx, req.ResolvedVerifiers, req.StateQueryContext, &unlockInfoInput{

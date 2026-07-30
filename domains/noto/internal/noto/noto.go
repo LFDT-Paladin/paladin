@@ -777,7 +777,20 @@ func (n *Noto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTra
 	if err != nil {
 		return nil, err
 	}
-	return handler.Assemble(ctx, tx, req)
+	res, err := handler.Assemble(ctx, tx, req)
+	if err != nil {
+		return nil, err
+	}
+	// Every new unlocked coin in a nullifier variant must carry a nullifier spec, otherwise the
+	// owner's node never derives a nullifier for it and the coin can never be spent, even though
+	// the base ledger confirms it. Checked here rather than in each handler so that no assembly
+	// path - including any added later - can miss it.
+	if tx.DomainConfig.IsNullifierVariant() && res.AssemblyResult == prototk.AssembleTransactionResponse_OK {
+		if err := n.validateNullifierSpecs(ctx, res.AssembledTransaction); err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
 }
 
 func (n *Noto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {

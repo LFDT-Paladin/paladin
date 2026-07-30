@@ -669,3 +669,54 @@ func TestUnlockNullifierVariantParams(t *testing.T) {
 	// No root: the proof is the bare signature
 	assert.Equal(t, signatureBytes.String(), notoParams.Proof.String())
 }
+
+// Every new unlocked coin must carry a nullifier spec, or the owner's node never derives a
+// nullifier for it and the coin is unspendable despite being confirmed on the base ledger. The
+// check runs at the single assembly entry point so that no handler can miss it.
+func TestValidateNullifierSpecs(t *testing.T) {
+	ctx := t.Context()
+	n := testNullifierNoto()
+	coin := mustParseJSON(&types.NotoCoin{
+		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.RandAddress(),
+		Amount: pldtypes.Uint64ToUint256(100),
+	})
+	withSpec := func(schemaID string) *prototk.NewState {
+		state := &prototk.NewState{SchemaId: schemaID, StateDataJson: coin}
+		n.addNullifierSpecs([]*prototk.NewState{state}, "recipient@node1")
+		return state
+	}
+
+	// A coin with a spec is fine, wherever it appears
+	require.NoError(t, n.validateNullifierSpecs(ctx, &prototk.AssembledTransaction{
+		OutputStates: []*prototk.NewState{withSpec("coin")},
+		InfoStates:   []*prototk.NewState{withSpec("coin")},
+	}))
+
+	// A coin without one is rejected, as an output...
+	err := n.validateNullifierSpecs(ctx, &prototk.AssembledTransaction{
+		OutputStates: []*prototk.NewState{{SchemaId: "coin", StateDataJson: coin}},
+	})
+	assert.Regexp(t, "PD200046", err)
+
+	// ...and as an info state, which is where the prepared spend and cancel outputs of a lock live
+	err = n.validateNullifierSpecs(ctx, &prototk.AssembledTransaction{
+		OutputStates: []*prototk.NewState{withSpec("coin")},
+		InfoStates:   []*prototk.NewState{{SchemaId: "coin", StateDataJson: coin}},
+	})
+	assert.Regexp(t, "PD200046", err)
+
+	// The error must not leak the coin data, which holds the owner and amount
+	assert.NotContains(t, err.Error(), "owner")
+
+	// Locked coins and lock info states are spent by ID, so they need no spec
+	require.NoError(t, n.validateNullifierSpecs(ctx, &prototk.AssembledTransaction{
+		OutputStates: []*prototk.NewState{
+			{SchemaId: "lockedCoin", StateDataJson: coin},
+			{SchemaId: "lockInfo", StateDataJson: `{}`},
+		},
+	}))
+
+	// Nothing to check when assembly produced nothing
+	require.NoError(t, n.validateNullifierSpecs(ctx, nil))
+}

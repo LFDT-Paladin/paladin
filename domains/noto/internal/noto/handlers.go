@@ -181,6 +181,28 @@ func (n *Noto) validateDistinctNullifiers(ctx context.Context, stateLists ...[]*
 	return nil
 }
 
+// Check that every new unlocked coin carries the nullifier spec that makes it spendable.
+//
+// Only unlocked coins are nullified: locked coins and lock info states are spent by ID, so they
+// are skipped. Note the state data is deliberately not included in the error - it holds the
+// owner and amount.
+func (n *Noto) validateNullifierSpecs(ctx context.Context, assembled *prototk.AssembledTransaction) error {
+	if assembled == nil || n.coinSchema == nil {
+		return nil
+	}
+	for _, states := range [][]*prototk.NewState{assembled.OutputStates, assembled.InfoStates} {
+		for i, state := range states {
+			if state.SchemaId != n.coinSchema.Id {
+				continue
+			}
+			if len(state.NullifierSpecs) == 0 {
+				return i18n.NewError(ctx, msgs.MsgMissingNullifierSpec, i)
+			}
+		}
+	}
+	return nil
+}
+
 // Check that the sender of a transaction provided a signature on the input details
 func (n *Noto) validateSignature(ctx context.Context, name string, attestations []*prototk.AttestationResult, encodedMessage []byte) error {
 	signature := domain.FindAttestation(name, attestations)

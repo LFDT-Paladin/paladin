@@ -83,4 +83,5 @@ var (
 	MsgNullifierGenerationFailed          = pde("PD200043", "Failed to generate nullifier for coin")
 	MsgIncompleteCoinForNullifier         = pde("PD200044", "Coin is missing the fields required to derive a nullifier")
 	MsgDuplicateNullifierInList           = pde("PD200045", "States '%s' and '%s' derive the same nullifier '%s'")
+	MsgMissingNullifierSpec               = pde("PD200046", "Assembled coin state %d is missing the nullifier spec required by this domain variant")
 )
