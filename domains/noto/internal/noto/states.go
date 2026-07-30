@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"slices"
+	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -139,6 +140,17 @@ func (n *Noto) unmarshalLockedCoin(stateData string) (*types.NotoLockedCoin, err
 	var coin types.NotoLockedCoin
 	err := json.Unmarshal([]byte(stateData), &coin)
 	return &coin, err
+}
+
+// Strict variant used on the nullifier derivation path only. Any field that is not part of
+// an unlocked coin must fail loudly rather than being silently dropped from the nullifier -
+// the nullifier has to cover the whole coin (see calculateNullifier). In particular this
+// rejects a NotoLockedCoin, which would otherwise unmarshal with its lockId discarded.
+func (n *Noto) unmarshalCoinStrict(stateData string) (*types.NotoCoin, error) {
+	var coin types.NotoCoin
+	decoder := json.NewDecoder(strings.NewReader(stateData))
+	decoder.DisallowUnknownFields()
+	return &coin, decoder.Decode(&coin)
 }
 
 func (n *Noto) unmarshalInfo(stateData string) (*types.TransactionData, error) {
@@ -429,6 +441,26 @@ func (n *Noto) prepareOutputs(owner *identityPair, amount *pldtypes.HexUint256, 
 	}, err
 }
 
+// addNullifierSpecs marks new unlocked coin states so that the owner's node derives a
+// nullifier for them when the state is distributed.
+//
+// This is required for every unlocked coin in a nullifier variant: without a nullifier record
+// the coin is invisible to the availability queries (which require one) and can never be
+// spent, even though it is confirmed on the base ledger. Locked coins are excluded - they are
+// spent by ID, so they have no nullifier.
+func (n *Noto) addNullifierSpecs(states []*prototk.NewState, party string) {
+	for _, newState := range states {
+		newState.NullifierSpecs = []*prototk.NullifierSpec{
+			{
+				Party:        party,
+				Algorithm:    types.AlgoDomainNullifier(n.name),
+				VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+				PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+			},
+		}
+	}
+}
+
 func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, owner *identityPair, amount *pldtypes.HexUint256, distributionList identityList) (*preparedLockedOutputs, error) {
 
 	// No outputs if we're preparing an empty lock
@@ -585,27 +617,65 @@ func encodedStateIDs(states []*pldapi.StateEncoded) []string {
 	return inputs
 }
 
-func endorsableStateIDs(ctx context.Context, states []*prototk.EndorsableState, useNullifier bool) []string {
+func (n *Noto) endorsableStateIDs(ctx context.Context, states []*prototk.EndorsableState, useNullifier bool) []string {
 	inputs := make([]string, len(states))
 	for i, state := range states {
-		if !useNullifier {
-			inputs[i] = state.Id
-		} else {
-			// Use the nullifier as the ID
-			var coin types.NotoCoin
-			var hashBytes *pldtypes.Bytes32
-			err := json.Unmarshal([]byte(state.StateDataJson), &coin)
-			if err == nil {
-				hashBytes, err = calculateNullifier(&coin)
-			}
-			if err != nil {
-				log.L(ctx).Errorf("error calculating nullifier for state %s: %v", state.Id, err)
-				return nil
-			}
-			inputs[i] = hashBytes.HexString()
+		id, err := n.endorsableStateID(ctx, state, useNullifier)
+		if err != nil {
+			log.L(ctx).Errorf("error calculating nullifier for state %s: %v", state.Id, err)
+			return nil
 		}
+		inputs[i] = id
 	}
 	return inputs
+}
+
+// endorsableStateID determines how a state is identified on the base ledger: by its
+// state ID (the commitment), or by its nullifier for the nullifier variants.
+//
+// Only unlocked coins are ever nullified, so anything else is identified by ID regardless
+// of the caller's preference - see stateNullifier.
+func (n *Noto) endorsableStateID(ctx context.Context, state *prototk.EndorsableState, useNullifier bool) (string, error) {
+	if !useNullifier {
+		return state.Id, nil
+	}
+	nullifier, hasNullifier, err := n.stateNullifier(ctx, state)
+	if err != nil {
+		return "", err
+	}
+	if !hasNullifier {
+		return state.Id, nil
+	}
+	return nullifier, nil
+}
+
+// stateNullifier derives the nullifier for a state, returning hasNullifier=false for the
+// states that are not nullified on-chain.
+//
+// Only unlocked coins have nullifiers. Nullifiers consume the unlocked inputs of a
+// transfer, burn or lock creation; locked states (both the locked coins and the lock info
+// states) are spent by ID throughout their lifecycle, which is what the base ledger checks
+// - see NotoNullifiers.sol and Noto._processLockedInputs. Locked coins are also queried
+// locally without requiring nullifiers (see prepareLockedInputs), so their spend records
+// are keyed by state ID.
+//
+// This dispatches on the schema rather than assuming every state is an unlocked coin,
+// because a NotoLockedCoin will happily unmarshal as a NotoCoin - so a locked coin reaching
+// this path would otherwise be given a plausible but meaningless nullifier, derived without
+// its lockId.
+func (n *Noto) stateNullifier(ctx context.Context, state *prototk.EndorsableState) (nullifier string, hasNullifier bool, err error) {
+	if n.coinSchema == nil || state.SchemaId != n.coinSchema.Id {
+		return "", false, nil
+	}
+	coin, err := n.unmarshalCoinStrict(state.StateDataJson)
+	if err != nil {
+		return "", true, err
+	}
+	hash, err := calculateNullifier(ctx, coin)
+	if err != nil {
+		return "", true, err
+	}
+	return hash.HexString(), true, nil
 }
 
 // IDs must previously have been allocated
@@ -787,24 +857,70 @@ func (n *Noto) encodeRootAndSignature(ctx context.Context, txContractAddress, st
 	return encoded, nil
 }
 
-func calculateNullifier(coin *types.NotoCoin) (*pldtypes.Bytes32, error) {
-	// the nullifier is keccak256(salt, amount)
-	// first abi encode the salt and amount
-	paramTypes := abi.ParameterArray{
-		&abi.Parameter{
-			Type: "uint256",
-			Name: "amount",
-		},
-		&abi.Parameter{
-			Type: "bytes32",
-			Name: "salt",
-		},
-	}
-	paramValues := map[string]any{
-		"amount": coin.Amount.Int(),
-		"salt":   coin.Salt,
-	}
+// Domain separation tag for nullifier derivation, so that any future kind of nullified
+// state cannot derive the same nullifier as a coin even if all of its fields are identical.
+var nullifierTagCoin = pldtypes.Bytes32Keccak([]byte("noto:nullifier:coin"))
 
+// calculateNullifier derives the nullifier that spends an unlocked coin.
+//
+// The nullifier MUST be an injective function of every field that makes the coin unique -
+// in particular the owner. Two coins that share a nullifier can never both be spent, as
+// the base ledger records nullifiers as used (see NotoNullifiers._processNullifiers), and
+// neither the notary nor the base ledger can detect the collision: the two coins are
+// distinct commitments and net out to a valid transaction. A sender that could produce a
+// collision - for example, an output to the recipient and an output to themselves sharing
+// a salt and amount - could therefore spend their own copy and permanently prevent the
+// recipient from ever spending theirs.
+//
+// Because the nullifier covers exactly the fields that determine the commitment, any
+// collision now requires a duplicate coin, which is already rejected: the base ledger
+// refuses to re-add an existing commitment to the append-only tree, and the state store
+// refuses a duplicate state ID.
+//
+// Note this derivation deliberately involves no key material: the notary must be able to
+// recompute it from the unmasked coin data when it endorses a spend. It follows that
+// anyone holding the coin data can compute the nullifier - see the note on GetVerifier.
+// lockProof returns the proof to embed in createLock / updateLock arguments.
+//
+// For the nullifier variants this is (root, signature) rather than the bare signature,
+// because NotoNullifiers checks the commitment tree root when it creates or updates a lock,
+// exactly as it does for a transfer - see NotoNullifiers._createLock / _updateLock, which
+// decode the proof and call _requireValidRoot. Sending only the signature makes those calls
+// revert. Other variants pass the signature through untouched.
+//
+// Note spendLock and delegateLock need no root: the base Noto implementations consume locked
+// states by ID and never decode the proof, and NotoNullifiers does not override them.
+func (n *Noto) lockProof(ctx context.Context, tx *types.ParsedTransaction, stateQueryContext string, signature []byte) ([]byte, error) {
+	if !tx.DomainConfig.IsNullifierVariant() {
+		return signature, nil
+	}
+	return n.encodeRootAndSignature(ctx, tx.ContractAddress.String(), stateQueryContext, signature)
+}
+
+func calculateNullifier(ctx context.Context, coin *types.NotoCoin) (*pldtypes.Bytes32, error) {
+	if coin == nil || coin.Owner == nil || coin.Amount == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgIncompleteCoinForNullifier)
+	}
+	// the nullifier is keccak256(tag, salt, owner, amount)
+	return nullifierHash(
+		abi.ParameterArray{
+			{Type: "bytes32", Name: "tag"},
+			{Type: "bytes32", Name: "salt"},
+			{Type: "address", Name: "owner"},
+			{Type: "uint256", Name: "amount"},
+		},
+		map[string]any{
+			"tag":    nullifierTagCoin,
+			"salt":   coin.Salt,
+			"owner":  coin.Owner,
+			"amount": coin.Amount.Int(),
+		},
+	)
+}
+
+// nullifierHash ABI encodes the supplied values (all static types, so the encoding is an
+// unambiguous concatenation) and returns the keccak256 hash of the result.
+func nullifierHash(paramTypes abi.ParameterArray, paramValues map[string]any) (*pldtypes.Bytes32, error) {
 	jsonData, err := json.Marshal(paramValues)
 	if err != nil {
 		return nil, err
@@ -814,7 +930,6 @@ func calculateNullifier(coin *types.NotoCoin) (*pldtypes.Bytes32, error) {
 	if err != nil {
 		return nil, err
 	}
-	// then keccak256 the result
 	ret := pldtypes.Bytes32Keccak(encoded)
 	return &ret, nil
 }
