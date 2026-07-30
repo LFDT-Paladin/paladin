@@ -785,6 +785,15 @@ func (n *Noto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTrans
 	if err != nil {
 		return nil, err
 	}
+	// Defense in depth for the nullifier variants: the notary is the only party that can
+	// detect a nullifier collision, as the base ledger never sees the coins behind the
+	// nullifiers. Applied to every handler here rather than per-handler, so no transaction
+	// type can be missed.
+	if tx.DomainConfig.IsNullifierVariant() {
+		if err := n.validateDistinctNullifiers(ctx, req.Inputs, req.Outputs); err != nil {
+			return nil, err
+		}
+	}
 	return handler.Endorse(ctx, tx, req)
 }
 
@@ -1227,12 +1236,13 @@ func (n *Noto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.Sig
 	log.L(ctx).Infof("generating nullifier for %s\n", req.Algorithm)
 	switch req.PayloadType {
 	case types.PAYLOAD_DOMAIN_NOTO_NULLIFIER:
-		var coin *types.NotoCoin
+		// Strict unmarshal - a NotoLockedCoin payload must not be nullified as an unlocked
+		// coin, as that would drop its lockId from the nullifier
+		coin, err := n.unmarshalCoinStrict(string(req.Payload))
 		var hashBytes *pldtypes.Bytes32
-		err := json.Unmarshal(req.Payload, &coin)
-		log.L(ctx).Debugf("unmarshaled coin: %+v\n", coin)
 		if err == nil {
-			hashBytes, err = calculateNullifier(coin)
+			log.L(ctx).Debugf("unmarshaled coin: %+v\n", coin)
+			hashBytes, err = calculateNullifier(ctx, coin)
 		}
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgNullifierGenerationFailed)

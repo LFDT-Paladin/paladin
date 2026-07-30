@@ -144,6 +144,43 @@ func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransa
 	return nil
 }
 
+// Check that no two coins in the transaction derive the same nullifier.
+//
+// The nullifier derivation covers every field of a coin, so a collision means a duplicate
+// coin - which is already rejected by the base ledger and the state store. This check is
+// belt and braces: it catches any regression in the derivation, and turns what would be a
+// base ledger revert (or worse, an unspendable coin) into a clear endorsement failure.
+//
+// Both inputs and outputs are checked as one set, because an output that collides with an
+// input is nullified by the very transaction that creates it.
+func (n *Noto) validateDistinctNullifiers(ctx context.Context, stateLists ...[]*prototk.EndorsableState) error {
+	nullifiers := make(map[string]string) // nullifier -> first state ID that derived it
+	seenStates := make(map[string]bool)
+	for _, states := range stateLists {
+		for _, state := range states {
+			if seenStates[state.Id] {
+				// The same state appearing twice is checked separately (see parseCoinList)
+				continue
+			}
+			seenStates[state.Id] = true
+
+			nullifier, isCoin, err := n.stateNullifier(ctx, state)
+			if err != nil {
+				return err
+			}
+			if !isCoin {
+				// Identified on-chain by ID, so it has no nullifier
+				continue
+			}
+			if existing, found := nullifiers[nullifier]; found {
+				return i18n.NewError(ctx, msgs.MsgDuplicateNullifierInList, existing, state.Id, nullifier)
+			}
+			nullifiers[nullifier] = state.Id
+		}
+	}
+	return nil
+}
+
 // Check that the sender of a transaction provided a signature on the input details
 func (n *Noto) validateSignature(ctx context.Context, name string, attestations []*prototk.AttestationResult, encodedMessage []byte) error {
 	signature := domain.FindAttestation(name, attestations)
