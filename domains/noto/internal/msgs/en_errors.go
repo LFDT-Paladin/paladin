@@ -81,4 +81,6 @@ var (
 	MsgInvalidLockTransition              = pde("PD200041", "Invalid lock transition")
 	MsgUnknownSignPayload                 = pde("PD200042", "Sign payload type '%s' not recognized")
 	MsgNullifierGenerationFailed          = pde("PD200043", "Failed to generate nullifier for coin")
+	MsgIncompleteCoinForNullifier         = pde("PD200044", "Coin is missing the fields required to derive a nullifier")
+	MsgDuplicateNullifierInList           = pde("PD200045", "States '%s' and '%s' derive the same nullifier '%s'")
 )
