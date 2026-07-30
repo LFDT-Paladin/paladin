@@ -1030,6 +1030,7 @@ func TestSign(t *testing.T) {
 	coin := &types.NotoCoin{
 		Amount: pldtypes.MustParseHexUint256("100"),
 		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.RandAddress(),
 	}
 	coinJSON, err := json.Marshal(coin)
 	require.NoError(t, err)
@@ -1041,6 +1042,32 @@ func TestSign(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, len(resp.Payload), 32)
+
+	lockedCoin := &types.NotoLockedCoin{
+		Amount: coin.Amount,
+		Salt:   coin.Salt,
+		Owner:  coin.Owner,
+		LockID: pldtypes.RandBytes32(),
+	}
+	lockedCoinJSON, err := json.Marshal(lockedCoin)
+	require.NoError(t, err)
+
+	// Locked coins are spent by ID, so they are never nullified. A locked coin presented as
+	// an unlocked coin is rejected, rather than being nullified with its lockId dropped
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		Payload:     lockedCoinJSON,
+	})
+	assert.ErrorContains(t, err, "PD200043")
+
+	// A coin without an owner cannot be nullified
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		Payload:     []byte(`{"amount": "100", "salt": "0x1b0d6be69d1d5bd7ff9b1b8b7d3b1de4b23e6ba95d8b6c8e4f0eb9c0f6a9f36e"}`),
+	})
+	assert.ErrorContains(t, err, "PD200044")
 }
 
 func TestUnimplementedMethods(t *testing.T) {

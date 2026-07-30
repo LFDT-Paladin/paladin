@@ -306,9 +306,9 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		functionName = "lock"
 		paramsJSON, err = json.Marshal(&NotoLock_V0_Params{
 			TxId:          req.Transaction.TransactionId,
-			Inputs:        endorsableStateIDs(ctx, inputs, false),
-			Outputs:       endorsableStateIDs(ctx, outputs, false),
-			LockedOutputs: endorsableStateIDs(ctx, lockedOutputs, false),
+			Inputs:        h.noto.endorsableStateIDs(ctx, inputs, false),
+			Outputs:       h.noto.endorsableStateIDs(ctx, outputs, false),
+			LockedOutputs: h.noto.endorsableStateIDs(ctx, lockedOutputs, false),
 			Signature:     lockSignature.Payload,
 			Data:          data,
 		})
@@ -317,9 +317,9 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		var createLockArgs []byte
 		createLockArgs, err = h.noto.encodeNotoCreateLockArgsV1(ctx, &types.NotoCreateLockArgs_V1{
 			TxId:         req.Transaction.TransactionId,
-			Inputs:       endorsableStateIDs(ctx, inputs, false),
-			Outputs:      endorsableStateIDs(ctx, outputs, false),
-			Contents:     endorsableStateIDs(ctx, lockedOutputs, false),
+			Inputs:       h.noto.endorsableStateIDs(ctx, inputs, false),
+			Outputs:      h.noto.endorsableStateIDs(ctx, outputs, false),
+			Contents:     h.noto.endorsableStateIDs(ctx, lockedOutputs, false),
 			NewLockState: lt.newLockStateID,
 			Proof:        lockSignature.Payload,
 		})
@@ -345,17 +345,23 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		}
 	} else if tx.DomainConfig.IsV2() {
 		functionName = "createLock"
+		// createLock checks the commitment tree root for the nullifier variants
+		var proof []byte
+		proof, err = h.noto.lockProof(ctx, tx, req.StateQueryContext, lockSignature.Payload)
+		if err != nil {
+			return nil, err
+		}
 		var createLockArgs []byte
 		createLockArgs, err = h.noto.encodeNotoCreateLockArgs(ctx, &types.NotoCreateLockArgs{
 			TxId:         req.Transaction.TransactionId,
-			Inputs:       endorsableStateIDs(ctx, inputs, useNullifiers),
-			Outputs:      endorsableStateIDs(ctx, outputs, false),
-			Contents:     endorsableStateIDs(ctx, lockedOutputs, false),
+			Inputs:       h.noto.endorsableStateIDs(ctx, inputs, useNullifiers),
+			Outputs:      h.noto.endorsableStateIDs(ctx, outputs, false),
+			Contents:     h.noto.endorsableStateIDs(ctx, lockedOutputs, false),
 			NewLockState: lt.newLockStateID,
 			Options: &types.NotoLockOptions{
 				SpendTxId: lt.newLockInfo.SpendTxId,
 			},
-			Proof: lockSignature.Payload,
+			Proof: proof,
 		})
 		if err != nil {
 			return nil, err

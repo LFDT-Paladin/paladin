@@ -18,7 +18,10 @@ package types
 import "fmt"
 
 // NullifierSpec payload type: NotoCoin state JSON signing logic
-// is used to derive a spend nullifier for the target state
+// is used to derive a spend nullifier for the target state.
+//
+// Only unlocked coins are nullified - locked states are spent by ID
+// throughout their lifecycle - so there is no locked equivalent of this
 const PAYLOAD_DOMAIN_NOTO_NULLIFIER = "domain:noto:nullifier"
 
 // NullifierSpec verifier type: placeholder (nullifier derivation requires no external key)

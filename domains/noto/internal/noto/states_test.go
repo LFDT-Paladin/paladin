@@ -16,17 +16,37 @@
 package noto
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+func testNullifierNoto() *Noto {
+	return &Noto{
+		coinSchema:       &prototk.StateSchema{Id: "coin"},
+		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
+		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo"},
+	}
+}
+
+func testCoinState(id string, coin *types.NotoCoin) *prototk.EndorsableState {
+	data, _ := json.Marshal(coin)
+	return &prototk.EndorsableState{
+		Id:            id,
+		SchemaId:      "coin",
+		StateDataJson: string(data),
+	}
+}
+
 func TestEndorsableStateIDs(t *testing.T) {
 	ctx := t.Context()
+	n := testNullifierNoto()
 	owner1 := pldtypes.MustEthAddress("0xbb2b99dde4ca2d4c99f149d13cd55a9edada69eb")
 	inputStates := []*prototk.EndorsableState{
 		{
@@ -39,7 +59,107 @@ func TestEndorsableStateIDs(t *testing.T) {
 		},
 	}
 
-	ids := endorsableStateIDs(ctx, inputStates, true)
+	// Golden vector for keccak256(tag, salt, owner, amount) - changing this changes the
+	// on-chain nullifiers of every coin, so it is a breaking change for deployed contracts
+	ids := n.endorsableStateIDs(ctx, inputStates, true)
 	require.Len(t, ids, 1)
-	assert.Equal(t, "ada5013122d395ba3c54772283fb069b10426056ef8ca54750cb9bb552a59e7d", ids[0])
+	assert.Equal(t, "dab9a396b00f56f3cde4fc60954e1b09584df261093380910b0fafaae3492baf", ids[0])
+
+	// Without nullifiers the state ID is used as-is
+	ids = n.endorsableStateIDs(ctx, inputStates, false)
+	require.Len(t, ids, 1)
+	assert.Equal(t, "1", ids[0])
+}
+
+// States that are not coins have no nullifier - they are identified on-chain by ID
+func TestEndorsableStateIDsNonCoinSchema(t *testing.T) {
+	ctx := t.Context()
+	n := testNullifierNoto()
+	states := []*prototk.EndorsableState{
+		{
+			Id:            "0xaabb",
+			SchemaId:      "lockInfo",
+			StateDataJson: `{"salt": "0x00", "lockId": "0x01", "owner": "0xbb2b99dde4ca2d4c99f149d13cd55a9edada69eb"}`,
+		},
+	}
+	ids := n.endorsableStateIDs(ctx, states, true)
+	require.Len(t, ids, 1)
+	assert.Equal(t, "0xaabb", ids[0])
+}
+
+// Locked states are spent by ID throughout their lifecycle, so they are identified by ID
+// even when the caller asks for nullifiers - and a locked coin must never be nullified as
+// though it were an unlocked coin, which would silently drop its lockId
+func TestEndorsableStateIDsLockedCoinDispatch(t *testing.T) {
+	ctx := t.Context()
+	n := testNullifierNoto()
+	owner := pldtypes.MustEthAddress("0xbb2b99dde4ca2d4c99f149d13cd55a9edada69eb")
+	salt := pldtypes.RandBytes32()
+	amount := pldtypes.Uint64ToUint256(100)
+
+	lockedCoin := &types.NotoLockedCoin{
+		Salt:   salt,
+		LockID: pldtypes.RandBytes32(),
+		Owner:  owner,
+		Amount: amount,
+	}
+	lockedData, err := json.Marshal(lockedCoin)
+	require.NoError(t, err)
+
+	lockedIDs := n.endorsableStateIDs(ctx, []*prototk.EndorsableState{
+		{Id: "0x01", SchemaId: "lockedCoin", StateDataJson: string(lockedData)},
+	}, true)
+	require.Len(t, lockedIDs, 1)
+	assert.Equal(t, "0x01", lockedIDs[0])
+
+	// A locked coin presented under the unlocked coin schema is rejected rather than being
+	// hashed with its lockId dropped
+	assert.Nil(t, n.endorsableStateIDs(ctx, []*prototk.EndorsableState{
+		{Id: "0x03", SchemaId: "coin", StateDataJson: string(lockedData)},
+	}, true))
+}
+
+// The nullifier must be an injective function of the whole coin. If it were not, a sender
+// could build two outputs that differ only by owner - distinct commitments that both the
+// notary and the base ledger accept - sharing a single nullifier, then spend their own copy
+// to permanently prevent the other owner from spending theirs.
+func TestNullifierBindsOwner(t *testing.T) {
+	ctx := t.Context()
+	salt := pldtypes.RandBytes32()
+	amount := pldtypes.Uint64ToUint256(100)
+	victim := pldtypes.MustEthAddress("0x1111111111111111111111111111111111111111")
+	attacker := pldtypes.MustEthAddress("0x2222222222222222222222222222222222222222")
+
+	toVictim, err := calculateNullifier(ctx, &types.NotoCoin{Salt: salt, Owner: victim, Amount: amount})
+	require.NoError(t, err)
+	toAttacker, err := calculateNullifier(ctx, &types.NotoCoin{Salt: salt, Owner: attacker, Amount: amount})
+	require.NoError(t, err)
+	assert.NotEqual(t, toVictim.String(), toAttacker.String())
+
+	// Sanity check the other fields are covered too
+	otherSalt, err := calculateNullifier(ctx, &types.NotoCoin{Salt: pldtypes.RandBytes32(), Owner: victim, Amount: amount})
+	require.NoError(t, err)
+	assert.NotEqual(t, toVictim.String(), otherSalt.String())
+
+	otherAmount, err := calculateNullifier(ctx, &types.NotoCoin{Salt: salt, Owner: victim, Amount: pldtypes.Uint64ToUint256(101)})
+	require.NoError(t, err)
+	assert.NotEqual(t, toVictim.String(), otherAmount.String())
+
+	// Identical coins must nullify identically
+	repeat, err := calculateNullifier(ctx, &types.NotoCoin{Salt: salt, Owner: victim, Amount: amount})
+	require.NoError(t, err)
+	assert.Equal(t, toVictim.String(), repeat.String())
+}
+
+func TestNullifierIncompleteCoin(t *testing.T) {
+	ctx := t.Context()
+	amount := pldtypes.Uint64ToUint256(100)
+	owner := pldtypes.MustEthAddress("0x1111111111111111111111111111111111111111")
+
+	_, err := calculateNullifier(ctx, nil)
+	assert.Regexp(t, "PD200044", err)
+	_, err = calculateNullifier(ctx, &types.NotoCoin{Amount: amount})
+	assert.Regexp(t, "PD200044", err)
+	_, err = calculateNullifier(ctx, &types.NotoCoin{Owner: owner})
+	assert.Regexp(t, "PD200044", err)
 }

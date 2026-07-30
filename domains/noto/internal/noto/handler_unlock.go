@@ -188,14 +188,13 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 	var functionName string
 	var paramsJSON []byte
 
-	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 	if tx.DomainConfig.IsV0() {
 		functionName = "unlock"
 		paramsJSON, err = json.Marshal(&NotoUnlock_V0_Params{
 			TxId:          req.Transaction.TransactionId,
-			LockedInputs:  endorsableStateIDs(ctx, lockedInputs, false),
-			LockedOutputs: endorsableStateIDs(ctx, lockedOutputs, false),
-			Outputs:       endorsableStateIDs(ctx, outputs, false),
+			LockedInputs:  h.noto.endorsableStateIDs(ctx, lockedInputs, false),
+			LockedOutputs: h.noto.endorsableStateIDs(ctx, lockedOutputs, false),
+			Outputs:       h.noto.endorsableStateIDs(ctx, outputs, false),
 			Signature:     unlockSignature.Payload,
 			Data:          txData,
 		})
@@ -204,8 +203,8 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 		var spendLockArgs []byte
 		spendLockArgs, err = h.noto.encodeNotoSpendLockArgs(ctx, &types.NotoSpendLockArgs{
 			TxId:    req.Transaction.TransactionId,
-			Inputs:  endorsableStateIDs(ctx, lockedInputs, useNullifiers),
-			Outputs: endorsableStateIDs(ctx, outputs, false),
+			Inputs:  h.noto.endorsableStateIDs(ctx, lockedInputs, false),
+			Outputs: h.noto.endorsableStateIDs(ctx, outputs, false),
 			Data:    txData,
 			Proof:   unlockSignature.Payload,
 		})
