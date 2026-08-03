@@ -448,3 +448,15 @@ func TestCheckPendingPrivateStateDataForContract_MultipleRows_Incomplete(t *test
 	require.NoError(t, err)
 	assert.False(t, complete)
 }
+
+func TestCheckPendingPrivateStateDataForContract_DBError(t *testing.T) {
+	ctx, ss, db, _, done := newDBMockStateManager(t)
+	defer done()
+
+	db.ExpectQuery("SELECT.*count.*pending_private_state_data").WillReturnError(fmt.Errorf("db count error"))
+
+	contractAddr := *pldtypes.RandAddress()
+	complete, err := ss.CheckPendingPrivateStateDataForContract(ctx, ss.p.NOTX(), contractAddr.String(), 100)
+	require.ErrorContains(t, err, "db count error")
+	assert.False(t, complete)
+}

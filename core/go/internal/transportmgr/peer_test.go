@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright contributors to Paladin, an LFDT project
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -33,6 +33,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -133,19 +134,38 @@ func TestReliableMessageResendRealDB(t *testing.T) {
 		return nil
 	})
 
+	// Build lookup maps for each node's expected state distributions.
+	// The fullScan is paginated and DB query latency can push a later message past the
+	// reliableMessageResend eligibility threshold before an earlier one, so messages may
+	// arrive out of order within a node. Verify by StateID lookup rather than by index.
+	node2Expected := make(map[string]*components.StateDistribution)
+	node3Expected := make(map[string]*components.StateDistribution)
+	for iSD, sd := range sds {
+		if iSD%2 == 0 {
+			node2Expected[sd.StateID] = sd
+		} else {
+			node3Expected[sd.StateID] = sd
+		}
+	}
+
 	// Check each peer dispatches two messages twice (with the send retry kicking in)
 	for range 2 {
 		for iSD := range sds {
 			var msg *prototk.PaladinMsg
+			var expected map[string]*components.StateDistribution
 			if iSD%2 == 0 {
 				msg = <-sentMessagesNode2
+				expected = node2Expected
 			} else {
 				msg = <-sentMessagesNode3
+				expected = node3Expected
 			}
 			var receivedSD components.StateDistributionWithData
 			err := json.Unmarshal(msg.Payload, &receivedSD)
 			require.NoError(t, err)
-			require.Equal(t, sds[iSD], &receivedSD.StateDistribution)
+			expectedSD, ok := expected[receivedSD.StateID]
+			require.True(t, ok, "received unexpected StateID %s", receivedSD.StateID)
+			require.Equal(t, expectedSD, &receivedSD.StateDistribution)
 			var receivedState pldapi.State
 			err = json.Unmarshal(receivedSD.StateData, &receivedState)
 			require.NoError(t, err)
@@ -336,6 +356,65 @@ func TestNameSortedPeers(t *testing.T) {
 		{PeerInfo: pldapi.PeerInfo{Name: "ddd"}},
 	}, peerList)
 
+}
+
+func TestQueryPeers(t *testing.T) {
+	ctx := context.Background()
+	tm := &transportManager{
+		peers: map[string]*peer{
+			"node1": {PeerInfo: pldapi.PeerInfo{Name: "node1"}},
+			"node2": {PeerInfo: pldapi.PeerInfo{Name: "node2"}},
+			"node3": {PeerInfo: pldapi.PeerInfo{Name: "node3"}},
+		},
+	}
+
+	peers, err := tm.queryPeers(ctx, query.NewQueryBuilder().
+		In("name", []any{"node1", "node3"}).
+		Limit(10).
+		Query())
+	require.NoError(t, err)
+	require.Len(t, peers, 2)
+	require.Equal(t, "node1", peers[0].Name)
+	require.Equal(t, "node3", peers[1].Name)
+
+	peers, err = tm.queryPeers(ctx, query.NewQueryBuilder().
+		Equal("name", "node2").
+		Limit(10).
+		Query())
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	require.Equal(t, "node2", peers[0].Name)
+
+	peers, err = tm.queryPeers(ctx, query.NewQueryBuilder().Limit(1).Query())
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	require.Equal(t, "node1", peers[0].Name)
+
+	peers, err = tm.queryPeers(ctx, query.NewQueryBuilder().Sort("-name").Limit(10).Query())
+	require.NoError(t, err)
+	require.Len(t, peers, 3)
+	require.Equal(t, "node3", peers[0].Name)
+	require.Equal(t, "node2", peers[1].Name)
+	require.Equal(t, "node1", peers[2].Name)
+
+	_, err = tm.queryPeers(ctx, query.NewQueryBuilder().Equal("wrong", "node1").Limit(1).Query())
+	require.Regexp(t, "PD010700.*wrong", err)
+
+	_, err = tm.queryPeers(ctx, query.NewQueryBuilder().Limit(1).Sort("wrong").Query())
+	require.Regexp(t, "PD010700.*wrong", err)
+
+	_, err = tm.queryPeers(ctx, query.NewQueryBuilder().Query())
+	require.Regexp(t, "PD010721", err)
+}
+
+func TestQueryPeersSortErrorNoPeers(t *testing.T) {
+	// With no active peers the per-peer EvalQuery loop never runs, so an invalid sort field is not
+	// caught during matching — it must instead surface from SortValueSetInPlace.
+	ctx := context.Background()
+	tm := &transportManager{peers: map[string]*peer{}}
+
+	_, err := tm.queryPeers(ctx, query.NewQueryBuilder().Limit(1).Sort("wrong").Query())
+	require.Regexp(t, "PD010700.*wrong", err)
 }
 
 func TestConnectionRace(t *testing.T) {

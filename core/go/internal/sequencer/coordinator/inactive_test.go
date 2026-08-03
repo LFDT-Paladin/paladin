@@ -24,6 +24,7 @@ import (
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -119,10 +120,13 @@ func Test_action_RejectDelegationRequestBlockHeight_Success(t *testing.T) {
 
 	fromNode := "remoteNode"
 	mocks.TransportWriter.EXPECT().SendDelegationRejection(
-		ctx, fromNode, "del-789",
-		engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
-		"",
-		int64(100), int64(200), int64(10),
+		mock.Anything, fromNode, mock.MatchedBy(func(msg *engineProto.DelegationRejection) bool {
+			return msg.DelegationId == "del-789" &&
+				msg.RejectionReason == engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE &&
+				msg.OriginatorBlockHeight == int64(100) &&
+				msg.CoordinatorBlockHeight == int64(200) &&
+				msg.BlockHeightTolerance == int64(10)
+		}),
 	).Return(nil)
 
 	event := &TransactionsDelegatedEvent{
@@ -141,7 +145,11 @@ func Test_action_RejectDelegationRequest_Success(t *testing.T) {
 
 	delegationID := "del-123"
 	fromNode := "remoteNode"
-	mocks.TransportWriter.EXPECT().SendDelegationRejection(ctx, fromNode, delegationID, engineProto.RejectionReason_NOT_CURRENT_DELEGATE, c.currentActiveCoordinator, int64(0), int64(0), int64(0)).Return(nil)
+	mocks.TransportWriter.EXPECT().SendDelegationRejection(
+		mock.Anything, fromNode, mock.MatchedBy(func(msg *engineProto.DelegationRejection) bool {
+			return msg.DelegationId == delegationID && msg.RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE
+		}),
+	).Return(nil)
 
 	event := &TransactionsDelegatedEvent{
 		FromNode:     fromNode,
@@ -158,7 +166,11 @@ func Test_action_RejectDelegationRequest_PropagatesError(t *testing.T) {
 	delegationID := "del-456"
 	fromNode := "remoteNode"
 	expectedErr := fmt.Errorf("transport error")
-	mocks.TransportWriter.EXPECT().SendDelegationRejection(ctx, fromNode, delegationID, engineProto.RejectionReason_NOT_CURRENT_DELEGATE, c.currentActiveCoordinator, int64(0), int64(0), int64(0)).Return(expectedErr)
+	mocks.TransportWriter.EXPECT().SendDelegationRejection(
+		mock.Anything, fromNode, mock.MatchedBy(func(msg *engineProto.DelegationRejection) bool {
+			return msg.DelegationId == delegationID && msg.RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE
+		}),
+	).Return(expectedErr)
 
 	event := &TransactionsDelegatedEvent{
 		FromNode:     fromNode,

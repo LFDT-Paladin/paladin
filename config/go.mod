@@ -1,6 +1,8 @@
 module github.com/LFDT-Paladin/paladin/config
 
-go 1.24.4
+go 1.25.0
+
+toolchain go1.25.11
 
 require (
 	github.com/docker/go-units v0.5.0

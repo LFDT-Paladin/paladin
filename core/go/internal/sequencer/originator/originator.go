@@ -18,6 +18,7 @@ package originator
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
@@ -38,7 +39,7 @@ import (
 // Originator is the interface that consumers use to interact with the originator.
 type Originator interface {
 	// Start begins the event loop. It must be called once after construction before any events are queued.
-	Start(ctx context.Context) error
+	Start(ctx context.Context)
 
 	// Asynchronously update the state machine by queueing an event to be processed
 	// This the only interface by which consumers should update the state of the originator
@@ -72,16 +73,29 @@ type originator struct {
 	coordinatorPriorityList            []string // COORDINATOR_ENDORSER mode: priority-ordered list computed independently from endorserCandidates + effectiveBlockHeight + blockRangeSize
 	failoverIndex                      int      // COORDINATOR_ENDORSER mode: the next position in coordinatorPriorityList to try when the current active coordinator exceeds the inactive grace period
 
+	/* Delegation batching - a goroutine started/stopped on entry/exit to State_Sending that coalesces
+	   delegation requests. notifyFullDelegation/notifyPartialDelegation are length-1 channels notified
+	   (non-blocking) by actions on the event loop; the goroutine drains them on each batch tick and
+	   enqueues a DelegateSendBatchEvent. All fields are owned by the event-loop goroutine. */
+	notifyFullDelegation    chan struct{}
+	notifyPartialDelegation chan struct{}
+	delegationLoopCancel    context.CancelFunc
+	delegationLoopDone      chan struct{} // per-run done channel; nil = never started / already stopped+waited
+
 	/* Config */
-	nodeName            string
-	blockRange          uint64
-	contractAddress     *pldtypes.EthAddress
-	inactiveGracePeriod int // expressed as a multiple of heartbeat intervals
+	nodeName                string
+	blockRange              uint64
+	contractAddress         *pldtypes.EthAddress
+	inactiveGracePeriod     int // expressed as a multiple of heartbeat intervals
+	resolveRetryBackoff     time.Duration
+	delegationBatchInterval time.Duration
+	heartbeatInterval       time.Duration // grace before a delegated-but-unsnapshotted transaction counts as dropped
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
+	clock             common.Clock
 }
 
 func NewOriginator(
@@ -94,14 +108,18 @@ func NewOriginator(
 	selectionConfig *common.CoordinatorSelectionConfig,
 ) *originator {
 	o := &originator{
-		nodeName:            nodeName,
-		transactionsByID:    make(map[uuid.UUID]transaction.OriginatorTransaction),
-		transportWriter:     transportWriter,
-		blockRange:          confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
-		contractAddress:     contractAddress,
-		engineIntegration:   engineIntegration,
-		metrics:             metrics,
-		inactiveGracePeriod: confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod),
+		nodeName:                nodeName,
+		transactionsByID:        make(map[uuid.UUID]transaction.OriginatorTransaction),
+		transportWriter:         transportWriter,
+		blockRange:              confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
+		contractAddress:         contractAddress,
+		engineIntegration:       engineIntegration,
+		metrics:                 metrics,
+		inactiveGracePeriod:     confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod),
+		resolveRetryBackoff:     confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout),
+		delegationBatchInterval: confutil.DurationMin(configuration.DelegationBatchInterval, pldconf.SequencerMinimum.DelegationBatchInterval, *pldconf.SequencerDefaults.DelegationBatchInterval),
+		heartbeatInterval:       confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
+		clock:                   common.RealClock(),
 	}
 
 	switch selectionConfig.Mode {
@@ -120,9 +138,9 @@ func NewOriginator(
 	return o
 }
 
-func (o *originator) Start(ctx context.Context) error {
+func (o *originator) Start(ctx context.Context) {
 	if o.started {
-		return nil
+		return
 	}
 	o.ctx = log.WithLogField(ctx, "role", "originator")
 
@@ -134,8 +152,6 @@ func (o *originator) Start(ctx context.Context) error {
 	go o.stateMachineEventLoop.Start(o.ctx)
 
 	o.QueueEvent(o.ctx, &OriginatorCreatedEvent{})
-
-	return nil
 }
 
 func (o *originator) WaitForDone(ctx context.Context) {
@@ -175,11 +191,19 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 
 	switch e := event.(type) {
 	case *transaction.AssembleRequestReceivedEvent:
-		return o.transportWriter.SendAssembleRejection(ctx, e.GetTransactionID(), e.RequestID, e.Coordinator,
-			engineProto.RejectionReason_TRANSACTION_UNKNOWN, 0, 0)
+		return o.transportWriter.SendAssembleRejection(ctx, e.Coordinator, &engineProto.AssembleRejection{
+			TransactionId:     e.GetTransactionID().String(),
+			AssembleRequestId: e.RequestID.String(),
+			ContractAddress:   o.contractAddress.HexString(),
+			RejectionReason:   engineProto.RejectionReason_TRANSACTION_UNKNOWN,
+		})
 	case *transaction.PreDispatchRequestReceivedEvent:
-		return o.transportWriter.SendPreDispatchRejection(ctx, e.GetTransactionID(), e.RequestID, e.Coordinator,
-			engineProto.RejectionReason_TRANSACTION_UNKNOWN)
+		return o.transportWriter.SendPreDispatchRejection(ctx, e.Coordinator, &engineProto.PreDispatchRejection{
+			TransactionId:   e.GetTransactionID().String(),
+			RequestId:       e.RequestID.String(),
+			ContractAddress: o.contractAddress.HexString(),
+			RejectionReason: engineProto.RejectionReason_TRANSACTION_UNKNOWN,
+		})
 	default:
 		// Other events can be safely ignored
 		return nil

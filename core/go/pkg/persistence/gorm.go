@@ -49,6 +49,7 @@ type provider struct {
 	gdb  *gorm.DB
 	db   *sql.DB
 	conf *pldconf.SQLDBConfig
+	notx DBTX
 }
 
 type SQLDBProvider interface {
@@ -103,6 +104,10 @@ func NewSQLProvider(ctx context.Context, p SQLDBProvider, conf *pldconf.SQLDBCon
 	// If supported by the dialect, use the ANY clause for IN statements to avoid parameter limits
 	// This is a PostgreSQL specific feature
 	UseAny(gp.gdb)
+
+	// noTransaction is stateless, wrapping only the now-final gp.gdb, so a single
+	// shared instance is safe to return from every NOTX() call.
+	gp.notx = newNOTX(gp.gdb)
 	return gp, nil
 }
 
@@ -223,7 +228,7 @@ func (gp *provider) Transaction(parentCtx context.Context, fn func(ctx context.C
 }
 
 func (gp *provider) NOTX() DBTX {
-	return newNOTX(gp.gdb)
+	return gp.notx
 }
 
 var (

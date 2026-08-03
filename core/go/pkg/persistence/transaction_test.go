@@ -215,3 +215,13 @@ func TestNOTXFailures(t *testing.T) {
 	})
 
 }
+
+func TestNOTXSingleton(t *testing.T) {
+	p, _ := newMockGormPSQLPersistence(t)
+
+	// DB() must return the provider's final gdb
+	require.Same(t, p.(*provider).gdb, p.NOTX().DB())
+
+	// Repeated NOTX() calls must return the same cached instance
+	require.Same(t, p.NOTX(), p.NOTX())
+}

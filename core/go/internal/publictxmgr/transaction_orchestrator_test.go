@@ -146,7 +146,7 @@ func TestNewOrchestratorPollingRemoveCompleted(t *testing.T) {
 	confirmed := InFlightStatusConfirmReceived
 	mockIT.newStatus = &confirmed
 	o.inFlightTxs = []*inFlightTransactionStageController{mockIT}
-	o.state = OrchestratorStateRunning
+	o.setState(OrchestratorStateRunning)
 
 	for range 2 {
 		m.db.ExpectQuery("SELECT.*public_txns").WillReturnRows(sqlmock.NewRows([]string{}))
@@ -157,7 +157,7 @@ func TestNewOrchestratorPollingRemoveCompleted(t *testing.T) {
 	// It should go idle
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	for o.state != OrchestratorStateIdle && !t.Failed() {
+	for o.getState() != OrchestratorStateIdle && !t.Failed() {
 		<-ticker.C
 	}
 
@@ -195,7 +195,7 @@ func TestOrchestratorWaitingForBalance(t *testing.T) {
 
 	// Fill first slot with a stage controller
 	o.inFlightTxs = []*inFlightTransactionStageController{mockIT}
-	o.state = OrchestratorStateRunning
+	o.setState(OrchestratorStateRunning)
 	o.lastQueueUpdate = time.Now()
 
 	m.db.ExpectQuery("SELECT.*public_txn").WillReturnRows(sqlmock.NewRows([]string{}))
@@ -208,7 +208,7 @@ func TestOrchestratorWaitingForBalance(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return o.state == OrchestratorStateWaiting
+		return o.getState() == OrchestratorStateWaiting
 	}, time.Second, 10*time.Millisecond)
 
 	o.Stop()

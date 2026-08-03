@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -48,10 +48,6 @@ func TestUUIDField(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, nv)
 
-	assert.True(t, UUIDField("test").SupportsLIKE())
-
-	v, err = resolveLikeValue(ctx, "test", (pldtypes.RawJSON)(`"%2ef2-4b91-8f73%"`))
-	require.NoError(t, err)
-	assert.Equal(t, "%2ef2-4b91-8f73%", v)
+	assert.False(t, UUIDField("test").SupportsLIKE())
 
 }

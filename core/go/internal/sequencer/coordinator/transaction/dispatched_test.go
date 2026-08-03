@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -61,7 +62,9 @@ func Test_action_NotifyNonceAllocated_SetsNonceAndSends(t *testing.T) {
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendNonceAssigned(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, nonce).
+		SendNonceAssigned(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.NonceAssigned) bool {
+			return msg.TransactionId == txn.pt.ID.String() && msg.Nonce == int64(nonce)
+		})).
 		Return(nil)
 
 	err := action_NotifyNonceAllocated(ctx, txn, event)
@@ -86,7 +89,9 @@ func Test_action_NotifyNonceAllocated_PropagatesSendError(t *testing.T) {
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendNonceAssigned(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, uint64(1)).
+		SendNonceAssigned(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.NonceAssigned) bool {
+			return msg.TransactionId == txn.pt.ID.String() && msg.Nonce == int64(1)
+		})).
 		Return(assert.AnError)
 
 	err := action_NotifyNonceAllocated(ctx, txn, event)
@@ -112,7 +117,9 @@ func Test_action_NotifySubmitted_SetsSubmissionHashAndSends(t *testing.T) {
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionSubmitted(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &submissionHash).
+		SendTransactionSubmitted(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionSubmitted) bool {
+			return msg.TransactionId == txn.pt.ID.String()
+		})).
 		Return(nil)
 
 	err := action_NotifySubmitted(ctx, txn, event)
@@ -138,7 +145,9 @@ func Test_action_NotifySubmitted_PropagatesSendError(t *testing.T) {
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionSubmitted(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &submissionHash).
+		SendTransactionSubmitted(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionSubmitted) bool {
+			return msg.TransactionId == txn.pt.ID.String()
+		})).
 		Return(assert.AnError)
 
 	err := action_NotifySubmitted(ctx, txn, event)
@@ -154,13 +163,14 @@ func Test_action_ReleaseAssemblyPayload_NilsHeavyFields(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
 
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		InputStates:  []*components.FullState{{Data: pldtypes.RawJSON(`{}`)}},
-		OutputStates: []*components.FullState{{Data: pldtypes.RawJSON(`{}`)}},
-		Endorsements: []*prototk.AttestationResult{{Payload: []byte("sig")}},
+		AssembleResponse: &prototk.TransactionPostAssembly{
+			Endorsements: []*prototk.AttestationResult{{Payload: []byte("sig")}},
+		},
+		OutputStates: []*prototk.EndorsableState{{StateDataJson: `{}`}},
 	}
 	txn.pt.PreparedPublicTransaction = &pldapi.TransactionInput{}
 	txn.pt.PreparedMetadata = pldtypes.RawJSON(`{"meta":true}`)
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{
+	txn.pt.PreAssembly = &prototk.TransactionPreAssembly{
 		TransactionSpecification: &prototk.TransactionSpecification{},
 	}
 
@@ -202,9 +212,10 @@ func Test_action_NotifyDispatched_UsesTransactionSpec(t *testing.T) {
 		UseMockTransportWriter().
 		Build()
 
-	spec := txn.pt.PreAssembly.TransactionSpecification
 	mocks.TransportWriter.EXPECT().
-		SendDispatched(ctx, txn.originator, mock.Anything, spec).
+		SendDispatched(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionDispatched) bool {
+			return msg.TransactionId == txn.pt.ID.String() && msg.Signer == txn.originator
+		})).
 		Return(nil)
 
 	err := action_NotifyDispatched(ctx, txn, nil)
@@ -219,7 +230,9 @@ func Test_action_NotifyDispatched_AllowsNilTransactionSpec(t *testing.T) {
 	txn.pt.PreAssembly = nil
 
 	mocks.TransportWriter.EXPECT().
-		SendDispatched(ctx, txn.originator, mock.Anything, (*prototk.TransactionSpecification)(nil)).
+		SendDispatched(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionDispatched) bool {
+			return msg.TransactionId == txn.pt.ID.String()
+		})).
 		Return(nil)
 
 	err := action_NotifyDispatched(ctx, txn, nil)
@@ -233,7 +246,9 @@ func Test_action_NotifyDispatched_PropagatesSendError(t *testing.T) {
 		Build()
 
 	mocks.TransportWriter.EXPECT().
-		SendDispatched(ctx, txn.originator, mock.Anything, txn.pt.PreAssembly.TransactionSpecification).
+		SendDispatched(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionDispatched) bool {
+			return msg.TransactionId == txn.pt.ID.String()
+		})).
 		Return(assert.AnError)
 
 	err := action_NotifyDispatched(ctx, txn, nil)

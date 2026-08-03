@@ -53,7 +53,7 @@ func startDebugPortForwards(ctx context.Context, nodes []*testsuite.Node) ([]*ex
 
 	for _, node := range nodes {
 		pf := node.Config.DebugPortForward
-		if pf == nil || pf.LocalPort == 0 || pf.RemotePort == 0 || pf.Service == "" {
+		if pf == nil || pf.LocalPort == 0 || pf.RemotePort == 0 || pf.Pod == "" {
 			continue
 		}
 
@@ -67,7 +67,7 @@ func startDebugPortForwards(ctx context.Context, nodes []*testsuite.Node) ([]*ex
 				namespace = "default"
 			}
 			portMapping := fmt.Sprintf("%d:%d", pf.LocalPort, pf.RemotePort)
-			target := fmt.Sprintf("svc/%s", pf.Service)
+			target := fmt.Sprintf("pod/%s", pf.Pod)
 
 			log.Infof("Starting kubectl port-forward for %s: %s %s", node.Config.Name, target, portMapping)
 			cmd := exec.CommandContext(ctx, "kubectl", "port-forward", "-n", namespace, target, portMapping) //nolint:gosec

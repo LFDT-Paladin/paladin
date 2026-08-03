@@ -2088,3 +2088,120 @@ func TestMatchUpdateConfirmedTransactionsCompletionInsertError(t *testing.T) {
 	assert.Contains(t, err.Error(), "completions insert error")
 	assert.Nil(t, matches)
 }
+
+func TestMatchUpdateConfirmedTransactionsSetsCompletedFlag(t *testing.T) {
+	ctx, ptm, _, done := newTestPublicTxManager(t, true)
+	defer done()
+
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testHash := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	testTxID := uuid.New()
+
+	// Create a transaction with a binding and submission
+	var pubTxnID uint64
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		dbTx := &DBPublicTxn{
+			From:  *testAddress,
+			Gas:   21000,
+			Nonce: confutil.P(uint64(100)),
+		}
+		if err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error; err != nil {
+			return err
+		}
+		pubTxnID = dbTx.PublicTxnID
+		binding := &DBPublicTxnBinding{
+			PublicTxnID:     pubTxnID,
+			Transaction:     testTxID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}
+		if err := dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error; err != nil {
+			return err
+		}
+		submission := &DBPubTxnSubmission{
+			PublicTxnID:     pubTxnID,
+			TransactionHash: testHash,
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_submissions").Create(submission).Error
+	})
+	require.NoError(t, err)
+
+	// The poll relies on the partial-index predicate to decide whether a txn is
+	// still outstanding: our txn must be visible to it before, and gone after.
+	pollSeesTxn := func() bool {
+		var n int64
+		require.NoError(t, ptm.p.DB().Raw(
+			`SELECT count(*) FROM "public_txns" WHERE "completed" IS FALSE AND "pub_txn_id" = ?`, pubTxnID).Scan(&n).Error)
+		return n > 0
+	}
+
+	// Before confirmation the txn is outstanding and completed is false
+	assert.True(t, pollSeesTxn())
+	var completed bool
+	require.NoError(t, ptm.p.DB().Raw(
+		`SELECT "completed" FROM "public_txns" WHERE "pub_txn_id" = ?`, pubTxnID).Scan(&completed).Error)
+	assert.False(t, completed)
+
+	itxs := []*blockindexer.IndexedTransactionNotify{
+		{
+			IndexedTransaction: pldapi.IndexedTransaction{
+				Hash:   testHash,
+				Result: pldapi.TXResult_SUCCESS.Enum(),
+			},
+		},
+	}
+
+	matches, err := ptm.MatchUpdateConfirmedTransactions(ctx, ptm.p.NOTX(), itxs)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+
+	// After confirmation the denormalized flag is set and the sender drops out of the poll
+	require.NoError(t, ptm.p.DB().Raw(
+		`SELECT "completed" FROM "public_txns" WHERE "pub_txn_id" = ?`, pubTxnID).Scan(&completed).Error)
+	assert.True(t, completed)
+	assert.False(t, pollSeesTxn())
+
+	// And it is consistent with public_completions being the source of truth
+	var completionCount int64
+	require.NoError(t, ptm.p.DB().Raw(
+		`SELECT count(*) FROM "public_completions" WHERE "pub_txn_id" = ?`, pubTxnID).Scan(&completionCount).Error)
+	assert.Equal(t, int64(1), completionCount)
+}
+
+func TestMatchUpdateConfirmedTransactionsCompletedUpdateError(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, m, done := newTestPublicTxManager(t, false)
+	defer done()
+
+	testHash := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	testTxID := uuid.New()
+	testPubTxnID := uint64(42)
+
+	itxs := []*blockindexer.IndexedTransactionNotify{
+		{
+			IndexedTransaction: pldapi.IndexedTransaction{
+				Hash:   testHash,
+				Result: pldapi.TXResult_SUCCESS.Enum(),
+			},
+		},
+	}
+
+	// Binding lookup returns a matching row
+	m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(
+		sqlmock.NewRows([]string{
+			"pub_txn_id", "transaction", "tx_type", "sender", "contract_address",
+			"Submission__pub_txn_id", "Submission__tx_hash",
+		}).AddRow(
+			testPubTxnID, testTxID.String(), "private", "", "",
+			testPubTxnID, testHash[:],
+		),
+	)
+	// The completion insert succeeds, but the denormalized completed UPDATE fails
+	m.db.ExpectQuery("INSERT.*public_completions").WillReturnRows(
+		sqlmock.NewRows([]string{"pub_txn_id"}).AddRow(testPubTxnID))
+	m.db.ExpectExec("UPDATE.*public_txns").WillReturnError(fmt.Errorf("completed update error"))
+
+	matches, err := ptm.MatchUpdateConfirmedTransactions(ctx, m.allComponents.Persistence().NOTX(), itxs)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "completed update error")
+	assert.Nil(t, matches)
+}

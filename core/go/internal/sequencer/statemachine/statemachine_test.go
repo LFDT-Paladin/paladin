@@ -2562,6 +2562,152 @@ func TestMatchAll_StopsOnTransition(t *testing.T) {
 	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
 }
 
+func TestMatchAll_ValidatorError_StopsProcessing(t *testing.T) {
+	// Validator returns an error in MatchAll mode — processMatchAll must propagate it immediately.
+	validationErr := errors.New("validator error in match-all")
+	var fired []string
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandlers[TestState, *TestEntity]{
+				Event_Start: {
+					Match: MatchAll,
+					Handlers: []EventHandler[TestState, *TestEntity]{
+						{Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "a"); return nil }}}},
+						{
+							Validator: func(_ context.Context, _ *TestEntity, _ common.Event) (bool, error) {
+								return false, validationErr
+							},
+							Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "b"); return nil }}}},
+						{Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "c"); return nil }}}},
+					},
+				},
+			},
+		},
+	}
+	entity := newTestEntity(definitions, "test-match-all-validator-err")
+	err := entity.sm.ProcessEvent(context.Background(), entity, newTestEvent(Event_Start))
+	assert.ErrorIs(t, err, validationErr)
+	// First handler fired before the erroring validator was reached; third handler was not reached.
+	assert.Equal(t, []string{"a"}, fired)
+	assert.Equal(t, State_Idle, entity.sm.GetCurrentState())
+}
+
+func TestMatchAll_ActionError_StopsProcessing(t *testing.T) {
+	// An action returns an error in MatchAll mode — processMatchAll must propagate it and stop.
+	actionErr := errors.New("action error in match-all")
+	var fired []string
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandlers[TestState, *TestEntity]{
+				Event_Start: {
+					Match: MatchAll,
+					Handlers: []EventHandler[TestState, *TestEntity]{
+						{Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "a"); return nil }}}},
+						{Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error {
+							fired = append(fired, "b-err")
+							return actionErr
+						}}}},
+						{Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "c"); return nil }}}},
+					},
+				},
+			},
+		},
+	}
+	entity := newTestEntity(definitions, "test-match-all-action-err")
+	err := entity.sm.ProcessEvent(context.Background(), entity, newTestEvent(Event_Start))
+	assert.ErrorIs(t, err, actionErr)
+	// Third handler must not fire.
+	assert.Equal(t, []string{"a", "b-err"}, fired)
+	assert.Equal(t, State_Idle, entity.sm.GetCurrentState())
+}
+
+func TestMatchAll_StopHaltsSubsequentHandlers(t *testing.T) {
+	// A matched handler with Stop set halts processing even without a transition.
+	var fired []string
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandlers[TestState, *TestEntity]{
+				Event_Start: {
+					Match: MatchAll,
+					Handlers: []EventHandler[TestState, *TestEntity]{
+						{Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "a"); return nil }}}},
+						{
+							Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "b"); return nil }}},
+							Stop:    true,
+						},
+						{Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "c"); return nil }}}},
+					},
+				},
+			},
+		},
+	}
+	entity := newTestEntity(definitions, "test-match-all-stop-flag")
+	err := entity.sm.ProcessEvent(context.Background(), entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "b"}, fired)
+	assert.Equal(t, State_Idle, entity.sm.GetCurrentState())
+}
+
+func TestMatchAll_StopOnNonMatchingHandlerDoesNotHalt(t *testing.T) {
+	// A Stop handler whose Validator fails does not run and does not halt later handlers.
+	var fired []string
+	failValidator := func(_ context.Context, _ *TestEntity, _ common.Event) (bool, error) { return false, nil }
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandlers[TestState, *TestEntity]{
+				Event_Start: {
+					Match: MatchAll,
+					Handlers: []EventHandler[TestState, *TestEntity]{
+						{Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "a"); return nil }}}},
+						{
+							Validator: failValidator,
+							Actions:   []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "b"); return nil }}},
+							Stop:      true,
+						},
+						{Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "c"); return nil }}}},
+					},
+				},
+			},
+		},
+	}
+	entity := newTestEntity(definitions, "test-match-all-stop-nomatch")
+	err := entity.sm.ProcessEvent(context.Background(), entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "c"}, fired)
+}
+
+func TestMatchFirst_StopIsInert(t *testing.T) {
+	// Stop has no effect in MatchFirst: the first match already halts, and a non-matching Stop handler
+	// does not prevent a later handler from being the first match.
+	var fired []string
+	failValidator := func(_ context.Context, _ *TestEntity, _ common.Event) (bool, error) { return false, nil }
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandlers[TestState, *TestEntity]{
+				Event_Start: {
+					Match: MatchFirst,
+					Handlers: []EventHandler[TestState, *TestEntity]{
+						{
+							Validator: failValidator,
+							Actions:   []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "a"); return nil }}},
+							Stop:      true,
+						},
+						{
+							Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "b"); return nil }}},
+							Stop:    true,
+						},
+						{Actions: []ActionRule[*TestEntity]{{Action: func(ctx context.Context, e *TestEntity, _ common.Event) error { fired = append(fired, "c"); return nil }}}},
+					},
+				},
+			},
+		},
+	}
+	entity := newTestEntity(definitions, "test-match-first-stop-inert")
+	err := entity.sm.ProcessEvent(context.Background(), entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b"}, fired)
+}
+
 func TestMatchFirst_NilValidatorWarning(t *testing.T) {
 	// In MatchFirst mode a nil-Validator handler that is not last should log a warning.
 	// We just verify the state machine is created without panic and behaves correctly

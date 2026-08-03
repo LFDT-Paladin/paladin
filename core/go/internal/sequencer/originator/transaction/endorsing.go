@@ -33,7 +33,7 @@ func action_ResendAssembleParkResponse(ctx context.Context, txn *originatorTrans
 }
 
 // True if the most recent assemble request has the same idempotency key as the most recent fulfilled assemble request
-func guard_AssembleRequestMatchesPreviousResponse(ctx context.Context, txn *originatorTransaction) bool {
-	return txn.latestAssembleRequest.requestID == txn.latestFulfilledAssembleRequestID
+func validator_AssembleRequestMatchesPreviousResponse(_ context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
+	e := event.(*AssembleRequestReceivedEvent)
+	return e.RequestID == txn.latestFulfilledAssembleRequestID, nil
 }
-

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2026 Kaleido, Inc.
+ * Copyright contributors to Paladin, an LFDT project
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -94,6 +94,10 @@ var reliableMessageAckFilters = filters.FieldMap{
 	"messageId": filters.UUIDField("id"),
 	"time":      filters.TimestampField("time"),
 	"error":     filters.StringField("error"),
+}
+
+var peerInfoFilters = filters.FieldMap{
+	"name": filters.StringField("name"),
 }
 
 func NewTransportManager(bgCtx context.Context, conf *pldconf.TransportManagerInlineConfig) components.TransportManager {

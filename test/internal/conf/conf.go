@@ -73,12 +73,12 @@ type TestCaseConfig struct {
 }
 
 // DebugPortForwardConfig instructs the test runner to set up a kubectl port-forward
-// to the node's debug/pprof server before starting diagnostics. Use this when the
-// debug server listens on loopback inside the pod and is not directly reachable
-// (e.g. the default devnet configuration).
+// directly to the named pod's debug/pprof server before collecting each diagnostics
+// snapshot. Port-forwarding to the pod (rather than the service) is required because
+// the debug port is not declared in the service spec.
 type DebugPortForwardConfig struct {
 	Namespace  string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
-	Service    string `json:"service,omitempty" yaml:"service,omitempty"`
+	Pod        string `json:"pod,omitempty" yaml:"pod,omitempty"`
 	RemotePort int    `json:"remotePort,omitempty" yaml:"remotePort,omitempty"`
 	LocalPort  int    `json:"localPort,omitempty" yaml:"localPort,omitempty"`
 }

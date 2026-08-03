@@ -1,0 +1,20 @@
+{
+  "name": "paladin-ui-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:query": "node --import tsx --test mock-server/query/applyQuery.test.ts",
+    "mock-server": "tsx mock-server/server.ts",
+    "generate-fixtures": "tsx mock-server/scripts/generate-fixtures.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.5.3"
+  }
+}

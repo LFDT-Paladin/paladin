@@ -40,8 +40,11 @@ import (
 )
 
 // signingIdentityState groups the coordinator's current signing key with a flag that tracks
-// whether any transaction has consumed it since the last key rotation.
+// whether any transaction has consumed it since the last key rotation. Its own mutex guards all
+// access because the dispatch path reads and writes it while holding a transaction lock (not the
+// coordinator lock).
 type signingIdentityState struct {
+	mu    sync.Mutex
 	value string
 	used  bool // set when a transaction first retrieves the signing identity; cleared on key rotation
 }
@@ -50,7 +53,7 @@ type signingIdentityState struct {
 type Coordinator interface {
 	// Start initializes the coordinator from the contract config and begins the event loop and
 	// dispatch goroutines. It must be called once after construction before any events are processed.
-	Start(ctx context.Context) error
+	Start(ctx context.Context)
 
 	// Asynchronously update the state machine by queueing an event to be processed
 	// These are the only interfaces by which consumers should update the state of the coordinator
@@ -82,6 +85,8 @@ type coordinator struct {
 	heartbeatIntervalsSinceLastReceive int
 	transactionsByID                   map[uuid.UUID]transaction.CoordinatorTransaction
 	pooledTransactions                 []transaction.CoordinatorTransaction
+	assemblyInFlight                   bool      // true while a transaction occupies the single assembly slot
+	assemblingTxID                     uuid.UUID // ID of the transaction currently in the assembly slot
 	currentBlockHeight                 int64
 	effectiveBlockHeight               uint64
 	dependencyTracker                  dependencytracker.DependencyTracker
@@ -106,17 +111,19 @@ type coordinator struct {
 	inactiveGracePeriod            int // expressed as a multiple of heartbeat intervals
 	baseLedgerRevertRetryThreshold int
 	assembleErrorRetryThreshhold   int
+	signErrorRetryThreshhold       int
 	requestTimeout                 time.Duration
 	stateTimeout                   time.Duration
 	nodeName                       string
 	coordinatorSelectionBlockRange uint64
 	maxInflightTransactions        int
 	maxDispatchAhead               int
+	dispatchMaxBatchSize           int
 	coordinatorSelection           prototk.ContractConfig_CoordinatorSelection
 
 	/* Dependencies */
 	domainAPI             components.DomainSmartContract
-	dCtx                  components.DomainContext
+	dsw                   components.DomainStateWriter
 	components            components.AllComponents
 	transportWriter       transport.TransportWriter
 	clock                 common.Clock
@@ -131,14 +138,14 @@ type coordinator struct {
 	dispatchQueue      chan transaction.CoordinatorTransaction
 	dispatchLoopCancel context.CancelFunc // non-nil iff this coordinator owns a running loop
 	dispatchLoopDone   chan struct{}      // per-run done channel; nil = never started / already stopped+waited
-	inFlightTxns       map[uuid.UUID]transaction.CoordinatorTransaction
+	inFlightTxns       map[uuid.UUID]struct{}
 	inFlightMutex      *sync.Cond
 }
 
 func NewCoordinator(
 	contractAddress *pldtypes.EthAddress,
 	domainAPI components.DomainSmartContract,
-	dCtx components.DomainContext,
+	dsw components.DomainStateWriter,
 	allComponents components.AllComponents,
 	buildNullifiers func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error),
 	newPrivateTransaction func(context.Context, []*components.ValidatedTransaction) error,
@@ -158,7 +165,7 @@ func NewCoordinator(
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]transaction.CoordinatorTransaction),
 		domainAPI:                          domainAPI,
-		dCtx:                               dCtx,
+		dsw:                                dsw,
 		components:                         allComponents,
 		buildNullifiers:                    buildNullifiers,
 		newPrivateTransaction:              newPrivateTransaction,
@@ -180,6 +187,7 @@ func NewCoordinator(
 	coordinatorPriorityEventQueueSize := confutil.IntMin(configuration.CoordinatorPriorityEventQueueSize, pldconf.SequencerMinimum.CoordinatorPriorityEventQueueSize, *pldconf.SequencerDefaults.CoordinatorPriorityEventQueueSize)
 	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c.maxDispatchAhead = confutil.IntMinIfPositive(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
+	c.dispatchMaxBatchSize = confutil.IntMin(configuration.DispatchMaxBatchSize, pldconf.SequencerMinimum.DispatchMaxBatchSize, *pldconf.SequencerDefaults.DispatchMaxBatchSize)
 	c.requestTimeout = confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
 	c.stateTimeout = confutil.DurationMin(configuration.StateTimeout, pldconf.SequencerMinimum.StateTimeout, *pldconf.SequencerDefaults.StateTimeout)
 	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
@@ -187,6 +195,7 @@ func NewCoordinator(
 	c.inactiveGracePeriod = confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod)
 	c.baseLedgerRevertRetryThreshold = confutil.IntMin(configuration.BaseLedgerRevertRetryThreshold, pldconf.SequencerMinimum.BaseLedgerRevertRetryThreshold, *pldconf.SequencerDefaults.BaseLedgerRevertRetryThreshold)
 	c.assembleErrorRetryThreshhold = confutil.IntMin(configuration.AssembleErrorRetryThreshold, pldconf.SequencerMinimum.AssembleErrorRetryThreshold, *pldconf.SequencerDefaults.AssembleErrorRetryThreshold)
+	c.signErrorRetryThreshhold = confutil.IntMin(configuration.SignErrorRetryThreshold, pldconf.SequencerMinimum.SignErrorRetryThreshold, *pldconf.SequencerDefaults.SignErrorRetryThreshold)
 	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
 
@@ -206,16 +215,16 @@ func NewCoordinator(
 
 	c.originatorActivity = make(map[string]int)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
-	c.inFlightTxns = make(map[uuid.UUID]transaction.CoordinatorTransaction, c.maxDispatchAhead)
+	c.inFlightTxns = make(map[uuid.UUID]struct{}, c.maxDispatchAhead)
 	c.pooledTransactions = make([]transaction.CoordinatorTransaction, 0, c.maxInflightTransactions)
 	c.dispatchQueue = make(chan transaction.CoordinatorTransaction, c.maxInflightTransactions)
 
 	return c
 }
 
-func (c *coordinator) Start(ctx context.Context) error {
+func (c *coordinator) Start(ctx context.Context) {
 	if c.started {
-		return nil
+		return
 	}
 	coordCtx := log.WithLogField(ctx, "role", "coordinator")
 	c.ctx = coordCtx
@@ -242,8 +251,6 @@ func (c *coordinator) Start(ctx context.Context) error {
 
 	// Trigger the initial transition out of State_Initial
 	c.QueueEvent(coordCtx, &CoordinatorCreatedEvent{})
-
-	return nil
 }
 
 // GetCurrentState returns the current state of the coordinator.
@@ -289,6 +296,21 @@ func (c *coordinator) propagateEventToAllTransactions(ctx context.Context, event
 		}
 	}
 	return nil
+}
+
+// setDispatchedInFlight is called synchronously by a coordinator transaction from within its state
+// transition callback (while it holds its own lock) as it enters or leaves State_Dispatched, but only
+// for transactions that will dispatch a public transaction. The inflight tx map is kept up to date by
+// single tx edits, and the dispatch loop is signalled immediately
+func (c *coordinator) setDispatchedInFlight(txID uuid.UUID, inFlight bool) {
+	c.inFlightMutex.L.Lock()
+	defer c.inFlightMutex.L.Unlock()
+	if inFlight {
+		c.inFlightTxns[txID] = struct{}{}
+	} else {
+		delete(c.inFlightTxns, txID)
+		c.inFlightMutex.Signal()
+	}
 }
 
 func (c *coordinator) getTransactionsInStates(ctx context.Context, states []transaction.State) []transaction.CoordinatorTransaction {

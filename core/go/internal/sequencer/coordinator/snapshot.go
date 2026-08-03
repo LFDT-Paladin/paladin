@@ -20,6 +20,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
@@ -38,7 +39,7 @@ func action_SendHeartbeatWithLocks(ctx context.Context, c *coordinator, _ common
 // each node receives all locks (unfiltered) plus only the OutputStates it is permitted to hold
 // (filtered by AllowedNodes).
 func (c *coordinator) sendHeartbeat(ctx context.Context, includeLocks bool) error {
-	baseSnapshot := c.getSnapshot(ctx)
+	baseSnapshotProto := c.getSnapshot(ctx)
 
 	var nodes []string
 	if c.coordinatorSelection == prototk.ContractConfig_COORDINATOR_ENDORSER {
@@ -54,26 +55,31 @@ func (c *coordinator) sendHeartbeat(ctx context.Context, includeLocks bool) erro
 	var err error
 	for _, node := range nodes {
 		log.L(ctx).Debugf("sending heartbeat to %s", node)
-		snapshot := baseSnapshot
+		snapshotProto := baseSnapshotProto
 		if includeLocks {
-			statesAndLocks, exportErr := c.grapher.ExportStatesAndLocks(ctx, node)
+			stateSnapshot, exportErr := c.grapher.ExportStatesAndLocks(ctx, node)
 			if exportErr != nil {
 				log.L(ctx).Errorf("error exporting states and locks for node %s: %v", node, exportErr)
 				err = exportErr
 				continue
 			}
-			snapshot = &common.CoordinatorSnapshot{
-				DispatchedTransactions: baseSnapshot.DispatchedTransactions,
-				PooledTransactions:     baseSnapshot.PooledTransactions,
-				ConfirmedTransactions:  baseSnapshot.ConfirmedTransactions,
-				RevertedTransactions:   baseSnapshot.RevertedTransactions,
-				CoordinatorState:       baseSnapshot.CoordinatorState,
-				BlockHeight:            baseSnapshot.BlockHeight,
-				Locks:                  statesAndLocks.LockedState,
-				OutputStates:           statesAndLocks.OutputState,
+			snapshotProto = &engineProto.CoordinatorSnapshot{
+				DispatchedTransactions: baseSnapshotProto.DispatchedTransactions,
+				PooledTransactions:     baseSnapshotProto.PooledTransactions,
+				ConfirmedTransactions:  baseSnapshotProto.ConfirmedTransactions,
+				RevertedTransactions:   baseSnapshotProto.RevertedTransactions,
+				CoordinatorState:       baseSnapshotProto.CoordinatorState,
+				BlockHeight:            baseSnapshotProto.BlockHeight,
+				EndorserCandidates:     baseSnapshotProto.EndorserCandidates,
+				StateSnapshot:          stateSnapshot,
 			}
 		}
-		if sendErr := c.transportWriter.SendHeartbeat(ctx, node, c.contractAddress, snapshot); sendErr != nil {
+		heartbeatMsg := &engineProto.CoordinatorHeartbeatNotification{
+			From:                c.nodeName,
+			ContractAddress:     c.contractAddress.HexString(),
+			CoordinatorSnapshot: snapshotProto,
+		}
+		if sendErr := c.transportWriter.SendHeartbeat(ctx, node, heartbeatMsg); sendErr != nil {
 			log.L(ctx).Errorf("error sending heartbeat to %s: %v", node, sendErr)
 			err = sendErr
 		}
@@ -111,12 +117,12 @@ func (c *coordinator) updateOriginatorActivity(ctx context.Context) {
 
 // getSnapshot builds the coordinator snapshot (without per-node lock data).
 // Locks are attached per-node in sendHeartbeat for Closing_Flush/Closing heartbeats.
-func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapshot {
+func (c *coordinator) getSnapshot(ctx context.Context) *engineProto.CoordinatorSnapshot {
 	log.L(ctx).Debugf("creating snapshot for sequencer %s", c.contractAddress.String())
-	pooledTransactions := make([]*common.SnapshotPooledTransaction, 0, len(c.transactionsByID))
-	dispatchedTransactions := make([]*common.SnapshotDispatchedTransaction, 0, len(c.transactionsByID))
-	confirmedTransactions := make([]*common.SnapshotConfirmedTransaction, 0, len(c.transactionsByID))
-	revertedTransactions := make([]*common.SnapshotRevertedTransaction, 0, len(c.transactionsByID))
+	pooledTransactions := make([]*engineProto.SnapshotPooledTransaction, 0, len(c.transactionsByID))
+	dispatchedTransactions := make([]*engineProto.SnapshotDispatchedTransaction, 0, len(c.transactionsByID))
+	confirmedTransactions := make([]*engineProto.SnapshotConfirmedTransaction, 0, len(c.transactionsByID))
+	revertedTransactions := make([]*engineProto.SnapshotRevertedTransaction, 0, len(c.transactionsByID))
 
 	for _, txn := range c.transactionsByID {
 		pooledTransaction, dispatchedTransaction, confirmedTransaction, revertedTransaction := txn.GetSnapshot(ctx)
@@ -139,12 +145,12 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 		c.contractAddress.String(), len(pooledTransactions)+len(dispatchedTransactions)+len(confirmedTransactions)+len(revertedTransactions),
 		len(pooledTransactions), len(dispatchedTransactions), len(confirmedTransactions), len(revertedTransactions))
 
-	return &common.CoordinatorSnapshot{
+	return &engineProto.CoordinatorSnapshot{
 		DispatchedTransactions: dispatchedTransactions,
 		PooledTransactions:     pooledTransactions,
 		ConfirmedTransactions:  confirmedTransactions,
 		RevertedTransactions:   revertedTransactions,
-		CoordinatorState:       coordinatorState,
+		CoordinatorState:       int32(coordinatorState),
 		BlockHeight:            uint64(c.currentBlockHeight),
 		EndorserCandidates:     c.endorserCandidates,
 	}

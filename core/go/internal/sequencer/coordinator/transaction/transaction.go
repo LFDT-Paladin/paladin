@@ -28,6 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -35,10 +36,10 @@ import (
 
 type CoordinatorTransaction interface {
 	HandleEvent(ctx context.Context, event common.Event) error
+	PendingDispatch(ctx context.Context) *syncpoints.PendingDispatch
 	GetID() uuid.UUID
 	GetCurrentState() State
-	HasDispatchedPublicTransaction() bool
-	GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction, *common.SnapshotRevertedTransaction)
+	GetSnapshot(ctx context.Context) (*engineProto.SnapshotPooledTransaction, *engineProto.SnapshotDispatchedTransaction, *engineProto.SnapshotConfirmedTransaction, *engineProto.SnapshotRevertedTransaction)
 	GetOriginatorNode() string
 }
 
@@ -69,6 +70,7 @@ type coordinatorTransaction struct {
 	revertCount                        int
 	lastCanRetryRevert                 bool
 	assembleErrorCount                 int
+	signErrorCount                     int
 	endorseToleranceByRequirement      map[string]int
 	endorseFailureCountByRequirement   map[string]int
 	heartbeatIntervalsSinceStateChange int
@@ -80,6 +82,9 @@ type coordinatorTransaction struct {
 	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingPreDispatchRequest    *common.IdempotentRequest
 
+	pendingDispatch                 *syncpoints.TransactionDispatch
+	pendingRemoteStateDistributions []*components.StateDistribution
+
 	//Configuration
 	blockHeightTolerance           uint64
 	requestTimeout                 time.Duration
@@ -87,6 +92,7 @@ type coordinatorTransaction struct {
 	finalizingGracePeriod          int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
 	baseLedgerRevertRetryThreshold int
 	assembleErrorRetryThreshhold   int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
+	signErrorRetryThreshhold       int // this is for rare errors where the originator failed to sign its assembled attestations
 
 	// Dependencies
 	clock                             common.Clock
@@ -100,8 +106,9 @@ type coordinatorTransaction struct {
 	syncPoints                        syncpoints.SyncPoints
 	components                        components.AllComponents
 	domainAPI                         components.DomainSmartContract
-	dCtx                              components.DomainContext
+	dsw                               components.DomainStateWriter
 	queueEventForCoordinator          func(context.Context, common.Event)
+	setDispatchedInFlight             func(txID uuid.UUID, inFlight bool) // called synchronously as the transaction enters/leaves State_Dispatched having dispatched a public transaction
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error
 	getCoordinatorTransactionState    func(context.Context, uuid.UUID) (State, bool)
 	notifyEndorserCandidates          func(context.Context, ...string) // called once when endorsement requests are first sent; passes endorser node names to the coordinator for pool updates
@@ -117,6 +124,7 @@ func NewTransaction(ctx context.Context,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
+	setDispatchedInFlight func(txID uuid.UUID, inFlight bool),
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	notifyEndorserCandidates func(context.Context, ...string),
@@ -127,12 +135,13 @@ func NewTransaction(ctx context.Context,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
 	domainAPI components.DomainSmartContract,
-	dCtx components.DomainContext,
+	dsw components.DomainStateWriter,
 	requestTimeout,
 	stateTimeout time.Duration,
 	finalizingGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
+	signErrorRetryThreshhold int,
 	grapher grapher.Grapher,
 	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
 	dependencyTracker dependencytracker.DependencyTracker,
@@ -148,6 +157,7 @@ func NewTransaction(ctx context.Context,
 		transportWriter,
 		clock,
 		queueEventForCoordinator,
+		setDispatchedInFlight,
 		coordinatorTransactionHandleEvent,
 		getCoordinatorTransactionState,
 		notifyEndorserCandidates,
@@ -158,12 +168,13 @@ func NewTransaction(ctx context.Context,
 		syncPoints,
 		allComponents,
 		domainAPI,
-		dCtx,
+		dsw,
 		requestTimeout,
 		stateTimeout,
 		finalizingGracePeriod,
 		baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold,
+		signErrorRetryThreshhold,
 		grapher,
 		stateVisibilityTracker,
 		dependencyTracker,
@@ -181,6 +192,7 @@ func newTransaction(
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
+	setDispatchedInFlight func(txID uuid.UUID, inFlight bool),
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	notifyEndorserCandidates func(context.Context, ...string),
@@ -191,12 +203,13 @@ func newTransaction(
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
 	domainAPI components.DomainSmartContract,
-	dCtx components.DomainContext,
+	dsw components.DomainStateWriter,
 	requestTimeout,
 	stateTimeout time.Duration,
 	finalizingGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
+	signErrorRetryThreshhold int,
 	grapher grapher.Grapher,
 	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
 	dependencyTracker dependencytracker.DependencyTracker,
@@ -212,6 +225,7 @@ func newTransaction(
 		transportWriter:                   transportWriter,
 		clock:                             clock,
 		queueEventForCoordinator:          queueEventForCoordinator,
+		setDispatchedInFlight:             setDispatchedInFlight,
 		coordinatorTransactionHandleEvent: coordinatorTransactionHandleEvent,
 		getCoordinatorTransactionState:    getCoordinatorTransactionState,
 		notifyEndorserCandidates:          notifyEndorserCandidates,
@@ -222,7 +236,7 @@ func newTransaction(
 		syncPoints:                        syncPoints,
 		components:                        allComponents,
 		domainAPI:                         domainAPI,
-		dCtx:                              dCtx,
+		dsw:                               dsw,
 		domainSigningIdentity:             domainAPI.Domain().FixedSigningIdentity(),
 		getCoordinatorSigningIdentity:     getCoordinatorSigningIdentity,
 		submitterSelection:                domainAPI.ContractConfig().GetSubmitterSelection(),
@@ -231,6 +245,7 @@ func newTransaction(
 		finalizingGracePeriod:             finalizingGracePeriod,
 		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
+		signErrorRetryThreshhold:          signErrorRetryThreshhold,
 		grapher:                           grapher,
 		stateVisibilityTracker:            stateVisibilityTracker,
 		dependencyTracker:                 dependencyTracker,
@@ -240,7 +255,12 @@ func newTransaction(
 	// Set up chained dependencies carried from the parent coordinator's grapher.
 	// Only retain dependencies that are still known in the grapher; unknown = assumed finalized.
 	if pt.PreAssembly != nil && len(pt.PreAssembly.ChainedDependsOn) > 0 {
-		for _, depID := range pt.PreAssembly.ChainedDependsOn {
+		for _, depIDStr := range pt.PreAssembly.ChainedDependsOn {
+			depID, err := uuid.Parse(depIDStr)
+			if err != nil {
+				log.L(txCtx).Warnf("Skipping invalid chained dependency ID %q for TX %s: %v", depIDStr, pt.ID, err)
+				continue
+			}
 			state, ok := txn.getCoordinatorTransactionState(txCtx, depID)
 			if !ok {
 				// It is possible for a chained transaction to be created referencing dependencies that the original
@@ -281,13 +301,6 @@ func (t *coordinatorTransaction) GetID() uuid.UUID {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.ID
-}
-
-func (t *coordinatorTransaction) HasDispatchedPublicTransaction() bool {
-	t.RLock()
-	defer t.RUnlock()
-	return t.pt.PreparedPublicTransaction != nil &&
-		t.pt.PreAssembly.TransactionSpecification.Intent == prototk.TransactionSpecification_SEND_TRANSACTION
 }
 
 func (t *coordinatorTransaction) GetOriginatorNode() string {

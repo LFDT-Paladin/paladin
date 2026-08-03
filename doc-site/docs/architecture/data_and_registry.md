@@ -62,6 +62,7 @@ For each of these parties there might be a need to:
 Some of this information is provided explicitly by the initiator of the transaction, and others are determined by the Paladin node interacting with the privacy preserving smart contract module to orchestrate the transaction.
 
 In each case the Paladin node needs to determine:
+
 - Which account signing identity is involved
 - Which runtime route to use to transfer the data
 
@@ -70,13 +71,22 @@ In each case the Paladin node needs to determine:
 Paladin solves this problem by requiring each specification of a target identity to include **two parts**:
 
 1. The `account identifier`: points to a signing account
-    - An off-chain address book in each Paladin node allows mapping between arbitrary strings and the underlying address. This is covered in more detail in [Key Management](./key_management.md)
+   - An off-chain address book in each Paladin node allows mapping between arbitrary strings and the underlying address. This is covered in more detail in [Key Management](./key_management.md)
 2. The `routing identifier`: points to a Paladin runtime
-    - This is passed into a `registry` plugin to determine the right transport, physical address, and encryption details to use
+   - This is passed into a `registry` plugin to determine the right transport, physical address, and encryption details to use
+
 
 ## Registry plugin
 
-> TODO: Details to follow (Lead: Gabriel Indik)
+The registry plugin is responsible for resolving a routing identifier (a node name string) into the transport details needed to deliver a message — the transport type, connection address, and any TLS/certificate information. It runs as a gRPC subprocess plugin, loaded and managed by Paladin's plugin manager at startup.
+
+Paladin ships two reference registry implementations:
+
+- **EVM registry**: monitors an on-chain `IdentityRegistry` smart contract. Nodes register themselves by emitting `IdentityRegistered` and `PropertySet` events. The plugin streams these events via the block indexer and persists the resulting entries and properties to a local database. When Paladin needs to contact a remote node, it queries the database to find the matching entry and extracts transport details from its properties (e.g. a property named `transport.grpc` carries the gRPC endpoint). Entries can be hierarchical (e.g. `org.node1`), allowing structured naming schemes.
+
+- **Static registry**: loads node entries and transport properties from a YAML/JSON configuration file at startup, with no on-chain dependency. Useful for development, testing, or closed networks where node addresses are known in advance.
+
+Both implementations store entries in the same local schema, so the transport lookup logic is identical regardless of which plugin sourced the data. A regex configured per-registry controls which entry properties are treated as transport descriptors, and an optional prefix filter and transport name remapping allow different registries to serve different network segments from the same Paladin node.
 
 ## Transports
 
@@ -89,4 +99,4 @@ Some fundamental architecture principals are applied to our transports, to allow
 3. Encryption must be end-to-end between Paladin runtimes
    - Where a hub+spoke transport model exists, such a a central JMS/Kafka message bus, or a multi-hop gossip based peer to peer network, the data must be encrypted before it leaves Paladin, and not decrypted again until received by the final destination Paladin
 
-> TODO: Details to follow (Lead: Sam May)
+<!-- TODO: Should add more details here -->

@@ -18,11 +18,11 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/originatortransactionmocks"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -71,52 +71,6 @@ func Test_action_UpdateActiveCoordinatorFromHeartbeat_SetsCoordinator(t *testing
 	require.NoError(t, err)
 
 	assert.Equal(t, "new-coordinator@node2", o.currentActiveCoordinator)
-}
-
-func Test_action_HandleDelegationRejected_HigherPriorityCoordinator_Redirects(t *testing.T) {
-	// The rejection names a coordinator that has higher priority (lower index) than the current one.
-	ctx := context.Background()
-	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
-		CurrentActiveCoordinator("node2").
-		CoordinatorPriorityList("node1", "node2", "node3").
-		Build()
-
-	err := action_HandleDelegationRejected(ctx, o, &DelegationRequestRejectedEvent{
-		ActiveCoordinator: "node1",
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, "node1", o.currentActiveCoordinator, "coordinator must be redirected to the higher-priority node")
-}
-
-func Test_action_HandleDelegationRejected_LowerPriorityCoordinator_NoChange(t *testing.T) {
-	// The rejection names a coordinator with lower priority than the current one; we ignore it.
-	ctx := context.Background()
-	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
-		CurrentActiveCoordinator("node1").
-		CoordinatorPriorityList("node1", "node2", "node3").
-		Build()
-
-	err := action_HandleDelegationRejected(ctx, o, &DelegationRequestRejectedEvent{
-		ActiveCoordinator: "node3",
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, "node1", o.currentActiveCoordinator, "coordinator must not change when named node has lower priority")
-}
-
-func Test_action_HandleDelegationRejected_NoActiveCoordinator_NoChange(t *testing.T) {
-	ctx := context.Background()
-	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
-		CurrentActiveCoordinator("node1").
-		Build()
-
-	err := action_HandleDelegationRejected(ctx, o, &DelegationRequestRejectedEvent{
-		ActiveCoordinator: "",
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, "node1", o.currentActiveCoordinator)
 }
 
 func Test_validator_IsHeartbeatSenderLive_ActiveState_ReturnsTrue(t *testing.T) {
@@ -190,6 +144,7 @@ func Test_hasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *testing.T)
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		Transactions(mockTxn).
 		Build()
@@ -198,12 +153,32 @@ func Test_hasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *testing.T)
 	}
 	assert.True(t, o.hasDroppedTransactions(ctx, snapshot))
 }
+
+// A transaction delegated less than a heartbeat interval ago races the coordinator snapshot: the
+// snapshot may have been generated before the delegation arrived, so its absence is expected and must
+// not trigger a full redelegation of the backlog.
+func Test_hasDroppedTransactions_FalseWhenDelegatedTxnWithinGracePeriod(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID).Maybe()
+	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(ptrTo(time.Now()))
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(mockTxn).
+		Build()
+	snapshot := &common.CoordinatorSnapshot{
+		PooledTransactions: []*common.SnapshotPooledTransaction{},
+	}
+	assert.False(t, o.hasDroppedTransactions(ctx, snapshot), "a freshly-delegated transaction racing the snapshot must not be treated as dropped")
+}
 func Test_hasDroppedTransactions_FalseWhenDelegatedTxnInSnapshot(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		Transactions(mockTxn).
 		Build()
@@ -287,25 +262,41 @@ func Test_addToTransactions_HandleCreatedEventError_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, expectedErr, err)
 }
-func Test_sendDelegationRequest_HandleEventError_ReturnsWrappedError(t *testing.T) {
-	ctx := context.Background()
-	txnID := uuid.New()
-	pt := &components.PrivateTransaction{ID: txnID}
-	expectedErr := fmt.Errorf("delegated event handling failed")
+
+// newDelegatableMockTxn builds a mock originator transaction that expects to be included in a
+// delegation request: it will be asked for its state, private transaction and ID and will receive a
+// DelegatedEvent via HandleEvent.
+func newDelegatableMockTxn(t *testing.T, state transaction.State) (*originatortransactionmocks.OriginatorTransaction, uuid.UUID) {
+	txID := uuid.New()
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
-	mockTxn.On("GetPrivateTransaction").Return(pt)
-	mockTxn.On("GetID").Return(txnID)
-	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(expectedErr)
-	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
-		Transactions(mockTxn).
-		CurrentActiveCoordinator("coordinator@coordinatorNode").
-		Build()
-	err := sendDelegationRequest(ctx, o)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "error handling delegated event for transaction")
-	assert.Contains(t, err.Error(), txnID.String())
-	assert.Contains(t, err.Error(), expectedErr.Error())
+	mockTxn.On("GetID").Return(txID)
+	mockTxn.On("GetCurrentState").Return(state)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime()).Maybe()
+	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
+	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
+	return mockTxn, txID
 }
+
+// staleDelegatedTime returns a delegation timestamp far enough in the past that the dropped-transaction
+// grace period has elapsed, so a transaction absent from the coordinator snapshot registers as dropped
+// rather than as merely racing a snapshot generated before it was delegated.
+func staleDelegatedTime() *time.Time {
+	return ptrTo(time.Now().Add(-time.Hour))
+}
+
+// newExcludedMockTxn builds a mock originator transaction that must NOT be delegated on the partial
+// path. It only permits GetID/GetCurrentState; any GetPrivateTransaction or HandleEvent (DelegatedEvent)
+// call is an unexpected-call failure, which is exactly the assertion we want — an excluded transaction
+// receives no DelegatedEvent and contributes no protobuf entry.
+func newExcludedMockTxn(t *testing.T, state transaction.State) (*originatortransactionmocks.OriginatorTransaction, uuid.UUID) {
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID).Maybe()
+	mockTxn.On("GetCurrentState").Return(state)
+	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime()).Maybe()
+	return mockTxn, txID
+}
+
 func Test_validator_TransactionDoesNotExist_InvalidEventTypeReturnsFalse(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(t, State_Observing)
@@ -385,25 +376,6 @@ func Test_guard_InactiveGracePeriodExceeded_WhileSending_FalseWhenCounterBelowTh
 		InactiveGracePeriod(2).
 		Build()
 	assert.False(t, guard_InactiveGracePeriodExceeded(ctx, o))
-}
-
-func Test_sendDelegationRequest_TransportError_ReturnsError(t *testing.T) {
-	ctx := t.Context()
-	builder := NewOriginatorBuilderForTesting(t, State_Sending).WithMockTransportWriter(t)
-	txn := testutil.NewPrivateTransactionBuilderForTesting().Build()
-	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
-	mockTxn.On("GetID").Return(txn.ID)
-	mockTxn.On("GetPrivateTransaction").Return(txn)
-	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
-	o, mocks := builder.Transactions(mockTxn).CurrentActiveCoordinator("coordinator@node1").Build()
-
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(fmt.Errorf("transport error"))
-
-	err := sendDelegationRequest(ctx, o)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "transport error")
 }
 
 func Test_action_UpdateEndorserCandidates_DoesNotChangeCurrentActiveCoordinator(t *testing.T) {
@@ -595,26 +567,16 @@ func Test_resetFailoverIndex_CalledByHandleDelegationRejected_NoChangeOnLowerPri
 
 // ── action_FailoverToNextCoordinator ─────────────────────────────────────────
 
+// action_FailoverToNextCoordinator advances the coordinator/failoverIndex and raises the full
+// delegation signal; the actual send is performed later by the batching goroutine's flush.
 func Test_action_FailoverToNextCoordinator_WithPriorityList_AdvancesCoordinatorAndResetsCounter(t *testing.T) {
 	ctx := context.Background()
-	txID := uuid.New()
-	pt := &components.PrivateTransaction{ID: txID}
-	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
-	mockTxn.On("GetID").Return(txID)
-	mockTxn.On("GetPrivateTransaction").Return(pt)
-	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
-	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		CoordinatorPriorityList("A", "B", "C").
 		CurrentActiveCoordinator("A").
 		FailoverIndex(1).
 		HeartbeatIntervalsSinceLastReceive(5).
-		Transactions(mockTxn).
-		WithMockTransportWriter(t).
 		Build()
-
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "B", mock.Anything, mock.Anything).
-		Return(nil).Once()
 
 	err := action_FailoverToNextCoordinator(ctx, o, nil)
 	require.NoError(t, err)
@@ -622,54 +584,32 @@ func Test_action_FailoverToNextCoordinator_WithPriorityList_AdvancesCoordinatorA
 	assert.Equal(t, "B", o.currentActiveCoordinator)
 	assert.Equal(t, 2, o.failoverIndex)
 	assert.Equal(t, 0, o.heartbeatIntervalsSinceLastReceive, "liveness counter must be reset on failover")
+	assert.Len(t, o.notifyFullDelegation, 1, "failover must raise the full delegation signal")
 }
 
 func Test_action_FailoverToNextCoordinator_WrapAround_CyclesBackToStart(t *testing.T) {
 	ctx := context.Background()
-	txID := uuid.New()
-	pt := &components.PrivateTransaction{ID: txID}
-	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
-	mockTxn.On("GetID").Return(txID)
-	mockTxn.On("GetPrivateTransaction").Return(pt)
-	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
-	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		CoordinatorPriorityList("A", "B", "C").
 		CurrentActiveCoordinator("B").
 		FailoverIndex(2). // pointing to last slot
-		Transactions(mockTxn).
-		WithMockTransportWriter(t).
 		Build()
-
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "C", mock.Anything, mock.Anything).
-		Return(nil).Once()
 
 	err := action_FailoverToNextCoordinator(ctx, o, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "C", o.currentActiveCoordinator)
 	assert.Equal(t, 0, o.failoverIndex, "failoverIndex must wrap to 0 after the last position")
+	assert.Len(t, o.notifyFullDelegation, 1, "failover must raise the full delegation signal")
 }
 
 func Test_action_FailoverToNextCoordinator_EmptyPriorityList_DelegatesWithoutReset(t *testing.T) {
 	ctx := context.Background()
-	txID := uuid.New()
-	pt := &components.PrivateTransaction{ID: txID}
-	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
-	mockTxn.On("GetID").Return(txID)
-	mockTxn.On("GetPrivateTransaction").Return(pt)
-	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
-	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		CurrentActiveCoordinator("static-coordinator").
 		FailoverIndex(0).
 		HeartbeatIntervalsSinceLastReceive(3).
-		Transactions(mockTxn).
-		WithMockTransportWriter(t).
 		Build()
-
-	mocks.TransportWriter.EXPECT().
-		SendDelegationRequest(mock.Anything, "static-coordinator", mock.Anything, mock.Anything).
-		Return(nil).Once()
 
 	err := action_FailoverToNextCoordinator(ctx, o, nil)
 	require.NoError(t, err)
@@ -677,6 +617,7 @@ func Test_action_FailoverToNextCoordinator_EmptyPriorityList_DelegatesWithoutRes
 	assert.Equal(t, "static-coordinator", o.currentActiveCoordinator, "STATIC/SENDER mode: coordinator must not change")
 	assert.Equal(t, 0, o.failoverIndex, "STATIC/SENDER mode: failoverIndex must not change")
 	assert.Equal(t, 3, o.heartbeatIntervalsSinceLastReceive, "STATIC/SENDER mode: counter must not be reset")
+	assert.Len(t, o.notifyFullDelegation, 1, "even without a priority list, failover must notify for a full delegation")
 }
 
 // ── action_ResetToTopPriorityCoordinator ─────────────────────────────────────

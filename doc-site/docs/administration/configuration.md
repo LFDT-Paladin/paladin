@@ -235,10 +235,12 @@
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
 | address | Server address | `string` | `"127.0.0.1"` |
+| blockProfileRate | Rate for runtime block profiling exposed at /debug/pprof/block: 0 disables it, 1 records every blocking event, N samples one event in N | `int` | `0` |
 | cors | CORS configuration | [`CORSConfig`](#debugservercors) | - |
 | defaultRequestTimeout | Default request timeout | `string` | `"2m"` |
 | enabled | Whether debug server is enabled | `bool` | `false` |
 | maxRequestTimeout | Maximum request timeout | `string` | `"10m"` |
+| mutexProfileFraction | Fraction for runtime mutex profiling exposed at /debug/pprof/mutex: 0 disables it, 1 records every contention event, N samples one event in N | `int` | `0` |
 | port | Server port | `int` | - |
 | readTimeout | Read timeout | `string` | - |
 | shutdownTimeout | Shutdown timeout | `string` | `"10s"` |
@@ -361,6 +363,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| buffer | Configure buffered log output | [`LogBufferConfig`](#logbuffer) | - |
 | disableColor | Forces color to be disabled, even if we detect a TTY | `bool` | `false` |
 | file | Configure file based logging | [`LogFileConfig`](#logfile) | - |
 | forceColor | Forces color to be enabled, even if we do not detect a TTY | `bool` | `false` |
@@ -370,6 +373,14 @@
 | output | Sets the output destination (stdout, stderr, file) | `string` | `"stderr"` |
 | timeFormat | String format for timestamps | `string` | `"2006-01-02T15:04:05.000Z07:00"` |
 | utc | Sets log timestamps to the UTC timezone | `bool` | `false` |
+
+## log.buffer
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| enabled | Enables buffered log output, batching lines in memory to reduce the number of write syscalls (default false) | `bool` | `false` |
+| flushInterval | The maximum time to hold buffered log lines before flushing them | `string` | `"1s"` |
+| size | The amount of log output to accumulate in memory before flushing | `string` | `"64Kb"` |
 
 ## log.file
 
@@ -792,6 +803,8 @@
 | closingGracePeriod | Grace period for closing operations | `int` | `2` |
 | coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
+| delegationBatchInterval | Interval over which originator delegation requests are coalesced into a single batched send while in the sending state | `string` | `"50ms"` |
+| dispatchMaxBatchSize | Maximum number of transactions prepared and committed in a single dispatch batch | `int` | `100` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
 | idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
 | inactiveGracePeriod | Number of heartbeat intervals without activity before a node is considered inactive | `int` | `2` |
@@ -800,6 +813,7 @@
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
 | originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
+| signErrorRetryThreshold | Maximum number of times a transaction can error on the signing of its assembled attestations before being evicted | `int` | `3` |
 | stateTimeout | Timeout for request-driven transaction states before repooling | `string` | `"10s"` |
 | targetActiveSequencers | Target number of active sequencers | `int` | `50` |
 | transactionResumeMaxTransactions | Maximum number of pending transactions to resume | `int` | `100000` |

@@ -45,6 +45,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,6 +63,7 @@ type TransactionBuilderForTesting struct {
 	originator                         string
 	originatorNode                     string
 	queueEventForCoordinator           func(context.Context, common.Event)
+	setDispatchedInFlight              func(txID uuid.UUID, inFlight bool)
 	domainSigningIdentity              string
 	coordinatorSigningIdentity         string
 	signerAddress                      *pldtypes.EthAddress
@@ -90,6 +92,8 @@ type TransactionBuilderForTesting struct {
 	baseLedgerRevertRetryThreshold     int
 	assembleErrorCount                 int
 	assembleErrorRetryThreshhold       int
+	signErrorCount                     int
+	signErrorRetryThreshhold           int
 	endorseToleranceByRequirement      map[string]int
 	revertCount                        int
 	currentBlockHeight                 int64
@@ -104,6 +108,7 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		originator:                "sender@node1",
 		originatorNode:            "node1",
 		queueEventForCoordinator:  func(context.Context, common.Event) {},
+		setDispatchedInFlight:     func(uuid.UUID, bool) {},
 		signerAddress:             nil,
 		latestSubmissionHash:      nil,
 		state:                     state,
@@ -194,12 +199,12 @@ func (b *TransactionBuilderForTesting) NumberOfOutputStates(num int) *Transactio
 	return b
 }
 
-func (b *TransactionBuilderForTesting) InputStateIDs(stateIDs ...pldtypes.HexBytes) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) InputStateIDs(stateIDs ...string) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.InputStateIDs(stateIDs...)
 	return b
 }
 
-func (b *TransactionBuilderForTesting) ReadStateIDs(stateIDs ...pldtypes.HexBytes) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) ReadStateIDs(stateIDs ...string) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.ReadStateIDs(stateIDs...)
 	return b
 }
@@ -256,6 +261,11 @@ func (b *TransactionBuilderForTesting) CoordinatorSigningIdentity(identity strin
 
 func (b *TransactionBuilderForTesting) QueueEventForCoordinator(queueFn func(context.Context, common.Event)) *TransactionBuilderForTesting {
 	b.queueEventForCoordinator = queueFn
+	return b
+}
+
+func (b *TransactionBuilderForTesting) SetDispatchedInFlight(fn func(txID uuid.UUID, inFlight bool)) *TransactionBuilderForTesting {
+	b.setDispatchedInFlight = fn
 	return b
 }
 
@@ -374,6 +384,16 @@ func (b *TransactionBuilderForTesting) AssembleErrorRetryThreshold(threshold int
 	return b
 }
 
+func (b *TransactionBuilderForTesting) SignErrorCount(count int) *TransactionBuilderForTesting {
+	b.signErrorCount = count
+	return b
+}
+
+func (b *TransactionBuilderForTesting) SignErrorRetryThreshold(threshold int) *TransactionBuilderForTesting {
+	b.signErrorRetryThreshhold = threshold
+	return b
+}
+
 func (b *TransactionBuilderForTesting) EndorseTolerance(tolerance int) *TransactionBuilderForTesting {
 	b.endorseToleranceByRequirement = map[string]int{"endorse-0": tolerance}
 	return b
@@ -404,7 +424,7 @@ func (b *TransactionBuilderForTesting) Address(address pldtypes.EthAddress) *Tra
 	return b
 }
 
-func (b *TransactionBuilderForTesting) PreAssembly(preAssembly *components.TransactionPreAssembly) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) PreAssembly(preAssembly *prototk.TransactionPreAssembly) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.PreAssembly(preAssembly)
 	return b
 }
@@ -454,7 +474,9 @@ type transactionDependencyMocks struct {
 	AllComponents       *componentsmocks.AllComponents
 	DomainAPI           *componentsmocks.DomainSmartContract
 	Domain              *componentsmocks.Domain
-	DomainContext       *componentsmocks.DomainContext
+	DomainStateWriter   *componentsmocks.DomainStateWriter
+	StateManager        *componentsmocks.StateManager
+	DomainQueryContext  *componentsmocks.DomainQueryContext
 	KeyManager          *componentsmocks.KeyManager
 	PublicTxManager     *componentsmocks.PublicTxManager
 	TXManager           *componentsmocks.TXManager
@@ -488,9 +510,11 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		PublicTxManager:     componentsmocks.NewPublicTxManager(b.t),
 		TXManager:           componentsmocks.NewTXManager(b.t),
 		SequenceManager:     componentsmocks.NewSequencerManager(b.t),
+		StateManager:        componentsmocks.NewStateManager(b.t),
+		DomainQueryContext:  componentsmocks.NewDomainQueryContext(b.t),
 		DomainAPI:           componentsmocks.NewDomainSmartContract(b.t),
 		Domain:              componentsmocks.NewDomain(b.t),
-		DomainContext:       componentsmocks.NewDomainContext(b.t),
+		DomainStateWriter:   componentsmocks.NewDomainStateWriter(b.t),
 		DB:                  mp.Mock,
 	}
 
@@ -500,7 +524,11 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	mocks.AllComponents.On("TxManager").Return(mocks.TXManager).Maybe()
 	mocks.AllComponents.On("SequencerManager").Return(mocks.SequenceManager).Maybe()
 	mocks.AllComponents.On("Persistence").Return(mp.P).Maybe()
+	mocks.AllComponents.On("StateManager").Return(mocks.StateManager).Maybe()
+	mocks.DomainQueryContext.On("Close", mock.Anything).Return().Maybe()
+	mocks.StateManager.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mocks.DomainQueryContext).Maybe()
 	mocks.DomainAPI.On("Domain").Return(mocks.Domain).Maybe()
+	mocks.DomainAPI.On("Address").Return(*pldtypes.RandAddress()).Maybe()
 
 	// create the mocks needed for the NewTransaction call below
 	// the return values of these can be set by builder methods if needed
@@ -537,6 +565,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		transportWriter,
 		clock,
 		b.queueEventForCoordinator,
+		b.setDispatchedInFlight,
 		coordinatorTransactionHandleEvent(b.coordinatorTransactions),
 		coordinatorTransactionStateLookup(b.coordinatorTransactions),
 		func(context.Context, ...string) {}, // notifyEndorserCandidates
@@ -547,12 +576,13 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		mocks.SyncPoints,
 		mocks.AllComponents,
 		mocks.DomainAPI,
-		mocks.DomainContext,
+		mocks.DomainStateWriter,
 		time.Duration(b.requestTimeout),
 		time.Duration(b.stateTimeout),
 		b.finalizingGracePeriod,
 		b.baseLedgerRevertRetryThreshold,
 		b.assembleErrorRetryThreshhold,
+		b.signErrorRetryThreshhold,
 		b.grapher,
 		b.stateVisibilityTracker,
 		b.dependencyTracker,
@@ -571,6 +601,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.revertReason = b.revertReason
 	txn.revertCount = b.revertCount
 	txn.assembleErrorCount = b.assembleErrorCount
+	txn.signErrorCount = b.signErrorCount
 	if b.endorseToleranceByRequirement != nil {
 		txn.endorseToleranceByRequirement = b.endorseToleranceByRequirement
 	}
@@ -595,7 +626,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 
 	if privateTransaction.PostAssembly != nil {
 		for _, state := range privateTransaction.PostAssembly.OutputStates {
-			err := b.grapher.AddMinter(ctx, []*components.FullState{state}, txn.pt.ID)
+			err := b.grapher.AddMinter(ctx, []*prototk.EndorsableState{state}, txn.pt.ID)
 			require.NoError(b.t, err)
 		}
 	}
@@ -611,7 +642,7 @@ func (b *TransactionBuilderForTesting) BuildAssembleSuccessEvent() *AssembleSucc
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: b.txn.pt.ID,
 		},
-		PostAssembly: b.BuildPostAssembly(),
+		PostAssembly: b.BuildPostAssembly().AssembleResponse,
 		RequestID:    b.txn.pendingAssembleRequest.IdempotencyKey(),
 	}
 }
@@ -621,7 +652,7 @@ func (b *TransactionBuilderForTesting) BuildAssembleRevertEvent() *AssembleRever
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: b.txn.pt.ID,
 		},
-		PostAssembly: b.BuildPostAssembly(),
+		PostAssembly: b.BuildPostAssembly().AssembleResponse,
 		RequestID:    b.txn.pendingAssembleRequest.IdempotencyKey(),
 	}
 }
@@ -684,6 +715,6 @@ func (b *TransactionBuilderForTesting) BuildPostAssembly() *components.Transacti
 	return b.privateTransactionBuilder.BuildPostAssembly()
 }
 
-func (b *TransactionBuilderForTesting) BuildPreAssembly() *components.TransactionPreAssembly {
+func (b *TransactionBuilderForTesting) BuildPreAssembly() *prototk.TransactionPreAssembly {
 	return b.privateTransactionBuilder.BuildPreAssembly()
 }

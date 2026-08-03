@@ -44,9 +44,11 @@ func TestCoordinatorState_String(t *testing.T) {
 
 func TestOriginatorTransactionState_String(t *testing.T) {
 	assert.Equal(t, "Initial", OriginatorTransactionState_Initial.String())
+	assert.Equal(t, "Resolving", OriginatorTransactionState_Resolving.String())
 	assert.Equal(t, "Pending", OriginatorTransactionState_Pending.String())
 	assert.Equal(t, "Delegated", OriginatorTransactionState_Delegated.String())
 	assert.Equal(t, "Assembling", OriginatorTransactionState_Assembling.String())
+	assert.Equal(t, "Signing", OriginatorTransactionState_Signing.String())
 	assert.Equal(t, "Endorsement_Gathering", OriginatorTransactionState_Endorsement_Gathering.String())
 	assert.Equal(t, "Prepared", OriginatorTransactionState_Prepared.String())
 	assert.Equal(t, "Dispatched", OriginatorTransactionState_Dispatched.String())
@@ -64,6 +66,7 @@ func TestCoordinatorTransactionState_String(t *testing.T) {
 	assert.Equal(t, "Pooled", CoordinatorTransactionState_Pooled.String())
 	assert.Equal(t, "PreAssembly_Blocked", CoordinatorTransactionState_PreAssembly_Blocked.String())
 	assert.Equal(t, "Assembling", CoordinatorTransactionState_Assembling.String())
+	assert.Equal(t, "Signing", CoordinatorTransactionState_Signing.String())
 	assert.Equal(t, "Reverted", CoordinatorTransactionState_Reverted.String())
 	assert.Equal(t, "Endorsement_Gathering", CoordinatorTransactionState_Endorsement_Gathering.String())
 	assert.Equal(t, "Blocked", CoordinatorTransactionState_Blocked.String())

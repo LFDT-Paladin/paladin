@@ -29,9 +29,11 @@ type State = common.OriginatorTransactionState
 
 const (
 	State_Initial               = common.OriginatorTransactionState_Initial               // Transaction state machine created
+	State_Resolving             = common.OriginatorTransactionState_Resolving             // The required verifiers are being resolved before the transaction becomes eligible for delegation
 	State_Pending               = common.OriginatorTransactionState_Pending               // The transaction has not yet been delegated to a coordinator
 	State_Delegated             = common.OriginatorTransactionState_Delegated             // The transaction has been sent to the current active coordinator
 	State_Assembling            = common.OriginatorTransactionState_Assembling            // The coordinator has sent an assemble request to us and we have not yet sent the assembled transaction back to the coordinator
+	State_Signing               = common.OriginatorTransactionState_Signing               // The assemble response has been sent; we are signing the local SIGN attestations of our own assembled plan and will push the signatures to the coordinator
 	State_Endorsement_Gathering = common.OriginatorTransactionState_Endorsement_Gathering // An assemble response has been sent to the active coordinator, who should now be gathering endorsements for the transaction. A dispatch confirmation request is expected in this state.
 	State_Prepared              = common.OriginatorTransactionState_Prepared              // We know that the coordinator has got as far as preparing a public transaction for this transaction
 	State_Dispatched            = common.OriginatorTransactionState_Dispatched            // The active coordinator that this transaction was delegated to has dispatched the transaction to a public transaction manager for submission to the base ledger
@@ -51,7 +53,9 @@ const (
 	Event_ConfirmedReverted                           // confirmation received from the blockchain of base ledge transaction failure
 	Event_Delegated                                   // transaction has been delegated to a coordinator
 	Event_AssembleRequestReceived                     // coordinator has requested that we assemble the transaction
-	Event_AssembleAndSignSuccess                      // we have successfully assembled the transaction and signing module has signed the assembled transaction
+	Event_AssembleSuccess                             // we have successfully assembled the transaction (signing, if required, happens separately in State_Signing)
+	Event_SignSuccess                                 // the background sign goroutine has signed all local SIGN attestations of the assembled plan
+	Event_SignError                                   // the background sign goroutine failed to sign a SIGN attestation
 	Event_AssembleRevert                              // we have failed to assemble the transaction
 	Event_AssemblePark                                // we have parked the transaction
 	Event_AssembleError                               // an unexpected error occurred while trying to assemble the transaction
@@ -61,6 +65,9 @@ const (
 	Event_NonceAssigned                               // the public transaction manager has assigned a nonce to the transaction
 	Event_Submitted                                   // the transaction has been submitted to the blockchain
 	Event_Finalize                                    // internal event to trigger transition from terminal states (Confirmed/Reverted) to State_Final for cleanup
+	Event_VerifiersResolved                           // background resolution of the required verifiers completed successfully
+	Event_VerifierResolutionFailed                    // background resolution of the required verifiers failed; a retry will be scheduled
+	Event_VerifierResolutionRetry                     // scheduled retry timer fired; re-attempt verifier resolution
 )
 
 // Type aliases for the generic statemachine types, specialized for Transaction
@@ -92,10 +99,54 @@ var stateDefinitionsMap = StateDefinitions{
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
 					Transitions: []Transition{
-						{
-							To: State_Pending,
-						},
+						// Resolve the required verifiers before the transaction can be delegated.
+						{If: guard_HasRequiredVerifiers, To: State_Resolving},
+						// No verifiers to resolve: become eligible for delegation immediately.
+						{To: State_Pending},
 					},
+				}},
+			},
+		},
+	},
+	State_Resolving: {
+		OnTransitionTo:   []ActionRule{{Action: action_ResolveVerifiers}},
+		OnTransitionFrom: []ActionRule{{Action: action_CancelResolveRetry}},
+		Events: map[EventType]EventHandlers{
+			Event_ConfirmedSuccess: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{{
+						To: State_Confirmed,
+					}},
+				}},
+			},
+			Event_ConfirmedReverted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator:   statemachine.ValidatorNot(validator_WillRetry),
+					Transitions: []Transition{{To: State_Confirmed}},
+				}},
+			},
+			Event_VerifiersResolved: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_VerifiersResolved}},
+					Transitions: []Transition{{
+						To: State_Pending,
+					}},
+				}},
+			},
+			Event_VerifierResolutionFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Actions: []ActionRule{{Action: action_ScheduleResolveRetry}},
+				}},
+			},
+			Event_VerifierResolutionRetry: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					// Release the fired retry timer's context before re-arming resolution.
+					Actions: []ActionRule{{Action: action_CancelResolveRetry}, {Action: action_ResolveVerifiers}},
 				}},
 			},
 		},
@@ -203,7 +254,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Assembling: {
-		OnTransitionTo:   []ActionRule{{Action: action_AssembleAndSign}},
+		OnTransitionTo:   []ActionRule{{Action: action_Assemble}},
 		OnTransitionFrom: []ActionRule{{Action: action_CancelCurrentAssembly}},
 		Events: map[EventType]EventHandlers{
 			Event_ConfirmedSuccess: {
@@ -234,13 +285,21 @@ var stateDefinitionsMap = StateDefinitions{
 					}},
 				}},
 			},
-			Event_AssembleAndSignSuccess: {
+			Event_AssembleSuccess: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
-					Validator: validator_AssembleAndSignSuccessMatchesCurrentRequest,
-					Actions:   []ActionRule{{Action: action_AssembleAndSignSuccess}},
+					Validator: validator_AssembleSuccessMatchesCurrentRequest,
+					Actions:   []ActionRule{{Action: action_AssembleSuccess}},
 					Transitions: []Transition{
 						{
+							// The assembled plan requires a local signature: send the assemble response now
+							// (states + verifiers, no signatures) and sign in State_Signing.
+							If:      guard_HasLocalSignRequirement,
+							To:      State_Signing,
+							Actions: []ActionRule{{Action: action_SendAssembleSuccessResponse}},
+						},
+						{
+							// No local signing required
 							To:      State_Endorsement_Gathering,
 							Actions: []ActionRule{{Action: action_SendAssembleSuccessResponse}},
 						},
@@ -289,38 +348,150 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_AssembleRequestReceived: {
 				Match: statemachine.MatchAll,
 				Handlers: []EventHandler{{
-					// Always runs first: refresh the cached block height before any validator reads it.
+					// Checked first: the current delegate did not get our response in time and resent the same
+					// request. Reply with the same response as before; a duplicate needs no block-height refresh or
+					// any of the checks below. A duplicate from a stale delegate is not resent to - it falls through
+					// to the not-current-delegate rejection.
+					Validator: statemachine.ValidatorAnd(
+						validator_AssembleRequestMatchesPreviousResponse,
+						validator_AssembleRequestFromCurrentDelegate,
+					),
+					Actions: []ActionRule{{Action: action_ResendAssembleSuccessResponse}},
+					Stop:    true,
+				}, {
+					// Refresh the cached block height before any validator below reads it.
 					Actions: []ActionRule{{Action: action_RefreshBlockHeight}},
 				}, {
 					// Assemble request is not from the current delegate; reject without entering the assembly flow.
 					Validator: statemachine.ValidatorNot(validator_AssembleRequestFromCurrentDelegate),
 					Actions:   []ActionRule{{Action: action_SendAssembleRejectionNotCurrentDelegate}},
+					Stop:      true,
 				}, {
 					// Block height tolerance exceeded: reject without entering the assembly flow.
 					Validator: validator_AssembleBlockHeightToleranceExceeded,
 					Actions:   []ActionRule{{Action: action_SendAssembleBlockHeightRejection}},
+					Stop:      true,
 				}, {
 					// Private state incomplete: reject without entering the assembly flow.
 					Validator: validator_IsPrivateStateDataPendingForAssembly,
 					Actions:   []ActionRule{{Action: action_RejectAssemblyPrivateStateDataPending}},
+					Stop:      true,
 				}, {
-					// All checks pass: assemble and proceed.
-					Validator: statemachine.ValidatorAnd(
-						validator_AssembleRequestFromCurrentDelegate,
-						statemachine.ValidatorNot(validator_AssembleBlockHeightToleranceExceeded),
-						statemachine.ValidatorNot(validator_IsPrivateStateDataPendingForAssembly),
-					),
-					// For some reason we've been asked to assemble again. We must not have moved to endorsement gathering,
-					// reverted, or parked. This could be because of a temporary issue preventing assembly (e.g. we couldn't
-					// resolve a remote verifier while it was offline). Assuming this is a new request, action it.
-					// If the request matches the currently in-flight assembly (e.g. a coordinator nudge arriving while we are
-					// still assembling the original request), do not cancel and restart.
+					// The request matches the assembly already in flight (a coordinator nudge arriving while we are
+					// still assembling the original request): there is no need to cancel and restart, so do nothing.
+					Validator: validator_AssembleRequestMatchesInProgressAssembly,
+					Stop:      true,
+				}, {
+					// A fresh, different request from the current delegate: we must not have moved on to endorsement
+					// gathering, reverted, or parked. This could be because of a temporary issue preventing assembly
+					// (e.g. we couldn't resolve a remote verifier while it was offline). Store the request and
+					// (re)start assembly. The matches-previous, stale-delegate, block-height, private-state and
+					// matches-in-progress cases have all stopped above, so no validator is needed here.
 					Actions: []ActionRule{
 						{Action: action_AssembleRequestReceived},
-						{If: statemachine.GuardNot(statemachine.GuardOr(guard_AssembleRequestMatchesPreviousResponse, guard_AssembleRequestMatchesInProgressAssembly)), Action: action_AssembleAndSign},
-						{If: guard_AssembleRequestMatchesPreviousResponse, Action: action_ResendAssembleSuccessResponse},
+						{Action: action_Assemble},
 					},
 					// No transition - we're already in Assembling
+				}},
+			},
+		},
+	},
+	State_Signing: {
+		OnTransitionTo:   []ActionRule{{Action: action_FulfilSignAttestations}},
+		OnTransitionFrom: []ActionRule{{Action: action_CancelCurrentSign}},
+		Events: map[EventType]EventHandlers{
+			Event_ConfirmedSuccess: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{{
+						To: State_Confirmed,
+					}},
+				}},
+			},
+			Event_ConfirmedReverted: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator:   statemachine.ValidatorNot(validator_WillRetry),
+					Transitions: []Transition{{To: State_Confirmed}},
+				}},
+			},
+			Event_Delegated: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: statemachine.ValidatorNot(validator_CoordinatorIsCurrentDelegate),
+					Actions: []ActionRule{
+						{Action: action_Delegated},
+						{Action: action_ResetDelegationState},
+					},
+					Transitions: []Transition{{
+						To: State_Delegated,
+					}},
+				}},
+			},
+			Event_SignSuccess: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_SignSuccessMatchesCurrentRequest,
+					Actions:   []ActionRule{{Action: action_SignSuccess}},
+					Transitions: []Transition{
+						{
+							To:      State_Endorsement_Gathering,
+							Actions: []ActionRule{{Action: action_SendSignResponse}},
+						},
+					},
+				}},
+			},
+			Event_SignError: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Transitions: []Transition{
+						{
+							// Signing failed. Fall back to Delegated (mirroring the assemble-error fallback) and push a
+							// SignError so the coordinator can repool/evict
+							To:      State_Delegated,
+							Actions: []ActionRule{{Action: action_SendSignError}},
+						},
+					},
+				}},
+			},
+			Event_AssembleRequestReceived: {
+				Match: statemachine.MatchAll,
+				Handlers: []EventHandler{{
+					// Checked first: the current delegate did not get our response in time and resent the same request.
+					// Reply with the same assemble response as before; a duplicate needs no block-height refresh or
+					// any of the checks below (we remain in State_Signing, still producing signatures). A duplicate
+					// from a stale delegate is not resent to - it falls through to the not-current-delegate rejection.
+					Validator: statemachine.ValidatorAnd(
+						validator_AssembleRequestMatchesPreviousResponse,
+						validator_AssembleRequestFromCurrentDelegate,
+					),
+					Actions: []ActionRule{{Action: action_ResendAssembleSuccessResponse}},
+					Stop:    true,
+				}, {
+					// Refresh the cached block height before any validator below reads it.
+					Actions: []ActionRule{{Action: action_RefreshBlockHeight}},
+				}, {
+					// Assemble request is not from the current delegate; reject without entering the assembly flow.
+					Validator: statemachine.ValidatorNot(validator_AssembleRequestFromCurrentDelegate),
+					Actions:   []ActionRule{{Action: action_SendAssembleRejectionNotCurrentDelegate}},
+					Stop:      true,
+				}, {
+					// Block height tolerance exceeded: reject without entering the assembly flow.
+					Validator: validator_AssembleBlockHeightToleranceExceeded,
+					Actions:   []ActionRule{{Action: action_SendAssembleBlockHeightRejection}},
+					Stop:      true,
+				}, {
+					// Private state incomplete: reject without entering the assembly flow.
+					Validator: validator_IsPrivateStateDataPendingForAssembly,
+					Actions:   []ActionRule{{Action: action_RejectAssemblyPrivateStateDataPending}},
+					Stop:      true,
+				}, {
+					// A fresh, different request passing all checks: assemble and proceed. The matches-previous,
+					// stale-delegate, block-height and private-state cases have all stopped above, so no validator is
+					// needed here — the coordinator wants a re-assemble, so go back to Assembling for a do-over.
+					// Leaving State_Signing cancels the in-flight sign goroutine.
+					Actions:     []ActionRule{{Action: action_AssembleRequestReceived}},
+					Transitions: []Transition{{To: State_Assembling}},
 				}},
 			},
 		},
@@ -358,37 +529,41 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_AssembleRequestReceived: {
 				Match: statemachine.MatchAll,
 				Handlers: []EventHandler{{
-					// Always runs first: refresh the cached block height before any validator reads it.
+					// Checked first: the current delegate had not got the response in time and has resent the assemble
+					// request. Reply with the same response as before; a duplicate needs no block-height refresh or any
+					// of the checks below. A duplicate from a stale delegate is not resent to - it falls through to the
+					// not-current-delegate rejection.
+					Validator: statemachine.ValidatorAnd(
+						validator_AssembleRequestMatchesPreviousResponse,
+						validator_AssembleRequestFromCurrentDelegate,
+					),
+					Actions: []ActionRule{{Action: action_ResendAssembleSuccessResponse}},
+					Stop:    true,
+				}, {
+					// Refresh the cached block height before any validator below reads it.
 					Actions: []ActionRule{{Action: action_RefreshBlockHeight}},
 				}, {
 					// Assemble request is not from the current delegate; reject without entering the assembly flow.
 					Validator: statemachine.ValidatorNot(validator_AssembleRequestFromCurrentDelegate),
 					Actions:   []ActionRule{{Action: action_SendAssembleRejectionNotCurrentDelegate}},
+					Stop:      true,
 				}, {
 					// Block height tolerance exceeded: reject without entering the assembly flow.
 					Validator: validator_AssembleBlockHeightToleranceExceeded,
 					Actions:   []ActionRule{{Action: action_SendAssembleBlockHeightRejection}},
+					Stop:      true,
 				}, {
 					// Private state incomplete: reject without entering the assembly flow.
 					Validator: validator_IsPrivateStateDataPendingForAssembly,
 					Actions:   []ActionRule{{Action: action_RejectAssemblyPrivateStateDataPending}},
+					Stop:      true,
 				}, {
-					// All checks pass: assemble and proceed.
-					Validator: statemachine.ValidatorAnd(
-						validator_AssembleRequestFromCurrentDelegate,
-						statemachine.ValidatorNot(validator_AssembleBlockHeightToleranceExceeded),
-						statemachine.ValidatorNot(validator_IsPrivateStateDataPendingForAssembly),
-					),
-					Actions: []ActionRule{
-						{Action: action_AssembleRequestReceived},
-						//We thought we had got as far as endorsement but it seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
-						{If: guard_AssembleRequestMatchesPreviousResponse, Action: action_ResendAssembleSuccessResponse},
-					},
-					Transitions: []Transition{{
-						//This is different from the previous request. The coordinator must have decided that it was necessary to re-assemble with different available states so we go back to assembling state for a do-over
-						If: statemachine.GuardNot(guard_AssembleRequestMatchesPreviousResponse),
-						To: State_Assembling,
-					}},
+					// A fresh, different request passing all checks: assemble and proceed. The matches-previous,
+					// stale-delegate, block-height and private-state cases have all stopped above, so no validator is
+					// needed here. The coordinator must have decided it was necessary to re-assemble with different
+					// available states, so we go back to assembling for a do-over.
+					Actions:     []ActionRule{{Action: action_AssembleRequestReceived}},
+					Transitions: []Transition{{To: State_Assembling}},
 				}},
 			},
 			Event_PreDispatchRequestReceived: {
@@ -455,37 +630,41 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_AssembleRequestReceived: {
 				Match: statemachine.MatchAll,
 				Handlers: []EventHandler{{
-					// Always runs first: refresh the cached block height before any validator reads it.
+					// Checked first: the current delegate had not got the response in time and has resent the assemble
+					// request. Reply with the same response as before; a duplicate needs no block-height refresh or any
+					// of the checks below. A duplicate from a stale delegate is not resent to - it falls through to the
+					// not-current-delegate rejection.
+					Validator: statemachine.ValidatorAnd(
+						validator_AssembleRequestMatchesPreviousResponse,
+						validator_AssembleRequestFromCurrentDelegate,
+					),
+					Actions: []ActionRule{{Action: action_ResendAssembleSuccessResponse}},
+					Stop:    true,
+				}, {
+					// Refresh the cached block height before any validator below reads it.
 					Actions: []ActionRule{{Action: action_RefreshBlockHeight}},
 				}, {
 					// Assemble request is not from the current delegate; reject without entering the assembly flow.
 					Validator: statemachine.ValidatorNot(validator_AssembleRequestFromCurrentDelegate),
 					Actions:   []ActionRule{{Action: action_SendAssembleRejectionNotCurrentDelegate}},
+					Stop:      true,
 				}, {
 					// Block height tolerance exceeded: reject without entering the assembly flow.
 					Validator: validator_AssembleBlockHeightToleranceExceeded,
 					Actions:   []ActionRule{{Action: action_SendAssembleBlockHeightRejection}},
+					Stop:      true,
 				}, {
 					// Private state incomplete: reject without entering the assembly flow.
 					Validator: validator_IsPrivateStateDataPendingForAssembly,
 					Actions:   []ActionRule{{Action: action_RejectAssemblyPrivateStateDataPending}},
+					Stop:      true,
 				}, {
-					// All checks pass: assemble and proceed.
-					Validator: statemachine.ValidatorAnd(
-						validator_AssembleRequestFromCurrentDelegate,
-						statemachine.ValidatorNot(validator_AssembleBlockHeightToleranceExceeded),
-						statemachine.ValidatorNot(validator_IsPrivateStateDataPendingForAssembly),
-					),
-					Actions: []ActionRule{
-						{Action: action_AssembleRequestReceived},
-						//We thought we had got as far as prepared but it seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
-						{If: guard_AssembleRequestMatchesPreviousResponse, Action: action_ResendAssembleSuccessResponse},
-					},
-					Transitions: []Transition{{
-						//This is different from the previous request. The coordinator must have decided that it was necessary to re-assemble with different available states so we go back to assembling state for a do-over
-						If: statemachine.GuardNot(guard_AssembleRequestMatchesPreviousResponse),
-						To: State_Assembling,
-					}},
+					// A fresh, different request passing all checks: assemble and proceed. The matches-previous,
+					// stale-delegate, block-height and private-state cases have all stopped above, so no validator is
+					// needed here. The coordinator must have decided it was necessary to re-assemble with different
+					// available states, so we go back to assembling for a do-over.
+					Actions:     []ActionRule{{Action: action_AssembleRequestReceived}},
+					Transitions: []Transition{{To: State_Assembling}},
 				}},
 			},
 			Event_PreDispatchRequestReceived: {
@@ -791,7 +970,17 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_AssembleRequestReceived: {
 				Match: statemachine.MatchAll,
 				Handlers: []EventHandler{{
-					// Always runs first: refresh the cached block height before any validator reads it.
+					// Checked first: the current delegate had not got the park response in time and has resent the
+					// assemble request, so we simply reply with the same response as before. A duplicate from a stale
+					// delegate is not resent to - it falls through to the not-current-delegate rejection.
+					Validator: statemachine.ValidatorAnd(
+						validator_AssembleRequestMatchesPreviousResponse,
+						validator_AssembleRequestFromCurrentDelegate,
+					),
+					Actions: []ActionRule{{Action: action_ResendAssembleParkResponse}},
+					Stop:    true,
+				}, {
+					// Refresh the cached block height before any validator below reads it.
 					Actions: []ActionRule{{Action: action_RefreshBlockHeight}},
 				}, {
 					// Assemble request is not from the current delegate; reject without entering the assembly flow.
@@ -806,21 +995,13 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_IsPrivateStateDataPendingForAssembly,
 					Actions:   []ActionRule{{Action: action_RejectAssemblyPrivateStateDataPending}},
 				}, {
-					// All checks pass: assemble and proceed.
+					// A fresh, different request from the current delegate while parked: record it.
 					Validator: statemachine.ValidatorAnd(
 						validator_AssembleRequestFromCurrentDelegate,
 						statemachine.ValidatorNot(validator_AssembleBlockHeightToleranceExceeded),
 						statemachine.ValidatorNot(validator_IsPrivateStateDataPendingForAssembly),
 					),
-					Actions: []ActionRule{
-						{
-							Action: action_AssembleRequestReceived,
-						},
-						{
-							//it seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
-							If:     guard_AssembleRequestMatchesPreviousResponse,
-							Action: action_ResendAssembleParkResponse,
-						}},
+					Actions: []ActionRule{{Action: action_AssembleRequestReceived}},
 				}},
 			},
 			Event_Resumed: {
@@ -860,7 +1041,20 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_AssembleRequestReceived: {
 				Match: statemachine.MatchAll,
 				Handlers: []EventHandler{{
-					// Always runs first: refresh the cached block height before any validator reads it.
+					// Checked first: the current delegate had not got the response in time and has resent the assemble
+					// request, so we simply reply with the same response as before. There is only a narrow window of
+					// time that this can occur before the transaction is cleaned up from memory. If this request is
+					// received again, the coordinator will receive a transaction unknown response which will tell it
+					// that it can remove the transaction from its memory also. A duplicate from a stale delegate is not
+					// resent to - it falls through to the not-current-delegate rejection.
+					Validator: statemachine.ValidatorAnd(
+						validator_AssembleRequestMatchesPreviousResponse,
+						validator_AssembleRequestFromCurrentDelegate,
+					),
+					Actions: []ActionRule{{Action: action_ResendAssembleRevertResponse}},
+					Stop:    true,
+				}, {
+					// Refresh the cached block height before any validator below reads it.
 					Actions: []ActionRule{{Action: action_RefreshBlockHeight}},
 				}, {
 					// Assemble request is not from the current delegate; reject without entering the assembly flow.
@@ -875,21 +1069,13 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_IsPrivateStateDataPendingForAssembly,
 					Actions:   []ActionRule{{Action: action_RejectAssemblyPrivateStateDataPending}},
 				}, {
-					// All checks pass: assemble and proceed.
+					// A fresh, different request from the current delegate while reverted: record it.
 					Validator: statemachine.ValidatorAnd(
 						validator_AssembleRequestFromCurrentDelegate,
 						statemachine.ValidatorNot(validator_AssembleBlockHeightToleranceExceeded),
 						statemachine.ValidatorNot(validator_IsPrivateStateDataPendingForAssembly),
 					),
-					Actions: []ActionRule{
-						{Action: action_AssembleRequestReceived},
-						{
-							// It seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
-							// There is only a narrow window of time that this can occur before the transaction is cleaned up from memory. If this request is received again,
-							// the coordinator will receive a transaction unknown response which will tell it that it can remove the transaction from its memory also.
-							If:     guard_AssembleRequestMatchesPreviousResponse,
-							Action: action_ResendAssembleRevertResponse,
-						}},
+					Actions: []ActionRule{{Action: action_AssembleRequestReceived}},
 				}},
 			},
 		},

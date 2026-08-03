@@ -25,9 +25,9 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -143,7 +143,7 @@ func TestSyncRequestOK(t *testing.T) {
 
 func TestSyncRPCCallOK(t *testing.T) {
 
-	logrus.SetLevel(logrus.TraceLevel)
+	log.SetLevel("trace")
 
 	ctx, rb, done := newTestServer(t, func(rpcReq *RPCRequest) (status int, rpcRes *RPCResponse) {
 		assert.Equal(t, "2.0", rpcReq.JSONRpc)

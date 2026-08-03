@@ -37,7 +37,8 @@ func Test_action_UpdateSigningIdentity_CallsUpdateSigningIdentity(t *testing.T) 
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		PostAssembly(&components.TransactionPostAssembly{
-			Endorsements: []*prototk.AttestationResult{
+			AssembleResponse: &prototk.TransactionPostAssembly{},
+			CollectedEndorsements: []*prototk.AttestationResult{
 				{
 					Verifier:    &prototk.ResolvedVerifier{Lookup: "signer1"},
 					Constraints: []prototk.AttestationResult_AttestationConstraint{prototk.AttestationResult_ENDORSER_MUST_SUBMIT},
@@ -66,7 +67,8 @@ func Test_updateSigningIdentity_NoPostAssembly(t *testing.T) {
 func Test_updateSigningIdentity_NoEndorsements(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
-			Endorsements: []*prototk.AttestationResult{},
+			AssembleResponse:      &prototk.TransactionPostAssembly{},
+			CollectedEndorsements: []*prototk.AttestationResult{},
 		}).
 		SubmitterSelection(prototk.ContractConfig_SUBMITTER_COORDINATOR).
 		Build()
@@ -81,7 +83,8 @@ func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
-			Endorsements: []*prototk.AttestationResult{
+			AssembleResponse: &prototk.TransactionPostAssembly{},
+			CollectedEndorsements: []*prototk.AttestationResult{
 				{
 					Verifier: &prototk.ResolvedVerifier{
 						Lookup: verifierLookup,
@@ -103,7 +106,8 @@ func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
 func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
-			Endorsements: []*prototk.AttestationResult{
+			AssembleResponse: &prototk.TransactionPostAssembly{},
+			CollectedEndorsements: []*prototk.AttestationResult{
 				{
 					Verifier:    &prototk.ResolvedVerifier{Lookup: "verifier1"},
 					Constraints: []prototk.AttestationResult_AttestationConstraint{},
@@ -121,7 +125,8 @@ func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
 func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
-			Endorsements: []*prototk.AttestationResult{
+			AssembleResponse: &prototk.TransactionPostAssembly{},
+			CollectedEndorsements: []*prototk.AttestationResult{
 				{
 					Verifier: &prototk.ResolvedVerifier{
 						Lookup: "verifier1",
@@ -222,17 +227,26 @@ func Test_traceDispatch_WithPostAssembly(t *testing.T) {
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		PostAssembly(&components.TransactionPostAssembly{
-			Signatures: []*prototk.AttestationResult{
-				{
-					Verifier: &prototk.ResolvedVerifier{
-						Lookup: "verifier1",
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				Signatures: []*prototk.AttestationResult{
+					{
+						Verifier: &prototk.ResolvedVerifier{
+							Lookup: "verifier1",
+						},
+					},
+				},
+				Endorsements: []*prototk.AttestationResult{
+					{
+						Verifier: &prototk.ResolvedVerifier{
+							Lookup: "verifier2",
+						},
 					},
 				},
 			},
-			Endorsements: []*prototk.AttestationResult{
+			CollectedEndorsements: []*prototk.AttestationResult{
 				{
 					Verifier: &prototk.ResolvedVerifier{
-						Lookup: "verifier2",
+						Lookup: "endorser1",
 					},
 				},
 			},
@@ -317,17 +331,19 @@ func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(mockGrapher).
 		PostAssembly(&components.TransactionPostAssembly{
-			Signatures: []*prototk.AttestationResult{
-				{
-					Verifier: &prototk.ResolvedVerifier{
-						Lookup: "verifier1",
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				Signatures: []*prototk.AttestationResult{
+					{
+						Verifier: &prototk.ResolvedVerifier{
+							Lookup: "verifier1",
+						},
 					},
 				},
-			},
-			Endorsements: []*prototk.AttestationResult{
-				{
-					Verifier: &prototk.ResolvedVerifier{
-						Lookup: "verifier2",
+				Endorsements: []*prototk.AttestationResult{
+					{
+						Verifier: &prototk.ResolvedVerifier{
+							Lookup: "verifier2",
+						},
 					},
 				},
 			},
@@ -358,7 +374,7 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(mockGrapher).
-		PreAssembly(&components.TransactionPreAssembly{}).
+		PreAssembly(&prototk.TransactionPreAssembly{}).
 		Build()
 
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn1.pt.ID).Return([]uuid.UUID{dependentTxn.pt.ID})

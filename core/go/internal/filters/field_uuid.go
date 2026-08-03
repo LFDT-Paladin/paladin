@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -34,7 +34,7 @@ func (sf UUIDField) SQLColumn() string {
 }
 
 func (sf UUIDField) SupportsLIKE() bool {
-	return true
+	return false
 }
 
 func (sf UUIDField) SQLValue(ctx context.Context, jsonValue pldtypes.RawJSON) (driver.Value, error) {

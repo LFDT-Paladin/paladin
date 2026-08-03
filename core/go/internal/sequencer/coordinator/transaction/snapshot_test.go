@@ -34,7 +34,7 @@ func TestGetSnapshot_PooledStates_StateBlocked(t *testing.T) {
 	assert.Nil(t, dispatchedSnapshot)
 	assert.Nil(t, confirmedSnapshot)
 	assert.Nil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, txn.pt.ID.String(), pooledSnapshot.Id)
 }
 
 func TestGetSnapshot_PooledStates_StateConfirmingDispatchable(t *testing.T) {
@@ -48,7 +48,7 @@ func TestGetSnapshot_PooledStates_StateConfirmingDispatchable(t *testing.T) {
 	assert.Nil(t, dispatchedSnapshot)
 	assert.Nil(t, confirmedSnapshot)
 	assert.Nil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, txn.pt.ID.String(), pooledSnapshot.Id)
 }
 
 func TestGetSnapshot_PooledStates_StateEndorsementGathering(t *testing.T) {
@@ -62,7 +62,7 @@ func TestGetSnapshot_PooledStates_StateEndorsementGathering(t *testing.T) {
 	assert.Nil(t, dispatchedSnapshot)
 	assert.Nil(t, confirmedSnapshot)
 	assert.Nil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, txn.pt.ID.String(), pooledSnapshot.Id)
 }
 
 func TestGetSnapshot_PooledStates_StatePreAssemblyBlocked(t *testing.T) {
@@ -76,7 +76,7 @@ func TestGetSnapshot_PooledStates_StatePreAssemblyBlocked(t *testing.T) {
 	assert.Nil(t, dispatchedSnapshot)
 	assert.Nil(t, confirmedSnapshot)
 	assert.Nil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, txn.pt.ID.String(), pooledSnapshot.Id)
 }
 
 func TestGetSnapshot_PooledStates_StateAssembling(t *testing.T) {
@@ -90,7 +90,21 @@ func TestGetSnapshot_PooledStates_StateAssembling(t *testing.T) {
 	assert.Nil(t, dispatchedSnapshot)
 	assert.Nil(t, confirmedSnapshot)
 	assert.Nil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, txn.pt.ID.String(), pooledSnapshot.Id)
+}
+
+func TestGetSnapshot_PooledStates_StateSigning(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Signing).
+		Originator("sender@node1").
+		Build()
+
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot, revertedSnapshot := txn.GetSnapshot(ctx)
+	require.NotNil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+	assert.Nil(t, revertedSnapshot)
+	assert.Equal(t, txn.pt.ID.String(), pooledSnapshot.Id)
 }
 
 func TestGetSnapshot_PooledStates_StatePooled(t *testing.T) {
@@ -104,7 +118,7 @@ func TestGetSnapshot_PooledStates_StatePooled(t *testing.T) {
 	assert.Nil(t, dispatchedSnapshot)
 	assert.Nil(t, confirmedSnapshot)
 	assert.Nil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, txn.pt.ID.String(), pooledSnapshot.Id)
 }
 
 func TestGetSnapshot_DispatchedStates_WithSigner_StateReadyForDispatch(t *testing.T) {
@@ -125,10 +139,10 @@ func TestGetSnapshot_DispatchedStates_WithSigner_StateReadyForDispatch(t *testin
 	require.NotNil(t, dispatchedSnapshot)
 	assert.Nil(t, confirmedSnapshot)
 	assert.Nil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, dispatchedSnapshot.ID)
-	assert.Equal(t, *signer, dispatchedSnapshot.Signer)
+	assert.Equal(t, txn.pt.ID.String(), dispatchedSnapshot.Id)
+	assert.Equal(t, signer.String(), dispatchedSnapshot.Signer)
 	assert.Equal(t, &nonce, dispatchedSnapshot.Nonce)
-	assert.Equal(t, &submissionHash, dispatchedSnapshot.LatestSubmissionHash)
+	assert.Equal(t, submissionHash.String(), *dispatchedSnapshot.LatestSubmissionHash)
 }
 
 func TestGetSnapshot_DispatchedStates_WithSigner_StateDispatched(t *testing.T) {
@@ -149,10 +163,10 @@ func TestGetSnapshot_DispatchedStates_WithSigner_StateDispatched(t *testing.T) {
 	require.NotNil(t, dispatchedSnapshot)
 	assert.Nil(t, confirmedSnapshot)
 	assert.Nil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, dispatchedSnapshot.ID)
-	assert.Equal(t, *signer, dispatchedSnapshot.Signer)
+	assert.Equal(t, txn.pt.ID.String(), dispatchedSnapshot.Id)
+	assert.Equal(t, signer.String(), dispatchedSnapshot.Signer)
 	assert.Equal(t, &nonce, dispatchedSnapshot.Nonce)
-	assert.Equal(t, &submissionHash, dispatchedSnapshot.LatestSubmissionHash)
+	assert.Equal(t, submissionHash.String(), *dispatchedSnapshot.LatestSubmissionHash)
 }
 
 func TestGetSnapshot_DispatchedState_WithoutSigner(t *testing.T) {
@@ -193,10 +207,10 @@ func TestGetSnapshot_Confirmed_WithSigner(t *testing.T) {
 	assert.Nil(t, dispatchedSnapshot)
 	require.NotNil(t, confirmedSnapshot)
 	assert.Nil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, confirmedSnapshot.ID)
-	assert.Equal(t, *signer, confirmedSnapshot.Signer)
+	assert.Equal(t, txn.pt.ID.String(), confirmedSnapshot.Id)
+	assert.Equal(t, signer.String(), confirmedSnapshot.Signer)
 	assert.Equal(t, &nonce, confirmedSnapshot.Nonce)
-	assert.Equal(t, &submissionHash, confirmedSnapshot.LatestSubmissionHash)
+	assert.Equal(t, submissionHash.String(), *confirmedSnapshot.LatestSubmissionHash)
 }
 
 func TestGetSnapshot_Confirmed_WithoutSigner(t *testing.T) {
@@ -211,7 +225,7 @@ func TestGetSnapshot_Confirmed_WithoutSigner(t *testing.T) {
 	assert.Nil(t, dispatchedSnapshot)
 	require.NotNil(t, confirmedSnapshot)
 	assert.Nil(t, revertedSnapshot)
-	assert.Equal(t, pldtypes.EthAddress{}, confirmedSnapshot.Signer)
+	assert.Empty(t, confirmedSnapshot.Signer)
 }
 
 func TestGetSnapshot_Reverted_WithRevertReason(t *testing.T) {
@@ -228,8 +242,8 @@ func TestGetSnapshot_Reverted_WithRevertReason(t *testing.T) {
 	assert.Nil(t, dispatchedSnapshot)
 	assert.Nil(t, confirmedSnapshot)
 	require.NotNil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, revertedSnapshot.ID)
-	assert.Equal(t, revertReason, revertedSnapshot.RevertReason)
+	assert.Equal(t, txn.pt.ID.String(), revertedSnapshot.Id)
+	assert.Equal(t, revertReason.String(), revertedSnapshot.RevertReason)
 }
 
 func TestGetSnapshot_Reverted_WithoutRevertReason(t *testing.T) {
@@ -243,8 +257,8 @@ func TestGetSnapshot_Reverted_WithoutRevertReason(t *testing.T) {
 	assert.Nil(t, dispatchedSnapshot)
 	assert.Nil(t, confirmedSnapshot)
 	require.NotNil(t, revertedSnapshot)
-	assert.Equal(t, txn.pt.ID, revertedSnapshot.ID)
-	assert.Nil(t, revertedSnapshot.RevertReason)
+	assert.Equal(t, txn.pt.ID.String(), revertedSnapshot.Id)
+	assert.Empty(t, revertedSnapshot.RevertReason)
 }
 
 func TestGetSnapshot_ExcludedStates_StateInitial(t *testing.T) {

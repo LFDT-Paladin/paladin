@@ -33,6 +33,7 @@ include 'toolkit:proto'
 include 'toolkit:go'
 include 'transports:grpc'
 include 'ui:client'
+include 'ui:e2e'
 
 include ':toolkit_java'
 project(':toolkit_java').projectDir = file('toolkit/java')

@@ -32,7 +32,7 @@ var IndexedTransactionFilters filters.FieldSet = filters.FieldMap{
 	"blockNumber":      filters.Int64Field("block_number"),
 	"transactionIndex": filters.Int64Field("transaction_index"),
 	"from":             filters.HexBytesField(`"from"`),
-	"to":               filters.HexBytesField("to"),
+	"to":               filters.HexBytesField(`"to"`),
 	"nonce":            filters.Int64Field("nonce"),
 	"contractAddress":  filters.HexBytesField("contract_address"),
 	"result":           filters.StringField("result"),

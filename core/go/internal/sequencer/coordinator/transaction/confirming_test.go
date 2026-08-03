@@ -24,7 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
-	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -47,7 +47,12 @@ func Test_action_NotifyOriginatorOfConfirmation_Success(t *testing.T) {
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engine.TransactionConfirmed_OUTCOME_SUCCESS, pldtypes.HexBytes(nil), "", false).
+		SendTransactionConfirmed(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionConfirmed) bool {
+			return msg.TransactionId == txn.pt.ID.String() &&
+				msg.Nonce == int64(42) &&
+				msg.Outcome == engineProto.TransactionConfirmed_OUTCOME_SUCCESS &&
+				!msg.WillRetry
+		})).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfConfirmation(ctx, txn, event)
@@ -72,7 +77,12 @@ func Test_action_NotifyOriginatorOfRetryableRevert(t *testing.T) {
 	txn.revertReason = revertReason
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engine.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "", true).
+		SendTransactionConfirmed(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionConfirmed) bool {
+			return msg.TransactionId == txn.pt.ID.String() &&
+				msg.Nonce == int64(42) &&
+				msg.Outcome == engineProto.TransactionConfirmed_OUTCOME_REVERTED &&
+				msg.WillRetry
+		})).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfRetryableRevert(ctx, txn, event)
@@ -97,7 +107,12 @@ func Test_action_NotifyOriginatorOfNonRetryableRevert(t *testing.T) {
 	txn.revertReason = revertReason
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engine.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "", false).
+		SendTransactionConfirmed(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionConfirmed) bool {
+			return msg.TransactionId == txn.pt.ID.String() &&
+				msg.Nonce == int64(42) &&
+				msg.Outcome == engineProto.TransactionConfirmed_OUTCOME_REVERTED &&
+				!msg.WillRetry
+		})).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfNonRetryableRevert(ctx, txn, event)
@@ -120,13 +135,13 @@ func Test_action_NotifyOriginatorOfChainedDependencyFailure(t *testing.T) {
 
 	expectedFailureMessage := i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, depID).Error()
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address,
-			(*pldtypes.HexUint64)(nil),
-			engine.TransactionConfirmed_OUTCOME_REVERTED,
-			pldtypes.HexBytes(nil),
-			expectedFailureMessage,
-			false,
-		).
+		SendTransactionConfirmed(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionConfirmed) bool {
+			return msg.TransactionId == txn.pt.ID.String() &&
+				msg.ContractAddress == txn.pt.Address.HexString() &&
+				msg.Outcome == engineProto.TransactionConfirmed_OUTCOME_REVERTED &&
+				msg.FailureMessage == expectedFailureMessage &&
+				!msg.WillRetry
+		})).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfChainedDependencyFailure(ctx, txn, event)
@@ -151,13 +166,13 @@ func Test_action_NotifyOriginatorOfChainedDependencyFailureAtCreation(t *testing
 
 	expectedFailureMessage := i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, depTx.pt.ID).Error()
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address,
-			(*pldtypes.HexUint64)(nil),
-			engine.TransactionConfirmed_OUTCOME_REVERTED,
-			pldtypes.HexBytes(nil),
-			expectedFailureMessage,
-			false,
-		).
+		SendTransactionConfirmed(mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.TransactionConfirmed) bool {
+			return msg.TransactionId == txn.pt.ID.String() &&
+				msg.ContractAddress == txn.pt.Address.HexString() &&
+				msg.Outcome == engineProto.TransactionConfirmed_OUTCOME_REVERTED &&
+				msg.FailureMessage == expectedFailureMessage &&
+				!msg.WillRetry
+		})).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfChainedDependencyFailureAtCreation(ctx, txn, nil)

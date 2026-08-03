@@ -31,12 +31,11 @@ func TestReleasePostAssemblyData(t *testing.T) {
 		Domain:  "test-domain",
 		Address: *pldtypes.RandAddress(),
 		Signer:  "signer@node1",
-		PreAssembly: &TransactionPreAssembly{
+		PreAssembly: &prototk.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{},
 		},
 		PostAssembly: &TransactionPostAssembly{
-			OutputStates: []*FullState{{Data: pldtypes.RawJSON(`{}`)}},
-			InputStates:  []*FullState{{Data: pldtypes.RawJSON(`{}`)}},
+			OutputStates: []*prototk.EndorsableState{{StateDataJson: `{}`}},
 		},
 		PreparedPublicTransaction:  &pldapi.TransactionInput{},
 		PreparedPrivateTransaction: &pldapi.TransactionInput{},

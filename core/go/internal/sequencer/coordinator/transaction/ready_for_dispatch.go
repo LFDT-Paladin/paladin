@@ -38,7 +38,7 @@ func guard_HasSigner(_ context.Context, txn *coordinatorTransaction) bool {
 // the signing identity nonce will provide ordering guarantees.
 func (t *coordinatorTransaction) updateSigningIdentity(ctx context.Context) {
 	if t.pt.PostAssembly != nil && t.submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
-		for _, endorsement := range t.pt.PostAssembly.Endorsements {
+		for _, endorsement := range t.pt.PostAssembly.CollectedEndorsements {
 			for _, constraint := range endorsement.Constraints {
 				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
 					t.pt.Signer = endorsement.Verifier.Lookup
@@ -86,12 +86,12 @@ func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 
 func (t *coordinatorTransaction) traceDispatch(ctx context.Context) {
 	// Log transaction signatures
-	for _, signature := range t.pt.PostAssembly.Signatures {
+	for _, signature := range t.pt.PostAssembly.AssembleResponse.GetSignatures() {
 		log.L(ctx).Tracef("Transaction %s has signature %+v", t.pt.ID.String(), signature)
 	}
 
 	// Log transaction endorsements
-	for _, endorsement := range t.pt.PostAssembly.Endorsements {
+	for _, endorsement := range t.pt.PostAssembly.CollectedEndorsements {
 		log.L(ctx).Tracef("Transaction %s has endorsement %+v", t.pt.ID.String(), endorsement)
 	}
 }

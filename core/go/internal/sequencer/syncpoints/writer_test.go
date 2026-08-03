@@ -20,10 +20,14 @@ import (
 	"errors"
 	"testing"
 
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
@@ -58,7 +62,7 @@ func TestRunBatch_EmptyBatch(t *testing.T) {
 	assert.Equal(t, 0, len(results))
 }
 
-func TestRunBatch_OnlyDomainContexts(t *testing.T) {
+func TestRunBatch_OnlyDomainStateWriters(t *testing.T) {
 	ctx := context.Background()
 	s := &syncPoints{
 		txMgr:        componentsmocks.NewTXManager(t),
@@ -68,29 +72,25 @@ func TestRunBatch_OnlyDomainContexts(t *testing.T) {
 	dbTX := persistencemocks.NewDBTX(t)
 
 	// Create mock domain contexts
-	dc1 := componentsmocks.NewDomainContext(t)
-	dc1ID := uuid.New()
-	dc1.On("Info").Return(components.DomainContextInfo{ID: dc1ID})
-	dc1.On("Flush", dbTX).Return(nil)
+	dc1 := componentsmocks.NewDomainStateWriter(t)
+	dc1.On("Flush", mock.Anything, dbTX).Return(nil)
 
-	dc2 := componentsmocks.NewDomainContext(t)
-	dc2ID := uuid.New()
-	dc2.On("Info").Return(components.DomainContextInfo{ID: dc2ID})
-	dc2.On("Flush", dbTX).Return(nil)
+	dc2 := componentsmocks.NewDomainStateWriter(t)
+	dc2.On("Flush", mock.Anything, dbTX).Return(nil)
 
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
 		{
-			contractAddress: *contractAddr,
-			domainContext:   dc1,
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc1,
 		},
 		{
-			contractAddress: *contractAddr,
-			domainContext:   dc2,
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc2,
 		},
 		{
-			contractAddress: *contractAddr,
-			domainContext:   dc1, // Duplicate - should be deduplicated
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc1, // Duplicate - should be deduplicated
 		},
 	}
 
@@ -102,7 +102,7 @@ func TestRunBatch_OnlyDomainContexts(t *testing.T) {
 	dc2.AssertExpectations(t)
 }
 
-func TestRunBatch_DomainContextFlushError(t *testing.T) {
+func TestRunBatch_DomainStateWriterFlushError(t *testing.T) {
 	ctx := context.Background()
 	s := &syncPoints{
 		txMgr:        componentsmocks.NewTXManager(t),
@@ -111,17 +111,15 @@ func TestRunBatch_DomainContextFlushError(t *testing.T) {
 	}
 	dbTX := persistencemocks.NewDBTX(t)
 
-	dc := componentsmocks.NewDomainContext(t)
-	dcID := uuid.New()
-	dc.On("Info").Return(components.DomainContextInfo{ID: dcID})
+	dc := componentsmocks.NewDomainStateWriter(t)
 	flushErr := errors.New("flush error")
-	dc.On("Flush", dbTX).Return(flushErr)
+	dc.On("Flush", mock.Anything, dbTX).Return(flushErr)
 
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
 		{
-			contractAddress: *contractAddr,
-			domainContext:   dc,
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc,
 		},
 	}
 
@@ -205,14 +203,14 @@ func TestRunBatch_OnlyDispatchOperations(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				publicDispatches: []*PublicDispatch{
 					{
 						PublicTxs:                    []*components.PublicTxSubmission{},
 						PrivateTransactionDispatches: []*DispatchPersisted{}, // Empty - will be skipped
 					},
 				},
-			},
+			}},
 		},
 	}
 
@@ -235,10 +233,8 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 	dbTX := persistencemocks.NewDBTX(t)
 
 	// Setup domain context
-	dc := componentsmocks.NewDomainContext(t)
-	dcID := uuid.New()
-	dc.On("Info").Return(components.DomainContextInfo{ID: dcID})
-	dc.On("Flush", dbTX).Return(nil)
+	dc := componentsmocks.NewDomainStateWriter(t)
+	dc.On("Flush", mock.Anything, dbTX).Return(nil)
 
 	// Setup finalize operation mocks
 	// Since originator is on the same node as LocalNodeName, receipt goes to FinalizeTransactions
@@ -254,8 +250,8 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 
 	values := []*syncPointOperation{
 		{
-			contractAddress: *contractAddr,
-			domainContext:   dc,
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc,
 			finalizeOperation: &finalizeOperation{
 				TransactionFinalizeRequest: TransactionFinalizeRequest{
 					Domain:         "domain1",
@@ -266,16 +262,16 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 			},
 		},
 		{
-			contractAddress: *contractAddr,
-			domainContext:   dc,
-			dispatchOperation: &dispatchOperation{
+			contractAddress:   *contractAddr,
+			domainStateWriter: dc,
+			dispatchOperations: []*dispatchOperation{{
 				publicDispatches: []*PublicDispatch{
 					{
 						PublicTxs:                    []*components.PublicTxSubmission{},
 						PrivateTransactionDispatches: []*DispatchPersisted{}, // Empty - will be skipped
 					},
 				},
-			},
+			}},
 		},
 	}
 
@@ -346,7 +342,7 @@ func TestRunBatch_DispatchOperationError(t *testing.T) {
 	values := []*syncPointOperation{
 		{
 			contractAddress: *contractAddr,
-			dispatchOperation: &dispatchOperation{
+			dispatchOperations: []*dispatchOperation{{
 				publicDispatches: []*PublicDispatch{
 					{
 						PublicTxs: []*components.PublicTxSubmission{
@@ -357,7 +353,7 @@ func TestRunBatch_DispatchOperationError(t *testing.T) {
 						},
 					},
 				},
-			},
+			}},
 		},
 	}
 
@@ -393,7 +389,7 @@ func TestRunBatch_NoOperations(t *testing.T) {
 	assert.IsType(t, flushwriter.Result[*noResult]{}, results[0])
 }
 
-func TestRunBatch_MultipleDomainContextsWithSameID(t *testing.T) {
+func TestRunBatch_MultipleDomainStateWritersDedup(t *testing.T) {
 	ctx := context.Background()
 	s := &syncPoints{
 		txMgr:        componentsmocks.NewTXManager(t),
@@ -402,38 +398,29 @@ func TestRunBatch_MultipleDomainContextsWithSameID(t *testing.T) {
 	}
 	dbTX := persistencemocks.NewDBTX(t)
 
-	// Create domain contexts with the same ID - should be deduplicated
-	// The map key is the domain context ID, so the last one added overwrites the first
-	// Only one flush should occur (for the last one added)
-	dcID := uuid.New()
-	dc1 := componentsmocks.NewDomainContext(t)
-	dc1.On("Info").Return(components.DomainContextInfo{ID: dcID})
-	// dc1 won't be flushed since dc2 overwrites it in the map
+	// Deduplication is by pointer identity (interface value), so two different DomainStateWriter
+	// instances are two different map keys. Both will be flushed.
+	dc1 := componentsmocks.NewDomainStateWriter(t)
+	dc1.On("Flush", mock.Anything, dbTX).Return(nil)
 
-	dc2 := componentsmocks.NewDomainContext(t)
-	dc2.On("Info").Return(components.DomainContextInfo{ID: dcID})
-	dc2.On("Flush", dbTX).Return(nil)
-	// dc2 will be flushed since it's the last one added to the map
+	dc2 := componentsmocks.NewDomainStateWriter(t)
+	dc2.On("Flush", mock.Anything, dbTX).Return(nil)
 
+	// Adding the same writer twice deduplicates it to one flush.
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
-		{
-			contractAddress: *contractAddr,
-			domainContext:   dc1,
-		},
-		{
-			contractAddress: *contractAddr,
-			domainContext:   dc2, // Same ID as dc1, overwrites dc1 in the map
-		},
+		{contractAddress: *contractAddr, domainStateWriter: dc1},
+		{contractAddress: *contractAddr, domainStateWriter: dc2},
+		{contractAddress: *contractAddr, domainStateWriter: dc1}, // duplicate of dc1
 	}
 
 	results, err := s.runBatch(ctx, dbTX, values)
 
 	require.NoError(t, err)
-	assert.Equal(t, 2, len(results))
-	// Only dc2 should be flushed since it overwrote dc1 in the map
-	dc1.AssertNotCalled(t, "Flush", mock.Anything)
-	dc2.AssertExpectations(t)
+	assert.Equal(t, 3, len(results))
+	// dc1 and dc2 each flushed exactly once despite dc1 appearing twice
+	dc1.AssertNumberOfCalls(t, "Flush", 1)
+	dc2.AssertNumberOfCalls(t, "Flush", 1)
 }
 
 func TestRunBatch_FinalizeOperationsWithEmptyFailureMessage(t *testing.T) {
@@ -646,4 +633,354 @@ func TestWriteOrDistributeReceipts_RemoteSuccessIsSentReliably(t *testing.T) {
 	require.NoError(t, err)
 	mockTXMgr.AssertNotCalled(t, "FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything)
 	mockTransportMgr.AssertExpectations(t)
+}
+
+func TestWriteOrDistributeReceipts_RemoteSendError_LoggedAndIgnored(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+	txID := uuid.New()
+
+	mockTransportMgr.On("LocalNodeName").Return("node1")
+	mockTransportMgr.On("SendReliable", ctx, dbTX, mock.Anything).Return(errors.New("peer unreachable")).Once()
+
+	err := s.WriteOrDistributeReceipts(ctx, dbTX, []*components.ReceiptInputWithOriginator{{
+		Originator:            "wallets.org1.alice@node2",
+		DomainContractAddress: "0xabc",
+		ReceiptInput: components.ReceiptInput{
+			ReceiptType:    components.RT_FailedWithMessage,
+			TransactionID:  txID,
+			FailureMessage: "upstream failure",
+		},
+	}})
+	// SendReliable error is logged but not returned
+	require.NoError(t, err)
+}
+
+func TestQueueTransactionFinalize_OnCommit(t *testing.T) {
+	ctx := context.Background()
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+
+	conf := &pldconf.FlushWriterConfig{
+		WorkerCount:  confutil.P(1),
+		BatchTimeout: confutil.P("100ms"),
+		BatchMaxSize: confutil.P(10),
+	}
+
+	txMgr := componentsmocks.NewTXManager(t)
+	pubTxMgr := componentsmocks.NewPublicTxManager(t)
+	transportMgr := componentsmocks.NewTransportManager(t)
+	transportMgr.On("LocalNodeName").Return("node1").Maybe()
+
+	sp := NewSyncPoints(ctx, conf, mp.P, txMgr, pubTxMgr, transportMgr).(*syncPoints)
+	sp.Start()
+	defer sp.Close()
+
+	mp.Mock.ExpectBegin()
+	mp.Mock.ExpectCommit()
+
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+
+	commitCh := make(chan struct{})
+
+	sp.QueueTransactionFinalize(ctx, &TransactionFinalizeRequest{
+		Domain:          "domain1",
+		ContractAddress: *contractAddr,
+		TransactionID:   txID,
+		Originator:      "originator@node1",
+		// No failure message → empty receipts → commit with no DB writes
+	}, func(ctx context.Context) {
+		close(commitCh)
+	}, func(ctx context.Context, err error) {
+		t.Errorf("unexpected rollback: %v", err)
+	})
+
+	<-commitCh
+}
+
+func TestQueueTransactionFinalize_OnRollback(t *testing.T) {
+	ctx := context.Background()
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+
+	conf := &pldconf.FlushWriterConfig{
+		WorkerCount:  confutil.P(1),
+		BatchTimeout: confutil.P("100ms"),
+		BatchMaxSize: confutil.P(10),
+	}
+
+	txMgr := componentsmocks.NewTXManager(t)
+	pubTxMgr := componentsmocks.NewPublicTxManager(t)
+	transportMgr := componentsmocks.NewTransportManager(t)
+	transportMgr.On("LocalNodeName").Return("node1").Maybe()
+
+	sp := NewSyncPoints(ctx, conf, mp.P, txMgr, pubTxMgr, transportMgr).(*syncPoints)
+	sp.Start()
+	defer sp.Close()
+
+	finalizeErr := errors.New("finalize failed")
+	txMgr.On("FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything).Return(finalizeErr)
+
+	mp.Mock.ExpectBegin()
+	mp.Mock.ExpectRollback()
+
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+
+	rollbackCh := make(chan error, 1)
+
+	sp.QueueTransactionFinalize(ctx, &TransactionFinalizeRequest{
+		Domain:          "domain1",
+		ContractAddress: *contractAddr,
+		TransactionID:   txID,
+		Originator:      "originator@node1",
+		FailureMessage:  "assembly reverted",
+	}, func(ctx context.Context) {
+		t.Error("unexpected commit")
+	}, func(ctx context.Context, err error) {
+		rollbackCh <- err
+	})
+
+	rbErr := <-rollbackCh
+	require.Error(t, rbErr)
+}
+
+func TestRunBatch_WithPrivateDispatches(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: componentsmocks.NewTransportManager(t),
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	chainedTx := &components.ChainedPrivateTransaction{
+		ID:                    uuid.New(),
+		OriginalTransaction:   uuid.New(),
+		OriginalSenderLocator: "identity@node1",
+	}
+	mockTXMgr.On("ChainPrivateTransactions", mock.Anything, dbTX, mock.MatchedBy(func(txs []*components.ChainedPrivateTransaction) bool {
+		return len(txs) == 1 && txs[0] == chainedTx
+	})).Return(nil)
+
+	contractAddr := pldtypes.RandAddress()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperations: []*dispatchOperation{{
+				privateDispatches: []*components.ChainedPrivateTransaction{chainedTx},
+			}},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(results))
+}
+
+func TestRunBatch_WithPrivateDispatchesError(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: componentsmocks.NewTransportManager(t),
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	chainErr := errors.New("chain error")
+	mockTXMgr.On("ChainPrivateTransactions", mock.Anything, dbTX, mock.Anything).Return(chainErr)
+
+	contractAddr := pldtypes.RandAddress()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperations: []*dispatchOperation{{
+				privateDispatches: []*components.ChainedPrivateTransaction{
+					{ID: uuid.New()},
+				},
+			}},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+	assert.Error(t, err)
+	assert.Equal(t, chainErr, err)
+	assert.Nil(t, results)
+}
+
+func TestRunBatch_WithPreparedReliableMsgs(t *testing.T) {
+	ctx := context.Background()
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        componentsmocks.NewTXManager(t),
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	mockTransportMgr.On("SendReliable", mock.Anything, dbTX, mock.Anything).Return(nil)
+
+	contractAddr := pldtypes.RandAddress()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperations: []*dispatchOperation{{
+				preparedReliableMsgs: []*pldapi.ReliableMessage{
+					{Node: "node2", MessageType: pldapi.RMTState.Enum()},
+				},
+			}},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(results))
+}
+
+func TestRunBatch_WithPreparedReliableMsgsError(t *testing.T) {
+	ctx := context.Background()
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        componentsmocks.NewTXManager(t),
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	sendErr := errors.New("send error")
+	mockTransportMgr.On("SendReliable", mock.Anything, dbTX, mock.Anything).Return(sendErr)
+
+	contractAddr := pldtypes.RandAddress()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperations: []*dispatchOperation{{
+				preparedReliableMsgs: []*pldapi.ReliableMessage{
+					{Node: "node2", MessageType: pldapi.RMTState.Enum()},
+				},
+			}},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+	assert.Error(t, err)
+	assert.Equal(t, sendErr, err)
+	assert.Nil(t, results)
+}
+
+func TestRunBatch_WithLocalPreparedTxnsError(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: componentsmocks.NewTransportManager(t),
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	writeErr := errors.New("write prepared txns error")
+	mockTXMgr.On("WritePreparedTransactions", mock.Anything, dbTX, mock.Anything).Return(writeErr)
+
+	contractAddr := pldtypes.RandAddress()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperations: []*dispatchOperation{{
+				localPreparedTxns: []*components.PreparedTransactionWithRefs{
+					{},
+				},
+			}},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+	assert.Error(t, err)
+	assert.Equal(t, writeErr, err)
+	assert.Nil(t, results)
+}
+
+func TestRunBatch_WithLocalSequencerActivities(t *testing.T) {
+	ctx := context.Background()
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+
+	s := &syncPoints{
+		txMgr:        componentsmocks.NewTXManager(t),
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: componentsmocks.NewTransportManager(t),
+	}
+
+	mp.Mock.ExpectQuery("INSERT.*sequencer_activities").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	dbTX := mp.P.NOTX()
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperations: []*dispatchOperation{{
+				localSequencerActivites: []*components.SequencingActivity{
+					{
+						SubjectID:      uuid.New().String(),
+						TransactionID:  txID,
+						ActivityType:   "dispatch",
+						SequencingNode: "node1",
+					},
+				},
+			}},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(results))
+}
+
+func TestRunBatch_WithLocalSequencerActivitiesError(t *testing.T) {
+	ctx := context.Background()
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+
+	s := &syncPoints{
+		txMgr:        componentsmocks.NewTXManager(t),
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: componentsmocks.NewTransportManager(t),
+	}
+
+	dbErr := errors.New("db insert error")
+	mp.Mock.ExpectQuery("INSERT.*sequencer_activities").WillReturnError(dbErr)
+
+	dbTX := mp.P.NOTX()
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperations: []*dispatchOperation{{
+				localSequencerActivites: []*components.SequencingActivity{
+					{
+						SubjectID:      uuid.New().String(),
+						TransactionID:  txID,
+						ActivityType:   "dispatch",
+						SequencingNode: "node1",
+					},
+				},
+			}},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+	assert.Error(t, err)
+	assert.Nil(t, results)
 }

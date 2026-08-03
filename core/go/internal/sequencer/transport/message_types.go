@@ -15,7 +15,6 @@
 
 package transport
 
-
 const (
 	MessageType_AssembleRequest                  = "AssembleRequest"
 	MessageType_AssembleResponse                 = "AssembleResponse"
@@ -35,8 +34,9 @@ const (
 	MessageType_PreDispatchRequest               = "PreDispatchRequest"
 	MessageType_PreDispatchResponse              = "PreDispatchResponse"
 	MessageType_PreDispatchRejection             = "PreDispatchRejection"
+	MessageType_SignResponse                     = "SignResponse"
+	MessageType_SignError                        = "SignError"
 	MessageType_TransactionRequest               = "TransactionRequest"
 	MessageType_TransactionSubmitted             = "TransactionSubmitted"
 	MessageType_TransactionConfirmed             = "TransactionConfirmed"
 )
-

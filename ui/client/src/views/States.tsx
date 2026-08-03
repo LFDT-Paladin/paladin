@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -14,59 +14,54 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Fade, Grid2, IconButton, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, TextField, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Collapse, Fade, IconButton, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, TextField, Tooltip, Typography, useTheme } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { listDomains } from "../queries/domains";
-import { useQuery } from "@tanstack/react-query";
-import { Dispatch, SetStateAction, useEffect, useState } from "react";
-import { listSchemas, queryStates } from "../queries/states";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useApplicationContext } from "../contexts/ApplicationContext";
+import { listSchemas, queryStates, buildStatePagingReference } from "../queries/states";
 import { Timestamp } from "../components/Timestamp";
 import { Captions, Tag } from "lucide-react";
 import { customNavigate } from "../utils";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { Hash } from "../components/Hash";
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-import { IFilter, ISchemaComponent, IState } from "../interfaces";
+import { IFilterField, ISchemaComponent, IState } from "../interfaces";
 import { Filters } from "../components/Filters";
 import { StateActions } from "../components/StateActions";
+import { FiltersButton } from "../components/FiltersButton";
+import { StateLookupDialog } from "../dialogs/StateLookup";
+import SearchIcon from '@mui/icons-material/Search';
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
+import { AppRouteFactory } from '../routes';
 
-type Props = {
-  sortAscending: boolean
-  setSortAscending: Dispatch<SetStateAction<boolean>>
-  refTimestamps: string[]
-  setRefTimestamps: Dispatch<SetStateAction<string[]>>
-  page: number
-  setPage: Dispatch<SetStateAction<number>>
-  rowsPerPage: number
-  setRowsPerPage: Dispatch<SetStateAction<number>>
-  selectedDomain: string | undefined
-  setSelectedDomain: Dispatch<SetStateAction<string | undefined>>
-  selectedSchemaId: string | undefined
-  setSelectedSchemaId: Dispatch<SetStateAction<string | undefined>>
-  filters: IFilter[]
-  setFilters: Dispatch<SetStateAction<IFilter[]>>
-};
+export const States: React.FC = () => {
+  const { states: statesViewState, readOnly } = useApplicationContext();
+  const {
+    sortAscending,
+    setSortAscending,
+    refEntries,
+    setRefEntries,
+    page,
+    setPage,
+    rowsPerPage,
+    setRowsPerPage,
+    selectedDomain,
+    setSelectedDomain,
+    selectedSchemaId,
+    setSelectedSchemaId,
+    filters,
+    setFilters,
+    filtersVisible,
+    setFiltersVisible,
+  } = statesViewState;
 
-export const States: React.FC<Props> = ({
-  sortAscending,
-  setSortAscending,
-  refTimestamps,
-  setRefTimestamps,
-  page,
-  setPage,
-  rowsPerPage,
-  setRowsPerPage,
-  selectedDomain,
-  setSelectedDomain,
-  selectedSchemaId,
-  setSelectedSchemaId,
-  filters,
-  setFilters
-}) => {
-
-  const [count, setCount] = useState(-1);
+  const [stateLookupDialogOpen, setStateLookupDialogOpen] = useState(false);
   const [sortBy, setSortBy] = useState('.created');
+  const tableIndexedFieldsRef = useRef<ISchemaComponent[]>([]);
+  const theme = useTheme();
   const navigate = useNavigate();
   const { t } = useTranslation();
 
@@ -81,22 +76,57 @@ export const States: React.FC<Props> = ({
     enabled: selectedDomain !== undefined
   });
 
-  const { data: states, error: statesError } = useQuery({
-    queryKey: ['states', selectedDomain, selectedSchemaId, page, rowsPerPage, sortBy, sortAscending, filters,],
-    queryFn: () => queryStates(selectedDomain!, selectedSchemaId!, rowsPerPage, sortBy, sortAscending, filters, refTimestamps[refTimestamps.length - 1]),
-    enabled: selectedSchemaId !== undefined
+  const { data, error: statesError, isPlaceholderData, isFetching } = useQuery({
+    queryKey: ['states', selectedDomain, selectedSchemaId, page, rowsPerPage, sortBy, sortAscending, filters, refEntries],
+    queryFn: () => queryStates({
+      domain: selectedDomain!,
+      schemaId: selectedSchemaId!,
+      limit: rowsPerPage,
+      sortBy,
+      sortAscending,
+      filters,
+      pageRef: refEntries[refEntries.length - 1],
+    }),
+    enabled: selectedSchemaId !== undefined,
+    placeholderData: keepPreviousData
   });
 
-  useEffect(() => {
-    if (states !== undefined && count === -1) {
-      if (states.length < rowsPerPage) {
-        setCount(rowsPerPage * page + states.length);
-      }
-    }
-  }, [states, rowsPerPage, page]);
+  const states = data?.items;
+  const hasMore = data?.hasMore ?? false;
 
-  if (domains === undefined) {
-    return <></>
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
+
+  useEffect(() => {
+    if (selectedDomain === undefined && domains !== undefined && domains.length > 0) {
+      setSelectedDomain(domains[0]);
+    }
+  }, [selectedDomain, domains]);
+
+  useEffect(() => {
+    if (selectedDomain !== undefined && schemas !== undefined && schemas.length > 0) {
+      setSelectedSchemaId(schemas[0].id);
+    }
+  }, [selectedDomain, schemas]);
+
+  useResetPaginationOnChange(() => {
+    setRefEntries([]);
+    setPage(0);
+  }, filters);
+
+  const selectedIndexedFields =
+    schemas?.find(schema => schema.id === selectedSchemaId)
+      ?.definition.components.filter(component => component.indexed) ?? [];
+
+  const statesMatchSelection =
+    states !== undefined &&
+    (states.length === 0 || states[0].schema === selectedSchemaId);
+
+  const tableIndexedFields = statesMatchSelection
+    ? selectedIndexedFields
+    : tableIndexedFieldsRef.current;
+
+  if (statesMatchSelection) {
+    tableIndexedFieldsRef.current = selectedIndexedFields;
   }
 
   if (domainsError || schemasError || statesError) {
@@ -105,22 +135,30 @@ export const States: React.FC<Props> = ({
     </Alert>
   }
 
+  if (domains === undefined) {
+    return <></>}
+
+  const resetPagination = () => {
+    setRefEntries([]);
+    setPage(0);
+  };
+
   const handleChangePage = (
     _event: React.MouseEvent<HTMLButtonElement> | null,
     newPage: number
   ) => {
     if (newPage === 0) {
-      setRefTimestamps([]);
+      setRefEntries([]);
     } else if (newPage > page) {
-      if (states !== undefined) {
-        const refEntriesCopy = [...refTimestamps];
-        refEntriesCopy.push(states[states.length - 1].created);
-        setRefTimestamps(refEntriesCopy);
+      if (states !== undefined && !isPlaceholderData && states.length > 0) {
+        const refEntriesCopy = [...refEntries];
+        refEntriesCopy.push(buildStatePagingReference(states[states.length - 1], sortBy));
+        setRefEntries(refEntriesCopy);
       }
     } else {
-      const refEntriesCopy = [...refTimestamps];
+      const refEntriesCopy = [...refEntries];
       refEntriesCopy.pop();
-      setRefTimestamps(refEntriesCopy);
+      setRefEntries(refEntriesCopy);
     }
     setPage(newPage);
   };
@@ -130,38 +168,60 @@ export const States: React.FC<Props> = ({
   ) => {
     const value = parseInt(event.target.value, 10);
     setRowsPerPage(value);
-    setRefTimestamps([]);
-    setPage(0);
+    resetPagination();
   };
 
-  const indexedFields = schemas?.find(schema => schema.id === selectedSchemaId)?.definition.components.filter(component => component.indexed) ?? [];
-
   const getIndexedFieldContent = (state: IState, component: ISchemaComponent) => {
+    const value = state.data[component.name];
+    if (value === undefined || value === null) {
+      return <>--</>;
+    }
+    if (component.type.startsWith('byte')) {
+      return <Hash Icon={<Captions size="18px" />} hideTitle title={component.type} hash={value} />}
     switch (component.type) {
-      case 'bytes32':
-      case 'address': return <Hash Icon={<Captions size="18px" />} title={t('address')} hash={state.data[component.name]} />
-      case 'bool': return state.data[component.name] ? 'true' : 'false';
-      default: return state.data[component.name];
+      case 'address':
+        return <Hash Icon={<Captions size="18px" />} hideTitle title={t('address')} hash={value} />
+      case 'bool': return value ? 'true' : 'false';
+      default: return value;
     }
   };
 
-  const filterFields: any = [
+  const filterFields: IFilterField[] = [
+    {
+      label: t('created'),
+      name: '.created',
+      type: 'timestamp',
+      isNanoSeconds: true
+    },
     {
       label: t('id'),
       name: '.id',
-      type: 'string'
+      type: 'string',
+      isHexValue: true
     },
     {
       label: t('contractAddress'),
       name: 'contractAddress',
-      type: 'string'
+      type: 'string',
+      isHexValue: true
     }
   ];
 
-  indexedFields.map(indexedField => filterFields.push({
-    label: `[ ${indexedField.name} ]`,
+  const getFilterType = (field: ISchemaComponent) => {
+    if (field.type.startsWith('int') || field.type.startsWith('uint')) {
+      return 'number';
+    } else if (field.type === 'bool') {
+      return 'boolean';
+    }
+    return 'string';
+  };
+
+  selectedIndexedFields.map(indexedField => filterFields.push({
+    label: `${indexedField.name}`,
     name: indexedField.name,
-    type: indexedField.type === 'bool' ? 'boolean' : 'string'
+    type: getFilterType(indexedField),
+    isCustom: true,
+    isHexValue: indexedField.type === 'address' || indexedField.type.startsWith('bytes')
   }));
 
   return (
@@ -175,80 +235,124 @@ export const States: React.FC<Props> = ({
             marginRight: "auto",
           }}
         >
-          <Box sx={{ marginBottom: '20px' }}>
-            <Typography align="center" variant="h5">
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <Typography variant="h5">
               {t("states")}
             </Typography>
-          </Box>
-          <Box sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '20px'
-          }}>
-            <Box
-              sx={{
-                backgroundColor: (theme) => theme.palette.background.paper,
-                marginBottom: '20px',
-                borderRadius: '4px',
-                padding: '20px',
-              }}
-            >
-              <Grid2 container spacing={2}>
-                <Grid2 size={{ xs: 12, sm: 6 }}>
-                  <TextField
-                    fullWidth
-                    label={t('domain')}
-                    select
-                    value={selectedDomain ?? ''}
-                    onChange={event => {
-                      setSelectedSchemaId(undefined);
-                      setSelectedDomain(event.target.value);
-                    }}
-                  >
-                    {domains.map(domain =>
-                      <MenuItem key={domain} value={domain}>
-                        {t(domain)}
-                      </MenuItem>
-                    )}
-                  </TextField>
-                </Grid2>
-                <Grid2 size={{ xs: 12, sm: 6 }}>
-                  <TextField
-                    fullWidth
-                    label={t('schema')}
-                    select={schemas !== undefined}
-                    disabled={schemas === undefined}
-                    value={selectedSchemaId ?? ''}
-                    onChange={event => {
-                      setPage(0);
-                      setCount(-1);
-                      setSelectedSchemaId(event.target.value);
-                      setFilters([]);
-                    }}
-                  >
-                    {schemas?.map(schema =>
-                      <MenuItem key={schema.id} value={schema.id}>
-                        <Box sx={{
-                          display: 'flex',
-                          gap: '10px'
-                        }}>
-                          <Typography>{schema.definition.name.length > 0 ? schema.definition.name : '--'}</Typography>
-                          <Typography color="primary">{schema.labels.join(', ')}</Typography>
-                        </Box>
-                      </MenuItem>
-                    )}
-                  </TextField>
-                </Grid2>
-              </Grid2>
+            <Box sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}>
+              <Typography
+                color="secondary"
+                variant="body2"
+              >{t('domain')}</Typography>
+              <TextField
+                size="small"
+                fullWidth
+                select
+                value={selectedDomain ?? ''}
+                sx={{ minWidth: '120px' }}
+                onChange={event => {
+                  setSelectedSchemaId(undefined);
+                  setSelectedDomain(event.target.value);
+                }}
+                slotProps={{
+                  input: {
+                    sx: {
+                      color: theme => theme.palette.text.secondary,
+                      fontWeight: 500,
+                      height: '28px',
+                      fontSize: '15px'
+                    }
+                  }
+                }}
+              >
+                {domains.map(domain =>
+                  <MenuItem key={domain} value={domain}>
+                    {t(domain)}
+                  </MenuItem>
+                )}
+              </TextField>
             </Box>
+            {selectedDomain !== undefined &&
+              <Box sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}>
+                <Typography
+                  color="secondary"
+                  variant="body2"
+                >{t('schema')}</Typography>
+                <TextField
+                  sx={{ minWidth: '120px' }}
+
+                  slotProps={{
+                    input: {
+                      sx: {
+                        color: theme => theme.palette.text.secondary,
+                        fontWeight: 500,
+                        height: '28px',
+                        fontSize: '15px'
+                      }
+                    }
+                  }}
+                  size="small"
+                  fullWidth
+                  select={schemas !== undefined}
+                  disabled={schemas === undefined}
+                  value={selectedSchemaId ?? ''}
+                  onChange={event => {
+                    resetPagination();
+                    setSelectedSchemaId(event.target.value);
+                    setFilters([]);
+                  }}
+                >
+                  {schemas?.map(schema =>
+                    <MenuItem key={schema.id} value={schema.id}>
+                      <Box sx={{
+                        display: 'flex',
+                        gap: '10px'
+                      }}>
+                        <Typography>{schema.definition.name.length > 0 ? schema.definition.name : '--'}</Typography>
+                        <Typography color="primary">{schema.labels.join(', ')}</Typography>
+                      </Box>
+                    </MenuItem>
+                  )}
+                </TextField>
+              </Box>}
             {states !== undefined &&
+              <>
+                <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
+                  <Button
+                    sx={{ borderRadius: '20px', minWidth: '120px' }}
+                    size="small"
+                    variant="outlined"
+                    startIcon={<SearchIcon />}
+                    onClick={() => setStateLookupDialogOpen(true)}
+                  >
+                    {t('lookup')}
+                  </Button>
+                  <FiltersButton
+                    filtersVisible={filtersVisible}
+                    setFiltersVisible={setFiltersVisible}
+                  />
+                </Box>
+              </>}
+          </Box>
+          <Collapse in={filtersVisible}>
+            <Box sx={{ marginBottom: '20px' }}>
               <Filters
                 filterFields={filterFields}
                 filters={filters}
                 setFilters={setFilters}
               />
-            }
-            {states !== undefined && states.length > 0 &&
+            </Box>
+          </Collapse>
+          {states !== undefined && states.length > 0 &&
+            <Paper>
               <TableContainer
                 component={Paper}
               >
@@ -269,8 +373,7 @@ export const States: React.FC<Props> = ({
                             } else {
                               setSortBy('.created');
                             }
-                            setRefTimestamps([]);
-                            setPage(0);
+                            resetPagination();
                           }}
                         >
                           {t('created')}
@@ -294,8 +397,9 @@ export const States: React.FC<Props> = ({
                       >
                         {t('contractAddress')}
                       </TableCell>
-                      {indexedFields.map(field =>
+                      {tableIndexedFields.map(field =>
                         <TableCell
+                          key={field.name}
                           width={1}
                           sx={{
                             backgroundColor: (theme) => theme.palette.background.paper,
@@ -310,11 +414,10 @@ export const States: React.FC<Props> = ({
                               } else {
                                 setSortBy(field.name)
                               }
-                              setRefTimestamps([]);
-                              setPage(0);
+                              resetPagination();
                             }}
                           >
-                            [ {field.name} ]
+                            <span style={{ color: theme.palette.primary.main }}>{field.name}</span>
                           </TableSortLabel>
                         </TableCell>
                       )}
@@ -325,10 +428,10 @@ export const States: React.FC<Props> = ({
                           whiteSpace: 'nowrap'
                         }}
                       >
-                        {t('actions')}
+                        {readOnly ? '' : t('actions')}
                       </TableCell>
                       <TableCell
-                        width={1}
+                        width={'100%'}
                         sx={{
                           backgroundColor: (theme) => theme.palette.background.paper,
                           whiteSpace: 'nowrap'
@@ -340,30 +443,31 @@ export const States: React.FC<Props> = ({
                   <TableBody>
                     {states.map(state =>
                       <TableRow key={state.id}>
-                        <TableCell >
+                        <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                           <Timestamp timestamp={state.created} />
                         </TableCell>
-                        <TableCell>
-                          <Hash Icon={<Tag size="18px" />} title={t('id')} hash={state.id} />
+                        <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
+                          <Hash Icon={<Tag size="18px" />} hideTitle title={t('id')} hash={state.id} />
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                           {state.contractAddress !== null ?
-                            <Hash Icon={<Captions size="18px" />} title={t('address')} hash={state.contractAddress} />
+                            <Hash Icon={<Captions size="18px" />} hideTitle title={t('address')} hash={state.contractAddress} />
                             :
                             <>--</>}
                         </TableCell>
-                        {indexedFields.map(field =>
+                        {tableIndexedFields.map(field =>
                           <TableCell key={field.name}>
                             {getIndexedFieldContent(state, field)}
                           </TableCell>
                         )}
-                        <TableCell>
-                          <StateActions state={state} />
+                        <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
+                          {!readOnly &&
+                            <StateActions state={state} />}
                         </TableCell>
-                        <TableCell align="right" sx={{ padding: '8px' }}>
+                        <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
                           <Tooltip title={t('open')} arrow>
                             <IconButton
-                              onClick={mouseEvent => customNavigate(`/ui/states/${state.domain}/${state.schema}/${state.id}`, mouseEvent, navigate)}>
+                              onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('State', { domain: state.domain, schema: state.schema, id: state.id }), mouseEvent, navigate)}>
                               <OpenInNewIcon color="secondary" fontSize="medium" />
                             </IconButton>
                           </Tooltip>
@@ -372,33 +476,43 @@ export const States: React.FC<Props> = ({
                     )}
                   </TableBody>
                 </Table>
-                <TablePagination
-                  slotProps={{
-                    actions: {
-                      lastButton: {
-                        disabled: true
-                      }
+              </TableContainer>
+              <TablePagination
+                slotProps={{
+                  actions: {
+                    lastButton: {
+                      disabled: true
+                    },
+                    nextButton: {
+                      disabled: !hasMore || isFetching || isPlaceholderData
                     }
-                  }}
-                  component="div"
-                  showFirstButton
-                  showLastButton
-                  count={count}
-                  page={page}
-                  onPageChange={handleChangePage}
-                  rowsPerPage={rowsPerPage}
-                  onRowsPerPageChange={handleChangeRowsPerPage}
-                />
-              </TableContainer>}
-            {states !== undefined && states.length === 0 &&
-              <Box sx={{ marginTop: '60px', textAlign: 'center', color: theme => theme.palette.text.secondary }}>
-                <InfoOutlinedIcon sx={{ fontSize: '50px' }} />
-                <Typography>{t('statesEmptyState')}</Typography>
-              </Box>
-            }
-          </Box>
+                  }
+                }}
+                component="div"
+                showFirstButton
+                showLastButton
+                count={count}
+                page={page}
+                onPageChange={handleChangePage}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={handleChangeRowsPerPage}
+              />
+            </Paper>}
+          {statesMatchSelection && states !== undefined && states.length === 0 &&
+            <Box sx={{ marginTop: '20px', textAlign: 'center', color: theme => theme.palette.text.secondary }}>
+              <InfoOutlinedIcon sx={{ fontSize: '50px' }} />
+              <Typography>{t('statesEmptyState')}</Typography>
+            </Box>
+          }
         </Box>
       </Fade>
+      {selectedDomain !== undefined && selectedSchemaId !== undefined && stateLookupDialogOpen && (
+        <StateLookupDialog
+          domain={selectedDomain}
+          schemaId={selectedSchemaId}
+          onClose={() => setStateLookupDialogOpen(false)}
+        />
+      )}
     </>
   );
 

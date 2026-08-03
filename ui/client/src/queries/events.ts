@@ -24,7 +24,7 @@ export const fetchEvents = async (pageParam?: IEvent): Promise<IEvent[]> => {
   let requestPayload: any = {
     jsonrpc: "2.0",
     id: Date.now(),
-    method: RpcMethods.bidx_QueryIndexedEvents,
+    method: RpcMethods.bidx_queryIndexedEvents,
     params: [
       {
         limit: constants.EVENT_QUERY_LIMIT,

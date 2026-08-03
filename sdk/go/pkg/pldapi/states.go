@@ -115,7 +115,6 @@ type State struct {
 	Confirmed   *StateConfirmRecord `docstruct:"State" json:"confirmed,omitempty" gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
 	Read        *StateReadRecord    `docstruct:"State" json:"read,omitempty"      gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
 	Spent       *StateSpendRecord   `docstruct:"State" json:"spent,omitempty"     gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
-	Locks       []*StateLock        `docstruct:"State" json:"locks,omitempty"     gorm:"-"` // in memory only processing here
 	Nullifier   *StateNullifier     `docstruct:"State" json:"nullifier,omitempty" gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
 }
 
@@ -225,35 +224,6 @@ type StateInfoRecord struct {
 	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction" gorm:"primaryKey"`
 }
 
-type StateLockType string
-
-const (
-	StateLockTypeCreate StateLockType = "create"
-	StateLockTypeRead   StateLockType = "read"
-	StateLockTypeSpend  StateLockType = "spend"
-)
-
-func (tt StateLockType) Enum() pldtypes.Enum[StateLockType] {
-	return pldtypes.Enum[StateLockType](tt)
-}
-
-func (tt StateLockType) Options() []string {
-	return []string{
-		string(StateLockTypeCreate),
-		string(StateLockTypeRead),
-		string(StateLockTypeSpend),
-	}
-}
-
-// State locks record which transaction a state is being locked to, either
-// spending a previously confirmed state, or an optimistic record of creating
-// (and maybe later spending) a state that is yet to be confirmed.
-type StateLock struct {
-	DomainName  string                       `json:"-"`
-	StateID     pldtypes.HexBytes            `json:"-"`
-	Transaction uuid.UUID                    `docstruct:"StateLock" json:"transaction"`
-	Type        pldtypes.Enum[StateLockType] `docstruct:"StateLock" json:"type"`
-}
 
 // State nullifiers are used when a domain chooses to use a separate identifier
 // specifically for spending states (i.e. not the state ID).

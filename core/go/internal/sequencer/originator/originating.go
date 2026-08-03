@@ -17,34 +17,15 @@ package originator
 
 import (
 	"context"
-	"fmt"
 
 	"slices"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
-	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/google/uuid"
 )
-
-func validator_IsDelegationBlockHeightRejection(_ context.Context, _ *originator, event common.Event) (bool, error) {
-	return event.(*DelegationRequestRejectedEvent).RejectionReason == engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE, nil
-}
-
-func validator_IsDelegationNotActiveCoordinatorRejection(_ context.Context, _ *originator, event common.Event) (bool, error) {
-	return event.(*DelegationRequestRejectedEvent).RejectionReason == engineProto.RejectionReason_NOT_CURRENT_DELEGATE, nil
-}
-
-func action_LogDelegationBlockHeightRejection(ctx context.Context, _ *originator, event common.Event) error {
-	e := event.(*DelegationRequestRejectedEvent)
-	log.L(ctx).Warnf("delegation rejected due to block height tolerance exceeded: originator block height=%d, coordinator block height=%d, coordinator tolerance=%d",
-		e.OriginatorBlockHeight, e.CoordinatorBlockHeight, e.BlockHeightTolerance)
-	return nil
-}
 
 func action_TransactionCreated(ctx context.Context, o *originator, event common.Event) error {
 	e := event.(*TransactionCreatedEvent)
@@ -67,12 +48,15 @@ func (o *originator) newOriginatorTransaction(ctx context.Context, pt *component
 	return transaction.NewTransaction(
 		ctx,
 		pt,
+		o.nodeName,
 		o.transportWriter,
 		o.queueEventInternal,
 		o.engineIntegration,
 		o.metrics,
 		func(ctx context.Context) { o.refreshBlockHeight(ctx) },
 		func() int64 { return o.currentBlockHeight },
+		o.clock,
+		o.resolveRetryBackoff,
 	)
 }
 
@@ -97,32 +81,6 @@ func (o *originator) addToTransactions(
 		return err
 	}
 	return nil
-}
-
-func sendDelegationRequest(ctx context.Context, o *originator) error {
-	// Re-delegate all transactions in the order they were created on the originating node.
-	transactionsToDelegate := make([]*components.PrivateTransaction, 0)
-	for _, txn := range o.transactionsOrdered {
-		transactionsToDelegate = append(transactionsToDelegate, txn.GetPrivateTransaction())
-		err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
-			BaseEvent: transaction.BaseEvent{
-				TransactionID: txn.GetID(),
-			},
-			Coordinator: o.currentActiveCoordinator,
-		})
-		if err != nil {
-			msg := fmt.Errorf("error handling delegated event for transaction %s: %v", txn.GetID(), err)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
-	}
-
-	log.L(ctx).Debugf("sending delegation request for %d transactions", len(o.transactionsOrdered))
-
-	return o.transportWriter.SendDelegationRequest(ctx, o.currentActiveCoordinator, transactionsToDelegate, uint64(o.currentBlockHeight))
-}
-
-func action_SendDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
-	return sendDelegationRequest(ctx, o)
 }
 
 // action_RefreshBlockHeight queries the live block height and updates effectiveBlockHeight and the
@@ -163,7 +121,13 @@ func action_FailoverToNextCoordinator(ctx context.Context, o *originator, _ comm
 		log.L(ctx).Debugf("originator failing over from %s to %s (failoverIndex now %d)",
 			prev, o.currentActiveCoordinator, o.failoverIndex)
 	}
-	return sendDelegationRequest(ctx, o)
+	// Notify the batching loop that a full delegation is required. Sending on a nil channel is never
+	// ready, so this is a safe no-op if the loop is not running.
+	select {
+	case o.notifyFullDelegation <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 // action_ResetToTopPriorityCoordinator sets currentActiveCoordinator to the highest-priority
@@ -257,6 +221,13 @@ func validator_OriginatorTransactionStateTransitionToConfirmed(ctx context.Conte
 func validator_OriginatorTransactionStateTransitionToReverted(ctx context.Context, _ *originator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	return e.ToState == transaction.State_Reverted, nil
+}
+
+// validator_OriginatorTransactionStateTransitionFromResolving matches a transaction advancing out of
+// verifier resolution, i.e. it has just become eligible for delegation.
+func validator_OriginatorTransactionStateTransitionFromResolving(_ context.Context, _ *originator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.FromState == transaction.State_Resolving, nil
 }
 
 func action_FinalizeTransaction(ctx context.Context, o *originator, event common.Event) error {
@@ -358,20 +329,6 @@ func action_UpdateActiveCoordinatorFromHeartbeat(_ context.Context, o *originato
 	e := event.(*common.HeartbeatReceivedEvent)
 	o.currentActiveCoordinator = e.FromNode
 	o.resetFailoverIndex()
-	return nil
-}
-
-// action_HandleDelegationRejected processes a rejection from a coordinator. If the rejection names
-// a coordinator that has higher priority than our current one, we redirect to it
-func action_HandleDelegationRejected(_ context.Context, o *originator, event common.Event) error {
-	e := event.(*DelegationRequestRejectedEvent)
-	if e.ActiveCoordinator == "" {
-		return nil
-	}
-	if common.IsHigherPriority(o.coordinatorPriorityList, e.ActiveCoordinator, o.currentActiveCoordinator) {
-		o.currentActiveCoordinator = e.ActiveCoordinator
-		o.resetFailoverIndex()
-	}
 	return nil
 }
 

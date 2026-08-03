@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -40,11 +40,12 @@ export const Timestamp: React.FC<Props> = ({
         onClick={() => setTimestampDialogOpen(true)}>
         {new Date(timestamp).toLocaleString()}
       </Button>
-      <TimestampDialog
-        timestamp={timestamp}
-        dialogOpen={timestampDialogOpen}
-        setDialogOpen={setTimestampDialogOpen}
-      />
+      {timestampDialogOpen && (
+        <TimestampDialog
+          timestamp={timestamp}
+          onClose={() => setTimestampDialogOpen(false)}
+        />
+      )}
     </>
   );
 }

@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -14,11 +14,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Button, Grid2 } from '@mui/material';
+import { Button, Grid2 as Grid } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotoDeployDialog } from '../dialogs/domains/noto/NotoDeploy';
 import { ZetoDeployDialog } from '../dialogs/domains/zeto/ZetoDeploy';
+import UploadIcon from '@mui/icons-material/Upload';
 
 type Props = {
   domainName: string;
@@ -54,31 +55,34 @@ export const DomainDeploy: React.FC<Props> = ({ domainName }) => {
 
   return (
     <>
-      <Grid2>
+      <Grid>
         {button && (
           <Button
-            size="large"
+            size="small"
             variant="outlined"
-            sx={{ borderRadius: '20px' }}
+            sx={{ borderRadius: '20px', minWidth: '120px' }}
             onClick={button.action}
             disabled={domainName === 'pente'}
-          >
+            startIcon={<UploadIcon />}
+            >
             {t('deployNew')}
           </Button>
         )}
-      </Grid2>
+      </Grid>
 
-      <NotoDeployDialog
-        dialogOpen={notoDeployModalOpen}
-        setDialogOpen={setNotoDeployModalOpen}
-        domain={domainName}
-      />
+      {notoDeployModalOpen && (
+        <NotoDeployDialog
+          onClose={() => setNotoDeployModalOpen(false)}
+          domain={domainName}
+        />
+      )}
 
-      <ZetoDeployDialog
-        dialogOpen={zetoDeployModalOpen}
-        setDialogOpen={setZetoDeployModalOpen}
-        domain={domainName}
-      />
+      {zetoDeployModalOpen && (
+        <ZetoDeployDialog
+          onClose={() => setZetoDeployModalOpen(false)}
+          domain={domainName}
+        />
+      )}
     </>
   );
 };

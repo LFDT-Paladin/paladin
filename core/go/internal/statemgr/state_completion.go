@@ -83,9 +83,8 @@ func (ss *stateManager) WritePendingPrivateStateDataBatch(ctx context.Context, d
 	rows := make([]*pendingPrivateStateData, 0, len(missingIDs))
 	for _, id := range missingIDs {
 		entry := stateIndex[id.String()]
-		if entry == nil {
-			continue
-		}
+		// entry will always be non-nil as there's an entry in stateIndex for every state and
+		// missingIDs is a subset of states
 		rows = append(rows, &pendingPrivateStateData{
 			StateID:     id.String(),
 			Contract:    entry.Contract.String(),

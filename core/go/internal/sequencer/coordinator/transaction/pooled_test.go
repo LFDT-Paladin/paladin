@@ -19,10 +19,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -82,7 +82,7 @@ func Test_guard_HasDependenciesNotReady(t *testing.T) {
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(sharedTransactions).
 		AddPendingAssembleRequest().
-		InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].GetId())
 	txn2, txn2Mocks := txn2Builder.Build()
 	sharedTransactions[txn2.pt.ID] = txn2
 
@@ -99,7 +99,7 @@ func Test_guard_HasDependenciesNotReady(t *testing.T) {
 		Grapher(grapher).DependencyTracker(depTracker).
 		CoordinatorTransactions(sharedTransactions).
 		AddPendingAssembleRequest().
-		InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].GetId())
 	txn3, txn3Mocks := txn3Builder.Build()
 	sharedTransactions[txn3.pt.ID] = txn3
 
@@ -134,7 +134,7 @@ func Test_guard_HasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 	txn2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(g).DependencyTracker(depTracker).
 		AddPendingAssembleRequest().
-		InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].GetId())
 	txn2, txn2Mocks := txn2Builder.Build()
 	txn2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 	txn2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
@@ -166,7 +166,7 @@ func Test_guard_HasDependenciesNotReady_DependencyReadyForDispatch(t *testing.T)
 	txn3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(g).DependencyTracker(depTracker).
 		AddPendingAssembleRequest().
-		InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].GetId())
 	txn3, txn3Mocks := txn3Builder.Build()
 	txn3Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 	txn3Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
@@ -198,7 +198,7 @@ func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 	mainTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		TransactionID(mainTxnID).
 		Grapher(grapher).DependencyTracker(depTracker).
-		PreAssembly(&components.TransactionPreAssembly{}).
+		PreAssembly(&prototk.TransactionPreAssembly{}).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
 			dependentTxn.pt.ID: dependentTxn,
 		}).
@@ -215,7 +215,7 @@ func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 func Test_action_NotifyDependentsOfReset_InitialTransitionHasNoDependents(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		PreAssembly(&components.TransactionPreAssembly{}).
+		PreAssembly(&prototk.TransactionPreAssembly{}).
 		Build()
 
 	err := action_NotifyDependentsOfReset(ctx, txn, nil)
@@ -233,7 +233,7 @@ func Test_notifyDependentsOfRepool_WithChainedDependency(t *testing.T) {
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
-		PreAssembly(&components.TransactionPreAssembly{}).
+		PreAssembly(&prototk.TransactionPreAssembly{}).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
 			dependentTxn.pt.ID: dependentTxn,
 		}).
@@ -256,7 +256,7 @@ func Test_notifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.T) {
 	mainTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		TransactionID(mainTxnID).
 		Grapher(grapher).DependencyTracker(depTracker).
-		PreAssembly(&components.TransactionPreAssembly{}).
+		PreAssembly(&prototk.TransactionPreAssembly{}).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
 			mockDependentID: nil,
 		}).
@@ -280,7 +280,7 @@ func Test_action_NotifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.
 	mainTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		TransactionID(mainTxnID).
 		Grapher(grapher).DependencyTracker(depTracker).
-		PreAssembly(&components.TransactionPreAssembly{}).
+		PreAssembly(&prototk.TransactionPreAssembly{}).
 		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
 			mockDependentID: nil,
 		}).

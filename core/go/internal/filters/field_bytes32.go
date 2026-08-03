@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -35,7 +35,7 @@ func (sf Bytes32Field) SQLColumn() string {
 }
 
 func (sf Bytes32Field) SupportsLIKE() bool {
-	return true
+	return false
 }
 
 func (sf Bytes32Field) SQLValue(ctx context.Context, jsonValue pldtypes.RawJSON) (driver.Value, error) {

@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -58,7 +59,10 @@ func action_NudgeHandoverRequest(ctx context.Context, c *coordinator, _ common.E
 func (c *coordinator) sendHandoverRequest(ctx context.Context) error {
 	if c.pendingHandoverRequest == nil {
 		c.pendingHandoverRequest = common.NewIdempotentRequest(ctx, c.clock, c.requestTimeout, func(ctx context.Context, _ uuid.UUID) error {
-			return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, c.contractAddress)
+			return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, &engineProto.CoordinatorHandoverRequest{
+				FromNode:        c.nodeName,
+				ContractAddress: c.contractAddress.HexString(),
+			})
 		})
 		c.scheduleRequestTimeout(ctx)
 	}
@@ -136,10 +140,13 @@ func action_ProcessConfirmedTransactionsFromSnapshot(ctx context.Context, c *coo
 // Triggered as a transition action on State_Prepared → State_Active when the closing heartbeat arrives.
 func action_ImportStatesAndLocks(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.HeartbeatReceivedEvent)
-	snapshot := e.CoordinatorSnapshot
-	if len(snapshot.Locks) > 0 || len(snapshot.OutputStates) > 0 {
-		log.L(ctx).Debugf("action_ImportStatesAndLocks: importing %d output states and %d locks from previous coordinator snapshot", len(snapshot.OutputStates), len(snapshot.Locks))
-		c.grapher.ImportStatesAndLocks(ctx, snapshot.OutputStates, snapshot.Locks)
+	if e.CoordinatorSnapshot == nil {
+		return nil
+	}
+	stateSnapshot := e.CoordinatorSnapshot.StateSnapshot
+	if stateSnapshot != nil && (len(stateSnapshot.GetLocks()) > 0 || len(stateSnapshot.GetStates()) > 0) {
+		log.L(ctx).Debugf("action_ImportStatesAndLocks: importing %d output states and %d locks from previous coordinator snapshot", len(stateSnapshot.GetStates()), len(stateSnapshot.GetLocks()))
+		c.grapher.ImportStatesAndLocks(ctx, stateSnapshot)
 	}
 	return nil
 }
@@ -219,6 +226,8 @@ func (c *coordinator) getCoordinatorTransactionState(ctx context.Context, id uui
 }
 
 func (c *coordinator) getCoordinatorSigningIdentity() string {
+	c.signingIdentity.mu.Lock()
+	defer c.signingIdentity.mu.Unlock()
 	c.signingIdentity.used = true
 	return c.signingIdentity.value
 }
@@ -254,6 +263,7 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.transportWriter,
 		c.clock,
 		c.queueEventInternal,
+		c.setDispatchedInFlight,
 		c.coordinatorTransactionHandleEvent,
 		c.getCoordinatorTransactionState,
 		func(ctx context.Context, nodes ...string) { c.updateEndorserCandidates(ctx, nodes...) },
@@ -264,12 +274,13 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.syncPoints,
 		c.components,
 		c.domainAPI,
-		c.dCtx,
+		c.dsw,
 		c.requestTimeout,
 		c.stateTimeout,
 		c.closingGracePeriod,
 		c.baseLedgerRevertRetryThreshold,
 		c.assembleErrorRetryThreshhold,
+		c.signErrorRetryThreshhold,
 		c.grapher,
 		c.stateVisibilityTracker,
 		c.dependencyTracker,
@@ -321,7 +332,7 @@ func (c *coordinator) addToDelegatedTransactions(
 		if c.transactionsByID[txn.ID] != nil {
 			inProgressTransactions++
 			previousTransaction = c.transactionsByID[txn.ID]
-			log.L(ctx).Debugf("transaction %s already being coordinated", txn.ID.String())
+			log.L(ctx).Tracef("transaction %s already being coordinated", txn.ID.String())
 			continue
 		}
 
@@ -390,7 +401,13 @@ func (c *coordinator) addToDelegatedTransactions(
 	}
 
 	// Acknowledge the delegate request. Optionally errors can be returned which the originator may use to base re-delegate decisions on
-	err = c.transportWriter.SendDelegationResponse(ctx, originatorNode, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementErrors, uint64(c.currentBlockHeight))
+	err = c.transportWriter.SendDelegationResponse(ctx, originatorNode, &engineProto.DelegationResponse{
+		DelegationId:    delegationID,
+		TransactionIds:  delegateAcknowledgementIDs,
+		DelegateNodeId:  originatorNode,
+		ContractAddress: c.contractAddress.HexString(),
+		Errors:          delegateAcknowledgementErrors,
+	})
 	if err != nil {
 		return err
 	}
@@ -408,9 +425,12 @@ func (c *coordinator) addToDelegatedTransactions(
 }
 
 func action_NewSigningIdentity(ctx context.Context, c *coordinator, _ common.Event) error {
+	c.signingIdentity.mu.Lock()
 	c.signingIdentity.value = fmt.Sprintf("domains.%s.submit.%s", c.contractAddress.String(), uuid.New())
 	c.signingIdentity.used = false
-	log.L(ctx).Debugf("new signing identity: %s", c.signingIdentity.value)
+	value := c.signingIdentity.value
+	c.signingIdentity.mu.Unlock()
+	log.L(ctx).Debugf("new signing identity: %s", value)
 	return nil
 }
 
@@ -429,9 +449,14 @@ func (c *coordinator) selectNextTransactionToAssemble(ctx context.Context) error
 
 	transactionSelectedEvent := &transaction.SelectedEvent{}
 	transactionSelectedEvent.TransactionID = txn.GetID()
-	err := txn.HandleEvent(ctx, transactionSelectedEvent)
-	return err
-
+	if err := txn.HandleEvent(ctx, transactionSelectedEvent); err != nil {
+		return err
+	}
+	// The transaction's Event_Selected handler synchronously transitions it to State_Assembling,
+	// so the slot is authoritatively occupied at this point.
+	c.assemblyInFlight = true
+	c.assemblingTxID = txn.GetID()
+	return nil
 }
 
 func (c *coordinator) addTransactionToBackOfPool(txn transaction.CoordinatorTransaction) {
@@ -523,6 +548,10 @@ func action_CleanUpTransactionsNotYetDispatched(ctx context.Context, c *coordina
 	for _, txn := range txns {
 		c.cleanUpTransaction(ctx, txn.GetID())
 	}
+	// cleanUpTransaction deletes the assembling tx without a state transition, so the slot-freed
+	// handler never fires. Reset the flag here so a re-elected State_Active entry selects again.
+	c.assemblyInFlight = false
+	c.assemblingTxID = uuid.Nil
 	// Drain any Ready_For_Dispatch items still sitting in the dispatch channel.
 	// The dispatch loop is guaranteed to be stopped before this action runs (either by an
 	// explicit action_StopDispatchLoop earlier in the same sequence, or by State_Active's
@@ -553,29 +582,31 @@ func (c *coordinator) cleanUpTransaction(ctx context.Context, txID uuid.UUID) {
 		c.metrics.DecCoordinatingTransactions()
 		c.grapher.ForgetTransactionAndLocks(ctx, txID)
 		c.dependencyTracker.Delete(ctx, txID)
-		// TODO: this is a workaround until https://github.com/LFDT-Paladin/paladin/issues/1247 is resolved.
-		// The domain context is still holding onto the transaction locks even though it is no longer
-		// responsible for them when running in a long-lived mode just for flushing private state data.
-		c.dCtx.ResetTransactions(txID)
 		log.L(ctx).Debugf("transaction %s cleaned up", txID.String())
 	}
 }
 
+func action_ClearAssemblyInFlight(_ context.Context, c *coordinator, _ common.Event) error {
+	c.assemblyInFlight = false
+	c.assemblingTxID = uuid.Nil
+	return nil
+}
+
 func action_cancelCurrentlyAssemblingTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
 	log.L(ctx).Debug("cancelling any transaction currently being assembled")
-	assemblingTransactions := c.getTransactionsInStates(ctx, []transaction.State{
-		transaction.State_Assembling,
-	})
-	if len(assemblingTransactions) > 0 {
-		log.L(ctx).Debugf("cancelling assembling transaction: %s", assemblingTransactions[0].GetID().String())
-		err := assemblingTransactions[0].HandleEvent(ctx, &transaction.AssembleCancelledEvent{
-			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-				TransactionID: assemblingTransactions[0].GetID(),
-			},
-		})
-		return err
+	if !c.assemblyInFlight {
+		return nil
 	}
-	return nil
+	txn := c.transactionsByID[c.assemblingTxID]
+	if txn == nil {
+		return nil
+	}
+	log.L(ctx).Debugf("cancelling assembling transaction: %s", c.assemblingTxID.String())
+	return txn.HandleEvent(ctx, &transaction.AssembleCancelledEvent{
+		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+			TransactionID: c.assemblingTxID,
+		},
+	})
 }
 
 func validator_HeartBeatState(state ...common.CoordinatorState) statemachine.Validator[*coordinator] {

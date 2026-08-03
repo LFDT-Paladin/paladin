@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
@@ -39,7 +40,7 @@ import (
 type eiMocks struct {
 	allComponents       *componentsmocks.AllComponents
 	domainSmartContract *componentsmocks.DomainSmartContract
-	domainContext       *componentsmocks.DomainContext
+	domainStateWriter   *componentsmocks.DomainStateWriter
 	domain              *componentsmocks.Domain
 	stateManager        *componentsmocks.StateManager
 	txManager           *componentsmocks.TXManager
@@ -53,7 +54,7 @@ func newTestEngineIntegration(t *testing.T) (EngineIntegration, *eiMocks) {
 	m := &eiMocks{
 		allComponents:       componentsmocks.NewAllComponents(t),
 		domainSmartContract: componentsmocks.NewDomainSmartContract(t),
-		domainContext:       componentsmocks.NewDomainContext(t),
+		domainStateWriter:   componentsmocks.NewDomainStateWriter(t),
 		domain:              componentsmocks.NewDomain(t),
 		stateManager:        componentsmocks.NewStateManager(t),
 		txManager:           componentsmocks.NewTXManager(t),
@@ -68,7 +69,7 @@ func newTestEngineIntegration(t *testing.T) (EngineIntegration, *eiMocks) {
 	m.allComponents.On("KeyManager").Return(m.keyManager).Maybe()
 	m.allComponents.On("DomainManager").Return(m.domainManager).Maybe()
 
-	ei := NewEngineIntegration(context.Background(), m.allComponents, "node1", m.domainSmartContract, m.domainContext)
+	ei := NewEngineIntegration(context.Background(), m.allComponents, "node1", m.domainSmartContract, m.domainStateWriter)
 	return ei, m
 }
 
@@ -89,7 +90,7 @@ func TestEngineIntegration_MapPotentialStates(t *testing.T) {
 	tx := &components.PrivateTransaction{ID: uuid.New()}
 	expected := []*components.StateUpsert{{}}
 
-	m.domainSmartContract.On("MapPotentialStates", m.domainContext, potentialStates, true, tx).
+	m.domainSmartContract.On("MapPotentialStates", mock.Anything, potentialStates, true, tx).
 		Return(expected, nil).Once()
 
 	result, err := ei.MapPotentialStates(ctx, potentialStates, tx)
@@ -122,13 +123,16 @@ func TestEngineIntegration_WriteStatesForTransaction_WithPotentialStates_Success
 
 	txn := &components.PrivateTransaction{
 		PostAssembly: &components.TransactionPostAssembly{
-			OutputStatesPotential: []*prototk.NewState{{}},
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				OutputStatesPotential: []*prototk.NewState{{}},
+			},
 		},
 	}
 
-	m.domainSmartContract.On("WritePotentialStates", m.domainContext, mock.Anything, txn).
+	m.domainSmartContract.On("WritePotentialStates", mock.Anything, m.domainStateWriter, mock.Anything, txn).
 		Return(nil).Once()
-	m.domainContext.On("Info").Return(components.DomainContextInfo{ID: uuid.New()}).Maybe()
+	m.domainSmartContract.On("Domain").Return(m.domain).Once()
+	m.domain.On("Name").Return("test-domain").Once()
 
 	err = ei.WriteStatesForTransaction(ctx, txn)
 	require.NoError(t, err)
@@ -144,11 +148,13 @@ func TestEngineIntegration_WriteStatesForTransaction_WithPotentialStates_Error(t
 
 	txn := &components.PrivateTransaction{
 		PostAssembly: &components.TransactionPostAssembly{
-			InfoStatesPotential: []*prototk.NewState{{}},
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				InfoStatesPotential: []*prototk.NewState{{}},
+			},
 		},
 	}
 
-	m.domainSmartContract.On("WritePotentialStates", m.domainContext, mock.Anything, txn).
+	m.domainSmartContract.On("WritePotentialStates", mock.Anything, m.domainStateWriter, mock.Anything, txn).
 		Return(fmt.Errorf("write failed")).Once()
 
 	err = ei.WriteStatesForTransaction(ctx, txn)
@@ -214,11 +220,12 @@ func TestEngineIntegration_CheckPendingPrivateStateData_DomainOptedIn(t *testing
 	assert.True(t, complete)
 }
 
-// ─── AssembleAndSign ──────────────────────────────────────────────────
+// ─── Assemble ──────────────────────────────────────────────────
 
-// TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath verifies that a successful AssembleAndSign
-// call does not mutate preAssembly and delivers resolved verifiers via PostAssembly.ResolvedVerifiers.
-func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
+// TestAssemble_UsesStoredVerifiers verifies that when the verifiers have been resolved
+// before delegation and passed in, Assemble consumes them directly — with zero identity resolver
+// calls — and delivers them via PostAssembly.ResolvedVerifiers without mutating preAssembly.
+func TestAssemble_UsesStoredVerifiers(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
@@ -226,13 +233,22 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 	contractAddr := *pldtypes.RandAddress()
 	domainName := "test-domain"
 
-	preAssembly := &components.TransactionPreAssembly{
+	resolvedVerifierStr := pldtypes.RandAddress().String()
+	preAssembly := &prototk.TransactionPreAssembly{
 		RequiredVerifiers: []*prototk.ResolveVerifierRequest{
 			{
 				Lookup:       "alice@node1",
 				Algorithm:    algorithms.ECDSA_SECP256K1,
 				VerifierType: verifiers.ETH_ADDRESS,
 			},
+		},
+	}
+	resolvedVerifiers := []*prototk.ResolvedVerifier{
+		{
+			Lookup:       "alice@node1",
+			Algorithm:    algorithms.ECDSA_SECP256K1,
+			VerifierType: verifiers.ETH_ADDRESS,
+			Verifier:     resolvedVerifierStr,
 		},
 	}
 
@@ -244,14 +260,13 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return(domainName)
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, contractAddr).
-		Return(m.domainContext).Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-	m.domainContext.On("Close").Return().Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, contractAddr).
+		Return(mockDqc).Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
 
-	resolvedVerifierStr := pldtypes.RandAddress().String()
-	m.identityResolver.On("ResolveVerifier", mock.Anything, "alice@node1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS).
-		Return(resolvedVerifierStr, nil).Once()
+	// No identity resolver expectation: the golden path must not resolve at assembly time.
 
 	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -263,19 +278,16 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 	}
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(localTx, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) {
-			ptx := args.Get(2).(*components.PrivateTransaction)
-			ptx.PostAssembly = &components.TransactionPostAssembly{
-				AssemblyResult:  prototk.AssembleTransactionResponse_OK,
-				AttestationPlan: []*prototk.AttestationRequest{},
-			}
-		}).Return(nil).Once()
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&prototk.TransactionPostAssembly{
+			AssemblyResult:  prototk.AssembleTransactionResponse_OK,
+			AttestationPlan: []*prototk.AttestationRequest{},
+		}, nil).Once()
 
 	beforeJSON, err := json.Marshal(preAssembly)
 	require.NoError(t, err)
 
-	postAssembly, err := ei.AssembleAndSign(ctx, txID, preAssembly, []byte("[]"), 100)
+	postAssembly, err := ei.Assemble(ctx, txID, preAssembly, resolvedVerifiers, &prototk.StateSnapshot{}, 100)
 
 	require.NoError(t, err)
 	require.NotNil(t, postAssembly)
@@ -283,152 +295,155 @@ func TestAssembleAndSign_DoesNotMutatePreAssembly_SuccessPath(t *testing.T) {
 	afterJSON, err := json.Marshal(preAssembly)
 	require.NoError(t, err)
 	assert.JSONEq(t, string(beforeJSON), string(afterJSON), "preAssembly must not be mutated")
-	require.Len(t, postAssembly.ResolvedVerifiers, 1)
-	assert.Equal(t, "alice@node1", postAssembly.ResolvedVerifiers[0].Lookup)
-	assert.Equal(t, resolvedVerifierStr, postAssembly.ResolvedVerifiers[0].Verifier)
+	require.Len(t, postAssembly.GetResolvedVerifiers(), 1)
+	assert.Equal(t, "alice@node1", postAssembly.GetResolvedVerifiers()[0].Lookup)
+	assert.Equal(t, resolvedVerifierStr, postAssembly.GetResolvedVerifiers()[0].Verifier)
 }
 
-// TestAssembleAndSign_DoesNotMutatePreAssembly_ResolverError verifies that when the identity resolver
-// fails, preAssembly is not mutated.
-func TestAssembleAndSign_DoesNotMutatePreAssembly_ResolverError(t *testing.T) {
-	ctx := context.Background()
-	ei, m := newTestEngineIntegration(t)
-
-	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &components.TransactionPreAssembly{
-		RequiredVerifiers: []*prototk.ResolveVerifierRequest{
-			{
-				Lookup:       "bob@node2",
-				Algorithm:    algorithms.ECDSA_SECP256K1,
-				VerifierType: verifiers.ETH_ADDRESS,
-			},
-		},
-	}
-
-	m.domainSmartContract.On("Domain").Return(m.domain)
-	m.domainSmartContract.On("Address").Return(contractAddr)
-
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, contractAddr).
-		Return(m.domainContext).Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-	m.domainContext.On("Close").Return().Once()
-
-	m.identityResolver.On("ResolveVerifier", mock.Anything, "bob@node2", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS).
-		Return("", errors.New("resolver unavailable")).Once()
-
-	beforeJSON, err := json.Marshal(preAssembly)
-	require.NoError(t, err)
-
-	_, err = ei.AssembleAndSign(ctx, uuid.New(), preAssembly, []byte("[]"), 100)
-	assert.Error(t, err)
-
-	afterJSON, marshalErr := json.Marshal(preAssembly)
-	require.NoError(t, marshalErr)
-	assert.JSONEq(t, string(beforeJSON), string(afterJSON), "preAssembly must not be mutated")
-}
-
-func TestEngineIntegration_AssembleAndSign_ImportSnapshotError(t *testing.T) {
+func TestEngineIntegration_Assemble_ImportSnapshotError(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
 	txID := uuid.New()
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
 	m.domainSmartContract.On("Domain").Return(m.domain)
 	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).
 		Return(fmt.Errorf("snapshot error")).Once()
 
-	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, []byte(`{}`), 100)
+	_, err := ei.Assemble(ctx, txID, preAssembly, nil, &prototk.StateSnapshot{}, 100)
 	require.ErrorContains(t, err, "snapshot error")
 }
 
-func TestEngineIntegration_AssembleAndSign_ResolveVerifierError(t *testing.T) {
+// ─── ResolveVerifiers ─────────────────────────────────────────────────
+
+func TestEngineIntegration_ResolveVerifiers_Empty(t *testing.T) {
+	ctx := context.Background()
+	ei, _ := newTestEngineIntegration(t)
+	// No resolver expectation: an empty request list must not touch the identity resolver.
+	resolved, err := ei.ResolveVerifiers(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, resolved)
+}
+
+func TestEngineIntegration_ResolveVerifiers_ConcurrentSuccessInOrder(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
-	txID := uuid.New()
-	preAssembly := &components.TransactionPreAssembly{
-		RequiredVerifiers: []*prototk.ResolveVerifierRequest{
-			{Lookup: "alice@node1", Algorithm: "algo1", VerifierType: "type1"},
-		},
+	required := []*prototk.ResolveVerifierRequest{
+		{Lookup: "alice@node1", Algorithm: "algo1", VerifierType: "type1"},
+		{Lookup: "bob@node2", Algorithm: "algo2", VerifierType: "type2"},
 	}
 
-	m.domainSmartContract.On("Domain").Return(m.domain)
-	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-	m.identityResolver.On("ResolveVerifier", mock.Anything, "alice@node1", "algo1", "type1").
-		Return("", fmt.Errorf("resolve error")).Once()
+	m.identityResolver.On("ResolveVerifierAsync", mock.Anything, "alice@node1", "algo1", "type1", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			args.Get(4).(func(context.Context, string))(ctx, "verifier-alice")
+		}).Return().Once()
+	m.identityResolver.On("ResolveVerifierAsync", mock.Anything, "bob@node2", "algo2", "type2", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			args.Get(4).(func(context.Context, string))(ctx, "verifier-bob")
+		}).Return().Once()
 
-	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
-	require.ErrorContains(t, err, "resolve error")
+	resolved, err := ei.ResolveVerifiers(ctx, required)
+	require.NoError(t, err)
+	require.Len(t, resolved, 2)
+	// Results are returned in request order regardless of resolution completion order.
+	assert.Equal(t, "alice@node1", resolved[0].Lookup)
+	assert.Equal(t, "verifier-alice", resolved[0].Verifier)
+	assert.Equal(t, "bob@node2", resolved[1].Lookup)
+	assert.Equal(t, "verifier-bob", resolved[1].Verifier)
 }
 
-func TestEngineIntegration_AssembleAndSign_TxNotFound(t *testing.T) {
+func TestEngineIntegration_ResolveVerifiers_FirstErrorReturned(t *testing.T) {
+	ctx := context.Background()
+	ei, m := newTestEngineIntegration(t)
+
+	required := []*prototk.ResolveVerifierRequest{
+		{Lookup: "alice@node1", Algorithm: "algo1", VerifierType: "type1"},
+		{Lookup: "bob@node2", Algorithm: "algo2", VerifierType: "type2"},
+	}
+
+	m.identityResolver.On("ResolveVerifierAsync", mock.Anything, "alice@node1", "algo1", "type1", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			args.Get(4).(func(context.Context, string))(ctx, "verifier-alice")
+		}).Return().Once()
+	m.identityResolver.On("ResolveVerifierAsync", mock.Anything, "bob@node2", "algo2", "type2", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			args.Get(5).(func(context.Context, error))(ctx, errors.New("bob offline"))
+		}).Return().Once()
+
+	resolved, err := ei.ResolveVerifiers(ctx, required)
+	require.ErrorContains(t, err, "bob offline")
+	assert.Nil(t, resolved)
+}
+
+func TestEngineIntegration_Assemble_TxNotFound(t *testing.T) {
 	// GetResolvedTransactionByID returns nil, nil → wrapped "not found" error.
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
 	txID := uuid.New()
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
 	m.domainSmartContract.On("Domain").Return(m.domain)
 	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).
 		Return(nil, nil).Once()
 
-	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
 	require.Error(t, err)
 }
 
-func TestEngineIntegration_AssembleAndSign_TxLookupError(t *testing.T) {
+func TestEngineIntegration_Assemble_TxLookupError(t *testing.T) {
 	// GetResolvedTransactionByID returns an error.
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
 	txID := uuid.New()
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
 	m.domainSmartContract.On("Domain").Return(m.domain)
 	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).
 		Return(nil, fmt.Errorf("db error")).Once()
 
-	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
 	require.ErrorContains(t, err, "db error")
 }
 
-func TestEngineIntegration_AssembleAndSign_WrongDomain(t *testing.T) {
+func TestEngineIntegration_Assemble_WrongDomain(t *testing.T) {
 	// Transaction exists but is for a different domain → logs error and returns.
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
 	txID := uuid.New()
 	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
 	m.domainSmartContract.On("Domain").Return(m.domain)
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -439,17 +454,17 @@ func TestEngineIntegration_AssembleAndSign_WrongDomain(t *testing.T) {
 		},
 	}, nil).Once()
 
-	_, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
 	require.Error(t, err)
 }
 
-func TestEngineIntegration_AssembleAndSign_AssembleTransactionError(t *testing.T) {
+func TestEngineIntegration_Assemble_AssembleTransactionError(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
 	txID := uuid.New()
 	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
 	mp, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
@@ -459,10 +474,11 @@ func TestEngineIntegration_AssembleAndSign_AssembleTransactionError(t *testing.T
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -473,20 +489,20 @@ func TestEngineIntegration_AssembleAndSign_AssembleTransactionError(t *testing.T
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(fmt.Errorf("assemble failed")).Once()
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("assemble failed")).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err = ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
 	require.ErrorContains(t, err, "assemble failed")
 }
 
-func TestEngineIntegration_AssembleAndSign_NilPostAssembly(t *testing.T) {
+func TestEngineIntegration_Assemble_NilPostAssembly(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
 	txID := uuid.New()
 	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
 	mp, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
@@ -496,10 +512,11 @@ func TestEngineIntegration_AssembleAndSign_NilPostAssembly(t *testing.T) {
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -507,21 +524,21 @@ func TestEngineIntegration_AssembleAndSign_NilPostAssembly(t *testing.T) {
 		},
 	}, nil).Once()
 
-	// AssembleTransaction leaves PostAssembly nil.
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(nil).Once()
+	// AssembleTransaction returns nil PostAssembly (no error) — treated as internal error.
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, nil).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err = ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
 	require.Error(t, err)
 }
 
-func TestEngineIntegration_AssembleAndSign_UnsupportedAttestationType(t *testing.T) {
+func TestEngineIntegration_Assemble_UnsupportedAttestationType(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
 	txID := uuid.New()
 	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
 	mp, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
@@ -531,10 +548,11 @@ func TestEngineIntegration_AssembleAndSign_UnsupportedAttestationType(t *testing
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -542,65 +560,29 @@ func TestEngineIntegration_AssembleAndSign_UnsupportedAttestationType(t *testing
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
-			tx.PostAssembly = &components.TransactionPostAssembly{
-				AttestationPlan: []*prototk.AttestationRequest{
-					{AttestationType: prototk.AttestationType(99)}, // unsupported type
-				},
-			}
-		}).Return(nil).Once()
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&prototk.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{
+				{AttestationType: prototk.AttestationType(99)}, // unsupported type
+			},
+		}, nil).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err = ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
 	require.Error(t, err)
 }
 
-func TestEngineIntegration_AssembleAndSign_SignAttestationLocalParty(t *testing.T) {
+func TestEngineIntegration_SignAttestation_LocalParty(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
-	txID := uuid.New()
-	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &components.TransactionPreAssembly{}
-
-	mp, err := mockpersistence.NewSQLMockProvider()
-	require.NoError(t, err)
-	m.allComponents.On("Persistence").Return(mp.P)
-
-	m.domainSmartContract.On("Domain").Return(m.domain)
-	m.domainSmartContract.On("Address").Return(contractAddr)
-	m.domain.On("Name").Return("domain1")
-
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
-		Transaction: &pldapi.Transaction{
-			TransactionBase: pldapi.TransactionBase{Domain: "domain1", To: &contractAddr},
-		},
-	}, nil).Once()
-
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
-			tx.PostAssembly = &components.TransactionPostAssembly{
-				AssemblyResult: prototk.AssembleTransactionResponse_OK,
-				AttestationPlan: []*prototk.AttestationRequest{
-					{
-						Name:            "sig",
-						AttestationType: prototk.AttestationType_SIGN,
-						Algorithm:       "ecdsa",
-						VerifierType:    "eth_address",
-						Parties:         []string{"alice@node1"},
-						Payload:         []byte("payload"),
-						PayloadType:     "bytes",
-					},
-				},
-			}
-		}).Return(nil).Once()
+	attRequest := &prototk.AttestationRequest{
+		Name:            "sig",
+		AttestationType: prototk.AttestationType_SIGN,
+		Algorithm:       "ecdsa",
+		VerifierType:    "eth_address",
+		Payload:         []byte("payload"),
+		PayloadType:     "bytes",
+	}
 
 	resolvedKey := &pldapi.KeyMappingAndVerifier{
 		Verifier: &pldapi.KeyVerifier{Verifier: "0xabc"},
@@ -610,68 +592,36 @@ func TestEngineIntegration_AssembleAndSign_SignAttestationLocalParty(t *testing.
 	m.keyManager.On("Sign", mock.Anything, resolvedKey, "bytes", []byte("payload")).
 		Return([]byte("signature"), nil).Once()
 
-	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	result, err := ei.SignAttestation(ctx, uuid.New(), attRequest, "alice@node1")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Len(t, result.Signatures, 1)
-	assert.Equal(t, []byte("signature"), result.Signatures[0].Payload)
+	assert.Equal(t, "sig", result.Name)
+	assert.Equal(t, prototk.AttestationType_SIGN, result.AttestationType)
+	assert.Equal(t, []byte("signature"), result.Payload)
+	assert.Equal(t, "alice@node1", result.Verifier.Lookup)
+	assert.Equal(t, "0xabc", result.Verifier.Verifier)
 }
 
-func TestEngineIntegration_AssembleAndSign_SignAttestationRemoteParty(t *testing.T) {
-	// Party is on a different node — should be silently skipped.
+func TestEngineIntegration_SignAttestation_RemoteParty(t *testing.T) {
+	// Party is on a different node — SignAttestation returns (nil, nil), it is not signed locally.
 	ctx := context.Background()
-	ei, m := newTestEngineIntegration(t)
+	ei, _ := newTestEngineIntegration(t)
 
-	txID := uuid.New()
-	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &components.TransactionPreAssembly{}
+	attRequest := &prototk.AttestationRequest{AttestationType: prototk.AttestationType_SIGN}
 
-	mp, err := mockpersistence.NewSQLMockProvider()
+	result, err := ei.SignAttestation(ctx, uuid.New(), attRequest, "bob@node2")
 	require.NoError(t, err)
-	m.allComponents.On("Persistence").Return(mp.P)
-
-	m.domainSmartContract.On("Domain").Return(m.domain)
-	m.domainSmartContract.On("Address").Return(contractAddr)
-	m.domain.On("Name").Return("domain1")
-
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
-		Transaction: &pldapi.Transaction{
-			TransactionBase: pldapi.TransactionBase{Domain: "domain1", To: &contractAddr},
-		},
-	}, nil).Once()
-
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
-			tx.PostAssembly = &components.TransactionPostAssembly{
-				AssemblyResult: prototk.AssembleTransactionResponse_OK,
-				AttestationPlan: []*prototk.AttestationRequest{
-					{
-						AttestationType: prototk.AttestationType_SIGN,
-						Parties:         []string{"bob@node2"}, // different node
-					},
-				},
-			}
-		}).Return(nil).Once()
-
-	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
-	require.NoError(t, err)
-	assert.Empty(t, result.Signatures) // remote party not signed locally
+	assert.Nil(t, result)
 }
 
-func TestEngineIntegration_AssembleAndSign_EndorseAttestationType(t *testing.T) {
+func TestEngineIntegration_Assemble_EndorseAttestationType(t *testing.T) {
 	// ENDORSE attestation type is ignored (handled later) — no error.
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
 	txID := uuid.New()
 	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
 	mp, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
@@ -681,10 +631,11 @@ func TestEngineIntegration_AssembleAndSign_EndorseAttestationType(t *testing.T) 
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -692,78 +643,62 @@ func TestEngineIntegration_AssembleAndSign_EndorseAttestationType(t *testing.T) 
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
-			tx.PostAssembly = &components.TransactionPostAssembly{
-				AssemblyResult: prototk.AssembleTransactionResponse_OK,
-				AttestationPlan: []*prototk.AttestationRequest{
-					{AttestationType: prototk.AttestationType_ENDORSE},
-				},
-			}
-		}).Return(nil).Once()
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&prototk.TransactionPostAssembly{
+			AssemblyResult: prototk.AssembleTransactionResponse_OK,
+			AttestationPlan: []*prototk.AttestationRequest{
+				{AttestationType: prototk.AttestationType_ENDORSE},
+			},
+		}, nil).Once()
 
-	result, err := ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	result, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 }
 
-func TestEngineIntegration_AssembleAndSign_ResolveKeyError(t *testing.T) {
+func TestEngineIntegration_SignAttestation_ResolveKeyError(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
-	txID := uuid.New()
-	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &components.TransactionPreAssembly{}
-
-	mp, err := mockpersistence.NewSQLMockProvider()
-	require.NoError(t, err)
-	m.allComponents.On("Persistence").Return(mp.P)
-
-	m.domainSmartContract.On("Domain").Return(m.domain)
-	m.domainSmartContract.On("Address").Return(contractAddr)
-	m.domain.On("Name").Return("domain1")
-
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
-
-	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
-		Transaction: &pldapi.Transaction{
-			TransactionBase: pldapi.TransactionBase{Domain: "domain1", To: &contractAddr},
-		},
-	}, nil).Once()
-
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
-			tx.PostAssembly = &components.TransactionPostAssembly{
-				AttestationPlan: []*prototk.AttestationRequest{
-					{
-						AttestationType: prototk.AttestationType_SIGN,
-						Algorithm:       "ecdsa",
-						VerifierType:    "eth_address",
-						Parties:         []string{"alice@node1"},
-					},
-				},
-			}
-		}).Return(nil).Once()
+	attRequest := &prototk.AttestationRequest{
+		AttestationType: prototk.AttestationType_SIGN,
+		Algorithm:       "ecdsa",
+		VerifierType:    "eth_address",
+	}
 
 	m.keyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, "alice", "ecdsa", "eth_address").
 		Return(nil, fmt.Errorf("key error")).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err := ei.SignAttestation(ctx, uuid.New(), attRequest, "alice@node1")
 	require.ErrorContains(t, err, "key error")
 }
 
-func TestEngineIntegration_AssembleAndSign_SignError(t *testing.T) {
+func TestEngineIntegration_SignAttestation_InvalidPartyLocator(t *testing.T) {
+	// Party name with two "@" separators → 3 parts → Validate returns an error.
+	ctx := context.Background()
+	ei, _ := newTestEngineIntegration(t)
+
+	attRequest := &prototk.AttestationRequest{
+		AttestationType: prototk.AttestationType_SIGN,
+		Algorithm:       "ecdsa",
+		VerifierType:    "eth_address",
+	}
+
+	_, err := ei.SignAttestation(ctx, uuid.New(), attRequest, "me@node1@extra")
+	require.Error(t, err)
+}
+
+func TestEngineIntegration_Assemble_DebugLogging(t *testing.T) {
+	// Enable debug logging so the log.IsDebugEnabled() branch is taken.
+	log.SetLevel("debug")
+	defer log.SetLevel("info")
+
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
 	txID := uuid.New()
 	contractAddr := *pldtypes.RandAddress()
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
 	mp, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
@@ -773,10 +708,11 @@ func TestEngineIntegration_AssembleAndSign_SignError(t *testing.T) {
 	m.domainSmartContract.On("Address").Return(contractAddr)
 	m.domain.On("Name").Return("domain1")
 
-	m.stateManager.On("NewDomainContext", mock.Anything, m.domain, mock.Anything).
-		Return(m.domainContext).Once()
-	m.domainContext.On("Close").Return().Once()
-	m.domainContext.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 
 	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -784,22 +720,28 @@ func TestEngineIntegration_AssembleAndSign_SignError(t *testing.T) {
 		},
 	}, nil).Once()
 
-	m.domainSmartContract.On("AssembleTransaction", m.domainContext, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) {
-			tx := args.Get(2).(*components.PrivateTransaction)
-			tx.PostAssembly = &components.TransactionPostAssembly{
-				AttestationPlan: []*prototk.AttestationRequest{
-					{
-						AttestationType: prototk.AttestationType_SIGN,
-						Algorithm:       "ecdsa",
-						VerifierType:    "eth_address",
-						Parties:         []string{"alice@node1"},
-						Payload:         []byte("data"),
-						PayloadType:     "bytes",
-					},
-				},
-			}
-		}).Return(nil).Once()
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&prototk.TransactionPostAssembly{
+			AssemblyResult:  prototk.AssembleTransactionResponse_OK,
+			AttestationPlan: []*prototk.AttestationRequest{},
+		}, nil).Once()
+
+	result, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+func TestEngineIntegration_SignAttestation_SignError(t *testing.T) {
+	ctx := context.Background()
+	ei, m := newTestEngineIntegration(t)
+
+	attRequest := &prototk.AttestationRequest{
+		AttestationType: prototk.AttestationType_SIGN,
+		Algorithm:       "ecdsa",
+		VerifierType:    "eth_address",
+		Payload:         []byte("data"),
+		PayloadType:     "bytes",
+	}
 
 	resolvedKey := &pldapi.KeyMappingAndVerifier{
 		Verifier: &pldapi.KeyVerifier{Verifier: "0xabc"},
@@ -809,6 +751,55 @@ func TestEngineIntegration_AssembleAndSign_SignError(t *testing.T) {
 	m.keyManager.On("Sign", mock.Anything, resolvedKey, "bytes", []byte("data")).
 		Return(nil, fmt.Errorf("sign error")).Once()
 
-	_, err = ei.AssembleAndSign(ctx, txID, preAssembly, nil, 100)
+	_, err := ei.SignAttestation(ctx, uuid.New(), attRequest, "alice@node1")
 	require.ErrorContains(t, err, "sign error")
+}
+
+// TestEngineIntegration_Assemble_DoesNotSign verifies the assemble path no longer signs: a plan with a
+// local SIGN attestation returns empty Signatures and makes zero KeyManager calls (KeyManager is not
+// expected in the mocks, so any sign call would fail the test).
+func TestEngineIntegration_Assemble_DoesNotSign(t *testing.T) {
+	ctx := context.Background()
+	ei, m := newTestEngineIntegration(t)
+
+	txID := uuid.New()
+	contractAddr := *pldtypes.RandAddress()
+	preAssembly := &prototk.TransactionPreAssembly{}
+
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+	m.allComponents.On("Persistence").Return(mp.P)
+
+	m.domainSmartContract.On("Domain").Return(m.domain)
+	m.domainSmartContract.On("Address").Return(contractAddr)
+	m.domain.On("Name").Return("domain1")
+
+	mockDqc := componentsmocks.NewDomainQueryContext(t)
+	m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+		Return(mockDqc).Once()
+	mockDqc.On("Close", mock.Anything).Return().Once()
+	mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+
+	m.txManager.On("GetResolvedTransactionByID", mock.Anything, txID).Return(&components.ResolvedTransaction{
+		Transaction: &pldapi.Transaction{
+			TransactionBase: pldapi.TransactionBase{Domain: "domain1", To: &contractAddr},
+		},
+	}, nil).Once()
+
+	m.domainSmartContract.On("AssembleTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&prototk.TransactionPostAssembly{
+			AssemblyResult: prototk.AssembleTransactionResponse_OK,
+			AttestationPlan: []*prototk.AttestationRequest{
+				{
+					Name:            "sig",
+					AttestationType: prototk.AttestationType_SIGN,
+					Parties:         []string{"alice@node1"},
+				},
+			},
+		}, nil).Once()
+
+	result, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Empty(t, result.GetSignatures())
 }

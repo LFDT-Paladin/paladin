@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -14,73 +14,70 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Fade, Grid2, TablePagination, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
-import { useQuery } from "@tanstack/react-query";
-import { Dispatch, SetStateAction, useContext, useEffect, useState } from "react";
-import { PaladinTransaction } from "../components/PaladinTransaction";
-import { ApplicationContext } from "../contexts/ApplicationContext";
-import { fetchSubmissions } from "../queries/transactions";
-import { IFilter, IPaladinTransactionPagingReference } from "../interfaces";
+import { Alert, Box, Button, Collapse, Fade, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useApplicationContext } from "../contexts/ApplicationContext";
+import { fetchSubmissions, buildPaladinTransactionPagingReference } from "../queries/transactions";
 import { useTranslation } from "react-i18next";
 import { Filters } from "../components/Filters";
-import { constants } from "../components/config";
 import SearchIcon from '@mui/icons-material/Search';
 import { TransactionLookupDialog } from "../dialogs/TransactionLookup";
+import { FiltersButton } from "../components/FiltersButton";
+import { Timestamp } from "../components/Timestamp";
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import { Hash } from "../components/Hash";
+import { Tag } from "lucide-react";
+import { customNavigate } from "../utils";
+import { useNavigate } from "react-router-dom";
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { pagedTableCount, useResetPaginationOnChange } from "../hooks/pagination";
+import { AppRouteFactory } from '../routes';
 
-type Props = {
-  section: 'pending' | 'failed'
-  setSection: Dispatch<SetStateAction<'pending' | 'failed'>>
-  page: number
-  setPage: Dispatch<SetStateAction<number>>
-  rowsPerPage: number
-  setRowsPerPage: Dispatch<SetStateAction<number>>
-  refEntries: IPaladinTransactionPagingReference[]
-  setRefEntries: Dispatch<SetStateAction<IPaladinTransactionPagingReference[]>>
-};
+export const Submissions: React.FC = () => {
+  const { submissions } = useApplicationContext();
+  const {
+    section,
+    setSection,
+    page,
+    setPage,
+    rowsPerPage,
+    setRowsPerPage,
+    refEntries,
+    setRefEntries,
+    sortAscending,
+    setSortAscending,
+    filters,
+    setFilters,
+    filtersVisible,
+    setFiltersVisible,
+  } = submissions;
 
-export const Submissions: React.FC<Props> = ({
-  section,
-  setSection,
-  page,
-  setPage,
-  rowsPerPage,
-  setRowsPerPage,
-  refEntries,
-  setRefEntries
-}) => {
-
-  const getFiltersFromStorage = () => {
-    const value = window.localStorage.getItem(constants.SUBMISSIONS_FILTERS_KEY);
-    if (value !== null) {
-      try {
-        return JSON.parse(value);
-      } catch (_err) { }
-    }
-    return [];
-  };
-
+  const navigate = useNavigate();
   const [lookupTransactionDialogOpen, setLookupTransactionDialogOpen] = useState(false);
-  const { lastBlockWithTransactions } = useContext(ApplicationContext);
-  const [filters, setFilters] = useState<IFilter[]>(getFiltersFromStorage());
-  const [count, setCount] = useState(-1);
   const { t } = useTranslation();
 
-  const { data: transactions, error } = useQuery({
-    queryKey: ['submissions', section, lastBlockWithTransactions, filters, refEntries, rowsPerPage, page],
-    queryFn: () => fetchSubmissions(section, filters, refEntries[refEntries.length - 1])
+  const { data, error, isPlaceholderData, isFetching } = useQuery({
+    queryKey: ['submissions', rowsPerPage, section, filters, sortAscending, refEntries, rowsPerPage, page],
+    queryFn: () => fetchSubmissions({
+      type: section,
+      limit: rowsPerPage,
+      filters,
+      sortAscending,
+      pageParam: refEntries[refEntries.length - 1],
+    }),
+    placeholderData: keepPreviousData
   });
 
-  useEffect(() => {
-    window.localStorage.setItem(constants.SUBMISSIONS_FILTERS_KEY, JSON.stringify(filters));
-  }, [filters]);
+  const transactions = data?.items;
+  const hasMore = data?.hasMore ?? false;
 
-  useEffect(() => {
-    if (transactions !== undefined && count === -1) {
-      if (transactions.length < rowsPerPage) {
-        setCount(rowsPerPage * page + transactions.length);
-      }
-    }
-  }, [transactions, rowsPerPage, page]);
+  const count = pagedTableCount(data, hasMore, page, rowsPerPage);
+
+  useResetPaginationOnChange(() => {
+    setRefEntries([]);
+    setPage(0);
+  }, filters);
 
   const handleChangePage = (
     _event: React.MouseEvent<HTMLButtonElement> | null,
@@ -89,9 +86,9 @@ export const Submissions: React.FC<Props> = ({
     if (newPage === 0) {
       setRefEntries([]);
     } else if (newPage > page) {
-      if (transactions !== undefined) {
+      if (transactions !== undefined && !isPlaceholderData && transactions.length > 0) {
         const refEntriesCopy = [...refEntries];
-        refEntriesCopy.push(transactions[transactions.length - 1]);
+        refEntriesCopy.push(buildPaladinTransactionPagingReference(transactions[transactions.length - 1]));
         setRefEntries(refEntriesCopy);
       }
     } else {
@@ -126,100 +123,230 @@ export const Submissions: React.FC<Props> = ({
             marginRight: "auto",
           }}
         >
-          <Grid2 container alignItems="center" spacing={2}>
-            <Grid2 sx={{ display: { xs: 'none', sm: 'none', md: 'block' } }} size={{ md: 4 }} />
-            <Grid2 size={{ xs: 12, md: 4 }}>
-              <Typography align="center" variant="h5">
-                {t("submissions")}
-              </Typography>
-            </Grid2>
-            <Grid2 size={{ xs: 12, md: 4 }} container justifyContent="right">
-              <Grid2>
-                <Button
-                  sx={{ borderRadius: '20px', minWidth: '180px' }}
-                  size="large"
-                  variant="outlined"
-                  startIcon={<SearchIcon />}
-                  onClick={() => setLookupTransactionDialogOpen(true)}
-                >
-                  {t('lookup')}
-                </Button>
-              </Grid2>
-            </Grid2>
-          </Grid2>
-          <Box sx={{ marginTop: '15px', marginBottom: '15px', textAlign: 'center' }}>
-            <ToggleButtonGroup exclusive onChange={(_event, value) => setSection(value)} value={section}>
-              <ToggleButton color="primary" value="pending" sx={{ width: '130px', height: '45px' }}>{t('pending')}</ToggleButton>
-              <ToggleButton color="primary" value="failed" sx={{ width: '130px', height: '45px' }}>{t('failed')}</ToggleButton>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <Typography variant="h5">
+              {t("submissions")}
+            </Typography>
+            <ToggleButtonGroup size="small" sx={{ height: '30px' }} exclusive onChange={(_event, value) => {
+              if (value !== null) {
+                setPage(0);
+                setRefEntries([]);
+                setSection(value);
+              }
+            }} value={section}>
+              <ToggleButton color="primary" value="pending" sx={{ width: '120px' }}>{t('pending')}</ToggleButton>
+              <ToggleButton color="primary" value="failed" sx={{ width: '120px' }}>{t('failed')}</ToggleButton>
             </ToggleButtonGroup>
+            <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'right', gap: '10px' }}>
+              <Button
+                sx={{ borderRadius: '20px', minWidth: '120px' }}
+                size="small"
+                variant="outlined"
+                startIcon={<SearchIcon />}
+                onClick={() => setLookupTransactionDialogOpen(true)}
+              >
+                {t('lookup')}
+              </Button>
+              <FiltersButton
+                filtersVisible={filtersVisible}
+                setFiltersVisible={setFiltersVisible}
+              />
+            </Box>
           </Box>
-          <Box sx={{ marginBottom: '20px' }}>
-            <Filters
-              filterFields={[
-                {
-                  label: t('from'),
-                  name: 'from',
-                  type: 'string'
-                },
-                {
-                  label: t('to'),
-                  name: 'to',
-                  type: 'string'
-                },
-                {
-                  label: t('type'),
-                  name: 'type',
-                  type: 'string'
-                },
-                {
-                  label: t('domain'),
-                  name: 'domain',
-                  type: 'string'
-                }
-              ]}
-              filters={filters}
-              setFilters={setFilters}
-            />
-          </Box>
-          <Box>
-            {
-              transactions?.map(transaction => (
-                <PaladinTransaction
-                  key={transaction.id}
-                  paladinTransaction={transaction}
-                />
-              )
-              )}
-            {transactions?.length === 0 ?
-              <Typography color="textSecondary" align="center" variant="h6" sx={{ marginTop: '40px' }}>
-                {t(section === 'pending' ? 'noPendingTransactions' : 'noFailedTransactions')}
-              </Typography>
-              :
-              <TablePagination
-                slotProps={{
-                  actions: {
-                    lastButton: {
-                      disabled: true
-                    }
+          <Collapse in={filtersVisible}>
+            <Box sx={{ marginBottom: '20px' }}>
+              <Filters
+                filterFields={[
+                  {
+                    label: t('created'),
+                    name: 'created',
+                    type: 'timestamp',
+                    isNanoSeconds: true
+                  },
+                  {
+                    label: t('type'),
+                    name: 'type',
+                    type: 'string'
+                  },
+                  {
+                    label: t('domain'),
+                    name: 'domain',
+                    type: 'string'
+                  },
+                  {
+                    label: t('id'),
+                    name: 'id',
+                    type: 'string',
+                    isUUID: true
+                  },
+                  {
+                    label: t('from'),
+                    name: 'from',
+                    type: 'string'
+                  },
+                  {
+                    label: t('to'),
+                    name: 'to',
+                    type: 'string'
                   }
-                }}
-                component="div"
-                showFirstButton
-                showLastButton
-                count={count}
-                page={page}
-                onPageChange={handleChangePage}
-                rowsPerPage={rowsPerPage}
-                onRowsPerPageChange={handleChangeRowsPerPage}
-              />}
+                ]}
+                filters={filters}
+                setFilters={setFilters}
+              />
+            </Box>
+          </Collapse>
+          <Box>
+            {transactions !== undefined && transactions.length > 0 &&
+              <Paper>
+                <TableContainer>
+                  <Table stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                          }}>
+                          <TableSortLabel
+                            active={true}
+                            direction={sortAscending ? 'asc' : 'desc'}
+                            onClick={() => {
+                              setSortAscending(!sortAscending);
+                              setRefEntries([]);
+                              setPage(0);
+                            }}
+                          >
+                            {t('created')}
+                          </TableSortLabel>
+                        </TableCell>
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {t('type')}
+                        </TableCell>
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {t('domain')}
+                        </TableCell>
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {t('id')}
+                        </TableCell>
+
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {t('from')}
+                        </TableCell>
+
+                        <TableCell
+                          width={1}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {t('to')}
+                        </TableCell>
+
+                        <TableCell
+                          width={'100%'}
+                          sx={{
+                            backgroundColor: (theme) => theme.palette.background.paper,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {transactions.map(transaction =>
+                        <TableRow key={transaction.id}>
+                          <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
+                            <Timestamp timestamp={transaction.created} />
+                          </TableCell>
+                          <TableCell>
+                            {t(transaction.type)}
+                          </TableCell>
+                          <TableCell>
+                            {transaction.domain ? t(transaction.domain) : '--'}
+                          </TableCell>
+                          <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
+                            <Hash Icon={<Tag size="18px" />} hideTitle title={t('id')} hash={transaction.id} />
+                          </TableCell>
+                          <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
+                            <Hash Icon={<Tag size="18px" />} hideTitle title={t('id')} hash={transaction.from} />
+                          </TableCell>
+                          <TableCell sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
+                            <Hash Icon={<Tag size="18px" />} hideTitle title={t('id')} hash={transaction.to ?? '--'} />
+                          </TableCell>
+                          <TableCell align="right" sx={{ paddingTop: '8px', paddingBottom: '8px' }}>
+                            <Tooltip title={t('open')} arrow>
+                              <IconButton
+                                onClick={mouseEvent => customNavigate(AppRouteFactory.getPath('Transaction', { hashOrId: transaction.id }, { back: 'submissions' }), mouseEvent, navigate)}>
+                                <OpenInNewIcon color="secondary" fontSize="medium" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+                <TablePagination
+                  slotProps={{
+                    actions: {
+                      lastButton: {
+                        disabled: true
+                      },
+                      nextButton: {
+                        disabled: !hasMore || isFetching || isPlaceholderData
+                      }
+                    }
+                  }}
+                  component="div"
+                  showFirstButton
+                  showLastButton
+                  count={count}
+                  page={page}
+                  onPageChange={handleChangePage}
+                  rowsPerPage={rowsPerPage}
+                  onRowsPerPageChange={handleChangeRowsPerPage}
+                />
+              </Paper>}
+            {transactions !== undefined && transactions.length === 0 &&
+              <Box sx={{ marginTop: '20px', textAlign: 'center', color: theme => theme.palette.text.secondary }}>
+                <InfoOutlinedIcon sx={{ fontSize: '50px' }} />
+                <Typography>{t('noSubmissions')}</Typography>
+              </Box>}
           </Box>
         </Box>
       </Fade>
-      <TransactionLookupDialog
-        dialogOpen={lookupTransactionDialogOpen}
-        setDialogOpen={setLookupTransactionDialogOpen}
-        label={t('submissionId')}
-      />
+      {lookupTransactionDialogOpen && (
+        <TransactionLookupDialog
+          onClose={() => setLookupTransactionDialogOpen(false)}
+          label={t('submissionId')}
+          backToSubmissions={true}
+        />
+      )}
     </>
   );
 };

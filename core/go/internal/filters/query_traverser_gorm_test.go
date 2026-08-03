@@ -1,4 +1,4 @@
-// Copyright © 2021 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -340,65 +340,6 @@ func TestBuildQueryJSONLike(t *testing.T) {
 	})
 
 	assert.Equal(t, "SELECT count(*) FROM \"test\" WHERE tag LIKE '%%stuff%%' AND tag NOT LIKE 'abc' AND tag ILIKE 'ABC' AND tag NOT ILIKE 'abc' LIMIT 10", generatedSQL)
-}
-
-func TestBuildQueryJSONLikeHexFields(t *testing.T) {
-
-	var qf query.QueryJSON
-	err := json.Unmarshal([]byte(`{
-		"like": [
-			{
-				"field": "contractAddress",
-				"value": "a%"
-			},
-			{
-				"field": "schema",
-				"value": "00%"
-			}
-		]
-	}`), &qf)
-	require.NoError(t, err)
-
-	p, err := mockpersistence.NewSQLMockProvider()
-	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
-		var count int64
-		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
-			"contractAddress": HexBytesField("contract_address"),
-			"schema":          Bytes32Field("schema"),
-		}).Count(&count)
-		require.NoError(t, db.Error)
-		return db
-	})
-
-	assert.Equal(t, "SELECT count(*) FROM \"test\" WHERE contract_address LIKE 'a%' AND schema LIKE '00%'", generatedSQL)
-}
-
-func TestBuildQueryJSONLikeUUIDField(t *testing.T) {
-
-	var qf query.QueryJSON
-	err := json.Unmarshal([]byte(`{
-		"like": [
-			{
-				"field": "id",
-				"value": "%2ef2-4b91-8f73%"
-			}
-		]
-	}`), &qf)
-	require.NoError(t, err)
-
-	p, err := mockpersistence.NewSQLMockProvider()
-	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
-		var count int64
-		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
-			"id": UUIDField(`"reliable_msgs"."id"`),
-		}).Count(&count)
-		require.NoError(t, db.Error)
-		return db
-	})
-
-	assert.Equal(t, `SELECT count(*) FROM "test" WHERE CAST("reliable_msgs"."id" AS TEXT) LIKE '%2ef2-4b91-8f73%'`, generatedSQL)
 }
 
 func TestBuildQueryJSONGreaterThan(t *testing.T) {
@@ -931,4 +872,40 @@ func TestBuildQueryJSONContainsShortNames(t *testing.T) {
 		return db
 	})
 	assert.Equal(t, "SELECT count(*) FROM \"test\" WHERE sequence <= 12345 AND sequence > 12345", generatedSQL)
+}
+
+func TestBuildQueryJSONLikeEmptyValue(t *testing.T) {
+	qf := &query.QueryJSON{}
+	qf.Like = []*query.OpSingleVal{{Op: query.Op{Field: "tag"}, Value: nil}}
+
+	p, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+	db := BuildGORM(context.Background(), qf, p.P.DB().Table("test"), FieldMap{
+		"tag": StringField("tag"),
+	})
+	assert.ErrorContains(t, db.Error, "PD")
+}
+
+func TestBuildQueryJSONLikeInvalidJSON(t *testing.T) {
+	qf := &query.QueryJSON{}
+	qf.Like = []*query.OpSingleVal{{Op: query.Op{Field: "tag"}, Value: []byte("{invalid}")}}
+
+	p, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+	db := BuildGORM(context.Background(), qf, p.P.DB().Table("test"), FieldMap{
+		"tag": StringField("tag"),
+	})
+	assert.Error(t, db.Error)
+}
+
+func TestBuildQueryJSONLikeNonStringValue(t *testing.T) {
+	qf := &query.QueryJSON{}
+	qf.Like = []*query.OpSingleVal{{Op: query.Op{Field: "tag"}, Value: []byte("123")}}
+
+	p, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+	db := BuildGORM(context.Background(), qf, p.P.DB().Table("test"), FieldMap{
+		"tag": StringField("tag"),
+	})
+	assert.ErrorContains(t, db.Error, "PD")
 }

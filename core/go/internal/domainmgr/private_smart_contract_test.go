@@ -134,7 +134,6 @@ func doDomainInitTransactionOK(t *testing.T, td *testDomainContext, resFn ...fun
 
 	td.tp.Functions.InitTransaction = func(ctx context.Context, itr *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
 		assert.Equal(t, pldtypes.Bytes32UUIDFirst16(*localTx.Transaction.ID).String(), itr.Transaction.TransactionId)
-		assert.Equal(t, int64(12345), itr.Transaction.BaseBlock)
 		res := &prototk.InitTransactionResponse{
 			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
 				{
@@ -164,6 +163,8 @@ func doDomainInitTransactionOK(t *testing.T, td *testDomainContext, resFn ...fun
 func doDomainInitAssembleTransactionOK(t *testing.T, td *testDomainContext) (*domainContract, *components.PrivateTransaction) {
 	psc, tx, localTx := doDomainInitTransactionOK(t, td)
 	td.tp.Functions.AssembleTransaction = func(ctx context.Context, atr *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+		require.NotNil(t, atr.BlockContext)
+		assert.Equal(t, int64(12345), atr.BlockContext.BlockNumber)
 		return &prototk.AssembleTransactionResponse{
 			AssemblyResult: prototk.AssembleTransactionResponse_OK,
 			AssembledTransaction: &prototk.AssembledTransaction{
@@ -201,16 +202,18 @@ func doDomainInitAssembleTransactionOK(t *testing.T, td *testDomainContext) (*do
 			},
 		}, nil
 	}
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, tx, localTx, []*prototk.ResolvedVerifier{})
+	assemblyResponse, err := psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, tx.ID, tx.PreAssembly, localTx, []*prototk.ResolvedVerifier{})
 	require.NoError(t, err)
-	tx.PostAssembly.ResolvedVerifiers = []*prototk.ResolvedVerifier{}
-	tx.PostAssembly.Signatures = []*prototk.AttestationResult{}
+
+	assemblyResponse.ResolvedVerifiers = []*prototk.ResolvedVerifier{}
+	assemblyResponse.Signatures = []*prototk.AttestationResult{}
 	// Check we resolved the identities to local node
-	require.Equal(t, "endorser1@node1", tx.PostAssembly.AttestationPlan[0].Parties[0])
-	require.Equal(t, "party1@node1", tx.PostAssembly.OutputStatesPotential[0].DistributionList[0])
-	require.Equal(t, "party1@node1", tx.PostAssembly.OutputStatesPotential[0].NullifierSpecs[0].Party)
-	require.Equal(t, "party2@node2", tx.PostAssembly.InfoStatesPotential[0].DistributionList[0])
-	require.Equal(t, "party2@node2", tx.PostAssembly.InfoStatesPotential[0].NullifierSpecs[0].Party)
+	require.Equal(t, "endorser1@node1", assemblyResponse.GetAttestationPlan()[0].Parties[0])
+	require.Equal(t, "party1@node1", assemblyResponse.GetOutputStatesPotential()[0].DistributionList[0])
+	require.Equal(t, "party1@node1", assemblyResponse.GetOutputStatesPotential()[0].NullifierSpecs[0].Party)
+	require.Equal(t, "party2@node2", assemblyResponse.GetInfoStatesPotential()[0].DistributionList[0])
+	require.Equal(t, "party2@node2", assemblyResponse.GetInfoStatesPotential()[0].NullifierSpecs[0].Party)
+	tx.PostAssembly = &components.TransactionPostAssembly{AssembleResponse: assemblyResponse}
 	return psc, tx
 }
 
@@ -592,20 +595,19 @@ func TestDomainInitTransactionMissingInput(t *testing.T) {
 
 }
 
-func TestDomainInitTransactionConfirmedBlockFail(t *testing.T) {
+func TestDomainAssembleTransactionBlockContextFail(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
-		mc.blockIndexer.On("GetLatestConfirmedBlockMetadata", mock.Anything).Return((*blockindexer.ConfirmedBlockMetadata)(nil), fmt.Errorf("pop"))
+		mc.blockIndexer.On("GetLatestConfirmedBlockMetadata", mock.Anything).Return((*blockindexer.ConfirmedBlockMetadata)(nil), fmt.Errorf("pop")).Once()
 	})
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
-	psc := goodPSC(t, td)
-	localTx := goodPrivateTXWithInputs(psc)
+	psc, tx, localTx := doDomainInitTransactionOK(t, td)
 
-	ptx := &components.PrivateTransaction{}
-	err := psc.InitTransaction(td.ctx, ptx, localTx)
+	assemblyResponse, err := psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, tx.ID, tx.PreAssembly, localTx, []*prototk.ResolvedVerifier{})
+
 	assert.Regexp(t, "pop", err)
-	assert.Nil(t, ptx.PreAssembly)
+	assert.Nil(t, assemblyResponse)
 
 }
 
@@ -654,23 +656,22 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 
 	psc, ptx, localTx := doDomainInitTransactionOK(t, td)
 	domain := td.d
-	dCtx := td.c.dCtx
+	dqc := td.c.dqc
 
 	state1 := storeTestState(t, td, ptx.ID, ethtypes.NewHexInteger64(1111111))
 	state2 := storeTestState(t, td, ptx.ID, ethtypes.NewHexInteger64(2222222))
 	state3 := storeTestState(t, td, ptx.ID, ethtypes.NewHexInteger64(3333333))
-	state4 := storeTestState(t, td, ptx.ID, ethtypes.NewHexInteger64(4444444))
+
+	state4 := &fakeState{
+		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.EthAddress(pldtypes.RandBytes(20)),
+		Amount: ethtypes.NewHexInteger64(4444444),
+	}
 
 	state5 := &fakeState{
 		Salt:   pldtypes.RandBytes32(),
 		Owner:  pldtypes.EthAddress(pldtypes.RandBytes(20)),
 		Amount: ethtypes.NewHexInteger64(5555555),
-	}
-
-	state6 := &fakeState{
-		Salt:   pldtypes.RandBytes32(),
-		Owner:  pldtypes.EthAddress(pldtypes.RandBytes(20)),
-		Amount: ethtypes.NewHexInteger64(6666666),
 	}
 
 	td.tp.Functions.AssembleTransaction = func(ctx context.Context, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
@@ -685,10 +686,10 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 						"eq": [{ "field": "owner", "value": "` + state1.Owner.String() + `" }]
 					},
 					{
-						"eq": [{ "field": "owner", "value": "` + state3.Owner.String() + `" }]
+						"eq": [{ "field": "owner", "value": "` + state2.Owner.String() + `" }]
 					},
 					{
-						"eq": [{ "field": "owner", "value": "` + state4.Owner.String() + `" }]
+						"eq": [{ "field": "owner", "value": "` + state3.Owner.String() + `" }]
 					}
 				]
 			  }`,
@@ -696,10 +697,10 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, stateRes.States, 3)
 
-		newStateData, err := json.Marshal(state5)
+		newStateData, err := json.Marshal(state4)
 		require.NoError(t, err)
 
-		infoStateData, err := json.Marshal(state6)
+		infoStateData, err := json.Marshal(state5)
 		require.NoError(t, err)
 
 		return &prototk.AssembleTransactionResponse{
@@ -729,70 +730,67 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 			},
 		}, nil
 	}
-	err := psc.AssembleTransaction(dCtx, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
+	assemblyResponse, err := psc.AssembleTransaction(td.ctx, dqc, td.c.dbTX, ptx.ID, ptx.PreAssembly, localTx, []*prototk.ResolvedVerifier{})
 	require.NoError(t, err)
 
-	assert.Len(t, ptx.PostAssembly.InputStates, 2)
-	assert.Len(t, ptx.PostAssembly.ReadStates, 1)
-	assert.Len(t, ptx.PostAssembly.OutputStatesPotential, 1)
-	assert.Len(t, ptx.PostAssembly.InfoStatesPotential, 1)
-	assert.Equal(t, prototk.AssembleTransactionResponse_OK, ptx.PostAssembly.AssemblyResult)
-	assert.Len(t, ptx.PostAssembly.AttestationPlan, 1)
+	assert.Len(t, assemblyResponse.GetInputStates(), 2)
+	assert.Len(t, assemblyResponse.GetReadStates(), 1)
+	assert.Len(t, assemblyResponse.GetOutputStatesPotential(), 1)
+	assert.Len(t, assemblyResponse.GetInfoStatesPotential(), 1)
+	assert.Equal(t, prototk.AssembleTransactionResponse_OK, assemblyResponse.GetAssemblyResult())
+	assert.Len(t, assemblyResponse.GetAttestationPlan(), 1)
 
 	// This would be the engine's job
-	ptx.PostAssembly.ResolvedVerifiers = make([]*prototk.ResolvedVerifier, 0)
-	ptx.PostAssembly.Signatures = make([]*prototk.AttestationResult, 0)
+	assemblyResponse.ResolvedVerifiers = make([]*prototk.ResolvedVerifier, 0)
+	assemblyResponse.Signatures = make([]*prototk.AttestationResult, 0)
+
+	// The engine is responsible for storing the assembly response on the transaction
+	ptx.PostAssembly = &components.TransactionPostAssembly{AssembleResponse: assemblyResponse}
 
 	// Write the output states
-	err = psc.WritePotentialStates(dCtx, td.c.dbTX, ptx)
+	err = psc.WritePotentialStates(td.ctx, td.dsw, td.c.dbTX, ptx)
 	require.NoError(t, err)
 
+	// Output state5 was written to the DomainStateWriter (unflushed). It is NOT yet visible
+	// via FindAvailableStates because the DomainQueryContext only sees confirmed DB states and its
+	// own snapshot (from ImportSnapshot). The DSW's unflushed pool is not merged here.
 	stateRes, err := domain.FindAvailableStates(td.ctx, &prototk.FindAvailableStatesRequest{
 		StateQueryContext: td.c.id,
-		SchemaId:          ptx.PostAssembly.OutputStatesPotential[0].SchemaId,
+		SchemaId:          ptx.PostAssembly.AssembleResponse.GetOutputStatesPotential()[0].SchemaId,
 		QueryJson: `{
 			"or": [
 				{
-					"eq": [{ "field": "owner", "value": "` + state5.Owner.String() + `" }]
+					"eq": [{ "field": "owner", "value": "` + state4.Owner.String() + `" }]
 				}
 			]
 		  }`,
 	})
 	require.NoError(t, err)
-	assert.Len(t, stateRes.States, 1)
+	assert.Len(t, stateRes.States, 0)
 
-	// Lock all the states
-	err = psc.LockStates(dCtx, td.c.dbTX, ptx)
-	require.NoError(t, err)
-
+	// Without LockStates all 3 confirmed DB states remain available. State4 (the output, in DSW)
+	// and state5 (info, in DSW) are not yet visible — they are only in the DSW buffer, not confirmed.
 	stillAvailable, err := domain.FindAvailableStates(td.ctx, &prototk.FindAvailableStatesRequest{
 		StateQueryContext: td.c.id,
-		SchemaId:          ptx.PostAssembly.OutputStatesPotential[0].SchemaId,
+		SchemaId:          ptx.PostAssembly.AssembleResponse.OutputStatesPotential[0].SchemaId,
 		QueryJson:         `{}`,
 	})
 	require.NoError(t, err)
 	assert.Len(t, stillAvailable.States, 3)
-	// state1 & state3 are now locked for spending (state4 was just read, and state2 untouched)
-	// state2 & state4 still exist
-	// state5 is new
-	// The order should be deterministic based on crate time (even before written to DB)
 	log.L(td.ctx).Infof("STATES %+v", stillAvailable.States)
-	assert.Contains(t, stillAvailable.States[0].DataJson, state2.Salt.String())
-	assert.Contains(t, stillAvailable.States[1].DataJson, state4.Salt.String())
-	assert.Contains(t, stillAvailable.States[2].DataJson, state5.Salt.String())
 
 	td.tp.Functions.EndorseTransaction = func(ctx context.Context, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
 		assert.Same(t, ptx.PreAssembly.TransactionSpecification, req.Transaction)
-		assert.Same(t, ptx.PostAssembly.AttestationPlan[0], req.EndorsementRequest)
+		assert.Same(t, ptx.PostAssembly.AssembleResponse.GetAttestationPlan()[0], req.EndorsementRequest)
 		assert.Equal(t, "endorser1", req.EndorsementVerifier.Lookup)
 		assert.Same(t, ptx.PreAssembly.TransactionSpecification, req.Transaction)
-		assert.Len(t, ptx.PostAssembly.InputStates, 2)
-		assert.Contains(t, string(ptx.PostAssembly.InputStates[0].Data), state1.Salt.String())
-		assert.Contains(t, string(ptx.PostAssembly.InputStates[1].Data), state3.Salt.String())
+		assert.Len(t, ptx.PostAssembly.AssembleResponse.GetInputStates(), 2)
+		assert.Contains(t, ptx.PostAssembly.AssembleResponse.GetInputStates()[0].StateDataJson, state1.Salt.String())
+		assert.Contains(t, ptx.PostAssembly.AssembleResponse.GetInputStates()[1].StateDataJson, state2.Salt.String())
 		assert.Len(t, ptx.PostAssembly.OutputStates, 1)
-		assert.Contains(t, string(ptx.PostAssembly.OutputStates[0].Data), state5.Salt.String())
+		assert.Contains(t, ptx.PostAssembly.OutputStates[0].GetStateDataJson(), state4.Salt.String())
 		assert.Len(t, ptx.PostAssembly.InfoStates, 1)
-		assert.Contains(t, string(ptx.PostAssembly.InfoStates[0].Data), state6.Salt.String())
+		assert.Contains(t, ptx.PostAssembly.InfoStates[0].GetStateDataJson(), state5.Salt.String())
 		return &prototk.EndorseTransactionResponse{
 			EndorsementResult: prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
 			Payload:           []byte(`some result`),
@@ -800,7 +798,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	}
 
 	// Run an endorsement
-	endorsementRequest := ptx.PostAssembly.AttestationPlan[0]
+	endorsementRequest := ptx.PostAssembly.AssembleResponse.GetAttestationPlan()[0]
 	endorserAddr := pldtypes.EthAddress(pldtypes.RandBytes(20))
 	endorser := &prototk.ResolvedVerifier{
 		Lookup:       "endorser1",
@@ -808,14 +806,14 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 		VerifierType: verifiers.ETH_ADDRESS,
 		Verifier:     endorserAddr.String(),
 	}
-	endorsement, err := psc.EndorseTransaction(dCtx, td.c.dbTX, &components.PrivateTransactionEndorseRequest{
+	endorsement, err := psc.EndorseTransaction(td.ctx, dqc, td.c.dbTX, &components.PrivateTransactionEndorseRequest{
 		TransactionSpecification: ptx.PreAssembly.TransactionSpecification,
-		Verifiers:                ptx.PostAssembly.ResolvedVerifiers,
-		Signatures:               ptx.PostAssembly.Signatures,
-		InputStates:              psc.d.toEndorsableList(ptx.PostAssembly.InputStates),
-		ReadStates:               psc.d.toEndorsableList(ptx.PostAssembly.ReadStates),
-		OutputStates:             psc.d.toEndorsableList(ptx.PostAssembly.OutputStates),
-		InfoStates:               psc.d.toEndorsableList(ptx.PostAssembly.InfoStates),
+		Verifiers:                ptx.PostAssembly.AssembleResponse.GetResolvedVerifiers(),
+		Signatures:               ptx.PostAssembly.AssembleResponse.GetSignatures(),
+		InputStates:              ptx.PostAssembly.AssembleResponse.GetInputStates(),
+		ReadStates:               ptx.PostAssembly.AssembleResponse.GetReadStates(),
+		OutputStates:             ptx.PostAssembly.OutputStates,
+		InfoStates:               ptx.PostAssembly.InfoStates,
 		Endorsement:              endorsementRequest,
 		Endorser:                 endorser,
 	})
@@ -823,7 +821,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	assert.Equal(t, prototk.EndorseTransactionResponse_ENDORSER_SUBMIT, endorsement.Result)
 
 	// Processing of endorsement faked up here
-	ptx.PostAssembly.Endorsements = append(ptx.PostAssembly.Endorsements, &prototk.AttestationResult{
+	ptx.PostAssembly.AssembleResponse.Endorsements = append(ptx.PostAssembly.AssembleResponse.Endorsements, &prototk.AttestationResult{
 		Name:            endorsementRequest.Name,
 		AttestationType: endorsementRequest.AttestationType,
 		Verifier:        endorser,
@@ -834,27 +832,27 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	// Prepare the transaction for submission to the blockchain
 	td.tp.Functions.PrepareTransaction = func(ctx context.Context, ptr *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
 		assert.Same(t, ptx.PreAssembly.TransactionSpecification, ptr.Transaction)
-		assert.Len(t, ptx.PostAssembly.InputStates, 2)
-		assert.Contains(t, string(ptx.PostAssembly.InputStates[0].Data), state1.Salt.String())
-		assert.Contains(t, string(ptx.PostAssembly.InputStates[1].Data), state3.Salt.String())
+		assert.Len(t, ptx.PostAssembly.AssembleResponse.GetInputStates(), 2)
+		assert.Contains(t, ptx.PostAssembly.AssembleResponse.GetInputStates()[0].StateDataJson, state1.Salt.String())
+		assert.Contains(t, ptx.PostAssembly.AssembleResponse.GetInputStates()[1].StateDataJson, state2.Salt.String())
 		assert.Len(t, ptx.PostAssembly.OutputStates, 1)
-		assert.Contains(t, string(ptx.PostAssembly.OutputStates[0].Data), state5.Salt.String())
+		assert.Contains(t, ptx.PostAssembly.OutputStates[0].GetStateDataJson(), state4.Salt.String())
 		assert.Len(t, ptx.PostAssembly.InfoStates, 1)
-		assert.Contains(t, string(ptx.PostAssembly.InfoStates[0].Data), state6.Salt.String())
+		assert.Contains(t, ptx.PostAssembly.InfoStates[0].GetStateDataJson(), state5.Salt.String())
 		// Check endorsement
-		assert.Len(t, ptx.PostAssembly.Endorsements, 1)
-		endorsement := ptx.PostAssembly.Endorsements[0]
+		assert.Len(t, ptx.PostAssembly.AssembleResponse.GetEndorsements(), 1)
+		endorsement := ptx.PostAssembly.AssembleResponse.GetEndorsements()[0]
 		assert.Equal(t, prototk.AttestationResult_ENDORSER_MUST_SUBMIT, endorsement.Constraints[0])
 		assert.Equal(t, "endorser1", endorsement.Verifier.Lookup)
 		assert.Equal(t, endorserAddr.String(), endorsement.Verifier.Verifier)
 		onChain := &fakeExecute{
 			Data: endorsement.Payload,
 		}
-		for _, inState := range ptx.PostAssembly.InputStates {
-			onChain.Inputs = append(onChain.Inputs, inState.ID)
+		for _, inState := range ptx.PostAssembly.AssembleResponse.GetInputStates() {
+			onChain.Inputs = append(onChain.Inputs, pldtypes.MustParseHexBytes(inState.GetId()))
 		}
-		for _, inState := range ptx.PostAssembly.InputStates {
-			onChain.Outputs = append(onChain.Outputs, inState.ID)
+		for _, inState := range ptx.PostAssembly.AssembleResponse.GetInputStates() {
+			onChain.Outputs = append(onChain.Outputs, pldtypes.MustParseHexBytes(inState.GetId()))
 		}
 		params, err := json.Marshal(onChain)
 		require.NoError(t, err)
@@ -872,23 +870,11 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	ptx.Signer = pldtypes.RandAddress().String()
 
 	// And now prepare
-	err = psc.PrepareTransaction(dCtx, td.c.dbTX, ptx)
+	err = psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, ptx)
 	require.NoError(t, err)
 	assert.Len(t, ptx.PreparedPublicTransaction.ABI, 1)
 	assert.NotNil(t, ptx.PreparedPublicTransaction.Data)
 	assert.Equal(t, "txSigner", ptx.Signer)
-
-	// Confirm the remaining unspent states
-	stillAvailable, err = domain.FindAvailableStates(td.ctx, &prototk.FindAvailableStatesRequest{
-		StateQueryContext: td.c.id,
-		SchemaId:          ptx.PostAssembly.OutputStatesPotential[0].SchemaId,
-		QueryJson:         `{}`,
-	})
-	require.NoError(t, err)
-	assert.Len(t, stillAvailable.States, 3)
-	assert.Contains(t, stillAvailable.States[0].DataJson, state2.Salt.String())
-	assert.Contains(t, stillAvailable.States[1].DataJson, state4.Salt.String())
-	assert.Contains(t, stillAvailable.States[2].DataJson, state5.Salt.String())
 
 	assert.JSONEq(t, `{"some":"data"}`, string(ptx.PreparedMetadata))
 }
@@ -897,15 +883,21 @@ func TestDomainAssembleTransactionInvalidTxn(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
+	// Pass nil preAssembly — should fail validation with PD011627.
 	psc, ptx, localTx := doDomainInitTransactionOK(t, td)
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, &components.ResolvedTransaction{
+	assemblyResponse, err := psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, ptx.ID, nil, localTx, []*prototk.ResolvedVerifier{})
+	assert.Regexp(t, "PD011627", err)
+	assert.Nil(t, assemblyResponse)
+
+	// Pass a ResolvedTransaction whose ID doesn't match ptx.ID — should also fail validation.
+	differentID := uuid.New()
+	assemblyResponse2, err := psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, ptx.ID, ptx.PreAssembly, &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
-			ID: localTx.Transaction.ID,
+			ID: &differentID,
 		},
 	}, []*prototk.ResolvedVerifier{})
-	assert.Regexp(t, "PD011626", err)
-
-	assert.Nil(t, ptx.PostAssembly)
+	assert.Regexp(t, "PD011627", err)
+	assert.Nil(t, assemblyResponse2)
 }
 
 func TestDomainAssembleTransactionError(t *testing.T) {
@@ -916,10 +908,10 @@ func TestDomainAssembleTransactionError(t *testing.T) {
 	td.tp.Functions.AssembleTransaction = func(ctx context.Context, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 		return nil, fmt.Errorf("pop")
 	}
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
+	assemblyResponse, err := psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, ptx.ID, ptx.PreAssembly, localTx, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "pop", err)
 
-	assert.Nil(t, ptx.PostAssembly)
+	assert.Nil(t, assemblyResponse)
 }
 
 func TestDomainAssembleTransactionLoadInputError(t *testing.T) {
@@ -945,10 +937,10 @@ func TestDomainAssembleTransactionLoadInputError(t *testing.T) {
 			},
 		}, nil
 	}
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
+	assemblyResponse, err := psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, ptx.ID, ptx.PreAssembly, localTx, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "PD011614.*badid", err)
 
-	assert.Nil(t, ptx.PostAssembly)
+	assert.Nil(t, assemblyResponse)
 }
 
 func TestDomainAssembleTransactionRevert(t *testing.T) {
@@ -962,12 +954,12 @@ func TestDomainAssembleTransactionRevert(t *testing.T) {
 			RevertReason:   confutil.P("failed with error"),
 		}, nil
 	}
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
+	assemblyResponse, err := psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, ptx.ID, ptx.PreAssembly, localTx, []*prototk.ResolvedVerifier{})
 	require.NoError(t, err)
 
-	assert.NotNil(t, ptx.PostAssembly)
-	assert.Equal(t, prototk.AssembleTransactionResponse_REVERT, ptx.PostAssembly.AssemblyResult)
-	assert.Equal(t, "failed with error", *ptx.PostAssembly.RevertReason)
+	assert.NotNil(t, assemblyResponse)
+	assert.Equal(t, prototk.AssembleTransactionResponse_REVERT, assemblyResponse.GetAssemblyResult())
+	assert.Equal(t, "failed with error", assemblyResponse.GetRevertReason())
 }
 
 func TestDomainAssembleTransactionDoesNotMutateInputFields(t *testing.T) {
@@ -992,14 +984,13 @@ func TestDomainAssembleTransactionDoesNotMutateInputFields(t *testing.T) {
 			AssembledTransaction: &prototk.AssembledTransaction{},
 		}, nil
 	}
-
-	err = psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, resolvedVerifiers)
+	assemblyResp, err := psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, ptx.ID, ptx.PreAssembly, localTx, resolvedVerifiers)
 	require.NoError(t, err)
+	assert.Nil(t, assemblyResp.GetResolvedVerifiers())
 
 	afterPreAssemblyJSON, err := json.Marshal(ptx.PreAssembly)
 	require.NoError(t, err)
 	assert.JSONEq(t, string(beforePreAssemblyJSON), string(afterPreAssemblyJSON))
-	assert.Nil(t, ptx.PostAssembly.ResolvedVerifiers)
 }
 
 func TestDomainAssembleTransactionLoadReadError(t *testing.T) {
@@ -1025,10 +1016,10 @@ func TestDomainAssembleTransactionLoadReadError(t *testing.T) {
 			},
 		}, nil
 	}
-	err := psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
+	assemblyResponse, err := psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, ptx.ID, ptx.PreAssembly, localTx, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "PD011614.*badid", err)
 
-	assert.Nil(t, ptx.PostAssembly)
+	assert.Nil(t, assemblyResponse)
 }
 
 func TestDomainWritePotentialStatesBadSchema(t *testing.T) {
@@ -1036,10 +1027,10 @@ func TestDomainWritePotentialStatesBadSchema(t *testing.T) {
 	defer done()
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
-	tx.PostAssembly.OutputStatesPotential = []*prototk.NewState{
+	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
 		{SchemaId: "unknown"},
 	}
-	err := psc.WritePotentialStates(td.mdc, td.c.dbTX, tx)
+	err := psc.WritePotentialStates(td.ctx, td.mdsw, td.c.dbTX, tx)
 	assert.Regexp(t, "PD011613", err)
 }
 
@@ -1051,13 +1042,13 @@ func TestDomainWritePotentialStatesFail(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockHighestBlock)
 	defer done()
 
-	td.mdc.On("UpsertStates", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop"))
+	td.mdsw.On("StageStateUpserts", mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop"))
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
-	tx.PostAssembly.OutputStatesPotential = []*prototk.NewState{
+	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
 		{SchemaId: schemaID.String()},
 	}
-	err := psc.WritePotentialStates(td.mdc, td.c.dbTX, tx)
+	err := psc.WritePotentialStates(td.ctx, td.mdsw, td.c.dbTX, tx)
 	assert.Regexp(t, "pop", err)
 }
 
@@ -1071,11 +1062,41 @@ func TestDomainWritePotentialStatesBadID(t *testing.T) {
 	badBytes := "0xnothex"
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
-	tx.PostAssembly.OutputStatesPotential = []*prototk.NewState{
+	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
 		{SchemaId: schemaID.String(), Id: &badBytes},
 	}
-	err := psc.WritePotentialStates(td.mdc, td.c.dbTX, tx)
+	err := psc.WritePotentialStates(td.ctx, td.mdsw, td.c.dbTX, tx)
 	assert.Regexp(t, "PD020007", err)
+}
+
+func TestDomainWritePotentialStatesDebugLogging(t *testing.T) {
+	log.EnsureInit()
+	originalLevel := log.GetLevel()
+	log.SetLevel("debug")
+	defer log.SetLevel(originalLevel)
+
+	schema := componentsmocks.NewSchema(t)
+	schemaID := pldtypes.RandBytes32()
+	schema.On("ID").Return(schemaID)
+	schema.On("Signature").Return("schema1_signature")
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockHighestBlock)
+	defer done()
+
+	psc, tx := doDomainInitAssembleTransactionOK(t, td)
+	stateID := pldtypes.RandBytes(32)
+	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
+		{SchemaId: schemaID.String(), StateDataJson: `{}`},
+	}
+	tx.PostAssembly.AssembleResponse.InfoStatesPotential = nil
+
+	td.mdsw.On("StageStateUpserts", mock.Anything, mock.Anything, mock.Anything).Return([]*pldapi.State{
+		{StateBase: pldapi.StateBase{ID: stateID, Schema: schemaID}},
+	}, nil)
+
+	err := psc.WritePotentialStates(td.ctx, td.mdsw, td.c.dbTX, tx)
+	require.NoError(t, err)
+	require.Len(t, tx.PostAssembly.OutputStates, 1)
+	assert.Equal(t, pldtypes.HexBytes(stateID).String(), tx.PostAssembly.OutputStates[0].GetId())
 }
 
 func TestEndorseTransactionFail(t *testing.T) {
@@ -1083,20 +1104,20 @@ func TestEndorseTransactionFail(t *testing.T) {
 	defer done()
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
-	tx.PostAssembly.OutputStates = []*components.FullState{}
+	tx.PostAssembly.OutputStates = []*prototk.EndorsableState{}
 
 	td.tp.Functions.EndorseTransaction = func(ctx context.Context, etr *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	_, err := psc.EndorseTransaction(td.mdc, td.c.dbTX, &components.PrivateTransactionEndorseRequest{
+	_, err := psc.EndorseTransaction(td.ctx, td.mdc, td.c.dbTX, &components.PrivateTransactionEndorseRequest{
 		TransactionSpecification: tx.PreAssembly.TransactionSpecification,
-		Verifiers:                tx.PostAssembly.ResolvedVerifiers,
-		Signatures:               tx.PostAssembly.Signatures,
-		InputStates:              psc.d.toEndorsableList(tx.PostAssembly.InputStates),
-		ReadStates:               psc.d.toEndorsableList(tx.PostAssembly.ReadStates),
-		OutputStates:             psc.d.toEndorsableList(tx.PostAssembly.OutputStates),
-		InfoStates:               psc.d.toEndorsableList(tx.PostAssembly.InfoStates),
+		Verifiers:                tx.PostAssembly.AssembleResponse.GetResolvedVerifiers(),
+		Signatures:               tx.PostAssembly.AssembleResponse.GetSignatures(),
+		InputStates:              tx.PostAssembly.AssembleResponse.GetInputStates(),
+		ReadStates:               tx.PostAssembly.AssembleResponse.GetReadStates(),
+		OutputStates:             tx.PostAssembly.OutputStates,
+		InfoStates:               tx.PostAssembly.InfoStates,
 		Endorsement:              &prototk.AttestationRequest{},
 		Endorser:                 &prototk.ResolvedVerifier{},
 	})
@@ -1114,7 +1135,7 @@ func TestPrepareTransactionFail(t *testing.T) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	err := psc.PrepareTransaction(td.mdc, td.c.dbTX, tx)
+	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
 	assert.Regexp(t, "pop", err)
 }
 
@@ -1133,7 +1154,7 @@ func TestPrepareTransactionABIInvalid(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.mdc, td.c.dbTX, tx)
+	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
 	assert.Regexp(t, "PD011607", err)
 }
 
@@ -1158,7 +1179,7 @@ func TestPrepareTransactionPrivateResult(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.mdc, td.c.dbTX, tx)
+	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
 	require.NoError(t, err)
 	assert.Equal(t, pldapi.TransactionBase{
 		IdempotencyKey: fmt.Sprintf("%s_doTheNextThing", tx.ID),
@@ -1189,7 +1210,7 @@ func TestPrepareTransactionPrivateBadAddr(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.mdc, td.c.dbTX, tx)
+	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
 	require.Regexp(t, "bad address", err)
 }
 
@@ -1215,7 +1236,7 @@ func TestPrepareTransactionUnknownContract(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.mdc, td.c.dbTX, tx)
+	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
 	require.Regexp(t, "PD011609", err)
 }
 
@@ -1226,7 +1247,7 @@ func TestLoadStatesBadSchema(t *testing.T) {
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
 	tx.Signer = "signer1"
 
-	_, err := psc.loadStatesFromContext(td.mdc, td.c.dbTX, []*prototk.StateRef{
+	_, err := psc.loadStatesFromContext(td.ctx, td.mdc, td.c.dbTX, []*prototk.StateRef{
 		{
 			Id:       pldtypes.RandHex(32),
 			SchemaId: "wrong",
@@ -1244,7 +1265,7 @@ func TestLoadStatesError(t *testing.T) {
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
 	tx.Signer = "signer1"
 
-	_, err := psc.loadStatesFromContext(td.mdc, td.c.dbTX, []*prototk.StateRef{
+	_, err := psc.loadStatesFromContext(td.ctx, td.mdc, td.c.dbTX, []*prototk.StateRef{
 		{
 			Id:       pldtypes.RandHex(32),
 			SchemaId: pldtypes.RandHex(32),
@@ -1262,7 +1283,7 @@ func TestLoadStatesNotFound(t *testing.T) {
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
 	tx.Signer = "signer1"
 
-	_, err := psc.loadStatesFromContext(td.mdc, td.c.dbTX, []*prototk.StateRef{
+	_, err := psc.loadStatesFromContext(td.ctx, td.mdc, td.c.dbTX, []*prototk.StateRef{
 		{
 			Id:       pldtypes.RandHex(32),
 			SchemaId: pldtypes.RandHex(32),
@@ -1281,20 +1302,16 @@ func TestIncompleteStages(t *testing.T) {
 
 	err := psc.InitTransaction(td.ctx, ptx, localTx)
 	assert.Regexp(t, "PD011626", err)
-
-	err = psc.AssembleTransaction(td.mdc, td.c.dbTX, ptx, localTx, []*prototk.ResolvedVerifier{})
+	_, err = psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, ptx.ID, ptx.PreAssembly, localTx, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "PD011627", err)
 
-	err = psc.WritePotentialStates(td.mdc, td.c.dbTX, ptx)
+	err = psc.WritePotentialStates(td.ctx, td.mdsw, td.c.dbTX, ptx)
 	assert.Regexp(t, "PD011628", err)
 
-	err = psc.LockStates(td.mdc, td.c.dbTX, ptx)
-	assert.Regexp(t, "PD011629", err)
-
-	_, err = psc.EndorseTransaction(td.mdc, td.c.dbTX, nil)
+	_, err = psc.EndorseTransaction(td.ctx, td.mdc, td.c.dbTX, nil)
 	assert.Regexp(t, "PD011630", err)
 
-	err = psc.PrepareTransaction(td.mdc, td.c.dbTX, ptx)
+	err = psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, ptx)
 	assert.Regexp(t, "PD011632", err)
 }
 
@@ -1425,7 +1442,7 @@ func TestExecCall(t *testing.T) {
 
 	txi := goodPrivateCallWithInputsAndOutputs(psc)
 
-	cv, err := psc.ExecCall(td.c.dCtx, td.c.dbTX, txi, []*prototk.ResolvedVerifier{
+	cv, err := psc.ExecCall(td.ctx, td.c.dqc, td.c.dbTX, txi, []*prototk.ResolvedVerifier{
 		{
 			Lookup:       "lookup1",
 			Algorithm:    algorithms.ECDSA_SECP256K1,
@@ -1446,7 +1463,7 @@ func TestExecCallBadInput(t *testing.T) {
 
 	psc := goodPSC(t, td)
 
-	_, err := psc.ExecCall(td.c.dCtx, td.c.dbTX, &components.ResolvedTransaction{
+	_, err := psc.ExecCall(td.ctx, td.c.dqc, td.c.dbTX, &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
 			TransactionBase: pldapi.TransactionBase{
 				Domain: psc.d.name,
@@ -1485,7 +1502,7 @@ func TestExecCallBadOutput(t *testing.T) {
 
 	txi := goodPrivateCallWithInputsAndOutputs(psc)
 
-	_, err := psc.ExecCall(td.c.dCtx, td.c.dbTX, txi, []*prototk.ResolvedVerifier{})
+	_, err := psc.ExecCall(td.ctx, td.c.dqc, td.c.dbTX, txi, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "PD011653", err)
 }
 
@@ -1505,7 +1522,7 @@ func TestExecCallNilOutputOk(t *testing.T) {
 	localTx := goodPrivateCallWithInputsAndOutputs(psc)
 	localTx.Function.Definition.Outputs = nil
 
-	_, err := psc.ExecCall(td.c.dCtx, td.c.dbTX, localTx, []*prototk.ResolvedVerifier{})
+	_, err := psc.ExecCall(td.ctx, td.c.dqc, td.c.dbTX, localTx, []*prototk.ResolvedVerifier{})
 	require.NoError(t, err)
 }
 
@@ -1522,7 +1539,21 @@ func TestExecCallFail(t *testing.T) {
 
 	txi := goodPrivateCallWithInputsAndOutputs(psc)
 
-	_, err := psc.ExecCall(td.c.dCtx, td.c.dbTX, txi, []*prototk.ResolvedVerifier{})
+	_, err := psc.ExecCall(td.ctx, td.c.dqc, td.c.dbTX, txi, []*prototk.ResolvedVerifier{})
+	assert.Regexp(t, "pop", err)
+}
+
+func TestExecCallBlockContextFail(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
+		mc.blockIndexer.On("GetLatestConfirmedBlockMetadata", mock.Anything).Return((*blockindexer.ConfirmedBlockMetadata)(nil), fmt.Errorf("pop")).Once()
+	})
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	psc := goodPSC(t, td)
+	txi := goodPrivateCallWithInputsAndOutputs(psc)
+
+	_, err := psc.ExecCall(td.ctx, td.c.dqc, td.c.dbTX, txi, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "pop", err)
 }
 
@@ -1820,7 +1851,7 @@ func TestInvokeRPCOK(t *testing.T) {
 		return &prototk.InvokeRPCResponse{ResultJson: `"0x1234"`}, nil
 	}
 
-	got, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	got, err := psc.InvokeRPC(td.ctx, td.c.dqc, td.c.dbTX, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
 	require.NoError(t, err)
 	assert.Equal(t, pldtypes.RawJSON(`"0x1234"`), got)
 }
@@ -1836,7 +1867,7 @@ func TestInvokeRPCError(t *testing.T) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	_, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	_, err := psc.InvokeRPC(td.ctx, td.c.dqc, td.c.dbTX, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
 	require.Regexp(t, "pop", err)
 }
 
@@ -1902,7 +1933,7 @@ func TestMapPotentialStatesEmpty(t *testing.T) {
 
 	psc := goodPSC(t, td)
 
-	stateUpserts, err := psc.MapPotentialStates(td.c.dCtx, nil, false, nil)
+	stateUpserts, err := psc.MapPotentialStates(td.ctx, nil, false, nil)
 	require.NoError(t, err)
 	assert.Empty(t, stateUpserts)
 }
@@ -1936,4 +1967,66 @@ func TestIsBaseLedgerRevertRetryableError(t *testing.T) {
 
 	_, _, err := psc.IsBaseLedgerRevertRetryable(td.ctx, []byte("revert data"))
 	require.Regexp(t, "pop", err)
+}
+
+func TestPublicTxOptionsToProto_AllFields(t *testing.T) {
+	gas := pldtypes.HexUint64(12345)
+	value := pldtypes.Uint64ToUint256(1000)
+	maxFee := pldtypes.Uint64ToUint256(2000)
+	maxPrioFee := pldtypes.Uint64ToUint256(3000)
+
+	opts := pldapi.PublicTxOptions{
+		Gas:   &gas,
+		Value: value,
+		PublicTxGasPricing: pldapi.PublicTxGasPricing{
+			MaxFeePerGas:         maxFee,
+			MaxPriorityFeePerGas: maxPrioFee,
+		},
+	}
+	p := publicTxOptionsToProto(opts)
+
+	require.NotNil(t, p.Gas)
+	assert.Equal(t, gas.String(), *p.Gas)
+	require.NotNil(t, p.Value)
+	assert.Equal(t, value.String(), *p.Value)
+	require.NotNil(t, p.MaxFeePerGas)
+	assert.Equal(t, maxFee.String(), *p.MaxFeePerGas)
+	require.NotNil(t, p.MaxPriorityFeePerGas)
+	assert.Equal(t, maxPrioFee.String(), *p.MaxPriorityFeePerGas)
+}
+
+func TestPublicTxOptionsToProto_NoFields(t *testing.T) {
+	p := publicTxOptionsToProto(pldapi.PublicTxOptions{})
+	assert.Nil(t, p.Gas)
+	assert.Nil(t, p.Value)
+	assert.Nil(t, p.MaxFeePerGas)
+	assert.Nil(t, p.MaxPriorityFeePerGas)
+}
+
+func TestPublicTxOptionsFromProto_AllFields(t *testing.T) {
+	gas := "0x3039"
+	value := "0x3e8"
+	maxFee := "0x7d0"
+	maxPrioFee := "0xbb8"
+
+	p := &prototk.PublicTxOptions{
+		Gas:                  &gas,
+		Value:                &value,
+		MaxFeePerGas:         &maxFee,
+		MaxPriorityFeePerGas: &maxPrioFee,
+	}
+	opts := publicTxOptionsFromProto(p)
+
+	require.NotNil(t, opts.Gas)
+	require.NotNil(t, opts.Value)
+	require.NotNil(t, opts.MaxFeePerGas)
+	require.NotNil(t, opts.MaxPriorityFeePerGas)
+}
+
+func TestPublicTxOptionsFromProto_Nil(t *testing.T) {
+	opts := publicTxOptionsFromProto(nil)
+	assert.Nil(t, opts.Gas)
+	assert.Nil(t, opts.Value)
+	assert.Nil(t, opts.MaxFeePerGas)
+	assert.Nil(t, opts.MaxPriorityFeePerGas)
 }
