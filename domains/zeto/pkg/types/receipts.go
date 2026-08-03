@@ -20,19 +20,20 @@ import "github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 type ZetoDomainReceipt struct {
 	States    ReceiptStates      `json:"states"`
 	Transfers []*ReceiptTransfer `json:"transfers,omitempty"`
-	LockInfo  *ReceiptLockInfo   `json:"lockInfo,omitempty"`
-	Data      pldtypes.HexBytes  `json:"data,omitempty"`
+	// The transaction data supplied to the invocation. Zeto records one info state per transfer
+	// entry, distributed only to the sender and that entry's recipient, so a party that received
+	// one of several transfers in a transaction sees only their own data here.
+	Data pldtypes.HexBytes `json:"data,omitempty"`
 }
 
+// ReceiptStates lists the states the transaction consumed and produced. Zeto holds locked and
+// unlocked coins in the same schema, distinguished by their "locked" flag, but they are reported
+// separately here to match the shape of the Noto domain receipt.
 type ReceiptStates struct {
-	Inputs                []*ReceiptState `json:"inputs,omitempty"`
-	LockedInputs          []*ReceiptState `json:"lockedInputs,omitempty"`
-	Outputs               []*ReceiptState `json:"outputs,omitempty"`
-	LockedOutputs         []*ReceiptState `json:"lockedOutputs,omitempty"`
-	ReadInputs            []*ReceiptState `json:"readInputs,omitempty"`
-	ReadLockedInputs      []*ReceiptState `json:"readLockedInputs,omitempty"`
-	PreparedOutputs       []*ReceiptState `json:"preparedOutputs,omitempty"`
-	PreparedLockedOutputs []*ReceiptState `json:"preparedLockedOutputs,omitempty"`
+	Inputs        []*ReceiptState `json:"inputs,omitempty"`
+	LockedInputs  []*ReceiptState `json:"lockedInputs,omitempty"`
+	Outputs       []*ReceiptState `json:"outputs,omitempty"`
+	LockedOutputs []*ReceiptState `json:"lockedOutputs,omitempty"`
 }
 
 type ReceiptState struct {
@@ -41,17 +42,12 @@ type ReceiptState struct {
 	Data   pldtypes.RawJSON  `json:"data"`
 }
 
+// ReceiptTransfer describes value moving between owners. Owners are Baby Jubjub public keys rather
+// than Ethereum addresses. An absent "from" is a mint, and an absent "to" is a burn (which includes
+// withdrawing back to the ERC-20 balance).
 type ReceiptTransfer struct {
 	From    pldtypes.HexBytes    `json:"from,omitempty"`
 	To      pldtypes.HexBytes    `json:"to,omitempty"`
-	Amount  *pldtypes.HexUint256 `json:"amount"`
-	TokenId *pldtypes.HexUint256 `json:"tokenId"`
-}
-
-type ReceiptLockInfo struct {
-	LockID       pldtypes.Bytes32     `json:"lockId"`
-	Delegate     *pldtypes.EthAddress `json:"delegate,omitempty"`     // only set for delegateLock
-	UnlockTxId   *pldtypes.Bytes32    `json:"unlockTxId,omitempty"`   // only set for prepareUnlock
-	UnlockParams map[string]any       `json:"unlockParams,omitempty"` // only set for prepareUnlock
-	UnlockCall   pldtypes.HexBytes    `json:"unlockCall,omitempty"`   // only set for prepareUnlock
+	Amount  *pldtypes.HexUint256 `json:"amount,omitempty"`  // fungible tokens only
+	TokenID *pldtypes.HexUint256 `json:"tokenId,omitempty"` // non-fungible tokens only
 }
