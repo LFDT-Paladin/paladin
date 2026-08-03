@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {INoto_V0} from "../interfaces/INoto_V0.sol";
-import {INotoErrors} from "../interfaces/INotoErrors.sol";
+import {INotoErrors_V0} from "../interfaces/INotoErrors_V0.sol";
 
 /**
  * @title A sample on-chain implementation of a Confidential UTXO (C-UTXO) pattern,
@@ -24,7 +24,7 @@ import {INotoErrors} from "../interfaces/INotoErrors.sol";
  *         This allows coordination of DVP with other smart contracts, which could
  *         be using any model programmable via EVM (not just C-UTXO)
  */
-contract Noto_V0 is EIP712Upgradeable, UUPSUpgradeable, INoto_V0, INotoErrors {
+contract Noto_V0 is EIP712Upgradeable, UUPSUpgradeable, INoto_V0, INotoErrors_V0 {
     struct NotoConfig_V1 {
         string name;
         string symbol;
@@ -156,7 +156,7 @@ contract Noto_V0 is EIP712Upgradeable, UUPSUpgradeable, INoto_V0, INotoErrors {
     }
 
     /**
-     * @dev query whether a TXO is currently in the unspent list
+     * @dev query whether a state is currently in the unspent list
      * @param id the UTXO identifier
      * @return unspent true or false depending on whether the identifier is in the unspent map
      */
@@ -165,7 +165,7 @@ contract Noto_V0 is EIP712Upgradeable, UUPSUpgradeable, INoto_V0, INotoErrors {
     }
 
     /**
-     * @dev query whether a TXO is currently locked
+     * @dev query whether a state is currently locked
      * @param id the UTXO identifier
      * @return locked true or false depending on whether the identifier is locked
      */

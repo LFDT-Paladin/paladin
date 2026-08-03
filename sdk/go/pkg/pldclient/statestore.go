@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2026 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -21,6 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/google/uuid"
 )
 
 type StateStore interface {
@@ -32,6 +33,7 @@ type StateStore interface {
 	QueryContractStates(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, schemaRef pldtypes.Bytes32, query *query.QueryJSON, qualifier pldapi.StateStatusQualifier) (states []*pldapi.State, err error)
 	QueryNullifiers(ctx context.Context, domain string, schemaRef pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (states []*pldapi.State, err error)
 	QueryContractNullifiers(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, schemaRef pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (states []*pldapi.State, err error)
+	TransferPrivateState(ctx context.Context, domain string, stateID pldtypes.HexBytes, recipient pldtypes.PrivateIdentityLocator) (reliableMessageID uuid.UUID, err error)
 }
 
 // This is necessary because there's no way to introspect function parameter names via reflection
@@ -61,6 +63,10 @@ var stateStoreInfo = &rpcModuleInfo{
 		"pstate_queryContractNullifiers": {
 			Inputs: []string{"domain", "contractAddress", "schemaRef", "query", "qualifier"},
 			Output: "states",
+		},
+		"pstate_transferPrivateState": {
+			Inputs: []string{"domain", "stateId", "recipient"},
+			Output: "reliableMessageId",
 		},
 	},
 }
@@ -100,6 +106,11 @@ func (r *stateStore) QueryNullifiers(ctx context.Context, domain string, schemaR
 }
 
 func (r *stateStore) QueryContractNullifiers(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, schemaRef pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (states []*pldapi.State, err error) {
-	err = r.c.CallRPC(ctx, &states, "pstate_queryContractNullifiers", domain, contractAddress, schemaRef, query)
+	err = r.c.CallRPC(ctx, &states, "pstate_queryContractNullifiers", domain, contractAddress, schemaRef, query, status)
+	return
+}
+
+func (r *stateStore) TransferPrivateState(ctx context.Context, domain string, stateID pldtypes.HexBytes, recipient pldtypes.PrivateIdentityLocator) (reliableMessageID uuid.UUID, err error) {
+	err = r.c.CallRPC(ctx, &reliableMessageID, "pstate_transferPrivateState", domain, stateID, recipient)
 	return
 }

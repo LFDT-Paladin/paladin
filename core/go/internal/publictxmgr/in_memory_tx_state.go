@@ -17,7 +17,6 @@ package publictxmgr
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -47,6 +46,9 @@ type inMemoryTxState struct {
 
 	managedTxMux sync.Mutex
 	mtx          *managedTx
+
+	// "<from>:<nonce>" string, computed once at construction; the nonce is always allocated before an in-flight tx is constructed
+	signerNonce string
 }
 
 func gasPricingSet(gasPricing pldapi.PublicTxGasPricing) bool {
@@ -74,6 +76,10 @@ func NewInMemoryTxStateManager(ctx context.Context, ptx *DBPublicTxn, ift *inFli
 		imtxs.mtx.FirstSubmit = &firstSub.Created
 		imtxs.mtx.LastSubmittedGasPrice = recoverGasPriceOptions(lastSub.GasPricing)
 	}
+
+	// A nonce is always allocated before an in-flight transaction is constructed
+	imtxs.signerNonce = ptx.From.String() + ":" + strconv.FormatUint(*ptx.Nonce, 10)
+
 	return imtxs
 }
 
@@ -143,12 +149,30 @@ func (imtxs *inMemoryTxState) GetPubTxnID() uint64 {
 	return imtxs.mtx.ptx.PublicTxnID
 }
 
-func (imtxs *inMemoryTxState) GetSignerNonce() string {
-	nonceStr := "unassigned"
-	if imtxs.mtx.ptx.Nonce != nil {
-		nonceStr = strconv.FormatUint(*imtxs.mtx.ptx.Nonce, 10)
+func (imtxs *inMemoryTxState) GetTransactionType() *pldapi.TransactionType {
+	if imtxs.mtx.ptx.Binding != nil {
+		transactionType := pldapi.TransactionType(imtxs.mtx.ptx.Binding.TransactionType)
+		return &transactionType
 	}
-	return fmt.Sprintf("%s:%s", imtxs.mtx.ptx.From, nonceStr)
+	return nil
+}
+
+func (imtxs *inMemoryTxState) GetPrivateTXOriginator() string {
+	if imtxs.mtx.ptx.Binding != nil {
+		return imtxs.mtx.ptx.Binding.Sender
+	}
+	return ""
+}
+
+func (imtxs *inMemoryTxState) GetContractAddress() string {
+	if imtxs.mtx.ptx.Binding != nil {
+		return imtxs.mtx.ptx.Binding.ContractAddress
+	}
+	return ""
+}
+
+func (imtxs *inMemoryTxState) GetSignerNonce() string {
+	return imtxs.signerNonce
 }
 
 func (imtxs *inMemoryTxState) GetCreatedTime() *pldtypes.Timestamp {
@@ -168,8 +192,11 @@ func (imtxs *inMemoryTxState) GetFrom() pldtypes.EthAddress {
 }
 
 func (imtxs *inMemoryTxState) GetTo() *pldtypes.EthAddress {
-
 	return imtxs.mtx.ptx.To
+}
+
+func (imtxs *inMemoryTxState) GetData() pldtypes.HexBytes {
+	return imtxs.mtx.ptx.Data
 }
 
 func (imtxs *inMemoryTxState) GetValue() *pldtypes.HexUint256 {

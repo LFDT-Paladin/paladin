@@ -9,14 +9,16 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/node"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/node"
 	"github.com/iden3/go-iden3-crypto/poseidon"
 )
 
@@ -201,18 +203,18 @@ func (z *Zeto) updateMerkleTree(ctx context.Context, tree core.SparseMerkleTree,
 }
 
 func (z *Zeto) addOutputToMerkleTree(ctx context.Context, tree core.SparseMerkleTree, output pldtypes.HexUint256) error {
-	idx, err := node.NewNodeIndexFromBigInt(output.Int())
+	idx, err := node.NewNodeIndexFromBigInt(output.Int(), signercommon.GetHasher())
 	if err != nil {
-		return i18n.NewError(ctx, msgs.MsgErrorNewNodeIndex, output.String(), err)
+		return i18n.NewError(ctx, pldmsgs.MsgErrorNewNodeIndex, output.String(), err)
 	}
 	n := node.NewIndexOnly(idx)
-	leaf, err := node.NewLeafNode(n)
+	leaf, err := node.NewLeafNode(n, nil)
 	if err != nil {
-		return i18n.NewError(ctx, msgs.MsgErrorNewLeafNode, err)
+		return i18n.NewError(ctx, pldmsgs.MsgErrorNewLeafNode, err)
 	}
-	err = tree.AddLeaf(leaf)
+	err = tree.AddLeaf(ctx, leaf)
 	if err != nil {
-		return i18n.NewError(ctx, msgs.MsgErrorAddLeafNode, err)
+		return i18n.NewError(ctx, pldmsgs.MsgErrorAddLeafNode, err)
 	}
 	return nil
 }

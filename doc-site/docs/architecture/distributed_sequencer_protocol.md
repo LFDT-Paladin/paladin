@@ -342,7 +342,7 @@ _Remotely Coordinated_ domains could be considered a sub-category of _Leader Ele
 
 ## Objectives
 
-The objective of this algorithm is to maximize efficiency (reduce probably for revert leading to retry cycles of valid request) and throughput (allow many transactions to be included in each block). This algorithm does not attempt to provide a guarantee on final data consistency but instead relies on the base ledger contract to do so (e.g. double spend protection, attestation validation, exactly once intent fulfillment).
+The objective of this algorithm is to maximize efficiency (reduce probability of revert leading to retry cycles of valid request) and throughput (allow many transactions to be included in each block). This algorithm does not attempt to provide a guarantee on final data consistency but instead relies on the base ledger contract to do so (e.g. double spend protection, attestation validation, exactly once intent fulfillment).
 
 The desired properties of that algorithm are
 

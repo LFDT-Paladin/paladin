@@ -9,14 +9,14 @@ title: PeerInfo
 {
     "name": "",
     "stats": {
+        "createdAt": null,
         "sentMsgs": 0,
         "receivedMsgs": 0,
         "sentBytes": 0,
         "receivedBytes": 0,
         "lastSend": null,
         "lastReceive": null,
-        "reliableHighestSent": 0,
-        "reliableAckBase": 0
+        "reliableHighestSent": 0
     },
     "activated": 0
 }
@@ -37,6 +37,7 @@ title: PeerInfo
 
 | Field Name | Description | Type |
 |------------|-------------|------|
+| `createdAt` | Timestamp when this peer was first created | [`Timestamp`](simpletypes.md#timestamp) |
 | `sentMsgs` | Count of messages sent since activation of this peer | `uint64` |
 | `receivedMsgs` | Count of messages received since activation of this peer | `uint64` |
 | `sentBytes` | Count of payload bytes sent since activation of this peer (does not include header data) | `uint64` |
@@ -44,6 +45,5 @@ title: PeerInfo
 | `lastSend` | Timestamp of the last send to this peer | [`Timestamp`](simpletypes.md#timestamp) |
 | `lastReceive` | Timestamp of the last receive from this peer | [`Timestamp`](simpletypes.md#timestamp) |
 | `reliableHighestSent` | Outbound reliable messages are assigned a sequence. This is the highest sequence sent to the peer since activation | `uint64` |
-| `reliableAckBase` | Outbound reliable messages are assigned a sequence. This is the lowest sequence that has not received an acknowledgement from the peer | `uint64` |
 
 

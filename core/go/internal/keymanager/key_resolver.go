@@ -115,7 +115,9 @@ func (kr *keyResolver) resolvePathSegment(ctx context.Context, parent *resolvedD
 		// Check for an existing entry in the DB
 		var pathList []*DBKeyPath
 		err := db.WithContext(ctx).
+			Model(&DBKeyPath{}).
 			Where("path = ?", path).
+			Limit(1).
 			Find(&pathList).Error
 		if err != nil {
 			return nil, err
@@ -148,6 +150,7 @@ func (kr *keyResolver) resolvePathSegment(ctx context.Context, parent *resolvedD
 		if parent.nextIndex == nil {
 			// Get the highest index on the parent so far written to the DB
 			err = db.WithContext(ctx).
+				Model(&DBKeyPath{}).
 				Where("parent = ?", parent.path).
 				Order(`"index" DESC`).
 				Limit(1).

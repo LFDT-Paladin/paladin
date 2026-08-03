@@ -105,11 +105,11 @@ postgres: # the postgres container runs as a sidecar to the paladin container
 # Only used when mode is "attach" to join an existing network.
 # - Set 'address' to join an existing deployment from another operator.
 smartContractsReferences:
-  notoFactory:
+  notoFactoryProxy:
     address: ""
-  zetoFactory:
+  penteFactoryProxy:
     address: ""
-  penteFactory:
+  zetoFactoryProxy:
     address: ""
   registry:
     address: ""
@@ -124,9 +124,15 @@ smartContractDeployments:
     from: ""
   registry:
     from: ""
+  noto:
+    from: ""
   notoFactory:
     from: ""
+  notoFactoryProxy:
+    from: ""
   penteFactory:
+    from: ""
+  penteFactoryProxy:
     from: ""
   zetoG16Anon:
     from: ""
@@ -174,6 +180,8 @@ smartContractDeployments:
     from: ""
   zetoFactory:
     from: ""
+  zetoFactoryProxy:
+    from: ""
 
 # Transaction Invoke Configuration
 # Controls the signing keys for transaction invocations.
@@ -207,6 +215,14 @@ paladin:
   labels:
     app: paladin
   baseNodePort: 31548
+  logPersistence:
+    enabled: false
+    path: /app/logs/paladin.log
+    pvcTemplate:
+      resources:
+        requests:
+          storage: 1Gi
+    file: {}
 
 # Setting for devnet mode 
 besu:

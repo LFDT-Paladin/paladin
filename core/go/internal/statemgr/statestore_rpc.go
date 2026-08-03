@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
+	"github.com/google/uuid"
 )
 
 func (ss *stateManager) RPCModule() *rpcserver.RPCModule {
@@ -40,7 +41,8 @@ func (ss *stateManager) initRPC() {
 		Add("pstate_queryStates", ss.rpcQueryStates()).
 		Add("pstate_queryContractStates", ss.rpcQueryContractStates()).
 		Add("pstate_queryNullifiers", ss.rpcQueryNullifiers()).
-		Add("pstate_queryContractNullifiers", ss.rpcQueryContractNullifiers())
+		Add("pstate_queryContractNullifiers", ss.rpcQueryContractNullifiers()).
+		Add("pstate_transferPrivateState", ss.rpcTransferState())
 }
 
 func (ss *stateManager) rpcListSchema() rpcserver.RPCHandler {
@@ -135,5 +137,22 @@ func (ss *stateManager) rpcGetSchemaByID() rpcserver.RPCHandler {
 	) (*pldapi.Schema, error) {
 		ctx = log.WithComponent(ctx, "statemanager")
 		return ss.GetSchemaByID(ctx, ss.p.NOTX(), domain, schemaID, false /* null on not found */)
+	})
+}
+
+func (ss *stateManager) rpcTransferState() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod3(func(ctx context.Context,
+		domain string,
+		stateID pldtypes.HexBytes,
+		recipient pldtypes.PrivateIdentityLocator,
+	) (uuid.UUID, error) {
+		ctx = log.WithComponent(ctx, "statemanager")
+		var messageID uuid.UUID
+		err := ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+			var txErr error
+			messageID, txErr = ss.TransferState(ctx, dbTX, domain, stateID, recipient)
+			return txErr
+		})
+		return messageID, err
 	})
 }

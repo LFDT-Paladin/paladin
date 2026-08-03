@@ -35,6 +35,10 @@ nodes:
     hostPort: 31549
     listenAddress: "127.0.0.1"
     protocol: tcp
+  - containerPort: 31550 # Paladin1 - metrics
+    hostPort: 31550
+    listenAddress: "127.0.0.1"
+    protocol: tcp
 
   # Open up ports on LOCALHOST only for the second Paladin node
   - containerPort: 31645 # Besu2 - JSON/RPC HTTP
@@ -57,6 +61,10 @@ nodes:
     hostPort: 31649
     listenAddress: "127.0.0.1"
     protocol: tcp
+  - containerPort: 31650 # Paladin2 - metrics
+    hostPort: 31650
+    listenAddress: "127.0.0.1"
+    protocol: tcp
 
   # Open up ports on LOCALHOST only for the third Paladin node
   - containerPort: 31745 # Besu3 - JSON/RPC HTTP
@@ -77,6 +85,10 @@ nodes:
     protocol: tcp
   - containerPort: 31749 # Paladin3 - JSON/RPC WebSockets
     hostPort: 31749
+    listenAddress: "127.0.0.1"
+    protocol: tcp
+  - containerPort: 31750 # Paladin3 - metrics
+    hostPort: 31750
     listenAddress: "127.0.0.1"
     protocol: tcp
 

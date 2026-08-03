@@ -1,0 +1,48 @@
+/*
+ * Copyright © 2026 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+syntax = "proto3";
+
+package io.kaleido.paladin.toolkit;
+
+option java_multiple_files = true;
+
+message EndorsableState {
+  string id = 1;              // The hash id calculated by the local node for this state
+  string schema_id = 2;       // The id from the schema
+  string state_data_json = 3; // The data for this state that will be ensured to be committed to the local DB before sending an endorsement confirmation
+}
+
+message StateSnapshot {
+  repeated SnapshotState states = 1;
+  repeated SnapshotStateLock locks = 2;
+}
+
+message SnapshotState {
+  EndorsableState state = 1;         // id / schema_id / state_data_json
+  repeated string allowed_nodes = 2; // nodes permitted to hold this state's private data (handover only; empty on assemble path)
+}
+
+message SnapshotStateLock {
+  enum StateLockType {
+    SPEND = 0;
+    READ = 1;
+    CREATE = 2;
+  }
+  string state_id = 1;
+  optional string transaction = 2;        // UUID string; unset for a confirmed/handover lock with no owning transaction
+  StateLockType type = 3;
+  optional uint64 confirmed_at_block = 4; // handover only; unset for in-flight locks
+}

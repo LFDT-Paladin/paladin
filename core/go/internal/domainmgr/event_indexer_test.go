@@ -30,7 +30,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -48,29 +47,21 @@ func TestSolidityEventSignatures(t *testing.T) {
 	assert.Equal(t, "event PaladinRegisterSmartContract_V0(bytes32 indexed txId, address indexed instance, bytes config)", eventSolSig_PaladinRegisterSmartContract_V0)
 }
 
-func TestEventIndexingWithDB(t *testing.T) {
-
-	td, done := newTestDomain(t, true /* real DB */, goodDomainConf())
-	defer done()
-	ctx := td.ctx
-	tp := td.tp
-	dm := td.dm
-
-	deployTX := uuid.New()
-	contractAddr := pldtypes.EthAddress(pldtypes.RandBytes(20))
-
+func registerTestSmartContract(t *testing.T, td *testDomainContext) (deployTX uuid.UUID, contractAddr pldtypes.EthAddress) {
 	// Index an event indicating deployment of a new smart contract instance
+	deployTX = uuid.New()
+	contractAddr = pldtypes.EthAddress(pldtypes.RandBytes(20))
 	var batchTxs txCompletionsOrdered
 	var unprocessedEvents []*pldapi.EventWithData
-	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		unprocessedEvents, batchTxs, err = dm.registrationIndexer(ctx, dbTX, &blockindexer.EventDeliveryBatch{
+	err := td.dm.persistence.Transaction(td.ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		unprocessedEvents, batchTxs, err = td.dm.registrationIndexer(ctx, dbTX, &blockindexer.EventDeliveryBatch{
 			StreamID:   uuid.New(),
 			StreamName: "name_given_by_component_mgr",
 			BatchID:    uuid.New(),
 			Events: []*pldapi.EventWithData{
 				{
 					SoliditySignature: eventSolSig_PaladinRegisterSmartContract_V0,
-					Address:           (pldtypes.EthAddress)(*tp.d.RegistryAddress()),
+					Address:           (pldtypes.EthAddress)(*td.tp.d.RegistryAddress()),
 					IndexedEvent: &pldapi.IndexedEvent{
 						BlockNumber:      12345,
 						TransactionIndex: 0,
@@ -92,7 +83,7 @@ func TestEventIndexingWithDB(t *testing.T) {
 	assert.Len(t, batchTxs, 1)
 	assert.Empty(t, unprocessedEvents) // we consumed all the events there were
 
-	tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+	td.tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
 		return &prototk.InitContractResponse{
 			Valid: true,
 			ContractConfig: &prototk.ContractConfig{
@@ -103,16 +94,31 @@ func TestEventIndexingWithDB(t *testing.T) {
 		}, nil
 	}
 
+	return deployTX, contractAddr
+}
+
+func TestEventIndexingWithDB(t *testing.T) {
+
+	td, done := newTestDomain(t, true /* real DB */, goodDomainConf())
+	defer done()
+	ctx := td.ctx
+	tp := td.tp
+	dm := td.dm
+
+	// Index an event indicating deployment of a new smart contract instance
+	deployTX, contractAddr := registerTestSmartContract(t, td)
+
 	// Lookup the instance against the domain
 	psc, err := dm.GetSmartContractByAddress(ctx, td.c.dbTX, contractAddr)
 	require.NoError(t, err)
 	dc := psc.(*domainContract)
-	assert.Equal(t, &PrivateSmartContract{
-		DeployTX:        deployTX,
-		RegistryAddress: *tp.d.RegistryAddress(),
-		Address:         contractAddr,
-		ConfigBytes:     []byte{0xfe, 0xed, 0xbe, 0xef},
-	}, dc.info)
+
+	assert.Equal(t, deployTX, dc.info.DeployTX)
+	assert.Equal(t, *tp.d.RegistryAddress(), dc.info.RegistryAddress)
+	assert.Equal(t, contractAddr, dc.info.Address)
+	assert.Equal(t, pldtypes.HexBytes{0xfe, 0xed, 0xbe, 0xef}, dc.info.ConfigBytes)
+	assert.NotEqual(t, pldtypes.Timestamp(0), dc.info.Created) // Ensure Created field is populated
+
 	assert.Equal(t, contractAddr, psc.Address())
 	assert.Equal(t, "test1", psc.Domain().Name())
 	assert.Equal(t, "0xfeedbeef", psc.(*domainContract).info.ConfigBytes.String())
@@ -212,6 +218,7 @@ func TestHandleEventBatch(t *testing.T) {
 	fakeHash1 := pldtypes.RandHex(32)
 	fakeSchema := pldtypes.RandBytes32()
 	eventTx2Hash := pldtypes.RandHex(32)
+	sequencerNotified := make(chan struct{}, 1)
 
 	event1 := &pldapi.EventWithData{
 		Address: *contract1,
@@ -239,7 +246,6 @@ func TestHandleEventBatch(t *testing.T) {
 	}
 
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
-
 		mc.stateStore.On("WriteStateFinalizations", mock.Anything, mock.Anything, []*pldapi.StateSpendRecord{
 			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateSpent), Transaction: txID}, // the SpentStates StateUpdate
 		}, []*pldapi.StateReadRecord{
@@ -274,17 +280,9 @@ func TestHandleEventBatch(t *testing.T) {
 			return true
 		})).Return(nil)
 
-		matchTXNonce := pldtypes.MustParseHexUint64("1")
-		mc.sequencerManager.On("HandleTransactionConfirmed", mock.Anything, mock.Anything, mock.Anything, &matchTXNonce).Return(nil)
-
-		var queryJson *query.QueryJSON = nil
-		matchTxHash := pldtypes.MustParseBytes32(eventTx2Hash)
-		mc.publicTxManager.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, []uuid.UUID{txID}, queryJson).Return(map[uuid.UUID][]*pldapi.PublicTx{txID: {
-			{
-				TransactionHash: &matchTxHash,
-				Nonce:           &matchTXNonce,
-			},
-		}}, nil)
+		mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
+			sequencerNotified <- struct{}{}
+		}).Return(nil)
 
 		mc.txManager.On("SendTransactions", mock.Anything, mock.Anything, mock.Anything).Return([]uuid.UUID{txID}, nil)
 
@@ -378,6 +376,8 @@ func TestHandleEventBatch(t *testing.T) {
 
 	_, err = req.Wait()
 	require.NoError(t, err)
+
+	<-sequencerNotified
 }
 
 func TestHandleEventBatchFinalizeFail(t *testing.T) {
@@ -1139,4 +1139,173 @@ func TestReceiptSorting(t *testing.T) {
 		{ReceiptInput: components.ReceiptInput{OnChain: pldtypes.OnChainLocation{Type: pldtypes.OnChainEvent, BlockNumber: 1000}}},
 		{ReceiptInput: components.ReceiptInput{OnChain: pldtypes.OnChainLocation{Type: pldtypes.OnChainEvent, BlockNumber: 1100}}},
 	}, receiptList)
+}
+
+func TestHandleEventBatchPendingPrivateStateData(t *testing.T) {
+	batchID := uuid.New()
+	txID := uuid.New()
+	txIDBytes32 := pldtypes.Bytes32UUIDFirst16(txID)
+	txHash := pldtypes.RandBytes32()
+	contract1 := pldtypes.RandAddress()
+	stateConfirmedHex := pldtypes.RandHex(32)
+
+	domainConf := goodDomainConf()
+	domainConf.FullStateAvailablityRequired = true
+
+	sequencerNotified := make(chan struct{}, 1)
+	td, done := newTestDomain(t, false, domainConf, mockSchemas(), func(mc *mockComponents) {
+		mc.stateStore.On("WriteStateFinalizations", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mc.stateStore.On("WritePendingPrivateStateDataBatch", mock.Anything, mock.Anything, "test1", mock.Anything).Return(nil)
+		mc.txManager.On("FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
+			sequencerNotified <- struct{}{}
+		}).Return(nil)
+	})
+	defer done()
+
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+
+	mp.Mock.ExpectBegin()
+	mp.Mock.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(sqlmock.NewRows(
+		[]string{"address", "domain_address"},
+	).AddRow(contract1, td.d.registryAddress))
+	mp.Mock.ExpectCommit()
+
+	td.tp.Functions.HandleEventBatch = func(ctx context.Context, req *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error) {
+		return &prototk.HandleEventBatchResponse{
+			ConfirmedStates: []*prototk.StateUpdate{
+				{Id: stateConfirmedHex, TransactionId: txIDBytes32.String()},
+			},
+			TransactionsComplete: []*prototk.CompletedTransaction{
+				{
+					TransactionId: txIDBytes32.String(),
+					Location: &prototk.OnChainEventLocation{
+						BlockNumber:     100,
+						TransactionHash: txHash.String(),
+					},
+				},
+			},
+		}, nil
+	}
+	td.tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+		return &prototk.InitContractResponse{Valid: true, ContractConfig: &prototk.ContractConfig{}}, nil
+	}
+
+	err = mp.P.Transaction(context.Background(), func(ctx context.Context, dbTX persistence.DBTX) error {
+		return td.d.handleEventBatch(td.ctx, dbTX, &blockindexer.EventDeliveryBatch{
+			BatchID: batchID,
+			Events: []*pldapi.EventWithData{
+				{Address: *td.d.registryAddress, IndexedEvent: &pldapi.IndexedEvent{}, Data: pldtypes.RawJSON(`{"result": "success"}`)},
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	<-sequencerNotified
+}
+
+func TestHandleEventBatchPendingPrivateStateDataWriteError(t *testing.T) {
+	batchID := uuid.New()
+	txID := uuid.New()
+	txIDBytes32 := pldtypes.Bytes32UUIDFirst16(txID)
+	txHash := pldtypes.RandBytes32()
+	contract1 := pldtypes.RandAddress()
+	stateConfirmedHex := pldtypes.RandHex(32)
+
+	domainConf := goodDomainConf()
+	domainConf.FullStateAvailablityRequired = true
+
+	td, done := newTestDomain(t, false, domainConf, mockSchemas(), func(mc *mockComponents) {
+		mc.stateStore.On("WriteStateFinalizations", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mc.stateStore.On("WritePendingPrivateStateDataBatch", mock.Anything, mock.Anything, "test1", mock.Anything).Return(fmt.Errorf("pop"))
+	})
+	defer done()
+
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+
+	mp.Mock.ExpectBegin()
+	mp.Mock.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(sqlmock.NewRows(
+		[]string{"address", "domain_address"},
+	).AddRow(contract1, td.d.registryAddress))
+
+	td.tp.Functions.HandleEventBatch = func(ctx context.Context, req *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error) {
+		return &prototk.HandleEventBatchResponse{
+			ConfirmedStates: []*prototk.StateUpdate{
+				{Id: stateConfirmedHex, TransactionId: txIDBytes32.String()},
+			},
+			TransactionsComplete: []*prototk.CompletedTransaction{
+				{
+					TransactionId: txIDBytes32.String(),
+					Location: &prototk.OnChainEventLocation{
+						BlockNumber:     100,
+						TransactionHash: txHash.String(),
+					},
+				},
+			},
+		}, nil
+	}
+	td.tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+		return &prototk.InitContractResponse{Valid: true, ContractConfig: &prototk.ContractConfig{}}, nil
+	}
+
+	err = mp.P.Transaction(context.Background(), func(ctx context.Context, dbTX persistence.DBTX) error {
+		return td.d.handleEventBatch(td.ctx, dbTX, &blockindexer.EventDeliveryBatch{
+			BatchID: batchID,
+			Events: []*pldapi.EventWithData{
+				{Address: *td.d.registryAddress, IndexedEvent: &pldapi.IndexedEvent{}, Data: pldtypes.RawJSON(`{"result": "success"}`)},
+			},
+		})
+	})
+	assert.EqualError(t, err, "pop")
+}
+
+func TestHandleEventBatchPendingPrivateStateDataBadTransactionID(t *testing.T) {
+	batchID := uuid.New()
+	txID := uuid.New()
+	txIDBytes32 := pldtypes.Bytes32UUIDFirst16(txID)
+	contract1 := pldtypes.RandAddress()
+	stateConfirmedHex := pldtypes.RandHex(32)
+
+	domainConf := goodDomainConf()
+	domainConf.FullStateAvailablityRequired = true
+
+	td, done := newTestDomain(t, false, domainConf, mockSchemas(), func(mc *mockComponents) {
+		mc.stateStore.On("WriteStateFinalizations", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	})
+	defer done()
+
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+
+	mp.Mock.ExpectBegin()
+	mp.Mock.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(sqlmock.NewRows(
+		[]string{"address", "domain_address"},
+	).AddRow(contract1, td.d.registryAddress))
+
+	td.tp.Functions.HandleEventBatch = func(ctx context.Context, req *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error) {
+		return &prototk.HandleEventBatchResponse{
+			ConfirmedStates: []*prototk.StateUpdate{
+				{Id: stateConfirmedHex, TransactionId: txIDBytes32.String()},
+			},
+			TransactionsComplete: []*prototk.CompletedTransaction{
+				// Empty TransactionId triggers recoverTransactionID error
+				{TransactionId: ""},
+			},
+		}, nil
+	}
+	td.tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+		return &prototk.InitContractResponse{Valid: true, ContractConfig: &prototk.ContractConfig{}}, nil
+	}
+
+	err = mp.P.Transaction(context.Background(), func(ctx context.Context, dbTX persistence.DBTX) error {
+		return td.d.handleEventBatch(td.ctx, dbTX, &blockindexer.EventDeliveryBatch{
+			BatchID: batchID,
+			Events: []*pldapi.EventWithData{
+				{Address: *td.d.registryAddress, IndexedEvent: &pldapi.IndexedEvent{}, Data: pldtypes.RawJSON(`{"result": "success"}`)},
+			},
+		})
+	})
+	assert.ErrorContains(t, err, "PD020008")
 }

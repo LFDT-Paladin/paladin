@@ -39,10 +39,11 @@ import (
 type mockPlugin[T any] struct {
 	t *testing.T
 
-	conf            *pldconf.PluginConfig
-	preRegister     func(domainID string) *T
-	customResponses func(*T) []*T
-	expectClose     func(err error)
+	conf             *pldconf.PluginConfig
+	preRegister      func(pluginID string) *T
+	registerOverride func(pluginID string) *T
+	customResponses  func(*T) []*T
+	expectClose      func(err error)
 
 	headerAccessor func(*T) *prototk.Header
 	connectFactory func(ctx context.Context, client prototk.PluginControllerClient) (grpc.BidiStreamingClient[T, T], error)
@@ -79,13 +80,18 @@ func (tp *mockPlugin[T]) Run(grpcTarget, pluginId string) {
 		err = stream.Send(tp.preRegister(pluginId))
 		require.NoError(t, err)
 	}
-	regMsg := new(T)
-	header := tp.headerAccessor(regMsg)
-	header.PluginId = pluginId
-	header.MessageId = uuid.New().String()
-	header.MessageType = prototk.Header_REGISTER
+	var regMsg *T
+	if tp.registerOverride != nil {
+		regMsg = tp.registerOverride(pluginId)
+	} else {
+		regMsg = new(T)
+		header := tp.headerAccessor(regMsg)
+		header.PluginId = pluginId
+		header.MessageId = uuid.New().String()
+		header.MessageType = prototk.Header_REGISTER
+	}
 	err = stream.Send(regMsg)
-	if err != nil {
+	if err != nil && tp.expectClose == nil {
 		require.NoError(t, err)
 	}
 
@@ -523,7 +529,7 @@ func TestDomainRegisterWrongID(t *testing.T) {
 				t:              t,
 				connectFactory: domainConnectFactory,
 				headerAccessor: domainHeaderAccessor,
-				preRegister: func(domainID string) *prototk.DomainMessage {
+				registerOverride: func(domainID string) *prototk.DomainMessage {
 					return &prototk.DomainMessage{
 						Header: &prototk.Header{
 							MessageType: prototk.Header_REGISTER,

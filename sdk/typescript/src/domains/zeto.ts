@@ -208,7 +208,7 @@ export class ZetoInstance {
     return new TransactionFuture(
       this.paladin,
       this.paladin.sendTransaction({
-        type: TransactionType.Public,
+        type: TransactionType.PUBLIC,
         abi: zetoPublicAbi,
         function: "delegateLock",
         to: this.address,

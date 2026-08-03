@@ -26,6 +26,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -550,7 +551,10 @@ func TestGetEntryPropertiesQueryFail(t *testing.T) {
 }
 
 func TestRegistryWithEventStreams(t *testing.T) {
-	es := &blockindexer.EventStream{ID: uuid.New()}
+	definition := &blockindexer.EventStreamDefinition{ID: uuid.New()}
+	mockES := blockindexermocks.NewEventStream(t)
+	mockES.On("Definition").Return(definition).Maybe()
+	mockES.On("ID").Return(definition.ID).Maybe()
 
 	_, _, tp, _, done := newTestRegistry(t, false, func(mc *mockComponents, conf *pldconf.RegistryManagerInlineConfig, regConf *prototk.RegistryConfig) {
 		a := abi.ABI{
@@ -570,7 +574,7 @@ func TestRegistryWithEventStreams(t *testing.T) {
 			assert.JSONEq(t, pldtypes.JSONString(a).String(), pldtypes.JSONString(ies.Definition.Sources[0].ABI).String())
 			assert.Equal(t, addr, ies.Definition.Sources[0].Address)
 			return true
-		})).Return(es, nil)
+		})).Return(mockES, nil)
 
 		regConf.EventSources = []*prototk.RegistryEventSource{
 			{
@@ -581,7 +585,7 @@ func TestRegistryWithEventStreams(t *testing.T) {
 	})
 	defer done()
 
-	assert.Equal(t, es, tp.r.eventStream)
+	assert.Equal(t, mockES, tp.r.eventStream)
 
 }
 

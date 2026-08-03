@@ -1,0 +1,21 @@
+nodes:
+  - name: node1
+    httpEndpoint: http://127.0.0.1:31548
+    wsEndpoint: ws://127.0.0.1:31549
+  - name: node2
+    httpEndpoint: http://127.0.0.1:31648
+    wsEndpoint: ws://127.0.0.1:31649
+  - name: node3
+    httpEndpoint: http://127.0.0.1:31748
+    wsEndpoint: ws://127.0.0.1:31749
+instances:
+  - name: noto-pente-tracker-test
+    test:
+      name: noto_pente_tracker
+      workers: 4
+    maxSubmissionsPerSecond: 10
+    completionTimeout: 5m
+    maxActions: 500
+    length: 5m
+logLevel: info
+logEvents: false

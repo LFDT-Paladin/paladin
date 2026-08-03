@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -40,6 +40,7 @@ func (bi *blockIndexer) initRPC() {
 		Add("bidx_getTransactionEventsByHash", bi.rpcGetTransactionEventsByHash()).
 		Add("bidx_queryIndexedBlocks", bi.rpcQueryIndexedBlocks()).
 		Add("bidx_queryIndexedTransactions", bi.rpcQueryIndexedTransactions()).
+		Add("bidx_queryIndexedTransactionsWithReceipt", bi.rpcQueryIndexedTransactionsWithReceipt()).
 		Add("bidx_queryIndexedEvents", bi.rpcQueryIndexedEvents()).
 		Add("bidx_getConfirmedBlockHeight", bi.rpcGetConfirmedBlockHeight()).
 		Add("bidx_decodeTransactionEvents", bi.rpcDecodeTransactionEvents())
@@ -112,7 +113,16 @@ func (bi *blockIndexer) rpcQueryIndexedTransactions() rpcserver.RPCHandler {
 		jq query.QueryJSON,
 	) ([]*pldapi.IndexedTransaction, error) {
 		ctx = log.WithComponent(ctx, "blockindexer")
-		return bi.QueryIndexedTransactions(ctx, &jq)
+		return bi.QueryIndexedTransactions(ctx, &jq, false)
+	})
+}
+
+func (bi *blockIndexer) rpcQueryIndexedTransactionsWithReceipt() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod1(func(ctx context.Context,
+		jq query.QueryJSON,
+	) ([]*pldapi.IndexedTransaction, error) {
+		ctx = log.WithComponent(ctx, "blockindexer")
+		return bi.QueryIndexedTransactions(ctx, &jq, true)
 	})
 }
 

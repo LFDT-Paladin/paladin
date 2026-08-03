@@ -16,34 +16,23 @@
 package transaction
 
 import (
-	"context"
+	"time"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
 type Event interface {
 	common.Event
 	GetTransactionID() uuid.UUID
-
-	// Function ApplyToTransaction updates the internal state of the Transaction with information from the event
-	// this happens before the state machine is evaluated for transitions that may be triggered by the event
-	// so that any guards on the transition rules can take into account the new internal state of the Transaction after this event has been applied
-	ApplyToTransaction(ctx context.Context, txn *Transaction) error
 }
 
 type BaseEvent struct {
 	common.BaseEvent
 	TransactionID uuid.UUID
-}
-
-// Default implementation is a no-op
-func (e *BaseEvent) ApplyToTransaction(ctx context.Context, _ *Transaction) error {
-	return nil
 }
 
 func (e *BaseEvent) GetTransactionID() uuid.UUID {
@@ -64,7 +53,9 @@ func (*ConfirmedSuccessEvent) TypeString() string {
 
 type ConfirmedRevertedEvent struct {
 	BaseEvent
-	RevertReason pldtypes.HexBytes
+	RevertReason   pldtypes.HexBytes
+	FailureMessage string
+	WillRetry      bool
 }
 
 func (*ConfirmedRevertedEvent) Type() EventType {
@@ -88,6 +79,43 @@ func (*CreatedEvent) TypeString() string {
 	return "Event_Created"
 }
 
+type VerifiersResolvedEvent struct {
+	BaseEvent
+	ResolvedVerifiers []*prototk.ResolvedVerifier
+}
+
+func (*VerifiersResolvedEvent) Type() EventType {
+	return Event_VerifiersResolved
+}
+
+func (*VerifiersResolvedEvent) TypeString() string {
+	return "Event_VerifiersResolved"
+}
+
+type VerifierResolutionFailedEvent struct {
+	BaseEvent
+}
+
+func (*VerifierResolutionFailedEvent) Type() EventType {
+	return Event_VerifierResolutionFailed
+}
+
+func (*VerifierResolutionFailedEvent) TypeString() string {
+	return "Event_VerifierResolutionFailed"
+}
+
+type VerifierResolutionRetryEvent struct {
+	BaseEvent
+}
+
+func (*VerifierResolutionRetryEvent) Type() EventType {
+	return Event_VerifierResolutionRetry
+}
+
+func (*VerifierResolutionRetryEvent) TypeString() string {
+	return "Event_VerifierResolutionRetry"
+}
+
 type DelegatedEvent struct {
 	BaseEvent
 	Coordinator string
@@ -100,21 +128,19 @@ func (*DelegatedEvent) Type() EventType {
 func (*DelegatedEvent) TypeString() string {
 	return "Event_Delegated"
 }
-func (event *DelegatedEvent) ApplyToTransaction(ctx context.Context, txn *Transaction) error {
-	if event.Coordinator == "" {
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction delegate cannot be set to an empty node identity")
-	}
-	txn.currentDelegate = event.Coordinator
-	return nil
+
+func (e *DelegatedEvent) GetCoordinator() string {
+	return e.Coordinator
 }
 
 type AssembleRequestReceivedEvent struct {
 	BaseEvent
-	RequestID               uuid.UUID
-	Coordinator             string
-	CoordinatorsBlockHeight int64
-	StateLocksJSON          []byte
-	PreAssembly             []byte
+	RequestID              uuid.UUID
+	Coordinator            string
+	CoordinatorBlockHeight int64
+	BlockHeightTolerance   int64
+	StateSnapshot          *prototk.StateSnapshot
+	Expiry                 time.Time
 }
 
 func (*AssembleRequestReceivedEvent) Type() EventType {
@@ -124,36 +150,49 @@ func (*AssembleRequestReceivedEvent) Type() EventType {
 func (*AssembleRequestReceivedEvent) TypeString() string {
 	return "Event_AssembleRequestReceived"
 }
-func (event *AssembleRequestReceivedEvent) ApplyToTransaction(_ context.Context, txn *Transaction) error {
-	txn.currentDelegate = event.Coordinator
 
-	txn.latestAssembleRequest = &assembleRequestFromCoordinator{
-		coordinatorsBlockHeight: event.CoordinatorsBlockHeight,
-		stateLocksJSON:          event.StateLocksJSON,
-		requestID:               event.RequestID,
-		preAssembly:             event.PreAssembly,
-	}
-
-	return nil
-}
-
-type AssembleAndSignSuccessEvent struct {
+type AssembleSuccessEvent struct {
 	BaseEvent
 	PostAssembly *components.TransactionPostAssembly
 	RequestID    uuid.UUID
 }
 
-func (*AssembleAndSignSuccessEvent) Type() EventType {
-	return Event_AssembleAndSignSuccess
+func (*AssembleSuccessEvent) Type() EventType {
+	return Event_AssembleSuccess
 }
 
-func (*AssembleAndSignSuccessEvent) TypeString() string {
-	return "Event_AssembleAndSignSuccess"
+func (*AssembleSuccessEvent) TypeString() string {
+	return "Event_AssembleSuccess"
 }
-func (event *AssembleAndSignSuccessEvent) ApplyToTransaction(_ context.Context, txn *Transaction) error {
-	txn.PostAssembly = event.PostAssembly
-	txn.latestFulfilledAssembleRequestID = event.RequestID
-	return nil
+
+// SignSuccessEvent is queued by the background sign goroutine once it has signed all local SIGN
+// attestations of the assembled plan. RequestID is the assemble-request-id the signatures correspond to.
+type SignSuccessEvent struct {
+	BaseEvent
+	Results   []*prototk.AttestationResult
+	RequestID uuid.UUID
+}
+
+func (*SignSuccessEvent) Type() EventType {
+	return Event_SignSuccess
+}
+
+func (*SignSuccessEvent) TypeString() string {
+	return "Event_SignSuccess"
+}
+
+// SignErrorEvent is queued by the background sign goroutine when signing a SIGN attestation failed.
+type SignErrorEvent struct {
+	BaseEvent
+	RequestID uuid.UUID
+}
+
+func (*SignErrorEvent) Type() EventType {
+	return Event_SignError
+}
+
+func (*SignErrorEvent) TypeString() string {
+	return "Event_SignError"
 }
 
 type AssembleRevertEvent struct {
@@ -169,11 +208,6 @@ func (*AssembleRevertEvent) Type() EventType {
 func (*AssembleRevertEvent) TypeString() string {
 	return "Event_AssembleRevert"
 }
-func (event *AssembleRevertEvent) ApplyToTransaction(_ context.Context, txn *Transaction) error {
-	txn.PostAssembly = event.PostAssembly
-	txn.latestFulfilledAssembleRequestID = event.RequestID
-	return nil
-}
 
 type AssembleParkEvent struct {
 	BaseEvent
@@ -188,14 +222,10 @@ func (*AssembleParkEvent) Type() EventType {
 func (*AssembleParkEvent) TypeString() string {
 	return "Event_AssemblePark"
 }
-func (event *AssembleParkEvent) ApplyToTransaction(_ context.Context, txn *Transaction) error {
-	txn.PostAssembly = event.PostAssembly
-	txn.latestFulfilledAssembleRequestID = event.RequestID
-	return nil
-}
 
 type AssembleErrorEvent struct {
 	BaseEvent
+	RequestID uuid.UUID
 }
 
 func (*AssembleErrorEvent) Type() EventType {
@@ -221,26 +251,18 @@ func (*PreDispatchRequestReceivedEvent) TypeString() string {
 	return "Event_PreDispatchRequestReceived"
 }
 
-type CoordinatorChangedEvent struct {
-	BaseEvent
-	Coordinator string
-}
-
-func (*CoordinatorChangedEvent) Type() EventType {
-	return Event_CoordinatorChanged
-}
-
-func (*CoordinatorChangedEvent) TypeString() string {
-	return "Event_CoordinatorChanged"
-}
-func (event *CoordinatorChangedEvent) ApplyToTransaction(_ context.Context, txn *Transaction) error {
-	txn.currentDelegate = event.Coordinator
-	return nil
+// EventWithCoordinator is implemented by events that carry the coordinator node identity as their sender,
+// enabling a common validator to gate processing based on the transaction's current delegate.
+// GetCoordinator returns the node name populated from the transport layer's FromNode field which carries
+// the sender's LocalNodeName().
+type EventWithCoordinator interface {
+	GetCoordinator() string
 }
 
 type DispatchedEvent struct {
 	BaseEvent
 	SignerAddress pldtypes.EthAddress
+	Coordinator   string
 }
 
 func (*DispatchedEvent) Type() EventType {
@@ -250,15 +272,16 @@ func (*DispatchedEvent) Type() EventType {
 func (*DispatchedEvent) TypeString() string {
 	return "Event_Dispatched"
 }
-func (event *DispatchedEvent) ApplyToTransaction(_ context.Context, txn *Transaction) error {
-	txn.signerAddress = &event.SignerAddress
-	return nil
+
+func (e *DispatchedEvent) GetCoordinator() string {
+	return e.Coordinator
 }
 
 type NonceAssignedEvent struct {
 	BaseEvent
 	SignerAddress pldtypes.EthAddress // include the signer address in case we never actually saw a dispatch event
 	Nonce         uint64
+	Coordinator   string
 }
 
 func (*NonceAssignedEvent) Type() EventType {
@@ -268,10 +291,9 @@ func (*NonceAssignedEvent) Type() EventType {
 func (*NonceAssignedEvent) TypeString() string {
 	return "Event_NonceAssigned"
 }
-func (event *NonceAssignedEvent) ApplyToTransaction(_ context.Context, txn *Transaction) error {
-	txn.signerAddress = &event.SignerAddress //TODO should we throw an error if the signer address is already set to something else? Or remove these fields from this event?
-	txn.nonce = &event.Nonce
-	return nil
+
+func (e *NonceAssignedEvent) GetCoordinator() string {
+	return e.Coordinator
 }
 
 type SubmittedEvent struct {
@@ -279,6 +301,7 @@ type SubmittedEvent struct {
 	SignerAddress        pldtypes.EthAddress // include the signer address and nonce in case we never actually saw a dispatch event or nonce assigned event
 	Nonce                uint64
 	LatestSubmissionHash pldtypes.Bytes32
+	Coordinator          string
 }
 
 func (*SubmittedEvent) Type() EventType {
@@ -288,11 +311,9 @@ func (*SubmittedEvent) Type() EventType {
 func (*SubmittedEvent) TypeString() string {
 	return "Event_Submitted"
 }
-func (event *SubmittedEvent) ApplyToTransaction(_ context.Context, txn *Transaction) error {
-	txn.signerAddress = &event.SignerAddress //TODO should we throw an error if the signer address or nonce are already set to something else? Or remove these fields from this event?
-	txn.nonce = &event.Nonce
-	txn.latestSubmissionHash = &event.LatestSubmissionHash
-	return nil
+
+func (e *SubmittedEvent) GetCoordinator() string {
+	return e.Coordinator
 }
 
 type ResumedEvent struct {

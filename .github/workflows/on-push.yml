@@ -21,6 +21,9 @@ concurrency:
 jobs:
   build-project:
     uses: ./.github/workflows/build.yaml
+
+  coordination-and-component-tests:
+    uses: ./.github/workflows/core-coordination-component-tests.yaml
    
   release-image:
     # run only on pushes to main or manual triggers

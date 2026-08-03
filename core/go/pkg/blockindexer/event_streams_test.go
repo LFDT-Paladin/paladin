@@ -93,7 +93,7 @@ func TestInternalEventStreamDeliveryAtHead(t *testing.T) {
 			dbTX.AddPostCommit(func(ctx context.Context) { calledPostCommit = true })
 			return nil
 		},
-		Definition: &EventStream{
+		Definition: &EventStreamDefinition{
 			Name: "unit_test",
 			Config: EventStreamConfig{
 				BatchSize:    confutil.P(3),
@@ -148,7 +148,7 @@ func TestInternalEventStreamDeliveryAtHeadWithSourceAddress(t *testing.T) {
 
 	eventCollector := make(chan *pldapi.EventWithData)
 
-	definition := &EventStream{
+	definition := &EventStreamDefinition{
 		Name: "unit_test",
 		Config: EventStreamConfig{
 			BatchSize:    confutil.P(3),
@@ -261,7 +261,7 @@ func TestInternalEventStreamDeliveryCatchUp(t *testing.T) {
 	}
 
 	// Add a listener
-	internalESConfig := &EventStream{
+	internalESConfig := &EventStreamDefinition{
 		Name: "unit_test",
 		Config: EventStreamConfig{
 			BatchSize:    confutil.P(3),
@@ -369,7 +369,7 @@ func TestNoMatchingEvents(t *testing.T) {
 			require.Fail(t, "should not be called")
 			return nil
 		},
-		Definition: &EventStream{
+		Definition: &EventStreamDefinition{
 			Name: "unit_test",
 			Config: EventStreamConfig{
 				BatchSize:    confutil.P(1),
@@ -456,7 +456,7 @@ func TestAddEventStreamBadFromBlockConfiguration(t *testing.T) {
 	defer done()
 
 	_, err := bi.AddEventStream(ctx, mp.P.NOTX(), &InternalEventStream{
-		Definition: &EventStream{
+		Definition: &EventStreamDefinition{
 			Name: "testing",
 			Config: EventStreamConfig{
 				FromBlock: json.RawMessage(`"one"`),
@@ -473,7 +473,7 @@ func TestUpsertInternalEventQueryExistingStreamFail(t *testing.T) {
 	p.Mock.ExpectQuery("SELECT.*event_streams").WillReturnError(fmt.Errorf("pop"))
 
 	err := bi.Start(&InternalEventStream{
-		Definition: &EventStream{
+		Definition: &EventStreamDefinition{
 			Name: "testing",
 		},
 	})
@@ -489,7 +489,7 @@ func TestUpsertInternalEventStreamMismatchExistingSourceABI(t *testing.T) {
 	).AddRow(uuid.New().String(), testEventSourcesJSON))
 
 	err := bi.Start(&InternalEventStream{
-		Definition: &EventStream{
+		Definition: &EventStreamDefinition{
 			Name:    "testing",
 			Sources: []EventStreamSource{{}},
 		},
@@ -512,7 +512,7 @@ func TestUpsertInternalEventStreamMismatchExistingSourceAddress(t *testing.T) {
 	assert.NoError(t, err)
 
 	err = bi.Start(&InternalEventStream{
-		Definition: &EventStream{
+		Definition: &EventStreamDefinition{
 			Name: "testing",
 			Sources: []EventStreamSource{{
 				ABI:     a,
@@ -538,7 +538,7 @@ func TestUpsertInternalEventStreamMismatchExistingSourceLength(t *testing.T) {
 	assert.NoError(t, err)
 
 	err = bi.Start(&InternalEventStream{
-		Definition: &EventStream{
+		Definition: &EventStreamDefinition{
 			Name:    "testing",
 			Sources: []EventStreamSource{},
 		},
@@ -558,7 +558,7 @@ func TestUpsertInternalEventStreamUpdateFail(t *testing.T) {
 	p.Mock.ExpectExec("UPDATE.*config").WillReturnError(fmt.Errorf("pop"))
 
 	err := bi.Start(&InternalEventStream{
-		Definition: &EventStream{
+		Definition: &EventStreamDefinition{
 			Name: "testing",
 			Sources: []EventStreamSource{{
 				ABI: testParseABI(testEventABIJSON),
@@ -583,7 +583,7 @@ func TestUpsertInternalEventStreamCreateFail(t *testing.T) {
 	p.Mock.ExpectExec("INSERT.*config").WillReturnError(fmt.Errorf("pop"))
 
 	err := bi.Start(&InternalEventStream{
-		Definition: &EventStream{
+		Definition: &EventStreamDefinition{
 			Name: "testing",
 			Sources: []EventStreamSource{{
 				ABI: testParseABI(testEventABIJSON),
@@ -600,7 +600,7 @@ func TestRemoveEventStream(t *testing.T) {
 	defer done()
 	esID := uuid.New()
 	eventStream := &eventStream{
-		definition: &EventStream{
+		definition: &EventStreamDefinition{
 			ID: esID,
 		},
 	}
@@ -682,7 +682,7 @@ func TestStartStopEventStream(t *testing.T) {
 	p.Mock.ExpectExec("UPDATE.*event_streams").WillReturnResult(sqlmock.NewResult(1, 1))
 
 	eventStream := &eventStream{
-		definition: &EventStream{
+		definition: &EventStreamDefinition{
 			ID: esID,
 		},
 		handlerDBTX: func(ctx context.Context, dbTX persistence.DBTX, batch *EventDeliveryBatch) error {
@@ -698,6 +698,11 @@ func TestStartStopEventStream(t *testing.T) {
 	err = bi.StartEventStream(ctx, esID)
 	require.ErrorContains(t, err, "pop")
 
+	// Declare expected DB queries that the detector/dispatcher may run.
+	// These must be in place before StartEventStream, as startup is async.
+	p.Mock.ExpectQuery("SELECT.*event_stream_checkpoints").WillReturnRows(sqlmock.NewRows([]string{}))
+	p.Mock.ExpectQuery("SELECT.*indexed_blocks").WillReturnRows(sqlmock.NewRows([]string{}))
+
 	// second StartEventStream succeeds
 	err = bi.StartEventStream(ctx, esID)
 	require.NoError(t, err)
@@ -706,10 +711,8 @@ func TestStartStopEventStream(t *testing.T) {
 	assert.NotNil(t, eventStream.dispatcherDone)
 	assert.NotNil(t, eventStream.detectorStarted)
 	assert.NotNil(t, eventStream.dispatcherStarted)
-
-	// Declare expected DB queries that the detector/dispatcher may run
-	p.Mock.ExpectQuery("SELECT.*event_stream_checkpoints").WillReturnRows(sqlmock.NewRows([]string{}))
-	p.Mock.ExpectQuery("SELECT.*indexed_blocks").WillReturnRows(sqlmock.NewRows([]string{}))
+	require.NotNil(t, eventStream.definition.Started)
+	assert.True(t, *eventStream.definition.Started)
 
 	// Wait for goroutines to start
 	<-eventStream.detectorStarted
@@ -723,6 +726,9 @@ func TestStartStopEventStream(t *testing.T) {
 		err = bi.StopEventStream(ctx, esID)
 		assert.ErrorContains(c, err, "pop")
 	}, testTimeout(t), 1*time.Millisecond)
+	// Failed DB update must not flip in-memory started status
+	require.NotNil(t, eventStream.definition.Started)
+	assert.True(t, *eventStream.definition.Started)
 
 	// final StopEventStream
 	err = bi.StopEventStream(ctx, esID)
@@ -730,6 +736,8 @@ func TestStartStopEventStream(t *testing.T) {
 
 	assert.Nil(t, eventStream.detectorDone)
 	assert.Nil(t, eventStream.dispatcherDone)
+	require.NotNil(t, eventStream.definition.Started)
+	assert.False(t, *eventStream.definition.Started)
 }
 
 func TestGetEventStreamStatus(t *testing.T) {
@@ -742,7 +750,7 @@ func TestGetEventStreamStatus(t *testing.T) {
 	require.ErrorContains(t, err, "PD011312")
 
 	eventStream := &eventStream{
-		definition: &EventStream{
+		definition: &EventStreamDefinition{
 			ID: esID,
 		},
 		handlerDBTX: func(ctx context.Context, dbTX persistence.DBTX, batch *EventDeliveryBatch) error {
@@ -771,7 +779,7 @@ func TestProcessCheckpointFail(t *testing.T) {
 	es := &eventStream{
 		bi:              bi,
 		ctx:             ctx,
-		definition:      &EventStream{ID: uuid.New()},
+		definition:      &EventStreamDefinition{ID: uuid.New()},
 		detectorStarted: make(chan struct{}),
 		detectorDone:    make(chan struct{}),
 		fromBlock:       confutil.P(ethtypes.HexUint64(0)),
@@ -792,7 +800,7 @@ func TestGetHighestIndexedBlockFail(t *testing.T) {
 	es := &eventStream{
 		bi:              bi,
 		ctx:             ctx,
-		definition:      &EventStream{ID: uuid.New()},
+		definition:      &EventStreamDefinition{ID: uuid.New()},
 		detectorStarted: make(chan struct{}),
 		detectorDone:    make(chan struct{}),
 		fromBlock:       confutil.P(ethtypes.HexUint64(0)),
@@ -830,14 +838,14 @@ func testReturnToCatchupAfterStart(t *testing.T, headBlock int64) {
 	es := &eventStream{
 		bi:  bi,
 		ctx: cancellableCtx,
-		definition: &EventStream{
+		definition: &EventStreamDefinition{
 			ID: uuid.New(),
 			Sources: []EventStreamSource{{
 				ABI: testABI,
 			}},
 		},
 		blocks:          make(chan *eventStreamBlock),
-		dispatch:        make(chan *eventDispatch),
+		dispatch:        make(chan *detectorMsg, 10),
 		detectorStarted: make(chan struct{}),
 		detectorDone:    make(chan struct{}),
 		serializer:      pldtypes.JSONFormatOptions("").GetABISerializerIgnoreErrors(ctx),
@@ -871,8 +879,11 @@ func testReturnToCatchupAfterStart(t *testing.T, headBlock int64) {
 			},
 		},
 	}
-	d := <-es.dispatch
-	assert.Equal(t, int64(10), d.event.BlockNumber)
+	var d *detectorMsg
+	for d == nil || d.event == nil {
+		d = <-es.dispatch
+	}
+	assert.Equal(t, int64(10), d.event.event.BlockNumber)
 
 	cancelCtx()
 	<-es.detectorDone
@@ -893,7 +904,7 @@ func TestExitInCatchupPhase(t *testing.T) {
 	es := &eventStream{
 		bi:  bi,
 		ctx: ctx,
-		definition: &EventStream{
+		definition: &EventStreamDefinition{
 			ID: uuid.New(),
 			Sources: []EventStreamSource{{
 				ABI: testABI,
@@ -922,14 +933,14 @@ func TestStartFromLatest(t *testing.T) {
 	es := &eventStream{
 		bi:  bi,
 		ctx: cancellableCtx,
-		definition: &EventStream{
+		definition: &EventStreamDefinition{
 			ID: uuid.New(),
 			Sources: []EventStreamSource{{
 				ABI: testABI,
 			}},
 		},
 		blocks:          make(chan *eventStreamBlock),
-		dispatch:        make(chan *eventDispatch),
+		dispatch:        make(chan *detectorMsg),
 		detectorStarted: make(chan struct{}),
 		detectorDone:    make(chan struct{}),
 		serializer:      pldtypes.JSONFormatOptions("").GetABISerializerIgnoreErrors(ctx),
@@ -954,7 +965,7 @@ func TestStartFromLatest(t *testing.T) {
 			},
 		}}
 	d := <-es.dispatch
-	assert.Equal(t, int64(5), d.event.BlockNumber)
+	assert.Equal(t, int64(5), d.event.event.BlockNumber)
 
 	cancelCtx()
 	<-es.detectorDone
@@ -972,14 +983,14 @@ func TestExitStartFromLatest(t *testing.T) {
 	es := &eventStream{
 		bi:  bi,
 		ctx: cancellableCtx,
-		definition: &EventStream{
+		definition: &EventStreamDefinition{
 			ID: uuid.New(),
 			Sources: []EventStreamSource{{
 				ABI: testABI,
 			}},
 		},
 		blocks:          make(chan *eventStreamBlock),
-		dispatch:        make(chan *eventDispatch),
+		dispatch:        make(chan *detectorMsg),
 		detectorStarted: make(chan struct{}),
 		detectorDone:    make(chan struct{}),
 		serializer:      pldtypes.JSONFormatOptions("").GetABISerializerIgnoreErrors(ctx),
@@ -1003,11 +1014,67 @@ func TestSendToDispatcherClosedNoBlock(t *testing.T) {
 	es := &eventStream{
 		bi:       bi,
 		ctx:      ctx,
-		dispatch: make(chan *eventDispatch),
+		dispatch: make(chan *detectorMsg),
 	}
 	es.sendToDispatcher(&pldapi.EventWithData{
 		IndexedEvent: &pldapi.IndexedEvent{},
 	}, false)
+}
+
+func TestProcessNotifiedBlockNoMatch(t *testing.T) {
+	ctx, bi, _, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	es := &eventStream{
+		bi:  bi,
+		ctx: ctx,
+		definition: &EventStreamDefinition{
+			Sources: []EventStreamSource{{
+				ABI: abi.ABI{testABI[0]}, // EventA (no params)
+			}},
+		},
+		dispatch:   make(chan *detectorMsg, 5),
+		serializer: pldtypes.JSONFormatOptions("").GetABISerializerIgnoreErrors(ctx),
+	}
+
+	// Empty block (no logs at all) → blockConfirmed sent, nothing else
+	es.processNotifiedBlock(&eventStreamBlock{
+		block: &BlockInfoJSONRPC{Number: 1},
+	}, true)
+	require.Len(t, es.dispatch, 1)
+	msg := <-es.dispatch
+	assert.NotNil(t, msg.confirmed)
+	assert.Nil(t, msg.event)
+	assert.Equal(t, int64(1), msg.confirmed.blockNumber)
+
+	// Block with a log that doesn't match the ABI (wrong topic) → blockConfirmed
+	es.processNotifiedBlock(&eventStreamBlock{
+		block: &BlockInfoJSONRPC{Number: 2},
+		events: []*LogJSONRPC{{
+			BlockNumber:     2,
+			TransactionHash: ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32)),
+			Topics:          []ethtypes.HexBytes0xPrefix{topicB}, // EventB, not in our sources
+		}},
+	}, true)
+	require.Len(t, es.dispatch, 1)
+	msg = <-es.dispatch
+	assert.NotNil(t, msg.confirmed)
+	assert.Nil(t, msg.event)
+	assert.Equal(t, int64(2), msg.confirmed.blockNumber)
+
+	// Block with a matching log → eventDispatch sent, no blockConfirmed
+	es.processNotifiedBlock(&eventStreamBlock{
+		block: &BlockInfoJSONRPC{Number: 3},
+		events: []*LogJSONRPC{{
+			BlockNumber:     3,
+			TransactionHash: ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32)),
+			Topics:          []ethtypes.HexBytes0xPrefix{topicA}, // EventA matches
+		}},
+	}, true)
+	require.Len(t, es.dispatch, 1)
+	msg = <-es.dispatch
+	assert.Nil(t, msg.confirmed)
+	assert.NotNil(t, msg.event)
 }
 
 func TestDispatcherDispatchClosed(t *testing.T) {
@@ -1023,7 +1090,7 @@ func TestDispatcherDispatchClosed(t *testing.T) {
 	es := &eventStream{
 		bi:  bi,
 		ctx: ctx,
-		definition: &EventStream{
+		definition: &EventStreamDefinition{
 			ID:   uuid.New(),
 			Type: EventStreamTypeInternal.Enum(),
 			Sources: []EventStreamSource{{
@@ -1032,7 +1099,7 @@ func TestDispatcherDispatchClosed(t *testing.T) {
 		},
 		batchSize:         2,                    // aim for two
 		batchTimeout:      1 * time.Microsecond, // but not going to wait
-		dispatch:          make(chan *eventDispatch),
+		dispatch:          make(chan *detectorMsg),
 		dispatcherDone:    make(chan struct{}),
 		dispatcherStarted: make(chan struct{}),
 		handlerDBTX: func(ctx context.Context, dbTX persistence.DBTX, batch *EventDeliveryBatch) error {
@@ -1046,15 +1113,58 @@ func TestDispatcherDispatchClosed(t *testing.T) {
 
 	<-es.dispatcherStarted
 
-	es.dispatch <- &eventDispatch{
+	es.dispatch <- &detectorMsg{event: &eventDispatch{
 		event: &pldapi.EventWithData{
 			IndexedEvent: &pldapi.IndexedEvent{},
 		},
-	}
+	}}
 
 	<-es.dispatcherDone
 
 	assert.True(t, called)
+}
+
+func TestDispatcherBlockConfirmedCheckpoint(t *testing.T) {
+	ctx, bi, _, p, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	cancellableCtx, cancelCtx := context.WithCancel(ctx)
+
+	esID := uuid.New()
+	es := &eventStream{
+		bi:  bi,
+		ctx: cancellableCtx,
+		definition: &EventStreamDefinition{
+			ID:   esID,
+			Type: EventStreamTypeInternal.Enum(),
+		},
+		batchSize:         10,
+		batchTimeout:      1 * time.Second,
+		dispatch:          make(chan *detectorMsg, 5),
+		dispatcherDone:    make(chan struct{}),
+		dispatcherStarted: make(chan struct{}),
+	}
+
+	// Expect one DB write for block 5; block 3 is below the checkpoint so it should be skipped.
+	p.Mock.ExpectExec("INSERT.*event_stream_checkpoints").WillReturnResult(sqlmock.NewResult(1, 1))
+
+	go func() {
+		assert.NotPanics(t, func() { es.dispatcher() })
+	}()
+	<-es.dispatcherStarted
+
+	// Advance checkpoint to block 5 — expect a DB write.
+	es.dispatch <- &detectorMsg{confirmed: &blockConfirmed{blockNumber: 5}}
+
+	// Wait until the checkpoint has been stored in memory before sending the stale one.
+	require.Eventually(t, func() bool { return es.checkpoint.Load() == 5 }, testTimeout(t), time.Millisecond)
+	assert.Equal(t, int64(5), es.checkpoint.Load())
+
+	cancelCtx()
+	<-es.dispatcherDone
+
+	assert.Equal(t, int64(5), es.checkpoint.Load())
+	require.NoError(t, p.Mock.ExpectationsWereMet())
 }
 
 func TestProcessCatchupEventPageFailRPC(t *testing.T) {
@@ -1078,7 +1188,7 @@ func TestProcessCatchupEventPageFailRPC(t *testing.T) {
 	es := &eventStream{
 		bi:  bi,
 		ctx: ctx,
-		definition: &EventStream{
+		definition: &EventStreamDefinition{
 			ID: uuid.New(),
 			Sources: []EventStreamSource{{
 				ABI: testABI,
@@ -1156,8 +1266,8 @@ func TestProcessCatchupEventMultiPageRealDB(t *testing.T) {
 		bi:            bi,
 		ctx:           ctx,
 		signatureList: []pldtypes.Bytes32{eventSig},
-		dispatch:      make(chan *eventDispatch, len(allEvents)),
-		definition: &EventStream{
+		dispatch:      make(chan *detectorMsg, len(allEvents)),
+		definition: &EventStreamDefinition{
 			ID: uuid.New(),
 			Sources: []EventStreamSource{{
 				ABI: testABI,
@@ -1178,9 +1288,9 @@ func TestProcessCatchupEventMultiPageRealDB(t *testing.T) {
 
 	for i := 0; i < len(allEvents); i++ {
 		d := <-es.dispatch
-		require.Equal(t, allEvents[i].BlockNumber, d.event.BlockNumber)
-		require.Equal(t, allEvents[i].TransactionIndex, d.event.TransactionIndex)
-		require.Equal(t, allEvents[i].LogIndex, d.event.LogIndex)
+		require.Equal(t, allEvents[i].BlockNumber, d.event.event.BlockNumber)
+		require.Equal(t, allEvents[i].TransactionIndex, d.event.event.TransactionIndex)
+		require.Equal(t, allEvents[i].LogIndex, d.event.event.LogIndex)
 	}
 }
 
@@ -1257,7 +1367,7 @@ func TestNOTXHandler(t *testing.T) {
 
 	definition, err := bi.AddEventStream(ctx, bi.persistence.NOTX(), &InternalEventStream{
 		Type: IESTypeEventStreamNOTX,
-		Definition: &EventStream{
+		Definition: &EventStreamDefinition{
 			ID:   uuid.New(),
 			Name: "es",
 			Sources: []EventStreamSource{{
@@ -1275,7 +1385,7 @@ func TestNOTXHandler(t *testing.T) {
 
 	require.NoError(t, err)
 
-	es := bi.eventStreams[definition.ID]
+	es := bi.eventStreams[definition.Definition().ID]
 	es.ctx = ctx
 
 	err = es.runBatch(&eventBatch{})
@@ -1288,4 +1398,76 @@ func testTimeout(t *testing.T) time.Duration {
 		return time.Until(deadline) - time.Second // Subtract a small buffer to ensure test cleanup
 	}
 	return 30 * time.Second // Default timeout if no deadline is set
+}
+
+func TestEventStreamGetters(t *testing.T) {
+	id := uuid.New()
+	es := &eventStream{
+		definition: &EventStreamDefinition{ID: id},
+	}
+	es.checkpoint.Store(25)
+
+	assert.Equal(t, id, es.ID())
+	assert.Equal(t, int64(25), es.CheckpointBlock())
+}
+
+func TestDispatcherNilEventSkipped(t *testing.T) {
+	ctx, bi, _, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	cancellableCtx, cancelCtx := context.WithCancel(ctx)
+	defer cancelCtx()
+
+	es := &eventStream{
+		bi:  bi,
+		ctx: cancellableCtx,
+		definition: &EventStreamDefinition{
+			ID:   uuid.New(),
+			Type: EventStreamTypeInternal.Enum(),
+		},
+		batchSize:         10,
+		batchTimeout:      1 * time.Second,
+		dispatch:          make(chan *detectorMsg, 2),
+		dispatcherDone:    make(chan struct{}),
+		dispatcherStarted: make(chan struct{}),
+	}
+
+	go func() { es.dispatcher() }()
+	<-es.dispatcherStarted
+
+	// A message with neither confirmed nor event set should be silently skipped.
+	es.dispatch <- &detectorMsg{}
+
+	cancelCtx()
+	<-es.dispatcherDone
+}
+
+func TestDispatcherCheckpointUpdateError(t *testing.T) {
+	ctx, bi, _, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	cancellableCtx, cancelCtx := context.WithCancel(ctx)
+	defer cancelCtx()
+
+	es := &eventStream{
+		bi:  bi,
+		ctx: cancellableCtx,
+		definition: &EventStreamDefinition{
+			ID:   uuid.New(),
+			Type: EventStreamTypeInternal.Enum(),
+		},
+		batchSize:         10,
+		batchTimeout:      1 * time.Second,
+		dispatch:          make(chan *detectorMsg, 1),
+		dispatcherDone:    make(chan struct{}),
+		dispatcherStarted: make(chan struct{}),
+	}
+	// checkpoint starts at 0; send a confirmed advance to block 5
+	// The sqlmock has no remaining expectations, so the INSERT INTO event_stream_checkpoints
+	// will fail with an unexpected-query error, exercising the error return path.
+	go func() { es.dispatcher() }()
+	<-es.dispatcherStarted
+
+	es.dispatch <- &detectorMsg{confirmed: &blockConfirmed{blockNumber: 5}}
+	<-es.dispatcherDone
 }

@@ -183,6 +183,7 @@ func TestStartOK(t *testing.T) {
 	mockPluginManager.On("Start").Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_SIGNING_MODULE).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_DOMAIN).Return(nil)
+	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_TRANSPORT).Return(nil)
 	mockPluginManager.On("Stop").Return()
 
 	mockKeyManager := componentsmocks.NewKeyManager(t)
@@ -312,6 +313,7 @@ func TestCompleteStart_MultipleAuthorizers(t *testing.T) {
 	mockPluginManager.On("Start").Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_SIGNING_MODULE).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_DOMAIN).Return(nil)
+	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_TRANSPORT).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_RPC_AUTH).Return(nil)
 	mockPluginManager.On("Stop").Return()
 
@@ -484,6 +486,7 @@ func TestCompleteStart_SingleAuthorizer(t *testing.T) {
 	mockPluginManager.On("Start").Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_SIGNING_MODULE).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_DOMAIN).Return(nil)
+	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_TRANSPORT).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_RPC_AUTH).Return(nil)
 	mockPluginManager.On("Stop").Return()
 
@@ -572,6 +575,7 @@ func TestCompleteStart_AuthorizerNotFound(t *testing.T) {
 	mockPluginManager.On("Start").Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_SIGNING_MODULE).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_DOMAIN).Return(nil)
+	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_TRANSPORT).Return(nil)
 	mockPluginManager.On("Stop").Return().Maybe()
 
 	mockBlockIndexer := blockindexermocks.NewBlockIndexer(t)
@@ -689,6 +693,7 @@ func TestCompleteStart_AuthorizerMissingFromArray(t *testing.T) {
 	mockPluginManager.On("Start").Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_SIGNING_MODULE).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_DOMAIN).Return(nil)
+	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_TRANSPORT).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_RPC_AUTH).Return(nil)
 	mockPluginManager.On("Stop").Return().Maybe()
 
@@ -818,6 +823,7 @@ func TestCompleteStart_AuthorizersArrayEmptyButConfigured(t *testing.T) {
 	mockPluginManager.On("Start").Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_SIGNING_MODULE).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_DOMAIN).Return(nil)
+	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_TRANSPORT).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_RPC_AUTH).Return(nil)
 	mockPluginManager.On("Stop").Return().Maybe()
 
@@ -955,6 +961,7 @@ func TestCompleteStart_MetricsServerNil(t *testing.T) {
 	mockPluginManager.On("Start").Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_SIGNING_MODULE).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_DOMAIN).Return(nil)
+	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_TRANSPORT).Return(nil)
 	mockPluginManager.On("Stop").Return()
 
 	mockBlockIndexer := blockindexermocks.NewBlockIndexer(t)
@@ -1057,6 +1064,7 @@ func TestCompleteStart_MetricsServerStartSuccess(t *testing.T) {
 	mockPluginManager.On("Start").Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_SIGNING_MODULE).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_DOMAIN).Return(nil)
+	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_TRANSPORT).Return(nil)
 	mockPluginManager.On("Stop").Return()
 
 	mockBlockIndexer := blockindexermocks.NewBlockIndexer(t)
@@ -1166,6 +1174,7 @@ func TestCompleteStart_MetricsServerStartError(t *testing.T) {
 	mockPluginManager.On("Start").Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_SIGNING_MODULE).Return(nil)
 	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_DOMAIN).Return(nil)
+	mockPluginManager.On("WaitForInit", mock.Anything, prototk.PluginInfo_TRANSPORT).Return(nil)
 	mockPluginManager.On("Stop").Return()
 
 	mockBlockIndexer := blockindexermocks.NewBlockIndexer(t)

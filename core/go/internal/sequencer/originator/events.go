@@ -18,49 +18,11 @@ package originator
 import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 )
 
 type Event interface {
 	common.Event
-}
-
-type HeartbeatIntervalEvent struct {
-	common.BaseEvent
-}
-
-func (*HeartbeatIntervalEvent) Type() EventType {
-	return Event_HeartbeatInterval
-}
-
-func (*HeartbeatIntervalEvent) TypeString() string {
-	return "Event_HeartbeatInterval"
-}
-
-type HeartbeatReceivedEvent struct {
-	common.BaseEvent
-	transport.CoordinatorHeartbeatNotification
-}
-
-func (*HeartbeatReceivedEvent) Type() EventType {
-	return Event_HeartbeatReceived
-}
-
-func (*HeartbeatReceivedEvent) TypeString() string {
-	return "Event_HeartbeatReceived"
-}
-
-type DelegateTimeoutEvent struct {
-	common.BaseEvent
-}
-
-func (*DelegateTimeoutEvent) Type() EventType {
-	return Event_Delegate_Timeout
-}
-
-func (*DelegateTimeoutEvent) TypeString() string {
-	return "Event_Delegate_Timeout"
 }
 
 type TransactionCreatedEvent struct {
@@ -76,18 +38,44 @@ func (*TransactionCreatedEvent) TypeString() string {
 	return "Event_TransactionCreated"
 }
 
-type TransactionConfirmedEvent struct {
+type OriginatorCreatedEvent struct {
 	common.BaseEvent
-	From         *pldtypes.EthAddress
-	Nonce        uint64
-	Hash         pldtypes.Bytes32
-	RevertReason pldtypes.HexBytes
 }
 
-func (*TransactionConfirmedEvent) Type() EventType {
-	return Event_TransactionConfirmed
+func (*OriginatorCreatedEvent) Type() EventType {
+	return Event_OriginatorCreated
 }
 
-func (*TransactionConfirmedEvent) TypeString() string {
-	return "Event_TransactionConfirmed"
+func (*OriginatorCreatedEvent) TypeString() string {
+	return "Event_OriginatorCreated"
+}
+
+type DelegationRequestRejectedEvent struct {
+	common.BaseEvent
+	RejectionReason        engineProto.RejectionReason
+	ActiveCoordinator      string
+	OriginatorBlockHeight  int64
+	CoordinatorBlockHeight int64
+	BlockHeightTolerance   int64
+}
+
+func (*DelegationRequestRejectedEvent) Type() EventType {
+	return Event_DelegationRequestRejected
+}
+
+func (*DelegationRequestRejectedEvent) TypeString() string {
+	return "Event_DelegationRequestRejected"
+}
+
+type DelegateSendBatchEvent struct {
+	common.BaseEvent
+	Full bool
+}
+
+func (*DelegateSendBatchEvent) Type() EventType {
+	return Event_DelegateSendBatch
+}
+
+func (*DelegateSendBatchEvent) TypeString() string {
+	return "Event_DelegateSendBatch"
 }

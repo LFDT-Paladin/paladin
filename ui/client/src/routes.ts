@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -14,11 +14,49 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { generatePath } from 'react-router-dom';
+
 export const AppRoutes = {
-  Activity: '/ui/activity',
-  Submissions: '/ui/submissions',
-  Peers: '/ui/peers',
   Keys: '/ui/keys',
-  Registry: '/ui/registry',
+  Submissions: '/ui/submissions',
+  Registries: '/ui/registries',
   Domains: '/ui/domains',
+  Transactions: '/ui/transactions',
+  Transaction: '/ui/transactions/:hashOrId',
+  DomainContract: '/ui/domains/:address',
+  PrivacyGroups: '/ui/privacy-groups/groups',
+  PrivacyGroup: '/ui/privacy-groups/groups/:idOrAddress',
+  PrivacyGroupMessages: '/ui/privacy-groups/messages',
+  States: '/ui/states',
+  ReliableMessage: '/ui/transports/messages/:id',
+  State: '/ui/states/:domain/:schema/:id',
+  RegistryEntry: '/ui/registries/:registry/:id',
+  PrivacyGroupMessageEntry: '/ui/privacy-groups/messages/:messageId',
+  TransportConnections: '/ui/transports/connections',
+  TransportMessages: '/ui/transports/messages',
+  EventListeners: '/ui/listeners/events',
+  EventListenerEntry: '/ui/listeners/events/:id',
+  ReceiptListeners: '/ui/listeners/receipts',
+  ReceiptListenerEntry: '/ui/listeners/receipts/:id',
+  PrivacyGroupListeners: '/ui/listeners/privacy-groups',
+  PrivacyGroupListenerEntry: '/ui/listeners/privacy-groups/:name',
+} as const;
+
+export type AppRouteName = keyof typeof AppRoutes;
+
+export const AppRouteFactory = {
+  getPath(
+    route: AppRouteName,
+    params: Record<string, string | number> = {},
+    query?: Record<string, string>
+  ): string {
+    // Params are route-specific; the dynamic route key prevents generatePath from narrowing them.
+    const path = generatePath(AppRoutes[route], params as never);
+    if (query === undefined) {
+      return path;
+    }
+    const searchParams = new URLSearchParams(query);
+    const qs = searchParams.toString();
+    return qs ? `${path}?${qs}` : path;
+  },
 };

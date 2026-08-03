@@ -38,7 +38,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func TestFungibleZetoDomainTestSuite(t *testing.T) {
+func TestZetoFungibleSuite(t *testing.T) {
 	contractsFile = "./zeto/config-for-deploy-fungible.yaml"
 	suite.Run(t, new(fungibleTestSuiteHelper))
 }
@@ -48,40 +48,42 @@ type fungibleTestSuiteHelper struct {
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_Anon() {
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON, false, false)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonBatch() {
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON, true, false)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonEnc() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_ENC, false, false)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonEncBatch() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_ENC, true, false)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifier() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER, false, true)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierBatch() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER, true, true)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierKyc() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, false, true, true)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierKycBatch() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, true, true, true)
 }
 
@@ -280,13 +282,13 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	// log.L(ctx).Infof("Withdraw transaction committed in TX %s", withdrawReceipt.txID.String())
 	// require.Equal(t, 2, len(withdrawReceipt.States.Inputs))
 
+	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
+	assert.Equal(t, "5", balanceOfResult["totalBalance"].(string), "Balance of controller should be 5")
+
 	if tokenName != constants.TOKEN_ANON {
 		// for now the lock and transferLocked only works properly for the ANON token
 		return
 	}
-
-	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
-	assert.Equal(t, "5", balanceOfResult["totalBalance"].(string), "Balance of controller should be 5")
 
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Lock some UTXOs and delegate the lock to recipient1")

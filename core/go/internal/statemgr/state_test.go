@@ -17,6 +17,7 @@
 package statemgr
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
@@ -289,12 +291,12 @@ func TestFindNullifiersInContext(t *testing.T) {
 	td.On("Name").Return("domain1")
 	td.On("CustomHashFunction").Return(false)
 
-	dCtx := ss.NewDomainContext(ctx, td, *pldtypes.RandAddress())
-	defer dCtx.Close()
+	dqc := ss.NewDomainQueryContext(ctx, td, *pldtypes.RandAddress())
+	defer dqc.Close(ctx)
 
 	contractAddress := pldtypes.RandAddress()
 	results, err := ss.FindContractNullifiers(ctx, ss.p.NOTX(), "domain1", *contractAddress, schemaID,
-		query.NewQueryBuilder().Limit(1).Query(), pldapi.StateStatusQualifier(dCtx.Info().ID.String()))
+		query.NewQueryBuilder().Limit(1).Query(), pldapi.StateStatusQualifier(dqc.ID().String()))
 	require.NoError(t, err)
 	require.Empty(t, results)
 
@@ -349,5 +351,134 @@ func TestFindStatesWithNilOptions(t *testing.T) {
 
 	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", pldtypes.RandBytes32(), query.NewQueryBuilder().Query(), nil)
 	assert.Regexp(t, "called", err)
+
+}
+
+func TestWritePreVerifiedStates_ClearsCompletionRows(t *testing.T) {
+	// Writing states should delete any outstanding completion rows for those state IDs.
+	ctx, ss, m, done := newDBTestStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+
+	_ = mockDomain(t, m, "domain1", false)
+	m.txManager.On("NotifyStatesDBChanged", mock.Anything).Return()
+
+	contractAddr := pldtypes.RandAddress()
+
+	// We need the real state IDs to pre-insert completion rows, so write the states first.
+	var states []*pldapi.State
+	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		states, err = ss.WritePreVerifiedStates(ctx, dbTX, "domain1", []*components.StateUpsertOutsideContext{
+			{
+				SchemaID:        schema.ID(),
+				Data:            pldtypes.RawJSON(fmt.Sprintf(`{"amount":10,"owner":"0x615dD09124271D8008225054d85Ffe720E7a447A","salt":"%s"}`, pldtypes.RandHex(32))),
+				ContractAddress: contractAddr,
+			},
+			{
+				SchemaID:        schema.ID(),
+				Data:            pldtypes.RawJSON(fmt.Sprintf(`{"amount":20,"owner":"0x615dD09124271D8008225054d85Ffe720E7a447A","salt":"%s"}`, pldtypes.RandHex(32))),
+				ContractAddress: contractAddr,
+			},
+		})
+		return err
+	})
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+
+	// Seed pending rows for both state IDs.
+	for _, s := range states {
+		err = ss.p.DB().Create(&pendingPrivateStateData{
+			StateID:     s.ID.String(),
+			Contract:    contractAddr.String(),
+			BlockNumber: 1,
+		}).Error
+		require.NoError(t, err)
+	}
+
+	// Now write the states again (idempotent upsert) — this must clear the pending rows.
+	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err = ss.WritePreVerifiedStates(ctx, dbTX, "domain1", []*components.StateUpsertOutsideContext{
+			{ID: states[0].ID, SchemaID: schema.ID(), Data: states[0].Data, ContractAddress: contractAddr},
+			{ID: states[1].ID, SchemaID: schema.ID(), Data: states[1].Data, ContractAddress: contractAddr},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	var remaining []pendingPrivateStateData
+	err = ss.p.DB().Find(&remaining).Error
+	require.NoError(t, err)
+	assert.Empty(t, remaining)
+}
+
+func TestValidateStates(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schemas, err := ss.EnsureABISchemas(ctx, ss.p.NOTX(), "domain1", []*abi.Parameter{testABIParam(t, fakeCoinABI)})
+	require.NoError(t, err)
+	require.Len(t, schemas, 1)
+	schemaID := schemas[0].ID()
+	fakeHash1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	fakeHash2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	contractAddress := *pldtypes.RandAddress()
+
+	state1 := &prototk.EndorsableState{
+		Id:            fakeHash1.String(),
+		SchemaId:      schemaID.String(),
+		StateDataJson: fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32)),
+	}
+	states, err := ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, true,
+		state1,
+		&prototk.EndorsableState{
+			Id:            fakeHash2.String(),
+			SchemaId:      schemaID.String(),
+			StateDataJson: fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32)),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+	assert.NotEmpty(t, states[0].Id)
+	assert.Equal(t, fakeHash2.String(), states[1].Id)
+
+	// Empty call is a no-op
+	states, err = ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, true)
+	require.NoError(t, err)
+	require.Empty(t, states)
+
+}
+
+func TestValidateStatesBadSchema(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	contractAddress := *pldtypes.RandAddress()
+	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, false, &prototk.EndorsableState{
+		SchemaId:      pldtypes.RandBytes32().String(),
+		StateDataJson: `{}`,
+	})
+	assert.Regexp(t, "PD010106", err) // unknown schema
+
+}
+
+func TestValidateStatesBadStateID(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	contractAddress := *pldtypes.RandAddress()
+	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, false, &prototk.EndorsableState{
+		Id:            "not-valid-hex",
+		SchemaId:      pldtypes.RandBytes32().String(),
+		StateDataJson: `{}`,
+	})
+	require.Error(t, err)
 
 }

@@ -1,0 +1,136 @@
+{
+  "indexed-transactions": {
+    "hash": "hex",
+    "blockNumber": "int",
+    "transactionIndex": "int",
+    "from": "hex",
+    "to": "hex",
+    "nonce": "int",
+    "result": "string"
+  },
+  "transaction-receipts": {
+    "id": "string",
+    "blockNumber": "int",
+    "transactionHash": "hex",
+    "success": "bool",
+    "domain": "string"
+  },
+  "indexed-events": {
+    "blockNumber": "int",
+    "transactionIndex": "int",
+    "logIndex": "int",
+    "transactionHash": "hex",
+    "signature": "hex"
+  },
+  "paladin-transactions": {
+    "id": "string",
+    "created": "timestamp",
+    "success": "bool",
+    "domain": "string",
+    "from": "hex",
+    "to": "hex",
+    "type": "string",
+    "function": "string",
+    "abiReference": "hex"
+  },
+  "keys": {
+    "path": "string",
+    "name": "string",
+    "index": "int",
+    "parent": "string",
+    "wallet": "string",
+    "keyHandle": "string",
+    "isKey": "bool",
+    "hasChildren": "bool"
+  },
+  "registries": {
+    "name": "string"
+  },
+  "registry-entries": {
+    "registry": "string",
+    "id": "hex",
+    ".id": "hex",
+    "name": "string",
+    ".name": "string",
+    "active": "bool",
+    "$owner": "hex"
+  },
+  "domains": {
+    "name": "string",
+    "registryAddress": "hex"
+  },
+  "smart-contracts": {
+    "address": "hex",
+    "domainAddress": "hex",
+    "domainName": "string",
+    "created": "timestamp"
+  },
+  "privacy-groups": {
+    "id": "hex",
+    "contractAddress": "hex",
+    "name": "string",
+    "domain": "string",
+    "created": "timestamp"
+  },
+  "privacy-group-messages": {
+    "id": "string",
+    "group": "hex",
+    "sent": "timestamp",
+    "received": "timestamp",
+    "node": "string",
+    "domain": "string",
+    "topic": "string",
+    "localSequence": "int"
+  },
+  "privacy-group-listeners": {
+    "name": "string",
+    "created": "timestamp",
+    "started": "bool"
+  },
+  "states": {
+    "id": "hex",
+    ".id": "hex",
+    "created": "timestamp",
+    ".created": "timestamp",
+    "domain": "string",
+    "schema": "hex",
+    "contractAddress": "hex",
+    "owner": "hex",
+    "amount": "int",
+    "locked": "bool",
+    "address": "hex",
+    "balance": "int"
+  },
+  "schemas": {
+    "id": "hex",
+    "domain": "string",
+    "type": "string",
+    "created": "timestamp"
+  },
+  "transport-peers": {
+    "name": "string",
+    "activated": "timestamp",
+    "stats.sentMsgs": "int",
+    "stats.receivedMsgs": "int",
+    "stats.lastSend": "timestamp",
+    "stats.lastReceive": "timestamp"
+  },
+  "transport-messages": {
+    "id": "string",
+    "sequence": "int",
+    "created": "timestamp",
+    "node": "string",
+    "messageType": "string",
+    "ack.time": "timestamp"
+  },
+  "event-listeners": {
+    "name": "string",
+    "created": "timestamp",
+    "started": "bool"
+  },
+  "receipt-listeners": {
+    "name": "string",
+    "created": "timestamp",
+    "started": "bool"
+  }
+}

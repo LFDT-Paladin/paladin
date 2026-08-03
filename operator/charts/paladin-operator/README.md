@@ -48,3 +48,37 @@ The chart uses an automated build process to generate smart contract-related CRs
 
 3. **Build Integration**: The Makefile targets like `prepare-crd-chart` and `helm-install-dependencies` orchestrate this generation process.
 
+## Persistent Paladin Logs
+
+You can enable persistent file logging to retain logs across container restarts.
+
+### Devnet values
+
+```yaml
+paladin:
+  logPersistence:
+    enabled: true
+    path: /app/logs/paladin.log
+    pvcTemplate:
+      resources:
+        requests:
+          storage: 5Gi
+```
+
+### Customnet values
+
+```yaml
+paladinNodes:
+  - name: bank
+    # ... other node fields ...
+    logPersistence:
+      enabled: true
+      path: /app/logs/paladin.log
+      pvcTemplate:
+        resources:
+          requests:
+            storage: 5Gi
+```
+
+Optional rotation overrides can be set under `logPersistence.file` (`maxSize`, `maxBackups`, `maxAge`, `compress`). If omitted, Paladin logging defaults are used.
+

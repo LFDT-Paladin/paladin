@@ -76,7 +76,7 @@ func (oc *outboundConn) close(ctx context.Context) {
 	oc.sendLock.Lock()
 	defer oc.sendLock.Unlock()
 
-	log.L(ctx).Errorf("cleaning up connection to %s", oc.nodeName)
+	log.L(ctx).Debugf("cleaning up connection to %s", oc.nodeName)
 
 	if oc.stream != nil {
 		_ = oc.stream.CloseSend()

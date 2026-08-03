@@ -15,6 +15,7 @@
 package domains
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -55,13 +56,13 @@ var simpleTokenBuild []byte // comes from Hardhat build
 // The simple domain can be used to test reverts but only once, then they need discarding for the next revert test
 var revertedOnce = make(map[string]bool)
 
-const (
-	SimpleDomainInsufficientFundsError = "SDE0001"
-)
+// Tracks the first chained TX ID per origin TX for chained retry testing (amounts 1008).
+// When the first chained TX fails and the original TX retries with a new chained TX, the
+// new chained TX (different ID) will succeed.
+var chainedTxFirstByOrigin = make(map[string]string)
 
 const (
-	ONE_TIME_USE_KEYS   = "ONE_TIME_USE_KEYS"
-	ENDORSER_SUBMISSION = "ENDORSER_SUBMISSION"
+	SimpleDomainInsufficientFundsError = "SDE0001"
 )
 
 const (
@@ -250,6 +251,10 @@ const simpleTokenSelfEndorsementConstructorABI = `{
     {
       "name": "hookAddress",
       "type": "string"
+    },
+    {
+      "name": "amountVisible",
+      "type": "bool"
     }
   ],
   "outputs": null
@@ -277,6 +282,10 @@ const simpleTokenNotaryEndorsementConstructorABI = `{
       {
         "name": "hookAddress",
         "type": "string"
+      },
+      {
+        "name": "amountVisible",
+        "type": "bool"
       }
 	],
 	"outputs": null
@@ -304,6 +313,14 @@ const simpleTokenPrivacyGroupEndorsementConstructorABI = `{
       {
         "name": "hookAddress",
         "type": "string"
+      },
+      {
+        "name": "amountVisible",
+        "type": "bool"
+      },
+      {
+        "name": "endorsementThreshold",
+        "type": "uint32"
       }
 	],
 	"outputs": null
@@ -326,13 +343,15 @@ func SimpleTokenConstructorABI(endorsementMode string) *abi.ABI {
 // Go struct used in test (test + domain) to work with JSON structure passed into the paladin transaction for the constructor
 // This is a union of the 3 ABI above
 type ConstructorParameters struct {
-	Notary          string   `json:"notary"`         // empty string if  endorsementMode is PrivacyGroupEndorsement
-	EndorsementSet  []string `json:"endorsementSet"` // empty array if endorsementMode is not PrivacyGroupEndorsement
-	From            string   `json:"from"`           // empty string if endorsementMode is not SelfEndorsement
-	Name            string   `json:"name"`
-	Symbol          string   `json:"symbol"`
-	EndorsementMode string   `json:"endorsementMode"`
-	HookAddress     string   `json:"hookAddress"`
+	Notary               string             `json:"notary"`         // empty string if  endorsementMode is PrivacyGroupEndorsement
+	EndorsementSet       []string           `json:"endorsementSet"` // empty array if endorsementMode is not PrivacyGroupEndorsement
+	From                 string             `json:"from"`           // empty string if endorsementMode is not SelfEndorsement
+	Name                 string             `json:"name"`
+	Symbol               string             `json:"symbol"`
+	EndorsementMode      string             `json:"endorsementMode"`
+	HookAddress          string             `json:"hookAddress"`
+	AmountVisible        bool               `json:"amountVisible"`
+	EndorsementThreshold pldtypes.HexUint64 `json:"endorsementThreshold"` // 0 means all parties must endorse (default); ABI serializer emits integers as decimal strings
 }
 
 // Go struct used in test (test + domain) to work with JSON structure for `params` on the base ledger factory function
@@ -343,6 +362,8 @@ type FactoryParameters struct {
 	NotaryLocator          string   `json:"notaryLocator"`
 	EndorsementSetLocators []string `json:"endorsementSetLocators"`
 	HookAddress            string   `json:"hookAddress"`
+	AmountVisible          bool     `json:"amountVisible"`
+	EndorsementThreshold   int      `json:"endorsementThreshold"` // 0 means all parties must endorse (default)
 }
 
 // JSON structure passed into the paladin transaction for the transfer
@@ -360,8 +381,11 @@ type simpleTokenParser struct {
 	Amount *ethtypes.HexInteger  `json:"amount"`
 }
 
-type SimpleDomainConfig struct {
-	SubmitMode string `json:"submitMode"`
+type SimpleDomainConfig struct{}
+
+type SimpleDomainPairConfig struct {
+	Domain1RegistryAddress string
+	Domain2RegistryAddress string
 }
 
 // ABI for the config field in the PaladinRegisterSmartContract_V0 event
@@ -371,16 +395,20 @@ var contractDataABI = &abi.ParameterArray{
 	{Name: "notaryLocator", Type: "string"},
 	{Name: "endorsementSetLocators", Type: "string[]"},
 	{Name: "hookAddress", Type: "string"},
+	{Name: "amountVisible", Type: "bool"},
+	{Name: "endorsementThreshold", Type: "uint32"},
 }
 
 // golang struct to parse and serialize the data received from the block indexer when the base ledger factor contract
 // emits a PaladinRegisterSmartContract_V0 event
 // this must match the ABI above
 type simpleTokenConfigParser struct {
-	EndorsementMode string   `json:"endorsementMode"`
-	NotaryLocator   string   `json:"notaryLocator"`
-	EndorsementSet  []string `json:"endorsementSetLocators"`
-	HookAddress     string   `json:"hookAddress"`
+	EndorsementMode      string             `json:"endorsementMode"`
+	NotaryLocator        string             `json:"notaryLocator"`
+	EndorsementSet       []string           `json:"endorsementSetLocators"`
+	HookAddress          string             `json:"hookAddress"`
+	AmountVisible        bool               `json:"amountVisible"`
+	EndorsementThreshold pldtypes.HexUint64 `json:"endorsementThreshold"` // ABI serializer emits integers as decimal strings; HexUint64 handles both "0" and "0x0"
 }
 
 func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
@@ -573,7 +601,6 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 		return &plugintk.DomainAPIBase{Functions: &plugintk.DomainAPIFunctions{
 
 			ConfigureDomain: func(ctx context.Context, req *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
-				assert.Equal(t, "domain1", req.Name)
 				domainConfig := &SimpleDomainConfig{}
 				err := json.Unmarshal([]byte(req.ConfigJson), domainConfig)
 				require.NoError(t, err)
@@ -696,6 +723,8 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					EndorsementMode:        constructorParameters.EndorsementMode,
 					NotaryLocator:          constructorParameters.Notary,
 					HookAddress:            constructorParameters.HookAddress,
+					AmountVisible:          constructorParameters.AmountVisible,
+					EndorsementThreshold:   int(constructorParameters.EndorsementThreshold),
 				}
 				return &prototk.PrepareDeployResponse{
 					Signer: confutil.P(fmt.Sprintf("domain1.transactions.%s", req.Transaction.TransactionId)),
@@ -734,6 +763,7 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					//This combination is less common on a token based domain but may use it in some tests
 					contractConfig.CoordinatorSelection = prototk.ContractConfig_COORDINATOR_ENDORSER
 					contractConfig.SubmitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
+					contractConfig.CoordinatorEndorserCandidates = constructorParameters.EndorsementSet
 				default:
 					return nil, fmt.Errorf("unknown endorsement mode %s", constructorParameters.EndorsementMode)
 				}
@@ -808,8 +838,12 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 
 				// Basic special case for revert testing:
 				// If the amount is set to 1001 we will revert in the domain at assembly time
+				// Other error modes we handle in other functions are:
 				// If the amount is set to 1002 we will use a fixed, known salt and revert the domain at endorsement time (see EndorseTransaction)
-				// If the amount is set to 1003 we will use a fixed, known salt and the baseledger contract will check for the known input UTXO and revert
+				// If the amount is set to 1003 we will trigger a retryable base ledger error on the first attempt, then succeed on retry
+				// If the amount is set to 1004 we will trigger a retryable base ledger error every time (will exceed retry threshold)
+				// If the amount is set to 1005 we will trigger a non-retryable base ledger error (fails immediately)
+				// If the amount is set to 1006 we will return an error (not a revert - to ensure the sequencer copes gracefully with it)
 				if config.HookAddress == "" {
 					if amount.Cmp(big.NewInt(1001)) == 0 {
 						revertMessage := "simple domain revert - special transfer amount 1001 intentionally rejected"
@@ -818,10 +852,8 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 							RevertReason:   &revertMessage,
 						}, nil
 					}
-					if amount.Cmp(big.NewInt(1003)) == 0 && !revertedOnce[req.Transaction.TransactionId] {
-						// Don't revert, but set the UTXO to a special value that will cause revert on the base ledger
-						salt = pldtypes.MustParseHexBytes("0x1212121212121212121212121212121212121212121212121212121212121212")
-						revertedOnce[req.Transaction.TransactionId] = true
+					if amount.Cmp(big.NewInt(1006)) == 0 {
+						return nil, fmt.Errorf("simple domain assembly error")
 					}
 				}
 				toKeep := new(big.Int)
@@ -973,15 +1005,22 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 									req.Transaction.From,
 								},
 							},
-							{
-								Name:            "privacyGroup",
-								AttestationType: prototk.AttestationType_ENDORSE,
-								// we expect an endorsement is of the form ENDORSER_SUBMIT - so we need an eth signing key to exist
-								Algorithm:    algorithms.ECDSA_SECP256K1,
-								VerifierType: verifiers.ETH_ADDRESS,
-								PayloadType:  signpayloads.OPAQUE_TO_RSV,
-								Parties:      config.EndorsementSet,
-							},
+							func() *prototk.AttestationRequest {
+								ar := &prototk.AttestationRequest{
+									Name:            "privacyGroup",
+									AttestationType: prototk.AttestationType_ENDORSE,
+									// we expect an endorsement is of the form ENDORSER_SUBMIT - so we need an eth signing key to exist
+									Algorithm:    algorithms.ECDSA_SECP256K1,
+									VerifierType: verifiers.ETH_ADDRESS,
+									PayloadType:  signpayloads.OPAQUE_TO_RSV,
+									Parties:      config.EndorsementSet,
+								}
+								if config.EndorsementThreshold > 0 {
+									threshold := int32(config.EndorsementThreshold)
+									ar.Threshold = &threshold
+								}
+								return ar
+							}(),
 						},
 					}, nil
 				default:
@@ -1038,7 +1077,7 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 						break
 					}
 				}
-				assert.NotNil(t, signerVerification)
+				require.NotNil(t, signerVerification, "expected 'sender' SIGN attestation in endorsement request signatures")
 				sig, err := secp256k1.DecodeCompactRSV(context.Background(), signerVerification.Payload)
 				require.NoError(t, err)
 				signerAddr, err := sig.RecoverDirect(signaturePayload, chainID)
@@ -1112,7 +1151,6 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 				// Either prepare a public call to `executeNotarized` on the chain or a private chained call to `transfer` on another contract
 				// The simple domain doesn't actually honour the original transaction but it succeeds and should allow the original transaction
 				// to return a receipt
-
 				if config.HookAddress == "" {
 					smartContractFunction := "executeNotarized"
 					args := map[string]interface{}{
@@ -1120,6 +1158,15 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 						"inputs":    spentStateIds,
 						"outputs":   newStateIds,
 						"signature": signerSignature,
+						"errorMode": big.NewInt(0),
+					}
+
+					if config.AmountVisible {
+						smartContractFunction = "executeNotarizedAmountExposed"
+						var fakeTransferParser fakeTransferParser
+						err := json.Unmarshal([]byte(req.Transaction.FunctionParamsJson), &fakeTransferParser)
+						require.NoError(t, err)
+						args["amount"] = fakeTransferParser.Amount.BigInt()
 					}
 
 					// We have a very basic hook capability whereby if transfer() is called with an origin TX ID (i.e.
@@ -1130,6 +1177,35 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					if params.OriginTxId != "" {
 						smartContractFunction = "executeNotarizedHook"
 						args["originTxId"] = params.OriginTxId
+					}
+
+					amount := params.Amount.BigInt()
+					// 1003: retryable error on first attempt, then succeed
+					// 1004: retryable error every time (will exceed retry threshold)
+					// 1005: non-retryable error (fails immediately)
+					// 1008: chained TX retryable revert - first chained TX always fails, second succeeds
+					// 1009: chained TX non-retryable revert - always fails
+					// 1010: chained TX retryable revert every time (will exceed original TX retry threshold)
+					if amount.Cmp(big.NewInt(1003)) == 0 {
+						if !revertedOnce[req.Transaction.TransactionId] {
+							revertedOnce[req.Transaction.TransactionId] = true
+							args["errorMode"] = big.NewInt(1) // retryable
+						}
+					} else if amount.Cmp(big.NewInt(1004)) == 0 {
+						args["errorMode"] = big.NewInt(1) // retryable
+					} else if amount.Cmp(big.NewInt(1005)) == 0 {
+						args["errorMode"] = big.NewInt(2) // non-retryable
+					} else if amount.Cmp(big.NewInt(1008)) == 0 && params.OriginTxId != "" {
+						if chainedTxFirstByOrigin[params.OriginTxId] == "" {
+							chainedTxFirstByOrigin[params.OriginTxId] = req.Transaction.TransactionId
+						}
+						if chainedTxFirstByOrigin[params.OriginTxId] == req.Transaction.TransactionId {
+							args["errorMode"] = big.NewInt(1) // retryable
+						}
+					} else if amount.Cmp(big.NewInt(1009)) == 0 && params.OriginTxId != "" {
+						args["errorMode"] = big.NewInt(2) // non-retryable
+					} else if amount.Cmp(big.NewInt(1010)) == 0 && params.OriginTxId != "" {
+						args["errorMode"] = big.NewInt(1) // retryable - every chained TX always fails
 					}
 
 					transactionType := prototk.PreparedTransaction_PUBLIC
@@ -1182,6 +1258,46 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					}
 				}
 				return &res, nil
+			},
+			BuildReceipt: func(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error) {
+				receiptJSON, err := json.Marshal(map[string]interface{}{
+					"transactionId":     req.TransactionId,
+					"unavailableStates": req.UnavailableStates,
+					"inputs":            req.InputStates,
+					"reads":             req.ReadStates,
+					"outputs":           req.OutputStates,
+					"info":              req.InfoStates,
+				})
+				if err != nil {
+					return nil, err
+				}
+				return &prototk.BuildReceiptResponse{
+					ReceiptJson: string(receiptJSON),
+				}, nil
+			},
+			IsBaseLedgerRevertRetryable: func(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+				if len(req.RevertData) < 4 {
+					return &prototk.IsBaseLedgerRevertRetryableResponse{Retryable: false}, nil
+				}
+				params := fmt.Sprintf("%x", req.RevertData[4:])
+				// SimpleTokenRetryableError(bytes32) selector = 0x88b57ed9
+				if bytes.Equal(req.RevertData[:4], []byte{0x88, 0xb5, 0x7e, 0xd9}) {
+					return &prototk.IsBaseLedgerRevertRetryableResponse{
+						Retryable:     true,
+						DecodedReason: fmt.Sprintf("SimpleTokenRetryableError(%s)", params),
+					}, nil
+				}
+				// SimpleTokenNonRetryableError(bytes32) selector = 0x246682a2
+				if bytes.Equal(req.RevertData[:4], []byte{0x24, 0x66, 0x82, 0xa2}) {
+					return &prototk.IsBaseLedgerRevertRetryableResponse{
+						Retryable:     false,
+						DecodedReason: fmt.Sprintf("SimpleTokenNonRetryableError(%s)", params),
+					}, nil
+				}
+				return &prototk.IsBaseLedgerRevertRetryableResponse{
+					Retryable:     false,
+					DecodedReason: fmt.Sprintf("0x%x", req.RevertData),
+				}, nil
 			},
 		}}
 	})

@@ -31,9 +31,10 @@ import (
 )
 
 type handlerResult struct {
-	sendRes bool
-	isOK    bool
-	res     any
+	sendRes    bool
+	httpStatus int // 0 or 200 = return 200 OK. Use 401/403 for auth failures and 500 only for genuine internal errors
+	res        any
+	postSend   func()
 }
 
 func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketConnection) handlerResult {
@@ -54,8 +55,8 @@ func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketC
 			log.L(ctx).Errorf("Bad RPC array received %s", b)
 			return s.replyRPCParseError(ctx, b, err)
 		}
-		batchRes, isOK := s.handleRPCBatch(ctx, rpcArray, wsc)
-		return handlerResult{isOK: isOK, sendRes: true, res: batchRes}
+		batchRes, postSend := s.handleRPCBatch(ctx, rpcArray, wsc)
+		return handlerResult{sendRes: true, res: batchRes, postSend: postSend}
 	}
 
 	var rpcRequest rpcclient.RPCRequest
@@ -65,7 +66,7 @@ func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketC
 	}
 	startTime := time.Now()
 	log.L(ctx).Debugf("RPC-server[%s] --> %s", rpcRequest.ID, rpcRequest.Method)
-	res, isOK := s.processRPC(ctx, &rpcRequest, wsc)
+	res, httpStatus, postSend := s.processRPC(ctx, &rpcRequest, wsc)
 	durationMS := float64(time.Since(startTime)) / float64(time.Millisecond)
 	if res != nil && res.Error != nil {
 		log.L(ctx).Errorf("RPC-server[%s] <-- %s [%.2fms]: %s", rpcRequest.ID.StringValue(), rpcRequest.Method, durationMS, res.Error.Message)
@@ -75,14 +76,13 @@ func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketC
 	if log.IsTraceEnabled() {
 		log.L(ctx).Tracef("RPC-server[%s] <-- %s", rpcRequest.ID.StringValue(), pldtypes.JSONString(res))
 	}
-	return handlerResult{isOK: isOK, sendRes: res != nil, res: res}
+	return handlerResult{httpStatus: httpStatus, sendRes: res != nil, res: res, postSend: postSend}
 
 }
 
 func (s *rpcServer) replyRPCParseError(ctx context.Context, b []byte, err error) handlerResult {
 	log.L(ctx).Errorf("Request could not be parsed (err=%v): %s", err, b)
 	return handlerResult{
-		isOK:    false,
 		sendRes: true,
 		res: rpcclient.NewRPCErrorResponse(
 			i18n.NewError(ctx, pldmsgs.MsgJSONRPCInvalidRequest),
@@ -105,19 +105,19 @@ func (s *rpcServer) sniffFirstByte(data []byte) byte {
 	return 0x00
 }
 
-func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RPCRequest, wsc *webSocketConnection) ([]*rpcclient.RPCResponse, bool) {
+func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RPCRequest, wsc *webSocketConnection) ([]*rpcclient.RPCResponse, func()) {
 
 	// Kick off a routine to fill in each
 	rpcResponses := make([]*rpcclient.RPCResponse, len(rpcArray))
-	results := make(chan bool)
+	postSends := make([]func(), len(rpcArray))
+	done := make(chan struct{})
 	for i, r := range rpcArray {
 		responseNumber := i
 		rpcRequest := r
 		go func() {
-			var ok bool
 			startTime := time.Now()
 			log.L(ctx).Debugf("RPC-server[%v] (b=%d) --> %s", rpcRequest.ID.StringValue(), i, rpcRequest.Method)
-			res, ok := s.processRPC(ctx, rpcRequest, wsc)
+			res, _, postSend := s.processRPC(ctx, rpcRequest, wsc)
 			durationMS := float64(time.Since(startTime)) / float64(time.Millisecond)
 			if res != nil && res.Error != nil {
 				log.L(ctx).Errorf("RPC-server[%s] (b=%d) <-- %s [%.2fms]: %s", rpcRequest.ID.StringValue(), i, rpcRequest.Method, durationMS, res.Error.Message)
@@ -128,16 +128,19 @@ func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RP
 				log.L(ctx).Tracef("RPC-server[%s] (b=%d) <-- %s", rpcRequest.ID.StringValue(), i, pldtypes.JSONString(res))
 			}
 			rpcResponses[responseNumber] = res
-			results <- ok
+			postSends[responseNumber] = postSend
+			done <- struct{}{}
 		}()
 	}
-	failCount := 0
 	for range rpcResponses {
-		ok := <-results
-		if !ok {
-			failCount++
+		<-done
+	}
+	// Batches always use HTTP 200 regardless of individual response success/failure
+	return rpcResponses, func() {
+		for _, postSend := range postSends {
+			if postSend != nil {
+				postSend()
+			}
 		}
 	}
-	// Only return a failure response code if all the requests in the batch failed
-	return rpcResponses, failCount != len(rpcArray)
 }

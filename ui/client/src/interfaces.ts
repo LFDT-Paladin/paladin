@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -20,11 +20,43 @@ export interface IBlock {
   timestamp: string;
 }
 
+export interface ITransactionPagingReference {
+  hash: string;
+  blockNumber: number;
+  transactionIndex: number;
+}
+
+export interface IPaladinTransactionPagingReference {
+  id: string;
+  created: string;
+}
+
+export interface IStatePagingReference {
+  sortValue: any;
+  id: string;
+}
+
+export interface IPrivacyGroupPagingReference {
+  sortValue: any;
+  id: string;
+}
+
+export interface ISortPagingReference {
+  sortValue: any;
+  tiebreaker: string;
+}
+
+export interface IPagedResult<T> {
+  items: T[];
+  hasMore: boolean;
+}
+
 export interface ITransaction {
   hash: string;
   blockNumber: number;
   transactionIndex: number;
   from: string;
+  to?: string;
   nonce: number;
   contractAddress?: string;
   result: string;
@@ -32,8 +64,8 @@ export interface ITransaction {
 }
 
 export interface IEnrichedTransaction extends ITransaction {
+  events: IEvent[];
   receipts: ITransactionReceipt[];
-  paladinTransactions: IPaladinTransaction[];
 }
 
 export interface IEvent {
@@ -59,7 +91,7 @@ export interface IPaladinTransaction {
   id: string;
   created: string;
   type: string;
-  domain: string;
+  domain?: string;
   function: string;
   to?: string;
   from: string;
@@ -72,10 +104,11 @@ export interface IPaladinTransaction {
 
 export interface ITransactionReceipt {
   blockNumber: number;
-  domain: string;
+  domain?: string;
   id: string;
   success: boolean;
   transactionHash: string;
+  failureMessage?: string;
 }
 
 export interface IStateReceipt {
@@ -131,14 +164,14 @@ export type ABIUploadResponse = string;
 export interface ITransportPeer {
   name: string;
   stats: {
+    createdAt: string;
     sentMsgs: number;
     receivedMsgs: number;
     sentBytes: number;
     receivedBytes: number;
     lastSend: string;
-    lastReceive: string;
+    lastReceive: string | null;
     reliableHighestSent: number;
-    reliableAckBase: number;
   };
   activated: string;
   outboundTransport: string;
@@ -178,16 +211,19 @@ export interface IKeyMappingAndVerifier {
 export interface IFilterField {
   label: string;
   name: string;
-  type: 'string' | 'number' | 'boolean';
-  isUUID?: boolean;
-  isHexValue?: boolean;
-  emun?: string[];
+  type: 'string' | 'number' | 'boolean' | 'enum' | 'timestamp';
+  enum?: string[];
+  isHexValue?: boolean
+  isUUID?: boolean
+  isSeconds?: boolean
+  isNanoSeconds?: boolean
+  isCustom?: boolean
 }
 
 export interface IFilter {
   field: IFilterField;
   operator: string;
-  value: string;
+  value: string | boolean | number;
   caseSensitive?: boolean;
 }
 
@@ -208,4 +244,260 @@ export interface ITransactionInput {
   abiReference?: string;
   abi?: any;
   bytecode?: string;
+}
+
+export interface INotoContractConfig {
+  name: string
+  symbol: string
+  isNotary: boolean
+}
+
+export interface IZetoContractConfig {
+  tokenName: string
+}
+
+export type ContractConfig = INotoContractConfig | IZetoContractConfig;
+
+export interface IDomainContract {
+  domainName: string
+  domainAddress: string
+  address: string
+  config: {
+    contractConfig: ContractConfig
+  }
+  created: string
+}
+
+export interface IPrivacyGroup {
+  id: string
+  domain: string
+  created: string
+  name: string,
+  members: string[]
+  properties: any
+  configuration: {
+    endorsementType: string
+    evmVersion: string
+    externalCallsEnabled: boolean
+  },
+  genesisSalt: string
+  genesisSchema: string
+  genesisTransaction: string
+  contractAddress: string
+}
+
+export interface ISchemaComponent {
+  name: string
+  type: string
+  indexed: boolean
+}
+
+export interface ISchema {
+  id: string
+  domain: string
+  type: string
+  signature: string
+  definition: {
+    name: string
+    type: string
+    internalType: string
+    components: ISchemaComponent[]
+  }
+  labels: string[]
+}
+
+export interface IState {
+  id: string
+  created: string
+  domain: string
+  schema: string
+  contractAddress: string | null
+  data: any
+}
+
+export interface IMessage {
+  sequence: string
+  id: string
+  created: string
+  node: string
+  messageType: string
+  metadata: any
+  ack?: {
+    time: string
+  }
+}
+
+export type RegistryEntryFilter = 'active' | 'inactive' | 'any';
+
+export interface IDomain {
+  name: string
+  registryAddress: string
+  config: any
+}
+
+export interface IPrivacyGroupMessage {
+  id: string
+  localSequence: number
+  sent: string
+  received?: string
+  node: string
+  domain: string
+  group: string
+  topic: string
+  data: any
+}
+
+export interface IPrivacyGroupMessageListenerFilters {
+  sequenceAbove?: number
+  domain?: string
+  group?: string
+  topic?: string
+}
+
+export interface IPrivacyGroupMessageListenerOptions {
+  excludeLocal?: boolean
+}
+
+export interface IPrivacyGroupListener {
+  name: string
+  created: string
+  started: boolean
+  filters?: IPrivacyGroupMessageListenerFilters
+  options?: IPrivacyGroupMessageListenerOptions
+}
+
+export interface IEventListenerOptions {
+  batchSize?: number
+  batchTimeout?: string
+  fromBlock?: string | number
+}
+
+export interface IEventListenerSource {
+  abi: IABIEntry[]
+  address?: string
+}
+
+export interface IEventListener {
+  name: string
+  created: string
+  started?: boolean | null
+  sources: IEventListenerSource[]
+  options?: IEventListenerOptions
+}
+
+export interface IReceiptListenerFilters {
+  sequenceAbove?: number
+  type?: TransactionType
+  domain?: string
+}
+
+export interface IReceiptListenerOptions {
+  domainReceipts?: boolean
+  incompleteStateReceiptBehavior?: 'block_contract' | 'process' | 'complete_only'
+}
+
+export interface IReceiptListener {
+  name: string
+  created: string
+  started?: boolean | null
+  filters?: IReceiptListenerFilters
+  options?: IReceiptListenerOptions
+}
+
+export interface IPagedQueryParams<TPageRef = ISortPagingReference> {
+  limit: number;
+  filters: IFilter[];
+  sortBy: string;
+  sortAscending: boolean;
+  pageRef?: TPageRef;
+}
+
+export interface IGetPrivacyGroupMessagesParams {
+  limit: number;
+  filters: IFilter[];
+  sortAscending: boolean;
+  pageRef?: ISortPagingReference;
+  privacyGroupId?: string;
+}
+
+export interface IQueryStatesParams extends IPagedQueryParams<IStatePagingReference> {
+  domain: string;
+  schemaId: string;
+}
+
+export interface IQuerySmartContractsByDomainParams {
+  domainAddress: string;
+  sortAscending: boolean;
+  limit: number;
+  filters: IFilter[];
+  pageRef?: ISortPagingReference;
+}
+
+export interface IFetchTransportPeersParams {
+  limit: number;
+  sortAscending: boolean;
+  filters: IFilter[];
+  refData?: string;
+}
+
+export interface IFetchKeysParams {
+  parent: string | undefined;
+  limit: number;
+  sortByPathFirst: boolean;
+  sortOrder: 'asc' | 'desc';
+  filters: IFilter[];
+  refEntry?: IKeyEntry;
+}
+
+export interface IFetchRegistryEntriesParams {
+  registryName: string;
+  filters: IFilter[];
+  tab: RegistryEntryFilter;
+  limit: number;
+  pageParam?: string;
+  sortAscending?: boolean;
+  excludeRoot?: boolean;
+}
+
+export interface IFetchIndexedTransactionsParams {
+  limit: number;
+  withReceipt: boolean;
+  filters: IFilter[];
+  pageParam?: ITransactionPagingReference;
+}
+
+export interface IFetchSubmissionsParams {
+  type: 'pending' | 'failed' | 'successful';
+  limit: number;
+  filters: IFilter[];
+  sortAscending?: boolean;
+  pageParam?: IPaladinTransactionPagingReference;
+}
+
+export interface ICreateEventListenerParams {
+  name: string;
+  started: boolean;
+  sources: IEventListenerSource[];
+  options: IEventListenerOptions;
+}
+
+export interface ICreateReceiptListenerParams {
+  name: string;
+  started: boolean;
+  filters: IReceiptListenerFilters;
+  options: IReceiptListenerOptions;
+}
+
+export interface ICreatePrivacyGroupListenerParams {
+  name: string;
+  started: boolean;
+  filters: IPrivacyGroupMessageListenerFilters;
+  options: IPrivacyGroupMessageListenerOptions;
+}
+
+export interface ISendPrivacyGroupMessageParams {
+  group: string;
+  topic: string;
+  data: any;
+  correlationId?: string;
 }

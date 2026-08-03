@@ -110,13 +110,12 @@ type StateEncoded struct {
 
 type State struct {
 	StateBase
-	Labels      []*StateLabel       `docstruct:"State" json:"-"                   gorm:"foreignKey:state;references:id;"`
-	Int64Labels []*StateInt64Label  `docstruct:"State" json:"-"                   gorm:"foreignKey:state;references:id;"`
-	Confirmed   *StateConfirmRecord `docstruct:"State" json:"confirmed,omitempty" gorm:"foreignKey:state;references:id;"`
-	Read        *StateReadRecord    `docstruct:"State" json:"read,omitempty"      gorm:"foreignKey:state;references:id;"`
-	Spent       *StateSpendRecord   `docstruct:"State" json:"spent,omitempty"     gorm:"foreignKey:state;references:id;"`
-	Locks       []*StateLock        `docstruct:"State" json:"locks,omitempty"     gorm:"-"` // in memory only processing here
-	Nullifier   *StateNullifier     `docstruct:"State" json:"nullifier,omitempty" gorm:"foreignKey:state;references:id;"`
+	Labels      []*StateLabel       `docstruct:"State" json:"-"                   gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
+	Int64Labels []*StateInt64Label  `docstruct:"State" json:"-"                   gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
+	Confirmed   *StateConfirmRecord `docstruct:"State" json:"confirmed,omitempty" gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
+	Read        *StateReadRecord    `docstruct:"State" json:"read,omitempty"      gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
+	Spent       *StateSpendRecord   `docstruct:"State" json:"spent,omitempty"     gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
+	Nullifier   *StateNullifier     `docstruct:"State" json:"nullifier,omitempty" gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
 }
 
 // TODO: Separate the GORM DTO from the external pldapi external type definition for States
@@ -213,7 +212,7 @@ type StateSpendRecord struct {
 type StateReadRecord struct {
 	DomainName  string            `json:"-"                 gorm:"primaryKey"`
 	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
-	Transaction uuid.UUID         `docstruct:"StateRead" json:"transaction"`
+	Transaction uuid.UUID         `docstruct:"StateRead"    json:"transaction" gorm:"primaryKey"`
 }
 
 // Transactions can also refer to state that never exists before or after the transaction.
@@ -222,38 +221,9 @@ type StateReadRecord struct {
 type StateInfoRecord struct {
 	DomainName  string            `json:"-"                 gorm:"primaryKey"`
 	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
-	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction"`
+	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction" gorm:"primaryKey"`
 }
 
-type StateLockType string
-
-const (
-	StateLockTypeCreate StateLockType = "create"
-	StateLockTypeRead   StateLockType = "read"
-	StateLockTypeSpend  StateLockType = "spend"
-)
-
-func (tt StateLockType) Enum() pldtypes.Enum[StateLockType] {
-	return pldtypes.Enum[StateLockType](tt)
-}
-
-func (tt StateLockType) Options() []string {
-	return []string{
-		string(StateLockTypeCreate),
-		string(StateLockTypeRead),
-		string(StateLockTypeSpend),
-	}
-}
-
-// State locks record which transaction a state is being locked to, either
-// spending a previously confirmed state, or an optimistic record of creating
-// (and maybe later spending) a state that is yet to be confirmed.
-type StateLock struct {
-	DomainName  string                       `json:"-"`
-	StateID     pldtypes.HexBytes            `json:"-"`
-	Transaction uuid.UUID                    `docstruct:"StateLock" json:"transaction"`
-	Type        pldtypes.Enum[StateLockType] `docstruct:"StateLock" json:"type"`
-}
 
 // State nullifiers are used when a domain chooses to use a separate identifier
 // specifically for spending states (i.e. not the state ID).

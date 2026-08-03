@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
@@ -33,6 +34,7 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
@@ -136,6 +138,7 @@ func TestPublicTransactionLifecycle(t *testing.T) {
 		func(tmc *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.publicTxMgr.On("UpdateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			mc.keyManager.On("ResolveEthAddressNewDatabaseTX", mock.Anything, "sender1").Return(senderAddr, nil) // used in call
+			mc.sequencerMgr.On("HandleTxResume", mock.Anything, mock.Anything).Return(nil)
 
 			unconnected := ethclient.NewUnconnectedRPCClient(context.Background(), &pldconf.EthClientConfig{}, 0)
 			mc.ethClientFactory.On("HTTPClient").Return(unconnected)
@@ -482,9 +485,27 @@ func TestPublicTransactionPassthroughQueries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, sampleTxns[0], txn)
 
+	// Query by local id
+	localID := uint64(12345)
+	mockQuery = func(jq *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error) {
+		assert.JSONEq(t, `{
+			"limit": 1,
+			"eq": [{"field":"localId","value":12345}]
+		}`, string(pldtypes.JSONString(jq)))
+		return sampleTxns, nil
+	}
+	err = rpcClient.CallRPC(ctx, &txn, "ptx_getPublicTransaction", localID)
+	require.NoError(t, err)
+	assert.Equal(t, sampleTxns[0], txn)
+
 	// Query by nonce err
 	mockQuery = func(_ *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error) { return nil, fmt.Errorf("pop") }
 	err = rpcClient.CallRPC(ctx, &txn, "ptx_getPublicTransactionByNonce", tx.From, tx.Nonce)
+	require.Regexp(t, "pop", err)
+
+	// Query by local id err
+	mockQuery = func(_ *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error) { return nil, fmt.Errorf("pop") }
+	err = rpcClient.CallRPC(ctx, &txn, "ptx_getPublicTransaction", localID)
 	require.Regexp(t, "pop", err)
 
 	// Query by hash
@@ -767,7 +788,7 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 		ABI:     testABI,
 		Address: address,
 	}}
-	es := &blockindexer.EventStream{
+	es := &blockindexer.EventStreamDefinition{
 		ID:      id,
 		Name:    name,
 		Started: confutil.P(true),
@@ -776,12 +797,19 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 
 	ctx, url, _, done := newTestTransactionManagerWithRPC(t, func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 
+		mockESHandle := blockindexermocks.NewEventStream(t)
+		mockESHandle.On("Definition").Return(es).Maybe()
+		mockESHandle.On("ID").Return(es.ID).Maybe()
 		mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).
-			Return(es, nil)
+			Return(mockESHandle, nil)
 		mc.blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			Return([]*blockindexer.EventStream{es}, nil)
-		mc.blockIndexer.On("StartEventStream", mock.Anything, id).Return(nil)
-		mc.blockIndexer.On("StopEventStream", mock.Anything, id).Return(nil)
+			Return([]*blockindexer.EventStreamDefinition{es}, nil)
+		mc.blockIndexer.On("StartEventStream", mock.Anything, id).Run(func(args mock.Arguments) {
+			es.Started = confutil.P(true)
+		}).Return(nil)
+		mc.blockIndexer.On("StopEventStream", mock.Anything, id).Run(func(args mock.Arguments) {
+			es.Started = confutil.P(false)
+		}).Return(nil)
 		mc.blockIndexer.On("RemoveEventStream", mock.Anything, id).Return(nil)
 		mc.blockIndexer.On("GetEventStreamStatus", mock.Anything, id).Return(&blockindexer.EventStreamStatus{}, nil)
 	})
@@ -832,10 +860,28 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, *boolRes)
 
+	err = rpcClient.CallRPC(ctx, &l, "ptx_getBlockchainEventListener", "listener1")
+	require.NoError(t, err)
+	require.NotNil(t, l)
+	require.NotNil(t, l.Started)
+	assert.False(t, *l.Started)
+
+	err = rpcClient.CallRPC(ctx, &listeners, "ptx_queryBlockchainEventListeners", query.NewQueryBuilder().Limit(1).Query())
+	require.NoError(t, err)
+	require.Len(t, listeners, 1)
+	require.NotNil(t, listeners[0].Started)
+	assert.False(t, *listeners[0].Started)
+
 	// Start listener
 	err = rpcClient.CallRPC(ctx, &boolRes, "ptx_startBlockchainEventListener", "listener1")
 	require.NoError(t, err)
 	assert.True(t, *boolRes)
+
+	err = rpcClient.CallRPC(ctx, &l, "ptx_getBlockchainEventListener", "listener1")
+	require.NoError(t, err)
+	require.NotNil(t, l)
+	require.NotNil(t, l.Started)
+	assert.True(t, *l.Started)
 
 	// Delete listener
 	err = rpcClient.CallRPC(ctx, &boolRes, "ptx_deleteBlockchainEventListener", "listener1")
@@ -845,4 +891,82 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 	err = rpcClient.CallRPC(ctx, &l, "ptx_getBlockchainEventListener", "listener1")
 	require.NoError(t, err)
 	assert.Nil(t, l)
+}
+
+func TestDispatchAndChainedDispatchRPCs(t *testing.T) {
+	ctx, url, _, done := newTestTransactionManagerWithRPC(t)
+	defer done()
+
+	rpcClient, err := rpcclient.NewHTTPClient(ctx, &pldconf.HTTPClientConfig{URL: url})
+	require.NoError(t, err)
+
+	// Query dispatches - empty result
+	var dispatches []*pldapi.Dispatch
+	err = rpcClient.CallRPC(ctx, &dispatches, "ptx_queryDispatches", query.NewQueryBuilder().Limit(10).Query())
+	require.NoError(t, err)
+	assert.Empty(t, dispatches)
+
+	// Get dispatch - not found
+	var dispatch *pldapi.Dispatch
+	err = rpcClient.CallRPC(ctx, &dispatch, "ptx_getDispatch", uuid.New().String())
+	require.NoError(t, err)
+	assert.Nil(t, dispatch)
+
+	// Query dispatches missing limit
+	err = rpcClient.CallRPC(ctx, &dispatches, "ptx_queryDispatches", query.NewQueryBuilder().Query())
+	require.Regexp(t, "PD010721", err)
+
+	// Query chained dispatches - empty result
+	var chainedDispatches []*pldapi.ChainedDispatch
+	err = rpcClient.CallRPC(ctx, &chainedDispatches, "ptx_queryChainedDispatches", query.NewQueryBuilder().Limit(10).Query())
+	require.NoError(t, err)
+	assert.Empty(t, chainedDispatches)
+
+	// Get chained dispatch - not found
+	var chainedDispatch *pldapi.ChainedDispatch
+	err = rpcClient.CallRPC(ctx, &chainedDispatch, "ptx_getChainedDispatch", uuid.New().String())
+	require.NoError(t, err)
+	assert.Nil(t, chainedDispatch)
+
+	// Query chained dispatches missing limit
+	err = rpcClient.CallRPC(ctx, &chainedDispatches, "ptx_queryChainedDispatches", query.NewQueryBuilder().Query())
+	require.Regexp(t, "PD010721", err)
+}
+
+func TestSendTransactionIdempotencyConflict(t *testing.T) {
+
+	senderAddr := pldtypes.RandAddress()
+	ctx, url, _, done := newTestTransactionManagerWithRPC(t,
+		mockSubmitPublicTxOk(t, senderAddr),
+	)
+	defer done()
+
+	rpcClient, err := rpcclient.NewHTTPClient(ctx, &pldconf.HTTPClientConfig{URL: url})
+	require.NoError(t, err)
+
+	toAddr := pldtypes.MustEthAddress(pldtypes.RandHex(20))
+	txInput := &pldapi.TransactionInput{
+		ABI: abi.ABI{{Type: abi.Function, Name: "set", Inputs: abi.ParameterArray{{Type: "uint256"}}}},
+		TransactionBase: pldapi.TransactionBase{
+			IdempotencyKey: "idem-conflict-1",
+			From:           "sender1",
+			Type:           pldapi.TransactionTypePublic.Enum(),
+			Function:       "set(uint256)",
+			To:             toAddr,
+			Data:           pldtypes.RawJSON(`[12345]`),
+		},
+	}
+
+	// First submission should succeed
+	var txID uuid.UUID
+	err = rpcClient.CallRPC(ctx, &txID, "ptx_sendTransaction", txInput)
+	require.NoError(t, err)
+	assert.NotEqual(t, uuid.UUID{}, txID)
+
+	// Second submission with the same idempotency key must return PD012220 with RPCCodeConflict
+	var txID2 uuid.UUID
+	rpcErr := rpcClient.CallRPC(ctx, &txID2, "ptx_sendTransaction", txInput)
+	require.Error(t, rpcErr)
+	assert.Regexp(t, "PD012220", rpcErr.Error())
+	assert.Equal(t, int64(pldclient.RPCCodeConflict), rpcErr.RPCError().Code)
 }

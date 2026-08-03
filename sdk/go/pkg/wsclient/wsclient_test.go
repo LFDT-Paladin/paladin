@@ -439,3 +439,94 @@ func TestWSClientContextClosed(t *testing.T) {
 	err = wsc.Send(context.Background(), []byte{})
 	assert.Regexp(t, "PD021102", err)
 }
+
+// TestWSSendLoopExited verifies that Send() returns PD021105 immediately when
+// sendDone is closed, covering two cases: Send() called from afterConnect
+// while sendLoop has already exited, and external callers during the reconnect
+// window seeing the previous iteration's closed channel.
+func TestWSSendLoopExited(t *testing.T) {
+	sendDone := make(chan []byte, 1)
+	close(sendDone)
+	w := &wsClient{
+		send:     make(chan []byte),
+		closing:  make(chan struct{}),
+		sendDone: sendDone,
+	}
+	err := w.Send(context.Background(), []byte(`test`))
+	assert.Regexp(t, "PD021105", err)
+}
+
+// TestWSAfterConnectSendLoopExitCausesReconnect validates that when sendLoop
+// exits due to a write failure while afterConnect is running, a subsequent
+// Send() call inside afterConnect returns PD021105 immediately, afterConnect
+// can return that error, and receiveReconnectLoop cleans up and reconnects.
+//
+// The write failure is triggered by closing the client-side wsconn inside
+// afterConnect; a server-side ws.Close() is insufficient because the first
+// write to a half-closed TCP connection may succeed via the OS kernel buffer.
+func TestWSAfterConnectSendLoopExitCausesReconnect(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+
+	// Server accepts every connection and drains it until the client closes.
+	svr := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		ws, err := upgrader.Upgrade(res, req, nil)
+		if err != nil {
+			return
+		}
+		defer ws.Close()
+		for {
+			if _, _, err := ws.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer svr.Close()
+
+	reconnected := make(chan struct{})
+	var afterConnectCalls int
+
+	afterConnect := func(ctx context.Context, w WSClient) error {
+		wsc := w.(*wsClient)
+		wsc.sendDoneMu.Lock()
+		thisSendDone := wsc.sendDone
+		wsc.sendDoneMu.Unlock()
+
+		afterConnectCalls++
+		if afterConnectCalls == 1 {
+			// Close the WS connection on the *client* side so that sendLoop's
+			// next WriteMessage call returns an error immediately (rather than
+			// being silently buffered by the OS kernel as a server-side close
+			// would be).
+			_ = wsc.wsconn.Close()
+
+			// Trigger a write; sendLoop picks it up, fails on the closed
+			// connection, and exits.
+			_ = wsc.Send(ctx, []byte("trigger write failure"))
+
+			// Wait for sendLoop to close sendDone, confirming it has exited.
+			<-thisSendDone
+
+			// Send() must return PD021105 immediately, not block on w.send.
+			err := wsc.Send(ctx, []byte("after sendLoop exited"))
+			assert.Regexp(t, "PD021105", err)
+			return err
+		}
+		close(reconnected)
+		return nil
+	}
+
+	wsConfig := &pldconf.WSClientConfig{}
+	wsConfig.URL = fmt.Sprintf("ws://%s", svr.Listener.Addr())
+	wsConfig.ConnectRetry.InitialDelay = confutil.P("1ms")
+	wsConfig.ConnectRetry.MaxDelay = confutil.P("10ms")
+
+	wsc, err := New(context.Background(), wsConfig, nil, afterConnect)
+	require.NoError(t, err)
+	defer wsc.Close()
+
+	err = wsc.Connect()
+	require.NoError(t, err)
+
+	<-reconnected
+	assert.Equal(t, 2, afterConnectCalls)
+}

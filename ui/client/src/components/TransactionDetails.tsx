@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -22,63 +22,70 @@ import {
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { IPaladinTransaction, ITransactionReceipt } from '../interfaces';
+import { ITransactionReceipt } from '../interfaces';
 import { fetchDomainReceipt } from '../queries/domains';
 import { fetchStateReceipt } from '../queries/states';
 import { EVMPrivateDetails } from './EVMPrivateDetails';
 import { JSONBox } from './JSONBox';
+import { fetchPaladinTransactionFull } from '../queries/transactions';
 
 type Props = {
-  transactionReceipt?: ITransactionReceipt
-  paladinTransaction?: IPaladinTransaction
+  receipt: ITransactionReceipt
 }
 
 export const PaladinTransactionsDetails: React.FC<Props> = ({
-  transactionReceipt,
-  paladinTransaction
+  receipt
 }) => {
 
   const { t } = useTranslation();
 
-  const transactionId = transactionReceipt?.id || paladinTransaction?.id || '';
-  const domain = transactionReceipt?.domain || paladinTransaction?.domain || '';
-
-  const { data: stateReceipt } = useQuery({
-    enabled: !!transactionId,
-    queryKey: ["stateReceipt", transactionId],
-    queryFn: () => fetchStateReceipt(transactionId),
-    retry: true
+  const { data: paladinTransaction } = useQuery({
+    queryKey: ['paladin-transaction-full', receipt.id],
+    queryFn: () => fetchPaladinTransactionFull(receipt.id),
+    retry: false
   });
 
   const { data: domainReceipt } = useQuery({
-    enabled: !!domain && !!transactionId,
-    queryKey: ["domainReceipt", domain, transactionId],
-    queryFn: () => fetchDomainReceipt(domain, transactionId),
-    retry: true
+    enabled: receipt.domain !== undefined,
+    queryKey: ['domain-receipt', receipt.domain, receipt.id],
+    queryFn: () => fetchDomainReceipt(receipt.domain!, receipt.id),
+    retry: false
   });
+
+  const { data: stateReceipt } = useQuery({
+    queryKey: ['state-receipt', receipt.id],
+    queryFn: () => fetchStateReceipt(receipt.id),
+    retry: false
+  });
+
+
+  if (paladinTransaction === undefined) {
+    return <></>;
+  }
 
   return (
     <>
-      {paladinTransaction ?
-      <Accordion elevation={0} disableGutters>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          {t('details')}
-        </AccordionSummary>
-        <AccordionDetails >
-          <JSONBox data={paladinTransaction} />
-        </AccordionDetails>
-      </Accordion>
-      :undefined}
-      <Accordion elevation={0} disableGutters>
+      {paladinTransaction &&
+        <Accordion elevation={0} disableGutters defaultExpanded>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            {t('details')}
+          </AccordionSummary>
+          <AccordionDetails >
+            <JSONBox data={paladinTransaction} />
+          </AccordionDetails>
+        </Accordion>}
+
+      <Accordion elevation={0} disableGutters defaultExpanded={paladinTransaction === null}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           {t('receipt')}
         </AccordionSummary>
         <AccordionDetails >
-          <JSONBox data={transactionReceipt} />
+          <JSONBox data={receipt} />
         </AccordionDetails>
       </Accordion>
+
       {domainReceipt !== undefined && <>
-        <EVMPrivateDetails transactionId={transactionId} domainReceipt={domainReceipt}/>
+        <EVMPrivateDetails transactionId={receipt.id} domainReceipt={domainReceipt} />
         <Accordion elevation={0} disableGutters>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             {t('domainReceipt')}
@@ -88,6 +95,7 @@ export const PaladinTransactionsDetails: React.FC<Props> = ({
           </AccordionDetails>
         </Accordion>
       </>}
+
       {!(stateReceipt?.none === true) &&
         <Accordion elevation={0} disableGutters>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>

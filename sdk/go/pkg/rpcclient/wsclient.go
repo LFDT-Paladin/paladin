@@ -26,11 +26,11 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/wsclient"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 )
 
 func NewWSClient(ctx context.Context, conf *pldconf.WSClientConfig) (WSClient, error) {
@@ -45,6 +45,7 @@ func NewWSClient(ctx context.Context, conf *pldconf.WSClientConfig) (WSClient, e
 func WrapWSConfig(conf *pldconf.WSClientConfig) WSClient {
 	return &wsRPCClient{
 		wsConf:              *conf,
+		requestTimeout:      confutil.DurationMin(conf.WSRequestTimeout, 1*time.Second, *pldconf.DefaultWSConfig.WSRequestTimeout),
 		calls:               make(map[string]chan *RPCResponse),
 		configuredSubs:      make(map[uuid.UUID]*sub),
 		pendingSubsByReqID:  make(map[string]*sub),
@@ -99,6 +100,7 @@ func (n *rpcSubscriptionNotification) GetResult() pldtypes.RawJSON {
 type wsRPCClient struct {
 	mux                 sync.Mutex
 	wsConf              pldconf.WSClientConfig
+	requestTimeout      time.Duration
 	client              wsclient.WSClient
 	requestCounter      int64
 	connected           chan struct{}
@@ -391,7 +393,7 @@ func (rc *wsRPCClient) sendRPC(ctx context.Context, reqID string, rpcReq *RPCReq
 	jsonInput, err := json.Marshal(rpcReq)
 	if err == nil {
 		log.L(ctx).Debugf("RPC[%s] --> %s", reqID, rpcReq.Method)
-		if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		if log.IsTraceEnabled() {
 			log.L(ctx).Tracef("RPC[%s] INPUT: %s", reqID, jsonInput)
 		}
 		err = rc.client.Send(ctx, jsonInput)
@@ -422,11 +424,19 @@ func (rc *wsRPCClient) CallRPC(ctx context.Context, result interface{}, method s
 
 func (rc *wsRPCClient) waitResponse(ctx context.Context, result interface{}, reqID string, rpcReq *RPCRequest, rpcStartTime time.Time, resChannel chan *RPCResponse) ErrorRPC {
 	var rpcRes *RPCResponse
+	reqCtx, cancel := context.WithTimeout(ctx, rc.requestTimeout)
+	defer cancel()
 	select {
 	case rpcRes = <-resChannel:
-	case <-ctx.Done():
-		rpcErr := NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgContextCanceled, reqID)
-		log.L(ctx).Errorf("RPC[%s] <-- ERROR: %s", reqID, rpcErr)
+		// got response
+	case <-reqCtx.Done():
+		if ctx.Err() != nil {
+			rpcErr := NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgContextCanceled, reqID)
+			log.L(ctx).Errorf("RPC[%s] <-- ERROR: %s", reqID, rpcErr)
+			return rpcErr
+		}
+		rpcErr := NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientRequestTimeout, reqID)
+		log.L(ctx).Errorf("RPC[%s] <-- ERROR: %s (no response after %v)", reqID, rpcErr, rc.requestTimeout)
 		return rpcErr
 	}
 	if rpcRes.Error != nil && rpcRes.Error.RPCError().Code != 0 {

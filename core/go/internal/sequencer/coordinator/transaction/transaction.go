@@ -17,249 +17,294 @@ package transaction
 import (
 	"context"
 	"sync"
+	"time"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"golang.org/x/crypto/sha3"
+	"github.com/google/uuid"
 )
 
-type TransactionState string
+type CoordinatorTransaction interface {
+	HandleEvent(ctx context.Context, event common.Event) error
+	PendingDispatch(ctx context.Context) *syncpoints.PendingDispatch
+	GetID() uuid.UUID
+	GetCurrentState() State
+	GetSnapshot(ctx context.Context) (*engineProto.SnapshotPooledTransaction, *engineProto.SnapshotDispatchedTransaction, *engineProto.SnapshotConfirmedTransaction, *engineProto.SnapshotRevertedTransaction)
+	GetOriginatorNode() string
+}
 
-const (
-	TransactionState_Pooled                TransactionState = "TransactionState_Pooled"
-	TransactionState_Assembled             TransactionState = "TransactionState_Assembled"
-	TransactionState_ConfirmingForDispatch TransactionState = "TransactionState_ConfirmingForDispatch"
-	TransactionState_Dispatched            TransactionState = "TransactionState_Dispatched"
-	TransactionState_Submitted             TransactionState = "TransactionState_Submitted"
-	TransactionState_Rejected              TransactionState = "TransactionState_Rejected"
-	TransactionState_ConfirmedSuccess      TransactionState = "TransactionState_ConfirmedSuccess"
-	TransactionState_ConfirmedReverted     TransactionState = "TransactionState_ConfirmedReverted"
-)
+// coordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
+// It implements statemachine.Lockable; the state machine holds this lock for the duration of each ProcessEvent call.
+// pt holds the private transaction; it is not embedded so that all modifications go through this package.
+type coordinatorTransaction struct {
+	sync.RWMutex
 
-// Transaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
-type Transaction struct {
-	*components.PrivateTransaction
-	originator           string // The fully qualified identity of the originator e.g. "member1@node1"
-	originatorNode       string // The node the originator is running on e.g. "node1"
-	originatorIdentity   string // The member ID e.g. "member1"
-	signerAddress        *pldtypes.EthAddress
-	latestSubmissionHash *pldtypes.Bytes32
-	nonce                *uint64
-	stateMachine         *StateMachine
-	revertReason         pldtypes.HexBytes
-	revertTime           *pldtypes.Timestamp
+	pt           *components.PrivateTransaction
+	stateMachine *StateMachine
 
-	//TODO move the fields that are really just fine grained state info.  Move them into the stateMachine struct ( consider separate structs for each concrete state)
-	heartbeatIntervalsSinceStateChange               int
-	pendingAssembleRequest                           *common.IdempotentRequest
-	cancelAssembleTimeoutSchedule                    func()                                          // Longer timeout for assembly to complete, before giving up and trying to assemble the next TX
-	cancelAssembleRequestTimeoutSchedule             func()                                          // Short timeout for retry e.g. network blip
-	cancelEndorsementRequestTimeoutSchedule          func()                                          // Short timeout for retry e.g. network blip
-	cancelDispatchConfirmationRequestTimeoutSchedule func()                                          // Short timeout for retry e.g. network blip
-	onCleanup                                        func(context.Context)                           // function to be called when the transaction is removed from memory, e.g. when it is confirmed or reverted
-	pendingEndorsementRequests                       map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
-	pendingEndorsementsMutex                         sync.Mutex
-	pendingPreDispatchRequest                        *common.IdempotentRequest
-	chainedTxAlreadyDispatched                       bool
-	latestError                                      string
-	dependencies                                     *pldapi.TransactionDependencies
-	previousTransaction                              *Transaction
-	nextTransaction                                  *Transaction
-	addToPool                                        func(context.Context, *Transaction) // To put ourselves to the back of the pooled transactions queue
-	onReadyForDispatch                               func(context.Context, *Transaction)
+	// immutable properties of the transaction
+	originator                    string // The fully qualified identity of the originator e.g. "member1@node1"
+	originatorNode                string // The node the originator is running on e.g. "node1"
+	nodeName                      string // The local node coordinating this transaction
+	domainSigningIdentity         string // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
+	getCoordinatorSigningIdentity func() string
+	submitterSelection            prototk.ContractConfig_SubmitterSelection // The selection of submitter for the transaction
+
+	// mutable fields that state machine actions will change
+	signerAddress                      *pldtypes.EthAddress
+	latestSubmissionHash               *pldtypes.Bytes32
+	nonce                              *uint64
+	revertReason                       pldtypes.HexBytes
+	decodedRevertReason                string
+	revertOnChain                      *pldtypes.OnChainLocation
+	revertCount                        int
+	lastCanRetryRevert                 bool
+	assembleErrorCount                 int
+	signErrorCount                     int
+	endorseToleranceByRequirement      map[string]int
+	endorseFailureCountByRequirement   map[string]int
+	heartbeatIntervalsSinceStateChange int
+	stateEntryTime                     time.Time
+
+	pendingAssembleRequest       *common.IdempotentRequest
+	cancelRequestTimeoutSchedule func()                                          // Short timeout for retry e.g. network blip
+	cancelStateTimeoutSchedule   func()                                          // Timeout for state completion before repooling
+	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
+	pendingPreDispatchRequest    *common.IdempotentRequest
+
+	pendingDispatch                 *syncpoints.TransactionDispatch
+	pendingRemoteStateDistributions []*components.StateDistribution
 
 	//Configuration
-	requestTimeout        common.Duration
-	assembleTimeout       common.Duration
-	errorCount            int
-	finalizingGracePeriod int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
+	blockHeightTolerance           uint64
+	requestTimeout                 time.Duration
+	stateTimeout                   time.Duration
+	finalizingGracePeriod          int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
+	baseLedgerRevertRetryThreshold int
+	assembleErrorRetryThreshhold   int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
+	signErrorRetryThreshhold       int // this is for rare errors where the originator failed to sign its assembled attestations
 
 	// Dependencies
-	clock              common.Clock
-	transportWriter    transport.TransportWriter
-	grapher            Grapher
-	engineIntegration  common.EngineIntegration
-	syncPoints         syncpoints.SyncPoints
-	notifyOfTransition OnStateTransition
-	eventHandler       func(context.Context, common.Event) error
-	metrics            metrics.DistributedSequencerMetrics
+	clock                             common.Clock
+	transportWriter                   transport.TransportWriter
+	grapher                           grapher.Grapher
+	stateVisibilityTracker            statevisibilitytracker.StateVisibilityStore
+	dependencyTracker                 dependencytracker.DependencyTracker
+	engineIntegration                 common.EngineIntegration
+	refreshBlockHeight                func(context.Context)
+	getBlockHeight                    func() int64
+	syncPoints                        syncpoints.SyncPoints
+	components                        components.AllComponents
+	domainAPI                         components.DomainSmartContract
+	dsw                               components.DomainStateWriter
+	queueEventForCoordinator          func(context.Context, common.Event)
+	setDispatchedInFlight             func(txID uuid.UUID, inFlight bool) // called synchronously as the transaction enters/leaves State_Dispatched having dispatched a public transaction
+	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error
+	getCoordinatorTransactionState    func(context.Context, uuid.UUID) (State, bool)
+	notifyEndorserCandidates          func(context.Context, ...string) // called once when endorsement requests are first sent; passes endorser node names to the coordinator for pool updates
+	metrics                           metrics.DistributedSequencerMetrics
 }
 
-// TODO think about naming of this compared to the OnTransitionTo func in the state machine
-type OnStateTransition func(ctx context.Context, t *Transaction, to, from State) // function to be invoked when transitioning into this state.  Called after transitioning event has been applied and any actions have fired
-
-func NewTransaction(
-	ctx context.Context,
+func NewTransaction(ctx context.Context,
 	originator string,
+	originatorNode string,
+	nodeName string,
 	pt *components.PrivateTransaction,
+	getCoordinatorSigningIdentity func() string,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
-	eventHandler func(context.Context, common.Event) error,
+	queueEventForCoordinator func(context.Context, common.Event),
+	setDispatchedInFlight func(txID uuid.UUID, inFlight bool),
+	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
+	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
+	notifyEndorserCandidates func(context.Context, ...string),
 	engineIntegration common.EngineIntegration,
+	refreshBlockHeight func(context.Context),
+	getBlockHeight func() int64,
+	blockHeightTolerance uint64,
 	syncPoints syncpoints.SyncPoints,
+	allComponents components.AllComponents,
+	domainAPI components.DomainSmartContract,
+	dsw components.DomainStateWriter,
 	requestTimeout,
-	assembleTimeout common.Duration,
+	stateTimeout time.Duration,
 	finalizingGracePeriod int,
-	grapher Grapher,
+	baseLedgerRevertRetryThreshold int,
+	assembleErrorRetryThreshhold int,
+	signErrorRetryThreshhold int,
+	grapher grapher.Grapher,
+	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
+	dependencyTracker dependencytracker.DependencyTracker,
 	metrics metrics.DistributedSequencerMetrics,
-	addToPool func(context.Context, *Transaction),
-	onReadyForDispatch func(context.Context, *Transaction),
-	onStateTransition OnStateTransition,
-	onCleanup func(context.Context),
-) (*Transaction, error) {
-	originatorIdentity, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
-	if err != nil {
-		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
-		return nil, err
+) CoordinatorTransaction {
+	return newTransaction(
+		ctx,
+		originator,
+		originatorNode,
+		nodeName,
+		pt,
+		getCoordinatorSigningIdentity,
+		transportWriter,
+		clock,
+		queueEventForCoordinator,
+		setDispatchedInFlight,
+		coordinatorTransactionHandleEvent,
+		getCoordinatorTransactionState,
+		notifyEndorserCandidates,
+		engineIntegration,
+		refreshBlockHeight,
+		getBlockHeight,
+		blockHeightTolerance,
+		syncPoints,
+		allComponents,
+		domainAPI,
+		dsw,
+		requestTimeout,
+		stateTimeout,
+		finalizingGracePeriod,
+		baseLedgerRevertRetryThreshold,
+		assembleErrorRetryThreshhold,
+		signErrorRetryThreshhold,
+		grapher,
+		stateVisibilityTracker,
+		dependencyTracker,
+		metrics,
+	)
+}
+
+func newTransaction(
+	ctx context.Context,
+	originator string,
+	originatorNode string,
+	nodeName string,
+	pt *components.PrivateTransaction,
+	getCoordinatorSigningIdentity func() string,
+	transportWriter transport.TransportWriter,
+	clock common.Clock,
+	queueEventForCoordinator func(context.Context, common.Event),
+	setDispatchedInFlight func(txID uuid.UUID, inFlight bool),
+	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
+	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
+	notifyEndorserCandidates func(context.Context, ...string),
+	engineIntegration common.EngineIntegration,
+	refreshBlockHeight func(context.Context),
+	getBlockHeight func() int64,
+	blockHeightTolerance uint64,
+	syncPoints syncpoints.SyncPoints,
+	allComponents components.AllComponents,
+	domainAPI components.DomainSmartContract,
+	dsw components.DomainStateWriter,
+	requestTimeout,
+	stateTimeout time.Duration,
+	finalizingGracePeriod int,
+	baseLedgerRevertRetryThreshold int,
+	assembleErrorRetryThreshhold int,
+	signErrorRetryThreshhold int,
+	grapher grapher.Grapher,
+	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
+	dependencyTracker dependencytracker.DependencyTracker,
+	metrics metrics.DistributedSequencerMetrics,
+) *coordinatorTransaction {
+	txCtx := log.WithLogField(ctx, "txID", pt.ID.String())
+
+	txn := &coordinatorTransaction{
+		originator:                        originator,
+		originatorNode:                    originatorNode,
+		nodeName:                          nodeName,
+		pt:                                pt,
+		transportWriter:                   transportWriter,
+		clock:                             clock,
+		queueEventForCoordinator:          queueEventForCoordinator,
+		setDispatchedInFlight:             setDispatchedInFlight,
+		coordinatorTransactionHandleEvent: coordinatorTransactionHandleEvent,
+		getCoordinatorTransactionState:    getCoordinatorTransactionState,
+		notifyEndorserCandidates:          notifyEndorserCandidates,
+		engineIntegration:                 engineIntegration,
+		getBlockHeight:                    getBlockHeight,
+		refreshBlockHeight:                refreshBlockHeight,
+		blockHeightTolerance:              blockHeightTolerance,
+		syncPoints:                        syncPoints,
+		components:                        allComponents,
+		domainAPI:                         domainAPI,
+		dsw:                               dsw,
+		domainSigningIdentity:             domainAPI.Domain().FixedSigningIdentity(),
+		getCoordinatorSigningIdentity:     getCoordinatorSigningIdentity,
+		submitterSelection:                domainAPI.ContractConfig().GetSubmitterSelection(),
+		requestTimeout:                    requestTimeout,
+		stateTimeout:                      stateTimeout,
+		finalizingGracePeriod:             finalizingGracePeriod,
+		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,
+		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
+		signErrorRetryThreshhold:          signErrorRetryThreshhold,
+		grapher:                           grapher,
+		stateVisibilityTracker:            stateVisibilityTracker,
+		dependencyTracker:                 dependencyTracker,
+		metrics:                           metrics,
 	}
-	txn := &Transaction{
-		originator:            originator,
-		originatorIdentity:    originatorIdentity,
-		originatorNode:        originatorNode,
-		PrivateTransaction:    pt,
-		transportWriter:       transportWriter,
-		clock:                 clock,
-		eventHandler:          eventHandler,
-		engineIntegration:     engineIntegration,
-		syncPoints:            syncPoints,
-		requestTimeout:        requestTimeout,
-		assembleTimeout:       assembleTimeout,
-		finalizingGracePeriod: finalizingGracePeriod,
-		dependencies:          &pldapi.TransactionDependencies{},
-		grapher:               grapher,
-		metrics:               metrics,
-		addToPool:             addToPool,
-		notifyOfTransition:    onStateTransition,
-		onReadyForDispatch:    onReadyForDispatch,
-		onCleanup:             onCleanup,
-	}
-	txn.InitializeStateMachine(State_Initial)
-	grapher.Add(context.Background(), txn)
-	return txn, nil
-}
 
-func (t *Transaction) cleanup(ctx context.Context) error {
-	// Call any cleanup function passed in by the sequencer
-	t.onCleanup(ctx)
-
-	// Then clean ourselves up
-	return t.grapher.Forget(t.ID)
-}
-
-func (t *Transaction) GetSignerAddress() *pldtypes.EthAddress {
-	return t.signerAddress
-}
-
-func (t *Transaction) GetNonce() *uint64 {
-	return t.nonce
-}
-
-func (t *Transaction) GetState() State {
-	return t.stateMachine.currentState
-}
-
-func (t *Transaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
-	return t.latestSubmissionHash
-}
-
-func (t *Transaction) GetRevertReason() pldtypes.HexBytes {
-	return t.revertReason
-}
-
-// Hash method of Transaction
-func (t *Transaction) Hash(ctx context.Context) (*pldtypes.Bytes32, error) {
-	if t.PrivateTransaction == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without PrivateTransaction")
-	}
-	if t.PostAssembly == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without PostAssembly")
-	}
-
-	// MRW TODO - MUST DO - this was relying on only signatures being present, but Pente contracts reject transactions that have both signatures and endorsements.
-	// if len(t.PostAssembly.Signatures) == 0 {
-	// 	return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without at least one Signature")
-	// }
-
-	hash := sha3.NewLegacyKeccak256()
-
-	if len(t.PostAssembly.Signatures) != 0 {
-		for _, signature := range t.PostAssembly.Signatures {
-			hash.Write(signature.Payload)
+	// Set up chained dependencies carried from the parent coordinator's grapher.
+	// Only retain dependencies that are still known in the grapher; unknown = assumed finalized.
+	if pt.PreAssembly != nil && len(pt.PreAssembly.ChainedDependsOn) > 0 {
+		for _, depIDStr := range pt.PreAssembly.ChainedDependsOn {
+			depID, err := uuid.Parse(depIDStr)
+			if err != nil {
+				log.L(txCtx).Warnf("Skipping invalid chained dependency ID %q for TX %s: %v", depIDStr, pt.ID, err)
+				continue
+			}
+			state, ok := txn.getCoordinatorTransactionState(txCtx, depID)
+			if !ok {
+				// It is possible for a chained transaction to be created referencing dependencies that the original
+				// grapher knew about at creation time, but for the chained transactions of those dependencies to have
+				// already been finalized and removed from memory, by the time the chained transaction begins to be sequenced.
+				// We don't have anyway of knowing whether the transaction was finalized as a success or failure at this point;
+				// however, failing chained transactions who's dependencies have failed is an optimisation to allow their
+				// reassembly in the original coordinator to occur as quickly as possible when we know that failure for this
+				// transaction is inevitable, even if it hasn't occured yet. So if we submit this transaction to the base ledger
+				// and it fails because the prereq transaction was not confirmed on chain, it will just take a little longer
+				// for that failure to get back to the original coordinator.
+				// Log at warning level because it is helpful to be able to identity this condition.
+				log.L(txCtx).Warnf("Dependency %s not found in grapher for TX %s, assuming finalized", depID, pt.ID)
+				continue
+			}
+			txn.dependencyTracker.GetChainedDeps().AddPrerequisites(txCtx, pt.ID, depID)
+			if state == State_Initial || state == State_PreAssembly_Blocked || state == State_Pooled {
+				txn.dependencyTracker.GetChainedDeps().AddUnassembledDependencies(txCtx, pt.ID, depID)
+			}
 		}
 	}
 
-	var h32 pldtypes.Bytes32
-	_ = hash.Sum(h32[0:0])
-	return &h32, nil
+	txn.initializeStateMachine(State_Initial)
 
+	return txn
 }
 
-// SignatureAttestationName is a method of Transaction that returns the name of the attestation in the attestation plan that is a signature
-func (t *Transaction) SignatureAttestationName() (string, error) {
-	for _, attRequest := range t.PostAssembly.AttestationPlan {
-		if attRequest.AttestationType == prototk.AttestationType_SIGN {
-			return attRequest.Name, nil
-		}
-	}
-	return "", nil
+func (t *coordinatorTransaction) GetCurrentState() State {
+	// the state machine has its own lock for current state so we don't need to take the whole transaction lock
+	return t.stateMachine.GetCurrentState()
 }
 
-func (t *Transaction) SetChainedTxInProgress() {
-	t.chainedTxAlreadyDispatched = true
+// These functions are all called externally and return data that can change so always take
+// a read lock. A consumer could also take a read lock if they wanted to be certain that a group of
+// read functions are atomic
+
+func (t *coordinatorTransaction) GetID() uuid.UUID {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt.ID
 }
 
-func (t *Transaction) Originator() string {
-	return t.originator
-}
-
-func (t *Transaction) OriginatorNode() string {
+func (t *coordinatorTransaction) GetOriginatorNode() string {
+	t.RLock()
+	defer t.RUnlock()
 	return t.originatorNode
-}
-
-func (t *Transaction) OriginatorIdentity() string {
-	return t.originatorIdentity
-}
-
-func (d *Transaction) OutputStateIDs(_ context.Context) []string {
-
-	//We use the output states here not the OutputStatesPotential because it is not possible for another transaction
-	// to spend a state unless it has been written to the state store and at that point we have the state ID
-	outputStateIDs := make([]string, len(d.PostAssembly.OutputStates))
-	for i, outputState := range d.PostAssembly.OutputStates {
-		outputStateIDs[i] = outputState.ID.String()
-	}
-	return outputStateIDs
-}
-
-func (d *Transaction) InputStateIDs(_ context.Context) []string {
-
-	inputStateIDs := make([]string, len(d.PostAssembly.InputStates))
-	for i, inputState := range d.PostAssembly.InputStates {
-		inputStateIDs[i] = inputState.ID.String()
-	}
-	return inputStateIDs
-}
-
-func (d *Transaction) Txn() *components.PrivateTransaction {
-	return d.PrivateTransaction
-}
-
-//TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.
-// We should consider making them safe to call from any goroutine by reading maintaining a copy of the data structures that are updated async from the sequencer thread under a mutex
-
-func (t *Transaction) GetCurrentState() State {
-	return t.stateMachine.currentState
-}
-
-func (t *Transaction) GetErrorCount() int {
-	return t.errorCount
 }

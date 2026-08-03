@@ -31,8 +31,20 @@ import (
 //go:embed abis/NotoFactory.json
 var NotoFactoryJSON []byte
 
+//go:embed abis/Noto.json
+var NotoJSON []byte
+
 //go:embed abis/Noto_V0.json
 var NotoV0JSON []byte
+
+//go:embed abis/SmtLib.json
+var SmtLibJSON []byte
+
+//go:embed abis/NotoNullifiers.json
+var NotoNullifiersJSON []byte
+
+//go:embed abis/ERC1967Proxy.json
+var ERC1967ProxyJSON []byte
 
 //go:embed abis/INoto.json
 var NotoInterfaceJSON []byte
@@ -49,8 +61,8 @@ type NotoHelper struct {
 	ABI     abi.ABI
 }
 
-func DeployNoto(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, notary string, hooks *pldtypes.EthAddress) *NotoHelper {
-	return DeployNotoImplementation(ctx, t, rpc, domainName, "", notary, hooks)
+func DeployNoto(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, variant, notary string, hooks *pldtypes.EthAddress) *NotoHelper {
+	return DeployNotoImplementation(ctx, t, rpc, domainName, variant, notary, hooks)
 }
 
 func DeployNotoImplementation(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, implementation, notary string, hooks *pldtypes.EthAddress) *NotoHelper {
@@ -72,7 +84,7 @@ func DeployNotoImplementation(ctx context.Context, t *testing.T, rpc rpcclient.C
 	}
 	if implementation != "" {
 		constructorParams.Implementation = implementation
-		constructorParams.Name = implementation // This shouldn't be necessary but it's a workaround for a bug in the factory
+		constructorParams.Name = implementation + "-" + pldtypes.RandHex(4)
 	}
 	rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deploy", domainName, "notary", constructorParams)
 	if rpcerr != nil {
@@ -141,7 +153,7 @@ func (n *NotoHelper) Unlock(ctx context.Context, params *types.UnlockParams) *Do
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, params))
 }
 
-func (n *NotoHelper) PrepareUnlock(ctx context.Context, params *types.UnlockParams) *DomainTransactionHelper {
+func (n *NotoHelper) PrepareUnlock(ctx context.Context, params *types.PrepareUnlockParams) *DomainTransactionHelper {
 	fn := types.NotoABI.Functions()["prepareUnlock"]
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, params))
 }

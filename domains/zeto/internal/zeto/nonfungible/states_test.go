@@ -59,6 +59,14 @@ func (dc *testDomainCallbacks) SendTransaction(ctx context.Context, tx *pb.SendT
 	return nil, nil
 }
 
+func (dc *testDomainCallbacks) ReverseKeyLookup(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error) {
+	return nil, nil
+}
+
+func (dc *testDomainCallbacks) ValidateStates(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error) {
+	return nil, nil
+}
+
 func TestProcessTokens(t *testing.T) {
 	ctx := context.Background()
 
@@ -406,14 +414,12 @@ func TestFindAvailableStates(t *testing.T) {
 					SchemaId:  "schema1",
 					CreatedAt: 123,
 					DataJson:  `{"foo": "bar"}`,
-					Locks:     nil,
 				},
 				{
 					Id:        "state2",
 					SchemaId:  "schema1",
 					CreatedAt: 456,
 					DataJson:  `{"baz": "qux"}`,
-					Locks:     nil,
 				},
 			},
 			wantErr: false,
@@ -423,14 +429,12 @@ func TestFindAvailableStates(t *testing.T) {
 					SchemaId:  "schema1",
 					CreatedAt: 123,
 					DataJson:  `{"foo": "bar"}`,
-					Locks:     nil,
 				},
 				{
 					Id:        "state2",
 					SchemaId:  "schema1",
 					CreatedAt: 456,
 					DataJson:  `{"baz": "qux"}`,
-					Locks:     nil,
 				},
 			},
 		},

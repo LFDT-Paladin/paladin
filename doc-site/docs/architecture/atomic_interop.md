@@ -11,7 +11,7 @@ The primary classes of privacy preserving smart contracts are:
 - EVM Private Smart Contracts verified by Privacy Group endorsement
      - Learn more about [Pente](./pente.md)
 
-> TODO: Feel like a high-level diagram would be helpful here.
+<!-- TODO: Feel like a high-level diagram would be helpful here. -->
 
 ## DvP, PvP and other use cases
 

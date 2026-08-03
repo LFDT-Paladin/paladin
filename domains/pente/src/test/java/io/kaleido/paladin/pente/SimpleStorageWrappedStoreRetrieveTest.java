@@ -45,7 +45,7 @@ public class SimpleStorageWrappedStoreRetrieveTest {
 
         // Generate a shiny new EVM
         EVMVersion evmVersion = EVMVersion.Shanghai(new Random().nextLong(), EvmConfiguration.DEFAULT);
-        EVMRunner evmRunnerFresh = new EVMRunner(evmVersion, address -> Optional.empty(), 0);
+        EVMRunner evmRunnerFresh = new EVMRunner(evmVersion, address -> Optional.empty(), 0, 0);
 
         // Load some bytecode for our first contract deploy
         String resourcePath = "contracts/testcontracts/SimpleStorageWrapped.sol/SimpleStorageWrapped.json";
@@ -86,7 +86,7 @@ public class SimpleStorageWrappedStoreRetrieveTest {
         // Create a new world that dynamically loads those bytes
         EVMRunner evmRunnerWithLoad = new EVMRunner(evmVersion, address ->
             accountBytes.containsKey(address) ? Optional.of(PersistedAccount.deserialize(accountBytes.get(address))) : Optional.empty()
-        , 0);
+        , 0, 0);
 
         // Run the get against that world
         MessageFrame getFrame = evmRunnerWithLoad.runContractInvoke(

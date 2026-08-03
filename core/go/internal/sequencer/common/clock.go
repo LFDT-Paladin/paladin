@@ -23,24 +23,18 @@ import (
 type Clock interface {
 	//wrapper of time.Now()
 	//primarily to allow artificial clocks to be injected for testing
-	Now() Time
-	HasExpired(Time, Duration) bool
-	Duration(milliseconds int) Duration
-	ScheduleTimer(context.Context, Duration, func()) (cancel func())
-}
-
-type Duration interface {
-}
-
-type Time interface {
+	Now() time.Time
+	HasExpired(time.Time, time.Duration) bool
+	Duration(milliseconds int) time.Duration
+	ScheduleTimer(context.Context, time.Duration, func()) (cancel func())
 }
 
 type realClock struct{}
 
-func (c *realClock) Duration(milliseconds int) Duration {
+func (c *realClock) Duration(milliseconds int) time.Duration {
 	return time.Duration(milliseconds) * time.Millisecond
 }
-func (c *realClock) Now() Time {
+func (c *realClock) Now() time.Time {
 	return time.Now()
 }
 
@@ -48,16 +42,13 @@ func RealClock() Clock {
 	return &realClock{}
 }
 
-func (c *realClock) HasExpired(start Time, duration Duration) bool {
-	realStart := start.(time.Time)
-	realDuration := duration.(time.Duration)
-	return time.Now().After(realStart.Add(realDuration))
+func (c *realClock) HasExpired(start time.Time, duration time.Duration) bool {
+	return !time.Now().Before(start.Add(duration))
 }
 
-func (c *realClock) ScheduleTimer(ctx context.Context, duration Duration, f func()) (cancel func()) {
+func (c *realClock) ScheduleTimer(ctx context.Context, duration time.Duration, f func()) (cancel func()) {
 	timerCtx, cancel := context.WithCancel(ctx)
-	realDuration := duration.(time.Duration)
-	timer := time.NewTimer(realDuration)
+	timer := time.NewTimer(duration)
 	go func() {
 		defer timer.Stop()
 		select {
@@ -68,41 +59,4 @@ func (c *realClock) ScheduleTimer(ctx context.Context, duration Duration, f func
 		}
 	}()
 	return cancel
-}
-
-type FakeClockForTesting struct {
-	currentTime int
-}
-
-type fakeTime struct {
-	milliseconds int
-}
-
-type fakeDuration struct {
-	milliseconds int
-}
-
-// On the fake clock, time is just a number
-func (c *FakeClockForTesting) Advance(advance int) {
-	c.currentTime += advance
-}
-
-func (c *FakeClockForTesting) Now() Time {
-	return &fakeTime{c.currentTime}
-}
-
-func (c *FakeClockForTesting) HasExpired(start Time, duration Duration) bool {
-	startMillis := start.(*fakeTime).milliseconds
-	durationMillis := duration.(*fakeDuration).milliseconds
-	nowMillis := c.currentTime
-	return nowMillis > startMillis+durationMillis
-
-}
-
-func (c *FakeClockForTesting) ScheduleTimer(context.Context, Duration, func()) (cancel func()) {
-	return func() {}
-}
-
-func (c *FakeClockForTesting) Duration(milliseconds int) Duration {
-	return &fakeDuration{milliseconds}
 }

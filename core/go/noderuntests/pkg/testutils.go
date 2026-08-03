@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -56,6 +57,7 @@ import (
 type ComponentTestInstance interface {
 	GetName() string
 	GetClient() pldclient.PaladinClient
+	GetHTTPURL() string
 	GetWSConfig() *pldconf.WSClientConfig
 	ResolveEthereumAddress(identity string) string
 	GetComponentManager() componentmgr.ComponentManager
@@ -70,6 +72,7 @@ type componentTestInstance struct {
 	ctx                    context.Context
 	cancelCtx              context.CancelFunc
 	client                 pldclient.PaladinClient
+	httpURL                string
 	resolveEthereumAddress func(identity string) string
 	cm                     componentmgr.ComponentManager
 	pluginManager          plugins.UnitTestPluginLoader
@@ -90,7 +93,7 @@ func NewNodeConfiguration(t *testing.T, nodeName string) *nodeConfiguration {
 	require.NoError(t, err)
 	cert, key := buildTestCertificate(t, pkix.Name{CommonName: nodeName}, nil, nil)
 	return &nodeConfiguration{
-		address: "localhost",
+		address: "127.0.0.1",
 		port:    port,
 		cert:    cert,
 		key:     key,
@@ -104,6 +107,10 @@ func (testutils *componentTestInstance) GetName() string {
 
 func (testutils *componentTestInstance) GetClient() pldclient.PaladinClient {
 	return testutils.client
+}
+
+func (testutils *componentTestInstance) GetHTTPURL() string {
+	return testutils.httpURL
 }
 
 func (testutils *componentTestInstance) GetWSConfig() *pldconf.WSClientConfig {
@@ -156,18 +163,13 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 	}
 	i.ctx, i.cancelCtx = context.WithCancel(log.WithLogField(t.Context(), "node-name", binding.name))
 	if binding.sequencerConfig != nil {
-		i.conf.SequencerManager.RequestTimeout = binding.sequencerConfig.RequestTimeout
-		i.conf.SequencerManager.AssembleTimeout = binding.sequencerConfig.AssembleTimeout
-		i.conf.SequencerManager.BlockHeightTolerance = binding.sequencerConfig.BlockHeightTolerance
-		i.conf.SequencerManager.ClosingGracePeriod = binding.sequencerConfig.ClosingGracePeriod
+		mergeSequencerConfig(&i.conf.SequencerManager, binding.sequencerConfig)
 	}
 
 	i.conf.BlockIndexer.FromBlock = json.RawMessage(`"latest"`)
 	i.conf.Domains = make(map[string]*pldconf.DomainConfig, 1)
 	if domainConfig == nil {
-		domainConfig = &domains.SimpleDomainConfig{
-			SubmitMode: domains.ENDORSER_SUBMISSION,
-		}
+		domainConfig = &domains.SimpleDomainConfig{}
 	}
 
 	switch domainConfig := domainConfig.(type) {
@@ -178,7 +180,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 				Type:    string(pldtypes.LibraryTypeCShared),
 				Library: "loaded/via/unit/test/loader",
 			},
-			Config:          map[string]any{"submitMode": domainConfig.SubmitMode},
+			Config:          map[string]any{},
 			RegistryAddress: domainRegistryAddress.String(),
 		}
 	case *domains.SimpleStorageDomainConfig:
@@ -194,14 +196,30 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 				Library: "loaded/via/unit/test/loader",
 			},
 			Config: map[string]any{
-				"submitMode":     domainConfig.SubmitMode,
 				"endorsementSet": endorsementSet,
 			},
 			RegistryAddress: domainRegistryAddress.String(),
 		}
+	case *domains.SimpleDomainPairConfig:
+		domainPlugin := pldconf.PluginConfig{
+			Type:    string(pldtypes.LibraryTypeCShared),
+			Library: "loaded/via/unit/test/loader",
+		}
+		i.conf.Domains["domain1"] = &pldconf.DomainConfig{
+			AllowSigning:    true,
+			Plugin:          domainPlugin,
+			Config:          map[string]any{},
+			RegistryAddress: domainConfig.Domain1RegistryAddress,
+		}
+		i.conf.Domains["domain2"] = &pldconf.DomainConfig{
+			AllowSigning:    true,
+			Plugin:          domainPlugin,
+			Config:          map[string]any{},
+			RegistryAddress: domainConfig.Domain2RegistryAddress,
+		}
 	}
 
-	if identity := os.Getenv("FIXED_SIGNING_IDENTITY"); identity != "" {
+	if identity := getFixedSigningIdentity(); identity != "" {
 		for _, domainConfig := range i.conf.Domains {
 			domainConfig.FixedSigningIdentity = identity
 		}
@@ -215,7 +233,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 				Library: "loaded/via/unit/test/loader",
 			},
 			Config: map[string]any{
-				"address": "localhost",
+				"address": binding.address,
 				"port":    binding.port,
 				"tls": pldconf.TLSConfig{
 					Enabled: true,
@@ -272,6 +290,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 
 	loaderMap := map[string]plugintk.Plugin{
 		"domain1":             domains.SimpleTokenDomain(t, i.ctx),
+		"domain2":             domains.SimpleTokenDomain(t, i.ctx),
 		"simpleStorageDomain": domains.SimpleStorageDomain(t, i.ctx),
 		"grpc":                grpc.NewPlugin(i.ctx),
 		"registry1":           static.NewPlugin(i.ctx),
@@ -294,7 +313,8 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 		})
 	}
 
-	client, err := rpcclient.NewHTTPClient(log.WithLogField(t.Context(), "client-for", binding.name), &pldconf.HTTPClientConfig{URL: "http://localhost:" + strconv.Itoa(*i.conf.RPCServer.HTTP.Port)})
+	i.httpURL = "http://localhost:" + strconv.Itoa(*i.conf.RPCServer.HTTP.Port)
+	client, err := rpcclient.NewHTTPClient(log.WithLogField(t.Context(), "client-for", binding.name), &pldconf.HTTPClientConfig{URL: i.httpURL})
 	require.NoError(t, err)
 	i.client = pldclient.Wrap(client).ReceiptPollingInterval(100 * time.Millisecond)
 
@@ -390,15 +410,6 @@ func DeployDomainRegistry(t *testing.T, configPath string) *pldtypes.EthAddress 
 
 }
 
-func getBesuPort() int {
-	if portStr := os.Getenv("BESU_PORT"); portStr != "" {
-		if port, err := strconv.Atoi(portStr); err == nil {
-			return port
-		}
-	}
-	return 0
-}
-
 func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.PaladinConfig, pldconf.WSClientConfig) {
 	ctx := t.Context()
 
@@ -455,7 +466,6 @@ func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.Paladin
 
 	// Configure Besu connection with the port determined by environment variable
 	besuPort := getBesuPort()
-	require.NotZero(t, besuPort, "BESU_PORT environment variable is not set")
 	conf.Blockchain.HTTP.URL = fmt.Sprintf("http://localhost:%d", besuPort)
 	conf.Blockchain.WS.URL = fmt.Sprintf("ws://localhost:%d", besuPort+1) // WS port is typically HTTP port + 1
 
@@ -529,6 +539,7 @@ type Party interface {
 	GetNodeName() string
 	GetNodeConfig() *nodeConfiguration
 	GetClient() pldclient.PaladinClient
+	GetHTTPURL() string
 	AddPeer(peers ...interface{})
 	Start(t *testing.T, domainConfig any, configPath string, manualTestCleanup bool)
 	Stop(t *testing.T)
@@ -561,12 +572,37 @@ func (p *partyForTesting) GetClient() pldclient.PaladinClient {
 	return p.client
 }
 
+func (p *partyForTesting) GetHTTPURL() string {
+	return p.instance.GetHTTPURL()
+}
+
 func (p *partyForTesting) GetIdentityLocator() string {
 	return p.identityLocator
 }
 
 func (p *partyForTesting) OverrideSequencerConfig(config *pldconf.SequencerConfig) {
 	p.nodeConfig.sequencerConfig = config
+}
+
+// mergeSequencerConfig copies only the non-nil pointer fields from override into base,
+// leaving fields that are nil in override untouched. Struct fields are merged recursively.
+func mergeSequencerConfig(base, override *pldconf.SequencerConfig) {
+	mergeStructByPointerFields(reflect.ValueOf(base).Elem(), reflect.ValueOf(override).Elem())
+}
+
+func mergeStructByPointerFields(base, override reflect.Value) {
+	for i := 0; i < override.NumField(); i++ {
+		src := override.Field(i)
+		dst := base.Field(i)
+		switch src.Kind() {
+		case reflect.Ptr:
+			if !src.IsNil() {
+				dst.Set(src)
+			}
+		case reflect.Struct:
+			mergeStructByPointerFields(dst, src)
+		}
+	}
 }
 
 func (p *partyForTesting) DeploySimpleDomainInstanceContract(t *testing.T, constructorParameters *domains.ConstructorParameters,
@@ -632,12 +668,46 @@ func (p *partyForTesting) AddPeer(peers ...interface{}) {
 func (p *partyForTesting) Start(t *testing.T, domainConfig any, configPath string, manualTestCleanup bool) {
 	p.instance = NewInstanceForTesting(t, p.domainRegistryAddress, p.nodeConfig, p.peers, domainConfig, false, configPath, manualTestCleanup)
 	p.client = p.instance.GetClient()
+
+	// Mirror the check in Stop(): wait until the transport listener is actually
+	// accepting connections before returning. ConfigureTransport binds the port
+	// via net.Listen but launches grpcServer.Serve() in a goroutine, so the
+	// gRPC Accept() loop may not have started yet when CompleteStart() returns.
+	// A successful TCP dial proves the server is ready to accept gRPC streams,
+	// preventing races where peers send fire-and-forget messages to the freshly
+	// restarted node before it can receive them.
+	listenerAddr := net.JoinHostPort(p.nodeConfig.address, strconv.Itoa(p.nodeConfig.port))
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", listenerAddr, 100*time.Millisecond)
+		if err != nil {
+			return false
+		}
+		_ = conn.Close()
+		return true
+	}, 10*time.Second, 100*time.Millisecond, "transport listener not yet accepting connections on %s", listenerAddr)
 }
 
 func (p *partyForTesting) Stop(t *testing.T) {
-	p.instance.GetComponentManager().Stop()
-	p.instance.GetPluginManager().Stop()
-	p.instance.CancelInstanceCtx()
+	if p.instance == nil {
+		return
+	}
+	instance := p.instance
+	p.instance = nil
+
+	instance.GetComponentManager().Stop()
+	instance.GetPluginManager().Stop()
+	instance.CancelInstanceCtx()
+
+	// Avoid restart races by waiting for the transport listener to release its bind port.
+	listenerAddr := net.JoinHostPort(p.nodeConfig.address, strconv.Itoa(p.nodeConfig.port))
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", listenerAddr, 100*time.Millisecond)
+		if err != nil {
+			return true
+		}
+		_ = conn.Close()
+		return false
+	}, 10*time.Second, 100*time.Millisecond, "transport listener still accepting connections on %s", listenerAddr)
 }
 
 func (p *partyForTesting) ResolveEthereumAddress(identity string) string {

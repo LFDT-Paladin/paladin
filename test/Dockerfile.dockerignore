@@ -1,0 +1,50 @@
+# Separate test-specific dockerignore.
+# Key differences from root .dockerignore:
+# - test/ is NOT excluded (the go build needs it)
+# - *.pb.go is NOT excluded (not generated in this build)
+# - Large dirs are excluded but their go.mod stubs are re-included
+#   because go.work requires a go.mod for every workspace module.
+
+**/coverage
+**/mocks
+**/node_modules
+**/build
+**/bin
+**/tools
+**/typechain-types
+**/artifacts
+**/*.so
+**/*.dylib
+**/*.dll
+.git
+**/.gradle
+
+# Doc site is 100s of MB
+doc-site/
+
+# Zeto ZKP is 1GB
+domains/zeto/zkp
+
+# Exclude large dirs but keep their go.mod stubs for go.work
+core/
+!core/go/go.mod
+domains/
+!domains/integration-test/go.mod
+!domains/noto/go.mod
+!domains/zeto/go.mod
+operator/
+!operator/go.mod
+registries/
+!registries/evm/go.mod
+!registries/static/go.mod
+rpcauth/
+!rpcauth/basicauth/go.mod
+signingmodules/
+!signingmodules/example/go.mod
+testinfra/
+!testinfra/go.mod
+transports/
+!transports/grpc/go.mod
+
+# Other folders not needed at all
+examples/

@@ -65,7 +65,7 @@ type listenerSubscription struct {
 	closed    chan struct{}
 }
 
-func (es *rpcEventStreams) HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl rpcserver.RPCAsyncControl) (rpcserver.RPCAsyncInstance, *rpcclient.RPCResponse) {
+func (es *rpcEventStreams) HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl rpcserver.RPCAsyncControl) (subscription rpcserver.RPCAsyncInstance, res *rpcclient.RPCResponse, afterSend func()) {
 	es.subLock.Lock()
 	defer es.subLock.Unlock()
 
@@ -74,14 +74,14 @@ func (es *rpcEventStreams) HandleStart(ctx context.Context, req *rpcclient.RPCRe
 		eventType = pldtypes.Enum[pldapi.PTXEventType](req.Params[0].StringValue())
 	}
 	if _, err := eventType.Validate(); err != nil {
-		return nil, rpcclient.NewRPCErrorResponse(err, req.ID, rpcclient.RPCCodeInvalidRequest)
+		return nil, rpcclient.NewRPCErrorResponse(err, req.ID, rpcclient.RPCCodeInvalidRequest), nil
 	}
 
 	if len(req.Params) < 2 {
 		if eventType == pldapi.PTXEventTypeEvents.Enum() {
-			return nil, rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerNameRequired), req.ID, rpcclient.RPCCodeInvalidRequest)
+			return nil, rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerNameRequired), req.ID, rpcclient.RPCCodeInvalidRequest), nil
 		} else {
-			return nil, rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, msgs.MsgTxMgrReceiptListenerNameRequired), req.ID, rpcclient.RPCCodeInvalidRequest)
+			return nil, rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, msgs.MsgTxMgrReceiptListenerNameRequired), req.ID, rpcclient.RPCCodeInvalidRequest), nil
 		}
 	}
 	sub := &listenerSubscription{
@@ -90,7 +90,7 @@ func (es *rpcEventStreams) HandleStart(ctx context.Context, req *rpcclient.RPCRe
 		acksNacks: make(chan *rpcAckNack, 1),
 		closed:    make(chan struct{}),
 	}
-	es.subs[ctrl.ID()] = sub
+
 	var err error
 	if eventType == pldapi.PTXEventTypeEvents.Enum() {
 		sub.rrc, err = es.tm.AddBlockchainEventReceiver(ctx, req.Params[1].StringValue(), sub)
@@ -98,14 +98,20 @@ func (es *rpcEventStreams) HandleStart(ctx context.Context, req *rpcclient.RPCRe
 		sub.rrc, err = es.tm.AddReceiptReceiver(ctx, req.Params[1].StringValue(), sub)
 	}
 	if err != nil {
-		return nil, rpcclient.NewRPCErrorResponse(err, req.ID, rpcclient.RPCCodeInvalidRequest)
+		return nil, rpcclient.NewRPCErrorResponse(err, req.ID, rpcclient.RPCCodeInvalidRequest), nil
+	}
+
+	es.subs[ctrl.ID()] = sub
+	log.L(ctx).Debugf("ptx_subscribe started subID=%s total_subs=%d", ctrl.ID(), len(es.subs))
+	afterSend = func() {
+		sub.rrc.SetActive()
 	}
 
 	return sub, &rpcclient.RPCResponse{
 		JSONRpc: "2.0",
 		ID:      req.ID,
 		Result:  pldtypes.JSONString(ctrl.ID()),
-	}
+	}, afterSend
 }
 
 func (es *rpcEventStreams) cleanupSubscription(subID string) {
@@ -205,6 +211,9 @@ func (sub *listenerSubscription) WaitForAck(ctx context.Context, batchID string)
 		}
 		log.L(ctx).Infof("Batch %s acknowledged by subscription %s over JSON/RPC", batchID, sub.ctrl.ID())
 		return nil
+	case <-ctx.Done():
+		log.L(ctx).Warnf("Context canceled while waiting for ack/nack for batch %s", batchID)
+		return i18n.NewError(ctx, msgs.MsgContextCanceled)
 	case <-sub.closed:
 		return i18n.NewError(ctx, msgs.MsgTxMgrJSONRPCSubscriptionClosed, sub.ctrl.ID())
 	}
@@ -216,6 +225,7 @@ func (sub *listenerSubscription) ConnectionClosed() {
 
 func (es *rpcEventStreams) cleanupLocked(sub *listenerSubscription) {
 	delete(sub.es.subs, sub.ctrl.ID())
+	log.L(es.tm.bgCtx).Debugf("ptx_subscribe cleaned up subID=%s total_subs=%d", sub.ctrl.ID(), len(sub.es.subs))
 	if sub.rrc != nil {
 		sub.rrc.Close()
 	}

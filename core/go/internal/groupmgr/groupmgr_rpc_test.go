@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -283,6 +284,37 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 	require.Len(t, msgByCID, 1)
 	require.Equal(t, msgID, msgByCID[0].ID)
 
+}
+
+func TestRPCInvokeRPCError(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	client := newTestRPCServer(t, ctx, gm)
+
+	var result pldtypes.RawJSON
+	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", pldtypes.HexBytes(pldtypes.RandBytes(32)), pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "PD012502", rpcErr)
+}
+
+func TestRPCInvokeRPCOK(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(pldtypes.RawJSON(`"0xdeadbeef"`), nil)
+
+	client := newTestRPCServer(t, ctx, gm)
+
+	var result pldtypes.RawJSON
+	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	require.NoError(t, rpcErr)
+	assert.Equal(t, pldtypes.RawJSON(`"0xdeadbeef"`), result)
 }
 
 func TestRCPMessageListenersCRUDRealDB(t *testing.T) {

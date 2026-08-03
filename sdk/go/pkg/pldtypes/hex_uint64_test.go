@@ -75,4 +75,15 @@ func TestHexUint64(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, `{"f1":"0x3039"}`, string(b))
 
+	err = ts.F1.Scan("0x3039")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(12345), ts.F1.Uint64())
+
+	err = ts.F1.Scan(json.Number("54321"))
+	require.NoError(t, err)
+	assert.Equal(t, uint64(54321), ts.F1.Uint64())
+
+	err = json.Unmarshal([]byte(`{"f1": true}`), &ts)
+	assert.Regexp(t, "PD020002", err)
+
 }

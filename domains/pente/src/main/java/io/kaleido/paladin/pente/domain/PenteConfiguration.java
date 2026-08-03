@@ -187,6 +187,7 @@
                  JsonABI.newParameter("rawTransaction", "bytes"),
                  JsonABI.newParameter("evmVersion", "string"),
                  JsonABI.newParameter("baseBlock", "uint64"),
+                 JsonABI.newParameter("baseBlockTimestamp", "uint64"),
                  JsonABI.newParameter("bytecodeLength", "uint32")
          ));
      }

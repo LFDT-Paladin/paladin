@@ -85,6 +85,19 @@ spec:
     pvcTemplate:
 {{ toYaml .database.pvcTemplate | nindent 6 }}
     {{- end }}
+  {{- if and .logPersistence .logPersistence.enabled }}
+  logPersistence:
+    enabled: true
+    path: {{ .logPersistence.path | default "/app/logs/paladin.log" | quote }}
+    {{- with .logPersistence.pvcTemplate }}
+    pvcTemplate:
+{{ toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .logPersistence.file }}
+    file:
+{{ toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
 
   secretBackedSigners:
   {{- range .secretBackedSigners }}

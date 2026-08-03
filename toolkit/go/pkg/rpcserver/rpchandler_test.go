@@ -18,18 +18,51 @@ package rpcserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/go-resty/resty/v2"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type asyncHandlerForTest struct {
+	postSendDone chan struct{}
+}
+
+func (h *asyncHandlerForTest) StartMethod() string {
+	return "ut_asyncStart"
+}
+
+func (h *asyncHandlerForTest) LifecycleMethods() []string {
+	return nil
+}
+
+func (h *asyncHandlerForTest) HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl RPCAsyncControl) (RPCAsyncInstance, *rpcclient.RPCResponse, func()) {
+	res := &rpcclient.RPCResponse{
+		JSONRpc: "2.0",
+		ID:      req.ID,
+		Result:  pldtypes.JSONString("started"),
+	}
+	afterSend := func() {
+		close(h.postSendDone)
+	}
+	return nil, res, afterSend
+}
+
+func (h *asyncHandlerForTest) HandleLifecycle(ctx context.Context, req *rpcclient.RPCRequest) *rpcclient.RPCResponse {
+	return rpcclient.NewRPCErrorResponse(fmt.Errorf("not used"), req.ID, rpcclient.RPCCodeInvalidRequest)
+}
 
 func TestRPCMessageBatch(t *testing.T) {
 
@@ -184,7 +217,7 @@ func TestRPCMessageBatchAllFail(t *testing.T) {
 		SetError(&jsonResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.JSONEq(t, `[
 		{
 			"jsonrpc": "2.0",
@@ -214,6 +247,49 @@ func TestRPCMessageBatchAllFail(t *testing.T) {
 
 }
 
+
+func TestRPCMethod1WithRPCCode(t *testing.T) {
+
+	url, s, done := newTestServerHTTP(t, &pldconf.RPCServerConfig{})
+	defer done()
+
+	var mu sync.Mutex
+	seenKeys := make(map[string]bool)
+	regTestRPC(s, "ut_idempotent", RPCMethod1WithRPCCode(func(ctx context.Context, idempotencyKey string) (string, rpcclient.RPCCode, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if seenKeys[idempotencyKey] {
+			return "", pldclient.RPCCodeConflict, fmt.Errorf("PD012220 duplicate request with idempotency key: %s", idempotencyKey)
+		}
+		seenKeys[idempotencyKey] = true
+		return "ok", 0, nil
+	}))
+
+	// First call succeeds
+	var firstResponse pldtypes.RawJSON
+	res, err := resty.New().R().
+		SetBody(`{"jsonrpc":"2.0","id":"1","method":"ut_idempotent","params":["my-key"]}`).
+		SetResult(&firstResponse).
+		Post(url)
+	require.NoError(t, err)
+	assert.True(t, res.IsSuccess())
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"1","result":"ok"}`, string(firstResponse))
+
+	// Second call: handler explicitly returns RPCCodeConflict; HTTP 200 with error body
+	var conflictResponse rpcclient.RPCResponse
+	res, err = resty.New().R().
+		SetBody(`{"jsonrpc":"2.0","id":"2","method":"ut_idempotent","params":["my-key"]}`).
+		SetResult(&conflictResponse).
+		SetError(&conflictResponse).
+		Post(url)
+	require.NoError(t, err)
+	assert.True(t, res.IsSuccess())
+	assert.NotNil(t, conflictResponse.Error)
+	assert.Equal(t, int64(pldclient.RPCCodeConflict), conflictResponse.Error.Code)
+	assert.Contains(t, conflictResponse.Error.Message, "PD012220")
+
+}
+
 func TestRPCHandleBadDataEmptySpace(t *testing.T) {
 
 	url, _, done := newTestServerHTTP(t, &pldconf.RPCServerConfig{})
@@ -226,7 +302,7 @@ func TestRPCHandleBadDataEmptySpace(t *testing.T) {
 		SetError(&jsonResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess()) // parse error → valid JSON/RPC error body → HTTP 200
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), jsonResponse.Error.Code)
 	assert.Regexp(t, "PD020700", jsonResponse.Error.Message)
 
@@ -238,7 +314,7 @@ func TestRPCHandleIOError(t *testing.T) {
 	defer done()
 
 	r := s.rpcHandler(context.Background(), iotest.ErrReader(fmt.Errorf("pop")), nil)
-	assert.False(t, r.isOK)
+	assert.Zero(t, r.httpStatus)
 	jsonResponse := r.res.(*rpcclient.RPCResponse)
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), jsonResponse.Error.Code)
 	assert.Regexp(t, "PD020700", jsonResponse.Error.Message)
@@ -251,9 +327,51 @@ func TestRPCBadArrayError(t *testing.T) {
 	defer done()
 
 	r := s.rpcHandler(context.Background(), strings.NewReader("[... this is not an array"), nil)
-	assert.False(t, r.isOK)
+	assert.Zero(t, r.httpStatus)
 	jsonResponse := r.res.(*rpcclient.RPCResponse)
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), jsonResponse.Error.Code)
 	assert.Regexp(t, "PD020700", jsonResponse.Error.Message)
 
+}
+
+func TestRPCBatchPostSendCalls(t *testing.T) {
+	postSendDone := make(chan struct{})
+	asyncHandler := &asyncHandlerForTest{postSendDone: postSendDone}
+
+	wsURL, s, done := newTestServerWebSockets(t, &pldconf.RPCServerConfig{})
+	defer done()
+
+	s.Register(NewRPCModule("ut").AddAsync(asyncHandler))
+	regTestRPC(s, "ut_sync", RPCMethod0(func(ctx context.Context) (string, error) {
+		return "syncResult", nil
+	}))
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Batch: async start (returns afterSend) + a regular sync method (nil afterSend)
+	batchReq := `[
+		{"jsonrpc":"2.0","id":"1","method":"ut_asyncStart","params":[]},
+		{"jsonrpc":"2.0","id":"2","method":"ut_sync","params":[]}
+	]`
+	err = conn.WriteMessage(websocket.TextMessage, []byte(batchReq))
+	require.NoError(t, err)
+
+	_, respBytes, err := conn.ReadMessage()
+	require.NoError(t, err)
+
+	var batchRes []*rpcclient.RPCResponse
+	err = json.Unmarshal(respBytes, &batchRes)
+	require.NoError(t, err)
+	require.Len(t, batchRes, 2)
+	assert.Nil(t, batchRes[0].Error)
+	assert.Nil(t, batchRes[1].Error)
+
+	select {
+	case <-postSendDone:
+		// success
+	case <-time.After(10 * time.Second):
+		t.Fatal("postSend callback was not invoked within timeout")
+	}
 }

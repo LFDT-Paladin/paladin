@@ -2,6 +2,7 @@ package identityresolver
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -364,4 +365,567 @@ func TestHandlePaladinMsg_ResolveVerifierResponse_InvalidPayload(t *testing.T) {
 
 	// Call HandlePaladinMsg - it should handle the error gracefully
 	ir.HandlePaladinMsg(ctx, message)
+}
+
+func TestPreInit(t *testing.T) {
+	ir := &identityResolver{}
+	result, err := ir.PreInit(nil)
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+}
+
+func TestPostInit(t *testing.T) {
+	ir := &identityResolver{}
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockKeyManager := componentsmocks.NewKeyManager(t)
+	mockAllComponents := componentsmocks.NewAllComponents(t)
+
+	mockTransportManager.On("LocalNodeName").Return("mynode")
+	mockAllComponents.On("TransportManager").Return(mockTransportManager)
+	mockAllComponents.On("KeyManager").Return(mockKeyManager)
+
+	err := ir.PostInit(mockAllComponents)
+	require.NoError(t, err)
+	assert.Equal(t, "mynode", ir.nodeName)
+	assert.Equal(t, mockKeyManager, ir.keyManager)
+	assert.Equal(t, mockTransportManager, ir.transportManager)
+}
+
+func TestStart(t *testing.T) {
+	ir := &identityResolver{}
+	err := ir.Start()
+	require.NoError(t, err)
+}
+
+func TestStop(t *testing.T) {
+	ir := &identityResolver{}
+	ir.Stop()
+}
+
+func TestResolveVerifier_LocalSuccess(t *testing.T) {
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockKeyManager := componentsmocks.NewKeyManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		keyManager:            mockKeyManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{
+			Verifier: "0xabcdef",
+			Type:     verifiers.ETH_ADDRESS,
+		},
+	}
+	mockKeyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, "something", algorithms.Curve_SECP256K1, verifiers.ETH_ADDRESS).Return(resolvedKey, nil)
+
+	verifier, err := ir.ResolveVerifier(context.Background(), "something@testnode", algorithms.Curve_SECP256K1, verifiers.ETH_ADDRESS)
+	require.NoError(t, err)
+	assert.Equal(t, "0xabcdef", verifier)
+}
+
+func TestResolveVerifierAsync_CacheHit(t *testing.T) {
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	vCache := cache.NewCache[string, string](config, config)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         vCache,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	// Pre-populate the cache
+	ck := cacheKey("something", "testnode", algorithms.Curve_SECP256K1, verifiers.ETH_ADDRESS)
+	vCache.Set(ck, "0xcached")
+
+	resolvedChan := make(chan string, 1)
+	ir.ResolveVerifierAsync(context.Background(), "something@testnode", algorithms.Curve_SECP256K1, verifiers.ETH_ADDRESS,
+		func(ctx context.Context, verifier string) {
+			resolvedChan <- verifier
+		},
+		func(ctx context.Context, err error) {
+			t.Fatalf("unexpected error: %v", err)
+		},
+	)
+
+	select {
+	case verifier := <-resolvedChan:
+		assert.Equal(t, "0xcached", verifier)
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for cache hit resolution")
+	}
+}
+
+func TestResolveVerifierAsync_LocalFail(t *testing.T) {
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockKeyManager := componentsmocks.NewKeyManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		keyManager:            mockKeyManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	mockKeyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("key resolution failed"))
+
+	errChan := make(chan error, 1)
+	ir.ResolveVerifierAsync(context.Background(), "something@testnode", algorithms.Curve_SECP256K1, verifiers.ETH_ADDRESS,
+		func(ctx context.Context, verifier string) {
+			t.Fatalf("unexpected resolution: %s", verifier)
+		},
+		func(ctx context.Context, err error) {
+			errChan <- err
+		},
+	)
+
+	select {
+	case err := <-errChan:
+		assert.ErrorContains(t, err, "key resolution failed")
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for local resolution error")
+	}
+}
+
+func TestResolveVerifierAsync_Remote_Success(t *testing.T) {
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		transportManager:      mockTransportManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	mockTransportManager.On("Send", mock.Anything, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		return msg.MessageType == "ResolveVerifierRequest" && msg.Node == "remotenode"
+	}), mock.Anything).Return(nil)
+
+	resolvedChan := make(chan string, 1)
+	ir.ResolveVerifierAsync(context.Background(), "something@remotenode", algorithms.Curve_SECP256K1, verifiers.ETH_ADDRESS,
+		func(ctx context.Context, verifier string) {
+			resolvedChan <- verifier
+		},
+		func(ctx context.Context, err error) {
+			t.Fatalf("unexpected error: %v", err)
+		},
+	)
+
+	// Verify the inflight request was registered
+	time.Sleep(50 * time.Millisecond)
+	ir.inflightRequestsMutex.Lock()
+	assert.Equal(t, 1, len(ir.inflightRequests))
+	ir.inflightRequestsMutex.Unlock()
+
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestResolveVerifierAsync_Remote_SendFail(t *testing.T) {
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		transportManager:      mockTransportManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	mockTransportManager.On("Send", mock.Anything, mock.Anything, mock.Anything).
+		Return(fmt.Errorf("transport unavailable"))
+
+	errChan := make(chan error, 1)
+	ir.ResolveVerifierAsync(context.Background(), "something@remotenode", algorithms.Curve_SECP256K1, verifiers.ETH_ADDRESS,
+		func(ctx context.Context, verifier string) {
+			t.Fatalf("unexpected resolution: %s", verifier)
+		},
+		func(ctx context.Context, err error) {
+			errChan <- err
+		},
+	)
+
+	select {
+	case err := <-errChan:
+		assert.ErrorContains(t, err, "transport unavailable")
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for remote send error")
+	}
+}
+
+func TestResolveVerifierAsync_Remote_ErrorHandler(t *testing.T) {
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		transportManager:      mockTransportManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	errChan := make(chan error, 1)
+
+	// The Send succeeds, but then the error handler is invoked asynchronously to simulate a
+	// delivery failure. The handler must fire after addInflightRequest is called, so it runs
+	// in a goroutine with a small delay.
+	mockTransportManager.On("Send", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			opts := args.Get(2).([]*components.TransportSendOptions)
+			if len(opts) > 0 && opts[0].ErrorHandler != nil {
+				go func() {
+					time.Sleep(20 * time.Millisecond)
+					opts[0].ErrorHandler(context.Background(), fmt.Errorf("delivery failed"))
+				}()
+			}
+		}).Return(nil)
+
+	ir.ResolveVerifierAsync(context.Background(), "something@remotenode", algorithms.Curve_SECP256K1, verifiers.ETH_ADDRESS,
+		func(ctx context.Context, verifier string) {
+			t.Fatalf("unexpected resolution: %s", verifier)
+		},
+		func(ctx context.Context, err error) {
+			errChan <- err
+		},
+	)
+
+	select {
+	case err := <-errChan:
+		assert.Error(t, err)
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for error handler result")
+	}
+}
+
+func TestResolveInflightRequest_NotFound(t *testing.T) {
+	ir := &identityResolver{
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+	// Calling with a non-existent ID should log a warning and not panic
+	ir.resolveInflightRequest(context.Background(), "nonexistent-id", "someVerifier")
+}
+
+func TestFailInflightRequest_NotFound(t *testing.T) {
+	ir := &identityResolver{
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+	// Calling with a non-existent ID should log a warning and not panic
+	ir.failInflightRequest(context.Background(), "nonexistent-id", fmt.Errorf("some error"))
+}
+
+func TestHandlePaladinMsg_ResolveVerifierError_InvalidPayload(t *testing.T) {
+	ctx := context.Background()
+	ir := &identityResolver{
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	correlationID := uuid.New()
+	message := &components.ReceivedMessage{
+		FromNode:      "remotenode",
+		MessageID:     uuid.New(),
+		CorrelationID: &correlationID,
+		MessageType:   "ResolveVerifierError",
+		Payload:       []byte("\xFF\xFE invalid proto"),
+	}
+
+	// Should log an error but not panic
+	ir.HandlePaladinMsg(ctx, message)
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestHandleResolveVerifierRequest_InvalidPayload(t *testing.T) {
+	ctx := context.Background()
+	ir := &identityResolver{
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+	requestID := uuid.New()
+	// Should log an error and return without panicking
+	ir.handleResolveVerifierRequest(ctx, []byte("\xFF\xFE invalid proto"), "remotenode", &requestID)
+}
+
+func TestHandleResolveVerifierRequest_InvalidLookup(t *testing.T) {
+	ctx := context.Background()
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockKeyManager := componentsmocks.NewKeyManager(t)
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		keyManager:            mockKeyManager,
+		transportManager:      mockTransportManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	// Lookup with invalid identity (contains $) causes Identity() to fail
+	request := &pbIdentityResolver.ResolveVerifierRequest{
+		Lookup:       "bad$name@testnode",
+		Algorithm:    algorithms.Curve_SECP256K1,
+		VerifierType: verifiers.ETH_ADDRESS,
+	}
+	payload, err := proto.Marshal(request)
+	require.NoError(t, err)
+
+	requestID := uuid.New()
+	// Expect an error response to be sent back
+	mockTransportManager.On("Send", mock.Anything, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		return msg.MessageType == "ResolveVerifierError" && msg.Node == "remotenode"
+	})).Return(nil)
+
+	ir.handleResolveVerifierRequest(ctx, payload, "remotenode", &requestID)
+
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestHandleResolveVerifierRequest_KeyFail_SendError(t *testing.T) {
+	ctx := context.Background()
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockKeyManager := componentsmocks.NewKeyManager(t)
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		keyManager:            mockKeyManager,
+		transportManager:      mockTransportManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	request := &pbIdentityResolver.ResolveVerifierRequest{
+		Lookup:       "test@testnode",
+		Algorithm:    algorithms.Curve_SECP256K1,
+		VerifierType: verifiers.ETH_ADDRESS,
+	}
+	payload, err := proto.Marshal(request)
+	require.NoError(t, err)
+
+	mockKeyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("key not found"))
+	// Send the error response successfully
+	mockTransportManager.On("Send", mock.Anything, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		return msg.MessageType == "ResolveVerifierError"
+	})).Return(nil)
+
+	requestID := uuid.New()
+	ir.handleResolveVerifierRequest(ctx, payload, "remotenode", &requestID)
+
+	mockKeyManager.AssertExpectations(t)
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestHandleResolveVerifierRequest_KeyFail_SendFail(t *testing.T) {
+	ctx := context.Background()
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockKeyManager := componentsmocks.NewKeyManager(t)
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		keyManager:            mockKeyManager,
+		transportManager:      mockTransportManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	request := &pbIdentityResolver.ResolveVerifierRequest{
+		Lookup:       "test@testnode",
+		Algorithm:    algorithms.Curve_SECP256K1,
+		VerifierType: verifiers.ETH_ADDRESS,
+	}
+	payload, err := proto.Marshal(request)
+	require.NoError(t, err)
+
+	mockKeyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("key not found"))
+	// Send of error response also fails
+	mockTransportManager.On("Send", mock.Anything, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		return msg.MessageType == "ResolveVerifierError"
+	})).Return(fmt.Errorf("transport error"))
+
+	requestID := uuid.New()
+	ir.handleResolveVerifierRequest(ctx, payload, "remotenode", &requestID)
+
+	mockKeyManager.AssertExpectations(t)
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestResolveVerifierAsync_Remote_MarshalFail(t *testing.T) {
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	origMarshal := protoMarshal
+	protoMarshal = func(m proto.Message) ([]byte, error) { return nil, fmt.Errorf("marshal error") }
+	defer func() { protoMarshal = origMarshal }()
+
+	errChan := make(chan error, 1)
+	ir.ResolveVerifierAsync(context.Background(), "something@remotenode", algorithms.Curve_SECP256K1, verifiers.ETH_ADDRESS,
+		func(ctx context.Context, verifier string) {
+			t.Fatalf("unexpected resolution: %s", verifier)
+		},
+		func(ctx context.Context, err error) {
+			errChan <- err
+		},
+	)
+
+	select {
+	case err := <-errChan:
+		assert.ErrorContains(t, err, "marshal error")
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for marshal error")
+	}
+}
+
+func TestHandleResolveVerifierRequest_MarshalResponseFail(t *testing.T) {
+	ctx := context.Background()
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockKeyManager := componentsmocks.NewKeyManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		keyManager:            mockKeyManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	request := &pbIdentityResolver.ResolveVerifierRequest{
+		Lookup:       "test@testnode",
+		Algorithm:    algorithms.Curve_SECP256K1,
+		VerifierType: verifiers.ETH_ADDRESS,
+	}
+	// Marshal the request *before* overriding protoMarshal
+	payload, err := proto.Marshal(request)
+	require.NoError(t, err)
+
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{
+			Verifier: "0x1234567890abcdef",
+			Type:     verifiers.ETH_ADDRESS,
+		},
+	}
+	mockKeyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(resolvedKey, nil)
+
+	origMarshal := protoMarshal
+	protoMarshal = func(m proto.Message) ([]byte, error) { return nil, fmt.Errorf("marshal response error") }
+	defer func() { protoMarshal = origMarshal }()
+
+	requestID := uuid.New()
+	// Should log error and fall through to the error-response path, which also fails to marshal,
+	// so no transport Send is expected.
+	ir.handleResolveVerifierRequest(ctx, payload, "remotenode", &requestID)
+
+	mockKeyManager.AssertExpectations(t)
+}
+
+func TestHandleResolveVerifierRequest_MarshalErrorFail(t *testing.T) {
+	ctx := context.Background()
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockKeyManager := componentsmocks.NewKeyManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		keyManager:            mockKeyManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	request := &pbIdentityResolver.ResolveVerifierRequest{
+		Lookup:       "test@testnode",
+		Algorithm:    algorithms.Curve_SECP256K1,
+		VerifierType: verifiers.ETH_ADDRESS,
+	}
+	payload, err := proto.Marshal(request)
+	require.NoError(t, err)
+
+	mockKeyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("key not found"))
+
+	origMarshal := protoMarshal
+	protoMarshal = func(m proto.Message) ([]byte, error) { return nil, fmt.Errorf("marshal error error") }
+	defer func() { protoMarshal = origMarshal }()
+
+	requestID := uuid.New()
+	ir.handleResolveVerifierRequest(ctx, payload, "remotenode", &requestID)
+
+	mockKeyManager.AssertExpectations(t)
+}
+
+func TestHandleResolveVerifierRequest_SendResponseFail(t *testing.T) {
+	ctx := context.Background()
+	capacity := 100
+	config := &pldconf.CacheConfig{Capacity: &capacity}
+	mockKeyManager := componentsmocks.NewKeyManager(t)
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+
+	ir := &identityResolver{
+		nodeName:              "testnode",
+		verifierCache:         cache.NewCache[string, string](config, config),
+		keyManager:            mockKeyManager,
+		transportManager:      mockTransportManager,
+		inflightRequests:      make(map[string]*inflightRequest),
+		inflightRequestsMutex: &sync.Mutex{},
+	}
+
+	request := &pbIdentityResolver.ResolveVerifierRequest{
+		Lookup:       "test@testnode",
+		Algorithm:    algorithms.Curve_SECP256K1,
+		VerifierType: verifiers.ETH_ADDRESS,
+	}
+	payload, err := proto.Marshal(request)
+	require.NoError(t, err)
+
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{
+			Verifier: "0x1234567890abcdef",
+			Type:     verifiers.ETH_ADDRESS,
+		},
+	}
+	mockKeyManager.On("ResolveKeyNewDatabaseTX", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(resolvedKey, nil)
+	// Send of success response fails
+	mockTransportManager.On("Send", mock.Anything, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		return msg.MessageType == "ResolveVerifierResponse"
+	})).Return(fmt.Errorf("transport error"))
+
+	requestID := uuid.New()
+	ir.handleResolveVerifierRequest(ctx, payload, "remotenode", &requestID)
+
+	mockKeyManager.AssertExpectations(t)
+	mockTransportManager.AssertExpectations(t)
 }

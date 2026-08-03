@@ -123,44 +123,9 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 	return nonRegisterEvents, txCompletions, nil
 }
 
-func (dm *domainManager) notifyTransactions(txCompletions txCompletionsOrdered) {
+// Direct waiters are only used by the testbed
+func (dm *domainManager) notifyWaiters(txCompletions txCompletionsOrdered) {
 	for _, completion := range txCompletions {
-		// The sequencer manager needs to know about these to update its in-memory state. For a regular private transaction with a public TX confirmation, we
-		// pass the "from" and "nonce" to the distributed sequencer state machine.
-		pubBindingTx, err := dm.publicTxManager.QueryPublicTxForTransactions(dm.bgCtx, dm.persistence.NOTX(), []uuid.UUID{completion.TransactionID}, nil)
-		if err != nil {
-			log.L(dm.bgCtx).Errorf("Error getting public transaction by ID: %s", err)
-		}
-
-		confirmedWithPublicTX := false
-
-		for _, pubTx := range pubBindingTx {
-			for _, publicTx := range pubTx {
-				log.L(dm.bgCtx).Debugf("Checking public transactions for TX ID %s to find a match for the receipt we are processing %s", completion.TransactionID, publicTx.TransactionHash)
-				if publicTx.TransactionHash.Equals(&completion.OnChain.TransactionHash) {
-					confirmedWithPublicTX = true
-					log.L(dm.bgCtx).Debugf("Found a match for the receipt we are processing %s", publicTx.TransactionHash)
-					err = dm.sequencerManager.HandleTransactionConfirmed(dm.bgCtx, completion, &publicTx.From, publicTx.Nonce)
-					if err != nil {
-						// Log but continue confirming other transactions
-						log.L(dm.bgCtx).Errorf("Error handling transaction confirmed event: %s", err)
-					}
-				}
-			}
-		}
-
-		// For private transactions that are being confirmed by virtue of a successful chained private transaction, we don't give the distributed sequencer any information
-		// about the underlying chained public TX.
-		if !confirmedWithPublicTX {
-			log.L(dm.bgCtx).Debugf("No public TX found, confirming %s via chained transaction", completion.TransactionID)
-			err = dm.sequencerManager.HandleTransactionConfirmedByChainedTransaction(dm.bgCtx, completion)
-			if err != nil {
-				// Log but continue confirming other transactions
-				log.L(dm.bgCtx).Errorf("Error handling transaction confirmed event: %s", err)
-			}
-		}
-
-		// We also provide a direct waiter that's used by the testbed
 		inflight := dm.privateTxWaiter.GetInflight(completion.TransactionID)
 		log.L(dm.bgCtx).Debugf("Notifying of completion for private deployment TransactionID %s (waiter=%t)", completion.TransactionID, inflight != nil)
 		if inflight != nil {
@@ -290,7 +255,13 @@ func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, ba
 	}
 
 	dbTX.AddPostCommit(func(txCtx context.Context) {
-		d.dm.notifyTransactions(txCompletions)
+		// Enqueue the full sorted batch to the sequencer for ordered background processing.
+		// Handling of the completions on the queue must happen outside of this goroutine, which is critical path for the
+		// event indexer of the Paladin node.
+		// So only if the channel to the sequencer ends up with back pressure will any slow-down happen to this routine
+		d.enqueueCompletions(txCompletions)
+		// We also provide a direct waiter that's used by the testbed
+		d.dm.notifyWaiters(txCompletions)
 	})
 	return nil
 }
@@ -307,7 +278,9 @@ func (d *domain) recoverTransactionID(ctx context.Context, txIDString string) (*
 func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress, batch *pscEventBatch) (*prototk.HandleEventBatchResponse, error) {
 	// We have a domain context for queries, but we never flush it to DB - as the only updates
 	// we allow in this function are those performed within our dbTX.
-	c := d.newInFlightDomainRequest(dbTX, d.dm.stateStore.NewDomainContext(ctx, d, addr), false /* write enabled */)
+	dqc := d.dm.stateStore.NewDomainQueryContext(ctx, d, addr)
+	defer dqc.Close(ctx)
+	c := d.newInFlightDomainRequest(dbTX, dqc, false /* write enabled */)
 	defer c.close()
 
 	batch.StateQueryContext = c.id
@@ -336,6 +309,8 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 		stateReads[i] = &pldapi.StateReadRecord{DomainName: d.name, State: stateID, Transaction: txUUID}
 	}
 
+	// Only confirmed states are tracked for the completion index
+	confirmedStateIDsByTX := make(map[uuid.UUID]map[string]pldtypes.HexBytes)
 	stateConfirms := make([]*pldapi.StateConfirmRecord, len(res.ConfirmedStates))
 	for i, state := range res.ConfirmedStates {
 		txUUID, stateID, err := d.prepareIndexRecord(ctx, state.TransactionId, state.Id)
@@ -343,6 +318,14 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 			return nil, err
 		}
 		stateConfirms[i] = &pldapi.StateConfirmRecord{DomainName: d.name, State: stateID, Transaction: txUUID}
+		if d.FullStateAvailablityRequired() {
+			if len(stateID) > 0 {
+				if confirmedStateIDsByTX[txUUID] == nil {
+					confirmedStateIDsByTX[txUUID] = make(map[string]pldtypes.HexBytes)
+				}
+				confirmedStateIDsByTX[txUUID][stateID.String()] = stateID
+			}
+		}
 	}
 
 	stateInfoRecords := make([]*pldapi.StateInfoRecord, len(res.InfoStates))
@@ -398,6 +381,28 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 			return nil, err
 		}
 	}
+
+	// Update the global pending private state data index for domains that opt in.
+	if len(confirmedStateIDsByTX) > 0 {
+		var batchEntries []components.PendingPrivateStateDataEntry
+		for _, txCompletionEvent := range res.TransactionsComplete {
+			txUUID, err := d.recoverTransactionID(ctx, txCompletionEvent.TransactionId)
+			if err != nil {
+				return nil, err
+			}
+			for _, id := range confirmedStateIDsByTX[*txUUID] {
+				batchEntries = append(batchEntries, components.PendingPrivateStateDataEntry{
+					StateID:     id,
+					Contract:    addr,
+					BlockNumber: txCompletionEvent.Location.BlockNumber,
+				})
+			}
+		}
+		if err := d.dm.stateStore.WritePendingPrivateStateDataBatch(ctx, dbTX, d.name, batchEntries); err != nil {
+			return nil, err
+		}
+	}
+
 	return res, err
 }
 

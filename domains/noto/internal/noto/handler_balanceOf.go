@@ -54,12 +54,13 @@ func (h *balanceOfHandler) InitCall(ctx context.Context, tx *types.ParsedTransac
 func (h *balanceOfHandler) ExecCall(ctx context.Context, tx *types.ParsedTransaction, req *prototk.ExecCallRequest) (*prototk.ExecCallResponse, error) {
 
 	param := tx.Params.(*types.BalanceOfParam)
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
-	accountAddress, err := h.noto.findEthAddressVerifier(ctx, "account", param.Account, req.ResolvedVerifiers)
+	accountID, err := h.noto.findEthAddressVerifier(ctx, "account", param.Account, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	totalStates, totalBalance, overflow, _, err := h.noto.getAccountBalance(ctx, req.StateQueryContext, accountAddress)
+	totalStates, totalBalance, overflow, _, err := h.noto.getAccountBalance(ctx, req.StateQueryContext, accountID.address, useNullifiers)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgErrorGetAccountBalance, param.Account)
 	}

@@ -78,7 +78,10 @@ func (a *EthAddress) IsZero() bool {
 }
 
 func (a EthAddress) String() string {
-	return a.Address0xHex().String()
+	var buf [42]byte
+	buf[0], buf[1] = '0', 'x'
+	hex.Encode(buf[2:], a[:])
+	return string(buf[:])
 }
 
 func (a EthAddress) HexString() string {

@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -23,19 +23,10 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { constants } from "./components/config";
-import { Header } from "./components/Header";
 import { ApplicationContextProvider } from "./contexts/ApplicationContext";
-import { AppRoutes } from "./routes";
+import { Router } from "./Router";
 import { darkThemeOptions, lightThemeOptions } from "./themes/default";
-import { getBasePath } from "./utils";
-import { Activity } from "./views/Activity";
-import { Domains } from "./views/Domains";
-import { Keys } from "./views/Keys";
-import { Nodes } from "./views/Peers";
-import { Registries } from "./views/Registries";
-import { Submissions } from "./views/Submissions";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({}),
@@ -43,36 +34,34 @@ const queryClient = new QueryClient({
 });
 
 function App() {
-
   const [systemTheme, setSystemTheme] = useState(
     window.matchMedia &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark'
-      : 'light'
+      window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light"
   );
 
   const [storedTheme, setStoredTheme] = useState<PaletteMode>();
 
   useEffect(() => {
     window
-      .matchMedia('(prefers-color-scheme: dark)')
-      .addEventListener('change', (event) => {
-        setSystemTheme(event.matches ? 'dark' : 'light');
+      .matchMedia("(prefers-color-scheme: dark)")
+      .addEventListener("change", (event) => {
+        setSystemTheme(event.matches ? "dark" : "light");
       });
   }, []);
 
-
   const theme = useMemo(() => {
-    const modeFromStorage = localStorage.getItem(constants.COLOR_MODE_STORAGE_KEY);
+    const modeFromStorage = localStorage.getItem(
+      constants.COLOR_MODE_STORAGE_KEY
+    );
     if (modeFromStorage === null) {
-      // If color mode not previously set
       return createTheme(
-        systemTheme === 'dark' ? darkThemeOptions : lightThemeOptions
+        systemTheme === "dark" ? darkThemeOptions : lightThemeOptions
       );
     } else {
-      // Create color mode based on local storage
       return createTheme(
-        modeFromStorage === 'dark' ? darkThemeOptions : lightThemeOptions
+        modeFromStorage === "dark" ? darkThemeOptions : lightThemeOptions
       );
     }
   }, [systemTheme, storedTheme]);
@@ -82,38 +71,23 @@ function App() {
       toggleColorMode: () => {
         const currentMode =
           localStorage.getItem(constants.COLOR_MODE_STORAGE_KEY) ?? systemTheme;
-        const newMode = currentMode === 'light' ? 'dark' : 'light';
+        const newMode = currentMode === "light" ? "dark" : "light";
         localStorage.setItem(constants.COLOR_MODE_STORAGE_KEY, newMode);
         setStoredTheme(newMode);
       },
     }),
-    []
+    [systemTheme]
   );
 
-  const basePath = getBasePath();
-
   return (
-    <>
-      <QueryClientProvider client={queryClient}>
-        <ApplicationContextProvider colorMode={colorMode}>
-          <ThemeProvider theme={theme}>
-            <CssBaseline />
-            <BrowserRouter basename={basePath}>
-              <Header />
-              <Routes>
-                <Route path={AppRoutes.Activity} element={<Activity />} />
-                <Route path={AppRoutes.Submissions} element={<Submissions />} />
-                <Route path={AppRoutes.Peers} element={<Nodes />} />
-                <Route path={AppRoutes.Keys} element={<Keys />} />
-                <Route path={AppRoutes.Registry} element={<Registries />} />
-                <Route path={AppRoutes.Domains} element={<Domains />} />
-                <Route path="*" element={<Navigate to={AppRoutes.Activity} replace />} />
-              </Routes>
-            </BrowserRouter>
-          </ThemeProvider>
-        </ApplicationContextProvider>
-      </QueryClientProvider>
-    </>
+    <QueryClientProvider client={queryClient}>
+      <ApplicationContextProvider colorMode={colorMode}>
+        <ThemeProvider theme={theme}>
+          <CssBaseline />
+          <Router />
+        </ThemeProvider>
+      </ApplicationContextProvider>
+    </QueryClientProvider>
   );
 }
 

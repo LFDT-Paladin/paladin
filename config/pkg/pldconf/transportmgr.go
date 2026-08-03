@@ -17,15 +17,16 @@ package pldconf
 import "github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 
 type TransportManagerInlineConfig struct {
-	NodeName              string                      `json:"nodeName"`
-	SendQueueLen          *int                        `json:"sendQueueLen"`
-	PeerInactivityTimeout *string                     `json:"peerInactivityTimeout"`
-	PeerReaperInterval    *string                     `json:"peerReaperInterval"`
-	SendRetry             RetryConfigWithMax          `json:"sendRetry"`
-	ReliableScanRetry     RetryConfig                 `json:"reliableScanRetry"`
-	ReliableMessageResend *string                     `json:"reliableMessageResend"`
-	ReliableMessageWriter FlushWriterConfig           `json:"reliableMessageWriter"`
-	Transports            map[string]*TransportConfig `json:"transports" configdefaults:"TransportConfigDefaults"`
+	NodeName                  string                      `json:"nodeName"`
+	SendQueueLen              *int                        `json:"sendQueueLen"`
+	PeerInactivityTimeout     *string                     `json:"peerInactivityTimeout"`
+	PeerReaperInterval        *string                     `json:"peerReaperInterval"`
+	SendFailureResetThreshold *int                        `json:"sendFailureResetThreshold"`
+	SendRetry                 RetryConfigWithMax          `json:"sendRetry"`
+	ReliableScanRetry         RetryConfig                 `json:"reliableScanRetry"`
+	ReliableMessageResend     *string                     `json:"reliableMessageResend"`
+	ReliableMessageWriter     FlushWriterConfig           `json:"reliableMessageWriter"`
+	Transports                map[string]*TransportConfig `json:"transports" configdefaults:"TransportConfigDefaults"`
 }
 
 type TransportInitConfig struct {
@@ -33,11 +34,12 @@ type TransportInitConfig struct {
 }
 
 var TransportManagerDefaults = TransportManagerInlineConfig{
-	SendQueueLen:          confutil.P(10),
-	ReliableMessageResend: confutil.P("30s"),
-	PeerInactivityTimeout: confutil.P("1m"),
-	PeerReaperInterval:    confutil.P("30s"),
-	ReliableScanRetry:     GenericRetryDefaults.RetryConfig,
+	SendQueueLen:              confutil.P(10),
+	ReliableMessageResend:     confutil.P("30s"),
+	PeerInactivityTimeout:     confutil.P("1m"),
+	PeerReaperInterval:        confutil.P("30s"),
+	SendFailureResetThreshold: confutil.P(3),
+	ReliableScanRetry:         GenericRetryDefaults.RetryConfig,
 	// SendRetry defaults are deliberately short
 	SendRetry: RetryConfigWithMax{
 		RetryConfig: RetryConfig{

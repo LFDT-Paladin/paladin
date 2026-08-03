@@ -6,6 +6,7 @@
 | blockchain | Blockchain client configuration | [`EthClientConfig`](#blockchain) | - |
 | db | Database configuration | [`DBConfig`](#db) | - |
 | debugServer | Debug server configuration | [`DebugServerConfig`](#debugserver) | - |
+| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | domainManager | Domain manager configuration | [`DomainManagerConfig`](#domainmanager) | - |
 | domains | Map of domain configurations | [`map[string][DomainConfig]`](#domains) | - |
 | groupManager | Group manager configuration | [`GroupManagerConfig`](#groupmanager) | - |
@@ -25,6 +26,7 @@
 | reliableScanRetry | Reliable scan retry configuration | [`RetryConfig`](#reliablescanretry) | - |
 | rpcAuthorizers | Map of RPC authorizer configurations | [`map[string][RPCAuthorizerConfig]`](#rpcauthorizers) | - |
 | rpcServer | RPC server configuration | [`RPCServerConfig`](#rpcserver) | - |
+| sendFailureResetThreshold | Consecutive send failure threshold before resetting a peer sender loop | `int` | - |
 | sendQueueLen | Maximum length of send queue | `int` | - |
 | sendRetry | Send retry configuration | [`RetryConfigWithMax`](#sendretry) | - |
 | sequencerManager | Sequencer manager configuration | [`SequencerConfig`](#sequencermanager) | - |
@@ -136,6 +138,7 @@
 | tls | TLS configuration | [`TLSConfig`](#blockchainwstls) | - |
 | url | HTTP client URL | `string` | - |
 | writeBufferSize | WebSocket write buffer size | `string` | `"16Kb"` |
+| wsRequestTimeout | WebSocket request timeout | `string` | `"2m"` |
 
 ## blockchain.ws.auth
 
@@ -232,10 +235,12 @@
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
 | address | Server address | `string` | `"127.0.0.1"` |
+| blockProfileRate | Rate for runtime block profiling exposed at /debug/pprof/block: 0 disables it, 1 records every blocking event, N samples one event in N | `int` | `0` |
 | cors | CORS configuration | [`CORSConfig`](#debugservercors) | - |
 | defaultRequestTimeout | Default request timeout | `string` | `"2m"` |
 | enabled | Whether debug server is enabled | `bool` | `false` |
 | maxRequestTimeout | Maximum request timeout | `string` | `"10m"` |
+| mutexProfileFraction | Fraction for runtime mutex profiling exposed at /debug/pprof/mutex: 0 disables it, 1 records every contention event, N samples one event in N | `int` | `0` |
 | port | Server port | `int` | - |
 | readTimeout | Read timeout | `string` | - |
 | shutdownTimeout | Shutdown timeout | `string` | `"10s"` |
@@ -338,6 +343,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | identifierCache | Identifier cache configuration | [`CacheConfig`](#keymanageridentifiercache) | - |
 | verifierCache | Verifier cache configuration | [`CacheConfig`](#keymanagerverifiercache) | - |
 
@@ -357,6 +363,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| buffer | Configure buffered log output | [`LogBufferConfig`](#logbuffer) | - |
 | disableColor | Forces color to be disabled, even if we detect a TTY | `bool` | `false` |
 | file | Configure file based logging | [`LogFileConfig`](#logfile) | - |
 | forceColor | Forces color to be enabled, even if we do not detect a TTY | `bool` | `false` |
@@ -366,6 +373,14 @@
 | output | Sets the output destination (stdout, stderr, file) | `string` | `"stderr"` |
 | timeFormat | String format for timestamps | `string` | `"2006-01-02T15:04:05.000Z07:00"` |
 | utc | Sets log timestamps to the UTC timezone | `bool` | `false` |
+
+## log.buffer
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| enabled | Enables buffered log output, batching lines in memory to reduce the number of write syscalls (default false) | `bool` | `false` |
+| flushInterval | The maximum time to hold buffered log lines before flushing them | `string` | `"1s"` |
+| size | The amount of log output to accumulate in memory before flushing | `string` | `"64Kb"` |
 
 ## log.file
 
@@ -669,6 +684,7 @@
 |-----|-------------|------|---------|
 | authorizers | Ordered array of authorizer plugin names to use | `[string]` | - |
 | http | HTTP server configuration | [`RPCServerConfigHTTP`](#rpcserverhttp) | - |
+| legacyReturnCodes | Use legacy HTTP status codes for JSON/RPC responses | `bool` | `false` |
 | ws | WebSocket server configuration | [`RPCServerConfigWS`](#rpcserverws) | - |
 
 ## rpcServer.http
@@ -780,18 +796,28 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| assembleTimeout | Timeout for transaction assembly | `string` | `"10s"` |
-| blockHeightTolerance | Tolerance for block height differences | `uint64` | `5` |
-| blockRange | Block range size for sequencer operations | `uint64` | `100` |
-| closingGracePeriod | Grace period for closing operations | `int` | `4` |
-| delegateTimeout | Timeout for re-delegating transactions | `string` | `"5s"` |
+| assembleErrorRetryThreshold | Maximum number of times a transaction can error on assembly before being evicted | `int` | `3` |
+| baseLedgerRevertRetryThreshold | Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed | `int` | `3` |
+| blockHeightTolerance | Tolerance for block height differences. Must be the same for all nodes participating in a domain instance. | `uint64` | `5` |
+| blockRange | Block range size for sequencer operations. Must be the same for all nodes participating in a domain instance. | `uint64` | `100` |
+| closingGracePeriod | Grace period for closing operations | `int` | `2` |
+| coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
+| coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
+| delegationBatchInterval | Interval over which originator delegation requests are coalesced into a single batched send while in the sending state | `string` | `"50ms"` |
+| dispatchMaxBatchSize | Maximum number of transactions prepared and committed in a single dispatch batch | `int` | `100` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
-| heartbeatThreshold | Heartbeat threshold | `int` | - |
-| maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `1` |
+| idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
+| inactiveGracePeriod | Number of heartbeat intervals without activity before a node is considered inactive | `int` | `2` |
+| maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
+| originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
+| originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
-| targetActiveCoordinators | Target number of active coordinators | `int` | `50` |
+| signErrorRetryThreshold | Maximum number of times a transaction can error on the signing of its assembled attestations before being evicted | `int` | `3` |
+| stateTimeout | Timeout for request-driven transaction states before repooling | `string` | `"10s"` |
 | targetActiveSequencers | Target number of active sequencers | `int` | `50` |
+| transactionResumeMaxTransactions | Maximum number of pending transactions to resume | `int` | `100000` |
+| transactionResumePageSize | Page size for reading pending transactions to resume | `int` | `1000` |
 | transactionResumePollInterval | Poll interval for resuming transactions | `string` | `"5m"` |
 | writer | Writer configuration | [`FlushWriterConfig`](#sequencermanagerwriter) | - |
 

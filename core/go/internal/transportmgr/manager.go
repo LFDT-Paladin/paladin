@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright contributors to Paladin, an LFDT project
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -76,14 +76,15 @@ type transportManager struct {
 	quiesceTimeout        time.Duration
 	peerReaperInterval    time.Duration
 
-	senderBufferLen         int
-	reliableMessageResend   time.Duration
-	reliableMessagePageSize int
+	senderBufferLen           int
+	sendFailureResetThreshold int
+	reliableMessageResend     time.Duration
+	reliableMessagePageSize   int
 }
 
 var reliableMessageFilters = filters.FieldMap{
 	"sequence":    filters.Int64Field("sequence"),
-	"id":          filters.UUIDField("id"),
+	"id":          filters.UUIDField(`"reliable_msgs"."id"`),
 	"created":     filters.TimestampField("created"),
 	"node":        filters.StringField("node"),
 	"messageType": filters.StringField("msg_type"),
@@ -95,21 +96,26 @@ var reliableMessageAckFilters = filters.FieldMap{
 	"error":     filters.StringField("error"),
 }
 
+var peerInfoFilters = filters.FieldMap{
+	"name": filters.StringField("name"),
+}
+
 func NewTransportManager(bgCtx context.Context, conf *pldconf.TransportManagerInlineConfig) components.TransportManager {
 	tm := &transportManager{
-		conf:                    conf,
-		localNodeName:           conf.NodeName,
-		transportsByID:          make(map[uuid.UUID]*transport),
-		transportsByName:        make(map[string]*transport),
-		peers:                   make(map[string]*peer),
-		senderBufferLen:         confutil.IntMin(conf.SendQueueLen, 0, *pldconf.TransportManagerDefaults.SendQueueLen),
-		reliableMessageResend:   confutil.DurationMin(conf.ReliableMessageResend, 100*time.Millisecond, *pldconf.TransportManagerDefaults.ReliableMessageResend),
-		sendShortRetry:          retry.NewRetryLimited(&conf.SendRetry, &pldconf.TransportManagerDefaults.SendRetry),
-		reliableScanRetry:       retry.NewRetryIndefinite(&conf.ReliableScanRetry, &pldconf.TransportManagerDefaults.ReliableScanRetry),
-		peerInactivityTimeout:   confutil.DurationMin(conf.PeerInactivityTimeout, 0, *pldconf.TransportManagerDefaults.PeerInactivityTimeout),
-		peerReaperInterval:      confutil.DurationMin(conf.PeerReaperInterval, 100*time.Millisecond, *pldconf.TransportManagerDefaults.PeerReaperInterval),
-		quiesceTimeout:          1 * time.Second, // not currently tunable (considered very small edge case)
-		reliableMessagePageSize: 100,             // not currently tunable
+		conf:                      conf,
+		localNodeName:             conf.NodeName,
+		transportsByID:            make(map[uuid.UUID]*transport),
+		transportsByName:          make(map[string]*transport),
+		peers:                     make(map[string]*peer),
+		senderBufferLen:           confutil.IntMin(conf.SendQueueLen, 0, *pldconf.TransportManagerDefaults.SendQueueLen),
+		reliableMessageResend:     confutil.DurationMin(conf.ReliableMessageResend, 100*time.Millisecond, *pldconf.TransportManagerDefaults.ReliableMessageResend),
+		sendShortRetry:            retry.NewRetryLimited(&conf.SendRetry, &pldconf.TransportManagerDefaults.SendRetry),
+		reliableScanRetry:         retry.NewRetryIndefinite(&conf.ReliableScanRetry, &pldconf.TransportManagerDefaults.ReliableScanRetry),
+		peerInactivityTimeout:     confutil.DurationMin(conf.PeerInactivityTimeout, 0, *pldconf.TransportManagerDefaults.PeerInactivityTimeout),
+		peerReaperInterval:        confutil.DurationMin(conf.PeerReaperInterval, 100*time.Millisecond, *pldconf.TransportManagerDefaults.PeerReaperInterval),
+		sendFailureResetThreshold: confutil.IntMin(conf.SendFailureResetThreshold, 1, *pldconf.TransportManagerDefaults.SendFailureResetThreshold),
+		quiesceTimeout:            1 * time.Second, // not currently tunable (considered very small edge case)
+		reliableMessagePageSize:   100,             // not currently tunable
 	}
 	tm.bgCtx, tm.cancelCtx = context.WithCancel(log.WithComponent(bgCtx, "transportmanager"))
 	return tm
@@ -152,6 +158,10 @@ func (tm *transportManager) Start() error {
 }
 
 func (tm *transportManager) Stop() {
+	// Cancel bgCtx first so any goroutines blocked on p.ctx (derived from bgCtx),
+	// such as startSender holding peersLock while waiting on GetNodeTransports or
+	// ActivatePeer, are unblocked before we attempt to acquire peersLock below.
+	tm.cancelCtx()
 
 	peers := tm.listActivePeers()
 	for _, p := range peers {
@@ -168,7 +178,6 @@ func (tm *transportManager) Stop() {
 		tm.cleanupTransport(t)
 	}
 
-	tm.cancelCtx()
 	if tm.peerReaperDone != nil {
 		<-tm.peerReaperDone
 	}
@@ -311,6 +320,9 @@ func (tm *transportManager) queueFireAndForget(ctx context.Context, nodeName str
 		return nil
 	case <-ctx.Done():
 		return i18n.NewError(ctx, msgs.MsgContextCanceled)
+	case <-p.senderDone:
+		log.L(ctx).Warnf("peer %s sender stopped before message %s/%s could be queued (discarding)", p.Name, msg.MessageType, msg.MessageId)
+		return nil
 	}
 }
 
@@ -319,11 +331,13 @@ func (tm *transportManager) SendReliable(ctx context.Context, dbTX persistence.D
 	ctx = log.WithComponent(ctx, "transportmanager")
 	peers := make(map[string]*peer)
 	for _, msg := range msgs {
-		log.L(ctx).Debugf("Sending reliable message %s/%+v to node %s", msg.MessageType, msg.ID, msg.Node)
 		var p *peer
 
 		msg.ID = uuid.New()
 		msg.Created = pldtypes.TimestampNow()
+
+		log.L(ctx).Debugf("Sending reliable message %s/%+v to node %s", msg.MessageType, msg.ID, msg.Node)
+
 		_, err = msg.MessageType.Validate()
 
 		if err == nil {
@@ -348,9 +362,20 @@ func (tm *transportManager) SendReliable(ctx context.Context, dbTX persistence.D
 		return err
 	}
 
+	// After Create, each message has its DB-assigned Sequence populated. Compute the minimum
+	// sequence per peer so the post-commit notification can correctly seed the scan floor
+	minSeqPerPeer := make(map[string]uint64, len(peers))
+	for _, msg := range msgs {
+		if prev, ok := minSeqPerPeer[msg.Node]; !ok || msg.Sequence < prev {
+			minSeqPerPeer[msg.Node] = msg.Sequence
+		}
+	}
+
 	dbTX.AddPostCommit(func(ctx context.Context) {
-		for _, p := range peers {
-			p.notifyPersistedMsgAvailable()
+		for nodeName, minSeq := range minSeqPerPeer {
+			if p := peers[nodeName]; p != nil {
+				p.notifyPersistedMsgAvailableFromSeq(minSeq)
+			}
 		}
 	})
 	return nil

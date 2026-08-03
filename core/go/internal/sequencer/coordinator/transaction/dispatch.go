@@ -1,0 +1,270 @@
+/*
+ * Copyright © 2026 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package transaction
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
+)
+
+// action_DispatchPrepare handles Event_Dispatched in State_Ready_For_Dispatch by preparing the transaction's
+// dispatch artifacts (a public, private, or prepared transaction). These prepared artifacts are read from the
+// transaction by the dispatch loop under lock and included in a batch, but the actual DB persist of the batch
+// does not hold the lock.
+func action_DispatchPrepare(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	return t.dispatchPrepare(ctx)
+}
+
+// dispatchPrepare prepares the transaction via the domain, builds the transaction dispatch, resolves state
+// distributions and stages nullifiers, then stores the dispatch and remote distributions for the dispatch
+// loop to persist. It runs under the transaction lock held by ProcessEvent for the whole
+// Event_Dispatched handling (prepare and the transition into State_Dispatched are one lock-held unit), so
+// no other event can interleave within it; an event that would cancel the transaction is only ever
+// processed before or after, never during.
+func (t *coordinatorTransaction) dispatchPrepare(ctx context.Context) error {
+	// TODO: should this domain query context be populated with a snapshot of the domain's states at the point the transaction
+	// finished assembling? Doing this would require storing a grapher snapshot for every transaction.
+	// In a previous iteration of this code where the domain state writer and domain query context coexisted
+	// in a single domain context, the context was effectively loaded with the entire coordinator ahead of chain view,
+	// including transactions assembled after this one. This was arguably too far ahead, as the domain shouldn't be able
+	// to query the future when preparing the transaction. At this stage the domain should not really need to be querying
+	// states, as the prepare request contains all the states the transaction consumes/spends/creates, hence the decision
+	// to not import a snapshot at the time of writing this comment, but it is something to be aware of.
+	dqc := t.components.StateManager().NewDomainQueryContext(ctx, t.domainAPI.Domain(), t.domainAPI.Address())
+	defer dqc.Close(ctx)
+	if err := t.domainAPI.PrepareTransaction(ctx, dqc, t.components.Persistence().NOTX(), t.pt); err != nil {
+		log.L(ctx).Errorf("error preparing transaction %s: %s", t.pt.ID, err)
+		return err
+	}
+
+	dispatch, err := t.buildTransactionDispatch(ctx)
+	if err != nil {
+		return err
+	}
+
+	stateDistributionSet, err := common.NewStateDistributionBuilder(t.nodeName, t.pt).Build(ctx)
+	if err != nil {
+		log.L(ctx).Errorf("error getting state distributions: %s", err)
+		return err
+	}
+	remoteStateDistributions := make([]*components.StateDistribution, 0, len(stateDistributionSet.Remote))
+	for _, sd := range stateDistributionSet.Remote {
+		log.L(ctx).Debugf("Adding remote state distribution %+v", sd.StateDistribution)
+		remoteStateDistributions = append(remoteStateDistributions, &sd.StateDistribution)
+	}
+
+	localNullifiers, err := t.components.SequencerManager().BuildNullifiers(ctx, stateDistributionSet.Local)
+	if err == nil && len(localNullifiers) > 0 {
+		err = t.dsw.StageNullifierUpserts(ctx, localNullifiers...)
+	}
+	if err != nil {
+		log.L(ctx).Errorf("error building nullifiers: %s", err)
+		return err
+	}
+
+	t.pendingDispatch = dispatch
+	t.pendingRemoteStateDistributions = remoteStateDistributions
+	return nil
+}
+
+// PendingDispatch reads the dispatch stashed by dispatchPrepare and returns it to the dispatch loop as a
+// pending dispatch to append to the batch. Reaching this point is a point of no return: the dispatch will
+// be persisted regardless of any subsequent state change to the transaction, because HandleEvent has
+// already transitioned it into State_Dispatched. It reads the stash under the transaction lock so it cannot
+// race a concurrent stash write. Returns nil if nothing was prepared - i.e. the transaction was repooled before
+// its Event_Dispatched was processed, so there is nothing to persist. The stash is not cleared: the state
+// machine only ever routes an Event_Dispatched from State_Ready_For_Dispatch (a second attempt errors from
+// State_Dispatched), and a repool re-runs dispatchPrepare and restashes before the next read, so the read
+// always sees a freshly-prepared dispatch exactly once per dispatch cycle.
+func (t *coordinatorTransaction) PendingDispatch(ctx context.Context) *syncpoints.PendingDispatch {
+	t.Lock()
+	dispatch := t.pendingDispatch
+	remoteStateDistributions := t.pendingRemoteStateDistributions
+	t.Unlock()
+
+	if dispatch == nil {
+		return nil
+	}
+	return &syncpoints.PendingDispatch{
+		TransactionID:      t.pt.ID,
+		Dispatch:           dispatch,
+		StateDistributions: remoteStateDistributions,
+	}
+}
+
+// buildTransactionDispatch builds the dispatch for a transaction which has already been prepared via the domain
+func (t *coordinatorTransaction) buildTransactionDispatch(ctx context.Context) (*syncpoints.TransactionDispatch, error) {
+	hasPublicTransaction := t.pt.PreparedPublicTransaction != nil
+	hasPrivateTransaction := t.pt.PreparedPrivateTransaction != nil
+	intent := t.pt.PreAssembly.TransactionSpecification.Intent
+
+	if intent == prototk.TransactionSpecification_SEND_TRANSACTION && hasPublicTransaction && !hasPrivateTransaction {
+		log.L(ctx).Debugf("Result of transaction %s is a public transaction (gas=%d)", t.pt.ID, *t.pt.PreparedPublicTransaction.Gas)
+		publicTxSubmission, err := t.buildPublicTxSubmission(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &syncpoints.TransactionDispatch{
+			PublicDispatches: []*syncpoints.PublicDispatch{{
+				PrivateTransactionDispatches: []*syncpoints.DispatchPersisted{
+					{TransactionID: t.pt.ID.String()},
+				},
+				PublicTxs: []*components.PublicTxSubmission{publicTxSubmission},
+			}},
+		}, nil
+	}
+
+	if intent == prototk.TransactionSpecification_SEND_TRANSACTION && hasPrivateTransaction && !hasPublicTransaction {
+		log.L(ctx).Debugf("Result of transaction %s is a chained private transaction", t.pt.ID)
+		preparedPrivateTransaction := *t.pt.PreparedPrivateTransaction
+		if preparedPrivateTransaction.IdempotencyKey != "" {
+			// We can't rely on just the idempotency key from the domain is it will be the same if we retry a private dispatch.
+			// The domain needs to have its own way of detecting duplicate transactions beyond the idempotency key in paladin, as
+			// a single private transaction with a unqiue idempotency key can still result in multiple base ledger submissions.
+			preparedPrivateTransaction.IdempotencyKey = fmt.Sprintf("%s_%d_%d", preparedPrivateTransaction.IdempotencyKey, t.clock.Now().UnixNano(), t.revertCount)
+		}
+		validatedPrivateTx, err := t.components.TxManager().PrepareChainedPrivateTransaction(ctx, t.components.Persistence().NOTX(), t.pt.PreAssembly.TransactionSpecification.From, t.pt.ID, t.pt.Domain, &t.pt.Address, &preparedPrivateTransaction, pldapi.SubmitModeAuto)
+		if err != nil {
+			log.L(ctx).Errorf("error preparing chained transaction %s: %s", t.pt.ID, err)
+			return nil, err
+		}
+		if validatedPrivateTx.NewTransaction != nil &&
+			validatedPrivateTx.NewTransaction.Transaction != nil &&
+			validatedPrivateTx.NewTransaction.Transaction.ID != nil {
+
+			childID := *validatedPrivateTx.NewTransaction.Transaction.ID
+			t.dependencyTracker.GetChainedDeps().SetChainedChild(ctx, t.pt.ID, childID)
+
+			// Propagate ordering knowledge: for each dependency of this transaction,
+			// if that dependency also produced a chained child, the new child must depend on it.
+			// These go into ChainedDependsOn so the receiving sequencer passes them into the coordinator
+			// for in-memory ordering rather than blocking on confirmation.
+			// This assumes that if a domain instance is dispatching private transactions, it is doing so consistently
+			// for every transaction, and to the same domain instance. This is a valid assumption at the point of writing,
+			// but could change in the future. While we generally don't want to make assumptions about specific domain
+			// behaviour in the sequencer, this is a case where accounting for every possible permutation of
+			// dispatches would result in unncessarily complex code.
+			seen := make(map[uuid.UUID]bool)
+			var chainedDeps []uuid.UUID
+			for _, depID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetPrerequisites(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetPrerequisites(ctx, t.pt.ID)...) {
+				if depChildID, ok := t.dependencyTracker.GetChainedDeps().GetChainedChild(ctx, depID); ok && !seen[depChildID] {
+					seen[depChildID] = true
+					chainedDeps = append(chainedDeps, depChildID)
+				}
+			}
+			if len(chainedDeps) > 0 {
+				validatedPrivateTx.NewTransaction.ChainedDependsOn = append(validatedPrivateTx.NewTransaction.ChainedDependsOn, chainedDeps...)
+				log.L(ctx).Debugf("Chained TX %s has %d dependencies from parent grapher: %v", childID, len(chainedDeps), chainedDeps)
+			}
+		}
+		return &syncpoints.TransactionDispatch{
+			PrivateDispatches: []*components.ChainedPrivateTransaction{validatedPrivateTx},
+		}, nil
+	}
+
+	if intent == prototk.TransactionSpecification_PREPARE_TRANSACTION && (hasPublicTransaction || hasPrivateTransaction) {
+		log.L(ctx).Debugf("Result of transaction %s is a prepared transaction public=%t private=%t", t.pt.ID, hasPublicTransaction, hasPrivateTransaction)
+		preparedTransactionWithRefs := t.mapPreparedTransaction()
+		return &syncpoints.TransactionDispatch{
+			PreparedTransactions: []*components.PreparedTransactionWithRefs{preparedTransactionWithRefs},
+		}, nil
+	}
+
+	err := i18n.NewError(ctx, msgs.MsgSequencerInvalidPrepareOutcome, t.pt.ID, intent, hasPublicTransaction, hasPrivateTransaction)
+	log.L(ctx).Errorf("error preparing transaction %s: %s", t.pt.ID, err)
+	return nil, err
+}
+
+func (t *coordinatorTransaction) buildPublicTxSubmission(ctx context.Context) (*components.PublicTxSubmission, error) {
+	unqualifiedSigner, err := pldtypes.PrivateIdentityLocator(t.pt.Signer).Identity(ctx)
+	if err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerInternalError, err)
+	}
+	resolvedAddr, err := t.components.KeyManager().ResolveEthAddressNewDatabaseTX(ctx, unqualifiedSigner)
+	if err != nil {
+		log.L(ctx).Errorf("failed to resolve signers for public transactions: %s", err)
+		return nil, err
+	}
+	log.L(ctx).Debugf("DispatchTransactions: creating PublicTxSubmission from %s", t.pt.Signer)
+	publicTx := t.pt.PreparedPublicTransaction
+	publicTxSubmission := &components.PublicTxSubmission{
+		Bindings: []*components.PaladinTXReference{{
+			TransactionID:              t.pt.ID,
+			TransactionType:            pldapi.TransactionTypePrivate.Enum(),
+			TransactionSender:          t.pt.PreAssembly.TransactionSpecification.From,
+			TransactionContractAddress: t.pt.Address.String(),
+		}},
+		PublicTxInput: pldapi.PublicTxInput{
+			From:            resolvedAddr,
+			To:              &t.pt.Address,
+			PublicTxOptions: publicTx.PublicTxOptions,
+		},
+	}
+	data, err := publicTx.ABI[0].EncodeCallDataJSONCtx(ctx, publicTx.Data)
+	if err != nil {
+		log.L(ctx).Errorf("failed to encode call data for public transaction %s: %s", t.pt.ID, err)
+		return nil, err
+	}
+	publicTxSubmission.Data = pldtypes.HexBytes(data)
+	log.L(ctx).Tracef("Validating public transaction %s", t.pt.ID.String())
+	if err := t.components.PublicTxManager().ValidateTransaction(ctx, t.components.Persistence().NOTX(), publicTxSubmission); err != nil {
+		log.L(ctx).Errorf("failed to validate public transaction %s: %s", t.pt.ID, err)
+		return nil, err
+	}
+	return publicTxSubmission, nil
+}
+
+// mapPreparedTransaction returns prepared transaction refs for distribution
+func (t *coordinatorTransaction) mapPreparedTransaction() *components.PreparedTransactionWithRefs {
+	tx := t.pt
+	preparedTransaction := &components.PreparedTransactionWithRefs{
+		PreparedTransactionBase: &pldapi.PreparedTransactionBase{
+			ID:       tx.ID,
+			Domain:   tx.Domain,
+			To:       &tx.Address,
+			Metadata: tx.PreparedMetadata,
+		},
+	}
+	for _, s := range tx.PostAssembly.AssembleResponse.GetInputStates() {
+		preparedTransaction.StateRefs.Spent = append(preparedTransaction.StateRefs.Spent, pldtypes.MustParseHexBytes(s.GetId()))
+	}
+	for _, s := range tx.PostAssembly.AssembleResponse.GetReadStates() {
+		preparedTransaction.StateRefs.Read = append(preparedTransaction.StateRefs.Read, pldtypes.MustParseHexBytes(s.GetId()))
+	}
+	for _, s := range tx.PostAssembly.OutputStates {
+		preparedTransaction.StateRefs.Confirmed = append(preparedTransaction.StateRefs.Confirmed, pldtypes.MustParseHexBytes(s.GetId()))
+	}
+	for _, s := range tx.PostAssembly.InfoStates {
+		preparedTransaction.StateRefs.Info = append(preparedTransaction.StateRefs.Info, pldtypes.MustParseHexBytes(s.GetId()))
+	}
+	if tx.PreparedPublicTransaction != nil {
+		preparedTransaction.Transaction = *tx.PreparedPublicTransaction
+	} else {
+		preparedTransaction.Transaction = *tx.PreparedPrivateTransaction
+	}
+	return preparedTransaction
+}

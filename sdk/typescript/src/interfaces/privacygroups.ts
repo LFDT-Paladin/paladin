@@ -53,6 +53,7 @@ export interface IPrivacyGroupEVMTXInput extends IPrivacyGroupEVMTX {
 export interface IPrivacyGroupEVMCall extends IPrivacyGroupEVMTX {
   domain: string;
   group: string;
+  block?: BigNumberish | string;
   dataFormat?: string;
 }
 
@@ -84,3 +85,4 @@ export interface IPrivacyGroupMessage extends IPrivacyGroupMessageInput {
   received: string;
   node: string;
 }
+

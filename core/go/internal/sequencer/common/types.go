@@ -15,53 +15,143 @@
 package common
 
 import (
-	"fmt"
+	"context"
 
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
-type FlushPoint struct {
-	From          pldtypes.EthAddress
-	Nonce         uint64
-	TransactionID uuid.UUID
-	Hash          pldtypes.Bytes32
-	Confirmed     bool
-}
+// The CoordinatorSnapshot proto's transaction lists are converted wholesale to native types
+// (uuid.UUID / pldtypes.EthAddress / Bytes32 / HexBytes) once at the transport boundary, rather than
+// per-field on demand: the state-machine consumers would otherwise repeat those conversions on every
+// pass over the snapshot. StateSnapshot is the one exception —it carries private states and locks for coordinator
+// handover only. It is left as the raw proto (not converted to native types) because it flows straight through
+// to the grapher's ImportStatesAndLocks as proto and is never inspected field-by-field here.
 
-func (f *FlushPoint) GetSignerNonce() string {
-	return fmt.Sprintf("%s:%d", f.From.String(), f.Nonce)
-}
-
+// The transaction lists in CoordinatorSnapshot must only contain information about transactions which
+// is (or will eventually be) known on the base ledger (e.g. hash, nonce, signer, revert reason). They
+// must not contain information such as the transaction originator.
 type CoordinatorSnapshot struct {
-	FlushPoints            []*FlushPoint            `json:"flushPoints"`
-	DispatchedTransactions []*DispatchedTransaction `json:"dispatchedTransactions"`
-	PooledTransactions     []*Transaction           `json:"pooledTransactions"`
-	ConfirmedTransactions  []*ConfirmedTransaction  `json:"confirmedTransactions"`
-	CoordinatorState       string                   `json:"coordinatorState"`
-	BlockHeight            uint64                   `json:"blockHeight"`
+	DispatchedTransactions []*SnapshotDispatchedTransaction
+	PooledTransactions     []*SnapshotPooledTransaction
+	ConfirmedTransactions  []*SnapshotConfirmedTransaction
+	RevertedTransactions   []*SnapshotRevertedTransaction
+	CoordinatorState       CoordinatorState
+	BlockHeight            uint64
+	EndorserCandidates     []string // (COORDINATOR_ENDORSER selection mode only)
+	StateSnapshot          *prototk.StateSnapshot
 }
 
-type Transaction struct {
-	//components.PrivateTransaction
-	ID         uuid.UUID
-	Originator string
+type SnapshotPooledTransaction struct {
+	ID uuid.UUID
 }
 
-func (t *Transaction) GetID() string {
+func (t *SnapshotPooledTransaction) GetID() string {
 	return t.ID.String()
 }
 
-type DispatchedTransaction struct {
-	Transaction
-	SignerLocator        string
+type SnapshotDispatchedTransaction struct {
+	SnapshotPooledTransaction
 	Signer               pldtypes.EthAddress
 	LatestSubmissionHash *pldtypes.Bytes32
 	Nonce                *uint64
 }
 
-type ConfirmedTransaction struct {
-	DispatchedTransaction
-	Hash         pldtypes.Bytes32
+type SnapshotConfirmedTransaction struct {
+	SnapshotDispatchedTransaction
+	Hash pldtypes.Bytes32
+}
+
+type SnapshotRevertedTransaction struct {
+	SnapshotPooledTransaction
 	RevertReason pldtypes.HexBytes
+}
+
+func CoordinatorSnapshotFromProto(ctx context.Context, p *engineProto.CoordinatorSnapshot) (*CoordinatorSnapshot, error) {
+	if p == nil {
+		return nil, nil
+	}
+	s := &CoordinatorSnapshot{
+		CoordinatorState:   CoordinatorState(int(p.GetCoordinatorState())),
+		BlockHeight:        p.GetBlockHeight(),
+		EndorserCandidates: p.GetEndorserCandidates(),
+		StateSnapshot:      p.GetStateSnapshot(),
+	}
+	for _, pt := range p.GetPooledTransactions() {
+		id, err := uuid.Parse(pt.GetId())
+		if err != nil {
+			return nil, err
+		}
+		s.PooledTransactions = append(s.PooledTransactions, &SnapshotPooledTransaction{ID: id})
+	}
+	for _, pt := range p.GetDispatchedTransactions() {
+		dt, err := dispatchedFromProto(ctx, pt.GetId(), pt.GetSigner(), pt.LatestSubmissionHash, pt.Nonce)
+		if err != nil {
+			return nil, err
+		}
+		s.DispatchedTransactions = append(s.DispatchedTransactions, dt)
+	}
+	for _, pt := range p.GetConfirmedTransactions() {
+		dt, err := dispatchedFromProto(ctx, pt.GetId(), pt.GetSigner(), pt.LatestSubmissionHash, pt.Nonce)
+		if err != nil {
+			return nil, err
+		}
+		var hash pldtypes.Bytes32
+		if pt.GetHash() != "" {
+			hash, err = pldtypes.ParseBytes32Ctx(ctx, pt.GetHash())
+			if err != nil {
+				return nil, err
+			}
+		}
+		s.ConfirmedTransactions = append(s.ConfirmedTransactions, &SnapshotConfirmedTransaction{
+			SnapshotDispatchedTransaction: *dt,
+			Hash:                          hash,
+		})
+	}
+	for _, pt := range p.GetRevertedTransactions() {
+		id, err := uuid.Parse(pt.GetId())
+		if err != nil {
+			return nil, err
+		}
+		revertReason, err := pldtypes.ParseHexBytes(ctx, pt.GetRevertReason())
+		if err != nil {
+			return nil, err
+		}
+		s.RevertedTransactions = append(s.RevertedTransactions, &SnapshotRevertedTransaction{
+			SnapshotPooledTransaction: SnapshotPooledTransaction{ID: id},
+			RevertReason:              revertReason,
+		})
+	}
+	return s, nil
+}
+
+func dispatchedFromProto(ctx context.Context, id, signer string, latestSubmissionHash *string, nonce *uint64) (*SnapshotDispatchedTransaction, error) {
+	txID, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	dt := &SnapshotDispatchedTransaction{
+		SnapshotPooledTransaction: SnapshotPooledTransaction{ID: txID},
+		Nonce:                     nonce,
+	}
+	// A transaction can be in Ready_For_Dispatch before the dispatcher thread has collected it and
+	// assigned a signer, so the snapshot legitimately carries an empty signer. Leave the zero address
+	// in that case rather than failing to parse the whole snapshot.
+	if signer != "" {
+		signerAddr, err := pldtypes.ParseEthAddress(signer)
+		if err != nil {
+			return nil, err
+		}
+		dt.Signer = *signerAddr
+	}
+	if latestSubmissionHash != nil {
+		h, err := pldtypes.ParseBytes32Ctx(ctx, *latestSubmissionHash)
+		if err != nil {
+			return nil, err
+		}
+		dt.LatestSubmissionHash = &h
+	}
+	return dt, nil
 }

@@ -597,6 +597,59 @@ func TestIdempotentSubmit(t *testing.T) {
 
 }
 
+func TestIdempotentSubmitRPCCodeConflict(t *testing.T) {
+	txID := uuid.New()
+	// Simulate new Paladin behaviour: HTTP 200 with RPCCodeConflict (-32001) in the error body
+	conflictResponse := func(id pldtypes.RawJSON) (int, *rpcclient.RPCResponse) {
+		return 200, &rpcclient.RPCResponse{
+			JSONRpc: "2.0",
+			ID:      id,
+			Error: &rpcclient.RPCError{
+				Code:    int64(RPCCodeConflict),
+				Message: "PD012220: key clash",
+			},
+		}
+	}
+	methods := []testRPCMethod{
+		{
+			name: "ptx_sendTransaction",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return conflictResponse(rpcReq.ID)
+			},
+		},
+		{
+			name: "ptx_prepareTransaction",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return conflictResponse(rpcReq.ID)
+			},
+		},
+		{
+			name: "ptx_getTransactionByIdempotencyKey",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return successResponse(rpcReq.ID, pldtypes.RawJSON(`{"id": "`+txID.String()+`"}`))
+			},
+		},
+	}
+	ctx, c, done := newTestClientAndServerHTTP(t, methods...)
+	defer done()
+
+	txb := c.TxBuilder(ctx).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx.12345").
+		ABIJSON(testABIJSON).
+		From("tx.sender").
+		Inputs(`{"supplier": "0x172EA50B3535721154ae5B368E850825615882BB"}`)
+
+	send := txb.Send()
+	require.NoError(t, send.Error())
+	assert.Equal(t, txID, *send.ID())
+
+	prepare := txb.Prepare()
+	require.NoError(t, prepare.Error())
+	assert.Equal(t, txID, *prepare.ID())
+}
+
 func TestDeferFunctionSelectError(t *testing.T) {
 	ctx, c, done := newTestClientAndServerHTTP(t)
 	defer done()
@@ -743,6 +796,8 @@ func TestBuildBadABIJSON(t *testing.T) {
 
 func TestGetters(t *testing.T) {
 
+	dep1 := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	dep2 := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	tx := &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			IdempotencyKey: "tx1",
@@ -756,8 +811,9 @@ func TestGetters(t *testing.T) {
 				Gas: confutil.P(pldtypes.HexUint64(100000)),
 			},
 		},
-		ABI:      abi.ABI{{Type: abi.Constructor}},
-		Bytecode: pldtypes.HexBytes(pldtypes.RandBytes(64)),
+		DependsOn: []uuid.UUID{dep1, dep2},
+		ABI:       abi.ABI{{Type: abi.Constructor}},
+		Bytecode:  pldtypes.HexBytes(pldtypes.RandBytes(64)),
 	}
 
 	// This isn't a valid TX, but we're just testing getters
@@ -773,6 +829,7 @@ func TestGetters(t *testing.T) {
 	assert.Equal(t, "function1", b.GetFunction())
 	assert.Equal(t, tx.Bytecode, b.GetBytecode())
 	assert.Equal(t, tx.PublicTxOptions, b.GetPublicTxOptions())
+	assert.Equal(t, tx.DependsOn, b.GetDependsOn())
 
 	require.NotNil(t, b.Client())
 
@@ -796,6 +853,38 @@ func TestGetters(t *testing.T) {
 
 	tx3 := b.BuildTX().CallTX()
 	require.Equal(t, callTX, tx3)
+}
+
+func TestDependsOn(t *testing.T) {
+	ctx := context.Background()
+	b := New().TxBuilder(ctx)
+
+	// DependsOn(nil) sets nil and allows chaining
+	chained := b.DependsOn(nil)
+	require.Same(t, b, chained)
+	assert.Nil(t, b.GetDependsOn())
+	built := b.BuildTX().TX()
+	assert.Nil(t, built.DependsOn)
+
+	// DependsOn(empty slice)
+	b = New().TxBuilder(ctx).DependsOn([]uuid.UUID{})
+	assert.Empty(t, b.GetDependsOn())
+	built = b.BuildTX().TX()
+	assert.Empty(t, built.DependsOn)
+
+	// DependsOn with one or more UUIDs
+	dep1 := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	dep2 := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	deps := []uuid.UUID{dep1, dep2}
+	b = New().TxBuilder(ctx).DependsOn(deps)
+	require.Equal(t, deps, b.GetDependsOn())
+	built = b.BuildTX().TX()
+	require.Equal(t, deps, built.DependsOn)
+
+	// Overwrite: second DependsOn call replaces
+	dep3 := uuid.New()
+	b = b.DependsOn([]uuid.UUID{dep3})
+	require.Equal(t, []uuid.UUID{dep3}, b.GetDependsOn())
 }
 
 func TestBuildCallDataFunction(t *testing.T) {

@@ -49,8 +49,9 @@ type Server interface {
 type grpcTransport struct {
 	proto.UnimplementedPaladinGRPCTransportServer
 
-	bgCtx     context.Context
-	callbacks plugintk.TransportCallbacks
+	bgCtx       context.Context
+	bgCtxCancel context.CancelFunc
+	callbacks   plugintk.TransportCallbacks
 
 	name               string
 	listener           net.Listener
@@ -73,8 +74,10 @@ func NewPlugin(ctx context.Context) plugintk.PluginBase {
 }
 
 func NewGRPCTransport(callbacks plugintk.TransportCallbacks) plugintk.TransportAPI {
+	bgCtx, bgCtxCancel := context.WithCancel(context.Background())
 	return &grpcTransport{
-		bgCtx:               log.WithComponent(context.Background(), "grpctransport"),
+		bgCtx:               log.WithComponent(bgCtx, "grpctransport"),
+		bgCtxCancel:         bgCtxCancel,
 		callbacks:           callbacks,
 		outboundConnections: make(map[string]*outboundConn),
 	}
@@ -241,6 +244,10 @@ func (t *grpcTransport) ActivatePeer(ctx context.Context, req *prototk.ActivateP
 	t.connLock.Lock()
 	defer t.connLock.Unlock()
 
+	if t.peerVerifier == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgTransportNotConfigured)
+	}
+
 	existing := t.outboundConnections[req.NodeName]
 	if existing != nil {
 		// Replace an existing connection - unexpected as Paladin shouldn't do this
@@ -289,7 +296,7 @@ func (t *grpcTransport) SendMessage(ctx context.Context, req *prototk.SendMessag
 		// This is an error in the Paladin layer
 		return nil, i18n.NewError(ctx, msgs.MsgNodeNotActive, req.Node)
 	}
-	log.L(ctx).Infof("GRPC sending message id=%s cid=%v component=%s messageType=%s to peer %s",
+	log.L(ctx).Infof("GRPC sending message id=%s cid=%v component=%d messageType=%s to peer %s",
 		msg.MessageId, msg.CorrelationId, msg.Component, msg.MessageType, req.Node)
 	err := oc.send(&proto.Message{
 		MessageId:     msg.MessageId,
@@ -341,16 +348,53 @@ func (t *grpcTransport) GetLocalDetails(ctx context.Context, req *prototk.GetLoc
 func (t *grpcTransport) StopTransport(ctx context.Context, req *prototk.StopTransportRequest) (*prototk.StopTransportResponse, error) {
 	log.L(t.bgCtx).Infof("Stopping gRPC server for plugin %s", t.name)
 
-	gracefullyStopped := make(chan struct{})
-	go func() {
-		defer close(gracefullyStopped)
-		t.grpcServer.GracefulStop()
-	}()
+	t.shutdownTransport()
+
+	return &prototk.StopTransportResponse{}, nil
+}
+
+func (t *grpcTransport) shutdownTransport() {
+	// Cancel bgCtx before GracefulStop so any TLS handshake goroutines blocked in
+	// VerifyConnection → getTransportDetails → RequestFromPlugin → inflight.Wait()
+	// are unblocked immediately, allowing GracefulStop to drain cleanly.
+	t.bgCtxCancel()
+
+	t.connLock.Lock()
+	grpcServer := t.grpcServer
+	serverDone := t.serverDone
+	listener := t.listener
+	outboundConnections := t.outboundConnections
+	t.grpcServer = nil
+	t.listener = nil
+	t.outboundConnections = make(map[string]*outboundConn)
+	t.connLock.Unlock()
+
+	for _, connection := range outboundConnections {
+		connection.close(t.bgCtx)
+	}
+
+	if grpcServer != nil {
+		gracefullyStopped := make(chan struct{})
+		go func() {
+			defer close(gracefullyStopped)
+			grpcServer.GracefulStop()
+		}()
+		t.waitStopOrForce(grpcServer, gracefullyStopped)
+	}
+
+	if listener != nil {
+		_ = listener.Close()
+	}
+
+	if serverDone != nil {
+		<-serverDone
+	}
+}
+
+func (t *grpcTransport) waitStopOrForce(grpcServer *grpc.Server, gracefullyStopped chan struct{}) {
 	select {
 	case <-gracefullyStopped:
 	case <-time.After(t.gracefulShutdownTimeout):
-		t.grpcServer.Stop()
+		grpcServer.Stop()
 	}
-
-	return &prototk.StopTransportResponse{}, nil
 }

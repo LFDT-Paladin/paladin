@@ -39,4 +39,10 @@ type DomainSmartContract struct {
 	DomainAddress *pldtypes.EthAddress `docstruct:"SmartContract" json:"domainAddress"`
 	Address       pldtypes.EthAddress  `docstruct:"SmartContract" json:"address"`
 	Config        *ContractConfig      `docstruct:"SmartContract" json:"config,omitempty"`
+	Created       pldtypes.Timestamp   `docstruct:"SmartContract" json:"created"`
+}
+
+type DomainInvokeRPC struct {
+	Method string           `json:"method"`
+	Params pldtypes.RawJSON `json:"params"`
 }

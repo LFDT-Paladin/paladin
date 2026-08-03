@@ -16,7 +16,6 @@
 package noto
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -26,7 +25,7 @@ import (
 
 func TestNameValidateParams(t *testing.T) {
 	h := nameHandler{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	result, err := h.ValidateParams(ctx, nil, "")
 	assert.NoError(t, err)
@@ -34,11 +33,12 @@ func TestNameValidateParams(t *testing.T) {
 }
 
 func TestNameInitCall(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks: mockCallbacks,
 	}
 	h := nameHandler{noto: n}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	parsedTx := &types.ParsedTransaction{
 		Params: nil, // name() has no parameters
@@ -55,11 +55,12 @@ func TestNameInitCall(t *testing.T) {
 }
 
 func TestNameExecCall(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks: mockCallbacks,
 	}
 	h := nameHandler{noto: n}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	parsedTx := &types.ParsedTransaction{
 		Params: nil,

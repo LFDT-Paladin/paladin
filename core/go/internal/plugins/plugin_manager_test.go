@@ -16,6 +16,7 @@ package plugins
 
 import (
 	"context"
+	iofs "io/fs"
 	"os"
 	"strings"
 	"testing"
@@ -160,6 +161,87 @@ func TestInitPluginManagerBadSocket(t *testing.T) {
 
 	err = pc.Start()
 	assert.Regexp(t, "bind", err)
+}
+
+type testPluginManagerFileSystem struct {
+	lstatFunc  func(name string) (iofs.FileInfo, error)
+	removeFunc func(name string) error
+}
+
+func (tfs *testPluginManagerFileSystem) Lstat(name string) (iofs.FileInfo, error) {
+	return tfs.lstatFunc(name)
+}
+
+func (tfs *testPluginManagerFileSystem) Remove(name string) error {
+	return tfs.removeFunc(name)
+}
+
+func TestInitPluginManagerSocketLstatError(t *testing.T) {
+	pc := NewPluginManager(context.Background(),
+		tempUDS(t),
+		uuid.New(), &pldconf.PluginManagerInlineConfig{},
+	)
+	err := pc.PostInit((&testManagers{}).componentsmocks(t))
+	require.NoError(t, err)
+
+	expectedErr := os.ErrPermission
+	pm := pc.(*pluginManager)
+	pm.fs = &testPluginManagerFileSystem{
+		lstatFunc: func(name string) (iofs.FileInfo, error) {
+			return nil, expectedErr
+		},
+		removeFunc: func(name string) error {
+			t.Fatalf("remove should not be called when lstat fails")
+			return nil
+		},
+	}
+
+	err = pm.Start()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, expectedErr)
+}
+
+func TestInitPluginManagerRemoveStaleSocketError(t *testing.T) {
+	pc := NewPluginManager(context.Background(),
+		tempUDS(t),
+		uuid.New(), &pldconf.PluginManagerInlineConfig{},
+	)
+	err := pc.PostInit((&testManagers{}).componentsmocks(t))
+	require.NoError(t, err)
+
+	expectedErr := os.ErrPermission
+	pm := pc.(*pluginManager)
+	require.NoError(t, os.WriteFile(pm.address, []byte("stale"), 0o600))
+	pm.fs = &testPluginManagerFileSystem{
+		lstatFunc: func(name string) (iofs.FileInfo, error) {
+			return os.Lstat(name)
+		},
+		removeFunc: func(name string) error {
+			return expectedErr
+		},
+	}
+
+	err = pm.Start()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, expectedErr)
+}
+
+func TestInitPluginManagerStaleSocketFile(t *testing.T) {
+	udsString := tempUDS(t)
+	udsPath := strings.TrimPrefix(udsString, "unix:")
+	err := os.WriteFile(udsPath, []byte("stale"), 0o600)
+	require.NoError(t, err)
+
+	pc := NewPluginManager(context.Background(),
+		udsString,
+		uuid.New(), &pldconf.PluginManagerInlineConfig{},
+	)
+	err = pc.PostInit((&testManagers{}).componentsmocks(t))
+	require.NoError(t, err)
+
+	err = pc.Start()
+	require.NoError(t, err)
+	pc.Stop()
 }
 
 func TestInitPluginManagerUDSTooLong(t *testing.T) {

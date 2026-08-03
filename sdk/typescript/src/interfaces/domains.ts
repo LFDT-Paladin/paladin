@@ -18,3 +18,8 @@ export interface IDomainSmartContract {
   address: string;
   config?: IContractConfig;
 } 
+
+export interface DomainInvokeRPC {
+  method: string;
+  params: unknown[];
+}

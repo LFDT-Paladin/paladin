@@ -26,11 +26,11 @@ class GoCheckCoverage extends DefaultTask {
             line.contains('total:')
         }?.split()?.last()?.replace('%', '')
         println "Coverage is ${totalCoverage}%"
-        if (totalCoverage && totalCoverage.toFloat() < target) {
+        if (totalCoverage && new BigDecimal(totalCoverage) < target) {
             throw new GradleException(
                 "ERROR: Coverage is below ${target}% (current coverage: ${totalCoverage}%)"
             )
-        } else if (totalCoverage.toFloat() - target > maxGap) {
+        } else if (new BigDecimal(totalCoverage) - target > maxGap) {
             throw new GradleException(
                 "ERROR: The target coverage ${target}% is below the current coverage: ${totalCoverage}% by " +
                 "more than ${maxGap}%; please update the target value in build.gradle."

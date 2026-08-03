@@ -42,6 +42,11 @@ type PTX interface {
 	QueryTransactions(ctx context.Context, jq *query.QueryJSON) (txs []*pldapi.Transaction, err error)
 	QueryTransactionsFull(ctx context.Context, jq *query.QueryJSON) (txs []*pldapi.TransactionFull, err error)
 
+	QueryDispatches(ctx context.Context, jq *query.QueryJSON) (dispatches []*pldapi.Dispatch, err error)
+	GetDispatch(ctx context.Context, id string) (dispatch *pldapi.Dispatch, err error)
+	QueryChainedDispatches(ctx context.Context, jq *query.QueryJSON) (chainedDispatches []*pldapi.ChainedDispatch, err error)
+	GetChainedDispatch(ctx context.Context, id string) (chainedDispatch *pldapi.ChainedDispatch, err error)
+
 	GetTransactionReceipt(ctx context.Context, txID uuid.UUID) (receipt *pldapi.TransactionReceipt, err error)
 	GetTransactionReceiptFull(ctx context.Context, txID uuid.UUID) (receipt *pldapi.TransactionReceiptFull, err error)
 	GetDomainReceipt(ctx context.Context, domain string, txID uuid.UUID) (domainReceipt pldtypes.RawJSON, err error)
@@ -49,11 +54,12 @@ type PTX interface {
 	QueryTransactionReceipts(ctx context.Context, jq *query.QueryJSON) (receipts []*pldapi.TransactionReceipt, err error)
 	GetPreparedTransaction(ctx context.Context, txID uuid.UUID) (preparedTransaction *pldapi.PreparedTransaction, err error)
 	QueryPreparedTransactions(ctx context.Context, jq *query.QueryJSON) (preparedTransactions []*pldapi.PreparedTransaction, err error)
+	GetPublicTransaction(ctx context.Context, id uint64) (tx *pldapi.PublicTxWithBinding, err error)
 	DecodeError(ctx context.Context, revertData pldtypes.HexBytes, dataFormat pldtypes.JSONFormatOptions) (decodedError *pldapi.ABIDecodedData, err error)
 	DecodeCall(ctx context.Context, callData pldtypes.HexBytes, dataFormat pldtypes.JSONFormatOptions) (decodedCall *pldapi.ABIDecodedData, err error)
 	DecodeEvent(ctx context.Context, topics []pldtypes.Bytes32, eventData pldtypes.HexBytes, dataFormat pldtypes.JSONFormatOptions) (decodedEvent *pldapi.ABIDecodedData, err error)
 
-	StoreABI(ctx context.Context, abi abi.ABI) (storedABI *pldapi.StoredABI, err error)
+	StoreABI(ctx context.Context, abi abi.ABI) (hashRef pldtypes.Bytes32, err error)
 	GetStoredABI(ctx context.Context, hashRef pldtypes.Bytes32) (storedABI *pldapi.StoredABI, err error)
 	QueryStoredABIs(ctx context.Context, jq *query.QueryJSON) (storedABIs []*pldapi.StoredABI, err error)
 
@@ -162,9 +168,29 @@ var ptxInfo = &rpcModuleInfo{
 			Inputs: []string{"query"},
 			Output: "preparedTransactions",
 		},
+		"ptx_getPublicTransaction": {
+			Inputs: []string{"id"},
+			Output: "publicTransaction",
+		},
+		"ptx_queryDispatches": {
+			Inputs: []string{"query"},
+			Output: "dispatches",
+		},
+		"ptx_getDispatch": {
+			Inputs: []string{"id"},
+			Output: "dispatch",
+		},
+		"ptx_queryChainedDispatches": {
+			Inputs: []string{"query"},
+			Output: "chainedDispatches",
+		},
+		"ptx_getChainedDispatch": {
+			Inputs: []string{"id"},
+			Output: "chainedDispatch",
+		},
 		"ptx_storeABI": {
 			Inputs: []string{"abi"},
-			Output: "storedABI",
+			Output: "hashRef",
 		},
 		"ptx_getStoredABI": {
 			Inputs: []string{"hashRef"},
@@ -321,6 +347,26 @@ func (p *ptx) QueryTransactionsFull(ctx context.Context, jq *query.QueryJSON) (t
 	return
 }
 
+func (p *ptx) QueryDispatches(ctx context.Context, jq *query.QueryJSON) (dispatches []*pldapi.Dispatch, err error) {
+	err = p.c.CallRPC(ctx, &dispatches, "ptx_queryDispatches", jq)
+	return
+}
+
+func (p *ptx) GetDispatch(ctx context.Context, id string) (dispatch *pldapi.Dispatch, err error) {
+	err = p.c.CallRPC(ctx, &dispatch, "ptx_getDispatch", id)
+	return
+}
+
+func (p *ptx) QueryChainedDispatches(ctx context.Context, jq *query.QueryJSON) (chainedDispatches []*pldapi.ChainedDispatch, err error) {
+	err = p.c.CallRPC(ctx, &chainedDispatches, "ptx_queryChainedDispatches", jq)
+	return
+}
+
+func (p *ptx) GetChainedDispatch(ctx context.Context, id string) (chainedDispatch *pldapi.ChainedDispatch, err error) {
+	err = p.c.CallRPC(ctx, &chainedDispatch, "ptx_getChainedDispatch", id)
+	return
+}
+
 func (p *ptx) GetTransactionReceipt(ctx context.Context, txID uuid.UUID) (receipt *pldapi.TransactionReceipt, err error) {
 	err = p.c.CallRPC(ctx, &receipt, "ptx_getTransactionReceipt", txID)
 	return
@@ -356,8 +402,13 @@ func (p *ptx) QueryPreparedTransactions(ctx context.Context, jq *query.QueryJSON
 	return
 }
 
-func (p *ptx) StoreABI(ctx context.Context, abi abi.ABI) (storedABI *pldapi.StoredABI, err error) {
-	err = p.c.CallRPC(ctx, &storedABI, "ptx_storeABI", abi)
+func (p *ptx) GetPublicTransaction(ctx context.Context, id uint64) (tx *pldapi.PublicTxWithBinding, err error) {
+	err = p.c.CallRPC(ctx, &tx, "ptx_getPublicTransaction", id)
+	return
+}
+
+func (p *ptx) StoreABI(ctx context.Context, abi abi.ABI) (hashRef pldtypes.Bytes32, err error) {
+	err = p.c.CallRPC(ctx, &hashRef, "ptx_storeABI", abi)
 	return
 }
 

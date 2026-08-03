@@ -1,0 +1,1 @@
+A dispatch record links a private transaction to a public transaction that was submitted to the base ledger on its behalf. Query dispatches using `ptx_queryDispatches` or retrieve a specific dispatch by ID using `ptx_getDispatch`.

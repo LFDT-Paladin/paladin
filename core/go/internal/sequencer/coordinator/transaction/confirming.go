@@ -14,8 +14,298 @@
  */
 package transaction
 
-import "context"
+import (
+	"context"
+	"strings"
 
-func guard_HasRevertReason(ctx context.Context, txn *Transaction) bool {
-	return txn.revertReason.String() != ""
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
+)
+
+func guard_CanRetryRevert(ctx context.Context, txn *coordinatorTransaction) bool {
+	return txn.lastCanRetryRevert
+}
+
+// action_RecordConfirmationSuccess resets revert state, records the confirmed hash, and
+// removes the transaction from the grapher's dependency tracking, converting its locks to
+// detached locks stamped with confirmedAtBlock.
+func action_RecordConfirmationSuccess(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ConfirmedSuccessEvent)
+	// reset what we may be storing about a previous confirmation
+	t.revertReason = nil
+	t.decodedRevertReason = ""
+	t.revertOnChain = nil
+	t.lastCanRetryRevert = false
+	checkConfirmedHash(ctx, t, e.Hash)
+	t.grapher.ForgetTransaction(ctx, t.pt.ID, uint64(e.OnChain.BlockNumber))
+	return nil
+}
+
+func action_RecordConfirmationRevert(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ConfirmedRevertedEvent)
+	// reset what we may be storing about a previous confirmation
+	t.revertReason = nil
+	t.decodedRevertReason = ""
+	t.revertOnChain = nil
+	t.lastCanRetryRevert = false
+
+	t.revertCount++
+	t.revertReason = e.RevertReason
+	if e.OnChain.Type != pldtypes.NotOnChain {
+		// On-chain revert: the base ledger transaction was mined but reverted.
+		// Always record the on-chain location so that a receipt can be produced even
+		// when there is no revert data (e.g. a bare revert() with no message).
+		t.revertOnChain = &e.OnChain
+		retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)
+		if err != nil {
+			log.L(ctx).Errorf("error checking if revert is retryable for transaction %s, treating as non-retryable: %s", t.pt.ID.String(), err)
+			retryable = false
+		}
+		if decodedReason != "" {
+			// Keep coordinator-originated decode text aligned with tx manager failure formatting.
+			// This could be perceived as a misuse of another components error code, but the alternatives are
+			// - have a separate error code here- but why should the user care that we did the decoding in a different place
+			// - stop decoding the revert reason in the domain so we don't have two decode place- but this might result in us
+			//   decoding fewer reverts, since transaction manager doesn't necessarily have each domain's ABI
+			t.decodedRevertReason = i18n.NewError(ctx, msgs.MsgTxMgrRevertedDecodedData, decodedReason).Error()
+		} else if e.FailureMessage != "" {
+			// Chained transaction outcomes can carry a decoded failure string from the child domain.
+			// Use it when this coordinator cannot decode revert bytes.
+			t.decodedRevertReason = e.FailureMessage
+		}
+		t.lastCanRetryRevert = retryable && t.revertCount <= t.baseLedgerRevertRetryThreshold
+		log.L(ctx).Debugf("transaction %s base ledger reverted with \"%s\" (%s) (count=%d, retryable=%t, threshold=%d, canRetry=%t)",
+			t.pt.ID.String(), t.decodedRevertReason, t.revertReason.String(), t.revertCount, retryable, t.baseLedgerRevertRetryThreshold, t.lastCanRetryRevert)
+	} else {
+		// Off-chain failure (e.g. chained dispatch dependency failed): no on-chain location.
+		t.decodedRevertReason = e.FailureMessage
+		// We will only see this revert reason if a chained dispatch has failed because its dependency failed.
+		// This means that we assembled this transaction on potential output states that we now
+		// know will not be confirmed on the base ledger.
+		// As a general rule we should not be making sequencer logic conditional on specific error codes; however,
+		// this is acceptable since this is an error code that can originate from within the sequencer.
+		t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256") && t.revertCount <= t.baseLedgerRevertRetryThreshold
+	}
+	checkConfirmedHash(ctx, t, e.Hash)
+	return nil
+}
+
+func checkConfirmedHash(ctx context.Context, t *coordinatorTransaction, hash pldtypes.Bytes32) {
+	if t.latestSubmissionHash == nil {
+		// The transaction created a chained private transaction so there is no hash to compare
+		log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", t.pt.ID.String(), hash.String())
+	} else if *t.latestSubmissionHash != hash {
+		// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
+		// It is interesting so we log it but either way, this must be the transaction that we are looking for because the block indexer correlates with transaction IDs
+		log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash %s, confirmed hash %s", t.pt.ID.String(), t.latestSubmissionHash, hash.String())
+	}
+}
+
+func action_NotifyOriginatorOfConfirmation(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ConfirmedSuccessEvent)
+	msg := &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_SUCCESS,
+	}
+	if e.Nonce != nil {
+		msg.Nonce = int64(*e.Nonce)
+	}
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, msg)
+}
+
+func action_NotifyOriginatorOfRetryableRevert(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ConfirmedRevertedEvent)
+	msg := &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_REVERTED,
+		RevertReason:    t.revertReason,
+		FailureMessage:  t.decodedRevertReason,
+		WillRetry:       true,
+	}
+	if e.Nonce != nil {
+		msg.Nonce = int64(*e.Nonce)
+	}
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, msg)
+}
+
+func action_NotifyOriginatorOfNonRetryableRevert(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ConfirmedRevertedEvent)
+	msg := &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_REVERTED,
+		RevertReason:    t.revertReason,
+		FailureMessage:  t.decodedRevertReason,
+	}
+	if e.Nonce != nil {
+		msg.Nonce = int64(*e.Nonce)
+	}
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, msg)
+}
+
+func action_NotifyOriginatorOfChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ChainedDependencyFailedEvent)
+	failureMessage := i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, e.FailedTxID).Error()
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_REVERTED,
+		FailureMessage:  failureMessage,
+	})
+}
+
+func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	failureMessage := t.decodedRevertReason
+	log.L(ctx).Infof("finalizing transaction %s as reverted (revertCount=%d): %s", t.pt.ID.String(), t.revertCount, failureMessage)
+	var tryFinalize func()
+	tryFinalize = func() {
+		t.syncPoints.QueueTransactionFinalize(ctx,
+			&syncpoints.TransactionFinalizeRequest{
+				Domain:          t.pt.Domain,
+				ContractAddress: pldtypes.EthAddress{},
+				Originator:      t.originator,
+				TransactionID:   t.pt.ID,
+				FailureMessage:  failureMessage,
+				RevertData:      t.revertReason,
+				OnChain:         t.revertOnChain,
+			},
+			func(ctx context.Context) {
+				log.L(ctx).Debugf("finalized non-retryable revert for transaction %s", t.pt.ID)
+			},
+			func(ctx context.Context, err error) {
+				log.L(ctx).Errorf("error finalizing non-retryable revert for transaction %s: %s", t.pt.ID, err)
+				tryFinalize()
+			},
+		)
+	}
+	tryFinalize()
+	return nil
+}
+
+func action_NotifyDependentsOfRevertedConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s", txn.pt.ID.String())
+	return txn.notifyDependentsOfRevertedConfirmation(ctx)
+}
+
+func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx context.Context) error {
+	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s (dependents will repool/move to preassembly blocked)", t.pt.ID.String())
+	dependents := t.dependencyTracker.GetPostAssemblyDeps().GetDependents(ctx, t.pt.ID)
+	chainedDependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
+	for _, dependentId := range append(dependents, chainedDependents...) {
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyConfirmedRevertedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentId,
+			},
+			SourceTransactionID: t.pt.ID,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// action_CascadeChainedDependencyFailure notifies all chained dependents of the failure
+// when a transaction reaches State_Reverted. Each dependent handles the event via its own
+// state machine, performing its own finalization (downward pruning of the dependency chain).
+func action_CascadeChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
+	for _, dependentId := range dependents {
+		log.L(ctx).Infof("cascading dependency failure from TX %s to TX %s", t.pt.ID, dependentId)
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyFailedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentId,
+			},
+			FailedTxID: t.pt.ID,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func action_FinalizeOnChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ChainedDependencyFailedEvent)
+	log.L(ctx).Infof("finalizing TX %s due to chained dependency failure from TX %s", t.pt.ID, e.FailedTxID)
+	var tryFinalize func()
+	tryFinalize = func() {
+		t.syncPoints.QueueTransactionFinalize(ctx,
+			&syncpoints.TransactionFinalizeRequest{
+				Domain:          t.pt.Domain,
+				ContractAddress: t.pt.Address,
+				Originator:      t.originator,
+				TransactionID:   t.pt.ID,
+				FailureMessage:  i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, e.FailedTxID).Error(),
+			},
+			func(ctx context.Context) {
+				log.L(ctx).Debugf("finalized TX %s due to chained dependency failure", t.pt.ID)
+			},
+			func(ctx context.Context, err error) {
+				log.L(ctx).Errorf("error finalizing TX %s due to chained dependency failure: %s", t.pt.ID, err)
+				tryFinalize()
+			},
+		)
+	}
+	tryFinalize()
+	return nil
+}
+
+func action_RevertTransactionInGrapher(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	log.L(ctx).Debugf("releasing transaction locks for %s (revert/failure path)", t.pt.ID.String())
+	t.grapher.ForgetTransactionAndLocks(ctx, t.pt.ID)
+	return nil
+}
+
+// action_CascadeChainedDependencyEviction notifies all chained dependents when a transaction
+// is evicted (e.g. assembly failure threshold exceeded). Because the evicted transaction has
+// not yet been assembled, its dependents cannot have been either — so they must be in Pooled
+// or PreAssembly_Blocked.
+func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
+	for _, dependentId := range dependents {
+		log.L(ctx).Infof("cascading dependency eviction from TX %s to TX %s", t.pt.ID, dependentId)
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyEvictedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentId,
+			},
+			EvictedTxID: t.pt.ID,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// action_NotifyPreAssembleDependentOfTermination sends an Event_PreAssembleDependencyFinalized
+// to the pre-assemble dependent (if any) when this transaction reaches a terminal state.
+// This severs the FIFO ordering link so the dependent is not stuck waiting forever.
+func action_NotifyPreAssembleDependentOfTermination(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	dependentID, hasDependent := t.dependencyTracker.GetPreassemblyDeps().GetDependent(ctx, t.pt.ID)
+	if !hasDependent {
+		return nil
+	}
+	log.L(ctx).Infof("notifying pre-assemble dependent TX %s that predecessor TX %s has reached a terminal state", dependentID, t.pt.ID)
+	err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &PreAssembleDependencyTerminatedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: dependentID,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }

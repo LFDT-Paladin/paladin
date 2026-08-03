@@ -10,6 +10,7 @@ title: PublicTx
     "from": "0x0000000000000000000000000000000000000000",
     "nonce": null,
     "created": 0,
+    "dispatcher": "",
     "transactionHash": null
 }
 ```
@@ -24,6 +25,7 @@ title: PublicTx
 | `from` | The sender's Ethereum address | [`EthAddress`](simpletypes.md#ethaddress) |
 | `nonce` | The transaction nonce | [`HexUint64`](simpletypes.md#hexuint64) |
 | `created` | The creation time | [`Timestamp`](simpletypes.md#timestamp) |
+| `dispatcher` | The dispatcher that submitted this public transaction | `string` |
 | `completedAt` | The completion time (optional) | [`Timestamp`](simpletypes.md#timestamp) |
 | `transactionHash` | The transaction hash (optional) | [`Bytes32`](simpletypes.md#bytes32) |
 | `success` | The transaction success status (optional) | `bool` |

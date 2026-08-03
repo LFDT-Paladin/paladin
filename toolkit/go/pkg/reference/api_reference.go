@@ -87,7 +87,10 @@ var allTypes = []interface{}{
 	pldapi.TransactionCall{},
 	pldapi.Transaction{},
 	pldapi.PreparedTransaction{},
+	pldapi.Dispatch{},
+	pldapi.ChainedDispatch{},
 	pldapi.PublicTx{},
+	pldapi.PublicTxWithBinding{},
 	pldapi.StoredABI{
 		ABI: abi.ABI{
 			&abi.Entry{
@@ -101,7 +104,6 @@ var allTypes = []interface{}{
 	pldapi.State{},
 	pldapi.StateConfirmRecord{},
 	pldapi.StateSpendRecord{},
-	pldapi.StateLock{},
 	pldapi.Schema{},
 	pldapi.RegistryEntry{OnChainLocation: &pldapi.OnChainLocation{}},
 	pldapi.RegistryEntryWithProperties{

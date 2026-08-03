@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //

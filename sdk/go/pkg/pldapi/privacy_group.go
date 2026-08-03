@@ -24,6 +24,7 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
+
 type PrivacyGroup struct {
 	ID                 pldtypes.HexBytes    `docstruct:"PrivacyGroup" json:"id"`
 	Domain             string               `docstruct:"PrivacyGroup" json:"domain"`

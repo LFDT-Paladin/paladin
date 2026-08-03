@@ -29,8 +29,8 @@ export interface IStateEncoded {
 
 export interface IState extends IStateBase {
   confirmed?: IStateConfirm;
+  read?: IStateRead;
   spent?: IStateSpend;
-  locks?: IStateLock[];
   nullifier?: IStateNullifier;
 }
 
@@ -52,15 +52,12 @@ export interface IStateConfirm {
   transaction: string;
 }
 
-export interface IStateSpend {
+export interface IStateRead {
   transaction: string;
 }
 
-type StateLockType = "create" | "read" | "spend";
-
-export interface IStateLock {
+export interface IStateSpend {
   transaction: string;
-  type: StateLockType;
 }
 
 export interface IStateNullifier {

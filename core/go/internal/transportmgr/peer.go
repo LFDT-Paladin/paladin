@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright contributors to Paladin, an LFDT project
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -19,6 +19,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"math"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -26,10 +27,12 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"gorm.io/gorm/clause"
 )
@@ -54,8 +57,10 @@ type peer struct {
 
 	// Send loop state (no lock as only used on the loop)
 	lastFullScan          time.Time
-	lastDrainHWM          *uint64
-	persistentMsgsDrained bool
+	consecutiveSendErrors int
+
+	lowestPendingSeqLock sync.Mutex
+	lowestPendingSeq     uint64
 
 	senderStarted atomic.Bool
 	senderDone    chan struct{}
@@ -106,6 +111,63 @@ func (tm *transportManager) listActivePeerInfo() []*pldapi.PeerInfo {
 		peerInfo[i] = &p.PeerInfo
 	}
 	return peerInfo
+}
+
+type peerWithValueSet struct {
+	info *pldapi.PeerInfo
+	vs   filters.PassthroughValueSet
+}
+
+func (p *peerWithValueSet) ValueSet() filters.ValueSet {
+	return p.vs
+}
+
+func peerInfoValueSet(p *pldapi.PeerInfo) filters.PassthroughValueSet {
+	return filters.PassthroughValueSet{
+		"name": p.Name,
+	}
+}
+
+func (tm *transportManager) queryPeers(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.PeerInfo, error) {
+	if err := filters.CheckLimitSet(ctx, jq); err != nil {
+		return nil, err
+	}
+
+	sortInstructions := jq.Sort
+	if len(sortInstructions) == 0 {
+		sortInstructions = []string{"name"}
+	}
+
+	peers := tm.listActivePeers()
+	matches := make([]*peerWithValueSet, 0, len(peers))
+	for _, p := range peers {
+		pws := &peerWithValueSet{
+			info: &p.PeerInfo,
+			vs:   peerInfoValueSet(&p.PeerInfo),
+		}
+		match, err := filters.EvalQuery(ctx, jq, peerInfoFilters, pws.vs)
+		if err != nil {
+			return nil, err
+		}
+		if match {
+			matches = append(matches, pws)
+		}
+	}
+
+	if err := filters.SortValueSetInPlace(ctx, peerInfoFilters, matches, sortInstructions...); err != nil {
+		return nil, err
+	}
+
+	limit := *jq.Limit
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+
+	result := make([]*pldapi.PeerInfo, len(matches))
+	for i, p := range matches {
+		result[i] = p.info
+	}
+	return result, nil
 }
 
 func (tm *transportManager) getPeerInfo(nodeName string) *pldapi.PeerInfo {
@@ -180,16 +242,22 @@ func (tm *transportManager) connectPeer(ctx context.Context, nodeName string, se
 	if p == nil {
 		// We need to resolve the node transport, and build a new connection
 		log.L(ctx).Debugf("activating new peer '%s'", nodeName)
+		now := pldtypes.TimestampNow()
 		p = &peer{
 			tm: tm,
 			PeerInfo: pldapi.PeerInfo{
 				Name:      nodeName,
-				Activated: pldtypes.TimestampNow(),
+				Activated: now,
+				Stats: pldapi.PeerStats{
+					CreatedAt: &now,
+				},
 			},
 			persistedMsgsAvailable: make(chan struct{}, 1),
 			sendQueue:              make(chan *msgWithErrChan, tm.senderBufferLen),
 			senderDone:             make(chan struct{}),
 		}
+		// imitialise high - the first pending reliable message sequencer must be lower than the start value
+		p.lowestPendingSeq = math.MaxUint64
 		p.ctx, p.cancelCtx = context.WithCancel(
 			log.WithLogField(tm.bgCtx /* go-routine need bg context*/, "peer", nodeName))
 	}
@@ -248,12 +316,24 @@ func (p *peer) startSender() (string, error) {
 	}
 
 	log.L(p.ctx).Debugf("connected to peer '%s'", p.Name)
+
+	// Reset the completion channel before each sender start.
+	p.senderDone = make(chan struct{})
 	p.senderStarted.Store(true)
 	go p.sender()
 	return p.transport.name, nil
 }
 
-func (p *peer) notifyPersistedMsgAvailable() {
+// notifyPersistedMsgAvailableFromSeq records the minimum sequence number of newly committed
+// reliable messages and signals the sender loop to wake up. If the channel already has a
+// pending notification, the sequence floor is still updated so the next scan starts from
+// the correct position.
+func (p *peer) notifyPersistedMsgAvailableFromSeq(minSeq uint64) {
+	p.lowestPendingSeqLock.Lock()
+	if minSeq < p.lowestPendingSeq {
+		p.lowestPendingSeq = minSeq
+	}
+	p.lowestPendingSeqLock.Unlock()
 	select {
 	case p.persistedMsgsAvailable <- struct{}{}:
 	default:
@@ -264,22 +344,26 @@ func (p *peer) send(msg *prototk.PaladinMsg, reliableSeq *uint64) error {
 	err := p.tm.sendShortRetry.Do(p.ctx, func(attempt int) (retryable bool, err error) {
 		return true, p.transport.send(p.ctx, p.Name, msg)
 	})
-	log.L(p.ctx).Infof("Sent %s/%s message %s to %s (cid=%s)", msg.Component.String(), msg.MessageType, msg.MessageId, p.Name, pldtypes.StrOrEmpty(msg.CorrelationId))
-	if err == nil {
-		now := pldtypes.TimestampNow()
-		p.statsLock.Lock()
-		defer p.statsLock.Unlock()
-		p.Stats.LastSend = &now
-		p.Stats.SentMsgs++
-		p.Stats.SentBytes += uint64(len(msg.Payload))
-		if reliableSeq != nil && *reliableSeq > p.Stats.ReliableHighestSent {
-			p.Stats.ReliableHighestSent = *reliableSeq
-		}
-		if p.lastDrainHWM != nil {
-			p.Stats.ReliableAckBase = *p.lastDrainHWM
-		}
+	if err != nil {
+		p.consecutiveSendErrors++
+		return err
 	}
-	return err
+	p.consecutiveSendErrors = 0
+	log.L(p.ctx).Infof("Sent %s/%s message %s to %s (cid=%s)", msg.Component.String(), msg.MessageType, msg.MessageId, p.Name, pldtypes.StrOrEmpty(msg.CorrelationId))
+	now := pldtypes.TimestampNow()
+	p.statsLock.Lock()
+	defer p.statsLock.Unlock()
+	p.Stats.LastSend = &now
+	p.Stats.SentMsgs++
+	p.Stats.SentBytes += uint64(len(msg.Payload))
+	if reliableSeq != nil && *reliableSeq > p.Stats.ReliableHighestSent {
+		p.Stats.ReliableHighestSent = *reliableSeq
+	}
+	return nil
+}
+
+func (p *peer) sendFailureThresholdExceeded() bool {
+	return p.consecutiveSendErrors >= p.tm.sendFailureResetThreshold
 }
 
 func (p *peer) updateReceivedStats(msg *prototk.PaladinMsg) {
@@ -295,15 +379,32 @@ func (p *peer) updateReceivedStats(msg *prototk.PaladinMsg) {
 
 func (p *peer) reliableMessageScan(checkNew bool) error {
 
-	fullScan := p.lastDrainHWM == nil || time.Since(p.lastFullScan) >= p.tm.reliableMessageResend
+	// A full scan queries all unacked messages and applies an age gate before resending.
+	// A triggered scan (checkNew) queries only newly committed messages (from lowestPendingSeq)
+	// and sends them immediately with no age gate.
+	fullScan := !checkNew && (p.lastFullScan.IsZero() || time.Since(p.lastFullScan) >= p.tm.reliableMessageResend)
 	if !fullScan && !checkNew {
 		return nil // Nothing to do
 	}
+	log.L(p.ctx).Debugf(
+		"reliableMessageScan starting node=%s checkNew=%t fullScan=%t pageSize=%d",
+		p.Name,
+		checkNew,
+		fullScan,
+		p.tm.reliableMessagePageSize,
+	)
 
 	pageSize := p.tm.reliableMessagePageSize
 	var total = 0
 	var lastPageEnd *uint64
 	for {
+		log.L(p.ctx).Tracef(
+			"reliableMessageScan querying DB node=%s pageSize=%d fullScan=%t lastPageEnd=%v",
+			p.Name,
+			pageSize,
+			fullScan,
+			lastPageEnd,
+		)
 		query := p.tm.persistence.DB().
 			WithContext(p.ctx).
 			Order("sequence ASC").
@@ -314,7 +415,21 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 		if lastPageEnd != nil {
 			query = query.Where("sequence > ?", *lastPageEnd)
 		} else if !fullScan {
-			query = query.Where("sequence > ?", *p.lastDrainHWM)
+			// Triggered by a post-commit notification. Consume lowestPendingSeq as the scan
+			// floor so all messages from the triggering (and any concurrent) DB transactions
+			// are found, including those that committed out-of-order relative to each other.
+			p.lowestPendingSeqLock.Lock()
+			startSeq := p.lowestPendingSeq
+			p.lowestPendingSeq = math.MaxUint64
+			p.lowestPendingSeqLock.Unlock()
+			if startSeq == math.MaxUint64 {
+				// Stale notification: a concurrent scan already consumed and reset lowestPendingSeq,
+				// covering the messages from this notification's batch. Nothing left to scan.
+				log.L(p.ctx).Debugf("reliableMessageScan triggered scan on node=%s skipped - stale notification (lowestPendingSeq already consumed)", p.Name)
+				break
+			}
+			log.L(p.ctx).Tracef("reliableMessageScan triggered scan from sequence %d", startSeq)
+			query = query.Where("sequence >= ?", startSeq)
 		}
 
 		var page []*pldapi.ReliableMessage
@@ -322,16 +437,26 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 		if err != nil {
 			return err
 		}
+		if len(page) > 0 {
+			log.L(p.ctx).Debugf(
+				"reliableMessageScan fetched page node=%s count=%d firstSeq=%d lastSeq=%d",
+				p.Name,
+				len(page),
+				page[0].Sequence,
+				page[len(page)-1].Sequence,
+			)
+		} else {
+			log.L(p.ctx).Debugf("reliableMessageScan fetched page node=%s count=0", p.Name)
+		}
 
 		// Process the page - building and sending the proto messages
-		if err = p.processReliableMsgPage(p.tm.persistence.NOTX(), page); err != nil {
+		if err = p.processReliableMsgPage(p.tm.persistence.NOTX(), page, checkNew); err != nil {
 			// Errors returned are retryable - for data errors the function
 			// must record those as acks with an error.
 			return err
 		}
 
 		if len(page) > 0 {
-			p.persistentMsgsDrained = false // we know there's some messages
 			total += len(page)
 			lastPageEnd = &page[len(page)-1].Sequence
 		}
@@ -345,24 +470,15 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 
 	log.L(p.ctx).Debugf("reliableMessageScan fullScan=%t total=%d lastPageEnd=%v", fullScan, total, lastPageEnd)
 
-	// If we found anything, then mark that as our high water mark for
-	// future scans. If an empty full scan - then we store nil
-	if lastPageEnd != nil || fullScan {
-		p.lastDrainHWM = lastPageEnd
-	}
-
 	// Record the last full scan
 	if fullScan {
-		// We only know we're empty when we do a full re-scan, and that comes back empty
-		p.persistentMsgsDrained = (total == 0)
-
 		p.lastFullScan = time.Now()
 	}
 
 	return nil
 }
 
-func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.ReliableMessage) (err error) {
+func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.ReliableMessage, isTriggeredScan bool) (err error) {
 
 	type paladinMsgWithSeq struct {
 		*prototk.PaladinMsg
@@ -374,12 +490,20 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 	var errorAcks []*pldapi.ReliableMessageAck
 	for _, rm := range page {
 
-		// Check it's either after our HWM, or eligible for re-send
-		afterHWM := p.lastDrainHWM == nil || *p.lastDrainHWM < rm.Sequence
-		if !afterHWM && time.Since(rm.Created.Time()) < p.tm.reliableMessageResend {
-			log.L(p.ctx).Infof("Unacknowledged message %s not yet eligible for re-send", rm.ID)
+		// Triggered scans deliver freshly committed messages — send immediately.
+		// Periodic full scans may re-encounter messages already sent; skip them until
+		// enough time has passed that a resend is warranted.
+		if !isTriggeredScan && time.Since(rm.Created.Time()) < p.tm.reliableMessageResend {
+			log.L(p.ctx).Debugf("Unacknowledged message %s not yet eligible for re-send", rm.ID)
 			continue
 		}
+		log.L(p.ctx).Debugf(
+			"reliableMessageScan selected message from DB id=%s seq=%d type=%s node=%s",
+			rm.ID,
+			rm.Sequence,
+			rm.MessageType,
+			rm.Node,
+		)
 
 		// Process it
 		var msg *prototk.PaladinMsg
@@ -393,8 +517,8 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 			msg, errorAck, err = p.tm.buildPrivacyGroupMessageMsg(p.ctx, dbTX, rm)
 		case pldapi.RMTReceipt:
 			msg, errorAck, err = p.tm.buildReceiptDistributionMsg(p.ctx, dbTX, rm)
-		case pldapi.RMTPublicTransaction:
-			msg, errorAck, err = p.tm.buildPublicTransactionMsg(p.ctx, dbTX, rm)
+		case pldapi.RMTSequencingActivity:
+			msg, errorAck, err = p.tm.buildSequencingProgressActivityMsg(p.ctx, dbTX, rm)
 		case pldapi.RMTPublicTransactionSubmission:
 			msg, errorAck, err = p.tm.buildPublicTransactionSubmissionMsg(p.ctx, dbTX, rm)
 		default:
@@ -444,6 +568,7 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 }
 
 func (p *peer) sender() {
+	defer p.senderStarted.Store(false)
 	defer close(p.senderDone)
 
 	log.L(p.ctx).Infof("peer %s active", p.Name)
@@ -453,9 +578,20 @@ func (p *peer) sender() {
 
 		// We send/resend any reliable messages queued up first
 		err := p.tm.reliableScanRetry.Do(p.ctx, func(attempt int) (retryable bool, err error) {
-			return true, p.reliableMessageScan(checkNew)
+			err = p.reliableMessageScan(checkNew)
+			if err != nil && p.sendFailureThresholdExceeded() {
+				return false, err
+			}
+			return true, err
 		})
 		if err != nil {
+			if p.sendFailureThresholdExceeded() {
+				log.L(p.ctx).Warnf(
+					"peer '%s' send loop restarting after %d consecutive send errors",
+					p.Name,
+					p.consecutiveSendErrors,
+				)
+			}
 			return // context closed
 		}
 		checkNew = false
@@ -477,12 +613,21 @@ func (p *peer) sender() {
 				resendTimer.Stop()
 				return // we're done
 			case msg := <-p.sendQueue:
-				resendTimer.Stop()
 				// send and spin straight round
 				if err := p.send(msg.PaladinMsg, nil); err != nil {
 					log.L(p.ctx).Errorf("failed to send message '%s' after short retry (discarding): %s", msg.MessageId, err)
 					if msg.errorHandler != nil {
 						msg.errorHandler(p.ctx, err)
+					}
+					// Reset this sender loop after repeated send errors so
+					// the next send path re-runs peer activation.
+					if p.sendFailureThresholdExceeded() {
+						log.L(p.ctx).Warnf(
+							"peer '%s' send loop restarting after %d consecutive send errors",
+							p.Name,
+							p.consecutiveSendErrors,
+						)
+						return
 					}
 				}
 			}
@@ -495,7 +640,8 @@ func (p *peer) isInactive() bool {
 	defer p.statsLock.Unlock()
 
 	now := time.Now()
-	return (p.Stats.LastSend == nil || now.Sub(p.Stats.LastSend.Time()) > p.tm.peerInactivityTimeout) &&
+	return (p.Stats.CreatedAt == nil || now.Sub(p.Stats.CreatedAt.Time()) > p.tm.peerInactivityTimeout) &&
+		(p.Stats.LastSend == nil || now.Sub(p.Stats.LastSend.Time()) > p.tm.peerInactivityTimeout) &&
 		(p.Stats.LastReceive == nil || now.Sub(p.Stats.LastReceive.Time()) > p.tm.peerInactivityTimeout)
 }
 

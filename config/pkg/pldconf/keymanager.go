@@ -26,6 +26,7 @@ type KeyManagerInlineConfig struct {
 type KeyManagerConfig struct {
 	IdentifierCache CacheConfig `json:"identifierCache"`
 	VerifierCache   CacheConfig `json:"verifierCache"`
+	DisableSignRPC  bool        `json:"disableSignRPC"`
 }
 
 type SigningModuleConfig struct {

@@ -191,15 +191,6 @@ func TestRegistryRegisterFail(t *testing.T) {
 				t:              t,
 				connectFactory: registryConnectFactory,
 				headerAccessor: registryHeaderAccessor,
-				preRegister: func(registryID string) *prototk.RegistryMessage {
-					return &prototk.RegistryMessage{
-						Header: &prototk.Header{
-							MessageType: prototk.Header_REGISTER,
-							PluginId:    registryID,
-							MessageId:   uuid.NewString(),
-						},
-					}
-				},
 				expectClose: func(err error) {
 					waitForError <- err
 				},

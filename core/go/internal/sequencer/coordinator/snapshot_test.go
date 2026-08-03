@@ -17,59 +17,206 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetSnapshot_OK(t *testing.T) {
 	ctx := context.Background()
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build(ctx)
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build()
 	snapshot := c.getSnapshot(ctx)
 	assert.NotNil(t, snapshot)
 }
 
-func TestGetSnapshot_IncludesPooledTransaction(t *testing.T) {
+func TestGetSnapshot_AggregatesTransactionsBySnapshotType(t *testing.T) {
 	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _ := NewCoordinatorForUnitTest(t, ctx, []string{originator})
+	pooledTxnID, dispatchedTxnID, confirmedTxnID, revertedTxnID, excludedTxnID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	pooledSnapshot := &engineProto.SnapshotPooledTransaction{Id: pooledTxnID.String()}
+	dispatchedSnapshot := &engineProto.SnapshotDispatchedTransaction{Id: dispatchedTxnID.String()}
+	confirmedSnapshot := &engineProto.SnapshotConfirmedTransaction{Id: confirmedTxnID.String()}
+	revertedSnapshot := &engineProto.SnapshotRevertedTransaction{Id: revertedTxnID.String()}
 
-	for _, state := range []transaction.State{
-		transaction.State_Pooled,
-		transaction.State_PreAssembly_Blocked,
-		transaction.State_Assembling,
-		transaction.State_Endorsement_Gathering,
-		transaction.State_Blocked,
-		transaction.State_Confirming_Dispatchable,
-	} {
-		txn := transaction.NewTransactionBuilderForTesting(t, state).Build()
-		c.transactionsByID[txn.ID] = txn
-	}
+	pooledTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	pooledTxn.EXPECT().GetID().Return(pooledTxnID)
+	pooledTxn.EXPECT().GetSnapshot(mock.Anything).Return(pooledSnapshot, nil, nil, nil)
+	dispatchedTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	dispatchedTxn.EXPECT().GetID().Return(dispatchedTxnID)
+	dispatchedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, dispatchedSnapshot, nil, nil)
+	confirmedTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	confirmedTxn.EXPECT().GetID().Return(confirmedTxnID)
+	confirmedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, nil, confirmedSnapshot, nil)
+	revertedTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	revertedTxn.EXPECT().GetID().Return(revertedTxnID)
+	revertedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, nil, nil, revertedSnapshot)
+	excludedTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	excludedTxn.EXPECT().GetID().Return(excludedTxnID)
+	excludedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, nil, nil, nil)
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		Transactions(pooledTxn, dispatchedTxn, confirmedTxn, revertedTxn, excludedTxn).
+		Build()
 
 	snapshot := c.getSnapshot(ctx)
 	require.NotNil(t, snapshot)
-	assert.Equal(t, 6, len(snapshot.PooledTransactions))
-
+	assert.Len(t, snapshot.PooledTransactions, 1)
+	assert.Len(t, snapshot.DispatchedTransactions, 1)
+	assert.Len(t, snapshot.ConfirmedTransactions, 1)
+	assert.Len(t, snapshot.RevertedTransactions, 1)
+	assert.Equal(t, pooledTxnID.String(), snapshot.PooledTransactions[0].Id)
+	assert.Equal(t, dispatchedTxnID.String(), snapshot.DispatchedTransactions[0].Id)
+	assert.Equal(t, confirmedTxnID.String(), snapshot.ConfirmedTransactions[0].Id)
+	assert.Equal(t, revertedTxnID.String(), snapshot.RevertedTransactions[0].Id)
 }
 
-func TestGetSnapshot_IncludesDispatchedTransaction(t *testing.T) {
+func TestGetSnapshot_IncludesCoordinatorStateAndBlockHeight(t *testing.T) {
 	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _ := NewCoordinatorForUnitTest(t, ctx, []string{originator})
-
-	for _, state := range []transaction.State{
-		transaction.State_Ready_For_Dispatch,
-		transaction.State_Dispatched,
-		transaction.State_Submitted,
-	} {
-		txn := transaction.NewTransactionBuilderForTesting(t, state).Build()
-		c.transactionsByID[txn.ID] = txn
-	}
+	blockHeight := uint64(12345)
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).CurrentBlockHeight(blockHeight).Build()
 
 	snapshot := c.getSnapshot(ctx)
 	require.NotNil(t, snapshot)
-	assert.Equal(t, 3, len(snapshot.DispatchedTransactions))
+	assert.Equal(t, int32(c.GetCurrentState()), snapshot.CoordinatorState)
+	assert.Equal(t, blockHeight, snapshot.BlockHeight)
+}
 
+func TestSendHeartbeat_Success(t *testing.T) {
+	ctx := context.Background()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1", "node2", "node3").
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Build()
+
+	err := c.sendHeartbeat(ctx, false)
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat())
+}
+
+func TestSendHeartbeat_IncludesCurrentNode(t *testing.T) {
+	ctx := context.Background()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1").
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Build()
+
+	err := c.sendHeartbeat(ctx, false)
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat())
+}
+
+func TestSendHeartbeat_HandlesError(t *testing.T) {
+	ctx := context.Background()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1", "node2").
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		WithMockTransportWriter().
+		Build()
+	mocks.TransportWriter.EXPECT().SendHeartbeat(mock.Anything, "node1", mock.Anything).
+		Return(nil)
+	mocks.TransportWriter.EXPECT().SendHeartbeat(mock.Anything, "node2", mock.Anything).
+		Return(fmt.Errorf("transport error"))
+
+	err := c.sendHeartbeat(ctx, false)
+	// Should return the error but continue processing
+	assert.Error(t, err)
+	assert.Equal(t, "transport error", err.Error())
+}
+
+func TestAction_SendHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1", "node2").
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Build()
+
+	err := action_SendHeartbeat(ctx, c, nil)
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat())
+}
+
+func TestAction_SendHeartbeatWithLocks(t *testing.T) {
+	ctx := context.Background()
+	mockGrapher := graphermocks.NewGrapher(t)
+	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything, "node1").
+		Return(&prototk.StateSnapshot{}, nil)
+	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything, "node2").
+		Return(&prototk.StateSnapshot{}, nil)
+
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1", "node2").
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Grapher(mockGrapher).
+		Build()
+
+	err := action_SendHeartbeatWithLocks(ctx, c, nil)
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat())
+}
+
+func Test_action_IncrementHeartbeatIntervalsSinceStateChange(t *testing.T) {
+	ctx := context.Background()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).HeartbeatIntervalsSinceStateChange(2).Build()
+
+	err := action_IncrementHeartbeatIntervalsSinceStateChange(ctx, c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 3, c.heartbeatIntervalsSinceStateChange)
+}
+
+func Test_action_PropagateHeartbeatToTransactions_NoTransactions(t *testing.T) {
+	ctx := context.Background()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build()
+
+	err := action_PropagateHeartbeatIntervalToTransactions(ctx, c, nil)
+	require.NoError(t, err)
+}
+
+func Test_action_PropagateHeartbeatToTransactions_WithTransactions(t *testing.T) {
+	ctx := context.Background()
+	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	txn.EXPECT().GetID().Return(uuid.New())
+	txn.EXPECT().HandleEvent(mock.Anything, mock.AnythingOfType("*common.HeartbeatIntervalEvent")).Return(nil)
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
+
+	err := action_PropagateHeartbeatIntervalToTransactions(ctx, c, nil)
+	require.NoError(t, err)
+}
+
+func TestSendHeartbeat_StaticMode_WithOriginatorActivity_SendsHeartbeats(t *testing.T) {
+	ctx := context.Background()
+	// STATIC mode (default) with a non-empty originatorActivity exercises the
+	// "nodes = append(nodes, node)" branch inside the else-block of sendHeartbeat.
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
+		OriginatorActivity(map[string]int{"remoteNode": 0}).
+		Build()
+
+	err := c.sendHeartbeat(ctx, false)
+	assert.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat())
+}
+
+func TestSendHeartbeat_ExportStatesAndLocksError_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+
+	mockGrapher := graphermocks.NewGrapher(t)
+	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything, "node1").
+		Return(nil, fmt.Errorf("export error"))
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		EndorserCandidates("node1").
+		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
+		Grapher(mockGrapher).
+		Build()
+
+	// includeLocks=true causes ExportStatesAndLocks to be called.
+	err := c.sendHeartbeat(ctx, true)
+	assert.Error(t, err)
+	assert.Equal(t, "export error", err.Error())
 }

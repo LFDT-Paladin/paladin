@@ -21,13 +21,26 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestHeartbeatIntervalEvent_Type(t *testing.T) {
-	event := &HeartbeatIntervalEvent{}
-	assert.Equal(t, Event_HeartbeatInterval, event.Type())
+func Test_OriginatorEvents_InterfaceCompliance(t *testing.T) {
+	events := []Event{
+		&TransactionCreatedEvent{},
+		&OriginatorCreatedEvent{},
+	}
+	for _, event := range events {
+		assert.NotNil(t, event.Type())
+		assert.NotEmpty(t, event.TypeString())
+		_ = event.GetEventTime()
+	}
 }
 
-func TestHeartbeatIntervalEvent_TypeString(t *testing.T) {
-	event := &HeartbeatIntervalEvent{}
-	assert.Equal(t, "Event_HeartbeatInterval", event.TypeString())
+func Test_TransactionCreatedEvent_TypeAndTypeString(t *testing.T) {
+	e := &TransactionCreatedEvent{}
+	assert.Equal(t, Event_TransactionCreated, e.Type())
+	assert.Equal(t, "Event_TransactionCreated", e.TypeString())
 }
 
+func Test_OriginatorCreatedEvent_TypeAndTypeString(t *testing.T) {
+	e := &OriginatorCreatedEvent{}
+	assert.Equal(t, Event_OriginatorCreated, e.Type())
+	assert.Equal(t, "Event_OriginatorCreated", e.TypeString())
+}

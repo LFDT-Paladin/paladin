@@ -9,3 +9,4 @@ cache
 artifacts
 .openzeppelin/unknown*.json
 test-results.txt
+js-merkletree

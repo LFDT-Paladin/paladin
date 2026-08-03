@@ -18,6 +18,7 @@ syntax = "proto3";
 package io.kaleido.paladin.toolkit;
 
 import "on_chain_events.proto";
+import "states.proto";
 
 // This is necessary to avoid ToDomain.java being >2.5MB in size
 option java_multiple_files = true;
@@ -68,6 +69,7 @@ message PrepareDeployResponse {
 message InitContractRequest {
   string contract_address = 1; // The address of the smart contract on-chain
   bytes contract_config = 2; // Binary config emitted by the constructor event of the contract that is persisted by Paladin and provided back each time the smart contract is loaded into memory
+  optional PrivacyGroup privacy_group = 3; // Optional privacy group context for domains that derive runtime config from group membership
 }
 
 message InitContractResponse {    
@@ -75,7 +77,7 @@ message InitContractResponse {
   ContractConfig contract_config = 2; // The parse contract contract configuration
 }
 
-// **INIT** step for a business transaction happens in-line with the tranaction being accepted by Paladin from the application. Should verify the transaction is a valid request and build a list of required verifiers, but not resolve whether sufficient states exist to execute the transaction.
+// **INIT** step for a business transaction happens in-line with the transaction being accepted by Paladin from the application. Should verify the transaction is a valid request and build a list of required verifiers, but not resolve whether sufficient states exist to execute the transaction.
 message InitTransactionRequest {
   TransactionSpecification transaction = 1; // The transaction to plan
 }
@@ -89,6 +91,7 @@ message AssembleTransactionRequest {
   string state_query_context = 1; // handle to supply to state queries performed during this call
   TransactionSpecification transaction = 2; // The transaction to assemble
   repeated ResolvedVerifier resolved_verifiers = 3; // A list of transaction signatures/proofs that have been resolved, so the transaction can be assembled
+  optional BlockContext block_context = 4; // The base ledger block context at the time of assembly
 }
 
 message AssembleTransactionResponse {
@@ -138,7 +141,7 @@ message EndorseTransactionRequest {
   repeated EndorsableState outputs = 8; // Output states for the transaction
   repeated EndorsableState info = 9; // Info states for the transaction, that are important information in/out of the business transaction, but are never recorded in an on-chain map, or returned from FindAvailableStates
   repeated AttestationResult signatures = 10; // All SIGN attestation results (required from submitting node before endorsement)
-  
+  optional BlockContext block_context = 11; // The base ledger block context at the time the transaction was assembled
 }
 
 message EndorseTransactionResponse {
@@ -184,6 +187,7 @@ message ExecCallRequest {
   string state_query_context = 1; // handle to supply to state queries performed during this call
   repeated ResolvedVerifier resolved_verifiers = 2; // The verifiers requested during init
   TransactionSpecification transaction = 3; // The transaction to exec
+  optional BlockContext block_context = 4; // The base ledger block context at the time of the call
 }
 
 message ExecCallResponse {
@@ -193,11 +197,11 @@ message ExecCallResponse {
 // **RECEIPT** given the available details of a confirmed transation, returns a domain specific receipt payload that an application can process
 message BuildReceiptRequest {
   string transaction_id = 1; // the transaction ID
-  bool complete = 2; // some domains only process complete data sets. If true, then the states provided in this request are the full set of states that known to be part of the transaction (as recorded by the event handler)
   repeated EndorsableState input_states = 3; // available input states
   repeated EndorsableState read_states = 4; // available read states
   repeated EndorsableState output_states = 5; // available output states
   repeated EndorsableState info_states = 6; // available info states  
+  bool unavailable_states = 7; // some domains only process complete data sets. If true, then there were additional states referenced in this request, but which are not currently available.
 }
 
 message BuildReceiptResponse {
@@ -257,11 +261,52 @@ message WrapPrivacyGroupEVMTXResponse {
   PreparedTransaction transaction = 1; // The transaction that will result from this against the domain
 }
 
+message InvokeRPCRequest {
+  string state_query_context = 1; // handle to supply to state queries performed during this call
+  string method = 2; // the name of the custom RPC method to invoke
+  string params_json = 3; // JSON-encoded array of parameters (per the domain's contract for this method)
+}
+
+message InvokeRPCResponse {
+  string result_json = 1; // JSON-encoded result (per the domain's contract for this method)
+}
+
+message UnavailableStates {
+  optional string first_unavailable_id = 1; // convenience check - set in the order info, input, output, read
+  repeated string input_state_ids = 2; // unavailable input state ids
+  repeated string read_state_ids = 3; // unavailable read state ids
+  repeated string output_state_ids = 4; // unavailable output state ids
+  repeated string info_state_ids = 5; // unavailable info state ids
+}
+
+message CheckStateCompletionRequest {
+  string transaction_id = 1; // the transaction ID
+  repeated EndorsableState input_states = 2; // available input states
+  repeated EndorsableState read_states = 3; // available read states
+  repeated EndorsableState output_states = 4; // available output states
+  repeated EndorsableState info_states = 5; // available info states
+  UnavailableStates unavailable_states = 6; // details of unavailable states by classification, including a pre-calculated boolean for a quick completion check
+}
+
+message CheckStateCompletionResponse {
+  optional string next_missing_state_id = 1; // if set, then this transaction is considered incomplete until this state is available - at which point the completion check will run again with the new set of states available at that time
+}
+
+message IsBaseLedgerRevertRetryableRequest {
+  bytes revert_data = 1; // The raw revert data from the failed base ledger transaction
+}
+
+message IsBaseLedgerRevertRetryableResponse {
+  bool retryable = 1; // If true, the transaction may be retried after reassembly
+  string decoded_reason = 2; // Human-readable decoded revert reason from the domain's ABI
+}
+
 message DomainConfig {
-  bool custom_hash_function = 1; // If true then the ValidateStateHashes function must be implemeted, and all states must come with a pre-caclculated ID
+  bool custom_hash_function = 1; // If true then the ValidateStateHashes function must be implemented, and all states must come with a pre-calculated ID
   repeated string abi_state_schemas_json = 2; // A list of Schema definitions (in ABI parameter format) the domain requires for all state types it interacts with
   string abi_events_json = 3; // ABI events that the domain will process for state updates
   map<string, int32> signing_algorithms = 4; // A list of supported signing algorithms with the minimum key lengths for each algorithm
+  bool full_state_availablity_required = 5; // If true, CheckStateCompletion always returns a definitive answer; core will maintain a global completion index for assembly/endorsement gating
 }
 
 message ContractInfo {
@@ -279,6 +324,7 @@ message ContractConfig {
   }
   CoordinatorSelection coordinator_selection = 20;
   optional string static_coordinator = 21; // only applicable with coordinator_mode=STATIC
+  repeated string coordinator_endorser_candidates = 22; // fully qualified identity locators eligible as coordinators in COORDINATOR_ENDORSER mode
   
   enum SubmitterSelection {
       SUBMITTER_COORDINATOR = 0; // The coordinator submits the transaction
@@ -299,6 +345,11 @@ message DeployTransactionSpecification {
   string constructor_params_json = 3; // The parameters supplied in the invocation in normalized JSON format, after validation against the ABI the caller supplied
 }
 
+message BlockContext {
+  int64 block_number = 1;    // Base ledger block number at which this operation is performed
+  int64 block_timestamp = 2; // Timestamp for the provided base ledger block number
+}
+
 message TransactionSpecification {
   enum Intent {
     SEND_TRANSACTION = 0; // This transaction should be sent to the base ledger once ready
@@ -311,8 +362,7 @@ message TransactionSpecification {
   string function_signature = 4; // The calculated signature of the function ABI the caller is attempting to invoke
   string function_abi_json = 5; // The function ABI (asserted by the caller) they wish to inovoke on the smart contract
   string function_params_json = 6; // The parameters supplied in the invocation in normalized JSON format, after validation against the ABI the caller supplied
-  int64 base_block = 7; // The block number on the base ledger, upon which this transaction is being assembled
-  Intent intent = 8; // The sender's intended outcome (a submitted transaction or only a call)
+  Intent intent = 7; // The sender's intended outcome (a submitted transaction or only a call)
 }
 
 message PrivacyGroupEVMTX {
@@ -367,17 +417,10 @@ message NewConfirmedState {
   string transaction_id = 4; // The transaction for with to write the confirmation record of this state
 }
 
-message EndorsableState {
-  string id = 1; // The hash id calculated by the local node for this state
-  string schema_id = 2; // The id from the schema
-  string state_data_json = 3; // The data for this state that will be ensured to be committed to the local DB before sending an edorsement confirmations
-}
-
 // The attestation types must occur in the order listed here, in the attestation_plan
 enum AttestationType {
   SIGN = 0; // Occurs before the transaction is considered fully assembled - gathers a signature against the state inputs+outputs of the transaction, including proof of knowledge of the private data. Use to authenticate an action, such as a transfer, that will be endorsed by other parties
   ENDORSE = 1; // A verification of the validity of the transaction that occurs with a full copy of all the data, by one or more parties.
-  GENERATE_PROOF = 2; // The generation of a cyprographic zero-knowledge proof (ZKP) using a full copy of all the data, that allows verification of the transaction by any party without that private data
 }
 
 message AttestationRequest {

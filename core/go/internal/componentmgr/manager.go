@@ -18,6 +18,7 @@ package componentmgr
 import (
 	"context"
 	"net/http"
+	"runtime"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -134,6 +135,10 @@ func (cm *componentManager) javaDump(res http.ResponseWriter, req *http.Request)
 }
 
 func (cm *componentManager) startDebugServer() (httpserver.Server, error) {
+	// Enable block and mutex profiling so /debug/pprof/block and /debug/pprof/mutex return data.
+	// Both default to 0 (disabled); a positive rate records every event (1) or samples 1/N.
+	runtime.SetBlockProfileRate(confutil.Int(cm.conf.DebugServer.BlockProfileRate, *pldconf.DebugServerDefaults.BlockProfileRate))
+	runtime.SetMutexProfileFraction(confutil.Int(cm.conf.DebugServer.MutexProfileFraction, *pldconf.DebugServerDefaults.MutexProfileFraction))
 	cm.conf.DebugServer.Port = confutil.P(confutil.Int(cm.conf.DebugServer.Port, 0)) // if enabled with no port, we allocate one
 	server, err := httpserver.NewDebugServer(cm.bgCtx, &cm.conf.DebugServer.HTTPServerConfig)
 	if err == nil {
@@ -355,6 +360,10 @@ func (cm *componentManager) startEthClient() error {
 	})
 }
 
+func (cm *componentManager) stopEthClient() {
+	cm.ethClientFactory.Stop()
+}
+
 func (cm *componentManager) StartManagers() (err error) {
 
 	// start the eth client before any managers - this connects the WebSocket, and gathers the ChainID
@@ -437,6 +446,12 @@ func (cm *componentManager) CompleteStart() error {
 	// Wait for RPC auth plugins if configured
 	if len(cm.conf.RPCAuthorizers) > 0 {
 		err = cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_RPC_AUTH)
+		err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
+	}
+
+	// Wait for transport plugins to complete ConfigureTransport before starting sequencer
+	if err == nil {
+		err = cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_TRANSPORT)
 		err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
 	}
 
@@ -577,6 +592,11 @@ func (cm *componentManager) Stop() {
 		c.Close()
 		log.L(cm.bgCtx).Debugf("Stopped %s", name)
 	}
+
+	log.L(cm.bgCtx).Infof("Stopping eth client")
+	cm.stopEthClient()
+	log.L(cm.bgCtx).Debugf("Stopped eth client")
+
 	log.L(cm.bgCtx).Debug("Stopped")
 }
 

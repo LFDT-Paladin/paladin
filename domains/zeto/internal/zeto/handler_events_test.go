@@ -22,11 +22,13 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,18 +65,21 @@ func TestEncodeDecode(t *testing.T) {
 }
 
 func TestHandleMintEvent(t *testing.T) {
-	z, testCallbacks := newTestZeto()
-	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree, err := smt.NewSmt(storage, smt.SMT_HEIGHT_UTXO)
-	require.NoError(t, err)
 	ctx := context.Background()
+	z, testCallbacks := newTestZeto()
+	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree, err := zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
+	require.NoError(t, err)
 
 	ev := &prototk.OnChainEvent{
 		DataJson:          "bad json",
 		SoliditySignature: "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)",
 	}
 
-	smtSpec := &common.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	mtSpec := &smt.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	smtSpec := &common.MerkleTreeSpec{
+		MerkleTreeSpec: *mtSpec,
+	}
 
 	// bad transaction data for the mint event - should be logged and move on
 	res := &prototk.HandleEventBatchResponse{}
@@ -114,10 +119,10 @@ func TestHandleMintEvent(t *testing.T) {
 	ev.DataJson = string(data)
 	res = &prototk.HandleEventBatchResponse{}
 	err = z.handleMintEvent(ctx, smtSpec, ev, "Zeto_AnonNullifier", res)
-	assert.ErrorContains(t, err, "PD210061: Failed to update merkle tree for the UTXOMint event. PD210056: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	assert.ErrorContains(t, err, "PD210061: Failed to update merkle tree for the UTXOMint event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 
-	storage = smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree, err = smt.NewSmt(storage, smt.SMT_HEIGHT_UTXO)
+	storage = smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree, err = zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
 	require.NoError(t, err)
 	smtSpec.Tree = merkleTree
 
@@ -131,7 +136,7 @@ func TestHandleMintEvent(t *testing.T) {
 	err = z.handleMintEvent(ctx, smtSpec, ev, "Zeto_AnonNullifier", res)
 	assert.NoError(t, err)
 	assert.Len(t, res.TransactionsComplete, 1)
-	newStates, err := storage.GetNewStates()
+	newStates, err := storage.GetNewStates(t.Context())
 	require.NoError(t, err)
 	assert.Len(t, newStates, 2)
 	assert.Equal(t, "merkle_tree_root", newStates[0].SchemaId)
@@ -139,18 +144,21 @@ func TestHandleMintEvent(t *testing.T) {
 }
 
 func TestHandleTransferEvent(t *testing.T) {
-	z, testCallbacks := newTestZeto()
-	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree, err := smt.NewSmt(storage, smt.SMT_HEIGHT_UTXO)
-	require.NoError(t, err)
 	ctx := context.Background()
+	z, testCallbacks := newTestZeto()
+	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree, err := zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
+	require.NoError(t, err)
 
 	ev := &prototk.OnChainEvent{
 		DataJson:          "bad json",
 		SoliditySignature: "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)",
 	}
 
-	smtSpec := &common.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	mtSpec := &smt.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	smtSpec := &common.MerkleTreeSpec{
+		MerkleTreeSpec: *mtSpec,
+	}
 
 	// bad data for the transfer event - should be logged and move on
 	res := &prototk.HandleEventBatchResponse{}
@@ -190,10 +198,10 @@ func TestHandleTransferEvent(t *testing.T) {
 	ev.DataJson = string(data)
 	res = &prototk.HandleEventBatchResponse{}
 	err = z.handleTransferEvent(ctx, smtSpec, ev, "Zeto_AnonNullifier", res)
-	assert.ErrorContains(t, err, "PD210061: Failed to update merkle tree for the UTXOTransfer event. PD210056: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	assert.ErrorContains(t, err, "PD210061: Failed to update merkle tree for the UTXOTransfer event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 
-	storage = smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree, err = smt.NewSmt(storage, smt.SMT_HEIGHT_UTXO)
+	storage = smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree, err = zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
 	require.NoError(t, err)
 	smtSpec.Tree = merkleTree
 
@@ -213,18 +221,21 @@ func TestHandleTransferEvent(t *testing.T) {
 }
 
 func TestHandleTransferWithEncryptionEvent(t *testing.T) {
-	z, testCallbacks := newTestZeto()
-	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree, err := smt.NewSmt(storage, smt.SMT_HEIGHT_UTXO)
-	require.NoError(t, err)
 	ctx := context.Background()
+	z, testCallbacks := newTestZeto()
+	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree, err := zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
+	require.NoError(t, err)
 
 	ev := &prototk.OnChainEvent{
 		DataJson:          "bad json",
 		SoliditySignature: "event UTXOTransferWithEncryptedValues(uint256[] inputs, uint256[] outputs, uint256 encryptionNonce, uint256[2] ecdhPublicKey, uint256[] encryptedValues, address indexed submitter, bytes data)",
 	}
 
-	smtSpec := &common.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	mtSpec := &smt.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	smtSpec := &common.MerkleTreeSpec{
+		MerkleTreeSpec: *mtSpec,
+	}
 
 	// bad data for the transfer event - should be logged and move on
 	res := &prototk.HandleEventBatchResponse{}
@@ -263,10 +274,10 @@ func TestHandleTransferWithEncryptionEvent(t *testing.T) {
 	ev.DataJson = string(data)
 	res = &prototk.HandleEventBatchResponse{}
 	err = z.handleTransferWithEncryptionEvent(ctx, smtSpec, ev, "Zeto_AnonNullifier", res)
-	assert.ErrorContains(t, err, "PD210061: Failed to update merkle tree for the UTXOTransferWithEncryptedValues event. PD210056: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	assert.ErrorContains(t, err, "PD210061: Failed to update merkle tree for the UTXOTransferWithEncryptedValues event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 
-	storage = smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree, err = smt.NewSmt(storage, smt.SMT_HEIGHT_UTXO)
+	storage = smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree, err = zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
 	require.NoError(t, err)
 	smtSpec.Tree = merkleTree
 
@@ -283,14 +294,14 @@ func TestHandleTransferWithEncryptionEvent(t *testing.T) {
 }
 
 func TestHandleLockedEvent(t *testing.T) {
-	z, testCallbacks := newTestZeto()
-	storage1 := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree1, err := smt.NewSmt(storage1, smt.SMT_HEIGHT_UTXO)
-	require.NoError(t, err)
-	storage2 := smt.NewStatesStorage(testCallbacks, "testToken2", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree2, err := smt.NewSmt(storage2, smt.SMT_HEIGHT_UTXO)
-	require.NoError(t, err)
 	ctx := context.Background()
+	z, testCallbacks := newTestZeto()
+	storage1 := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree1, err := zetosmt.NewSmt(ctx, storage1, zetosmt.SMT_HEIGHT_UTXO)
+	require.NoError(t, err)
+	storage2 := smt.NewStatesStorage(testCallbacks, "testToken2", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree2, err := zetosmt.NewSmt(ctx, storage2, zetosmt.SMT_HEIGHT_UTXO)
+	require.NoError(t, err)
 
 	ev := &prototk.OnChainEvent{
 		DataJson:          "bad json",
@@ -298,8 +309,14 @@ func TestHandleLockedEvent(t *testing.T) {
 	}
 	res := &prototk.HandleEventBatchResponse{}
 
-	smtSpec1 := &common.MerkleTreeSpec{Tree: merkleTree1, Storage: storage1}
-	smtSpec2 := &common.MerkleTreeSpec{Tree: merkleTree2, Storage: storage2}
+	mtSpec1 := &smt.MerkleTreeSpec{Tree: merkleTree1, Storage: storage1}
+	smtSpec1 := &common.MerkleTreeSpec{
+		MerkleTreeSpec: *mtSpec1,
+	}
+	mtSpec2 := &smt.MerkleTreeSpec{Tree: merkleTree2, Storage: storage2}
+	smtSpec2 := &common.MerkleTreeSpec{
+		MerkleTreeSpec: *mtSpec2,
+	}
 
 	// bad data for the locked event - should be logged and move on
 	err = z.handleLockedEvent(ctx, smtSpec1, smtSpec2, ev, "Zeto_AnonNullifier", res)
@@ -328,29 +345,32 @@ func TestHandleLockedEvent(t *testing.T) {
 }
 
 func TestUpdateMerkleTree(t *testing.T) {
+	ctx := context.Background()
 	z, testCallbacks := newTestZeto()
-	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree, err := smt.NewSmt(storage, smt.SMT_HEIGHT_UTXO)
+	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree, err := zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
 	require.NoError(t, err)
 
-	ctx := context.Background()
 	err = z.updateMerkleTree(ctx, merkleTree, storage, pldtypes.RandBytes32(), []pldtypes.HexUint256{*pldtypes.MustParseHexUint256("0x1234"), *pldtypes.MustParseHexUint256("0x0")})
 	assert.NoError(t, err)
 }
 
 func TestHandleWithdrawEvent(t *testing.T) {
-	z, testCallbacks := newTestZeto()
-	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree, err := smt.NewSmt(storage, smt.SMT_HEIGHT_UTXO)
-	require.NoError(t, err)
 	ctx := context.Background()
+	z, testCallbacks := newTestZeto()
+	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree, err := zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_UTXO)
+	require.NoError(t, err)
 
 	ev := &prototk.OnChainEvent{
 		DataJson:          "bad json",
 		SoliditySignature: "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)",
 	}
 
-	smtSpec := &common.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	mtSpec := &smt.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	smtSpec := &common.MerkleTreeSpec{
+		MerkleTreeSpec: *mtSpec,
+	}
 
 	// bad data for the withdraw event - should be logged and move on
 	res := &prototk.HandleEventBatchResponse{}
@@ -393,7 +413,7 @@ func TestHandleWithdrawEvent(t *testing.T) {
 	ev.DataJson = string(data)
 	res = &prototk.HandleEventBatchResponse{}
 	err = z.handleWithdrawEvent(ctx, smtSpec, ev, "Zeto_AnonNullifier", res)
-	assert.ErrorContains(t, err, "PD210061: Failed to update merkle tree for the UTXOWithdraw event. PD210056: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	assert.ErrorContains(t, err, "PD210061: Failed to update merkle tree for the UTXOWithdraw event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 }
 
 func TestParseStatesFromEvent(t *testing.T) {
@@ -405,16 +425,20 @@ func TestParseStatesFromEvent(t *testing.T) {
 }
 
 func TestHandleIdentityRegisteredEvent(t *testing.T) {
+	ctx := context.Background()
 	z, testCallbacks := newTestZeto()
-	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	merkleTree, err := smt.NewSmt(storage, smt.SMT_HEIGHT_KYC)
+	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	merkleTree, err := zetosmt.NewSmt(ctx, storage, zetosmt.SMT_HEIGHT_KYC)
 	require.NoError(t, err)
-	smtSpec := &common.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	mtSpec := &smt.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	smtSpec := &common.MerkleTreeSpec{
+		MerkleTreeSpec: *mtSpec,
+	}
 
 	count := 0
 	data, _ := json.Marshal(map[string]string{"rootIndex": "0x1234567890123456789012345678901234567890123456789012345678901234"})
 	errCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			if count == 0 {
 				count++
 				return &prototk.FindAvailableStatesResponse{
@@ -429,12 +453,13 @@ func TestHandleIdentityRegisteredEvent(t *testing.T) {
 			return nil, errors.New("already exists")
 		},
 	}
-	errStorage := smt.NewStatesStorage(errCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node")
-	errMerkleTree, err := smt.NewSmt(errStorage, smt.SMT_HEIGHT_KYC)
+	errStorage := smt.NewStatesStorage(errCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher(), false)
+	errMerkleTree, err := zetosmt.NewSmt(ctx, errStorage, zetosmt.SMT_HEIGHT_KYC)
 	require.NoError(t, err)
-	errSmtSpec := &common.MerkleTreeSpec{Tree: errMerkleTree, Storage: errStorage}
-
-	ctx := context.Background()
+	errmtSpec := &smt.MerkleTreeSpec{Tree: errMerkleTree, Storage: errStorage}
+	errSmtSpec := &common.MerkleTreeSpec{
+		MerkleTreeSpec: *errmtSpec,
+	}
 
 	encodedData, _ := common.EncodeTransactionData(ctx, &prototk.TransactionSpecification{
 		TransactionId: "0x30e43028afbb41d6887444f4c2b4ed6d00000000000000000000000000000000",

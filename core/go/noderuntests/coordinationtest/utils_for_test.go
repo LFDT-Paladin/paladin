@@ -33,7 +33,9 @@ func transactionReceiptCondition(t *testing.T, ctx context.Context, txID uuid.UU
 	return func() bool {
 		txFull, err := client.PTX().GetTransactionFull(ctx, txID)
 		require.NoError(t, err)
-		require.False(t, (txFull.Receipt != nil && txFull.Receipt.Success == false), "Have transaction receipt but not successful")
+		if txFull.Receipt != nil && !txFull.Receipt.Success {
+			return false
+		}
 		return txFull.Receipt != nil && (!isDeploy || (txFull.Receipt.ContractAddress != nil && *txFull.Receipt.ContractAddress != pldtypes.EthAddress{}))
 	}
 }
@@ -43,7 +45,9 @@ func transactionReceiptConditionExpectedPublicTXCount(t *testing.T, ctx context.
 	return func() bool {
 		txFull, err := client.PTX().GetTransactionFull(ctx, txID)
 		require.NoError(t, err)
-		require.False(t, (txFull.Receipt != nil && txFull.Receipt.Success == false), "Have transaction receipt but not successful")
+		if txFull.Receipt != nil && !txFull.Receipt.Success {
+			return false
+		}
 		return txFull.Receipt != nil && txFull.Receipt.Success == true && len(txFull.Public) == expectedPublicTXCount
 	}
 }
@@ -53,8 +57,10 @@ func transactionReceiptConditionReceiptOnly(t *testing.T, ctx context.Context, t
 	return func() bool {
 		txReceipt, err := client.PTX().GetTransactionReceipt(ctx, txID)
 		require.NoError(t, err)
-		require.False(t, (txReceipt.Success == false), "Have transaction receipt but not successful")
-		return txReceipt.Success == true
+		if txReceipt != nil && !txReceipt.Success {
+			return false
+		}
+		return txReceipt != nil && txReceipt.Success == true
 	}
 }
 
@@ -63,8 +69,10 @@ func transactionReceiptConditionFailureReceiptOnly(t *testing.T, ctx context.Con
 	return func() bool {
 		txReceipt, err := client.PTX().GetTransactionReceipt(ctx, txID)
 		require.NoError(t, err)
-		require.False(t, (txReceipt.Success), "Have transaction receipt but not successful")
-		return txReceipt.Success == false
+		if txReceipt != nil && txReceipt.Success {
+			return false
+		}
+		return txReceipt != nil && txReceipt.Success == false
 	}
 }
 

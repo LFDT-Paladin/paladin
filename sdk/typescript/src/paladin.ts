@@ -3,6 +3,7 @@ import { ethers, InterfaceAbi } from "ethers";
 import {
   ActiveFilter,
   Algorithms,
+  DomainInvokeRPC,
   IABIDecodedData,
   IBlockchainEventListener,
   IDomain,
@@ -95,13 +96,31 @@ export default class PaladinClient {
     return `${err}`;
   }
 
-  private post<T>(method: string, params: any[], config?: AxiosRequestConfig) {
-    const res = this.http.post<T>(
-      "/",
-      { ...this.defaultPayload(), method, params },
-      { ...config, headers: this.defaultHeaders() }
-    );
-    res.catch((err: AxiosError) => this.onError(method, err));
+  private async post<T>(method: string, params: any[], config?: AxiosRequestConfig) {
+    let res;
+    try {
+      res = await this.http.post<T>(
+        "/",
+        { ...this.defaultPayload(), method, params },
+        { ...config, headers: this.defaultHeaders() }
+      );
+    } catch (err) {
+      this.onError(method, err as AxiosError);
+      throw err;
+    }
+    // JSON/RPC errors are returned with HTTP 200; detect and surface them
+    const data = res.data as any;
+    if (data?.error) {
+      const rpcErr = new AxiosError(
+        data.error.message || JSON.stringify(data.error),
+        String(data.error.code),
+        res.config,
+        undefined,
+        res as any
+      );
+      this.onError(method, rpcErr);
+      throw rpcErr;
+    }
     return res;
   }
 
@@ -426,6 +445,14 @@ export default class PaladinClient {
       const res = await this.post<JsonRpcResult<IKeyQueryEntry[]>>(
         "keymgr_queryKeys",
         [query]
+      );
+      return res.data.result;
+    },
+
+    sign: async (keyIdentifier: string, algorithm: string, verifierType: string, payloadType: string, payload: string) => {
+      const res = await this.post<JsonRpcResult<string>>(
+        "keymgr_sign",
+        [keyIdentifier, algorithm, verifierType, payloadType, payload]
       );
       return res.data.result;
     },
@@ -1047,6 +1074,14 @@ export default class PaladinClient {
       );
       return res.data.result;
     },
+
+    invokeRPC: async (domainName: string, groupID: string, stateQualifier: string, rpcCall: DomainInvokeRPC) => {
+      const res = await this.post<JsonRpcResult<unknown>>(
+        "pgroup_invokeRPC",
+        [domainName, groupID, stateQualifier, rpcCall]
+      );
+      return res.data.result;
+    },
   };
 
   transport = {
@@ -1074,14 +1109,37 @@ export default class PaladinClient {
       return res.data.result;
     },
 
+  /**
+   * @deprecated Use transport.queryPeers instead
+   */
     peers: async () => {
       const res = await this.post<JsonRpcResult<any[]>>("transport_peers", []);
       return res.data.result;
     },
 
+    queryPeers: async (query: IQuery) => {
+      const res = await this.post<JsonRpcResult<any[]>>(
+        "transport_queryPeers",
+        [query]
+      );
+      return res.data.result;
+    },
+
+    /**
+   * @deprecated Use transport.getPeer instead
+   */
     peerInfo: async (nodeName: string) => {
       const res = await this.post<JsonRpcResult<any>>(
         "transport_peerInfo",
+        [nodeName],
+        { validateStatus: (status) => status < 300 || status === 404 }
+      );
+      return res.status === 404 ? undefined : res.data.result;
+    },
+
+    getPeer: async (nodeName: string) => {
+      const res = await this.post<JsonRpcResult<any>>(
+        "transport_getPeer",
         [nodeName],
         { validateStatus: (status) => status < 300 || status === 404 }
       );
@@ -1153,6 +1211,14 @@ export default class PaladinClient {
         { validateStatus: (status) => status < 300 || status === 404 }
       );
       return res.status === 404 ? undefined : res.data.result;
+    },
+
+    invokeRPC: async (contractAddress: string, stateQualifier: string, rpcCall: DomainInvokeRPC) => {
+      const res = await this.post<JsonRpcResult<unknown>>(
+        "domain_invokeRPC",
+        [contractAddress, stateQualifier, rpcCall]
+      );
+      return res.data.result;
     },
   };
 

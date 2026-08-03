@@ -20,115 +20,156 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
-func action_SendHeartbeat(ctx context.Context, c *coordinator) error {
-	return c.sendHeartbeat(ctx, c.contractAddress)
+func action_SendHeartbeat(ctx context.Context, c *coordinator, _ common.Event) error {
+	return c.sendHeartbeat(ctx, false)
 }
 
-func (c *coordinator) sendHeartbeat(ctx context.Context, contractAddress *pldtypes.EthAddress) error {
-	snapshot := c.getSnapshot(ctx)
-	log.L(ctx).Debugf("sending heartbeats for sequencer %s", contractAddress.String())
+func action_SendHeartbeatWithLocks(ctx context.Context, c *coordinator, _ common.Event) error {
+	return c.sendHeartbeat(ctx, true)
+}
+
+// sendHeartbeat builds the base snapshot once, then sends a per-node copy to each heartbeat
+// recipient. In ENDORSER mode the recipients are the endorser candidates; in STATIC/SENDER modes
+// the originator activity map is updated first and its surviving keys are used.
+// In Closing_Flush/Closing states, the grapher is queried per-node:
+// each node receives all locks (unfiltered) plus only the OutputStates it is permitted to hold
+// (filtered by AllowedNodes).
+func (c *coordinator) sendHeartbeat(ctx context.Context, includeLocks bool) error {
+	baseSnapshotProto := c.getSnapshot(ctx)
+
+	var nodes []string
+	if c.coordinatorSelection == prototk.ContractConfig_COORDINATOR_ENDORSER {
+		nodes = c.endorserCandidates
+	} else {
+		nodes = make([]string, 0, len(c.originatorActivity))
+		for node := range c.originatorActivity {
+			nodes = append(nodes, node)
+		}
+	}
+
+	log.L(ctx).Debugf("sending heartbeats for sequencer %s to %d nodes (includeLocks=%v)", c.contractAddress.String(), len(nodes), includeLocks)
 	var err error
-	c.originatorNodePoolMutex.RLock()
-	defer c.originatorNodePoolMutex.RUnlock()
-	for _, node := range c.originatorNodePool {
-		if node != c.nodeName {
-			log.L(ctx).Debugf("sending heartbeat to %s", node)
-			err = c.transportWriter.SendHeartbeat(ctx, node, contractAddress, snapshot)
-			if err != nil {
-				log.L(ctx).Errorf("error sending heartbeat to %s: %v", node, err)
+	for _, node := range nodes {
+		log.L(ctx).Debugf("sending heartbeat to %s", node)
+		snapshotProto := baseSnapshotProto
+		if includeLocks {
+			stateSnapshot, exportErr := c.grapher.ExportStatesAndLocks(ctx, node)
+			if exportErr != nil {
+				log.L(ctx).Errorf("error exporting states and locks for node %s: %v", node, exportErr)
+				err = exportErr
+				continue
 			}
+			snapshotProto = &engineProto.CoordinatorSnapshot{
+				DispatchedTransactions: baseSnapshotProto.DispatchedTransactions,
+				PooledTransactions:     baseSnapshotProto.PooledTransactions,
+				ConfirmedTransactions:  baseSnapshotProto.ConfirmedTransactions,
+				RevertedTransactions:   baseSnapshotProto.RevertedTransactions,
+				CoordinatorState:       baseSnapshotProto.CoordinatorState,
+				BlockHeight:            baseSnapshotProto.BlockHeight,
+				EndorserCandidates:     baseSnapshotProto.EndorserCandidates,
+				StateSnapshot:          stateSnapshot,
+			}
+		}
+		heartbeatMsg := &engineProto.CoordinatorHeartbeatNotification{
+			From:                c.nodeName,
+			ContractAddress:     c.contractAddress.HexString(),
+			CoordinatorSnapshot: snapshotProto,
+		}
+		if sendErr := c.transportWriter.SendHeartbeat(ctx, node, heartbeatMsg); sendErr != nil {
+			log.L(ctx).Errorf("error sending heartbeat to %s: %v", node, sendErr)
+			err = sendErr
 		}
 	}
 	return err
 }
 
-func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapshot {
-	log.L(ctx).Debugf("creating snapshot for sequencer %s", c.contractAddress.String())
-	// This function is called from the sequencer loop so is safe to read internal state
-	pooledTransactions := make([]*common.Transaction, 0, len(c.transactionsByID))
-	dispatchedTransactions := make([]*common.DispatchedTransaction, 0, len(c.transactionsByID))
-	confirmedTransactions := make([]*common.ConfirmedTransaction, 0, len(c.transactionsByID))
-
-	//Snapshot contains a coarse grained view of transactions state.
-	// All known transactions fall into one of 3 categories
-	// 1. Pooled transactions - these are transactions that have been delegated but not yet dispatched
-	// 2. Dispatched transactions - these are transactions that are past the point of no return, the precise status (ready for collection, dispatched, nonce assigned, submitted to a blockchain node) is dependant on parallel processing from this point onward
-	// 3. Confirmed transactions - these are transactions that have been confirmed by the network
+// updateOriginatorActivity refreshes the originator activity map for STATIC/SENDER modes.
+// For each tracked node: if there is a transaction currently in memory for that node the
+// counter is reset to 0; otherwise it is incremented. Nodes whose counter reaches the
+// inactive grace period are pruned and will no longer receive heartbeats.
+func (c *coordinator) updateOriginatorActivity(ctx context.Context) {
+	activeNodes := make(map[string]bool, len(c.transactionsByID))
 	for _, txn := range c.transactionsByID {
-		log.L(ctx).Debugf("next transaction to assess current status of %s. Current state: %s", txn.ID.String(), txn.GetCurrentState().String())
-		switch txn.GetCurrentState() {
-		// pooled transactions are those that have been delegated but not yet dispatched, this includes the various states from being delegated up to being ready for dispatch
-		case transaction.State_Reverted:
-			//NOOP - this transaction is just waiting to be cleaned up so we don't include it in the snapshot
-		case transaction.State_Blocked:
-			fallthrough
-		case transaction.State_Confirming_Dispatchable:
-			fallthrough
-		case transaction.State_Endorsement_Gathering:
-			fallthrough
-		case transaction.State_PreAssembly_Blocked:
-			fallthrough
-		case transaction.State_Assembling:
-			fallthrough
-		case transaction.State_Pooled:
-			pooledTransactions = append(pooledTransactions, &common.Transaction{
-				ID: txn.ID,
-			})
-		case transaction.State_Ready_For_Dispatch:
-			//this is already past the point of no return.  It is as good as dispatched, just waiting for the the dispatcher thread to collect it so we include it in the dispatched transactions
-			// of the snapshot
-			fallthrough
-		case transaction.State_Submitted:
-			fallthrough
-		case transaction.State_SubmissionPrepared:
-			fallthrough
-		case transaction.State_Dispatched:
-			dispatchedTransaction := &common.DispatchedTransaction{}
-			dispatchedTransaction.ID = txn.ID
-			dispatchedTransaction.Originator = txn.Originator()
-			signerAddressPtr := txn.GetSignerAddress()
-			if signerAddressPtr != nil {
-				dispatchedTransaction.Signer = *signerAddressPtr
-				dispatchedTransaction.Nonce = txn.GetNonce()
-				dispatchedTransaction.LatestSubmissionHash = txn.GetLatestSubmissionHash()
-			} else {
-				log.L(ctx).Warnf("Transaction %s has no signer address", txn.ID)
-			}
+		activeNodes[txn.GetOriginatorNode()] = true
+	}
 
+	for node := range c.originatorActivity {
+		if activeNodes[node] {
+			c.originatorActivity[node] = 0
+		} else {
+			c.originatorActivity[node]++
+		}
+	}
+
+	for node, count := range c.originatorActivity {
+		// measure number of complete heartbeat interval periods - e.g. count of 2 means
+		// 1 full heartbeat interval has elapsed, hence use of > not >=
+		if count > c.inactiveGracePeriod {
+			log.L(ctx).Debugf("pruning originator %s from activity map after %d heartbeat intervals of inactivity", node, count)
+			delete(c.originatorActivity, node)
+		}
+	}
+}
+
+// getSnapshot builds the coordinator snapshot (without per-node lock data).
+// Locks are attached per-node in sendHeartbeat for Closing_Flush/Closing heartbeats.
+func (c *coordinator) getSnapshot(ctx context.Context) *engineProto.CoordinatorSnapshot {
+	log.L(ctx).Debugf("creating snapshot for sequencer %s", c.contractAddress.String())
+	pooledTransactions := make([]*engineProto.SnapshotPooledTransaction, 0, len(c.transactionsByID))
+	dispatchedTransactions := make([]*engineProto.SnapshotDispatchedTransaction, 0, len(c.transactionsByID))
+	confirmedTransactions := make([]*engineProto.SnapshotConfirmedTransaction, 0, len(c.transactionsByID))
+	revertedTransactions := make([]*engineProto.SnapshotRevertedTransaction, 0, len(c.transactionsByID))
+
+	for _, txn := range c.transactionsByID {
+		pooledTransaction, dispatchedTransaction, confirmedTransaction, revertedTransaction := txn.GetSnapshot(ctx)
+		if pooledTransaction != nil {
+			pooledTransactions = append(pooledTransactions, pooledTransaction)
+		}
+		if dispatchedTransaction != nil {
 			dispatchedTransactions = append(dispatchedTransactions, dispatchedTransaction)
-
-		case transaction.State_Confirmed:
-			log.L(ctx).Debugf("heartbeat snapshot building, transaction ID %s is in State_Confirmed, sending to heartbeat receipients", txn.ID.String())
-			confirmedTransaction := &common.ConfirmedTransaction{}
-			confirmedTransaction.ID = txn.ID
-
-			signerAddressPtr := txn.GetSignerAddress()
-			if signerAddressPtr != nil {
-				confirmedTransaction.Signer = *signerAddressPtr
-			} else {
-				log.L(ctx).Warnf("Transaction %s has no signer address", txn.ID)
-			}
-			confirmedTransaction.Nonce = txn.GetNonce()
-			confirmedTransaction.LatestSubmissionHash = txn.GetLatestSubmissionHash()
-			confirmedTransaction.RevertReason = txn.GetRevertReason()
+		}
+		if confirmedTransaction != nil {
 			confirmedTransactions = append(confirmedTransactions, confirmedTransaction)
 		}
+		if revertedTransaction != nil {
+			revertedTransactions = append(revertedTransactions, revertedTransaction)
+		}
+	}
 
-	}
-	flushPoints := make([]*common.FlushPoint, 0, len(c.activeCoordinatorsFlushPointsBySignerNonce))
-	for _, flushPoint := range c.activeCoordinatorsFlushPointsBySignerNonce {
-		flushPoints = append(flushPoints, flushPoint)
-	}
-	return &common.CoordinatorSnapshot{
-		FlushPoints:            flushPoints,
+	coordinatorState := c.stateMachineEventLoop.GetCurrentState()
+	log.L(ctx).Debugf("created snapshot for sequencer %s with %d transactions (%d pooled, %d dispatched, %d confirmed, %d reverted)",
+		c.contractAddress.String(), len(pooledTransactions)+len(dispatchedTransactions)+len(confirmedTransactions)+len(revertedTransactions),
+		len(pooledTransactions), len(dispatchedTransactions), len(confirmedTransactions), len(revertedTransactions))
+
+	return &engineProto.CoordinatorSnapshot{
 		DispatchedTransactions: dispatchedTransactions,
 		PooledTransactions:     pooledTransactions,
 		ConfirmedTransactions:  confirmedTransactions,
-		CoordinatorState:       c.GetCurrentState().String(),
-		BlockHeight:            c.currentBlockHeight,
+		RevertedTransactions:   revertedTransactions,
+		CoordinatorState:       int32(coordinatorState),
+		BlockHeight:            uint64(c.currentBlockHeight),
+		EndorserCandidates:     c.endorserCandidates,
 	}
+}
+
+// action_UpdateOriginatorActivity advances the originator activity map for STATIC/SENDER modes.
+func action_UpdateOriginatorActivity(ctx context.Context, c *coordinator, _ common.Event) error {
+	if c.coordinatorSelection == prototk.ContractConfig_COORDINATOR_ENDORSER {
+		return nil
+	}
+	c.updateOriginatorActivity(ctx)
+	return nil
+}
+
+func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, c *coordinator, event common.Event) error {
+	c.heartbeatIntervalsSinceStateChange++
+	return nil
+}
+
+func action_PropagateHeartbeatIntervalToTransactions(ctx context.Context, c *coordinator, _ common.Event) error {
+	return c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
 }

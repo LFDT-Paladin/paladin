@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -22,19 +22,21 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  TextField,
+  Stack,
+  TextField
 } from '@mui/material';
 import { useMutation } from '@tanstack/react-query';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TransactionType } from '../../../interfaces';
 import { sendTransaction } from '../../../queries/transactions';
-import { encodeHex } from '../../../utils';
+import { customNavigate, encodeHex } from '../../../utils';
+import { useNavigate } from 'react-router-dom';
+import { AppRouteFactory } from '../../../routes';
 
 type Props = {
   contractAddress: string;
-  dialogOpen: boolean;
-  setDialogOpen: Dispatch<SetStateAction<boolean>>;
+  onClose: () => void
 };
 
 const mintAbi = {
@@ -70,8 +72,7 @@ const mintAbi = {
 
 export const ZetoMintDialog: React.FC<Props> = ({
   contractAddress,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
   const { t } = useTranslation();
   const [sender, setSender] = useState('');
@@ -79,18 +80,9 @@ export const ZetoMintDialog: React.FC<Props> = ({
   const [amount, setAmount] = useState('');
   const [data, setData] = useState('');
   const [errorMessage, setErrorMessage] = useState<string>();
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    if (!dialogOpen) {
-      setTimeout(() => {
-        setRecipient('');
-        setAmount('');
-        setData('');
-      }, 200);
-    }
-  }, [dialogOpen]);
-
-  const { mutate, error } = useMutation({
+  const { mutate, error, data: transactionId } = useMutation({
     mutationFn: () =>
       sendTransaction({
         type: TransactionType.PRIVATE,
@@ -104,11 +96,10 @@ export const ZetoMintDialog: React.FC<Props> = ({
               to: recipient,
               amount,
               data: encodeHex(data),
-            },
-          ],
-        },
-      }),
-    onSuccess: () => setDialogOpen(false),
+            }
+          ]
+        }
+      })
   });
 
   useEffect(() => {
@@ -117,13 +108,13 @@ export const ZetoMintDialog: React.FC<Props> = ({
     }
   }, [error]);
 
-  const canSubmit =
+  const canSubmit = sender.length > 0 &&
     recipient.length > 0 && amount.length > 0 && !isNaN(parseInt(amount));
 
   return (
     <Dialog
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       fullWidth
       maxWidth="sm"
     >
@@ -144,7 +135,17 @@ export const ZetoMintDialog: React.FC<Props> = ({
           </Box>
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ marginTop: '5px' }}>
+          <Stack spacing={3} sx={{ marginTop: '5px' }}>
+            {transactionId !== undefined &&
+            <Alert variant="filled" severity="success"
+              action={
+                <Button variant="outlined" color="inherit" size="small"
+                  onClick={event => customNavigate(AppRouteFactory.getPath('Transaction', { hashOrId: transactionId }, { back: 'domains' }), event, navigate)}
+                >{t('view')}</Button>
+              }
+            >
+              {t('transactionValue', { value: transactionId })}
+            </Alert>}
             <TextField
               fullWidth
               disabled
@@ -152,8 +153,6 @@ export const ZetoMintDialog: React.FC<Props> = ({
               autoComplete="off"
               value={contractAddress}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('from')}
@@ -161,8 +160,6 @@ export const ZetoMintDialog: React.FC<Props> = ({
               value={sender}
               onChange={(event) => setSender(event.target.value)}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('to')}
@@ -170,8 +167,6 @@ export const ZetoMintDialog: React.FC<Props> = ({
               value={recipient}
               onChange={(event) => setRecipient(event.target.value)}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('amount')}
@@ -179,16 +174,14 @@ export const ZetoMintDialog: React.FC<Props> = ({
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
-              label={t('data')}
+              label={t('dataOptional')}
               autoComplete="off"
               value={data}
               onChange={(event) => setData(event.target.value)}
             />
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', paddingBottom: '20px' }}>
           <Button
@@ -206,7 +199,7 @@ export const ZetoMintDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('close')}
           </Button>

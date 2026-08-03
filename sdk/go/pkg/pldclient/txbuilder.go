@@ -31,6 +31,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 )
 
@@ -78,6 +79,9 @@ type TxBuilder interface {
 
 	Bytecode(bytecode []byte) TxBuilder // for public transaction constructors this is required (not applicable to private transactions directly - Pente is a special case handled separately)
 	GetBytecode() pldtypes.HexBytes
+
+	DependsOn(dependencies []uuid.UUID) TxBuilder
+	GetDependsOn() []uuid.UUID
 
 	Domain(domain string) TxBuilder // for private transaction constructors the domain must be specified. It is optional for private transactions as it will be inferred from the to address
 	GetDomain() string
@@ -297,6 +301,11 @@ func (t *txBuilder) Bytecode(b []byte) TxBuilder {
 	return t
 }
 
+func (t *txBuilder) DependsOn(dependencies []uuid.UUID) TxBuilder {
+	t.tx.DependsOn = dependencies
+	return t
+}
+
 func (t *txBuilder) Domain(domain string) TxBuilder {
 	t.tx.Domain = domain
 	return t
@@ -326,6 +335,10 @@ func (t *txBuilder) GetABIReference() *pldtypes.Bytes32 {
 
 func (t *txBuilder) GetBytecode() pldtypes.HexBytes {
 	return t.tx.Bytecode
+}
+
+func (t *txBuilder) GetDependsOn() []uuid.UUID {
+	return t.tx.DependsOn
 }
 
 func (t *txBuilder) GetDomain() string {
@@ -583,6 +596,15 @@ func (t *txBuilder) BuildInputDataJSON() (jsonData pldtypes.RawJSON, err error) 
 	return serializer.SerializeJSONCtx(t.ctx, cv)
 }
 
+// Check for an idempotency key clash (later versions of Paladin set RPC error code RPCCodeConflict, older versions
+// we need to check for the PD012220 error message specifically)
+func isIdempotencyKeyClash(err error) bool {
+	if rpcErr, ok := err.(rpcclient.ErrorRPC); ok && rpcErr.RPCError().Code == int64(RPCCodeConflict) {
+		return true
+	}
+	return strings.Contains(err.Error(), "PD012220")
+}
+
 func (st sendableTransaction) Send() SentTransaction {
 	sent := &sentTransaction{
 		chainable: st.chainable,
@@ -596,7 +618,7 @@ func (st sendableTransaction) Send() SentTransaction {
 	var err error
 	var existingTX *pldapi.Transaction
 	sent.txID, err = st.c.PTX().SendTransaction(st.ctx, &st.tx.TransactionInput)
-	if err != nil && st.tx.IdempotencyKey != "" && strings.Contains(err.Error(), "PD012220") {
+	if err != nil && st.tx.IdempotencyKey != "" && isIdempotencyKeyClash(err) {
 		log.L(st.ctx).Infof("Idempotency key clash for %s - checking for existing transaction: %s", st.tx.IdempotencyKey, err)
 		existingTX, err = st.c.PTX().GetTransactionByIdempotencyKey(st.ctx, st.tx.IdempotencyKey)
 		if err == nil && existingTX != nil {
@@ -621,7 +643,7 @@ func (st sendableTransaction) Prepare() PreparingTransaction {
 	var err error
 	var existingTX *pldapi.Transaction
 	preparing.txID, err = st.c.PTX().PrepareTransaction(st.ctx, &st.tx.TransactionInput)
-	if err != nil && st.tx.IdempotencyKey != "" && strings.Contains(err.Error(), "PD012220") {
+	if err != nil && st.tx.IdempotencyKey != "" && isIdempotencyKeyClash(err) {
 		log.L(st.ctx).Infof("Idempotency key clash for %s - checking for existing transaction: %s", st.tx.IdempotencyKey, err)
 		existingTX, err = st.c.PTX().GetTransactionByIdempotencyKey(st.ctx, st.tx.IdempotencyKey)
 		if err == nil && existingTX != nil {

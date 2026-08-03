@@ -1,0 +1,25 @@
+# Example configuration for privacy group contract deploy test.
+# This test creates a new pente privacy group and deploys a contract per worker run.
+
+nodes:
+  - name: node1
+    httpEndpoint: http://127.0.0.1:31548
+    wsEndpoint: ws://127.0.0.1:31549
+  - name: node2
+    httpEndpoint: http://127.0.0.1:31648
+    wsEndpoint: ws://127.0.0.1:31649
+  - name: node3
+    httpEndpoint: http://127.0.0.1:31748
+    wsEndpoint: ws://127.0.0.1:31749
+
+instances:
+  - name: privacy-group-contract-deploy-test
+    test:
+      name: privacy_group_contract_deploy
+      workers: 3
+      actionsPerLoop: 1
+    maxSubmissionsPerSecond: 1
+    length: 5m
+
+logLevel: info
+logEvents: false

@@ -139,6 +139,7 @@ func TestProduceLatestInFlightStageContextStatusUpdatePanic(t *testing.T) {
 	ctx, o, m, done := newTestOrchestrator(t)
 	defer done()
 	it, _ := newInflightTransaction(o, 1)
+	it.testOnlyNoActionMode = true
 
 	for range 2 {
 		m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(uuid.New().String()))

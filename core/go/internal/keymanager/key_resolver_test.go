@@ -290,6 +290,39 @@ func TestResolveExistingGetStoredVerifierFail(t *testing.T) {
 
 }
 
+func TestResolvePathLockContextCancelled(t *testing.T) {
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
+		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
+	}, nil)
+	defer done()
+
+	// Hold the allocation lock with a fake resolver that never releases
+	fakeHolder := &keyResolver{km: km, id: "fake-holder", done: make(chan struct{})}
+	km.allocLock.Lock()
+	km.allocLockHolder = fakeHolder
+	km.allocLock.Unlock()
+	defer close(fakeHolder.done)
+
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// The hook fires at the exact moment takeAllocationLock is about to enter
+	// its select — i.e., after the DB query has completed successfully and the
+	// holder has been found. Cancelling here guarantees ctx.Done() is already
+	// closed when the select runs, with no race against the DB query.
+	km.testHookBeforeAllocationWait = func() { cancel() }
+
+	mc.db.ExpectBegin()
+	mc.db.ExpectQuery("SELECT.*key_paths").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	err := km.p.Transaction(ctx, func(_ context.Context, dbTX persistence.DBTX) error {
+		kr := km.KeyResolverForDBTX(dbTX).(*keyResolver)
+		_, err := kr.resolvePathSegment(cancelCtx, kr.rootPath, "testkey", true)
+		return err
+	})
+	require.Regexp(t, "PD010301", err)
+}
+
 func TestResolveNewMappingWhenRequiredExisting(t *testing.T) {
 
 	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{

@@ -111,7 +111,7 @@ func TestWithdrawAssemble(t *testing.T) {
 		VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X,
 	})
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return nil, errors.New("test error")
 		},
 	}
@@ -180,7 +180,7 @@ func TestWithdrawAssemble(t *testing.T) {
 		},
 	}
 	_, err = h.Assemble(ctx, tx, req)
-	require.ErrorContains(t, err, "PD210042: Failed to format proving request. PD210055: Failed to query the smt DB for leaf node")
+	require.ErrorContains(t, err, "PD210042: Failed to format proving request. PD021211: Failed to query the smt DB for leaf node")
 
 	called = 0
 	h.callbacks = &testDomainCallbacks{

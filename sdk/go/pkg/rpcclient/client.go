@@ -31,7 +31,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldresty"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/go-resty/resty/v2"
-	"github.com/sirupsen/logrus"
 )
 
 type RPCCode int64
@@ -40,18 +39,36 @@ const (
 	RPCCodeParseError     RPCCode = -32700
 	RPCCodeInvalidRequest RPCCode = -32600
 	RPCCodeInternalError  RPCCode = -32603
-	// JSON-RPC 2.0 specification reserves -32000 to -32099 for "implementation-defined server-errors"
-	// Paladin uses this range for custom application errors like authentication failures
-	RPCCodeUnauthorized RPCCode = -32000 // Unauthorized request - authentication failed
 )
 
+// ClosableClient is a Client that can be closed to release underlying connections (HTTP or WebSocket).
+type ClosableClient interface {
+	Client
+	Close()
+}
+
+// closeableHTTPClient wraps an HTTP Client with a close function to release the connection pool.
+type closeableHTTPClient struct {
+	Client
+	closeFn func()
+}
+
+func (c *closeableHTTPClient) Close() {
+	if c.closeFn != nil {
+		c.closeFn()
+	}
+}
+
 // NewRPCClient Constructor
-func NewHTTPClient(ctx context.Context, conf *pldconf.HTTPClientConfig) (Client, error) {
+func NewHTTPClient(ctx context.Context, conf *pldconf.HTTPClientConfig) (ClosableClient, error) {
 	rc, err := pldresty.New(ctx, conf)
 	if err != nil {
 		return nil, err
 	}
-	return WrapRestyClient(rc), nil
+	return &closeableHTTPClient{
+		Client:  WrapRestyClient(rc.Client),
+		closeFn: rc.Close,
+	}, nil
 }
 
 func WrapRestyClient(rc *resty.Client) Client {
@@ -204,7 +221,7 @@ func (rc *rpcClient) SyncRequest(ctx context.Context, rpcReq *RPCRequest) (rpcRe
 	rpcRes = new(RPCResponse)
 
 	log.L(ctx).Debugf("RPC[%s] --> %s", rpcTraceID, rpcReq.Method)
-	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+	if log.IsTraceEnabled() {
 		jsonInput, _ := json.Marshal(rpcReq)
 		log.L(ctx).Tracef("RPC[%s] INPUT: %s", rpcTraceID, jsonInput)
 	}
@@ -224,7 +241,7 @@ func (rc *rpcClient) SyncRequest(ctx context.Context, rpcReq *RPCRequest) (rpcRe
 		rpcRes = RPCErrorResponse(err, rpcReq.ID, RPCCodeInternalError)
 		return rpcRes, err
 	}
-	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+	if log.IsTraceEnabled() {
 		jsonOutput, _ := json.Marshal(rpcRes)
 		log.L(ctx).Tracef("RPC[%s] OUTPUT: %s", rpcTraceID, jsonOutput)
 	}

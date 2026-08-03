@@ -673,6 +673,63 @@ func TestPaladinCreateStatefulSet(t *testing.T) {
 	assert.Equal(t, "paladin", fetchedSS.Spec.Template.Spec.Containers[0].Name)
 }
 
+func TestPaladinCreateStatefulSetWithLogPersistence(t *testing.T) {
+	logPath := "/app/logs/paladin.log"
+	paladin := &corev1alpha1.Paladin{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+		Spec: corev1alpha1.PaladinSpec{
+			Database: corev1alpha1.Database{
+				Mode: corev1alpha1.DBMode_EmbeddedSQLite,
+			},
+			LogPersistence: &corev1alpha1.LogPersistence{
+				Enabled: true,
+				Path:    logPath,
+			},
+		},
+	}
+
+	reconciler, client, err := setupTestReconciler(paladin)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	name := generatePaladinName(paladin.Name)
+	configSum := "test-config-sum"
+
+	ss, err := reconciler.createStatefulSet(ctx, paladin, name, nil, configSum)
+	require.NoError(t, err)
+	require.NotNil(t, ss)
+
+	fetchedSS := &appsv1.StatefulSet{}
+	err = client.Get(ctx, types.NamespacedName{Name: name, Namespace: paladin.Namespace}, fetchedSS)
+	require.NoError(t, err)
+
+	volumeFound := false
+	for _, volume := range fetchedSS.Spec.Template.Spec.Volumes {
+		if volume.Name == "logs" {
+			volumeFound = true
+			require.NotNil(t, volume.PersistentVolumeClaim)
+			assert.Equal(t, "paladin-test-node-logs", volume.PersistentVolumeClaim.ClaimName)
+		}
+	}
+	assert.True(t, volumeFound, "expected logs volume to be present")
+
+	mountFound := false
+	for _, mount := range fetchedSS.Spec.Template.Spec.Containers[0].VolumeMounts {
+		if mount.Name == "logs" {
+			mountFound = true
+			assert.Equal(t, "/app/logs", mount.MountPath)
+		}
+	}
+	assert.True(t, mountFound, "expected logs volume mount to be present")
+
+	pvc := &corev1.PersistentVolumeClaim{}
+	err = client.Get(ctx, types.NamespacedName{Name: "paladin-test-node-logs", Namespace: paladin.Namespace}, pvc)
+	require.NoError(t, err)
+}
+
 func TestGeneratePaladinConfig(t *testing.T) {
 	paladin := &corev1alpha1.Paladin{
 		ObjectMeta: metav1.ObjectMeta{
@@ -699,6 +756,35 @@ func TestGeneratePaladinConfig(t *testing.T) {
 
 	// Verify that the generated config contains expected values
 	assert.Contains(t, configYAML, `nodeName: test-node`)
+}
+
+func TestGeneratePaladinConfigWithLogPersistence(t *testing.T) {
+	paladin := &corev1alpha1.Paladin{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+		Spec: corev1alpha1.PaladinSpec{
+			Database: corev1alpha1.Database{
+				Mode: corev1alpha1.DBMode_EmbeddedSQLite,
+			},
+			LogPersistence: &corev1alpha1.LogPersistence{
+				Enabled: true,
+				Path:    "/app/logs/paladin.log",
+			},
+		},
+	}
+
+	reconciler, _, err := setupTestReconciler()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	name := generatePaladinName(paladin.Name)
+
+	configYAML, _, err := reconciler.generatePaladinConfig(ctx, paladin, name)
+	require.NoError(t, err)
+	assert.Contains(t, configYAML, "output: file")
+	assert.Contains(t, configYAML, "filename: /app/logs/paladin.log")
 }
 func TestGetPaladinURLEndpoint(t *testing.T) {
 	paladin := &corev1alpha1.Paladin{

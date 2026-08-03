@@ -106,8 +106,11 @@ var (
 	PublicTxRevertData                     = pdm("PublicTx.revertData", "The revert data (optional)")
 	PublicTxSubmissions                    = pdm("PublicTx.submissions", "The submission data (optional)")
 	PublicTxActivity                       = pdm("PublicTx.activity", "The transaction activity records (optional)")
+	PublicTxDispatcher                     = pdm("PublicTx.dispatcher", "The dispatcher that submitted this public transaction")
 	PublicTxBindingTransaction             = pdm("PublicTxBinding.transaction", "The transaction ID")
 	PublicTxBindingTransactionType         = pdm("PublicTxBinding.transactionType", "The transaction type")
+	PublicTxBindingSender                  = pdm("PublicTxBinding.sender", "The sender identity associated with this binding")
+	PublicTxBindingContractAddress         = pdm("PublicTxBinding.contractAddress", "The contract address associated with this binding")
 )
 
 // pldapi/stored_abi.go
@@ -137,6 +140,11 @@ var (
 	TransactionFullReceipt                                  = pdm("TransactionFull.receipt", "Transaction receipt data - available if the transaction has reached a final state")
 	TransactionFullPublic                                   = pdm("TransactionFull.public", "List of public transactions associated with this transaction")
 	TransactionFullHistory                                  = pdm("TransactionFull.history", "List of values that have previously been provided for this transaction")
+	TransactionFullSequencerActivity                        = pdm("TransactionFull.sequencerActivity", "List of sequencer activities associated with this transaction")
+	SequencerActivitySubjectID                              = pdm("SequencerActivity.subjectId", "Identifier of the resource this sequencer activity refers to")
+	SequencerActivityTimestamp                              = pdm("SequencerActivity.timestamp", "Timestamp when this sequencer activity occurred")
+	SequencerActivityActivityType                           = pdm("SequencerActivity.activityType", "Type of sequencer activity")
+	SequencerActivitySequencingNode                         = pdm("SequencerActivity.sequencingNode", "Node that generated this sequencer activity")
 	TransactionReceiptID                                    = pdm("TransactionReceipt.id", "Transaction ID")
 	TransactionReceiptDataOnchainTransactionHash            = pdm("TransactionReceiptDataOnchain.transactionHash", "Transaction hash")
 	TransactionReceiptDataOnchainBlockNumber                = pdm("TransactionReceiptDataOnchain.blockNumber", "Block number")
@@ -153,6 +161,13 @@ var (
 	TransactionReceiptFullStates                            = pdm("TransactionReceiptFull.states", "The state receipt for the transaction (private transactions only)")
 	TransactionReceiptFullDomainReceipt                     = pdm("TransactionReceiptFull.domainReceipt", "The domain receipt for the transaction (private transaction only)")
 	TransactionReceiptFullDomainReceiptError                = pdm("TransactionReceiptFull.domainReceiptError", "Contains the error if it was not possible to obtain the domain receipt for a private transaction")
+	TransactionReceiptFullPublic                            = pdm("TransactionReceiptFull.public", "Public transactions submitted for this receipt's transaction")
+	DispatchID                                              = pdm("Dispatch.id", "Identifier for the dispatch record, correlates with sequencer activity subjectId for dispatches")
+	DispatchTransactionID                                   = pdm("Dispatch.transactionID", "The ID of the transaction that triggered this dispatch")
+	DispatchPublicTransactionID                             = pdm("Dispatch.publicTransactionID", "Local database identifier of the public transaction created for this dispatch")
+	ChainedDispatchChainedTransactionID                     = pdm("ChainedDispatch.chainedTransactionID", "The transaction ID of the chained private transaction")
+	ChainedDispatchTransactionID                            = pdm("ChainedDispatch.transactionID", "The original transaction that triggered this chained dispatch")
+	ChainedDispatchID                                       = pdm("ChainedDispatch.id", "Identifier for the chained dispatch record, correlates with sequencer activity subjectId for chained dispatches")
 	TransactionActivityRecordTime                           = pdm("TransactionActivityRecord.time", "Time the record occurred")
 	TransactionActivityRecordMessage                        = pdm("TransactionActivityRecord.message", "Activity message")
 	TransactionDependenciesDependsOn                        = pdm("TransactionDependencies.dependsOn", "Transactions that this transaction depends on")
@@ -176,7 +191,7 @@ var (
 	TransactionReceiptFiltersType                           = pdm("TransactionReceiptFilters.type", "Only deliver receipts for one transaction type (public/private)")
 	TransactionReceiptFiltersDomain                         = pdm("TransactionReceiptFilters.domain", "Only deliver receipts for an individual domain (only valid with type=private)")
 	TransactionReceiptOptionsDomainReceipts                 = pdm("TransactionReceiptOptions.domainReceipts", "When true, a full domain receipt will be generated for each event with complete state data")
-	TransactionReceiptOptionsIncompleteStateReceiptBehavior = pdm("TransactionReceiptOptions.incompleteStateReceiptBehavior", "When set to 'block_contract', if a transaction with incomplete state data is detected then delivery of all receipts on that individual smart contract address will pause until the missing state arrives. Receipts for other contract addresses continue to be delivered")
+	TransactionReceiptOptionsIncompleteStateReceiptBehavior = pdm("TransactionReceiptOptions.incompleteStateReceiptBehavior", "Controls delivery behavior when receipt state data is incomplete. 'block_contract' pauses delivery for each individual smart contract address when incomplete states are detected. 'process' delivers all receipts immediately, regardless of what private state data is available. 'complete_only' delivers receipts whenever the domain confirms all expected states are complete, without regard for strict ordering")
 	BlockchainEventListenerName                             = pdm("BlockchainEventListener.name", "Unique name for the blockchain event listener")
 	BlockchainEventListenerCreated                          = pdm("BlockchainEventListener.created", "Time the listener was created")
 	BlockchainEventListenerStarted                          = pdm("BlockchainEventListener.started", "If the listener is started - can be set to false to disable delivery server-side")
@@ -237,12 +252,9 @@ var (
 	StateConfirmed               = pdm("State.confirmed", "The confirmation record, if this an on-chain confirmation has been indexed from the base ledger for this state")
 	StateSpent                   = pdm("State.spent", "The spend record, if this an on-chain spend has been indexed from the base ledger for this state")
 	StateRead                    = pdm("State.read", "Read record, only returned when querying within an in-memory domain context to represent read-lock on a state from a transaction in that domain context")
-	StateLocks                   = pdm("State.locks", "When querying states within a domain context running ahead of the blockchain assembling transactions for submission, this provides detail on locks applied to the state")
 	StateNullifier               = pdm("State.nullifier", "Only set if nullifiers are being used in the domain, and a nullifier has been generated that is available for spending this state")
 	StateConfirmTransaction      = pdm("StateConfirm.transaction", "The ID of the Paladin transaction where this state was confirmed")
 	StateSpendTransaction        = pdm("StateSpend.transaction", "The ID of the Paladin transaction where this state was spent")
-	StateLockTransaction         = pdm("StateLock.transaction", "The ID of the Paladin transaction being assembled that is responsible for this lock")
-	StateLockType                = pdm("StateLock.type", "Whether this lock is for create, read or spend")
 	SchemaID                     = pdm("Schema.id", "The hash derived ID of the schema (query only)")
 	SchemaCreated                = pdm("Schema.created", "Server-generated creation timestamp for this schema (query only)")
 	SchemaDomain                 = pdm("Schema.domain", "The name of the domain this schema is managed by")
@@ -288,6 +300,7 @@ var (
 	PeerInfoOutboundTransport = pdm("PeerInfo.outboundTransport", "The name of the transport selected for outbound connection to the peer. Omitted if no attempt to send data has occurred for this peer")
 	PeerInfoOutboundError     = pdm("PeerInfo.outboundError", "Contains an error if attempting to send data, and the transport connection failed")
 
+	PeerStatsCreatedAt           = pdm("PeerStats.createdAt", "Timestamp when this peer was first created")
 	PeerStatsSentMsgs            = pdm("PeerStats.sentMsgs", "Count of messages sent since activation of this peer")
 	PeerStatsReceivedMsgs        = pdm("PeerStats.receivedMsgs", "Count of messages received since activation of this peer")
 	PeerStatsSentBytes           = pdm("PeerStats.sentBytes", "Count of payload bytes sent since activation of this peer (does not include header data)")
@@ -295,7 +308,6 @@ var (
 	PeerStatsLastSend            = pdm("PeerStats.lastSend", "Timestamp of the last send to this peer")
 	PeerStatsLastReceive         = pdm("PeerStats.lastReceive", "Timestamp of the last receive from this peer")
 	PeerStatsReliableHighestSent = pdm("PeerStats.reliableHighestSent", "Outbound reliable messages are assigned a sequence. This is the highest sequence sent to the peer since activation")
-	PeerStatsReliableAckBase     = pdm("PeerStats.reliableAckBase", "Outbound reliable messages are assigned a sequence. This is the lowest sequence that has not received an acknowledgement from the peer")
 
 	ReliableMessageSequence    = pdm("ReliableMessage.sequence", "Sequence number for the position of this message in the local database")
 	ReliableMessageID          = pdm("ReliableMessage.id", "UUID for this message. A separate message, with a separate ID, is allocated for each participant that will receive the message")
@@ -391,6 +403,12 @@ var (
 	LogConfigUTC          = pdm("LogConfig.utc", "Sets log timestamps to the UTC timezone")
 	LogConfigFile         = pdm("LogConfig.file", "Configure file based logging")
 	LogConfigJSON         = pdm("LogConfig.json", "Configure json based logging")
+	LogConfigBuffer       = pdm("LogConfig.buffer", "Configure buffered log output")
+
+	// LogBufferConfig field descriptions
+	LogBufferConfigEnabled       = pdm("LogBufferConfig.enabled", "Enables buffered log output, batching lines in memory to reduce the number of write syscalls (default false)")
+	LogBufferConfigSize          = pdm("LogBufferConfig.size", "The amount of log output to accumulate in memory before flushing")
+	LogBufferConfigFlushInterval = pdm("LogBufferConfig.flushInterval", "The maximum time to hold buffered log lines before flushing them")
 
 	// LogFileConfig field descriptions
 	LogFileConfigFilename   = pdm("LogFileConfig.filename", "Sets the log filename prefix")
@@ -467,15 +485,16 @@ var (
 	PluginConfigClass   = pdm("PluginConfig.class", "Plugin class name")
 
 	// TransportManagerInlineConfig field descriptions
-	TransportManagerInlineConfigNodeName              = pdm("TransportManagerInlineConfig.nodeName", "Node name for transport identification")
-	TransportManagerInlineConfigSendQueueLen          = pdm("TransportManagerInlineConfig.sendQueueLen", "Maximum length of send queue")
-	TransportManagerInlineConfigPeerInactivityTimeout = pdm("TransportManagerInlineConfig.peerInactivityTimeout", "Timeout for peer inactivity detection")
-	TransportManagerInlineConfigPeerReaperInterval    = pdm("TransportManagerInlineConfig.peerReaperInterval", "Interval for peer reaper cleanup")
-	TransportManagerInlineConfigSendRetry             = pdm("TransportManagerInlineConfig.sendRetry", "Send retry configuration")
-	TransportManagerInlineConfigReliableScanRetry     = pdm("TransportManagerInlineConfig.reliableScanRetry", "Reliable scan retry configuration")
-	TransportManagerInlineConfigReliableMessageResend = pdm("TransportManagerInlineConfig.reliableMessageResend", "Reliable message resend configuration")
-	TransportManagerInlineConfigReliableMessageWriter = pdm("TransportManagerInlineConfig.reliableMessageWriter", "Reliable message writer configuration")
-	TransportManagerInlineConfigTransports            = pdm("TransportManagerInlineConfig.transports", "Map of transport configurations")
+	TransportManagerInlineConfigNodeName                  = pdm("TransportManagerInlineConfig.nodeName", "Node name for transport identification")
+	TransportManagerInlineConfigSendQueueLen              = pdm("TransportManagerInlineConfig.sendQueueLen", "Maximum length of send queue")
+	TransportManagerInlineConfigPeerInactivityTimeout     = pdm("TransportManagerInlineConfig.peerInactivityTimeout", "Timeout for peer inactivity detection")
+	TransportManagerInlineConfigPeerReaperInterval        = pdm("TransportManagerInlineConfig.peerReaperInterval", "Interval for peer reaper cleanup")
+	TransportManagerInlineConfigSendFailureResetThreshold = pdm("TransportManagerInlineConfig.sendFailureResetThreshold", "Consecutive send failure threshold before resetting a peer sender loop")
+	TransportManagerInlineConfigSendRetry                 = pdm("TransportManagerInlineConfig.sendRetry", "Send retry configuration")
+	TransportManagerInlineConfigReliableScanRetry         = pdm("TransportManagerInlineConfig.reliableScanRetry", "Reliable scan retry configuration")
+	TransportManagerInlineConfigReliableMessageResend     = pdm("TransportManagerInlineConfig.reliableMessageResend", "Reliable message resend configuration")
+	TransportManagerInlineConfigReliableMessageWriter     = pdm("TransportManagerInlineConfig.reliableMessageWriter", "Reliable message writer configuration")
+	TransportManagerInlineConfigTransports                = pdm("TransportManagerInlineConfig.transports", "Map of transport configurations")
 
 	// RegistryManagerInlineConfig field descriptions
 	RegistryManagerInlineConfigRegistries      = pdm("RegistryManagerInlineConfig.registries", "Map of registry configurations")
@@ -492,10 +511,12 @@ var (
 	KeyManagerInlineConfigWallets         = pdm("KeyManagerInlineConfig.wallets", "List of wallet configurations")
 	KeyManagerInlineConfigIdentifierCache = pdm("KeyManagerInlineConfig.identifierCache", "Identifier cache configuration")
 	KeyManagerInlineConfigVerifierCache   = pdm("KeyManagerInlineConfig.verifierCache", "Verifier cache configuration")
+	KeyManagerInlineConfigDisableSignRPC  = pdm("KeyManagerInlineConfig.disableSignRPC", "True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet")
 
 	// KeyManagerConfig field descriptions
 	KeyManagerConfigIdentifierCache = pdm("KeyManagerConfig.identifierCache", "Identifier cache configuration")
 	KeyManagerConfigVerifierCache   = pdm("KeyManagerConfig.verifierCache", "Verifier cache configuration")
+	KeyManagerConfigDisableSignRPC  = pdm("KeyManagerConfig.disableSignRPC", "True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet")
 
 	// SigningModuleConfig field descriptions
 	SigningModuleConfigInit   = pdm("SigningModuleConfig.init", "Signing module initialization configuration")
@@ -563,9 +584,10 @@ var (
 	RPCServerConfigWSWriteBufferSize = pdm("RPCServerConfigWS.writeBufferSize", "Write buffer size for WebSocket connections")
 
 	// RPCServerConfig field descriptions
-	RPCServerConfigHTTPField   = pdm("RPCServerConfig.http", "HTTP server configuration")
-	RPCServerConfigWSField     = pdm("RPCServerConfig.ws", "WebSocket server configuration")
-	RPCServerConfigAuthorizers = pdm("RPCServerConfig.authorizers", "Ordered array of authorizer plugin names to use")
+	RPCServerConfigHTTPField         = pdm("RPCServerConfig.http", "HTTP server configuration")
+	RPCServerConfigWSField           = pdm("RPCServerConfig.ws", "WebSocket server configuration")
+	RPCServerConfigAuthorizers       = pdm("RPCServerConfig.authorizers", "Ordered array of authorizer plugin names to use")
+	RPCServerConfigLegacyReturnCodes = pdm("RPCServerConfig.legacyReturnCodes", "Use legacy HTTP status codes for JSON/RPC responses")
 
 	// RPCAuthManagerConfig field descriptions
 	RPCAuthManagerConfigRPCAuthorizers = pdm("RPCAuthManagerConfig.rpcAuthorizers", "Map of RPC authorizer configurations")
@@ -601,7 +623,9 @@ var (
 	StaticServerConfigBaseRedirect = pdm("StaticServerConfig.baseRedirect", "Redirect URL when hitting base path")
 
 	// DebugServerConfig field descriptions
-	DebugServerConfigEnabled = pdm("DebugServerConfig.enabled", "Whether debug server is enabled")
+	DebugServerConfigEnabled              = pdm("DebugServerConfig.enabled", "Whether debug server is enabled")
+	DebugServerConfigBlockProfileRate     = pdm("DebugServerConfig.blockProfileRate", "Rate for runtime block profiling exposed at /debug/pprof/block: 0 disables it, 1 records every blocking event, N samples one event in N")
+	DebugServerConfigMutexProfileFraction = pdm("DebugServerConfig.mutexProfileFraction", "Fraction for runtime mutex profiling exposed at /debug/pprof/mutex: 0 disables it, 1 records every contention event, N samples one event in N")
 
 	// MetricsServerConfig field descriptions
 	MetricsServerConfigEnabled = pdm("MetricsServerConfig.enabled", "Whether metrics server is enabled")
@@ -645,6 +669,7 @@ var (
 	WSClientConfigReadBufferSize         = pdm("WSClientConfig.readBufferSize", "WebSocket read buffer size")
 	WSClientConfigWriteBufferSize        = pdm("WSClientConfig.writeBufferSize", "WebSocket write buffer size")
 	WSClientConfigHeartbeatInterval      = pdm("WSClientConfig.heartbeatInterval", "WebSocket heartbeat interval")
+	WSClientConfigWSRequestTimeout       = pdm("WSClientConfig.wsRequestTimeout", "WebSocket request timeout")
 
 	// StateStoreConfig field descriptions
 	StateStoreConfigSchemaCache = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")
@@ -704,20 +729,32 @@ var (
 	DistributerConfigReceivedObjectWriter  = pdm("DistributerConfig.receivedStateWriter", "Received state writer configuration")
 
 	// SequencerConfig field descriptions
-	SequencerConfigAssembleTimeout               = pdm("SequencerConfig.assembleTimeout", "Timeout for transaction assembly")
-	SequencerConfigRequestTimeout                = pdm("SequencerConfig.requestTimeout", "Timeout for sequencer requests")
-	SequencerConfigBlockHeightTolerance          = pdm("SequencerConfig.blockHeightTolerance", "Tolerance for block height differences")
-	SequencerConfigBlockRange                    = pdm("SequencerConfig.blockRange", "Block range size for sequencer operations")
-	SequencerConfigClosingGracePeriod            = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")
-	SequencerConfigDelegateTimeout               = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
-	SequencerConfigHeartbeatInterval             = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
-	SequencerConfigHeartbeatThreshold            = pdm("SequencerConfig.heartbeatThreshold", "Heartbeat threshold")
-	SequencerConfigMaxInflightTransactions       = pdm("SequencerConfig.maxInflightTransactions", "Maximum number of inflight transactions")
-	SequencerConfigMaxDispatchAhead              = pdm("SequencerConfig.maxDispatchAhead", "Maximum number of transactions to dispatch ahead")
-	SequencerConfigTargetActiveCoordinators      = pdm("SequencerConfig.targetActiveCoordinators", "Target number of active coordinators")
-	SequencerConfigTargetActiveSequencers        = pdm("SequencerConfig.targetActiveSequencers", "Target number of active sequencers")
-	SequencerConfigTransactionResumePollInterval = pdm("SequencerConfig.transactionResumePollInterval", "Poll interval for resuming transactions")
-	SequencerConfigWriter                        = pdm("SequencerConfig.writer", "Writer configuration")
+	SequencerConfigStateTimeout                      = pdm("SequencerConfig.stateTimeout", "Timeout for request-driven transaction states before repooling")
+	SequencerConfigRequestTimeout                    = pdm("SequencerConfig.requestTimeout", "Timeout for sequencer requests")
+	SequencerConfigAssembleErrorRetryThreshold       = pdm("SequencerConfig.assembleErrorRetryThreshold", "Maximum number of times a transaction can error on assembly before being evicted")
+	SequencerConfigSignErrorRetryThreshold           = pdm("SequencerConfig.signErrorRetryThreshold", "Maximum number of times a transaction can error on the signing of its assembled attestations before being evicted")
+	SequencerConfigBlockHeightTolerance              = pdm("SequencerConfig.blockHeightTolerance", "Tolerance for block height differences. Must be the same for all nodes participating in a domain instance.")
+	SequencerConfigBlockRange                        = pdm("SequencerConfig.blockRange", "Block range size for sequencer operations. Must be the same for all nodes participating in a domain instance.")
+	SequencerConfigCoordinatorEventQueueSize         = pdm("SequencerConfig.coordinatorEventQueueSize", "Queue size for coordinator state machine events")
+	SequencerConfigCoordinatorPriorityEventQueueSize = pdm("SequencerConfig.coordinatorPriorityEventQueueSize", "Queue size for coordinator priority events")
+	SequencerConfigDispatchMaxBatchSize              = pdm("SequencerConfig.dispatchMaxBatchSize", "Maximum number of transactions prepared and committed in a single dispatch batch")
+	SequencerConfigOriginatorEventQueueSize          = pdm("SequencerConfig.originatorEventQueueSize", "Queue size for originator state machine events")
+	SequencerConfigOriginatorPriorityEventQueueSize  = pdm("SequencerConfig.originatorPriorityEventQueueSize", "Queue size for originator priority events")
+	SequencerConfigClosingGracePeriod                = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")
+	SequencerConfigConfirmedLockRetentionGracePeriod = pdm("SequencerConfig.confirmedLockRetentionGracePeriod", "Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots")
+	SequencerConfigBaseLedgerRevertRetryThreshold    = pdm("SequencerConfig.baseLedgerRevertRetryThreshold", "Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed")
+	SequencerConfigDelegateTimeout                   = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
+	SequencerConfigDelegationBatchInterval           = pdm("SequencerConfig.delegationBatchInterval", "Interval over which originator delegation requests are coalesced into a single batched send while in the sending state")
+	SequencerConfigHeartbeatInterval                 = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
+	SequencerConfigIdleSequencerCleanupInterval      = pdm("SequencerConfig.idleSequencerCleanupInterval", "Interval for proactively removing sequencers where both the coordinator and originator are in idle state")
+	SequencerConfigInactiveGracePeriod               = pdm("SequencerConfig.inactiveGracePeriod", "Number of heartbeat intervals without activity before a node is considered inactive")
+	SequencerConfigMaxInflightTransactions           = pdm("SequencerConfig.maxInflightTransactions", "Maximum number of inflight transactions")
+	SequencerConfigMaxDispatchAhead                  = pdm("SequencerConfig.maxDispatchAhead", "Maximum number of transactions to dispatch ahead")
+	SequencerConfigTargetActiveSequencers            = pdm("SequencerConfig.targetActiveSequencers", "Target number of active sequencers")
+	SequencerConfigTransactionResumePollInterval     = pdm("SequencerConfig.transactionResumePollInterval", "Poll interval for resuming transactions")
+	SequencerConfigTransactionResumePageSize         = pdm("SequencerConfig.transactionResumePageSize", "Page size for reading pending transactions to resume")
+	SequencerConfigTransactionResumeMaxTransactions  = pdm("SequencerConfig.transactionResumeMaxTransactions", "Maximum number of pending transactions to resume")
+	SequencerConfigWriter                            = pdm("SequencerConfig.writer", "Writer configuration")
 
 	// PublicTxManagerConfig field descriptions
 	PublicTxManagerConfigManager        = pdm("PublicTxManagerConfig.manager", "Manager configuration")

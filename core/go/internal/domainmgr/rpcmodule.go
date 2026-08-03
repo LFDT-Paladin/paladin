@@ -18,8 +18,10 @@ package domainmgr
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -30,14 +32,15 @@ import (
 
 func (dm *domainManager) buildRPCModule() {
 	dm.rpcModule = rpcserver.NewRPCModule("domain").
-		Add("domain_listDomains", dm.rpcQueryTransactions()).
+		Add("domain_listDomains", dm.rpcListDomains()).
 		Add("domain_getDomain", dm.rpcGetDomain()).
 		Add("domain_getDomainByAddress", dm.rpcGetDomainByAddress()).
 		Add("domain_querySmartContracts", dm.rpcQuerySmartContracts()).
-		Add("domain_getSmartContractByAddress", dm.rpcGetSmartContractByAddress())
+		Add("domain_getSmartContractByAddress", dm.rpcGetSmartContractByAddress()).
+		Add("domain_invokeRPC", dm.rpcInvokeRPC())
 }
 
-func (dm *domainManager) rpcQueryTransactions() rpcserver.RPCHandler {
+func (dm *domainManager) rpcListDomains() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod0(func(ctx context.Context) ([]string, error) {
 		res := []string{}
 		for name := range dm.ConfiguredDomains() {
@@ -93,7 +96,13 @@ func (dm *domainManager) rpcQuerySmartContracts() rpcserver.RPCHandler {
 		query query.QueryJSON,
 	) ([]*pldapi.DomainSmartContract, error) {
 		ctx = log.WithComponent(ctx, "domainmanager")
-		return dm.querySmartContracts(ctx, &query)
+		var results []*pldapi.DomainSmartContract
+		err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+			var err error
+			results, err = dm.querySmartContracts(ctx, dbTX, &query)
+			return err
+		})
+		return results, err
 	})
 }
 
@@ -116,5 +125,35 @@ func (dm *domainManager) rpcGetSmartContractByAddress() rpcserver.RPCHandler {
 		}
 		dm.populateContractConfig(result, sc.ContractConfig())
 		return result, nil
+	})
+}
+
+func (dm *domainManager) rpcInvokeRPC() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod3(func(ctx context.Context,
+		address pldtypes.EthAddress,
+		stateQualifier pldapi.StateStatusQualifier,
+		rpcCall pldapi.DomainInvokeRPC,
+	) (pldtypes.RawJSON, error) {
+		ctx = log.WithComponent(ctx, "domainmanager")
+		var sc components.DomainSmartContract
+		var err error
+		var resultJSON pldtypes.RawJSON
+		err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+			sc, err = dm.GetSmartContractByAddress(ctx, dbTX, address)
+			if err != nil {
+				return err
+			}
+			if stateQualifier != "" && stateQualifier != pldapi.StateStatusAvailable {
+				return i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
+			}
+			dqc := dm.stateStore.NewDomainQueryContext(ctx, sc.Domain(), address)
+			defer dqc.Close(ctx)
+			resultJSON, err = sc.InvokeRPC(ctx, dqc, dbTX, rpcCall)
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		return resultJSON, nil
 	})
 }

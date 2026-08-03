@@ -1,4 +1,5 @@
 **/coverage*.txt
+**/coverage*.out
 **/debug.test
 **/__debug_*
 **/.DS_Store

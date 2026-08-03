@@ -244,15 +244,6 @@ func TestTransportRegisterFail(t *testing.T) {
 				t:              t,
 				connectFactory: transportConnectFactory,
 				headerAccessor: transportHeaderAccessor,
-				preRegister: func(transportID string) *prototk.TransportMessage {
-					return &prototk.TransportMessage{
-						Header: &prototk.Header{
-							MessageType: prototk.Header_REGISTER,
-							PluginId:    transportID,
-							MessageId:   uuid.NewString(),
-						},
-					}
-				},
 				expectClose: func(err error) {
 					waitForErrors <- err
 				},
@@ -261,15 +252,6 @@ func TestTransportRegisterFail(t *testing.T) {
 				t:              t,
 				connectFactory: transportConnectFactory,
 				headerAccessor: transportHeaderAccessor,
-				preRegister: func(transportID string) *prototk.TransportMessage {
-					return &prototk.TransportMessage{
-						Header: &prototk.Header{
-							MessageType: prototk.Header_REGISTER,
-							PluginId:    transportID,
-							MessageId:   uuid.NewString(),
-						},
-					}
-				},
 				expectClose: func(err error) {
 					waitForErrors <- err
 				},
@@ -338,15 +320,6 @@ func TestTransportRegisterPartialSuccess(t *testing.T) {
 				t:              t,
 				connectFactory: transportConnectFactory,
 				headerAccessor: transportHeaderAccessor,
-				preRegister: func(transportID string) *prototk.TransportMessage {
-					return &prototk.TransportMessage{
-						Header: &prototk.Header{
-							MessageType: prototk.Header_REGISTER,
-							PluginId:    transportID,
-							MessageId:   uuid.NewString(),
-						},
-					}
-				},
 				expectClose: func(err error) {
 					waitForError <- err
 					errorCallbackDone <- struct{}{}

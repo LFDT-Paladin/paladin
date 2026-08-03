@@ -1,0 +1,859 @@
+/*
+ * Copyright © 2026 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package transaction
+
+import (
+	"errors"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+)
+
+func Test_action_Dispatch(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("prepare failed"))
+
+	err := action_DispatchPrepare(ctx, txn, nil)
+	require.ErrorContains(t, err, "prepare failed")
+}
+
+func Test_buildDispatchBatch_ChainedPrivateBranch(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Build()
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	assert.Len(t, batch.PrivateDispatches, 1)
+	assert.Nil(t, batch.PublicDispatches)
+	assert.Nil(t, batch.PreparedTransactions)
+}
+
+func Test_buildDispatchBatch_ChainedPrivateBranch_AlwaysUsesUniqueIdempotencyKey(t *testing.T) {
+	ctx := t.Context()
+	baseIdempotencyKey := "child_txn"
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				IdempotencyKey: baseIdempotencyKey,
+			},
+		}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		RevertCount(2).
+		Build()
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.MatchedBy(func(tx *pldapi.TransactionInput) bool {
+			if tx == nil {
+				return false
+			}
+			prefix := baseIdempotencyKey + "_"
+			if !strings.HasPrefix(tx.IdempotencyKey, prefix) {
+				return false
+			}
+			tail := strings.TrimPrefix(tx.IdempotencyKey, prefix)
+			lastUnderscore := strings.LastIndex(tail, "_")
+			if lastUnderscore <= 0 {
+				return false
+			}
+			timestampComponent := tail[:lastUnderscore]
+			attemptComponent := tail[lastUnderscore+1:]
+			if attemptComponent != "2" {
+				return false
+			}
+			_, err := strconv.ParseInt(timestampComponent, 10, 64)
+			return err == nil
+		}),
+		mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	assert.Len(t, batch.PrivateDispatches, 1)
+	assert.Equal(t, baseIdempotencyKey, txn.pt.PreparedPrivateTransaction.IdempotencyKey)
+}
+
+func Test_buildDispatchBatch_ChainedPrivateBranch_FirstAttemptUsesAttemptZero(t *testing.T) {
+	ctx := t.Context()
+	baseIdempotencyKey := "child_txn"
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				IdempotencyKey: baseIdempotencyKey,
+			},
+		}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		RevertCount(0).
+		Build()
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.MatchedBy(func(tx *pldapi.TransactionInput) bool {
+			if tx == nil {
+				return false
+			}
+			prefix := baseIdempotencyKey + "_"
+			if !strings.HasPrefix(tx.IdempotencyKey, prefix) {
+				return false
+			}
+			tail := strings.TrimPrefix(tx.IdempotencyKey, prefix)
+			lastUnderscore := strings.LastIndex(tail, "_")
+			if lastUnderscore <= 0 {
+				return false
+			}
+			timestampComponent := tail[:lastUnderscore]
+			attemptComponent := tail[lastUnderscore+1:]
+			if attemptComponent != "0" {
+				return false
+			}
+			_, err := strconv.ParseInt(timestampComponent, 10, 64)
+			return err == nil
+		}),
+		mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	assert.Len(t, batch.PrivateDispatches, 1)
+	assert.Equal(t, baseIdempotencyKey, txn.pt.PreparedPrivateTransaction.IdempotencyKey)
+}
+
+func Test_buildDispatchBatch_ChainedPrivateBranch_PrepareChainedReturnsError(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Build()
+
+	prepareErr := errors.New("chained prepare failed")
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, prepareErr)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.Error(t, err)
+	assert.Nil(t, batch)
+	assert.Contains(t, err.Error(), "chained prepare failed")
+}
+
+func Test_buildDispatchBatch_PrepareTransactionBranch(t *testing.T) {
+	ctx := t.Context()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
+			},
+		}).
+		Build()
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	assert.Len(t, batch.PreparedTransactions, 1)
+	assert.Nil(t, batch.PublicDispatches)
+	assert.Nil(t, batch.PrivateDispatches)
+	assert.Equal(t, txn.pt.ID, batch.PreparedTransactions[0].ID)
+}
+
+func Test_buildDispatchBatch_PrepareTransactionBranch_PublicPrepared(t *testing.T) {
+	ctx := t.Context()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreparedPublicTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
+			},
+		}).
+		Build()
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	assert.Len(t, batch.PreparedTransactions, 1)
+}
+
+func Test_buildDispatchBatch_InvalidOutcome_SendWithNoPrepared(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{},
+		}).
+		Build()
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.ErrorContains(t, err, "Prepare outcome unexpected")
+	assert.Nil(t, batch)
+}
+
+func Test_buildDispatchBatch_InvalidOutcome_SendWithBothPrepared(t *testing.T) {
+	ctx := t.Context()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreparedPublicTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Build()
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.ErrorContains(t, err, "Prepare outcome unexpected")
+	assert.Nil(t, batch)
+}
+
+func Test_buildDispatchBatch_PublicBranch(t *testing.T) {
+	ctx := t.Context()
+	gasVal := pldtypes.HexUint64(21000)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Signer("signer@node1").
+		NodeName("node1").
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		PreparedPublicTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				Data:            pldtypes.RawJSON("[]"),
+				PublicTxOptions: pldapi.PublicTxOptions{Gas: &gasVal},
+			},
+			ABI: abi.ABI{&abi.Entry{Type: abi.Function, Name: "test", Inputs: abi.ParameterArray{}}},
+		}).
+		Build()
+
+	mocks.KeyManager.On("ResolveEthAddressNewDatabaseTX", mock.Anything, "signer").Return(pldtypes.RandAddress(), nil)
+	mocks.PublicTxManager.On("ValidateTransaction", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	assert.Len(t, batch.PublicDispatches, 1)
+	assert.Len(t, batch.PublicDispatches[0].PublicTxs, 1)
+	assert.Nil(t, batch.PrivateDispatches)
+	assert.Nil(t, batch.PreparedTransactions)
+}
+
+func Test_buildDispatchBatch_PublicBranch_BuildPublicTxSubmissionError(t *testing.T) {
+	ctx := t.Context()
+	gasVal := pldtypes.HexUint64(21000)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Signer("signer@node1").
+		NodeName("node1").
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		PreparedPublicTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				Data:            pldtypes.RawJSON("[]"),
+				PublicTxOptions: pldapi.PublicTxOptions{Gas: &gasVal},
+			},
+			ABI: abi.ABI{&abi.Entry{Type: abi.Function, Name: "test", Inputs: abi.ParameterArray{}}},
+		}).
+		Build()
+
+	mocks.KeyManager.On("ResolveEthAddressNewDatabaseTX", mock.Anything, "signer").Return(nil, errors.New("resolve signer failed"))
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.ErrorContains(t, err, "resolve signer failed")
+	require.Nil(t, batch)
+}
+
+func Test_buildDispatchBatch_PublicBranch_EncodeCallDataError(t *testing.T) {
+	ctx := t.Context()
+	gasVal := pldtypes.HexUint64(21000)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Signer("signer@node1").
+		NodeName("node1").
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		PreparedPublicTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				Data:            pldtypes.RawJSON("[]"),
+				PublicTxOptions: pldapi.PublicTxOptions{Gas: &gasVal},
+			},
+			ABI: abi.ABI{&abi.Entry{
+				Type:   abi.Function,
+				Name:   "test",
+				Inputs: abi.ParameterArray{{Name: "a", Type: "uint256"}},
+			}},
+		}).
+		Build()
+
+	mocks.KeyManager.On("ResolveEthAddressNewDatabaseTX", mock.Anything, "signer").Return(pldtypes.RandAddress(), nil)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.Error(t, err)
+	require.Nil(t, batch)
+}
+
+func Test_buildDispatchBatch_PublicBranch_InvalidSignerIdentity(t *testing.T) {
+	ctx := t.Context()
+	gasVal := pldtypes.HexUint64(21000)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Signer("bad%signer@node1").
+		NodeName("node1").
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		PreparedPublicTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				Data:            pldtypes.RawJSON("[]"),
+				PublicTxOptions: pldapi.PublicTxOptions{Gas: &gasVal},
+			},
+			ABI: abi.ABI{&abi.Entry{Type: abi.Function, Name: "test", Inputs: abi.ParameterArray{}}},
+		}).
+		Build()
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.Error(t, err)
+	require.Nil(t, batch)
+}
+
+func Test_buildDispatchBatch_PublicBranch_ValidateTransactionError(t *testing.T) {
+	ctx := t.Context()
+	gasVal := pldtypes.HexUint64(21000)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Signer("signer@node1").
+		NodeName("node1").
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		PreparedPublicTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				Data:            pldtypes.RawJSON("[]"),
+				PublicTxOptions: pldapi.PublicTxOptions{Gas: &gasVal},
+			},
+			ABI: abi.ABI{&abi.Entry{Type: abi.Function, Name: "test", Inputs: abi.ParameterArray{}}},
+		}).
+		Build()
+
+	mocks.KeyManager.On("ResolveEthAddressNewDatabaseTX", mock.Anything, "signer").Return(pldtypes.RandAddress(), nil)
+	mocks.PublicTxManager.On("ValidateTransaction", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("validate failed"))
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.ErrorContains(t, err, "validate failed")
+	require.Nil(t, batch)
+}
+
+func Test_dispatch_PrepareTransactionReturnsError(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("prepare failed"))
+
+	err := txn.dispatchPrepare(ctx)
+	require.ErrorContains(t, err, "prepare failed")
+}
+
+func Test_dispatch_BuildDispatchBatchReturnsError(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{},
+		}).
+		Build()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	err := txn.dispatchPrepare(ctx)
+	require.ErrorContains(t, err, "Prepare outcome unexpected")
+}
+
+func Test_dispatch_StateDistributionBuilderReturnsError(t *testing.T) {
+	ctx := t.Context()
+
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+				// not setting a PreAssembly.TransactionSpecification.From causes an error in NewStateDistributionBuilder.Build
+			},
+		}).
+		Build()
+
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	}).Return(nil)
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+
+	err := txn.dispatchPrepare(ctx)
+	require.ErrorContains(t, err, "state distribution")
+}
+
+func Test_dispatch_BuildNullifiersReturnsError(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+				From:   "sender@node1",
+			},
+		}).
+		Build()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	}).Return(nil)
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, errors.New("build nullifiers failed"))
+
+	err := txn.dispatchPrepare(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "build nullifiers failed")
+}
+
+func Test_dispatch_StageNullifierUpsertsReturnsError(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+				From:   "sender@node1",
+			},
+		}).
+		Build()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	}).Return(nil)
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return([]*components.NullifierUpsert{{}}, nil)
+	mocks.DomainStateWriter.On("StageNullifierUpserts", mock.Anything, mock.Anything).Return(errors.New("upsert nullifiers failed"))
+
+	err := txn.dispatchPrepare(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "upsert nullifiers failed")
+}
+
+func Test_dispatch_Success_WithNullifiers(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+				From:   "sender@node1",
+			},
+		}).
+		Build()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	}).Return(nil)
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).
+		Return([]*components.NullifierUpsert{{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}}, nil)
+	mocks.DomainStateWriter.On("StageNullifierUpserts", mock.Anything, mock.Anything).Return(nil)
+
+	require.NoError(t, txn.dispatchPrepare(ctx))
+	require.NotNil(t, txn.PendingDispatch(ctx))
+	mocks.DomainStateWriter.AssertCalled(t, "StageNullifierUpserts", mock.Anything, mock.Anything)
+}
+
+// Test_PendingDispatch_PointOfNoReturn_SurvivesRepool verifies the point-of-no-return principle: a repool
+// of the transaction after prepare (initializeForNewAssembly, e.g. from a concurrent event) must NOT
+// discard the stashed dispatch. It survives so the dispatch loop can still read and persist it.
+func Test_PendingDispatch_PointOfNoReturn_SurvivesRepool(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+				From:   "sender@node1",
+			},
+		}).
+		PostAssembly(&components.TransactionPostAssembly{}).
+		Build()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	}).Return(nil)
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
+
+	require.NoError(t, txn.dispatchPrepare(ctx))
+	require.NotNil(t, txn.pendingDispatch, "prepare must stash a dispatch")
+
+	// Repool before the dispatch loop detaches: must leave the stash in place (point of no return).
+	require.NoError(t, txn.initializeForNewAssembly(ctx))
+	require.NotNil(t, txn.pendingDispatch, "repool must not discard the prepared dispatch")
+
+	// The loop reads the pending dispatch; the read does not clear the stash.
+	pd := txn.PendingDispatch(ctx)
+	require.NotNil(t, pd)
+	require.NotNil(t, txn.pendingDispatch, "reading the pending dispatch does not clear the stash")
+}
+
+// Test_PendingDispatch_NoStashedBatch_ReturnsNil covers the case where PendingDispatch runs with no
+// dispatch stashed by dispatchPrepare (the transaction was repooled before its DispatchedEvent was
+// processed): it must return nil so the dispatch loop skips it and touches no syncPoints.
+func Test_PendingDispatch_NoStashedBatch_ReturnsNil(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
+
+	// No dispatchPrepare ran, so pendingDispatch is nil.
+	require.Nil(t, txn.PendingDispatch(ctx))
+}
+
+// Test_dispatch_PendingDispatch_CarriesRemoteStateDistributions verifies that dispatchPrepare resolves the
+// transaction's remote state distributions and PendingDispatch carries them for the dispatch loop to batch.
+func Test_dispatch_PendingDispatch_CarriesRemoteStateDistributions(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+				From:   "sender@node1",
+			},
+		}).
+		PostAssembly(&components.TransactionPostAssembly{
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				OutputStatesPotential: []*prototk.NewState{
+					{
+						DistributionList: []string{"receiver@node2"},
+					},
+				},
+			},
+			OutputStates: []*prototk.EndorsableState{
+				{
+					Id:            string(pldtypes.RandBytes(32)),
+					SchemaId:      string(pldtypes.RandBytes(32)),
+					StateDataJson: string(pldtypes.JSONString("{\"data\":\"hello\"}")),
+				},
+			},
+		}).
+		Build()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	}).Return(nil)
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
+
+	require.NoError(t, txn.dispatchPrepare(ctx))
+	pd := txn.PendingDispatch(ctx)
+	require.NotNil(t, pd)
+	require.Len(t, pd.StateDistributions, 1)
+	assert.Equal(t, "receiver@node2", pd.StateDistributions[0].IdentityLocator)
+}
+
+func Test_mapPreparedTransaction_PrivateTransaction(t *testing.T) {
+	addr := pldtypes.RandAddress()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Address(*addr).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				To: addr,
+			},
+		}).
+		Build()
+
+	refs := txn.mapPreparedTransaction()
+	require.NotNil(t, refs)
+	assert.Equal(t, txn.pt.ID, refs.ID)
+	assert.Equal(t, txn.pt.Address, *refs.To)
+	assert.Equal(t, txn.pt.Address, *refs.Transaction.To)
+}
+
+func Test_mapPreparedTransaction_PublicTransaction(t *testing.T) {
+	addr := pldtypes.RandAddress()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Address(*addr).
+		PreparedPublicTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				To: addr,
+			},
+		}).
+		Build()
+
+	refs := txn.mapPreparedTransaction()
+	require.NotNil(t, refs)
+	assert.Equal(t, &txn.pt.Address, refs.Transaction.To)
+}
+
+func Test_mapPreparedTransaction_StateRefs(t *testing.T) {
+	addr := pldtypes.RandAddress()
+	inputID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	readID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	outputID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	infoID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Address(*addr).
+		PostAssembly(&components.TransactionPostAssembly{
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				InputStates: []*prototk.EndorsableState{{Id: inputID.String()}},
+				ReadStates:  []*prototk.EndorsableState{{Id: readID.String()}},
+			},
+			OutputStates: []*prototk.EndorsableState{{Id: outputID.String()}},
+			InfoStates:   []*prototk.EndorsableState{{Id: infoID.String()}},
+		}).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		Build()
+
+	refs := txn.mapPreparedTransaction()
+	require.NotNil(t, refs)
+	assert.Equal(t, []pldtypes.HexBytes{inputID}, refs.StateRefs.Spent)
+	assert.Equal(t, []pldtypes.HexBytes{readID}, refs.StateRefs.Read)
+	assert.Equal(t, []pldtypes.HexBytes{outputID}, refs.StateRefs.Confirmed)
+	assert.Equal(t, []pldtypes.HexBytes{infoID}, refs.StateRefs.Info)
+}
+
+func Test_buildDispatchBatch_ChainedPrivate_PropagatesPostAssembleDepChildIDs(t *testing.T) {
+	ctx := t.Context()
+	depTracker := dependencytracker.NewDependencyTracker()
+	g := grapher.NewGrapher(depTracker, statevisibilitytracker.NewStore(), 5)
+
+	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(g).
+		DependencyTracker(depTracker).
+		Build()
+	depChildID := uuid.New()
+	depTracker.GetChainedDeps().SetChainedChild(ctx, dep.pt.ID, depChildID)
+
+	childTxID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(g).
+		DependencyTracker(depTracker).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Build()
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{
+			NewTransaction: &components.ValidatedTransaction{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Transaction: &pldapi.Transaction{ID: &childTxID},
+				},
+			},
+		}, nil)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.Len(t, batch.PrivateDispatches, 1)
+	assert.Equal(t, []uuid.UUID{depChildID}, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
+	gotChild, ok := depTracker.GetChainedDeps().GetChainedChild(ctx, txn.pt.ID)
+	require.True(t, ok)
+	assert.Equal(t, childTxID, gotChild)
+}
+
+func Test_buildDispatchBatch_ChainedPrivate_PropagatesChainedDepChildIDs(t *testing.T) {
+	ctx := t.Context()
+	depTracker := dependencytracker.NewDependencyTracker()
+	g := grapher.NewGrapher(depTracker, statevisibilitytracker.NewStore(), 5)
+
+	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(g).
+		DependencyTracker(depTracker).
+		Build()
+	depChildID := uuid.New()
+	depTracker.GetChainedDeps().SetChainedChild(ctx, dep.pt.ID, depChildID)
+
+	childTxID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(g).
+		DependencyTracker(depTracker).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Build()
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{
+			NewTransaction: &components.ValidatedTransaction{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Transaction: &pldapi.Transaction{ID: &childTxID},
+				},
+			},
+		}, nil)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.Len(t, batch.PrivateDispatches, 1)
+	assert.Equal(t, []uuid.UUID{depChildID}, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
+}
+
+func Test_buildDispatchBatch_ChainedPrivate_DeduplicatesAcrossDepTypes(t *testing.T) {
+	ctx := t.Context()
+	depTracker := dependencytracker.NewDependencyTracker()
+	g := grapher.NewGrapher(depTracker, statevisibilitytracker.NewStore(), 5)
+
+	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(g).
+		DependencyTracker(depTracker).
+		Build()
+	depChildID := uuid.New()
+	depTracker.GetChainedDeps().SetChainedChild(ctx, dep.pt.ID, depChildID)
+
+	childTxID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(g).
+		DependencyTracker(depTracker).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Build()
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{
+			NewTransaction: &components.ValidatedTransaction{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Transaction: &pldapi.Transaction{ID: &childTxID},
+				},
+			},
+		}, nil)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.Len(t, batch.PrivateDispatches, 1)
+	assert.Equal(t, []uuid.UUID{depChildID}, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn,
+		"same dependency appearing in both PostAssemble and Chained should be deduplicated")
+}
+
+func Test_buildDispatchBatch_ChainedPrivate_SkipsDepWithNoChild(t *testing.T) {
+	ctx := t.Context()
+	depTracker := dependencytracker.NewDependencyTracker()
+	g := grapher.NewGrapher(depTracker, statevisibilitytracker.NewStore(), 5)
+
+	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(g).
+		DependencyTracker(depTracker).
+		Build()
+	// no chained child set on dep's chained-deps node for dep
+
+	childTxID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(g).
+		DependencyTracker(depTracker).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Build()
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{
+			NewTransaction: &components.ValidatedTransaction{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Transaction: &pldapi.Transaction{ID: &childTxID},
+				},
+			},
+		}, nil)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.Len(t, batch.PrivateDispatches, 1)
+	assert.Empty(t, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
+}
+
+func Test_buildDispatchBatch_ChainedPrivate_SkipsDepNotInGrapher(t *testing.T) {
+	ctx := t.Context()
+	missingDepID := uuid.New()
+	depTracker := dependencytracker.NewDependencyTracker()
+	g := grapher.NewGrapher(depTracker, statevisibilitytracker.NewStore(), 5)
+
+	childTxID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(g).
+		DependencyTracker(depTracker).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Build()
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, missingDepID)
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{
+			NewTransaction: &components.ValidatedTransaction{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Transaction: &pldapi.Transaction{ID: &childTxID},
+				},
+			},
+		}, nil)
+
+	batch, err := txn.buildTransactionDispatch(ctx)
+	require.NoError(t, err)
+	require.Len(t, batch.PrivateDispatches, 1)
+	assert.Empty(t, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
+}

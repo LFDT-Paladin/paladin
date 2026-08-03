@@ -28,24 +28,22 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 )
 
-// Each domain context can have up to two of these
-// - one active
+// Each domainStateWriter can have up to two of these
+// - one active (unFlushed)
 // - one flushing
-// the rotation and is protected by the stateLock of the parent stateContext
+// Rotation is protected by the stateLock of the parent domainStateWriter.
 type pendingStateWrites struct {
-	dc          *domainContext
+	ss          *stateManager
 	flushResult error
 	flushed     chan struct{}
-	// States and state nullifiers can be flushed to persistence, although
-	// are only available for consumption outside of a DomainContext
-	// with creation locks once they are confirmed via the blockchain.
+	// States and state nullifiers to be flushed to persistence.
 	states          []*components.StateWithLabels
 	stateNullifiers []*pldapi.StateNullifier
 }
 
-func (dc *domainContext) newPendingStateWrites() *pendingStateWrites {
+func newPendingStateWrites(ss *stateManager) *pendingStateWrites {
 	return &pendingStateWrites{
-		dc:      dc,
+		ss:      ss,
 		flushed: make(chan struct{}),
 	}
 }
@@ -62,7 +60,6 @@ func (op *pendingStateWrites) exec(ctx context.Context, dbTX persistence.DBTX) e
 
 	// Build lists of things to insert (we are insert only)
 	var states []*pldapi.State
-	var stateLocks []*pldapi.StateLock
 	var stateNullifiers []*pldapi.StateNullifier
 	for _, s := range op.states {
 		states = append(states, s.State)
@@ -70,8 +67,8 @@ func (op *pendingStateWrites) exec(ctx context.Context, dbTX persistence.DBTX) e
 	if len(op.stateNullifiers) > 0 {
 		stateNullifiers = append(stateNullifiers, op.stateNullifiers...)
 	}
-	log.L(ctx).Debugf("Writing state batch states=%d locks=%d nullifiers=%d ",
-		len(states), len(stateLocks), len(stateNullifiers))
+	log.L(ctx).Debugf("Writing state batch states=%d nullifiers=%d ",
+		len(states), len(stateNullifiers))
 
 	var err error
 
@@ -82,7 +79,7 @@ func (op *pendingStateWrites) exec(ctx context.Context, dbTX persistence.DBTX) e
 	}
 
 	if len(states) > 0 {
-		err = op.dc.ss.writeStates(ctx, dbTX, states)
+		err = op.ss.writeStates(ctx, dbTX, states)
 	}
 
 	if err == nil && len(stateNullifiers) > 0 {
