@@ -129,7 +129,6 @@ var (
 	MsgErrorAssembleInputs                   = pde("PD210099", "failed to assemble private inputs for witness calculation. %s")
 	MsgErrorCalcWitness                      = pde("PD210100", "failed to calculate the witness. %s")
 	MsgErrorGenerateProof                    = pde("PD210101", "failed to generate proof. %s")
-	// PD210102 was "no domain receipt" - retired when the Zeto domain gained domain receipts
 	MsgUnknownSignPayload                    = pde("PD210103", "Sign payload type '%s' not recognized")
 	MsgNullifierGenerationFailed             = pde("PD210104", "Failed to generate nullifier for coin")
 	MsgErrorDecodeDepositCall                = pde("PD210105", "Failed to decode the deposit call. %s")

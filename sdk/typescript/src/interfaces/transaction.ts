@@ -81,7 +81,7 @@ export interface ITransactionReceipt {
   domain?: string;
   contractAddress?: string;
   states?: ITransactionStates;
-  domainReceipt?: IPenteDomainReceipt | INotoDomainReceipt;
+  domainReceipt?: IPenteDomainReceipt | INotoDomainReceipt | IZetoDomainReceipt;
   domainReceiptError?: string
   failureMessage?: string;
 }
@@ -191,6 +191,42 @@ export interface INotoLockedCoin {
   salt: string;
   owner: string;
   amount: string;
+}
+
+export interface IZetoDomainReceipt {
+  states: {
+    // Zeto holds locked and unlocked coins in one schema, distinguished by their "locked" flag, but
+    // reports them separately here. Non-fungible tokens have no locked form.
+    inputs?: IReceiptState<IZetoCoin | IZetoNFToken>[];
+    outputs?: IReceiptState<IZetoCoin | IZetoNFToken>[];
+    lockedInputs?: IReceiptState<IZetoCoin>[];
+    lockedOutputs?: IReceiptState<IZetoCoin>[];
+  };
+  transfers?: IZetoReceiptTransfer[];
+  data?: string;
+}
+
+// Owners are Baby Jubjub public keys rather than Ethereum addresses. An absent "from" is a mint and
+// an absent "to" is a burn, which includes withdrawing back to the ERC-20 balance.
+export interface IZetoReceiptTransfer {
+  from?: string;
+  to?: string;
+  amount?: string; // fungible tokens only
+  tokenId?: string; // non-fungible tokens only
+}
+
+export interface IZetoCoin {
+  salt: string;
+  owner: string;
+  amount: string;
+  locked: boolean;
+}
+
+export interface IZetoNFToken {
+  salt: string;
+  uri: string;
+  owner: string;
+  tokenID: string;
 }
 
 export interface ITransactionStates {

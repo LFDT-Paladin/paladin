@@ -21,17 +21,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
 	"github.com/LFDT-Paladin/paladin/domains/integration-test/helpers"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zeto"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -89,6 +92,72 @@ type zetoReceiptWithTXID struct {
 	txID uuid.UUID
 }
 
+// zetoReceipts collects the domain receipts published by a receipt listener, so that a test can wait
+// for the receipt of one specific transaction. Receipts for other transactions are held rather than
+// discarded, so a test only has to name the transactions it makes assertions about, and cannot end up
+// asserting against the receipt of some earlier transaction it chose not to check.
+type zetoReceipts struct {
+	sub      rpcclient.Subscription
+	received chan zetoReceiptWithTXID
+	pending  map[uuid.UUID]*types.ZetoDomainReceipt
+}
+
+func (r *zetoReceipts) waitFor(t *testing.T, txID uuid.UUID) *types.ZetoDomainReceipt {
+	if receipt, ok := r.pending[txID]; ok {
+		delete(r.pending, txID)
+		return receipt
+	}
+	for {
+		select {
+		case received := <-r.received:
+			if received.txID == txID {
+				return &received.ZetoDomainReceipt
+			}
+			r.pending[received.txID] = &received.ZetoDomainReceipt
+		case <-time.After(60 * time.Second):
+			require.FailNowf(t, "No domain receipt", "no domain receipt received for transaction %s", txID)
+			return nil
+		}
+	}
+}
+
+// invokeAndWait sends a private transaction and returns the domain receipt the listener published for
+// it, so the assertions are always against the right transaction.
+func (r *zetoReceipts) invokeAndWait(t *testing.T, tx *helpers.DomainTransactionHelper, signer string) *types.ZetoDomainReceipt {
+	result := tx.SignAndSend(signer, true).Wait()
+	txIDStr, ok := result["id"].(string)
+	require.Truef(t, ok, "no transaction id in testbed_invoke result: %+v", result)
+	txID, err := uuid.Parse(txIDStr)
+	require.NoError(t, err)
+	return r.waitFor(t, txID)
+}
+
+func (r *zetoReceipts) close(t *testing.T) {
+	r.sub.Unsubscribe(t.Context())
+}
+
+// resolveZetoKey returns the Baby Jubjub public key a Zeto receipt identifies an owner by
+func (s *zetoDomainTestSuite) resolveZetoKey(t *testing.T, ctx context.Context, name string) pldtypes.Bytes32 {
+	var key pldtypes.Bytes32
+	rpcerr := s.rpc.CallRPC(ctx, &key, "ptx_resolveVerifier", name, zetosignerapi.AlgoDomainZetoSnarkBJJ(s.domainName), zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X)
+	require.Nil(t, rpcerr)
+	return key
+}
+
+// requireTransferTo finds the transfer to a given party, so the assertion does not depend on the order
+// the recipients happen to appear in the receipt
+func requireTransferTo(t *testing.T, transfers []*types.ReceiptTransfer, from, to pldtypes.Bytes32, amount int64) {
+	for _, transfer := range transfers {
+		if transfer.To.String() == to.String() {
+			assert.Equal(t, from.String(), transfer.From.String())
+			require.NotNil(t, transfer.Amount)
+			assert.Equal(t, amount, transfer.Amount.Int().Int64())
+			return
+		}
+	}
+	require.FailNowf(t, "Transfer not found", "no transfer to %s in %+v", to, transfers)
+}
+
 func (s *zetoDomainTestSuite) BeforeTest(suiteName, testName string) {
 	ctx := s.T().Context()
 	log.L(ctx).Info("*************************************")
@@ -103,8 +172,9 @@ func (s *zetoDomainTestSuite) AfterTest(suiteName, testName string) {
 	log.L(ctx).Info("*************************************")
 }
 
-func subscribeAndSendZetoReceiptsToChannel(t *testing.T, wsClient pldclient.PaladinWSClient, domainName string, receipts chan zetoReceiptWithTXID) rpcclient.Subscription {
+func subscribeToZetoReceipts(t *testing.T, wsClient pldclient.PaladinWSClient, domainName string) *zetoReceipts {
 	ctx := t.Context()
+	receipts := make(chan zetoReceiptWithTXID)
 
 	privateType := pldtypes.Enum[pldapi.TransactionType](pldapi.TransactionTypePrivate)
 	listenerName := fmt.Sprintf("listener-%s-%s", domainName, pldtypes.RandHex(8))
@@ -158,5 +228,9 @@ func subscribeAndSendZetoReceiptsToChannel(t *testing.T, wsClient pldclient.Pala
 			}
 		}
 	}()
-	return sub
+	return &zetoReceipts{
+		sub:      sub,
+		received: receipts,
+		pending:  make(map[uuid.UUID]*types.ZetoDomainReceipt),
+	}
 }
