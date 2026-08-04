@@ -133,7 +133,7 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 	// other unlocked coin they need a nullifier to be spendable. The immediate remainder carved
 	// out of spendOutputs above already has one, from assembleUnlockOutputs_V1
 	if useNullifiers {
-		h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier)
+		h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
 	}
 
 	// Build and encode the unlock data (separate to the data for this TX)

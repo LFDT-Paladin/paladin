@@ -448,16 +448,23 @@ func (n *Noto) prepareOutputs(owner *identityPair, amount *pldtypes.HexUint256, 
 // the coin is invisible to the availability queries (which require one) and can never be
 // spent, even though it is confirmed on the base ledger. Locked coins are excluded - they are
 // spent by ID, so they have no nullifier.
-func (n *Noto) addNullifierSpecs(states []*prototk.NewState, party string) {
+func (n *Noto) addNullifierSpecs(states []*prototk.NewState, party string, contract *pldtypes.EthAddress) {
 	for _, newState := range states {
 		newState.NullifierSpecs = []*prototk.NullifierSpec{
-			{
-				Party:        party,
-				Algorithm:    types.AlgoDomainNullifier(n.name),
-				VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
-				PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
-			},
+			n.nullifierSpec(party, contract),
 		}
+	}
+}
+
+// nullifierSpec builds the instruction for the owner's node to derive this coin's nullifier.
+// The payload type carries the contract, because that is all the signing request will see of
+// the coin's context - see types.NullifierPayloadType.
+func (n *Noto) nullifierSpec(party string, contract *pldtypes.EthAddress) *prototk.NullifierSpec {
+	return &prototk.NullifierSpec{
+		Party:        party,
+		Algorithm:    types.AlgoDomainNullifier(n.name),
+		VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+		PayloadType:  types.NullifierPayloadType(contract),
 	}
 }
 
@@ -617,10 +624,10 @@ func encodedStateIDs(states []*pldapi.StateEncoded) []string {
 	return inputs
 }
 
-func (n *Noto) endorsableStateIDs(ctx context.Context, states []*prototk.EndorsableState, useNullifier bool) []string {
+func (n *Noto) endorsableStateIDs(ctx context.Context, contract *pldtypes.EthAddress, states []*prototk.EndorsableState, useNullifier bool) []string {
 	inputs := make([]string, len(states))
 	for i, state := range states {
-		id, err := n.endorsableStateID(ctx, state, useNullifier)
+		id, err := n.endorsableStateID(ctx, contract, state, useNullifier)
 		if err != nil {
 			log.L(ctx).Errorf("error calculating nullifier for state %s: %v", state.Id, err)
 			return nil
@@ -635,11 +642,11 @@ func (n *Noto) endorsableStateIDs(ctx context.Context, states []*prototk.Endorsa
 //
 // Only unlocked coins are ever nullified, so anything else is identified by ID regardless
 // of the caller's preference - see stateNullifier.
-func (n *Noto) endorsableStateID(ctx context.Context, state *prototk.EndorsableState, useNullifier bool) (string, error) {
+func (n *Noto) endorsableStateID(ctx context.Context, contract *pldtypes.EthAddress, state *prototk.EndorsableState, useNullifier bool) (string, error) {
 	if !useNullifier {
 		return state.Id, nil
 	}
-	nullifier, hasNullifier, err := n.stateNullifier(ctx, state)
+	nullifier, hasNullifier, err := n.stateNullifier(ctx, contract, state)
 	if err != nil {
 		return "", err
 	}
@@ -663,7 +670,7 @@ func (n *Noto) endorsableStateID(ctx context.Context, state *prototk.EndorsableS
 // because a NotoLockedCoin will happily unmarshal as a NotoCoin - so a locked coin reaching
 // this path would otherwise be given a plausible but meaningless nullifier, derived without
 // its lockId.
-func (n *Noto) stateNullifier(ctx context.Context, state *prototk.EndorsableState) (nullifier string, hasNullifier bool, err error) {
+func (n *Noto) stateNullifier(ctx context.Context, contract *pldtypes.EthAddress, state *prototk.EndorsableState) (nullifier string, hasNullifier bool, err error) {
 	if n.coinSchema == nil || state.SchemaId != n.coinSchema.Id {
 		return "", false, nil
 	}
@@ -671,7 +678,7 @@ func (n *Noto) stateNullifier(ctx context.Context, state *prototk.EndorsableStat
 	if err != nil {
 		return "", true, err
 	}
-	hash, err := calculateNullifier(ctx, coin)
+	hash, err := calculateNullifier(ctx, contract, coin)
 	if err != nil {
 		return "", true, err
 	}
@@ -861,25 +868,6 @@ func (n *Noto) encodeRootAndSignature(ctx context.Context, txContractAddress, st
 // state cannot derive the same nullifier as a coin even if all of its fields are identical.
 var nullifierTagCoin = pldtypes.Bytes32Keccak([]byte("noto:nullifier:coin"))
 
-// calculateNullifier derives the nullifier that spends an unlocked coin.
-//
-// The nullifier MUST be an injective function of every field that makes the coin unique -
-// in particular the owner. Two coins that share a nullifier can never both be spent, as
-// the base ledger records nullifiers as used (see NotoNullifiers._processNullifiers), and
-// neither the notary nor the base ledger can detect the collision: the two coins are
-// distinct commitments and net out to a valid transaction. A sender that could produce a
-// collision - for example, an output to the recipient and an output to themselves sharing
-// a salt and amount - could therefore spend their own copy and permanently prevent the
-// recipient from ever spending theirs.
-//
-// Because the nullifier covers exactly the fields that determine the commitment, any
-// collision now requires a duplicate coin, which is already rejected: the base ledger
-// refuses to re-add an existing commitment to the append-only tree, and the state store
-// refuses a duplicate state ID.
-//
-// Note this derivation deliberately involves no key material: the notary must be able to
-// recompute it from the unmasked coin data when it endorses a spend. It follows that
-// anyone holding the coin data can compute the nullifier - see the note on GetVerifier.
 // lockProof returns the proof to embed in createLock / updateLock arguments.
 //
 // For the nullifier variants this is (root, signature) rather than the bare signature,
@@ -897,23 +885,55 @@ func (n *Noto) lockProof(ctx context.Context, tx *types.ParsedTransaction, state
 	return n.encodeRootAndSignature(ctx, tx.ContractAddress.String(), stateQueryContext, signature)
 }
 
-func calculateNullifier(ctx context.Context, coin *types.NotoCoin) (*pldtypes.Bytes32, error) {
+// calculateNullifier derives the nullifier that spends an unlocked coin.
+//
+// The nullifier MUST be an injective function of every field that makes the coin unique -
+// in particular the owner and the contract. Two coins that share a nullifier can never both
+// be spent, as the base ledger records nullifiers as used (see
+// NotoNullifiers._processNullifiers) and the local state store records a spend against the
+// nullifier rather than the state. Neither the notary nor the base ledger can detect the
+// collision: the two coins are distinct commitments and each transaction nets out correctly.
+//
+// The owner is covered because otherwise a sender could build one output to the recipient and
+// one to themselves sharing a salt and amount, then spend their own copy and permanently
+// prevent the recipient from spending theirs.
+//
+// The contract is covered because nullifier records are keyed per domain rather than per
+// contract (state_nullifiers is keyed on domain_name + id, and inserts are OnConflict
+// DoNothing), so the same coin data in two different Noto contracts would collide in the
+// local database and silently leave the second coin unspendable - even though the two
+// contracts' on-chain nullifier sets are independent.
+//
+// Because the nullifier covers exactly the fields that determine the commitment, plus the
+// contract, any collision now requires a duplicate coin in the same contract, which is
+// already rejected: the base ledger refuses to re-add an existing commitment to the
+// append-only tree, and the state store refuses a duplicate state ID.
+//
+// Note this derivation deliberately involves no key material: the notary must be able to
+// recompute it from the unmasked coin data when it endorses a spend. It follows that
+// anyone holding the coin data can compute the nullifier - see the note on GetVerifier.
+func calculateNullifier(ctx context.Context, contract *pldtypes.EthAddress, coin *types.NotoCoin) (*pldtypes.Bytes32, error) {
 	if coin == nil || coin.Owner == nil || coin.Amount == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgIncompleteCoinForNullifier)
 	}
-	// the nullifier is keccak256(tag, salt, owner, amount)
+	if contract == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgNullifierContractRequired)
+	}
+	// the nullifier is keccak256(tag, contract, salt, owner, amount)
 	return nullifierHash(
 		abi.ParameterArray{
 			{Type: "bytes32", Name: "tag"},
+			{Type: "address", Name: "contract"},
 			{Type: "bytes32", Name: "salt"},
 			{Type: "address", Name: "owner"},
 			{Type: "uint256", Name: "amount"},
 		},
 		map[string]any{
-			"tag":    nullifierTagCoin,
-			"salt":   coin.Salt,
-			"owner":  coin.Owner,
-			"amount": coin.Amount.Int(),
+			"tag":      nullifierTagCoin,
+			"contract": contract,
+			"salt":     coin.Salt,
+			"owner":    coin.Owner,
+			"amount":   coin.Amount.Int(),
 		},
 	)
 }

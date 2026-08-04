@@ -133,16 +133,7 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 
 	// for the unlocked outputs, we include nullifier specs as normal
 	if useNullifiers {
-		for _, newState := range unlockedOutputStates.states {
-			newState.NullifierSpecs = []*prototk.NullifierSpec{
-				{
-					Party:        tx.Transaction.From,
-					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
-					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
-					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
-				},
-			}
-		}
+		h.noto.addNullifierSpecs(unlockedOutputStates.states, tx.Transaction.From, (*pldtypes.EthAddress)(tx.ContractAddress))
 	}
 
 	infoDistribution := identityList{notaryID, senderID}
@@ -306,9 +297,9 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		functionName = "lock"
 		paramsJSON, err = json.Marshal(&NotoLock_V0_Params{
 			TxId:          req.Transaction.TransactionId,
-			Inputs:        h.noto.endorsableStateIDs(ctx, inputs, false),
-			Outputs:       h.noto.endorsableStateIDs(ctx, outputs, false),
-			LockedOutputs: h.noto.endorsableStateIDs(ctx, lockedOutputs, false),
+			Inputs:        h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), inputs, false),
+			Outputs:       h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), outputs, false),
+			LockedOutputs: h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false),
 			Signature:     lockSignature.Payload,
 			Data:          data,
 		})
@@ -317,9 +308,9 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		var createLockArgs []byte
 		createLockArgs, err = h.noto.encodeNotoCreateLockArgsV1(ctx, &types.NotoCreateLockArgs_V1{
 			TxId:         req.Transaction.TransactionId,
-			Inputs:       h.noto.endorsableStateIDs(ctx, inputs, false),
-			Outputs:      h.noto.endorsableStateIDs(ctx, outputs, false),
-			Contents:     h.noto.endorsableStateIDs(ctx, lockedOutputs, false),
+			Inputs:       h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), inputs, false),
+			Outputs:      h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), outputs, false),
+			Contents:     h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false),
 			NewLockState: lt.newLockStateID,
 			Proof:        lockSignature.Payload,
 		})
@@ -354,9 +345,9 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		var createLockArgs []byte
 		createLockArgs, err = h.noto.encodeNotoCreateLockArgs(ctx, &types.NotoCreateLockArgs{
 			TxId:         req.Transaction.TransactionId,
-			Inputs:       h.noto.endorsableStateIDs(ctx, inputs, useNullifiers),
-			Outputs:      h.noto.endorsableStateIDs(ctx, outputs, false),
-			Contents:     h.noto.endorsableStateIDs(ctx, lockedOutputs, false),
+			Inputs:       h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), inputs, useNullifiers),
+			Outputs:      h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), outputs, false),
+			Contents:     h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false),
 			NewLockState: lt.newLockStateID,
 			Options: &types.NotoLockOptions{
 				SpendTxId: lt.newLockInfo.SpendTxId,

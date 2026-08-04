@@ -192,9 +192,9 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 		functionName = "unlock"
 		paramsJSON, err = json.Marshal(&NotoUnlock_V0_Params{
 			TxId:          req.Transaction.TransactionId,
-			LockedInputs:  h.noto.endorsableStateIDs(ctx, lockedInputs, false),
-			LockedOutputs: h.noto.endorsableStateIDs(ctx, lockedOutputs, false),
-			Outputs:       h.noto.endorsableStateIDs(ctx, outputs, false),
+			LockedInputs:  h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false),
+			LockedOutputs: h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false),
+			Outputs:       h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), outputs, false),
 			Signature:     unlockSignature.Payload,
 			Data:          txData,
 		})
@@ -203,8 +203,8 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 		var spendLockArgs []byte
 		spendLockArgs, err = h.noto.encodeNotoSpendLockArgs(ctx, &types.NotoSpendLockArgs{
 			TxId:    req.Transaction.TransactionId,
-			Inputs:  h.noto.endorsableStateIDs(ctx, lockedInputs, false),
-			Outputs: h.noto.endorsableStateIDs(ctx, outputs, false),
+			Inputs:  h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false),
+			Outputs: h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), outputs, false),
 			Data:    txData,
 			Proof:   unlockSignature.Payload,
 		})

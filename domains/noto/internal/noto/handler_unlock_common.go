@@ -190,7 +190,7 @@ func (h *lockCommon) assembleUnlockOutputs_V1(ctx context.Context, tx *types.Par
 			return nil, err
 		}
 		if tx.DomainConfig.IsNullifierVariant() {
-			h.noto.addNullifierSpecs(outputs.states, toID.identifier)
+			h.noto.addNullifierSpecs(outputs.states, toID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
 		}
 		unlockedOutputs.distributions = append(unlockedOutputs.distributions, outputs.distributions...)
 		unlockedOutputs.coins = append(unlockedOutputs.coins, outputs.coins...)
@@ -204,7 +204,7 @@ func (h *lockCommon) assembleUnlockOutputs_V1(ctx context.Context, tx *types.Par
 			return nil, err
 		}
 		if tx.DomainConfig.IsNullifierVariant() {
-			h.noto.addNullifierSpecs(remainderOutputs.states, fromID.identifier)
+			h.noto.addNullifierSpecs(remainderOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
 		}
 		unlockedOutputs.distributions = append(unlockedOutputs.distributions, remainderOutputs.distributions...)
 		unlockedOutputs.coins = append(unlockedOutputs.coins, remainderOutputs.coins...)
@@ -239,11 +239,11 @@ func (h *lockCommon) buildPrepareUnlockParams(ctx context.Context, tx *types.Par
 	var cancelCommitment pldtypes.Bytes32
 	var updateLockArgs []byte
 
-	spendCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, lockedInputs, false), h.noto.endorsableStateIDs(ctx, spendOutputs, false), spendData)
+	spendCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), spendOutputs, false), spendData)
 	if err != nil {
 		return nil, err
 	}
-	cancelCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, lockedInputs, false), h.noto.endorsableStateIDs(ctx, cancelOutputs, false), cancelData)
+	cancelCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), cancelOutputs, false), cancelData)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +258,7 @@ func (h *lockCommon) buildPrepareUnlockParams(ctx context.Context, tx *types.Par
 	} else if tx.DomainConfig.IsV2() {
 		updateLockArgs, err = h.noto.encodeNotoUpdateLockArgs(ctx, &types.NotoUpdateLockArgs{
 			TxId:         tx.Transaction.TransactionId,
-			Contents:     h.noto.endorsableStateIDs(ctx, lockedInputs, false),
+			Contents:     h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false),
 			OldLockState: lt.prevLockStateID,
 			NewLockState: lt.newLockStateID,
 			Options:      options,
@@ -327,11 +327,11 @@ func (h *lockCommon) buildCreateLockParams(ctx context.Context, tx *types.Parsed
 	var cancelCommitment pldtypes.Bytes32
 	var createLockArgs []byte
 
-	spendCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, lockedOutputs, false), h.noto.endorsableStateIDs(ctx, spendOutputs, false), spendData)
+	spendCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), spendOutputs, false), spendData)
 	if err != nil {
 		return nil, err
 	}
-	cancelCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, lockedOutputs, false), h.noto.endorsableStateIDs(ctx, cancelOutputs, false), cancelData)
+	cancelCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), cancelOutputs, false), cancelData)
 	if err != nil {
 		return nil, err
 	}
@@ -339,18 +339,18 @@ func (h *lockCommon) buildCreateLockParams(ctx context.Context, tx *types.Parsed
 	if tx.DomainConfig.IsV1() {
 		createLockArgs, err = h.noto.encodeNotoCreateLockArgsV1(ctx, &types.NotoCreateLockArgs_V1{
 			TxId:         tx.Transaction.TransactionId,
-			Inputs:       h.noto.endorsableStateIDs(ctx, inputs, false),
-			Outputs:      h.noto.endorsableStateIDs(ctx, additionalOutputs, false),
-			Contents:     h.noto.endorsableStateIDs(ctx, lockedOutputs, false),
+			Inputs:       h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), inputs, false),
+			Outputs:      h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), additionalOutputs, false),
+			Contents:     h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false),
 			NewLockState: lockTransition.newLockStateID,
 			Proof:        proof,
 		})
 	} else if tx.DomainConfig.IsV2() {
 		createLockArgs, err = h.noto.encodeNotoCreateLockArgs(ctx, &types.NotoCreateLockArgs{
 			TxId:         tx.Transaction.TransactionId,
-			Inputs:       h.noto.endorsableStateIDs(ctx, inputs, useNullifiers),
-			Outputs:      h.noto.endorsableStateIDs(ctx, additionalOutputs, false),
-			Contents:     h.noto.endorsableStateIDs(ctx, lockedOutputs, false),
+			Inputs:       h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), inputs, useNullifiers),
+			Outputs:      h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), additionalOutputs, false),
+			Contents:     h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false),
 			NewLockState: lockTransition.newLockStateID,
 			Options:      options,
 			Proof:        proof,

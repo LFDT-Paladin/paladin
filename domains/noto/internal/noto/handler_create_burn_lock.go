@@ -111,7 +111,7 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 		}
 		// The remainder is unlocked change from the inputs, so it needs a nullifier to be spendable
 		if tx.DomainConfig.IsNullifierVariant() {
-			h.noto.addNullifierSpecs(remainderOutputs.states, fromID.identifier)
+			h.noto.addNullifierSpecs(remainderOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
 		}
 	}
 
@@ -123,7 +123,7 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	// The cancel outputs are returned to the lock owner if the lock is cancelled, so like any
 	// other unlocked coin they need a nullifier to be spendable
 	if tx.DomainConfig.IsNullifierVariant() {
-		h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier)
+		h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
 	}
 
 	// Build and encode the unlock data (separate to the data for this TX)

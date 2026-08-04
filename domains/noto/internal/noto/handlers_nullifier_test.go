@@ -166,9 +166,9 @@ func TestEndorseRejectsCollidingOutputNullifiers(t *testing.T) {
 	toRecipient := &types.NotoCoin{Salt: sharedSalt, Owner: receiverAddress, Amount: amount}
 	toSelf := &types.NotoCoin{Salt: sharedSalt, Owner: senderAddress, Amount: amount}
 
-	recipientNullifier, err := calculateNullifier(ctx, toRecipient)
+	recipientNullifier, err := calculateNullifier(ctx, testNullifierContract, toRecipient)
 	require.NoError(t, err)
-	selfNullifier, err := calculateNullifier(ctx, toSelf)
+	selfNullifier, err := calculateNullifier(ctx, testNullifierContract, toSelf)
 	require.NoError(t, err)
 	require.NotEqual(t, recipientNullifier.String(), selfNullifier.String())
 
@@ -202,7 +202,7 @@ func TestValidateDistinctNullifiers(t *testing.T) {
 	coinCollidingWithA := testCoinState("0x03", &types.NotoCoin{Salt: salt, Owner: owner, Amount: amount})
 
 	// Distinct coins are fine, including coins that differ only by owner
-	require.NoError(t, n.validateDistinctNullifiers(ctx,
+	require.NoError(t, n.validateDistinctNullifiers(ctx, testNullifierContract,
 		[]*prototk.EndorsableState{coinA},
 		[]*prototk.EndorsableState{
 			coinB,
@@ -212,7 +212,7 @@ func TestValidateDistinctNullifiers(t *testing.T) {
 
 	// An output colliding with an input is caught, as it is nullified by the very
 	// transaction that creates it
-	err := n.validateDistinctNullifiers(ctx,
+	err := n.validateDistinctNullifiers(ctx, testNullifierContract,
 		[]*prototk.EndorsableState{coinA},
 		[]*prototk.EndorsableState{coinCollidingWithA},
 	)
@@ -221,11 +221,11 @@ func TestValidateDistinctNullifiers(t *testing.T) {
 	assert.Regexp(t, "0x03", err)
 
 	// Collisions within a single list are caught
-	err = n.validateDistinctNullifiers(ctx, []*prototk.EndorsableState{coinA, coinCollidingWithA})
+	err = n.validateDistinctNullifiers(ctx, testNullifierContract, []*prototk.EndorsableState{coinA, coinCollidingWithA})
 	assert.Regexp(t, "PD200045", err)
 
 	// The same state appearing in more than one list is not a collision with itself
-	require.NoError(t, n.validateDistinctNullifiers(ctx,
+	require.NoError(t, n.validateDistinctNullifiers(ctx, testNullifierContract,
 		[]*prototk.EndorsableState{coinA},
 		[]*prototk.EndorsableState{coinA, coinB},
 	))
@@ -236,7 +236,7 @@ func TestValidateDistinctNullifiers(t *testing.T) {
 	lockedCoin := &types.NotoLockedCoin{Salt: salt, LockID: lockID, Owner: owner, Amount: amount}
 	lockedData, err := json.Marshal(lockedCoin)
 	require.NoError(t, err)
-	require.NoError(t, n.validateDistinctNullifiers(ctx, []*prototk.EndorsableState{
+	require.NoError(t, n.validateDistinctNullifiers(ctx, testNullifierContract, []*prototk.EndorsableState{
 		{Id: "0x08", SchemaId: "lockedCoin", StateDataJson: string(lockedData)},
 		{Id: "0x09", SchemaId: "lockedCoin", StateDataJson: string(lockedData)},
 	}))
@@ -252,10 +252,10 @@ func TestValidateDistinctNullifiers(t *testing.T) {
 		SchemaId:      "lockInfo",
 		StateDataJson: `{"salt": "0x00", "lockId": "0x01", "owner": "0x1111111111111111111111111111111111111111"}`,
 	}
-	require.NoError(t, n.validateDistinctNullifiers(ctx, []*prototk.EndorsableState{lockInfo, otherLockInfo}))
+	require.NoError(t, n.validateDistinctNullifiers(ctx, testNullifierContract, []*prototk.EndorsableState{lockInfo, otherLockInfo}))
 
 	// A coin that cannot be nullified is an error, not a pass
-	err = n.validateDistinctNullifiers(ctx, []*prototk.EndorsableState{
+	err = n.validateDistinctNullifiers(ctx, testNullifierContract, []*prototk.EndorsableState{
 		testCoinState("0x06", &types.NotoCoin{Salt: salt, Owner: owner}), // no amount
 	})
 	assert.Regexp(t, "PD200044", err)
@@ -393,7 +393,7 @@ func TestLockNullifierVariantParams(t *testing.T) {
 	// Locked outputs are spent by ID so they carry no nullifier spec; the unlocked remainder does
 	require.Empty(t, lockedCoinState.NullifierSpecs)
 	require.Len(t, remainderState.NullifierSpecs, 1)
-	assert.Equal(t, types.PAYLOAD_DOMAIN_NOTO_NULLIFIER, remainderState.NullifierSpecs[0].PayloadType)
+	assert.Equal(t, types.NullifierPayloadType(testNullifierContract), remainderState.NullifierSpecs[0].PayloadType)
 
 	lockedCoin, err := n.unmarshalLockedCoin(lockedCoinState.StateDataJson)
 	require.NoError(t, err)
@@ -459,7 +459,7 @@ func TestLockNullifierVariantParams(t *testing.T) {
 	notoParams := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, params.CreateArgs)
 
 	// Unlocked inputs are consumed by nullifier
-	inputNullifier, err := calculateNullifier(ctx, &inputCoin.Data)
+	inputNullifier, err := calculateNullifier(ctx, testNullifierContract, &inputCoin.Data)
 	require.NoError(t, err)
 	assert.Equal(t, []string{inputNullifier.String()}, notoParams.Inputs)
 
@@ -683,24 +683,24 @@ func TestValidateNullifierSpecs(t *testing.T) {
 	})
 	withSpec := func(schemaID string) *prototk.NewState {
 		state := &prototk.NewState{SchemaId: schemaID, StateDataJson: coin}
-		n.addNullifierSpecs([]*prototk.NewState{state}, "recipient@node1")
+		n.addNullifierSpecs([]*prototk.NewState{state}, "recipient@node1", testNullifierContract)
 		return state
 	}
 
 	// A coin with a spec is fine, wherever it appears
-	require.NoError(t, n.validateNullifierSpecs(ctx, &prototk.AssembledTransaction{
+	require.NoError(t, n.validateNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
 		OutputStates: []*prototk.NewState{withSpec("coin")},
 		InfoStates:   []*prototk.NewState{withSpec("coin")},
 	}))
 
 	// A coin without one is rejected, as an output...
-	err := n.validateNullifierSpecs(ctx, &prototk.AssembledTransaction{
+	err := n.validateNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
 		OutputStates: []*prototk.NewState{{SchemaId: "coin", StateDataJson: coin}},
 	})
 	assert.Regexp(t, "PD200046", err)
 
 	// ...and as an info state, which is where the prepared spend and cancel outputs of a lock live
-	err = n.validateNullifierSpecs(ctx, &prototk.AssembledTransaction{
+	err = n.validateNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
 		OutputStates: []*prototk.NewState{withSpec("coin")},
 		InfoStates:   []*prototk.NewState{{SchemaId: "coin", StateDataJson: coin}},
 	})
@@ -710,7 +710,7 @@ func TestValidateNullifierSpecs(t *testing.T) {
 	assert.NotContains(t, err.Error(), "owner")
 
 	// Locked coins and lock info states are spent by ID, so they need no spec
-	require.NoError(t, n.validateNullifierSpecs(ctx, &prototk.AssembledTransaction{
+	require.NoError(t, n.validateNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
 		OutputStates: []*prototk.NewState{
 			{SchemaId: "lockedCoin", StateDataJson: coin},
 			{SchemaId: "lockInfo", StateDataJson: `{}`},
@@ -718,5 +718,5 @@ func TestValidateNullifierSpecs(t *testing.T) {
 	}))
 
 	// Nothing to check when assembly produced nothing
-	require.NoError(t, n.validateNullifierSpecs(ctx, nil))
+	require.NoError(t, n.validateNullifierSpecs(ctx, testNullifierContract, nil))
 }

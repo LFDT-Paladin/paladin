@@ -1037,11 +1037,29 @@ func TestSign(t *testing.T) {
 
 	resp, err := n.Sign(ctx, &prototk.SignRequest{
 		Algorithm:   algorithms.ECDSA_SECP256K1,
-		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
 		Payload:     coinJSON,
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, len(resp.Payload), 32)
+
+	// The same coin in a different contract must nullify differently, or the two records
+	// collide in the local state store, which is keyed per domain rather than per contract
+	otherContractResp, err := n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(pldtypes.MustEthAddress("0x1111111111111111111111111111111111111111")),
+		Payload:     coinJSON,
+	})
+	require.NoError(t, err)
+	assert.NotEqual(t, resp.Payload, otherContractResp.Payload)
+
+	// A nullifier that is not bound to a contract must be refused
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		Payload:     coinJSON,
+	})
+	assert.ErrorContains(t, err, "PD200043")
 
 	lockedCoin := &types.NotoLockedCoin{
 		Amount: coin.Amount,
@@ -1056,7 +1074,7 @@ func TestSign(t *testing.T) {
 	// an unlocked coin is rejected, rather than being nullified with its lockId dropped
 	_, err = n.Sign(ctx, &prototk.SignRequest{
 		Algorithm:   algorithms.ECDSA_SECP256K1,
-		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
 		Payload:     lockedCoinJSON,
 	})
 	assert.ErrorContains(t, err, "PD200043")
@@ -1064,7 +1082,7 @@ func TestSign(t *testing.T) {
 	// A coin without an owner cannot be nullified
 	_, err = n.Sign(ctx, &prototk.SignRequest{
 		Algorithm:   algorithms.ECDSA_SECP256K1,
-		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
 		Payload:     []byte(`{"amount": "100", "salt": "0x1b0d6be69d1d5bd7ff9b1b8b7d3b1de4b23e6ba95d8b6c8e4f0eb9c0f6a9f36e"}`),
 	})
 	assert.ErrorContains(t, err, "PD200044")

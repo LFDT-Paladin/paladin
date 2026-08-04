@@ -153,7 +153,7 @@ func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransa
 //
 // Both inputs and outputs are checked as one set, because an output that collides with an
 // input is nullified by the very transaction that creates it.
-func (n *Noto) validateDistinctNullifiers(ctx context.Context, stateLists ...[]*prototk.EndorsableState) error {
+func (n *Noto) validateDistinctNullifiers(ctx context.Context, contract *pldtypes.EthAddress, stateLists ...[]*prototk.EndorsableState) error {
 	nullifiers := make(map[string]string) // nullifier -> first state ID that derived it
 	seenStates := make(map[string]bool)
 	for _, states := range stateLists {
@@ -164,7 +164,7 @@ func (n *Noto) validateDistinctNullifiers(ctx context.Context, stateLists ...[]*
 			}
 			seenStates[state.Id] = true
 
-			nullifier, isCoin, err := n.stateNullifier(ctx, state)
+			nullifier, isCoin, err := n.stateNullifier(ctx, contract, state)
 			if err != nil {
 				return err
 			}
@@ -186,10 +186,11 @@ func (n *Noto) validateDistinctNullifiers(ctx context.Context, stateLists ...[]*
 // Only unlocked coins are nullified: locked coins and lock info states are spent by ID, so they
 // are skipped. Note the state data is deliberately not included in the error - it holds the
 // owner and amount.
-func (n *Noto) validateNullifierSpecs(ctx context.Context, assembled *prototk.AssembledTransaction) error {
+func (n *Noto) validateNullifierSpecs(ctx context.Context, contract *pldtypes.EthAddress, assembled *prototk.AssembledTransaction) error {
 	if assembled == nil || n.coinSchema == nil {
 		return nil
 	}
+	expectedPayloadType := types.NullifierPayloadType(contract)
 	for _, states := range [][]*prototk.NewState{assembled.OutputStates, assembled.InfoStates} {
 		for i, state := range states {
 			if state.SchemaId != n.coinSchema.Id {
@@ -197,6 +198,13 @@ func (n *Noto) validateNullifierSpecs(ctx context.Context, assembled *prototk.As
 			}
 			if len(state.NullifierSpecs) == 0 {
 				return i18n.NewError(ctx, msgs.MsgMissingNullifierSpec, i)
+			}
+			// The spec must name this contract, or the owner's node would derive a nullifier
+			// bound to a different one - which the base ledger here would never recognise
+			for _, spec := range state.NullifierSpecs {
+				if spec.PayloadType != expectedPayloadType {
+					return i18n.NewError(ctx, msgs.MsgNullifierWrongContract, i, expectedPayloadType, spec.PayloadType)
+				}
 			}
 		}
 	}

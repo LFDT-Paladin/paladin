@@ -786,7 +786,7 @@ func (n *Noto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTra
 	// the base ledger confirms it. Checked here rather than in each handler so that no assembly
 	// path - including any added later - can miss it.
 	if tx.DomainConfig.IsNullifierVariant() && res.AssemblyResult == prototk.AssembleTransactionResponse_OK {
-		if err := n.validateNullifierSpecs(ctx, res.AssembledTransaction); err != nil {
+		if err := n.validateNullifierSpecs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), res.AssembledTransaction); err != nil {
 			return nil, err
 		}
 	}
@@ -803,7 +803,7 @@ func (n *Noto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTrans
 	// nullifiers. Applied to every handler here rather than per-handler, so no transaction
 	// type can be missed.
 	if tx.DomainConfig.IsNullifierVariant() {
-		if err := n.validateDistinctNullifiers(ctx, req.Inputs, req.Outputs); err != nil {
+		if err := n.validateDistinctNullifiers(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.Inputs, req.Outputs); err != nil {
 			return nil, err
 		}
 	}
@@ -1247,15 +1247,20 @@ func mapPrepareTransactionType(transactionType pldapi.TransactionType) prototk.P
 
 func (n *Noto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.SignResponse, error) {
 	log.L(ctx).Infof("generating nullifier for %s\n", req.Algorithm)
-	switch req.PayloadType {
-	case types.PAYLOAD_DOMAIN_NOTO_NULLIFIER:
-		// Strict unmarshal - a NotoLockedCoin payload must not be nullified as an unlocked
-		// coin, as that would drop its lockId from the nullifier
-		coin, err := n.unmarshalCoinStrict(string(req.Payload))
+	if types.IsNullifierPayloadType(req.PayloadType) {
+		// The contract comes from the payload type: a sign request carries only the state
+		// data, and the nullifier must be bound to the contract that holds the coin
+		contract, err := types.ParseNullifierPayloadType(req.PayloadType)
+		var coin *types.NotoCoin
+		if err == nil {
+			// Strict unmarshal - a NotoLockedCoin payload must not be nullified as an unlocked
+			// coin, as that would drop its lockId from the nullifier
+			coin, err = n.unmarshalCoinStrict(string(req.Payload))
+		}
 		var hashBytes *pldtypes.Bytes32
 		if err == nil {
 			log.L(ctx).Debugf("unmarshaled coin: %+v\n", coin)
-			hashBytes, err = calculateNullifier(ctx, coin)
+			hashBytes, err = calculateNullifier(ctx, contract, coin)
 		}
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgNullifierGenerationFailed)
@@ -1263,9 +1268,8 @@ func (n *Noto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.Sig
 		return &prototk.SignResponse{
 			Payload: hashBytes.Bytes(),
 		}, nil
-	default:
-		return nil, i18n.NewError(ctx, msgs.MsgUnknownSignPayload, req.PayloadType)
 	}
+	return nil, i18n.NewError(ctx, msgs.MsgUnknownSignPayload, req.PayloadType)
 }
 
 func (n *Noto) GetVerifier(ctx context.Context, req *prototk.GetVerifierRequest) (*prototk.GetVerifierResponse, error) {
