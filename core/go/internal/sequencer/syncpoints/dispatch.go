@@ -66,6 +66,8 @@ type PendingDispatch struct {
 	TransactionID      uuid.UUID
 	Dispatch           *TransactionDispatch
 	StateDistributions []*components.StateDistribution
+	StatesToStage      []*components.StateWithLabels
+	Nullifiers         []*pldapi.StateNullifier
 }
 
 // DispatchBatch accumulates the pending dispatches for one contract so they commit together in a single DB

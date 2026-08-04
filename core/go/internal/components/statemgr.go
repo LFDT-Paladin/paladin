@@ -74,7 +74,7 @@ type StateManager interface {
 	WriteReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, states []*StateUpsertOutsideContext) ([]*pldapi.State, error)
 
 	// Write a batch of nullifiers that correspond to states just received
-	WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*NullifierUpsert) error
+	WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*pldapi.StateNullifier) error
 
 	// Find states from outside of a domain context (noting you can reference a domain context by ID)
 	FindStates(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, extQueryOptions *StateQueryOptions) (s []*pldapi.State, err error)
@@ -115,10 +115,9 @@ type StateQueryOptions struct {
 
 // DomainStateWriter is a long-lived write buffer used for flushing domain states and nullifiers to the DB.
 type DomainStateWriter interface {
-	// StageWrites validates the nullifiers against the supplied states and, only if the whole batch is
-	// consistent, atomically appends both the states and their nullifiers to the in-memory write buffer.
-	// The nullified state must be present in the states passed to this same call. Written on the next flush.
-	StageWrites(ctx context.Context, states []*StateWithLabels, nullifiers ...*NullifierUpsert) error
+	// StageWrites atomically appends the states and their pre-built nullifier records to the in-memory
+	// write buffer, to be written on the next flush.
+	StageWrites(ctx context.Context, states []*StateWithLabels, nullifiers ...*pldapi.StateNullifier) error
 
 	// Flush writes all pending states and nullifiers to the database within the given transaction.
 	// Must be called within an active DB transaction. Returns an error if a flush is already in
@@ -189,11 +188,6 @@ func (s *StateWithLabels) ProtoLabels() *prototk.StateLabels {
 		pl.Int64Labels[i] = &prototk.StateInt64Label{Label: l.Label, Value: l.Value}
 	}
 	return pl
-}
-
-type NullifierUpsert struct {
-	ID    pldtypes.HexBytes `json:"id"              gorm:"primaryKey"`
-	State pldtypes.HexBytes `json:"-"`
 }
 
 type Schema interface {

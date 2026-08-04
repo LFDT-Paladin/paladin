@@ -35,6 +35,7 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*engineProto.
 	// the various states from being delegated up to being ready for dispatch
 	case State_Blocked,
 		State_Confirming_Dispatchable,
+		State_Preparing,
 		State_Endorsement_Gathering,
 		State_PreAssembly_Blocked,
 		State_Assembling,

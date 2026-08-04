@@ -17,6 +17,7 @@ package coordinator
 
 import (
 	"context"
+	"runtime"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -70,10 +71,8 @@ func (s *ChainedDependenciesSuite) buildCoordinator() {
 	s.mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	s.mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		tx := args.Get(3).(*components.PrivateTransaction)
-		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
-	}).Return(nil).Maybe()
+	s.mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.PrepareTransactionResult{PreparedPrivateTransaction: &pldapi.TransactionInput{}}, nil).Maybe()
 }
 
 // ---------- helpers ----------
@@ -150,7 +149,23 @@ func (s *ChainedDependenciesSuite) progressToReadyForDispatch(txIDs ...uuid.UUID
 			RequestID:            rec.DispatchConfirmKeyForTx(id),
 		})
 
-		s.assertInState(transaction.State_Ready_For_Dispatch, id)
+		// Approval moves the transaction into Preparing and spawns the prepare goroutine; keep
+		// draining the coordinator queue until the prepare result lands and completes the
+		// transition. The suite-level test timeout bounds this loop.
+		s.waitForState(transaction.State_Ready_For_Dispatch, id)
+	}
+}
+
+func (s *ChainedDependenciesSuite) waitForState(state transaction.State, txID uuid.UUID) {
+	s.T().Helper()
+	for {
+		for _, tx := range s.c.getTransactionsInStates(s.ctx, []transaction.State{state}) {
+			if tx.GetID() == txID {
+				return
+			}
+		}
+		s.Require().NoError(s.c.stateMachineEventLoop.DrainPendingEvents(s.ctx))
+		runtime.Gosched()
 	}
 }
 

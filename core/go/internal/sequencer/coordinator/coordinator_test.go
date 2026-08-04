@@ -72,10 +72,8 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		tx := args.Get(3).(*components.PrivateTransaction)
-		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
-	}).Return(nil).Once()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.PrepareTransactionResult{PreparedPrivateTransaction: &pldapi.TransactionInput{}}, nil).Once()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	c.Start(ctx)
@@ -859,7 +857,6 @@ func TestNewCoordinator_SenderMode_SetsCurrentActiveCoordinatorToNodeName(t *tes
 		nil,
 		mockAllComponentsForConstructor(t),
 		nil,
-		nil,
 		testutil.NewSentMessageRecorder(),
 		common.RealClock(),
 		sequencercommonmocks.NewEngineIntegration(t),
@@ -882,7 +879,6 @@ func TestNewCoordinator_EndorserMode_SetsEndorserCandidates(t *testing.T) {
 		mockDomainSmartContractForConstructor(t),
 		nil,
 		mockAllComponentsForConstructor(t),
-		nil,
 		nil,
 		testutil.NewSentMessageRecorder(),
 		common.RealClock(),

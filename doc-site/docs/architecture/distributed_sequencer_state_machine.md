@@ -99,10 +99,12 @@ stateDiagram-v2
     Endorsement_Gathering --> Reverted
     Endorsement_Gathering --> Pooled
     Blocked --> Confirming_Dispatchable
-    Confirming_Dispatchable --> Ready_For_Dispatch
+    Confirming_Dispatchable --> Preparing
     Confirming_Dispatchable --> Pooled
     Confirming_Dispatchable --> Evicted
     Confirming_Dispatchable --> Final
+    Preparing --> Ready_For_Dispatch
+    Preparing --> Pooled
     Ready_For_Dispatch --> Dispatched
     Dispatched --> Confirmed
     Dispatched --> PreAssembly_Blocked
@@ -127,7 +129,8 @@ stateDiagram-v2
 | **Endorsement Gathering** | The transaction has been successfully assembled and endorsement requests have been sent |
 | **Blocked** | All endorsements have been received but the transaction cannot proceed due to dependencies not being ready for dispatch |
 | **Confirming Dispatchable** | The transaction has been endorsed. Confirmation from the originator is required before the transaction can be dispatched. The originator may still request not to proceed at this point. |
-| **Ready For Dispatch** | Dispatch confirmation has been received from the originator and the transaction is waiting to be collected by the dispatch goroutine |
+| **Preparing** | Dispatch confirmation has been received from the originator and the transaction is being prepared and its dispatch built, with bounded retries, off the coordinator event loop |
+| **Ready For Dispatch** | The transaction's dispatch has been built and queued, and is waiting to be collected by the dispatch goroutine |
 | **Dispatched** | Collected by the dispatcher thread and submitted by the public TX manager to the base ledger |
 | **Confirmed** | The transaction has been confirmed on the base ledger. It will remain in this state for a number heartbeat intervals before moving to State_Final to removed from memory. |
 | **Final** | The transaction will be removed from memory upon entry to this state |

@@ -761,9 +761,13 @@ func (sMgr *sequencerManager) HandleDirectTransactionRevert(ctx context.Context,
 	return nil
 }
 
-func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistributions []*components.StateDistributionWithData) (nullifiers []*components.NullifierUpsert, err error) {
-
-	nullifiers = []*components.NullifierUpsert{}
+// BuildNullifiers builds the nullifier for each local state distribution that requires one. A state may
+// pick up a distribution per local recipient, so it enforces at most one nullifier per state, matching
+// the state_nullifiers unique index on (domain_name, state); failing here fails a bad build cleanly
+// instead of poisoning the dispatch flush.
+func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistributions []*components.StateDistributionWithData) (nullifiers []*pldapi.StateNullifier, err error) {
+	nullifierByState := make(map[string]pldtypes.HexBytes)
+	nullifiers = []*pldapi.StateNullifier{}
 	err = sMgr.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		for _, s := range stateDistributions {
 			if s.NullifierAlgorithm == nil || s.NullifierVerifierType == nil || s.NullifierPayloadType == nil {
@@ -776,6 +780,12 @@ func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistribu
 				return err
 			}
 
+			stateID := nullifier.State.String()
+			if existing, dup := nullifierByState[stateID]; dup {
+				return i18n.NewError(ctx, msgs.MsgStateNullifierConflict, nullifier.State, existing)
+			}
+			nullifierByState[stateID] = nullifier.ID
+
 			nullifiers = append(nullifiers, nullifier)
 		}
 		return nil
@@ -783,7 +793,7 @@ func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistribu
 	return nullifiers, err
 }
 
-func (sMgr *sequencerManager) BuildNullifier(ctx context.Context, kr components.KeyResolver, s *components.StateDistributionWithData) (*components.NullifierUpsert, error) {
+func (sMgr *sequencerManager) BuildNullifier(ctx context.Context, kr components.KeyResolver, s *components.StateDistributionWithData) (*pldapi.StateNullifier, error) {
 	// We need to call the signing engine with the local identity to build the nullifier
 	log.L(ctx).Debugf("generating nullifier for state %s on node %s (algorithm=%s,verifierType=%s,payloadType=%s)",
 		s.StateID, sMgr.nodeName, *s.NullifierAlgorithm, *s.NullifierVerifierType, *s.NullifierPayloadType)
@@ -803,9 +813,10 @@ func (sMgr *sequencerManager) BuildNullifier(ctx context.Context, kr components.
 	if err != nil || len(nulliferBytes) == 0 {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgStateDistributorNullifierFail, s.StateID)
 	}
-	return &components.NullifierUpsert{
-		ID:    nulliferBytes,
-		State: pldtypes.MustParseHexBytes(s.StateID),
+	return &pldapi.StateNullifier{
+		DomainName: s.Domain,
+		ID:         nulliferBytes,
+		State:      pldtypes.MustParseHexBytes(s.StateID),
 	}, nil
 }
 
