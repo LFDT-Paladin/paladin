@@ -70,41 +70,17 @@ func (sw *domainStateWriter) checkResetInitUnFlushed(ctx context.Context) error 
 	return nil
 }
 
-// StageWrites validates the nullifiers against the supplied states and, only once the whole batch is
-// consistent, appends the states and their nullifiers to the unFlushed buffer under a single lock.
-// Each nullified state must be present in the states passed to this call, which holds because nullifiers
-// only ever target the same transaction's own output/info states.
-func (sw *domainStateWriter) StageWrites(ctx context.Context, states []*components.StateWithLabels, nullifiers ...*components.NullifierUpsert) error {
-	stateNullifiers := make([]*pldapi.StateNullifier, 0, len(nullifiers))
-	for _, nullifierInput := range nullifiers {
-		nullifier := &pldapi.StateNullifier{
-			DomainName: sw.domainName,
-			ID:         nullifierInput.ID,
-			State:      nullifierInput.State,
-		}
-		var creatingState *components.StateWithLabels
-		for _, s := range states {
-			if s.ID.Equals(nullifier.State) {
-				creatingState = s
-				break
-			}
-		}
-		if creatingState == nil {
-			return i18n.NewError(ctx, msgs.MsgStateNullifierStateNotInCtx, nullifier.State, nullifier.ID)
-		} else if creatingState.Nullifier != nil && !creatingState.Nullifier.ID.Equals(nullifier.ID) {
-			return i18n.NewError(ctx, msgs.MsgStateNullifierConflict, nullifier.State, creatingState.Nullifier.ID)
-		}
-		creatingState.Nullifier = nullifier
-		stateNullifiers = append(stateNullifiers, nullifier)
-	}
-
+// StageWrites appends the states and their pre-built nullifier records to the unFlushed buffer under a
+// single lock. Nullifiers must be validated against and linked to their creating states by the caller before
+// staging.
+func (sw *domainStateWriter) StageWrites(ctx context.Context, states []*components.StateWithLabels, nullifiers ...*pldapi.StateNullifier) error {
 	sw.stateLock.Lock()
 	defer sw.stateLock.Unlock()
 	if flushErr := sw.checkResetInitUnFlushed(ctx); flushErr != nil {
 		return flushErr
 	}
 	sw.unFlushed.states = append(sw.unFlushed.states, states...)
-	sw.unFlushed.stateNullifiers = append(sw.unFlushed.stateNullifiers, stateNullifiers...)
+	sw.unFlushed.stateNullifiers = append(sw.unFlushed.stateNullifiers, nullifiers...)
 	return nil
 }
 

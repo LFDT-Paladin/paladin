@@ -138,7 +138,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		AddPendingEndorsementRequest().
 		AddPendingPreDispatchRequest().
 		PreparesOnReadyForDispatch()
-	transaction1, _ := transaction1Builder.Build()
+	transaction1, transaction1Mocks := transaction1Builder.Build()
 
 	transaction2Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
@@ -148,7 +148,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		AddPendingPreDispatchRequest().
 		PreparesOnReadyForDispatch()
 
-	transaction2, _ := transaction2Builder.Build()
+	transaction2, transaction2Mocks := transaction2Builder.Build()
 
 	transaction3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
@@ -202,6 +202,13 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	//A transaction preparing its dispatch is still not ready from its dependents' perspective
+	assert.Equal(t, State_Preparing, transaction1.stateMachine.GetCurrentState())
+	assert.True(t, transaction3.hasDependenciesNotReady(ctx))
+
+	//deliver the async prepare result to complete the transition
+	deliverPrepareResult(t, ctx, transaction1, transaction1Mocks)
+
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
 	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
 	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.GetCurrentState())
@@ -215,6 +222,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		RequestID: transaction2.pendingPreDispatchRequest.IdempotencyKey(),
 	})
 	require.NoError(t, err)
+	deliverPrepareResult(t, ctx, transaction2, transaction2Mocks)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
 	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
@@ -268,13 +276,13 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		&syncpointsmocks.SyncPoints{},
 		allComponents,
 		domainAPI,
-		nil,
 		time.Duration(1000),
 		time.Duration(5000),
 		5,
 		0,
 		3,
 		3,
+		nil,
 		nil,
 		nil,
 		statevisibilitytracker.NewStore(),
@@ -324,13 +332,13 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		&syncpointsmocks.SyncPoints{},
 		allComponents,
 		domainAPI,
-		nil,
 		time.Duration(1000),
 		time.Duration(5000),
 		5,
 		0,
 		3,
 		3,
+		nil,
 		nil,
 		nil,
 		statevisibilitytracker.NewStore(),
@@ -489,13 +497,13 @@ func TestNewTransaction_ChainedDependsOn_InvalidUUIDIsSkipped(t *testing.T) {
 		&syncpointsmocks.SyncPoints{},
 		allComponents,
 		domainAPI,
-		nil,
 		time.Duration(1000),
 		time.Duration(5000),
 		5,
 		0,
 		3,
 		3,
+		nil,
 		nil,
 		nil,
 		statevisibilitytracker.NewStore(),

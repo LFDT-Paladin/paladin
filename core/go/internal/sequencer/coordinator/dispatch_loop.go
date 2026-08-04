@@ -36,10 +36,11 @@ type queuedDispatch struct {
 }
 
 // enqueueForDispatch places a prepared transaction and its built dispatch onto the dispatch queue. It is
-// passed to each coordinator transaction at creation and called from dispatchPrepareAndQueue on the transition into
-// State_Ready_For_Dispatch, so a transaction enqueues itself the moment its dispatch is built. The call
-// runs on the coordinator event loop under the transaction lock, so transactions are enqueued strictly in
-// the order they reach State_Ready_For_Dispatch, which is the order that ultimately drives on-chain nonce
+// passed to each coordinator transaction at creation and called by the Event_PrepareSucceeded handler,
+// which applies the built dispatch while still in State_Preparing and then transitions to
+// State_Ready_For_Dispatch, so a transaction enqueues itself as its dispatch is built. The call runs on
+// the coordinator event loop under the transaction lock, so transactions are enqueued strictly in the
+// order they reach State_Ready_For_Dispatch, which is the order that ultimately drives on-chain nonce
 // order. Enqueuing is not the point of no return: the queued dispatch is only persisted and sent to chain
 // if the transaction has entered State_Dispatched by the time the dispatch loop processes it. A dependency
 // reset or revert can move it off State_Ready_For_Dispatch first, in which case the queued dispatch is
@@ -166,10 +167,36 @@ func (c *coordinator) dispatchBatch(ctx context.Context, batch []queuedDispatch)
 	c.metrics.ObserveDispatchBatchSize("private", private)
 	c.metrics.ObserveDispatchBatchSize("prepared", prepared)
 
-	// Commit the whole batch in a single DB transaction. Persistence happens off the transaction lock so the
-	// DB commit does not block the coordinator event loop behind a tx lock.
-	if err := c.syncPoints.PersistDispatchBatch(ctx, dispatchBatch); err != nil {
-		log.L(ctx).Errorf("error persisting dispatch batch: %v", err)
+	// Stage this batch's states and nullifiers into the domain state writer, then commit the whole batch in
+	// a single DB transaction. Persistence happens off the transaction lock so the DB commit does not block
+	// the coordinator event loop behind a tx lock. Staging happens here, on the dispatch loop, synchronously
+	// before the flush, so the writer buffer holds only this batch's states at flush time. That makes a
+	// failed flush (typically transient DB unavailability) recoverable: a failure poisons the writer and
+	// rolls back the whole DB transaction, so Reset on the error discards exactly this batch's staged
+	// states, and the next attempt re-stages from the in-memory pending dispatches and re-flushes,
+	// retrying indefinitely with backoff. The batch's transactions remain in State_Dispatched throughout
+	// and are persisted when a retry succeeds.
+	err := c.dispatchRetry.Do(ctx, func(_ int) (bool, error) {
+		for _, pd := range dispatchBatch.Dispatches() {
+			if len(pd.StatesToStage) > 0 || len(pd.Nullifiers) > 0 {
+				// The nullifiers were validated against the states when the dispatch was built, so the
+				// only staging error is a poisoned writer from an earlier failed flush, cleared by the
+				// Reset here before the retry.
+				if err := c.dsw.StageWrites(ctx, pd.StatesToStage, pd.Nullifiers...); err != nil {
+					c.dsw.Reset()
+					return true, err
+				}
+			}
+		}
+		if err := c.syncPoints.PersistDispatchBatch(ctx, dispatchBatch); err != nil {
+			c.dsw.Reset()
+			return true, err
+		}
+		return false, nil
+	})
+	if err != nil {
+		// The retry only returns an error when the context is cancelled, so the dispatch loop is shutting
+		// down; the batch is left unpersisted and is re-driven from persisted state on restart.
 		return
 	}
 

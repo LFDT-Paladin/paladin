@@ -199,7 +199,6 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 				dsw,
 				sMgr.components,
 				nil,
-				nil,
 				transportWriter,
 				common.RealClock(),
 				engineIntegration,

@@ -98,29 +98,20 @@ func (ss *stateManager) WriteReceivedStates(ctx context.Context, dbTX persistenc
 	return ss.processInsertStates(ctx, dbTX, d, states)
 }
 
-func (ss *stateManager) WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, upserts []*components.NullifierUpsert) (err error) {
+func (ss *stateManager) WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*pldapi.StateNullifier) (err error) {
 	ctx = log.WithComponent(ctx, "statemanager")
-	d, err := ss.domainManager.GetDomainByName(ctx, domainName)
+	_, err = ss.domainManager.GetDomainByName(ctx, domainName)
 	if err != nil {
 		return err
 	}
 
-	stateNullifiers := make([]*pldapi.StateNullifier, len(upserts))
-	for i, n := range upserts {
-		stateNullifiers[i] = &pldapi.StateNullifier{
-			DomainName: d.Name(),
-			ID:         n.ID,
-			State:      n.State,
-		}
-	}
-
-	if len(stateNullifiers) > 0 {
+	if len(nullifiers) > 0 {
 		err = dbTX.DB(ctx).
 			Table("state_nullifiers").
 			Clauses(clause.OnConflict{
 				DoNothing: true, // immutable
 			}).
-			Create(stateNullifiers).
+			Create(nullifiers).
 			Error
 	}
 

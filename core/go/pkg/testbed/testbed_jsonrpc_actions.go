@@ -343,9 +343,14 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 		return err
 	}
 
-	if err := tx.psc.PrepareTransaction(ctx, dqc, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
+	prep, err := tx.psc.PrepareTransaction(ctx, dqc, tb.c.Persistence().NOTX(), tx.ptx)
+	if err != nil {
 		return err
 	}
+	tx.ptx.Signer = prep.Signer
+	tx.ptx.PreparedPublicTransaction = prep.PreparedPublicTransaction
+	tx.ptx.PreparedPrivateTransaction = prep.PreparedPrivateTransaction
+	tx.ptx.PreparedMetadata = prep.PreparedMetadata
 
 	// Build any nullifiers
 	if err := tb.writeNullifiersToContext(dsw, tx.ptx); err != nil {
@@ -353,7 +358,7 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	// Flush the state writer
-	err := tb.Components().Persistence().Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+	err = tb.Components().Persistence().Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		return dsw.Flush(ctx, dbTX)
 	})
 	if err != nil {

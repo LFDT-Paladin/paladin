@@ -891,6 +891,41 @@ func TestSequencerManager_BuildNullifiers_Success(t *testing.T) {
 	require.Len(t, nullifiers, 1)
 }
 
+func TestSequencerManager_BuildNullifiers_ConflictingNullifiers(t *testing.T) {
+	ctx := context.Background()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+	dbTX := persistencemocks.NewDBTX(t)
+
+	algo := "ECDSA"
+	vType := "eth_address"
+	pType := "raw"
+
+	mocks.persistence.EXPECT().Transaction(mock.Anything, mock.Anything).RunAndReturn(
+		func(txCtx context.Context, fn func(context.Context, persistence.DBTX) error) error {
+			return fn(txCtx, dbTX)
+		},
+	).Once()
+	kr := componentsmocks.NewKeyResolver(t)
+	mocks.keyManager.EXPECT().KeyResolverForDBTX(dbTX).Return(kr).Twice()
+	kr.EXPECT().ResolveKey(mock.Anything, "alice", algo, vType).Return(&pldapi.KeyMappingAndVerifier{}, nil).Twice()
+	mocks.keyManager.EXPECT().Sign(mock.Anything, mock.Anything, pType, mock.Anything).Return([]byte{1, 2, 3}, nil).Twice()
+
+	// Two distributions for the same state produce two nullifiers targeting it
+	dist := &components.StateDistributionWithData{
+		StateDistribution: components.StateDistribution{
+			StateID:               "0x0102",
+			IdentityLocator:       "alice@test-node",
+			NullifierAlgorithm:    &algo,
+			NullifierVerifierType: &vType,
+			NullifierPayloadType:  &pType,
+		},
+		StateData: pldtypes.RawJSON(`{}`),
+	}
+	_, err := sm.BuildNullifiers(ctx, []*components.StateDistributionWithData{dist, dist})
+	assert.Regexp(t, "PD010127", err)
+}
+
 func TestSequencerManager_BuildNullifier_NotLocalIdentity(t *testing.T) {
 	ctx := context.Background()
 	mocks := newSequencerLifecycleTestMocks(t)

@@ -29,6 +29,7 @@ type SequencerConfig struct {
 	CoordinatorEventQueueSize         *int               `json:"coordinatorEventQueueSize"`
 	CoordinatorPriorityEventQueueSize *int               `json:"coordinatorPriorityEventQueueSize"`
 	DelegationBatchInterval           *string            `json:"delegationBatchInterval"`
+	DispatchCommitRetry               RetryConfig        `json:"dispatchCommitRetry"`
 	DispatchMaxBatchSize              *int               `json:"dispatchMaxBatchSize"`
 	EndorseErrorRetry                 RetryConfigWithMax `json:"endorseErrorRetry"`
 	HeartbeatInterval                 *string            `json:"heartbeatInterval"`
@@ -38,6 +39,7 @@ type SequencerConfig struct {
 	MaxInflightTransactions           *int               `json:"maxInflightTransactions"`
 	OriginatorEventQueueSize          *int               `json:"originatorEventQueueSize"`
 	OriginatorPriorityEventQueueSize  *int               `json:"originatorPriorityEventQueueSize"`
+	PrepareRetry                      RetryConfigWithMax `json:"prepareRetry"`
 	RequestTimeout                    *string            `json:"requestTimeout"`
 	SignErrorRetryThreshold           *int               `json:"signErrorRetryThreshold"`
 	StateTimeout                      *string            `json:"stateTimeout"`
@@ -83,6 +85,7 @@ var SequencerDefaults = SequencerConfig{
 	CoordinatorEventQueueSize:         confutil.P(100),
 	CoordinatorPriorityEventQueueSize: confutil.P(500),
 	DelegationBatchInterval:           confutil.P("50ms"),
+	DispatchCommitRetry:               GenericRetryDefaults.RetryConfig,
 	DispatchMaxBatchSize:              confutil.P(100),
 	EndorseErrorRetry:                 *GenericRetryDefaults,
 	HeartbeatInterval:                 confutil.P("10s"),
@@ -92,6 +95,7 @@ var SequencerDefaults = SequencerConfig{
 	MaxInflightTransactions:           confutil.P(500),
 	OriginatorEventQueueSize:          confutil.P(50),
 	OriginatorPriorityEventQueueSize:  confutil.P(500),
+	PrepareRetry:                      *GenericRetryDefaults,
 	RequestTimeout:                    confutil.P("3s"), // Time before sending 1 retry of an assemble request, endorsement request etc
 	SignErrorRetryThreshold:           confutil.P(3),
 	StateTimeout:                      confutil.P("10s"), // Time before giving up on request-driven transaction state progress and re-pooling

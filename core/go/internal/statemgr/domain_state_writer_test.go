@@ -333,21 +333,12 @@ func TestDSWStateContextMintSpendWithNullifier(t *testing.T) {
 		{Id: stateID2.String(), SchemaId: schemaID.String(), StateDataJson: string(data2)},
 	}
 
-	// A single call with two conflicting nullifiers for the same state is rejected before anything is queued
-	conflicting, err := resolve(states...)
-	require.NoError(t, err)
-	err = sw.StageWrites(ctx, conflicting,
-		&components.NullifierUpsert{State: stateID1, ID: nullifier1},
-		&components.NullifierUpsert{State: stateID1, ID: nullifier2},
-	)
-	assert.Regexp(t, "PD010127", err)
-	require.Nil(t, sw.unFlushed)
-
 	// Stage the 2 states and attach nullifier1 to the first, atomically
 	tx1states, err := resolve(states...)
 	require.NoError(t, err)
 	require.Len(t, tx1states, 2)
-	err = sw.StageWrites(ctx, tx1states, &components.NullifierUpsert{State: stateID1, ID: nullifier1})
+	tx1nullifiers := []*pldapi.StateNullifier{{DomainName: "domain1", State: stateID1, ID: nullifier1}}
+	err = sw.StageWrites(ctx, tx1states, tx1nullifiers...)
 	require.NoError(t, err)
 
 	// Flush the states to the database
@@ -395,14 +386,11 @@ func TestDSWStateContextMintSpendWithNullifier(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, nullStates2, 0)
 
-	// StageWrites fails when the nullified state is not among the states passed to the same call
-	err = sw.StageWrites(ctx, nil, &components.NullifierUpsert{State: stateID2, ID: nullifier2})
-	assert.Regexp(t, "PD010126", err)
-
-	// Passing the state alongside its nullifier in one call succeeds
+	// Stage the second state alongside its nullifier
 	tx2states, err := resolve(&prototk.EndorsableState{Id: stateID2.String(), SchemaId: schemaID.String(), StateDataJson: string(data2)})
 	require.NoError(t, err)
-	err = sw.StageWrites(ctx, tx2states, &components.NullifierUpsert{State: stateID2, ID: nullifier2})
+	tx2nullifiers := []*pldapi.StateNullifier{{DomainName: "domain1", State: stateID2, ID: nullifier2}}
+	err = sw.StageWrites(ctx, tx2states, tx2nullifiers...)
 	require.NoError(t, err)
 
 }

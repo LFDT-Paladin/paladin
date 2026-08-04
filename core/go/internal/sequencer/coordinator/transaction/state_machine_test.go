@@ -1526,7 +1526,7 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 		TransactionID(txCID).
 		AddPendingPreDispatchRequest().
 		PreparesOnReadyForDispatch()
-	txnC, _ := builderC.Build()
+	txnC, mocksC := builderC.Build()
 	sharedTransactions[txnC.pt.ID] = txnC
 
 	builderA := NewTransactionBuilderForTesting(t, State_Blocked).
@@ -1544,6 +1544,9 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 
 	err := txnC.HandleEvent(ctx, builderC.BuildDispatchRequestApprovedEvent())
 	require.NoError(t, err)
+	// C prepares asynchronously; deliver its prepare result to complete the transition into
+	// Ready_For_Dispatch, which notifies A
+	deliverPrepareResult(t, ctx, txnC, mocksC)
 	assert.Equal(t, State_Confirming_Dispatchable, txnA.GetCurrentState(), "current state is %s", txnA.GetCurrentState().String())
 }
 
@@ -1563,7 +1566,7 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 		TransactionID(txBID).
 		AddPendingPreDispatchRequest().
 		PreparesOnReadyForDispatch()
-	txnB, _ := builderB.Build()
+	txnB, mocksB := builderB.Build()
 
 	_, _ = NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		Grapher(mockGrapher).
@@ -1584,6 +1587,7 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 
 	err := txnB.HandleEvent(ctx, builderB.BuildDispatchRequestApprovedEvent())
 	require.NoError(t, err)
+	deliverPrepareResult(t, ctx, txnB, mocksB)
 
 	assert.Equal(t, State_Blocked, txnA.GetCurrentState(), "current state is %s", txnA.GetCurrentState().String())
 }
@@ -1595,10 +1599,14 @@ func TestCoordinatorTransaction_ConfirmingDispatch_ToReadyForDispatch_OnDispatch
 			return nil
 		}).
 		PreparesOnReadyForDispatch()
-	txn, _ := builder.Build()
+	txn, mocks := builder.Build()
 
 	err := txn.HandleEvent(ctx, builder.BuildDispatchRequestApprovedEvent())
 	require.NoError(t, err)
+	// Approval moves the transaction into Preparing while the prepare runs off the event loop;
+	// delivering the prepare result completes the transition into Ready_For_Dispatch
+	assert.Equal(t, State_Preparing, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	deliverPrepareResult(t, ctx, txn, mocks)
 	assert.Equal(t, State_Ready_For_Dispatch, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
@@ -1677,7 +1685,7 @@ func TestCoordinatorTransaction_ConfirmingDispatch_ToPooled_OnStateTimeout(t *te
 func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *testing.T) {
 	ctx := context.Background()
 	var inFlightCalls []bool
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Preparing).
 		PreAssembly(&prototk.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
 				Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
@@ -1687,18 +1695,23 @@ func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *te
 		PostAssembly(&components.TransactionPostAssembly{}).
 		SetDispatchedInFlight(func(_ uuid.UUID, inFlight bool) { inFlightCalls = append(inFlightCalls, inFlight) }).
 		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		tx := args.Get(3).(*components.PrivateTransaction)
-		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
-	}).Return(nil)
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.PrepareTransactionResult{PreparedPrivateTransaction: &pldapi.TransactionInput{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
 
-	// Preparation runs on the transition into State_Ready_For_Dispatch, ahead of the DispatchedEvent, so
-	// establish the enqueued dispatch before dispatching.
-	require.NoError(t, txn.dispatchPrepareAndQueue(ctx))
+	// The dispatch is built and enqueued when the prepare result is applied, ahead of the
+	// DispatchedEvent, so establish the enqueued dispatch before dispatching.
+	pd, err := txn.prepareAndBuildDispatch(ctx, txn.pt, 0)
+	require.NoError(t, err)
+	require.NoError(t, txn.HandleEvent(ctx, &PrepareSucceededEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+		PrepareID:            txn.inFlightPrepareID,
+		PendingDispatch:      pd,
+	}))
+	require.Equal(t, State_Ready_For_Dispatch, txn.GetCurrentState())
 	require.Len(t, mocks.EnqueuedDispatches, 1)
 
-	err := txn.HandleEvent(ctx, &DispatchedEvent{
+	err = txn.HandleEvent(ctx, &DispatchedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txn.GetID(),
 		},

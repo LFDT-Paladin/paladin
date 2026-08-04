@@ -869,13 +869,13 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	ptx.Signer = pldtypes.RandAddress().String()
 
 	// And now prepare
-	err = psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, ptx)
+	prep, err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, ptx)
 	require.NoError(t, err)
-	assert.Len(t, ptx.PreparedPublicTransaction.ABI, 1)
-	assert.NotNil(t, ptx.PreparedPublicTransaction.Data)
-	assert.Equal(t, "txSigner", ptx.Signer)
+	assert.Len(t, prep.PreparedPublicTransaction.ABI, 1)
+	assert.NotNil(t, prep.PreparedPublicTransaction.Data)
+	assert.Equal(t, "txSigner", prep.Signer)
 
-	assert.JSONEq(t, `{"some":"data"}`, string(ptx.PreparedMetadata))
+	assert.JSONEq(t, `{"some":"data"}`, string(prep.PreparedMetadata))
 }
 
 func TestDomainAssembleTransactionInvalidTxn(t *testing.T) {
@@ -1142,7 +1142,7 @@ func TestPrepareTransactionFail(t *testing.T) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
+	_, err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
 	assert.Regexp(t, "pop", err)
 }
 
@@ -1161,7 +1161,7 @@ func TestPrepareTransactionABIInvalid(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
+	_, err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
 	assert.Regexp(t, "PD011607", err)
 }
 
@@ -1186,7 +1186,7 @@ func TestPrepareTransactionPrivateResult(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
+	prep, err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
 	require.NoError(t, err)
 	assert.Equal(t, pldapi.TransactionBase{
 		IdempotencyKey: fmt.Sprintf("%s_doTheNextThing", tx.ID),
@@ -1196,7 +1196,7 @@ func TestPrepareTransactionPrivateResult(t *testing.T) {
 		To:             contractAddr,
 		Data:           pldtypes.RawJSON(`{"thing": "something else"}`),
 		Domain:         psc.Domain().Name(),
-	}, tx.PreparedPrivateTransaction.TransactionBase)
+	}, prep.PreparedPrivateTransaction.TransactionBase)
 }
 
 func TestPrepareTransactionPrivateBadAddr(t *testing.T) {
@@ -1217,7 +1217,7 @@ func TestPrepareTransactionPrivateBadAddr(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
+	_, err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
 	require.Regexp(t, "bad address", err)
 }
 
@@ -1243,7 +1243,7 @@ func TestPrepareTransactionUnknownContract(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
+	_, err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
 	require.Regexp(t, "PD011609", err)
 }
 
@@ -1318,7 +1318,7 @@ func TestIncompleteStages(t *testing.T) {
 	_, err = psc.EndorseTransaction(td.ctx, td.mdc, td.c.dbTX, nil)
 	assert.Regexp(t, "PD011630", err)
 
-	err = psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, ptx)
+	_, err = psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, ptx)
 	assert.Regexp(t, "PD011632", err)
 }
 

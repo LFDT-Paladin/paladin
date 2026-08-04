@@ -1012,10 +1012,11 @@ func TestFindNullifiersSpendingExclusion(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, states1, 2)
 
-	err = sw.StageWrites(ctx, states1,
-		&components.NullifierUpsert{State: states1[0].ID, ID: nullID1},
-		&components.NullifierUpsert{State: states1[1].ID, ID: nullID2},
-	)
+	nullifiers1 := []*pldapi.StateNullifier{
+		{DomainName: "domain1", State: states1[0].ID, ID: nullID1},
+		{DomainName: "domain1", State: states1[1].ID, ID: nullID2},
+	}
+	err = sw.StageWrites(ctx, states1, nullifiers1...)
 	require.NoError(t, err)
 	syncFlushWriter(t, ctx, sw)
 
