@@ -471,6 +471,7 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 	transactionDelegatedEvent.FromNode = message.FromNode
 	transactionDelegatedEvent.OriginatorsBlockHeight = uint64(delegationRequest.OriginatorBlockHeight)
 	transactionDelegatedEvent.DelegationID = delegationRequest.DelegationId
+	transactionDelegatedEvent.LastDelegatedTransactionID = delegationRequest.LastDelegatedTransactionId
 	transactionDelegatedEvent.EventTime = time.Now()
 
 	contractAddress := sMgr.parseContractAddressString(ctx, delegationRequest.ContractAddress, message)
@@ -532,29 +533,20 @@ func (sMgr *sequencerManager) handleDelegationResponse(ctx context.Context, mess
 		return
 	}
 
-	rejectedDelegationIDs := make([]string, 0, len(delegationRequestAcknowledgment.TransactionIds))
-	rejectedDelegationMaxInFlight := 0
-	rejectedDelegationCoordinatorError := 0
-
-	// Currently we don't act on specific errors, but we have the option in the future to treat a specific delegate rejection
-	// differently to just relying on re-delegate on the next heartbeat/timeout. For now log explicit rejections from the coordinator.
-	for i, errorCode := range delegationRequestAcknowledgment.Errors {
-		switch coordinator.DelegationAcknowledgementError(errorCode) {
-		case coordinator.DelegationAcknowledgementError_MaxInflightTransactions:
-			rejectedDelegationIDs = append(rejectedDelegationIDs, delegationRequestAcknowledgment.TransactionIds[i])
-			rejectedDelegationMaxInFlight++
-		case coordinator.DelegationAcknowledgementError_CoordinatorError, coordinator.DelegationAcknowledgementError_PreviousTransactionError:
-			rejectedDelegationCoordinatorError++
-		}
+	// Get rather than load the sequencer - it must already have the originator in memory to process the delegation response
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: delegation response cannot be processed unless already in memory", contractAddress)
+		return
 	}
 
-	if rejectedDelegationMaxInFlight > 0 {
-		log.L(ctx).Debugf("coordinator rejected %d delegations with max in flight limit", rejectedDelegationMaxInFlight)
-		log.L(ctx).Tracef("rejected delegations: %+v", rejectedDelegationIDs)
-	}
-	if rejectedDelegationCoordinatorError > 0 {
-		log.L(ctx).Warnf("coordinator error processing %d delegations", rejectedDelegationCoordinatorError)
-	}
+	acknowledgedEvent := &originator.DelegationRequestAcknowledgedEvent{}
+	acknowledgedEvent.FromNode = message.FromNode
+	acknowledgedEvent.DelegationID = delegationRequestAcknowledgment.DelegationId
+	acknowledgedEvent.TransactionIDs = delegationRequestAcknowledgment.TransactionIds
+	acknowledgedEvent.Results = delegationRequestAcknowledgment.Results
+	acknowledgedEvent.EventTime = time.Now()
+	seq.GetOriginator().QueueEvent(ctx, acknowledgedEvent)
 }
 
 func (sMgr *sequencerManager) handleDelegationRejection(ctx context.Context, message *components.ReceivedMessage) {

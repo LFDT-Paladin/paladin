@@ -68,6 +68,22 @@ func (*DelegationRequestRejectedEvent) TypeString() string {
 	return "Event_DelegationRequestRejected"
 }
 
+type DelegationRequestAcknowledgedEvent struct {
+	common.BaseEvent
+	FromNode       string
+	DelegationID   string
+	TransactionIDs []string
+	Results        []engineProto.DelegationAcknowledgementResult
+}
+
+func (*DelegationRequestAcknowledgedEvent) Type() EventType {
+	return Event_DelegationRequestAcknowledged
+}
+
+func (*DelegationRequestAcknowledgedEvent) TypeString() string {
+	return "Event_DelegationRequestAcknowledged"
+}
+
 type DelegateSendBatchEvent struct {
 	common.BaseEvent
 	Full bool

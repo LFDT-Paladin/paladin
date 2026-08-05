@@ -115,12 +115,12 @@ func TestCreatedEvent_Fields(t *testing.T) {
 
 func TestDelegatedEvent_Type(t *testing.T) {
 	event := &DelegatedEvent{}
-	assert.Equal(t, Event_Delegated, event.Type())
+	assert.Equal(t, Event_DelegationSent, event.Type())
 }
 
 func TestDelegatedEvent_TypeString(t *testing.T) {
 	event := &DelegatedEvent{}
-	assert.Equal(t, "Event_Delegated", event.TypeString())
+	assert.Equal(t, "Event_DelegationSent", event.TypeString())
 }
 
 func TestDelegatedEvent_Fields(t *testing.T) {

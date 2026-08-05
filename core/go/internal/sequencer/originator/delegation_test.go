@@ -22,9 +22,11 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/originatortransactionmocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	mock "github.com/stretchr/testify/mock"
@@ -98,13 +100,14 @@ func Test_sendDelegationRequest_HandleEventError_ReturnsWrappedError(t *testing.
 	assert.Contains(t, err.Error(), expectedErr.Error())
 }
 
-// On the golden (partial) path, transactions that the coordinator already knows about (Assembling or
-// beyond) are skipped: they get neither a DelegatedEvent nor a protobuf entry. Only Pending/Delegated
-// transactions are (re)sent.
-func Test_sendDelegationRequest_Partial_ExcludesAssembledTransactions(t *testing.T) {
+// On the golden (partial) path only Pending transactions are sent: transactions the coordinator
+// already holds — acknowledged (Delegated) or assembled and beyond — get neither a DelegatedEvent
+// nor a protobuf entry. The most recent Delegated transaction is named as the request's
+// last_delegated_transaction_id instead of being resent.
+func Test_sendDelegationRequest_Partial_SendsPendingOnlyWithLastDelegated(t *testing.T) {
 	ctx := context.Background()
 	assembledTxn, assembledID := newExcludedMockTxn(t, transaction.State_Assembling)
-	delegatedTxn, delegatedID := newDelegatableMockTxn(t, transaction.State_Delegated)
+	delegatedTxn, delegatedID := newExcludedMockTxn(t, transaction.State_Delegated)
 	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
 
 	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
@@ -116,13 +119,39 @@ func Test_sendDelegationRequest_Partial_ExcludesAssembledTransactions(t *testing
 	require.NoError(t, err)
 
 	assert.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest())
-	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(delegatedID), "Delegated txn must be included")
 	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID), "Pending txn must be included")
+	assert.False(t, mocks.SentMessageRecorder.HasDelegatedTransaction(delegatedID), "Delegated txn must not be resent on the partial path")
 	assert.False(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "Assembling txn must be excluded on the partial path")
+
+	requests := mocks.SentMessageRecorder.SentDelegationRequests()
+	require.Len(t, requests, 1)
+	assert.Equal(t, delegatedID.String(), requests[0].LastDelegatedTransactionId, "the most recent Delegated txn must be named as the predecessor")
+	assert.NotEmpty(t, requests[0].DelegationId, "every request must carry a delegation ID for its acknowledgement")
+}
+
+// A partial send with no Delegated predecessor (all earlier transactions have moved past
+// pre-assembly) leaves last_delegated_transaction_id empty.
+func Test_sendDelegationRequest_Partial_NoDelegatedPredecessor_EmptyLastDelegated(t *testing.T) {
+	ctx := context.Background()
+	assembledTxn, _ := newExcludedMockTxn(t, transaction.State_Assembling)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(assembledTxn, pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	require.NoError(t, sendDelegationRequest(ctx, o, false))
+
+	requests := mocks.SentMessageRecorder.SentDelegationRequests()
+	require.Len(t, requests, 1)
+	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID))
+	assert.Empty(t, requests[0].LastDelegatedTransactionId)
 }
 
 // The full (recovery) path re-delegates everything in the resolved prefix, including already-assembled
-// transactions, because the coordinator may be missing state.
+// transactions, because the coordinator may be missing state. A full request carries the complete
+// order itself, so it names no predecessor.
 func Test_sendDelegationRequest_Full_IncludesAssembledTransactions(t *testing.T) {
 	ctx := context.Background()
 	assembledTxn, assembledID := newDelegatableMockTxn(t, transaction.State_Assembling)
@@ -141,6 +170,10 @@ func Test_sendDelegationRequest_Full_IncludesAssembledTransactions(t *testing.T)
 	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "full resend must include the assembled txn")
 	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(delegatedID))
 	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID))
+
+	requests := mocks.SentMessageRecorder.SentDelegationRequests()
+	require.Len(t, requests, 1)
+	assert.Empty(t, requests[0].LastDelegatedTransactionId, "a full request must not name a predecessor")
 }
 
 // A partial delegation with nothing left to send (every resolved transaction is already assembled)
@@ -398,7 +431,7 @@ func Test_action_SendDelegation_Partial_ExcludesAssembled(t *testing.T) {
 		Build()
 	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(100))
 
-	err := action_SendDelegation(ctx, o, &DelegateSendBatchEvent{Full: false})
+	err := action_SendDelegation(ctx, o, &DelegateSendBatchEvent{})
 	require.NoError(t, err)
 
 	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID))
@@ -442,4 +475,450 @@ func Test_sendDelegationRequest_TransportError_ReturnsError(t *testing.T) {
 	err := sendDelegationRequest(ctx, o, true)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "transport error")
+}
+
+// A delegation response with every transaction acknowledged moves each one Pending -> Delegated
+// (via a DelegationAcknowledgedEvent) and cancels the request's in-flight entry, and no follow-up
+// delegation is raised.
+func Test_action_HandleDelegationAcknowledged_AllAcked(t *testing.T) {
+	ctx := context.Background()
+	txn1, txnID1 := newAckExpectingMockTxn(t)
+	txn2, txnID2 := newAckExpectingMockTxn(t)
+
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(txn1, txn2).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	o.partialInFlight = &inFlightDelegation{delegationID: "d1"}
+
+	err := action_HandleDelegationAcknowledged(ctx, o, &DelegationRequestAcknowledgedEvent{
+		FromNode:       "coordinator@node1",
+		DelegationID:   "d1",
+		TransactionIDs: []string{txnID1.String(), txnID2.String()},
+		Results:        []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED, engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED},
+	})
+	require.NoError(t, err)
+
+	assert.Nil(t, o.partialInFlight, "the response must cancel the request's in-flight entry")
+	assert.Nil(t, o.fullInFlight)
+	assert.Len(t, o.notifyPartialDelegation, 0)
+	assert.Len(t, o.notifyFullDelegation, 0)
+}
+
+// The coordinator applies prefix-acceptance, so error entries are the un-acknowledged remainder:
+// the acknowledged prefix moves to Delegated and a partial delegation is raised to re-send exactly
+// the transactions still Pending.
+func Test_action_HandleDelegationAcknowledged_PrefixAck_RaisesPartialDelegation(t *testing.T) {
+	ctx := context.Background()
+	ackedTxn, ackedID := newAckExpectingMockTxn(t)
+	rejectedTxn, rejectedID := newInertMockTxn(t)
+	skippedTxn, skippedID := newInertMockTxn(t)
+
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(ackedTxn, rejectedTxn, skippedTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	o.partialInFlight = &inFlightDelegation{delegationID: "d1"}
+
+	err := action_HandleDelegationAcknowledged(ctx, o, &DelegationRequestAcknowledgedEvent{
+		FromNode:       "coordinator@node1",
+		DelegationID:   "d1",
+		TransactionIDs: []string{ackedID.String(), rejectedID.String(), skippedID.String()},
+		Results: []engineProto.DelegationAcknowledgementResult{
+			engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED,
+			engineProto.DelegationAcknowledgementResult_MAX_INFLIGHT_TRANSACTIONS,
+			engineProto.DelegationAcknowledgementResult_PREVIOUS_TRANSACTION_ERROR,
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Len(t, o.notifyPartialDelegation, 1, "the un-acknowledged remainder must trigger a partial delegation")
+	assert.Len(t, o.notifyFullDelegation, 0)
+	assert.Nil(t, o.partialInFlight, "a response with per-transaction errors still proves the request landed, so the in-flight entry is cancelled")
+	assert.Nil(t, o.fullInFlight)
+}
+
+// When the coordinator does not recognise the request's last delegated predecessor it cannot
+// guarantee FIFO ordering, so the originator falls back to a full delegation.
+func Test_action_HandleDelegationAcknowledged_UnknownLastDelegated_RaisesFullDelegation(t *testing.T) {
+	ctx := context.Background()
+	txn1, txnID1 := newInertMockTxn(t)
+
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(txn1).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := action_HandleDelegationAcknowledged(ctx, o, &DelegationRequestAcknowledgedEvent{
+		FromNode:       "coordinator@node1",
+		DelegationID:   "d1",
+		TransactionIDs: []string{txnID1.String()},
+		Results:        []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_UNKNOWN_LAST_DELEGATED_TRANSACTION},
+	})
+	require.NoError(t, err)
+
+	assert.Len(t, o.notifyFullDelegation, 1, "an unknown predecessor must trigger a full delegation")
+	assert.Len(t, o.notifyPartialDelegation, 0)
+}
+
+// The acknowledged delegation ID can match the full slot rather than the partial one; the response
+// must clear whichever slot holds it.
+func Test_action_HandleDelegationAcknowledged_FullSlotAck_CancelsFullInFlight(t *testing.T) {
+	ctx := context.Background()
+	txn1, txnID1 := newAckExpectingMockTxn(t)
+
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(txn1).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	o.fullInFlight = &inFlightDelegation{delegationID: "d1"}
+
+	err := action_HandleDelegationAcknowledged(ctx, o, &DelegationRequestAcknowledgedEvent{
+		FromNode:       "coordinator@node1",
+		DelegationID:   "d1",
+		TransactionIDs: []string{txnID1.String()},
+		Results:        []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED},
+	})
+	require.NoError(t, err)
+
+	assert.Nil(t, o.fullInFlight, "the response must cancel the full in-flight entry it acknowledges")
+	assert.Nil(t, o.partialInFlight)
+}
+
+// A response carrying fewer acknowledgement results than transactions is malformed: the transaction
+// at the short index and everything after it are treated as un-acknowledged and re-delegated.
+func Test_action_HandleDelegationAcknowledged_FewerResultsThanTransactions_RaisesPartial(t *testing.T) {
+	ctx := context.Background()
+	txn1, txnID1 := newInertMockTxn(t)
+	txn2, txnID2 := newInertMockTxn(t)
+
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(txn1, txn2).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	o.partialInFlight = &inFlightDelegation{delegationID: "d1"}
+
+	err := action_HandleDelegationAcknowledged(ctx, o, &DelegationRequestAcknowledgedEvent{
+		FromNode:       "coordinator@node1",
+		DelegationID:   "d1",
+		TransactionIDs: []string{txnID1.String(), txnID2.String()},
+		Results:        []engineProto.DelegationAcknowledgementResult{},
+	})
+	require.NoError(t, err)
+
+	assert.Len(t, o.notifyPartialDelegation, 1, "a short results list must re-delegate the un-acknowledged transactions")
+	assert.Len(t, o.notifyFullDelegation, 0)
+}
+
+// An acknowledgement carrying a malformed transaction ID is skipped without failing the whole batch.
+func Test_action_HandleDelegationAcknowledged_InvalidTransactionID_Skips(t *testing.T) {
+	ctx := context.Background()
+
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := action_HandleDelegationAcknowledged(ctx, o, &DelegationRequestAcknowledgedEvent{
+		FromNode:       "coordinator@node1",
+		DelegationID:   "d1",
+		TransactionIDs: []string{"not-a-uuid"},
+		Results:        []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED},
+	})
+	require.NoError(t, err)
+
+	assert.Len(t, o.notifyPartialDelegation, 0)
+	assert.Len(t, o.notifyFullDelegation, 0)
+}
+
+// An acknowledgement for a transaction that has already completed and been cleaned up is skipped:
+// there is no live transaction left to move to Delegated.
+func Test_action_HandleDelegationAcknowledged_UnknownTransaction_Skips(t *testing.T) {
+	ctx := context.Background()
+	goneID := uuid.New()
+
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := action_HandleDelegationAcknowledged(ctx, o, &DelegationRequestAcknowledgedEvent{
+		FromNode:       "coordinator@node1",
+		DelegationID:   "d1",
+		TransactionIDs: []string{goneID.String()},
+		Results:        []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED},
+	})
+	require.NoError(t, err)
+
+	assert.Len(t, o.notifyPartialDelegation, 0)
+	assert.Len(t, o.notifyFullDelegation, 0)
+}
+
+// A failure moving an acknowledged transaction Pending → Delegated surfaces as an error from the action.
+func Test_action_HandleDelegationAcknowledged_TransactionHandleEventError_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	txn1, txnID1 := newAckErroringMockTxn(t)
+
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(txn1).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	err := action_HandleDelegationAcknowledged(ctx, o, &DelegationRequestAcknowledgedEvent{
+		FromNode:       "coordinator@node1",
+		DelegationID:   "d1",
+		TransactionIDs: []string{txnID1.String()},
+		Results:        []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED},
+	})
+	require.Error(t, err)
+}
+
+// An acknowledgement from a node that is not the current active coordinator (e.g. one we have since
+// failed away from) is dropped by the state machine: no transaction events, no follow-up delegation,
+// and the in-flight entry for the current coordinator is untouched.
+func Test_stateMachine_Sending_DelegationAckFromStaleCoordinator_Dropped(t *testing.T) {
+	ctx := context.Background()
+	txn1, txnID1 := newInertMockTxn(t)
+
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(txn1).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	o.partialInFlight = &inFlightDelegation{delegationID: "d1"}
+
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &DelegationRequestAcknowledgedEvent{
+		FromNode:       "stale-coordinator@node2",
+		DelegationID:   "d1",
+		TransactionIDs: []string{txnID1.String()},
+		Results:        []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED},
+	}))
+
+	assert.NotNil(t, o.partialInFlight, "a stale acknowledgement must not cancel the in-flight entry")
+	assert.Len(t, o.notifyPartialDelegation, 0)
+	assert.Len(t, o.notifyFullDelegation, 0)
+}
+
+// A partial send is recorded in the partial in-flight slot under the sent delegation ID, so its timeout
+// can re-delegate the transactions if the acknowledgement never arrives.
+func Test_sendDelegationRequest_RecordsInFlightDelegation(t *testing.T) {
+	ctx := context.Background()
+	pendingTxn, _ := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	require.NoError(t, sendDelegationRequest(ctx, o, false))
+
+	requests := mocks.SentMessageRecorder.SentDelegationRequests()
+	require.Len(t, requests, 1)
+	require.NotNil(t, o.partialInFlight, "the partial send must be recorded in the partial slot")
+	assert.Nil(t, o.fullInFlight, "a partial send must not record a full")
+	assert.Equal(t, requests[0].DelegationId, o.partialInFlight.delegationID, "the in-flight entry must carry the sent delegation ID")
+}
+
+// A send rebuilds from live state, so it supersedes every request already in flight: the prior entry is
+// cancelled and a single fresh one recorded. This is what a request timeout relies on — the timer pokes
+// the notify channel, and the resulting send re-delegates the still-Pending transactions under a fresh
+// delegation ID, with the predecessor computed at send time.
+func Test_action_SendDelegation_SupersedesInFlightUnderFreshDelegationID(t *testing.T) {
+	ctx := context.Background()
+	delegatedTxn, delegatedID := newExcludedMockTxn(t, transaction.State_Delegated)
+	pendingTxn, pendingID := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(delegatedTxn, pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(100))
+	o.partialInFlight = &inFlightDelegation{delegationID: "d1"}
+
+	require.NoError(t, action_SendDelegation(ctx, o, &DelegateSendBatchEvent{}))
+
+	requests := mocks.SentMessageRecorder.SentDelegationRequests()
+	require.Len(t, requests, 1, "the still-outstanding transactions must be re-delegated")
+	assert.NotEqual(t, "d1", requests[0].DelegationId, "the re-delegation must use a fresh delegation ID")
+	require.Len(t, requests[0].Transactions, 1)
+	assert.Equal(t, pendingID.String(), requests[0].Transactions[0].Id, "the still-Pending transaction must be re-delegated")
+	assert.Equal(t, delegatedID.String(), requests[0].LastDelegatedTransactionId, "the predecessor is computed from live state at send time")
+
+	require.NotNil(t, o.partialInFlight, "a fresh in-flight entry replaces the superseded one")
+	assert.NotEqual(t, "d1", o.partialInFlight.delegationID, "the superseded entry must be dropped")
+}
+
+// A partial send supersedes only a prior partial: an in-flight full delegation (a recovery send that
+// re-pushes transactions a partial would not resend) keeps its slot and timer, so its own timeout still
+// fires independently.
+func Test_action_SendDelegation_Partial_PreservesInFlightFull(t *testing.T) {
+	ctx := context.Background()
+	pendingTxn, _ := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(100))
+	full := &inFlightDelegation{delegationID: "full-1"}
+	o.fullInFlight = full
+
+	require.NoError(t, action_SendDelegation(ctx, o, &DelegateSendBatchEvent{}))
+
+	assert.Same(t, full, o.fullInFlight, "a partial send must not disturb an in-flight full delegation")
+	require.NotNil(t, o.partialInFlight, "the partial send is recorded in the partial slot")
+}
+
+// A full send supersedes everything in flight (it re-delegates a superset): both slots collapse to the
+// single new full request.
+func Test_action_SendDelegation_Full_SupersedesBoth(t *testing.T) {
+	ctx := context.Background()
+	pendingTxn, _ := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(100))
+	o.fullInFlight = &inFlightDelegation{delegationID: "full-old"}
+	o.partialInFlight = &inFlightDelegation{delegationID: "partial-old"}
+
+	require.NoError(t, action_SendDelegation(ctx, o, &DelegateSendBatchEvent{Full: true}))
+
+	require.NotNil(t, o.fullInFlight, "the full send is recorded in the full slot")
+	assert.NotEqual(t, "full-old", o.fullInFlight.delegationID, "the prior full is superseded")
+	assert.Nil(t, o.partialInFlight, "a full send supersedes any in-flight partial")
+}
+
+// Switching the active coordinator discards every in-flight delegation request: the full delegation
+// to the new coordinator supersedes them all.
+func Test_action_SwitchActiveCoordinator_CancelsInFlightDelegations(t *testing.T) {
+	ctx := context.Background()
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	o.partialInFlight = &inFlightDelegation{delegationID: "d1"}
+	o.fullInFlight = &inFlightDelegation{delegationID: "d2"}
+
+	err := action_SwitchActiveCoordinator(ctx, o, &common.HeartbeatReceivedEvent{
+		FromNode: "new-coordinator@node2",
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{
+			CoordinatorState: common.CoordinatorState_Active,
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Nil(t, o.partialInFlight)
+	assert.Nil(t, o.fullInFlight)
+}
+
+// The request timer pokes the notify channel it was armed with when it fires: the partial channel for a
+// partial delegation's timer, the full channel for a full one, so the batching loop re-delegates at the
+// same scope.
+func Test_armInFlightDelegationTimer_PokesNotifyChannelForScope(t *testing.T) {
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	o.delegationLoopCtx = context.Background()
+	o.requestTimeout = time.Millisecond
+
+	o.startInFlightDelegationTimer(&inFlightDelegation{delegationID: "d1"}, o.notifyPartialDelegation)
+	<-o.notifyPartialDelegation
+	assert.Len(t, o.notifyFullDelegation, 0, "a partial request's timeout must not poke the full channel")
+
+	o.startInFlightDelegationTimer(&inFlightDelegation{delegationID: "d2"}, o.notifyFullDelegation)
+	<-o.notifyFullDelegation
+}
+
+// End to end through the batching goroutine: a request whose acknowledgement never arrives is
+// re-delegated under a fresh delegation ID once its request timeout fires.
+func Test_delegationLoop_Timeout_ReDelegatesRequest(t *testing.T) {
+	pendingTxn, _ := newDelegatableMockTxn(t, transaction.State_Pending)
+
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		Transactions(pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(100)).Maybe()
+	o.ctx = context.Background()
+	o.requestTimeout = time.Millisecond
+
+	// startDelegationLoop replaces the builder's channels and runs the real goroutine; entry to
+	// Sending raises nothing here, so raise the partial flag to drive the first send.
+	o.startDelegationLoop()
+	defer o.stopDelegationLoop()
+	o.notifyPartialDelegation <- struct{}{}
+
+	require.Eventually(t, func() bool {
+		if err := o.stateMachineEventLoop.DrainPendingEvents(context.Background()); err != nil {
+			return false
+		}
+		return len(mocks.SentMessageRecorder.SentDelegationRequests()) >= 2
+	}, 5*time.Second, time.Millisecond, "the un-acknowledged request must be re-delegated")
+
+	requests := mocks.SentMessageRecorder.SentDelegationRequests()
+	assert.NotEqual(t, requests[0].DelegationId, requests[1].DelegationId, "the re-delegation must use a fresh delegation ID")
+}
+
+// When a request's timeout fires but a wake is already queued on the notify channel, the redundant
+// wake is dropped rather than blocking the timer goroutine.
+func Test_startInFlightDelegationTimer_ChannelFull_CoalescesTimeout(t *testing.T) {
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+	clk := &captureClock{Clock: common.RealClock()}
+	o.clock = clk
+	o.delegationLoopCtx = context.Background()
+	o.requestTimeout = time.Millisecond
+
+	// Fill the single-slot buffer so a wake is already pending when the timeout fires.
+	o.notifyPartialDelegation <- struct{}{}
+
+	o.startInFlightDelegationTimer(&inFlightDelegation{delegationID: "d1"}, o.notifyPartialDelegation)
+	require.NotNil(t, clk.scheduled, "the timer must have been scheduled")
+
+	clk.scheduled()
+
+	assert.Len(t, o.notifyPartialDelegation, 1, "the redundant timeout wake must be coalesced, not queued")
+}
+
+// captureClock records the function passed to ScheduleTimer so a test can fire the timeout
+// synchronously, deferring every other clock method to the embedded real clock.
+type captureClock struct {
+	common.Clock
+	scheduled func()
+}
+
+func (c *captureClock) ScheduleTimer(_ context.Context, _ time.Duration, f func()) func() {
+	c.scheduled = f
+	return func() {}
+}
+
+// newInertMockTxn builds a mock transaction that must receive no events at all; read-only
+// accessors are permitted but not required.
+func newInertMockTxn(t *testing.T) (*originatortransactionmocks.OriginatorTransaction, uuid.UUID) {
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID).Maybe()
+	mockTxn.On("GetCurrentState").Return(transaction.State_Pending).Maybe()
+	return mockTxn, txID
+}
+
+// newAckExpectingMockTxn builds a mock Pending transaction that must receive exactly one
+// DelegationAcknowledgedEvent.
+func newAckExpectingMockTxn(t *testing.T) (*originatortransactionmocks.OriginatorTransaction, uuid.UUID) {
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID).Maybe()
+	mockTxn.On("GetCurrentState").Return(transaction.State_Pending).Maybe()
+	mockTxn.On("HandleEvent", mock.Anything, mock.AnythingOfType("*transaction.DelegationAcknowledgedEvent")).Return(nil).Once()
+	return mockTxn, txID
+}
+
+// newAckErroringMockTxn builds a mock Pending transaction whose DelegationAcknowledgedEvent handling
+// fails, so the action's error path can be exercised.
+func newAckErroringMockTxn(t *testing.T) (*originatortransactionmocks.OriginatorTransaction, uuid.UUID) {
+	txID := uuid.New()
+	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
+	mockTxn.On("GetID").Return(txID).Maybe()
+	mockTxn.On("GetCurrentState").Return(transaction.State_Pending).Maybe()
+	mockTxn.On("HandleEvent", mock.Anything, mock.AnythingOfType("*transaction.DelegationAcknowledgedEvent")).Return(fmt.Errorf("pop")).Once()
+	return mockTxn, txID
 }

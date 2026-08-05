@@ -82,7 +82,7 @@ func Test_validator_HasDroppedTransactions_TrueWhenInFlightTransactionAbsentFrom
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
-	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
+	mockTxn.On("GetLastDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		NodeName("member1@node1").
 		CurrentActiveCoordinator("coordinator@node1").
@@ -103,7 +103,7 @@ func Test_validator_HasDroppedTransactions_FalseWhenAllTransactionsPresentInSnap
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
-	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
+	mockTxn.On("GetLastDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		NodeName("member1@node1").
 		CurrentActiveCoordinator("coordinator@node1").
@@ -128,7 +128,7 @@ func Test_validator_HasDroppedTransactions_FalseWhenTransactionPresentInReverted
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
-	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
+	mockTxn.On("GetLastDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		NodeName("member1@node1").
 		CurrentActiveCoordinator("coordinator@node1").

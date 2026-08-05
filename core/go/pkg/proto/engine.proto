@@ -114,6 +114,7 @@ message DelegationRequest {
     int64 originator_block_height = 3; // the originator's block height upon which this delegation was calculated
     repeated PrivateTransactionDelegation transactions = 4; // typed delegation descriptors, one per delegated transaction
     string contract_address = 5; // hex EthAddress — all transactions in this request share the same contract
+    string last_delegated_transaction_id = 6; // ID of the most recent transaction this originator has delegated and had acknowledged
 }
 
 // PrivateTransactionDelegation is the minimal wire descriptor sent when an originator
@@ -125,9 +126,17 @@ message PrivateTransactionDelegation {
     io.kaleido.paladin.toolkit.TransactionPreAssembly pre_assembly = 4;
 }
 
+enum DelegationAcknowledgementResult {
+    DELEGATION_ACCEPTED = 0;                    // the transaction was accepted; no error
+    MAX_INFLIGHT_TRANSACTIONS = 1;              // coordinator is at its in-flight limit and cannot accept the transaction
+    COORDINATOR_ERROR = 2;                      // coordinator failed to handle the delegated transaction
+    PREVIOUS_TRANSACTION_ERROR = 3;             // an earlier transaction in the same request was not accepted, so this one is withheld to preserve FIFO ordering
+    UNKNOWN_LAST_DELEGATED_TRANSACTION = 4;     // coordinator does not hold the request's last_delegated_transaction_id and so cannot guarantee FIFO ordering for the request
+}
+
 message DelegationResponse {
     repeated string transaction_ids = 1;
-    repeated int64 errors = 2; // Every delegate could have a different result. Allow optional enum error per transaction
+    repeated DelegationAcknowledgementResult results = 2; // per-transaction result, parallel to transaction_ids
     string delegate_node_id = 3;
     string delegation_id = 4; // this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
     string contract_address = 5;

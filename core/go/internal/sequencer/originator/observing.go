@@ -57,6 +57,7 @@ func action_SwitchActiveCoordinator(ctx context.Context, o *originator, event co
 	o.currentActiveCoordinator = e.FromNode
 	o.resetFailoverIndex()
 	o.heartbeatIntervalsSinceLastReceive = 0
+	o.cancelAllInFlightDelegations()
 	return nil
 }
 
@@ -162,15 +163,13 @@ func (o *originator) hasDroppedTransactions(ctx context.Context, snapshot *commo
 		// A freshly-delegated transaction races the coordinator's snapshot: the snapshot we are checking
 		// against may have been generated before the delegation reached the coordinator, so its absence is
 		// expected rather than a drop. Only consider a transaction dropped once at least one full heartbeat
-		// interval has elapsed since it was first delegated to the current coordinator, by which point that
-		// coordinator has had the chance to include it in a snapshot. The first-delegation time is reset if
-		// the transaction is redirected to a different coordinator, so the grace restarts on each handover
-		// but is not extended by the partial FIFO resend to the same coordinator.
+		// interval has elapsed since it was last delegated, by which point the coordinator has had the
+		// chance to include it in a snapshot.
 		//
 		// A 10% buffer is added to the heartbeat interval to allow for network delays where the delegation has
 		// arrived at the coordinator the instant after a heartbeat has been sent.
-		firstDelegated := txn.GetFirstDelegatedTime()
-		if firstDelegated == nil || o.clock.Now().Sub(*firstDelegated) < o.heartbeatInterval*11/10 {
+		lastDelegated := txn.GetLastDelegatedTime()
+		if lastDelegated == nil || o.clock.Now().Sub(*lastDelegated) < o.heartbeatInterval*11/10 {
 			continue
 		}
 		if !transactionFoundInSnapshot(snapshot, txn) {

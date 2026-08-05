@@ -25,18 +25,13 @@ import (
 	"github.com/google/uuid"
 )
 
-func action_Delegated(ctx context.Context, t *originatorTransaction, event common.Event) error {
+// action_DelegationSent records the coordinator a delegation request was sent to and the time it was
+// sent. The dropped-transaction grace runs from this time, so it restarts whenever the transaction
+// is genuinely (re)delegated.
+func action_DelegationSent(ctx context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*DelegatedEvent)
 	if e.Coordinator == "" {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction delegate cannot be set to an empty node identity")
-	}
-	// Reset the first-delegation timestamp whenever the transaction is delegated to a different
-	// coordinator: the dropped-transaction grace must restart so the new coordinator has a chance to
-	// report the transaction in a snapshot before it can be considered dropped. Re-delegations to the
-	// same coordinator (e.g. the partial FIFO resend) leave it untouched so the grace reflects how long
-	// the transaction has genuinely been in flight there.
-	if t.firstDelegatedTime == nil || e.Coordinator != t.currentDelegate {
-		t.firstDelegatedTime = ptrTo(t.clock.Now())
 	}
 	t.currentDelegate = e.Coordinator
 	t.updateLastDelegatedTime()
@@ -44,7 +39,7 @@ func action_Delegated(ctx context.Context, t *originatorTransaction, event commo
 }
 
 // action_ResetDelegationState clears all assembly and dispatch state accumulated for the previous
-// coordinator. Called alongside action_Delegated when a transaction is re-delegated to a new coordinator.
+// coordinator. Called alongside action_DelegationSent when a transaction is re-delegated to a new coordinator.
 func action_ResetDelegationState(_ context.Context, t *originatorTransaction, _ common.Event) error {
 	t.latestAssembleRequest = nil
 	t.latestFulfilledAssembleRequestID = uuid.Nil
@@ -66,7 +61,7 @@ func validator_CoordinatorIsCurrentDelegate(ctx context.Context, t *originatorTr
 }
 
 func (t *originatorTransaction) updateLastDelegatedTime() {
-	t.lastDelegatedTime = ptrTo(common.RealClock().Now())
+	t.lastDelegatedTime = ptrTo(t.clock.Now())
 }
 
 func action_SendPreDispatchResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {

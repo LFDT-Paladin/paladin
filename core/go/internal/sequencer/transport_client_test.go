@@ -885,28 +885,6 @@ func TestHandlePreDispatchResponse_Success(t *testing.T) {
 	mocks.coordinator.AssertExpectations(t)
 }
 
-func TestHandleDelegationResponse_Success(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-
-	txID := uuid.New()
-	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
-		TransactionIds: []string{txID.String()},
-	}
-	payload, _ := proto.Marshal(delegationRequestAcknowledgment)
-
-	message := &components.ReceivedMessage{
-		FromNode:    "test-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationResponse,
-		Payload:     payload,
-	}
-
-	// Should not panic - this handler just logs
-	sm.handleDelegationResponse(ctx, message)
-}
-
 func TestHandleDelegationResponse_UnmarshalError(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -920,109 +898,6 @@ func TestHandleDelegationResponse_UnmarshalError(t *testing.T) {
 	}
 
 	// Should not panic
-	sm.handleDelegationResponse(ctx, message)
-}
-
-func TestHandleDelegationResponse_MaxInFlightRejection(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-
-	txID1 := uuid.New().String()
-	txID2 := uuid.New().String()
-	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
-		TransactionIds: []string{txID1, txID2},
-		Errors: []int64{
-			int64(coordinator.DelegationAcknowledgementError_MaxInflightTransactions),
-			int64(coordinator.DelegationAcknowledgementError_MaxInflightTransactions),
-		},
-	}
-	payload, err := proto.Marshal(delegationRequestAcknowledgment)
-	require.NoError(t, err)
-
-	message := &components.ReceivedMessage{
-		FromNode:    "test-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationResponse,
-		Payload:     payload,
-	}
-
-	// Should not panic; handler logs max in flight rejections
-	sm.handleDelegationResponse(ctx, message)
-}
-
-func TestHandleDelegationResponse_UnknownError(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-
-	txID := uuid.New().String()
-	unknownErrorCode := int64(99)
-	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
-		TransactionIds: []string{txID},
-		Errors:         []int64{unknownErrorCode},
-	}
-	payload, err := proto.Marshal(delegationRequestAcknowledgment)
-	require.NoError(t, err)
-
-	message := &components.ReceivedMessage{
-		FromNode:    "test-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationResponse,
-		Payload:     payload,
-	}
-
-	sm.handleDelegationResponse(ctx, message)
-}
-
-func TestHandleDelegationResponse_MixedErrors(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-
-	txIDAccepted := uuid.New().String()
-	txIDMaxInFlight := uuid.New().String()
-	txIDUnknown := uuid.New().String()
-	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
-		TransactionIds: []string{txIDAccepted, txIDMaxInFlight, txIDUnknown},
-		Errors: []int64{
-			int64(coordinator.DelegationAcknowledgementError_None),
-			int64(coordinator.DelegationAcknowledgementError_MaxInflightTransactions),
-			42, // unknown error code
-		},
-	}
-	payload, err := proto.Marshal(delegationRequestAcknowledgment)
-	require.NoError(t, err)
-
-	message := &components.ReceivedMessage{
-		FromNode:    "test-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationResponse,
-		Payload:     payload,
-	}
-
-	sm.handleDelegationResponse(ctx, message)
-}
-
-func TestHandleDelegationResponse_Empty(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-
-	delegationRequestAcknowledgment := &engineProto.DelegationResponse{
-		TransactionIds: []string{},
-		Errors:         []int64{},
-	}
-	payload, err := proto.Marshal(delegationRequestAcknowledgment)
-	require.NoError(t, err)
-
-	message := &components.ReceivedMessage{
-		FromNode:    "test-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_DelegationResponse,
-		Payload:     payload,
-	}
-
 	sm.handleDelegationResponse(ctx, message)
 }
 
@@ -1782,6 +1657,46 @@ func TestHandleDelegationRejection_Success(t *testing.T) {
 	<-done
 }
 
+func TestHandleDelegationResponse_Success(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	transactionIDs := []string{uuid.New().String(), uuid.New().String()}
+	response := &engineProto.DelegationResponse{
+		ContractAddress: contractAddr.String(),
+		DelegationId:    "delegation-1",
+		TransactionIds:  transactionIDs,
+		Results:         []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED, engineProto.DelegationAcknowledgementResult_MAX_INFLIGHT_TRANSACTIONS},
+	}
+	payload, err := proto.Marshal(response)
+	require.NoError(t, err)
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+	done := make(chan struct{})
+	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		acknowledgedEvent, ok := e.(*originator.DelegationRequestAcknowledgedEvent)
+		if !ok {
+			return false
+		}
+		ok = acknowledgedEvent.FromNode == "coordinator-node" &&
+			acknowledgedEvent.DelegationID == "delegation-1" &&
+			assert.ObjectsAreEqual(transactionIDs, acknowledgedEvent.TransactionIDs) &&
+			assert.ObjectsAreEqual([]engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED, engineProto.DelegationAcknowledgementResult_MAX_INFLIGHT_TRANSACTIONS}, acknowledgedEvent.Results)
+		if ok {
+			close(done)
+		}
+		return ok
+	})).Once()
+
+	sm.handleDelegationResponse(ctx, &components.ReceivedMessage{
+		FromNode: "coordinator-node", MessageType: transport.MessageType_DelegationResponse, Payload: payload,
+	})
+	<-done
+}
+
 func TestHandleHandoverRequest_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -1921,28 +1836,6 @@ func TestHandleCoordinatorHeartbeatNotification_UnparseableSnapshot(t *testing.T
 	payload, _ := proto.Marshal(heartbeatNotification)
 	sm.handleCoordinatorHeartbeatNotification(ctx, &components.ReceivedMessage{
 		FromNode: "coordinator-node", MessageType: transport.MessageType_CoordinatorHeartbeatNotification, Payload: payload,
-	})
-}
-
-func TestHandleDelegationResponse_CoordinatorErrors(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-
-	delegationResponse := &engineProto.DelegationResponse{
-		ContractAddress: contractAddr.String(),
-		TransactionIds:  []string{uuid.New().String(), uuid.New().String()},
-		Errors: []int64{
-			int64(coordinator.DelegationAcknowledgementError_CoordinatorError),
-			int64(coordinator.DelegationAcknowledgementError_PreviousTransactionError),
-		},
-	}
-	payload, err := proto.Marshal(delegationResponse)
-	require.NoError(t, err)
-
-	sm.handleDelegationResponse(ctx, &components.ReceivedMessage{
-		FromNode: "test-node", MessageType: transport.MessageType_DelegationResponse, Payload: payload,
 	})
 }
 
@@ -2441,7 +2334,8 @@ func TestHandleDelegationRequest_NilTransactionSpecification(t *testing.T) {
 	})
 }
 
-func TestHandleDelegationResponse_MaxInFlightWithContractAddress(t *testing.T) {
+// A delegation response for a contract whose sequencer is not loaded is dropped.
+func TestHandleDelegationResponse_SequencerNotLoaded(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
@@ -2449,20 +2343,7 @@ func TestHandleDelegationResponse_MaxInFlightWithContractAddress(t *testing.T) {
 	payload, _ := proto.Marshal(&engineProto.DelegationResponse{
 		ContractAddress: contractAddr.String(),
 		TransactionIds:  []string{uuid.New().String()},
-		Errors:          []int64{int64(coordinator.DelegationAcknowledgementError_MaxInflightTransactions)},
-	})
-	sm.handleDelegationResponse(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_DelegationResponse, Payload: payload})
-}
-
-func TestHandleDelegationResponse_CoordinatorErrorWithContractAddress(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-	payload, _ := proto.Marshal(&engineProto.DelegationResponse{
-		ContractAddress: contractAddr.String(),
-		TransactionIds:  []string{uuid.New().String()},
-		Errors:          []int64{int64(coordinator.DelegationAcknowledgementError_CoordinatorError)},
+		Results:         []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_MAX_INFLIGHT_TRANSACTIONS},
 	})
 	sm.handleDelegationResponse(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_DelegationResponse, Payload: payload})
 }

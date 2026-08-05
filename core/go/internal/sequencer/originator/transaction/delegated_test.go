@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_action_Delegated_EmptyCoordinator_ReturnsError(t *testing.T) {
+func Test_action_DelegationSent_EmptyCoordinator_ReturnsError(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Pending)
 	txn, _ := builder.BuildWithMocks()
@@ -37,12 +37,12 @@ func Test_action_Delegated_EmptyCoordinator_ReturnsError(t *testing.T) {
 		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
 		Coordinator: "",
 	}
-	err := action_Delegated(ctx, txn, event)
+	err := action_DelegationSent(ctx, txn, event)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "transaction delegate cannot be set to an empty node identity")
 }
 
-func Test_action_Delegated_SetsDelegateAndUpdatesTime(t *testing.T) {
+func Test_action_DelegationSent_SetsDelegateAndUpdatesTime(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Pending)
 	txn, _ := builder.BuildWithMocks()
@@ -51,39 +51,40 @@ func Test_action_Delegated_SetsDelegateAndUpdatesTime(t *testing.T) {
 		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
 		Coordinator: coordinator,
 	}
-	err := action_Delegated(ctx, txn, event)
+	err := action_DelegationSent(ctx, txn, event)
 	require.NoError(t, err)
 	assert.Equal(t, coordinator, txn.currentDelegate)
 	assert.NotNil(t, txn.lastDelegatedTime)
 }
 
-func Test_action_Delegated_FirstDelegatedTime_ResetOnlyOnCoordinatorChange(t *testing.T) {
+func Test_action_DelegationSent_LastDelegatedTime_AdvancesOnEveryDelegation(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Pending)
 	txn, _ := builder.BuildWithMocks()
 
-	// First delegation records the first-delegation timestamp for the coordinator.
-	require.NoError(t, action_Delegated(ctx, txn, &DelegatedEvent{
+	// Each delegation records the time it was sent; the dropped-transaction grace runs from here.
+	require.NoError(t, action_DelegationSent(ctx, txn, &DelegatedEvent{
 		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
 		Coordinator: "coord@node1",
 	}))
-	require.NotNil(t, txn.firstDelegatedTime)
-	first := txn.firstDelegatedTime
+	require.NotNil(t, txn.lastDelegatedTime)
+	first := txn.lastDelegatedTime
 
-	// Re-delegation to the same coordinator (the partial FIFO resend) must not move it, so the
-	// dropped-transaction grace reflects how long the transaction has genuinely been in flight there.
-	require.NoError(t, action_Delegated(ctx, txn, &DelegatedEvent{
+	// A re-delegation to the same coordinator restarts the grace.
+	require.NoError(t, action_DelegationSent(ctx, txn, &DelegatedEvent{
 		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
 		Coordinator: "coord@node1",
 	}))
-	assert.Same(t, first, txn.firstDelegatedTime, "re-delegation to the same coordinator must not reset the first-delegation time")
+	assert.NotSame(t, first, txn.lastDelegatedTime, "re-delegation must record a new last-delegated time")
 
-	// Delegation to a different coordinator restarts the grace against the new coordinator's snapshots.
-	require.NoError(t, action_Delegated(ctx, txn, &DelegatedEvent{
+	// So does a delegation to a different coordinator, which also records the new delegate.
+	second := txn.lastDelegatedTime
+	require.NoError(t, action_DelegationSent(ctx, txn, &DelegatedEvent{
 		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
 		Coordinator: "coord@node2",
 	}))
-	assert.NotSame(t, first, txn.firstDelegatedTime, "delegation to a new coordinator must reset the first-delegation time")
+	assert.NotSame(t, second, txn.lastDelegatedTime, "delegation to a new coordinator must record a new last-delegated time")
+	assert.Equal(t, "coord@node2", txn.currentDelegate)
 }
 
 func TestAction_SendPreDispatchResponse_Success(t *testing.T) {
@@ -409,7 +410,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_HashError(t *tes
 
 func Test_action_ResetDelegationState_ClearsAssemblyAndDispatchState(t *testing.T) {
 	ctx := context.Background()
-	// Start in State_Assembling — state machine has a top-level validator for Event_Delegated in
+	// Start in State_Assembling — state machine has a top-level validator for Event_DelegationSent in
 	// this state that checks ValidatorNot(validator_CoordinatorIsCurrentDelegate), so a re-delegation
 	// from a DIFFERENT coordinator triggers action_ResetDelegationState.
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
@@ -433,8 +434,8 @@ func Test_action_ResetDelegationState_ClearsAssemblyAndDispatchState(t *testing.
 	})
 	require.NoError(t, err)
 
-	// State should transition back to Delegated.
-	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+	// State should drop back to Pending to await the new coordinator's acknowledgement.
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
 
 	// action_ResetDelegationState should have cleared all assembly/dispatch state.
 	assert.Nil(t, txn.latestAssembleRequest)
@@ -443,7 +444,7 @@ func Test_action_ResetDelegationState_ClearsAssemblyAndDispatchState(t *testing.
 	assert.Nil(t, txn.signerAddress)
 	assert.Nil(t, txn.latestSubmissionHash)
 	assert.Nil(t, txn.nonce)
-	// currentDelegate should now be the new coordinator (set by action_Delegated).
+	// currentDelegate should now be the new coordinator (set by action_DelegationSent).
 	assert.Equal(t, newCoordinator, txn.currentDelegate)
 }
 

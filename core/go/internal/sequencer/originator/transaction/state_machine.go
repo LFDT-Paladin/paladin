@@ -51,7 +51,7 @@ const (
 	Event_Created                    EventType = iota // Transaction initially received by the originator or has been loaded from the database after a restart / swap-in
 	Event_ConfirmedSuccess                            // confirmation received from the blockchain of base ledge transaction successful completion
 	Event_ConfirmedReverted                           // confirmation received from the blockchain of base ledge transaction failure
-	Event_Delegated                                   // transaction has been delegated to a coordinator
+	Event_DelegationSent                              // a delegation request has been sent to a coordinator
 	Event_AssembleRequestReceived                     // coordinator has requested that we assemble the transaction
 	Event_AssembleSuccess                             // we have successfully assembled the transaction (signing, if required, happens separately in State_Signing)
 	Event_SignSuccess                                 // the background sign goroutine has signed all local SIGN attestations of the assembled plan
@@ -68,6 +68,7 @@ const (
 	Event_VerifiersResolved                           // background resolution of the required verifiers completed successfully
 	Event_VerifierResolutionFailed                    // background resolution of the required verifiers failed; a retry will be scheduled
 	Event_VerifierResolutionRetry                     // scheduled retry timer fired; re-attempt verifier resolution
+	Event_DelegationAcknowledged                      // the coordinator has acknowledged receipt of this transaction's delegation
 )
 
 // Type aliases for the generic statemachine types, specialized for Transaction
@@ -83,6 +84,44 @@ type (
 	StateDefinitions = statemachine.StateDefinitions[State, *originatorTransaction]
 	StateMachine     = statemachine.StateMachine[State, *originatorTransaction]
 )
+
+// State_Pending and State_Delegated share the handlers for coordinator-driven progress events
+// (assemble request, dispatch notification). A valid event from the current delegate is proof that
+// the coordinator holds the transaction, so a transaction still Pending (its delegation
+// acknowledgement has not yet been processed) proceeds exactly as if the acknowledgement had
+// arrived first.
+var preAssemblyAssembleRequestReceivedHandlers = EventHandlers{
+	Match: statemachine.MatchAll,
+	Handlers: []EventHandler{{
+		// Always runs first: refresh the cached block height before any validator reads it.
+		Actions: []ActionRule{{Action: action_RefreshBlockHeight}},
+	}, {
+		// Assemble request is not from the current delegate; reject without entering the assembly flow.
+		Validator: statemachine.ValidatorNot(validator_AssembleRequestFromCurrentDelegate),
+		Actions:   []ActionRule{{Action: action_SendAssembleRejectionNotCurrentDelegate}},
+	}, {
+		// Block height tolerance exceeded: reject without entering the assembly flow.
+		Validator: validator_AssembleBlockHeightToleranceExceeded,
+		Actions:   []ActionRule{{Action: action_SendAssembleBlockHeightRejection}},
+	}, {
+		// Private state incomplete: reject so the coordinator retries once states have arrived.
+		Validator: validator_IsPrivateStateDataPendingForAssembly,
+		Actions:   []ActionRule{{Action: action_RejectAssemblyPrivateStateDataPending}},
+	}, {
+		// All checks pass: assemble and transition.
+		Validator: statemachine.ValidatorAnd(
+			validator_AssembleRequestFromCurrentDelegate,
+			statemachine.ValidatorNot(validator_AssembleBlockHeightToleranceExceeded),
+			statemachine.ValidatorNot(validator_IsPrivateStateDataPendingForAssembly),
+		),
+		Actions: []ActionRule{{Action: action_AssembleRequestReceived}},
+		Transitions: []Transition{
+			{
+				To: State_Assembling,
+			},
+		},
+	}},
+}
 
 var stateDefinitionsMap = StateDefinitions{
 	State_Initial: {
@@ -168,13 +207,36 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{{To: State_Confirmed}},
 				}},
 			},
-			Event_Delegated: {
+			Event_DelegationSent: {
+				// Sending a delegation request records the delegate and the delegation time, but the
+				// transaction stays Pending until the coordinator's acknowledgement arrives.
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
-					Actions: []ActionRule{{Action: action_Delegated}},
+					Actions: []ActionRule{{Action: action_DelegationSent}},
+				}},
+			},
+			Event_DelegationAcknowledged: {
+				// The current delegate has acknowledged receipt of the delegation: the transaction is
+				// now known to be held by the coordinator.
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_CoordinatorIsCurrentDelegate,
 					Transitions: []Transition{
 						{
 							To: State_Delegated,
+						},
+					},
+				}},
+			},
+			Event_AssembleRequestReceived: preAssemblyAssembleRequestReceivedHandlers,
+			Event_Dispatched: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_CoordinatorIsCurrentDelegate,
+					Actions:   []ActionRule{{Action: action_Dispatched}},
+					Transitions: []Transition{
+						{
+							To: State_Dispatched,
 						},
 					},
 				}},
@@ -198,47 +260,27 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{{To: State_Confirmed}},
 				}},
 			},
-			Event_Delegated: {
-				Match: statemachine.MatchAll,
+			Event_DelegationSent: {
+				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					// Re-delegated to a different coordinator: the previous coordinator's acknowledgement no
+					// longer holds, so discard its accumulated state, record the new delegate, and drop back to
+					// Pending to await the new coordinator's delegation acknowledgement.
 					Validator: statemachine.ValidatorNot(validator_CoordinatorIsCurrentDelegate),
-					Actions:   []ActionRule{{Action: action_ResetDelegationState}},
-				}, {
-					Actions: []ActionRule{{Action: action_Delegated}},
-				}},
-			},
-			Event_AssembleRequestReceived: {
-				Match: statemachine.MatchAll,
-				Handlers: []EventHandler{{
-					// Always runs first: refresh the cached block height before any validator reads it.
-					Actions: []ActionRule{{Action: action_RefreshBlockHeight}},
-				}, {
-					// Assemble request is not from the current delegate; reject without entering the assembly flow.
-					Validator: statemachine.ValidatorNot(validator_AssembleRequestFromCurrentDelegate),
-					Actions:   []ActionRule{{Action: action_SendAssembleRejectionNotCurrentDelegate}},
-				}, {
-					// Block height tolerance exceeded: reject without entering the assembly flow.
-					Validator: validator_AssembleBlockHeightToleranceExceeded,
-					Actions:   []ActionRule{{Action: action_SendAssembleBlockHeightRejection}},
-				}, {
-					// Private state incomplete: reject so the coordinator retries once states have arrived.
-					Validator: validator_IsPrivateStateDataPendingForAssembly,
-					Actions:   []ActionRule{{Action: action_RejectAssemblyPrivateStateDataPending}},
-				}, {
-					// All checks pass: assemble and transition.
-					Validator: statemachine.ValidatorAnd(
-						validator_AssembleRequestFromCurrentDelegate,
-						statemachine.ValidatorNot(validator_AssembleBlockHeightToleranceExceeded),
-						statemachine.ValidatorNot(validator_IsPrivateStateDataPendingForAssembly),
-					),
-					Actions: []ActionRule{{Action: action_AssembleRequestReceived}},
-					Transitions: []Transition{
-						{
-							To: State_Assembling,
-						},
+					Actions: []ActionRule{
+						{Action: action_DelegationSent},
+						{Action: action_ResetDelegationState},
 					},
+					Transitions: []Transition{{
+						To: State_Pending,
+					}},
+				}, {
+					// Re-sent to the same coordinator that already acknowledged us: just refresh the delegation
+					// time (restarting the dropped-transaction grace) and stay Delegated.
+					Actions: []ActionRule{{Action: action_DelegationSent}},
 				}},
 			},
+			Event_AssembleRequestReceived: preAssemblyAssembleRequestReceivedHandlers,
 			Event_Dispatched: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
@@ -272,16 +314,19 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{{To: State_Confirmed}},
 				}},
 			},
-			Event_Delegated: {
+			Event_DelegationSent: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					// Re-delegated to a different coordinator: the acknowledgement we were holding no longer
+					// applies, so discard the state accumulated for the old coordinator, record the new delegate,
+					// and drop back to Pending to await the new coordinator's delegation acknowledgement.
 					Validator: statemachine.ValidatorNot(validator_CoordinatorIsCurrentDelegate),
 					Actions: []ActionRule{
-						{Action: action_Delegated},
+						{Action: action_DelegationSent},
 						{Action: action_ResetDelegationState},
 					},
 					Transitions: []Transition{{
-						To: State_Delegated,
+						To: State_Pending,
 					}},
 				}},
 			},
@@ -415,16 +460,19 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{{To: State_Confirmed}},
 				}},
 			},
-			Event_Delegated: {
+			Event_DelegationSent: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					// Re-delegated to a different coordinator: the acknowledgement we were holding no longer
+					// applies, so discard the state accumulated for the old coordinator, record the new delegate,
+					// and drop back to Pending to await the new coordinator's delegation acknowledgement.
 					Validator: statemachine.ValidatorNot(validator_CoordinatorIsCurrentDelegate),
 					Actions: []ActionRule{
-						{Action: action_Delegated},
+						{Action: action_DelegationSent},
 						{Action: action_ResetDelegationState},
 					},
 					Transitions: []Transition{{
-						To: State_Delegated,
+						To: State_Pending,
 					}},
 				}},
 			},
@@ -513,16 +561,19 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{{To: State_Confirmed}},
 				}},
 			},
-			Event_Delegated: {
+			Event_DelegationSent: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					// Re-delegated to a different coordinator: the acknowledgement we were holding no longer
+					// applies, so discard the state accumulated for the old coordinator, record the new delegate,
+					// and drop back to Pending to await the new coordinator's delegation acknowledgement.
 					Validator: statemachine.ValidatorNot(validator_CoordinatorIsCurrentDelegate),
 					Actions: []ActionRule{
-						{Action: action_Delegated},
+						{Action: action_DelegationSent},
 						{Action: action_ResetDelegationState},
 					},
 					Transitions: []Transition{{
-						To: State_Delegated,
+						To: State_Pending,
 					}},
 				}},
 			},
@@ -598,16 +649,19 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{{To: State_Confirmed}},
 				}},
 			},
-			Event_Delegated: {
+			Event_DelegationSent: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					// Re-delegated to a different coordinator: the acknowledgement we were holding no longer
+					// applies, so discard the state accumulated for the old coordinator, record the new delegate,
+					// and drop back to Pending to await the new coordinator's delegation acknowledgement.
 					Validator: statemachine.ValidatorNot(validator_CoordinatorIsCurrentDelegate),
 					Actions: []ActionRule{
-						{Action: action_Delegated},
+						{Action: action_DelegationSent},
 						{Action: action_ResetDelegationState},
 					},
 					Transitions: []Transition{{
-						To: State_Delegated,
+						To: State_Pending,
 					}},
 				}},
 			},
@@ -710,16 +764,19 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{{To: State_Confirmed}},
 				}},
 			},
-			Event_Delegated: {
+			Event_DelegationSent: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					// Re-delegated to a different coordinator: the acknowledgement we were holding no longer
+					// applies, so discard the state accumulated for the old coordinator, record the new delegate,
+					// and drop back to Pending to await the new coordinator's delegation acknowledgement.
 					Validator: statemachine.ValidatorNot(validator_CoordinatorIsCurrentDelegate),
 					Actions: []ActionRule{
-						{Action: action_Delegated},
+						{Action: action_DelegationSent},
 						{Action: action_ResetDelegationState},
 					},
 					Transitions: []Transition{{
-						To: State_Delegated,
+						To: State_Pending,
 					}},
 				}},
 			},
@@ -801,16 +858,19 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{{To: State_Confirmed}},
 				}},
 			},
-			Event_Delegated: {
+			Event_DelegationSent: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					// Re-delegated to a different coordinator: the acknowledgement we were holding no longer
+					// applies, so discard the state accumulated for the old coordinator, record the new delegate,
+					// and drop back to Pending to await the new coordinator's delegation acknowledgement.
 					Validator: statemachine.ValidatorNot(validator_CoordinatorIsCurrentDelegate),
 					Actions: []ActionRule{
-						{Action: action_Delegated},
+						{Action: action_DelegationSent},
 						{Action: action_ResetDelegationState},
 					},
 					Transitions: []Transition{{
-						To: State_Delegated,
+						To: State_Pending,
 					}},
 				}},
 			},
@@ -886,16 +946,19 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{{To: State_Confirmed}},
 				}},
 			},
-			Event_Delegated: {
+			Event_DelegationSent: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					// Re-delegated to a different coordinator: the acknowledgement we were holding no longer
+					// applies, so discard the state accumulated for the old coordinator, record the new delegate,
+					// and drop back to Pending to await the new coordinator's delegation acknowledgement.
 					Validator: statemachine.ValidatorNot(validator_CoordinatorIsCurrentDelegate),
 					Actions: []ActionRule{
-						{Action: action_Delegated},
+						{Action: action_DelegationSent},
 						{Action: action_ResetDelegationState},
 					},
 					Transitions: []Transition{{
-						To: State_Delegated,
+						To: State_Pending,
 					}},
 				}},
 			},
@@ -954,16 +1017,19 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{{To: State_Confirmed}},
 				}},
 			},
-			Event_Delegated: {
+			Event_DelegationSent: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					// Re-delegated to a different coordinator: the acknowledgement we were holding no longer
+					// applies, so discard the state accumulated for the old coordinator, record the new delegate,
+					// and drop back to Pending to await the new coordinator's delegation acknowledgement.
 					Validator: statemachine.ValidatorNot(validator_CoordinatorIsCurrentDelegate),
 					Actions: []ActionRule{
-						{Action: action_Delegated},
+						{Action: action_DelegationSent},
 						{Action: action_ResetDelegationState},
 					},
 					Transitions: []Transition{{
-						To: State_Delegated,
+						To: State_Pending,
 					}},
 				}},
 			},

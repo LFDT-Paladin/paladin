@@ -41,11 +41,12 @@ func (*CoordinatorCreatedEvent) TypeString() string {
 
 type TransactionsDelegatedEvent struct {
 	common.BaseEvent
-	FromNode               string // Node name that sent the delegation request
-	Originator             string // Fully qualified identity locator for the originator
-	Transactions           []*components.PrivateTransaction
-	OriginatorsBlockHeight uint64
-	DelegationID           string
+	FromNode                   string // Node name that sent the delegation request
+	Originator                 string // Fully qualified identity locator for the originator
+	Transactions               []*components.PrivateTransaction
+	OriginatorsBlockHeight     uint64
+	DelegationID               string
+	LastDelegatedTransactionID string // most recent acknowledged transaction from earlier requests; this request's transactions are ordered after it. empty when there is no predecessor
 }
 
 func (*TransactionsDelegatedEvent) Type() EventType {

@@ -33,13 +33,18 @@ func Test_HandleEvent_ProcessesEvent(t *testing.T) {
 	builder := NewTransactionBuilderForTesting(t, State_Pending)
 	txn, mocks := builder.BuildWithMocks()
 	coordinator := "coord@node1"
-	event := &DelegatedEvent{
+	err := txn.HandleEvent(ctx, &DelegatedEvent{
 		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
 		Coordinator: coordinator,
-	}
-	err := txn.HandleEvent(ctx, event)
+	})
 	require.NoError(t, err)
 	assert.Equal(t, coordinator, txn.currentDelegate)
+	// The acknowledgement from the delegate transitions Pending -> Delegated
+	err = txn.HandleEvent(ctx, &DelegationAcknowledgedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
+		Coordinator: coordinator,
+	})
+	require.NoError(t, err)
 	// Transition callback should have been invoked
 	<-mocks.Events
 }
@@ -280,13 +285,13 @@ func TestOriginatorTransaction_Resolving_OnRetry_ReResolves(t *testing.T) {
 	assert.True(t, ok, "the retry must re-run resolution")
 }
 
-// An assemble request must be silently dropped in any state before the transaction has been delegated,
-// so verifiers are guaranteed resolved by the time assembly runs. There is no handler for
-// Event_AssembleRequestReceived in State_Initial, State_Resolving or State_Pending: the event is ignored
-// and the transaction does not change state or invoke assembly.
+// An assemble request must be silently dropped in any state before the transaction is eligible for
+// delegation, so verifiers are guaranteed resolved by the time assembly runs. There is no handler
+// for Event_AssembleRequestReceived in State_Initial or State_Resolving: the event is ignored and
+// the transaction does not change state or invoke assembly.
 func TestOriginatorTransaction_AssembleRequestIgnoredBeforeDelegation(t *testing.T) {
 	ctx := context.Background()
-	for _, state := range []State{State_Initial, State_Resolving, State_Pending} {
+	for _, state := range []State{State_Initial, State_Resolving} {
 		t.Run(state.String(), func(t *testing.T) {
 			builder := NewTransactionBuilderForTesting(t, state)
 			txn, mocks := builder.BuildWithMocks()
@@ -303,7 +308,25 @@ func TestOriginatorTransaction_AssembleRequestIgnoredBeforeDelegation(t *testing
 	}
 }
 
-func TestOriginatorTransaction_Pending_ToDelegated_OnDelegated(t *testing.T) {
+// A Pending transaction that has never been sent to a coordinator has no current delegate, so any
+// assemble request is rejected as not-current-delegate and the transaction stays Pending.
+func TestOriginatorTransaction_Pending_AssembleRequestRejectedBeforeSend(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Pending)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: builder.GetCoordinator(),
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, State_Pending, txn.GetCurrentState(), "assemble request must not change state")
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection())
+	mocks.EngineIntegration.AssertNotCalled(t, "Assemble")
+}
+
+func TestOriginatorTransaction_Pending_StaysPending_OnDelegated(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Pending)
 	txn := builder.Build()
@@ -315,7 +338,161 @@ func TestOriginatorTransaction_Pending_ToDelegated_OnDelegated(t *testing.T) {
 		Coordinator: builder.GetCoordinator(),
 	})
 	assert.NoError(t, err)
+	assert.Equal(t, State_Pending, txn.GetCurrentState(), "sending a delegation request must not change state before the acknowledgement arrives")
+	assert.Equal(t, builder.GetCoordinator(), txn.currentDelegate)
+	assert.NotNil(t, txn.lastDelegatedTime)
+}
+
+func TestOriginatorTransaction_Pending_ToDelegated_OnDelegationAcknowledged(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Pending)
+	txn := builder.Build()
+
+	require.NoError(t, txn.HandleEvent(ctx, &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		Coordinator: builder.GetCoordinator(),
+	}))
+	require.Equal(t, State_Pending, txn.GetCurrentState())
+
+	err := txn.HandleEvent(ctx, &DelegationAcknowledgedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		Coordinator: builder.GetCoordinator(),
+	})
+	assert.NoError(t, err)
 	assert.Equal(t, State_Delegated, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Pending_IgnoresDelegationAcknowledged_FromNonCurrentDelegate(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Pending)
+	txn := builder.Build()
+
+	require.NoError(t, txn.HandleEvent(ctx, &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		Coordinator: builder.GetCoordinator(),
+	}))
+
+	err := txn.HandleEvent(ctx, &DelegationAcknowledgedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		Coordinator: "other-coordinator@node2",
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, State_Pending, txn.GetCurrentState(), "an acknowledgement from a node other than the current delegate must be ignored")
+}
+
+// A late or duplicate acknowledgement must never regress a transaction that has progressed past
+// Pending — including the duplicate acknowledgements a full delegation produces for transactions
+// the coordinator already holds.
+func TestOriginatorTransaction_DelegationAcknowledged_NoOpPastPending(t *testing.T) {
+	ctx := context.Background()
+	states := []State{
+		State_Delegated,
+		State_Assembling,
+		State_Signing,
+		State_Endorsement_Gathering,
+		State_Prepared,
+		State_Dispatched,
+		State_Sequenced,
+		State_Submitted,
+		State_Parked,
+	}
+	for _, state := range states {
+		t.Run(state.String(), func(t *testing.T) {
+			builder := NewTransactionBuilderForTesting(t, state)
+			txn := builder.Build()
+			txn.currentDelegate = builder.GetCoordinator()
+
+			err := txn.HandleEvent(ctx, &DelegationAcknowledgedEvent{
+				BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+				Coordinator: builder.GetCoordinator(),
+			})
+			assert.NoError(t, err)
+			assert.Equal(t, state, txn.GetCurrentState(), "a late acknowledgement must not change state")
+		})
+	}
+}
+
+// A full delegation resend to the same coordinator refreshes the delegation bookkeeping but changes
+// no transaction's state.
+func TestOriginatorTransaction_Delegated_StaysDelegated_OnDelegatedSameCoordinator(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated)
+	txn := builder.Build()
+
+	err := txn.HandleEvent(ctx, &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		Coordinator: builder.GetCoordinator(),
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+	assert.Equal(t, builder.GetCoordinator(), txn.currentDelegate)
+}
+
+func TestOriginatorTransaction_Delegated_ToPending_OnDelegated_IfDifferentCoordinator(t *testing.T) {
+	// Re-delegating an acknowledged transaction to a different coordinator drops it back to Pending:
+	// the new coordinator has not yet acknowledged it, so State_Delegated (which now means
+	// "acknowledged by the current delegate") no longer applies.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated)
+	txn := builder.Build()
+
+	newCoordinator := uuid.New().String()
+	err := txn.HandleEvent(ctx, &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		Coordinator: newCoordinator,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
+	assert.Equal(t, newCoordinator, txn.currentDelegate)
+}
+
+// An assemble request from the current delegate while the transaction is still Pending is proof the
+// coordinator holds the transaction, so it proceeds exactly as it would from State_Delegated.
+func TestOriginatorTransaction_Pending_ToAssembling_OnAssembleRequestFromCurrentDelegate(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Pending)
+	txn, mocks := builder.BuildWithMocks()
+
+	require.NoError(t, txn.HandleEvent(ctx, &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		Coordinator: builder.GetCoordinator(),
+	}))
+	require.Equal(t, State_Pending, txn.GetCurrentState())
+
+	mocks.MockForAssembleRequestOK().Once()
+	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		RequestID:   uuid.New(),
+		Coordinator: builder.GetCoordinator(),
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, State_Assembling, txn.GetCurrentState())
+	// Wait for the state transition event and the background assembly's success event.
+	<-mocks.Events
+	<-mocks.Events
+	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
+}
+
+// A dispatch notification from the current delegate while the transaction is still Pending is proof
+// the coordinator holds the transaction, so it proceeds exactly as it would from State_Delegated.
+func TestOriginatorTransaction_Pending_ToDispatched_OnDispatchedFromCurrentDelegate(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Pending)
+	txn := builder.Build()
+
+	require.NoError(t, txn.HandleEvent(ctx, &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.GetID()},
+		Coordinator: builder.GetCoordinator(),
+	}))
+	require.Equal(t, State_Pending, txn.GetCurrentState())
+
+	err := txn.HandleEvent(ctx, &DispatchedEvent{
+		BaseEvent:     BaseEvent{TransactionID: txn.GetID()},
+		Coordinator:   builder.GetCoordinator(),
+		SignerAddress: *pldtypes.RandAddress(),
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, State_Dispatched, txn.GetCurrentState())
 }
 
 func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_OK(t *testing.T) {
@@ -503,7 +680,7 @@ func Test_Delegated_PrivateStateComplete_ProceedsToAssembly(t *testing.T) {
 	assert.Equal(t, State_Assembling, txn.GetCurrentState())
 }
 
-func TestOriginatorTransaction_Assembling_ToDelegated_OnDelegated_IfDifferentCoordinator(t *testing.T) {
+func TestOriginatorTransaction_Assembling_ToPending_OnDelegated_IfDifferentCoordinator(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn := builder.Build()
@@ -513,7 +690,7 @@ func TestOriginatorTransaction_Assembling_ToDelegated_OnDelegated_IfDifferentCoo
 		Coordinator: uuid.New().String(), // different from current delegate
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
 }
 
 func TestOriginatorTransaction_Assembling_ToEndorsement_Gathering_OnAssembleSuccess(t *testing.T) {
@@ -788,7 +965,7 @@ func TestOriginatorTransaction_Delegated_ToDispatched_OnDispatched_IfCurrentDele
 	assert.Equal(t, State_Dispatched, txn.GetCurrentState())
 }
 
-func TestOriginatorTransaction_EndorsementGathering_ToDelegated_OnDelegated_IfDifferentCoordinator(t *testing.T) {
+func TestOriginatorTransaction_EndorsementGathering_ToPending_OnDelegated_IfDifferentCoordinator(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
 	txn := builder.Build()
@@ -798,7 +975,7 @@ func TestOriginatorTransaction_EndorsementGathering_ToDelegated_OnDelegated_IfDi
 		Coordinator: uuid.New().String(),
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
 }
 
 func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnAssembleRequest_IfMatchesPreviousRequest(t *testing.T) {
@@ -941,7 +1118,7 @@ func TestOriginatorTransaction_Reverted_StaysInState_OnAssembleRequestReceived_P
 	assert.Equal(t, State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestOriginatorTransaction_Parked_ToDelegated_OnDelegated_IfDifferentCoordinator(t *testing.T) {
+func TestOriginatorTransaction_Parked_ToPending_OnDelegated_IfDifferentCoordinator(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Parked)
 	txn := builder.Build()
@@ -951,7 +1128,7 @@ func TestOriginatorTransaction_Parked_ToDelegated_OnDelegated_IfDifferentCoordin
 		Coordinator: uuid.New().String(),
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
 }
 
 func TestOriginatorTransaction_Parked_DoResendAssembleResponse_OnAssembleRequest_IfMatchesPreviousRequest(t *testing.T) {
@@ -1193,7 +1370,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnDispatchConf
 	assert.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestOriginatorTransaction_Prepared_ToDelegated_OnDelegated_IfDifferentCoordinator(t *testing.T) {
+func TestOriginatorTransaction_Prepared_ToPending_OnDelegated_IfDifferentCoordinator(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Prepared)
 	txn := builder.Build()
@@ -1203,7 +1380,7 @@ func TestOriginatorTransaction_Prepared_ToDelegated_OnDelegated_IfDifferentCoord
 		Coordinator: uuid.New().String(),
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
 }
 
 func TestOriginatorTransaction_Prepared_NoTransition_OnAssembleRequest_IfMatchesPreviousRequest(t *testing.T) {
@@ -1529,7 +1706,7 @@ func TestOriginatorTransaction_Dispatched_ToDelegated_OnConfirmedReverted(t *tes
 	assert.Equal(t, State_Delegated, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestOriginatorTransaction_Dispatched_ToDelegated_OnDelegated_IfDifferentCoordinator(t *testing.T) {
+func TestOriginatorTransaction_Dispatched_ToPending_OnDelegated_IfDifferentCoordinator(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Dispatched)
 	txn := builder.Build()
@@ -1539,7 +1716,7 @@ func TestOriginatorTransaction_Dispatched_ToDelegated_OnDelegated_IfDifferentCoo
 		Coordinator: uuid.New().String(),
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
 }
 
 func TestOriginatorTransaction_Sequenced_ToConfirmed_OnConfirmedSuccess(t *testing.T) {
@@ -1669,7 +1846,7 @@ func TestOriginatorTransaction_Sequenced_ToDelegated_OnConfirmedReverted(t *test
 	assert.Equal(t, State_Delegated, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestOriginatorTransaction_Sequenced_ToDelegated_OnDelegated_IfDifferentCoordinator(t *testing.T) {
+func TestOriginatorTransaction_Sequenced_ToPending_OnDelegated_IfDifferentCoordinator(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Sequenced)
 	txn := builder.Build()
@@ -1679,7 +1856,7 @@ func TestOriginatorTransaction_Sequenced_ToDelegated_OnDelegated_IfDifferentCoor
 		Coordinator: uuid.New().String(),
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
 }
 
 func TestOriginatorTransaction_Submitted_StaysSubmitted_OnSubmitted_IfCurrentDelegate(t *testing.T) {
@@ -1728,7 +1905,7 @@ func TestOriginatorTransaction_Submitted_ToDelegated_OnConfirmedReverted(t *test
 	assert.Equal(t, State_Delegated, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestOriginatorTransaction_Submitted_ToDelegated_OnDelegated_IfDifferentCoordinator(t *testing.T) {
+func TestOriginatorTransaction_Submitted_ToPending_OnDelegated_IfDifferentCoordinator(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Submitted)
 	txn := builder.Build()
@@ -1738,7 +1915,7 @@ func TestOriginatorTransaction_Submitted_ToDelegated_OnDelegated_IfDifferentCoor
 		Coordinator: uuid.New().String(),
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, State_Delegated, txn.GetCurrentState())
+	assert.Equal(t, State_Pending, txn.GetCurrentState())
 }
 
 func TestOriginatorTransaction_Submitted_ToAssembling_OnAssembleRequest(t *testing.T) {

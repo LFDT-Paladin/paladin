@@ -60,6 +60,7 @@ type SentMessageRecorder struct {
 	preDispatchRejectionReason     engineProto.RejectionReason
 	hasSentDelegationRequest       bool
 	delegatedTransactionIDs        []uuid.UUID
+	sentDelegationRequests         []*engineProto.DelegationRequest
 	sentSignResponses              []*engineProto.SignResponse
 	hasSentSignError               bool
 }
@@ -100,6 +101,7 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.hasSentSignError = false
 	r.hasSentDelegationRequest = false
 	r.delegatedTransactionIDs = nil
+	r.sentDelegationRequests = nil
 	// per-tx maps are NOT reset — they accumulate across the full test
 }
 
@@ -379,6 +381,7 @@ func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, node st
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	r.hasSentDelegationRequest = true
+	r.sentDelegationRequests = append(r.sentDelegationRequests, msg)
 	for _, del := range msg.Transactions {
 		id, err := uuid.Parse(del.GetId())
 		if err != nil {
@@ -387,6 +390,13 @@ func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, node st
 		r.delegatedTransactionIDs = append(r.delegatedTransactionIDs, id)
 	}
 	return nil
+}
+
+// SentDelegationRequests returns every delegation request sent so far, in send order.
+func (r *SentMessageRecorder) SentDelegationRequests() []*engineProto.DelegationRequest {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return append([]*engineProto.DelegationRequest{}, r.sentDelegationRequests...)
 }
 
 func (r *SentMessageRecorder) HasSentDelegationRequest() bool {

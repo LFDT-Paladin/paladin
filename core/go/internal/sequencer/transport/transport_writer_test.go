@@ -266,13 +266,13 @@ func testDelegationRequestMsg(coordinatorNode string, contractAddress *pldtypes.
 	}, nil
 }
 
-func testDelegationResponseMsg(delegatingNodeName, delegationId string, transactionIDs []string, contractAddress *pldtypes.EthAddress, errors []int64) *engineProto.DelegationResponse {
+func testDelegationResponseMsg(delegatingNodeName, delegationId string, transactionIDs []string, contractAddress *pldtypes.EthAddress, results []engineProto.DelegationAcknowledgementResult) *engineProto.DelegationResponse {
 	return &engineProto.DelegationResponse{
 		DelegationId:    delegationId,
 		TransactionIds:  transactionIDs,
 		DelegateNodeId:  delegatingNodeName,
 		ContractAddress: contractAddress.String(),
-		Errors:          errors,
+		Results:         results,
 	}
 }
 
@@ -873,7 +873,7 @@ func TestSendDelegationResponse_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationResponse(ctx, delegatingNodeName, testDelegationResponseMsg(delegatingNodeName, delegationId, transactionIDs, contractAddress, []int64{0}))
+	err := tw.SendDelegationResponse(ctx, delegatingNodeName, testDelegationResponseMsg(delegatingNodeName, delegationId, transactionIDs, contractAddress, []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED}))
 	require.NoError(t, err)
 }
 
@@ -897,7 +897,7 @@ func TestSendDelegationResponse_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendDelegationResponse(ctx, delegatingNodeName, testDelegationResponseMsg(delegatingNodeName, delegationId, []string{transactionID}, contractAddress, []int64{0}))
+	err := tw.SendDelegationResponse(ctx, delegatingNodeName, testDelegationResponseMsg(delegatingNodeName, delegationId, []string{transactionID}, contractAddress, []engineProto.DelegationAcknowledgementResult{engineProto.DelegationAcknowledgementResult_DELEGATION_ACCEPTED}))
 	require.NoError(t, err)
 }
 

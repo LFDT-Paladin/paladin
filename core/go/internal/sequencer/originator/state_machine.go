@@ -38,10 +38,11 @@ const (
 )
 
 const (
-	Event_OriginatorCreated         EventType = iota + 300 // fired once by Start to drive the initial coordinator selection
-	Event_TransactionCreated                               // a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?
-	Event_DelegationRequestRejected                        // pushed by transport_client when a DelegationResponse arrives with Accepted == false
+	Event_OriginatorCreated             EventType = iota + 300 // fired once by Start to drive the initial coordinator selection
+	Event_TransactionCreated                                   // a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?
+	Event_DelegationRequestRejected                            // pushed by transport_client when a DelegationRejection message arrives
 	Event_DelegateSendBatch                                    // fired by the delegation batching goroutine when the batch timer coalesces one or more delegation requests
+	Event_DelegationRequestAcknowledged                        // pushed by transport_client when a DelegationResponse arrives from a coordinator
 )
 
 // Type aliases for the generic statemachine types, specialized for originator
@@ -277,6 +278,15 @@ var stateDefinitionsMap = StateDefinitions{
 							Action: action_FailoverToNextCoordinator,
 						},
 					},
+				}},
+			},
+			Event_DelegationRequestAcknowledged: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					// An acknowledgement is only meaningful from the current active coordinator; one from
+					// any other node (e.g. a coordinator we have since failed away from) is dropped.
+					Validator: validator_IsDelegationAckFromCurrentCoordinator,
+					Actions:   []ActionRule{{Action: action_HandleDelegationAcknowledged}},
 				}},
 			},
 			Event_DelegationRequestRejected: {

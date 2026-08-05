@@ -45,7 +45,7 @@ type OriginatorTransaction interface {
 	GetCurrentState() State
 	GetPrivateTransaction() *components.PrivateTransaction
 	GetStatus(ctx context.Context) components.PrivateTxStatus
-	GetFirstDelegatedTime() *time.Time
+	GetLastDelegatedTime() *time.Time
 }
 
 // OriginatorTransaction tracks the state of a transaction that is being sent by the local node in originator state.
@@ -62,7 +62,6 @@ type originatorTransaction struct {
 	queueEventForOriginator          func(context.Context, common.Event)
 	currentDelegate                  string
 	lastDelegatedTime                *time.Time
-	firstDelegatedTime               *time.Time // set on first delegation to the current coordinator; reset when the coordinator changes
 	latestAssembleRequest            *assembleRequestFromCoordinator
 	latestFulfilledAssembleRequestID uuid.UUID
 	latestPreDispatchRequestID       uuid.UUID
@@ -263,10 +262,4 @@ func (t *originatorTransaction) GetLastDelegatedTime() *time.Time {
 	t.RLock()
 	defer t.RUnlock()
 	return t.lastDelegatedTime
-}
-
-func (t *originatorTransaction) GetFirstDelegatedTime() *time.Time {
-	t.RLock()
-	defer t.RUnlock()
-	return t.firstDelegatedTime
 }

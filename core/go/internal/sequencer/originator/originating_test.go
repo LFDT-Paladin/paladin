@@ -144,7 +144,7 @@ func Test_hasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *testing.T)
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
-	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
+	mockTxn.On("GetLastDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		Transactions(mockTxn).
 		Build()
@@ -163,7 +163,7 @@ func Test_hasDroppedTransactions_FalseWhenDelegatedTxnWithinGracePeriod(t *testi
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID).Maybe()
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
-	mockTxn.On("GetFirstDelegatedTime").Return(ptrTo(time.Now()))
+	mockTxn.On("GetLastDelegatedTime").Return(ptrTo(time.Now()))
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		Transactions(mockTxn).
 		Build()
@@ -178,7 +178,7 @@ func Test_hasDroppedTransactions_FalseWhenDelegatedTxnInSnapshot(t *testing.T) {
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(transaction.State_Delegated)
-	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime())
+	mockTxn.On("GetLastDelegatedTime").Return(staleDelegatedTime())
 	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
 		Transactions(mockTxn).
 		Build()
@@ -271,7 +271,7 @@ func newDelegatableMockTxn(t *testing.T, state transaction.State) (*originatortr
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(state)
-	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime()).Maybe()
+	mockTxn.On("GetLastDelegatedTime").Return(staleDelegatedTime()).Maybe()
 	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	return mockTxn, txID
@@ -293,7 +293,7 @@ func newExcludedMockTxn(t *testing.T, state transaction.State) (*originatortrans
 	mockTxn := originatortransactionmocks.NewOriginatorTransaction(t)
 	mockTxn.On("GetID").Return(txID).Maybe()
 	mockTxn.On("GetCurrentState").Return(state)
-	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime()).Maybe()
+	mockTxn.On("GetLastDelegatedTime").Return(staleDelegatedTime()).Maybe()
 	return mockTxn, txID
 }
 

@@ -121,6 +121,7 @@ func action_FailoverToNextCoordinator(ctx context.Context, o *originator, _ comm
 		o.currentActiveCoordinator = o.coordinatorPriorityList[o.failoverIndex]
 		o.failoverIndex = (o.failoverIndex + 1) % len(o.coordinatorPriorityList)
 		o.heartbeatIntervalsSinceLastReceive = 0
+		o.cancelAllInFlightDelegations()
 		log.L(ctx).Debugf("originator failing over from %s to %s (failoverIndex now %d)",
 			prev, o.currentActiveCoordinator, o.failoverIndex)
 	}

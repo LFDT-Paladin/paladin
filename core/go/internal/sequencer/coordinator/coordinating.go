@@ -33,16 +33,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Enum for delegation acknowledgement errors
-type DelegationAcknowledgementError int64
-
-const (
-	DelegationAcknowledgementError_None DelegationAcknowledgementError = iota
-	DelegationAcknowledgementError_MaxInflightTransactions
-	DelegationAcknowledgementError_CoordinatorError
-	DelegationAcknowledgementError_PreviousTransactionError
-)
-
 // action_SendHandoverRequest sends a CoordinatorHandoverRequest to the current active coordinator,
 // asking it to step down so this node can take over. Creates an IdempotentRequest on first call
 // and arms the request-timeout timer. Mirrors the pattern of sendAssembleRequest.
@@ -151,14 +141,14 @@ func action_ImportStatesAndLocks(ctx context.Context, c *coordinator, event comm
 	return nil
 }
 
-// Originators send only the delegated transactions that they believe the coordinator needs to know/be reminded about. Which transactions are
-// included in this list depends on whether it is an intitial attempt or a scheduled retry, and whether individual delegation timeouts have
-// been exceeded. This means that the coordinator cannot infer any dependency or ordering between transactions based on the list of transactions
-// in the request.
+// Originators send only the delegated transactions that they believe the coordinator needs to know/be reminded about — a full
+// delegation carries every in-flight transaction, a partial one only those awaiting acknowledgement. Transactions within a
+// request are in the originator's creation order, and the request may name the originator's most recent acknowledged
+// transaction so this request can be ordered after it.
 func action_ProcessDelegatedTransactions(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*TransactionsDelegatedEvent)
 	c.recordOriginatorActivity(e.FromNode)
-	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions, e.DelegationID, c.newCoordinatorTransaction)
+	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions, e.DelegationID, e.LastDelegatedTransactionID, c.newCoordinatorTransaction)
 }
 
 // recordOriginatorActivity records that an originator node has sent a delegation request,
@@ -294,6 +284,7 @@ func (c *coordinator) addToDelegatedTransactions(
 	originator string,
 	transactions []*components.PrivateTransaction,
 	delegationID string,
+	lastDelegatedTransactionID string,
 	createTransaction func(
 		ctx context.Context,
 		originator string,
@@ -304,7 +295,7 @@ func (c *coordinator) addToDelegatedTransactions(
 	var previousTransaction transaction.CoordinatorTransaction
 
 	delegateAcknowledgementIDs := make([]string, 0, len(transactions))
-	delegateAcknowledgementErrors := make([]int64, len(transactions))
+	delegateAcknowledgementResults := make([]engineProto.DelegationAcknowledgementResult, len(transactions))
 	rejectedMaxInFlight := 0
 	acceptedTransactions := 0
 	inProgressTransactions := 0
@@ -318,13 +309,34 @@ func (c *coordinator) addToDelegatedTransactions(
 		return err
 	}
 
+	// The request may name the originator's most recent acknowledged transaction so that this
+	// request's transactions can be ordered after it without it being resent. Seed the previous
+	// transaction from it; the pre-assembly state check in the loop below then decides whether a
+	// dependency is still needed. If we do not hold that transaction we cannot guarantee FIFO
+	// ordering for anything in this request, so every transaction is refused and the originator
+	// falls back to a full delegation.
+	if lastDelegatedTransactionID != "" {
+		lastDelegatedID, err := uuid.Parse(lastDelegatedTransactionID)
+		if err == nil && c.transactionsByID[lastDelegatedID] != nil {
+			previousTransaction = c.transactionsByID[lastDelegatedID]
+		} else {
+			log.L(ctx).Warnf("last delegated transaction %s from originator %s is not known to this coordinator; refusing %d transactions",
+				lastDelegatedTransactionID, originatorNode, len(transactions))
+			for i, txn := range transactions {
+				delegateAcknowledgementIDs = append(delegateAcknowledgementIDs, txn.ID.String())
+				delegateAcknowledgementResults[i] = engineProto.DelegationAcknowledgementResult_UNKNOWN_LAST_DELEGATED_TRANSACTION
+			}
+			return c.sendDelegationResponse(ctx, originatorNode, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementResults)
+		}
+	}
+
 	for i, txn := range transactions {
 		// Acknowledge every delegation
 		delegateAcknowledgementIDs = append(delegateAcknowledgementIDs, txn.ID.String())
 
 		if txnHandlingError != nil {
 			// Any previous errors, don't handle this or subsequent TXNs to maintain FIFO ordering
-			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_PreviousTransactionError)
+			delegateAcknowledgementResults[i] = engineProto.DelegationAcknowledgementResult_PREVIOUS_TRANSACTION_ERROR
 			continue
 		}
 
@@ -339,7 +351,7 @@ func (c *coordinator) addToDelegatedTransactions(
 		if len(c.transactionsByID) >= c.maxInflightTransactions {
 			rejectedMaxInFlight++
 			log.L(ctx).Tracef("transaction %s being rejected - reached max in-flight limit", txn.ID.String())
-			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_MaxInflightTransactions)
+			delegateAcknowledgementResults[i] = engineProto.DelegationAcknowledgementResult_MAX_INFLIGHT_TRANSACTIONS
 			// Since all subsequent transactions will be rejected for the same reason, go through them all recording
 			// an error for the delegation acknowledgement response. The originator may choose to do nothing but log
 			// and retry later.
@@ -349,9 +361,9 @@ func (c *coordinator) addToDelegatedTransactions(
 		// We use the order in which transaction are delegated to establish preassembly dependencies, which is what allows us to
 		// ensure FIFO ordering within an originator up until first assembly.
 		//
-		// An originator sends all of its known transactions (i.e. all that have not yet been confirmed) with every delegation request.
-		// If an originator believes a transaction has been assembled for the first time, it definitely has been, so we can
-		// trust that we have all the information we need in this request to ensure the ordering.
+		// Within a request the transactions arrive in the originator's creation order, and the request's
+		// last_delegated_transaction_id (seeded into previousTransaction above) links its first transaction
+		// to the originator's most recent acknowledged transaction from earlier requests.
 		// We cannot rely on an originator to know that that a transaction has never been assembled, so we need to check our
 		// own records of transactions states, and only establish dependencies when we know a prereq transaction is definitely
 		// going to be selected for assembly again.
@@ -393,7 +405,7 @@ func (c *coordinator) addToDelegatedTransactions(
 			c.metrics.DecCoordinatingTransactions()
 			acceptedTransactions--
 			txnHandlingError = err
-			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
+			delegateAcknowledgementResults[i] = engineProto.DelegationAcknowledgementResult_COORDINATOR_ERROR
 			// All subsequent transactions will be skipped
 			continue
 		}
@@ -401,13 +413,7 @@ func (c *coordinator) addToDelegatedTransactions(
 	}
 
 	// Acknowledge the delegate request. Optionally errors can be returned which the originator may use to base re-delegate decisions on
-	err = c.transportWriter.SendDelegationResponse(ctx, originatorNode, &engineProto.DelegationResponse{
-		DelegationId:    delegationID,
-		TransactionIds:  delegateAcknowledgementIDs,
-		DelegateNodeId:  originatorNode,
-		ContractAddress: c.contractAddress.HexString(),
-		Errors:          delegateAcknowledgementErrors,
-	})
+	err = c.sendDelegationResponse(ctx, originatorNode, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementResults)
 	if err != nil {
 		return err
 	}
@@ -422,6 +428,18 @@ func (c *coordinator) addToDelegatedTransactions(
 		return txnHandlingError
 	}
 	return nil
+}
+
+// sendDelegationResponse acknowledges a delegation request back to the originating node, carrying
+// one result entry per transaction in the request. DelegateNodeId carries this coordinator's node name.
+func (c *coordinator) sendDelegationResponse(ctx context.Context, originatorNode string, delegationID string, transactionIDs []string, acknowledgementResults []engineProto.DelegationAcknowledgementResult) error {
+	return c.transportWriter.SendDelegationResponse(ctx, originatorNode, &engineProto.DelegationResponse{
+		DelegationId:    delegationID,
+		TransactionIds:  transactionIDs,
+		DelegateNodeId:  c.nodeName,
+		ContractAddress: c.contractAddress.HexString(),
+		Results:         acknowledgementResults,
+	})
 }
 
 func action_NewSigningIdentity(ctx context.Context, c *coordinator, _ common.Event) error {

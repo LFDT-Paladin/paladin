@@ -122,14 +122,31 @@ type DelegatedEvent struct {
 }
 
 func (*DelegatedEvent) Type() EventType {
-	return Event_Delegated
+	return Event_DelegationSent
 }
 
 func (*DelegatedEvent) TypeString() string {
-	return "Event_Delegated"
+	return "Event_DelegationSent"
 }
 
 func (e *DelegatedEvent) GetCoordinator() string {
+	return e.Coordinator
+}
+
+type DelegationAcknowledgedEvent struct {
+	BaseEvent
+	Coordinator string
+}
+
+func (*DelegationAcknowledgedEvent) Type() EventType {
+	return Event_DelegationAcknowledged
+}
+
+func (*DelegationAcknowledgedEvent) TypeString() string {
+	return "Event_DelegationAcknowledged"
+}
+
+func (e *DelegationAcknowledgedEvent) GetCoordinator() string {
 	return e.Coordinator
 }
 

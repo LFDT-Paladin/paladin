@@ -79,8 +79,16 @@ type originator struct {
 	   enqueues a DelegateSendBatchEvent. All fields are owned by the event-loop goroutine. */
 	notifyFullDelegation    chan struct{}
 	notifyPartialDelegation chan struct{}
+	delegationLoopCtx       context.Context
 	delegationLoopCancel    context.CancelFunc
 	delegationLoopDone      chan struct{} // per-run done channel; nil = never started / already stopped+waited
+
+	/* In-flight delegation requests awaiting acknowledgement: at most one full and one partial, both to the
+	   current active coordinator (a coordinator change cancels them). Each holds a one-shot request timer;
+	   if it fires before the acknowledgement arrives it notifiers again so the batching goroutine's next tick
+	   re-delegates the still-outstanding transactions from live state under a fresh delegation ID. */
+	fullInFlight    *inFlightDelegation
+	partialInFlight *inFlightDelegation
 
 	/* Config */
 	nodeName                string
@@ -88,6 +96,7 @@ type originator struct {
 	contractAddress         *pldtypes.EthAddress
 	inactiveGracePeriod     int // expressed as a multiple of heartbeat intervals
 	resolveRetryBackoff     time.Duration
+	requestTimeout          time.Duration
 	delegationBatchInterval time.Duration
 	heartbeatInterval       time.Duration // grace before a delegated-but-unsnapshotted transaction counts as dropped
 
@@ -117,6 +126,7 @@ func NewOriginator(
 		metrics:                 metrics,
 		inactiveGracePeriod:     confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod),
 		resolveRetryBackoff:     confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout),
+		requestTimeout:          confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout),
 		delegationBatchInterval: confutil.DurationMin(configuration.DelegationBatchInterval, pldconf.SequencerMinimum.DelegationBatchInterval, *pldconf.SequencerDefaults.DelegationBatchInterval),
 		heartbeatInterval:       confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
 		clock:                   common.RealClock(),
