@@ -30,6 +30,7 @@ message ConfigureDomainRequest {
   string registry_contract_address = 3;  // The address of the registry smart contract
   int64 chain_id = 4; // The chain_id of the underlying base ledger on which all smart contracts are deployed
   string fixed_signing_identity = 5; // The identity to use for signing public transactions submitted to the underlying base ledger
+  string log_level = 6; // The configured log level
 }
 
 message ConfigureDomainResponse {
