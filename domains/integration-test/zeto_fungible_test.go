@@ -142,7 +142,9 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	require.Len(t, mintReceipt.States.Outputs, 2)
 	assert.Empty(t, mintReceipt.States.LockedInputs)
 	assert.Empty(t, mintReceipt.States.LockedOutputs)
-	// Both minted coins belong to the controller, so they are reported as one transfer of the total
+	// Transfers are aggregated per recipient, so the two coins minted to the controller are reported as
+	// a single transfer of the total. Noto applies the same rule, but only ever mints one coin at a
+	// time, so unlike Zeto it never has more than one output coin per recipient to combine.
 	require.Len(t, mintReceipt.Transfers, 1)
 	assert.Empty(t, mintReceipt.Transfers[0].From, "a mint has no sender")
 	assert.Equal(t, controllerAddr.String(), mintReceipt.Transfers[0].To.String())
