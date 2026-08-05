@@ -232,16 +232,13 @@ func Test_action_PoolTransaction(t *testing.T) {
 	assert.Equal(t, txn, c.pooledTransactions[0])
 }
 
-func Test_action_QueueTransactionForDispatch(t *testing.T) {
-	txID := uuid.New()
+func Test_enqueueForDispatch(t *testing.T) {
 	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	txn.EXPECT().GetID().Return(txID)
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
-	err := action_QueueTransactionForDispatch(t.Context(), c, &common.TransactionStateTransitionEvent[transaction.State]{
-		TransactionID: txID,
-		ToState:       transaction.State_Ready_For_Dispatch,
-	})
-	require.NoError(t, err)
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build()
+	c.enqueueForDispatch(t.Context(), txn, nil)
+	require.Len(t, c.dispatchQueue, 1)
+	qd := <-c.dispatchQueue
+	assert.Equal(t, txn, qd.txn)
 }
 
 func Test_action_CleanUpTransaction_RemovesFromMap(t *testing.T) {
@@ -643,20 +640,20 @@ func Test_action_PoolTransaction_WhenTxnNotInMap_NoOp(t *testing.T) {
 	assert.Empty(t, c.pooledTransactions)
 }
 
-func Test_action_QueueTransactionForDispatch_WhenContextDone_DoesNotBlock(t *testing.T) {
-	txID := uuid.New()
+func Test_enqueueForDispatch_WhenContextDone_DoesNotBlock(t *testing.T) {
 	txn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	txn.EXPECT().GetID().Return(txID)
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txn).Build()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build()
+
+	// Fill the queue so a send would block, forcing enqueueForDispatch onto the ctx.Done path.
+	for i := 0; i < cap(c.dispatchQueue); i++ {
+		c.dispatchQueue <- queuedDispatch{}
+	}
 
 	ctxCancelled, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	err := action_QueueTransactionForDispatch(ctxCancelled, c, &common.TransactionStateTransitionEvent[transaction.State]{
-		TransactionID: txID,
-		ToState:       transaction.State_Ready_For_Dispatch,
-	})
-	require.NoError(t, err)
+	c.enqueueForDispatch(ctxCancelled, txn, nil)
+	require.Len(t, c.dispatchQueue, cap(c.dispatchQueue), "cancelled enqueue must not add to the full queue")
 }
 
 func Test_addToDelegatedTransactions_PreviousTransactionInPreAssemblyState_EstablishesDependency(t *testing.T) {

@@ -34,6 +34,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
@@ -101,6 +102,7 @@ type TransactionBuilderForTesting struct {
 	revertCount                        int
 	currentBlockHeight                 int64
 	blockHeightTolerance               uint64
+	preparesOnReadyForDispatch         bool
 }
 
 // Function NewTransactionBuilderForTesting creates a TransactionBuilderForTesting with random values for all fields
@@ -491,6 +493,47 @@ type transactionDependencyMocks struct {
 	SequenceManager     *componentsmocks.SequencerManager
 	StateViewProvider   *coordinatorstateviewmocks.Provider
 	DB                  sqlmock.Sqlmock
+
+	// EnqueuedDispatches captures every dispatch the transaction places onto the coordinator's dispatch
+	// queue via enqueueForDispatch, so tests can assert on what dispatchPrepareAndQueue built without a stored field.
+	EnqueuedDispatches []*syncpoints.PendingDispatch
+}
+
+// PreparesOnReadyForDispatch makes the transition into State_Ready_For_Dispatch prepare successfully.
+// Preparation runs on that transition and always calls PrepareTransaction and BuildNullifiers exactly once,
+// so any test that drives the transaction into State_Ready_For_Dispatch must set this. It steers the
+// PREPARE_TRANSACTION path, which builds a dispatch from the transaction refs without further domain
+// interaction. Tests that assert on the built dispatch itself should set up their own mocks instead.
+func (b *TransactionBuilderForTesting) PreparesOnReadyForDispatch() *TransactionBuilderForTesting {
+	b.preparesOnReadyForDispatch = true
+	return b
+}
+
+func stubReadyForDispatchPrepare(txn *coordinatorTransaction, mocks *transactionDependencyMocks) {
+	txn.pt.PreAssembly.TransactionSpecification = &prototk.TransactionSpecification{
+		Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
+		From:   "sender@node1",
+	}
+	// State distribution during prepare requires each resolved output/info state to have a matching
+	// potential-state entry, so align them for whatever states the builder produced.
+	if pa := txn.pt.PostAssembly; pa != nil && pa.AssembleResponse != nil {
+		if len(pa.AssembleResponse.OutputStatesPotential) != len(pa.OutputStates) {
+			pa.AssembleResponse.OutputStatesPotential = make([]*prototk.NewState, len(pa.OutputStates))
+			for i := range pa.AssembleResponse.OutputStatesPotential {
+				pa.AssembleResponse.OutputStatesPotential[i] = &prototk.NewState{}
+			}
+		}
+		if len(pa.AssembleResponse.InfoStatesPotential) != len(pa.InfoStates) {
+			pa.AssembleResponse.InfoStatesPotential = make([]*prototk.NewState, len(pa.InfoStates))
+			for i := range pa.AssembleResponse.InfoStatesPotential {
+				pa.AssembleResponse.InfoStatesPotential[i] = &prototk.NewState{}
+			}
+		}
+	}
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(3).(*components.PrivateTransaction).PreparedPublicTransaction = &pldapi.TransactionInput{}
+	}).Return(nil).Once()
+	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil).Once()
 }
 
 func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transactionDependencyMocks) {
@@ -585,6 +628,9 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		transportWriter,
 		clock,
 		b.queueEventForCoordinator,
+		func(_ context.Context, _ CoordinatorTransaction, pd *syncpoints.PendingDispatch) {
+			mocks.EnqueuedDispatches = append(mocks.EnqueuedDispatches, pd)
+		},
 		b.setDispatchedInFlight,
 		coordinatorTransactionHandleEvent(b.coordinatorTransactions),
 		coordinatorTransactionStateLookup(b.coordinatorTransactions),
@@ -650,6 +696,10 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 			err := b.grapher.AddMinter(ctx, []*prototk.EndorsableState{state}, txn.pt.ID)
 			require.NoError(b.t, err)
 		}
+	}
+
+	if b.preparesOnReadyForDispatch {
+		stubReadyForDispatchPrepare(txn, mocks)
 	}
 
 	b.txn = txn

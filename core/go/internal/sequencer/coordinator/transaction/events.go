@@ -271,6 +271,9 @@ func (*CollectedEvent) TypeString() string {
 // Collected by the dispatcher thread and dispatched to the public transaction manager
 type DispatchedEvent struct {
 	BaseCoordinatorEvent
+	// PublicTransaction reports whether the dispatch loop is persisting a public transaction for this
+	// transaction, so entry into State_Dispatched counts it towards the dispatch-ahead limit.
+	PublicTransaction bool
 }
 
 func (*DispatchedEvent) Type() EventType {
