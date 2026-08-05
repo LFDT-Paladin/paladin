@@ -120,6 +120,7 @@ func (th *transportHandler) RequestToPlugin(ctx context.Context, iReq PluginMess
 	var err error
 	switch input := req.RequestToTransport.(type) {
 	case *prototk.TransportMessage_ConfigureTransport:
+		applyLogLevel(input.ConfigureTransport.LogLevel)
 		resMsg := &prototk.TransportMessage_ConfigureTransportRes{}
 		resMsg.ConfigureTransportRes, err = th.api.ConfigureTransport(ctx, input.ConfigureTransport)
 		res.ResponseFromTransport = resMsg
