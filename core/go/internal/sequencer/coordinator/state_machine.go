@@ -783,9 +783,6 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_TransactionStateTransitionFrom(transaction.State_Assembling),
 					Actions:   []ActionRule{{Action: action_ClearAssemblyInFlight}},
 				}, {
-					Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
-					Actions:   []ActionRule{{Action: action_QueueTransactionForDispatch}},
-				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Final, transaction.State_Evicted),
 					Actions:   []ActionRule{{Action: action_CleanUpTransaction}},
 				}, {
@@ -971,9 +968,6 @@ var stateDefinitionsMap = StateDefinitions{
 				}, {
 					Validator: validator_TransactionStateTransitionFrom(transaction.State_Assembling),
 					Actions:   []ActionRule{{Action: action_ClearAssemblyInFlight}},
-				}, {
-					Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
-					Actions:   []ActionRule{{Action: action_QueueTransactionForDispatch}},
 				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Final, transaction.State_Evicted),
 					Actions:   []ActionRule{{Action: action_CleanUpTransaction}},

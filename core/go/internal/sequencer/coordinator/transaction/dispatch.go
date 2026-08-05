@@ -31,21 +31,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// action_DispatchPrepare handles Event_Dispatched in State_Ready_For_Dispatch by preparing the transaction's
-// dispatch artifacts (a public, private, or prepared transaction). These prepared artifacts are read from the
-// transaction by the dispatch loop under lock and included in a batch, but the actual DB persist of the batch
-// does not hold the lock.
-func action_DispatchPrepare(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	return t.dispatchPrepare(ctx)
+func action_DispatchPrepareAndQueue(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	return t.dispatchPrepareAndQueue(ctx)
 }
 
-// dispatchPrepare prepares the transaction via the domain, builds the transaction dispatch, resolves state
-// distributions and stages nullifiers, then stores the dispatch and remote distributions for the dispatch
-// loop to persist. It runs under the transaction lock held by ProcessEvent for the whole
-// Event_Dispatched handling (prepare and the transition into State_Dispatched are one lock-held unit), so
-// no other event can interleave within it; an event that would cancel the transaction is only ever
-// processed before or after, never during.
-func (t *coordinatorTransaction) dispatchPrepare(ctx context.Context) error {
+// dispatchPrepareAndQueue runs on the transition into State_Ready_For_Dispatch. It prepares the transaction via the
+// domain, builds the transaction dispatch, resolves state distributions and stages nullifiers, then enqueues
+// the built pending dispatch onto the coordinator's dispatch queue. It runs under the transaction lock held
+// by ProcessEvent for the transition, so no other event can interleave within it; an event that would cancel
+// the transaction is only ever processed before or after, never during. Enqueuing does not commit the
+// transaction to dispatch: it stays responsive to dependency resets and reverts in State_Ready_For_Dispatch,
+// and the queued dispatch is only persisted if the transaction has entered State_Dispatched when the
+// dispatch loop processes it.
+func (t *coordinatorTransaction) dispatchPrepareAndQueue(ctx context.Context) error {
 	// TODO: should this domain query context be populated with a snapshot of the domain's states at the point the transaction
 	// finished assembling? Doing this would require storing a grapher snapshot for every transaction.
 	// In a previous iteration of this code where the domain state writer and domain query context coexisted
@@ -93,34 +91,12 @@ func (t *coordinatorTransaction) dispatchPrepare(ctx context.Context) error {
 		}
 	}
 
-	t.pendingDispatch = dispatch
-	t.pendingRemoteStateDistributions = remoteStateDistributions
-	return nil
-}
-
-// PendingDispatch reads the dispatch stashed by dispatchPrepare and returns it to the dispatch loop as a
-// pending dispatch to append to the batch. Reaching this point is a point of no return: the dispatch will
-// be persisted regardless of any subsequent state change to the transaction, because HandleEvent has
-// already transitioned it into State_Dispatched. It reads the stash under the transaction lock so it cannot
-// race a concurrent stash write. Returns nil if nothing was prepared - i.e. the transaction was repooled before
-// its Event_Dispatched was processed, so there is nothing to persist. The stash is not cleared: the state
-// machine only ever routes an Event_Dispatched from State_Ready_For_Dispatch (a second attempt errors from
-// State_Dispatched), and a repool re-runs dispatchPrepare and restashes before the next read, so the read
-// always sees a freshly-prepared dispatch exactly once per dispatch cycle.
-func (t *coordinatorTransaction) PendingDispatch(ctx context.Context) *syncpoints.PendingDispatch {
-	t.Lock()
-	dispatch := t.pendingDispatch
-	remoteStateDistributions := t.pendingRemoteStateDistributions
-	t.Unlock()
-
-	if dispatch == nil {
-		return nil
-	}
-	return &syncpoints.PendingDispatch{
+	t.enqueueForDispatch(ctx, t, &syncpoints.PendingDispatch{
 		TransactionID:      t.pt.ID,
 		Dispatch:           dispatch,
 		StateDistributions: remoteStateDistributions,
-	}
+	})
+	return nil
 }
 
 // buildTransactionDispatch builds the dispatch for a transaction which has already been prepared via the domain

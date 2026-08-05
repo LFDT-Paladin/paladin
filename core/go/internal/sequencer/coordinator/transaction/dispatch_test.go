@@ -40,7 +40,7 @@ func Test_action_Dispatch(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
 	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("prepare failed"))
 
-	err := action_DispatchPrepare(ctx, txn, nil)
+	err := action_DispatchPrepareAndQueue(ctx, txn, nil)
 	require.ErrorContains(t, err, "prepare failed")
 }
 
@@ -403,7 +403,7 @@ func Test_dispatch_PrepareTransactionReturnsError(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
 	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("prepare failed"))
 
-	err := txn.dispatchPrepare(ctx)
+	err := txn.dispatchPrepareAndQueue(ctx)
 	require.ErrorContains(t, err, "prepare failed")
 }
 
@@ -416,7 +416,7 @@ func Test_dispatch_BuildDispatchBatchReturnsError(t *testing.T) {
 		Build()
 	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	err := txn.dispatchPrepare(ctx)
+	err := txn.dispatchPrepareAndQueue(ctx)
 	require.ErrorContains(t, err, "Prepare outcome unexpected")
 }
 
@@ -438,7 +438,7 @@ func Test_dispatch_StateDistributionBuilderReturnsError(t *testing.T) {
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 
-	err := txn.dispatchPrepare(ctx)
+	err := txn.dispatchPrepareAndQueue(ctx)
 	require.ErrorContains(t, err, "state distribution")
 }
 
@@ -459,7 +459,7 @@ func Test_dispatch_BuildNullifiersReturnsError(t *testing.T) {
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, errors.New("build nullifiers failed"))
 
-	err := txn.dispatchPrepare(ctx)
+	err := txn.dispatchPrepareAndQueue(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "build nullifiers failed")
 }
@@ -482,7 +482,7 @@ func Test_dispatch_StageWritesReturnsError(t *testing.T) {
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return([]*components.NullifierUpsert{{}}, nil)
 	mocks.DomainStateWriter.On("StageWrites", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("upsert nullifiers failed"))
 
-	err := txn.dispatchPrepare(ctx)
+	err := txn.dispatchPrepareAndQueue(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "upsert nullifiers failed")
 }
@@ -506,57 +506,12 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 		Return([]*components.NullifierUpsert{{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}}, nil)
 	mocks.DomainStateWriter.On("StageWrites", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	require.NoError(t, txn.dispatchPrepare(ctx))
-	require.NotNil(t, txn.PendingDispatch(ctx))
+	require.NoError(t, txn.dispatchPrepareAndQueue(ctx))
+	require.Len(t, mocks.EnqueuedDispatches, 1)
 	mocks.DomainStateWriter.AssertCalled(t, "StageWrites", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Test_PendingDispatch_PointOfNoReturn_SurvivesRepool verifies the point-of-no-return principle: a repool
-// of the transaction after prepare (initializeForNewAssembly, e.g. from a concurrent event) must NOT
-// discard the stashed dispatch. It survives so the dispatch loop can still read and persist it.
-func Test_PendingDispatch_PointOfNoReturn_SurvivesRepool(t *testing.T) {
-	ctx := t.Context()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		PreAssembly(&prototk.TransactionPreAssembly{
-			TransactionSpecification: &prototk.TransactionSpecification{
-				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
-				From:   "sender@node1",
-			},
-		}).
-		PostAssembly(&components.TransactionPostAssembly{}).
-		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		args.Get(3).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
-	}).Return(nil)
-	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
-	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-
-	require.NoError(t, txn.dispatchPrepare(ctx))
-	require.NotNil(t, txn.pendingDispatch, "prepare must stash a dispatch")
-
-	// Repool before the dispatch loop detaches: must leave the stash in place (point of no return).
-	require.NoError(t, txn.initializeForNewAssembly(ctx))
-	require.NotNil(t, txn.pendingDispatch, "repool must not discard the prepared dispatch")
-
-	// The loop reads the pending dispatch; the read does not clear the stash.
-	pd := txn.PendingDispatch(ctx)
-	require.NotNil(t, pd)
-	require.NotNil(t, txn.pendingDispatch, "reading the pending dispatch does not clear the stash")
-}
-
-// Test_PendingDispatch_NoStashedBatch_ReturnsNil covers the case where PendingDispatch runs with no
-// dispatch stashed by dispatchPrepare (the transaction was repooled before its DispatchedEvent was
-// processed): it must return nil so the dispatch loop skips it and touches no syncPoints.
-func Test_PendingDispatch_NoStashedBatch_ReturnsNil(t *testing.T) {
-	ctx := t.Context()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
-
-	// No dispatchPrepare ran, so pendingDispatch is nil.
-	require.Nil(t, txn.PendingDispatch(ctx))
-}
-
-// Test_dispatch_PendingDispatch_CarriesRemoteStateDistributions verifies that dispatchPrepare resolves the
+// Test_dispatch_PendingDispatch_CarriesRemoteStateDistributions verifies that dispatchPrepareAndQueue resolves the
 // transaction's remote state distributions and PendingDispatch carries them for the dispatch loop to batch.
 func Test_dispatch_PendingDispatch_CarriesRemoteStateDistributions(t *testing.T) {
 	ctx := t.Context()
@@ -591,9 +546,9 @@ func Test_dispatch_PendingDispatch_CarriesRemoteStateDistributions(t *testing.T)
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
 
-	require.NoError(t, txn.dispatchPrepare(ctx))
-	pd := txn.PendingDispatch(ctx)
-	require.NotNil(t, pd)
+	require.NoError(t, txn.dispatchPrepareAndQueue(ctx))
+	require.Len(t, mocks.EnqueuedDispatches, 1)
+	pd := mocks.EnqueuedDispatches[0]
 	require.Len(t, pd.StateDistributions, 1)
 	assert.Equal(t, "receiver@node2", pd.StateDistributions[0].IdentityLocator)
 }

@@ -83,12 +83,8 @@ func TestDispatchLoop_StopWhileWaitingForInFlightSlot(t *testing.T) {
 	c.inFlightTxns[uuid.New()] = struct{}{}
 	c.inFlightMutex.L.Unlock()
 
-	// Queue one tx: transition to Ready_For_Dispatch so it gets sent to dispatchQueue
-	err := action_QueueTransactionForDispatch(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
-		TransactionID: txnID,
-		ToState:       transaction.State_Ready_For_Dispatch,
-	})
-	require.NoError(t, err)
+	// Queue one tx directly onto the dispatch queue, as a Ready_For_Dispatch transition would.
+	c.enqueueForDispatch(ctx, txn, nil)
 
 	// Give the dispatch loop time to pull the tx and enter the Wait() (too many in flight).
 	time.Sleep(50 * time.Millisecond)
@@ -117,7 +113,7 @@ func TestDispatchLoop_HandleEventError_ContinuesLoop(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Active).Build()
 
 	// Register the same AfterFunc that Start() would register, so ctx cancellation wakes the loop
 	context.AfterFunc(ctx, func() {
@@ -126,33 +122,37 @@ func TestDispatchLoop_HandleEventError_ContinuesLoop(t *testing.T) {
 		c.inFlightMutex.L.Unlock()
 	})
 
-	// tx1: HandleEvent returns an error — the loop should log and continue
+	// tx1: HandleEvent returns an error. The error can only come from the dispatch notification (the
+	// transition to State_Dispatched has already committed), so the transaction is in State_Dispatched, the
+	// loop logs the error and still persists the dispatch, then continues.
 	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	id1 := uuid.New()
-	tx1.EXPECT().GetID().Return(id1).Maybe()
 	tx1.EXPECT().HandleEvent(ctx, mock.MatchedBy(func(e common.Event) bool {
 		if de, ok := e.(*transaction.DispatchedEvent); ok {
 			return de.TransactionID == id1
 		}
 		return false
 	})).Return(fmt.Errorf("dispatch error"))
+	tx1.EXPECT().GetCurrentState().Return(transaction.State_Dispatched)
 
-	// tx2: HandleEvent returns nil, and detaches no batch (repooled before its event) — verifies the loop
-	// continued after tx1's error.
+	// tx2: HandleEvent returns nil — verifies the loop continued after tx1's error.
 	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	id2 := uuid.New()
-	tx2.EXPECT().GetID().Return(id2).Maybe()
 	tx2.EXPECT().HandleEvent(ctx, mock.MatchedBy(func(e common.Event) bool {
 		if de, ok := e.(*transaction.DispatchedEvent); ok {
 			return de.TransactionID == id2
 		}
 		return false
 	})).Return(nil)
-	tx2.EXPECT().PendingDispatch(mock.Anything).Return(nil)
+	tx2.EXPECT().GetCurrentState().Return(transaction.State_Dispatched)
+	// Both dispatches are persisted despite tx1's error.
+	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.MatchedBy(func(b *syncpoints.DispatchBatch) bool {
+		return len(b.Dispatches()) == 2
+	})).Return(nil)
 
 	// Pre-queue both transactions before starting the loop (buffered channel)
-	c.dispatchQueue <- queuedDispatch{txn: tx1}
-	c.dispatchQueue <- queuedDispatch{txn: tx2}
+	c.dispatchQueue <- queuedDispatch{txn: tx1, prepared: &syncpoints.PendingDispatch{TransactionID: id1, Dispatch: &syncpoints.TransactionDispatch{}}}
+	c.dispatchQueue <- queuedDispatch{txn: tx2, prepared: &syncpoints.PendingDispatch{TransactionID: id2, Dispatch: &syncpoints.TransactionDispatch{}}}
 
 	done := make(chan struct{})
 	c.dispatchLoopDone = done
@@ -172,73 +172,13 @@ func TestDispatchLoop_HandleEventError_ContinuesLoop(t *testing.T) {
 	}
 }
 
-// TestDispatchLoop_SkipsRepooledTransaction_ContinuesLoop verifies that when a transaction detaches no
-// prepared batch (it was repooled before its DispatchedEvent was processed, so prepare never ran), the
-// loop skips it and continues processing subsequent transactions.
-func TestDispatchLoop_SkipsRepooledTransaction_ContinuesLoop(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Build()
-
-	context.AfterFunc(ctx, func() {
-		c.inFlightMutex.L.Lock()
-		c.inFlightMutex.Broadcast()
-		c.inFlightMutex.L.Unlock()
-	})
-
-	// tx1: HandleEvent succeeds but detaches no batch (repooled) — the loop should skip and continue
-	tx1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	id1 := uuid.New()
-	tx1.EXPECT().GetID().Return(id1).Maybe()
-	tx1.EXPECT().HandleEvent(ctx, mock.MatchedBy(func(e common.Event) bool {
-		de, ok := e.(*transaction.DispatchedEvent)
-		return ok && de.TransactionID == id1
-	})).Return(nil)
-	tx1.EXPECT().PendingDispatch(mock.Anything).Return(nil)
-
-	// tx2: also detaches no batch — verifies the loop continued after skipping tx1
-	tx2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	id2 := uuid.New()
-	tx2.EXPECT().GetID().Return(id2).Maybe()
-	tx2.EXPECT().HandleEvent(ctx, mock.MatchedBy(func(e common.Event) bool {
-		de, ok := e.(*transaction.DispatchedEvent)
-		return ok && de.TransactionID == id2
-	})).Return(nil)
-	dispatched := make(chan struct{}, 1)
-	tx2.EXPECT().PendingDispatch(mock.Anything).Run(func(context.Context) { dispatched <- struct{}{} }).Return(nil)
-
-	c.dispatchQueue <- queuedDispatch{txn: tx1}
-	c.dispatchQueue <- queuedDispatch{txn: tx2}
-
-	done := make(chan struct{})
-	c.dispatchLoopDone = done
-	go func() {
-		defer close(done)
-		c.dispatchLoop(ctx)
-	}()
-
-	select {
-	case <-dispatched:
-	case <-time.After(time.Second):
-		t.Fatal("second transaction was not dispatched after persist error")
-	}
-
-	cancel()
-	select {
-	case <-c.dispatchLoopDone:
-	case <-time.After(time.Second):
-		t.Fatal("dispatch loop did not stop within timeout")
-	}
-}
-
 // TestDispatchLoop_DispatchesQueuedTransaction verifies the happy path: a queued transaction is
 // pulled and handed to the state machine via a DispatchedEvent, and the loop continues.
 func TestDispatchLoop_DispatchesQueuedTransaction(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Active).Build()
 
 	context.AfterFunc(ctx, func() {
 		c.inFlightMutex.L.Lock()
@@ -248,15 +188,15 @@ func TestDispatchLoop_DispatchesQueuedTransaction(t *testing.T) {
 
 	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	id := uuid.New()
-	tx.EXPECT().GetID().Return(id).Maybe()
 	dispatched := make(chan struct{}, 1)
 	tx.EXPECT().HandleEvent(ctx, mock.MatchedBy(func(e common.Event) bool {
 		de, ok := e.(*transaction.DispatchedEvent)
 		return ok && de.TransactionID == id
 	})).Run(func(context.Context, common.Event) { dispatched <- struct{}{} }).Return(nil)
-	tx.EXPECT().PendingDispatch(mock.Anything).Return(nil)
+	tx.EXPECT().GetCurrentState().Return(transaction.State_Dispatched)
+	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Return(nil)
 
-	c.dispatchQueue <- queuedDispatch{txn: tx}
+	c.dispatchQueue <- queuedDispatch{txn: tx, prepared: &syncpoints.PendingDispatch{TransactionID: id, Dispatch: &syncpoints.TransactionDispatch{}}}
 
 	done := make(chan struct{})
 	c.dispatchLoopDone = done
@@ -279,6 +219,34 @@ func TestDispatchLoop_DispatchesQueuedTransaction(t *testing.T) {
 	}
 }
 
+// TestDispatchBatch_NotDispatched_SkipsPersist verifies that a queued dispatch whose transaction did not
+// enter State_Dispatched (a dependency reset or revert moved it off State_Ready_For_Dispatch first) is
+// dropped: no dispatch is appended, so PersistDispatchBatch commits an empty batch and no chained children
+// are handed off.
+func TestDispatchBatch_NotDispatched_SkipsPersist(t *testing.T) {
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Active).Build()
+
+	id := uuid.New()
+	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	tx.EXPECT().GetID().Return(id).Maybe()
+	tx.EXPECT().HandleEvent(mock.Anything, mock.MatchedBy(func(e common.Event) bool {
+		de, ok := e.(*transaction.DispatchedEvent)
+		return ok && de.TransactionID == id
+	})).Return(nil)
+	tx.EXPECT().GetCurrentState().Return(transaction.State_Pooled)
+
+	pd := chainedDispatch()
+	pd.TransactionID = id
+	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.MatchedBy(func(b *syncpoints.DispatchBatch) bool {
+		return len(b.Dispatches()) == 0
+	})).Return(nil)
+
+	c.dispatchBatch(ctx, []queuedDispatch{{txn: tx, prepared: pd}})
+
+	mocks.SequencerManager.AssertNotCalled(t, "HandleNewTx")
+}
+
 // TestDispatchLoop_WaitsAtCapacityThenProceeds verifies the loop blocks while len(inFlightTxns)
 // has reached maxDispatchAhead and resumes once a slot is freed via setDispatchedInFlight.
 func TestDispatchLoop_WaitsAtCapacityThenProceeds(t *testing.T) {
@@ -290,7 +258,7 @@ func TestDispatchLoop_WaitsAtCapacityThenProceeds(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	c, _ := builder.Build()
+	c, mocks := builder.Build()
 
 	context.AfterFunc(ctx, func() {
 		c.inFlightMutex.L.Lock()
@@ -306,13 +274,14 @@ func TestDispatchLoop_WaitsAtCapacityThenProceeds(t *testing.T) {
 		_, ok := e.(*transaction.DispatchedEvent)
 		return ok
 	})).Run(func(context.Context, common.Event) { dispatched <- struct{}{} }).Return(nil)
-	tx.EXPECT().PendingDispatch(mock.Anything).Return(nil).Maybe()
+	tx.EXPECT().GetCurrentState().Return(transaction.State_Dispatched).Maybe()
+	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Fill the single dispatch-ahead slot so the loop must wait before dispatching tx.
 	occupyingID := uuid.New()
 	c.setDispatchedInFlight(occupyingID, true)
 
-	c.dispatchQueue <- queuedDispatch{txn: tx}
+	c.dispatchQueue <- queuedDispatch{txn: tx, prepared: plainDispatch()}
 
 	done := make(chan struct{})
 	c.dispatchLoopDone = done
@@ -367,7 +336,7 @@ func TestDispatchLoop_PullCapRespectsInFlight(t *testing.T) {
 		tx.EXPECT().GetID().Return(uuid.New()).Maybe()
 		c.dispatchQueue <- queuedDispatch{txn: tx}
 	}
-	first := (<-c.dispatchQueue).txn
+	first := <-c.dispatchQueue
 	batch := c.pullDispatchBatch(first, capacity)
 	assert.Len(t, batch, 3, "batch must be capped at the dispatch-ahead capacity")
 	assert.Len(t, c.dispatchQueue, 2, "transactions beyond the cap must remain queued")
@@ -415,11 +384,10 @@ func TestDispatchLoop_CapsBatchSize(t *testing.T) {
 	// Three transactions, each with its own plain (no chained children) pending dispatch.
 	var wantOrder []uuid.UUID
 	for i := 0; i < 3; i++ {
-		pd := &syncpoints.PendingDispatch{Dispatch: &syncpoints.TransactionDispatch{}}
-		tx := newDispatchTxMock(t, pd)
-		// newDispatchTxMock stamps pd.TransactionID with the mock's own id.
-		wantOrder = append(wantOrder, pd.TransactionID)
-		c.dispatchQueue <- queuedDispatch{txn: tx}
+		qd := newDispatchQueued(t, plainDispatch())
+		// newDispatchQueued stamps prepared.TransactionID with the mock's own id.
+		wantOrder = append(wantOrder, qd.prepared.TransactionID)
+		c.dispatchQueue <- qd
 	}
 
 	// Capture each committed batch's transaction ids. The .Run runs on the dispatch-loop goroutine; the
@@ -467,10 +435,9 @@ func TestDispatchLoop_CapsBatchSize(t *testing.T) {
 	}
 }
 
-// newDispatchTxMock builds a CoordinatorTransaction mock that dispatches successfully and returns the given
-// pending dispatch (its TransactionID is set to the mock's ID). Pass pd == nil to model a transaction that
-// prepared no dispatch (repooled before its event).
-func newDispatchTxMock(t *testing.T, pd *syncpoints.PendingDispatch) transaction.CoordinatorTransaction {
+// newDispatchQueued builds a queuedDispatch whose transaction dispatches successfully, carrying the given
+// pre-built pending dispatch (its TransactionID is set to the mock's ID).
+func newDispatchQueued(t *testing.T, pd *syncpoints.PendingDispatch) queuedDispatch {
 	id := uuid.New()
 	tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	tx.EXPECT().GetID().Return(id).Maybe()
@@ -478,11 +445,14 @@ func newDispatchTxMock(t *testing.T, pd *syncpoints.PendingDispatch) transaction
 		de, ok := e.(*transaction.DispatchedEvent)
 		return ok && de.TransactionID == id
 	})).Return(nil)
-	if pd != nil {
-		pd.TransactionID = id
-	}
-	tx.EXPECT().PendingDispatch(mock.Anything).Return(pd)
-	return tx
+	tx.EXPECT().GetCurrentState().Return(transaction.State_Dispatched).Maybe()
+	pd.TransactionID = id
+	return queuedDispatch{txn: tx, prepared: pd}
+}
+
+// plainDispatch builds a pending dispatch with no chained children and no public transaction.
+func plainDispatch() *syncpoints.PendingDispatch {
+	return &syncpoints.PendingDispatch{Dispatch: &syncpoints.TransactionDispatch{}}
 }
 
 func chainedDispatch() *syncpoints.PendingDispatch {
@@ -506,7 +476,7 @@ func TestDispatchBatch_HandsOffChainedChildren(t *testing.T) {
 	mocks.Persistence.Mock.ExpectBegin()
 	mocks.Persistence.Mock.ExpectCommit()
 
-	c.dispatchBatch(ctx, []transaction.CoordinatorTransaction{newDispatchTxMock(t, chainedDispatch())})
+	c.dispatchBatch(ctx, []queuedDispatch{newDispatchQueued(t, chainedDispatch())})
 }
 
 // TestDispatchBatch_NoChainedChildren_SkipsHandoff verifies that a dispatch with no chained children commits
@@ -517,8 +487,7 @@ func TestDispatchBatch_NoChainedChildren_SkipsHandoff(t *testing.T) {
 
 	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Return(nil)
 
-	pd := &syncpoints.PendingDispatch{Dispatch: &syncpoints.TransactionDispatch{}}
-	c.dispatchBatch(ctx, []transaction.CoordinatorTransaction{newDispatchTxMock(t, pd)})
+	c.dispatchBatch(ctx, []queuedDispatch{newDispatchQueued(t, plainDispatch())})
 
 	mocks.SequencerManager.AssertNotCalled(t, "HandleNewTx")
 }
@@ -531,7 +500,7 @@ func TestDispatchBatch_PersistError_SkipsChainedHandoff(t *testing.T) {
 
 	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Return(errors.New("persist failed"))
 
-	c.dispatchBatch(ctx, []transaction.CoordinatorTransaction{newDispatchTxMock(t, chainedDispatch())})
+	c.dispatchBatch(ctx, []queuedDispatch{newDispatchQueued(t, chainedDispatch())})
 
 	mocks.SequencerManager.AssertNotCalled(t, "HandleNewTx")
 }
@@ -547,16 +516,6 @@ func TestDispatchBatch_ChainedChildError_LogsAndContinues(t *testing.T) {
 	mocks.Persistence.Mock.ExpectBegin()
 	mocks.Persistence.Mock.ExpectRollback()
 
-	c.dispatchBatch(ctx, []transaction.CoordinatorTransaction{newDispatchTxMock(t, chainedDispatch())})
+	c.dispatchBatch(ctx, []queuedDispatch{newDispatchQueued(t, chainedDispatch())})
 }
 
-// TestDispatchBatch_AllSkipped_TouchesNoSyncPoints verifies that a batch in which no transaction prepared a
-// dispatch is created lazily and never touches syncPoints.
-func TestDispatchBatch_AllSkipped_TouchesNoSyncPoints(t *testing.T) {
-	ctx := t.Context()
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Active).Build()
-
-	c.dispatchBatch(ctx, []transaction.CoordinatorTransaction{newDispatchTxMock(t, nil), newDispatchTxMock(t, nil)})
-
-	mocks.SyncPoints.AssertNotCalled(t, "PersistDispatchBatch")
-}

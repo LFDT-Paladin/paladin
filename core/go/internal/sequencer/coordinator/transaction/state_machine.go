@@ -836,16 +836,22 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Ready_For_Dispatch: {
 		OnTransitionTo: []ActionRule{
+			{Action: action_AllocateSigningIdentity},
+			{Action: action_DispatchPrepareAndQueue},
+			{Action: action_CleanUpAssemblyPayload},
 			{Action: action_NotifyDependentsOfReadiness},
 		},
+		// Entering this state queues the transaction's built dispatch but does not commit it. The transaction
+		// stays responsive to dependency resets and reverts here (handled below, as in every other
+		// post-assembly state). The point of no return is entering State_Dispatched: the dispatch loop
+		// persists and sends the queued dispatch to chain only if its Event_Dispatched lands here and moves
+		// the transaction to State_Dispatched. If a reset or revert moved it off this state first,
+		// Event_Dispatched has no handler and the dispatch is dropped, so it is never counted against the
+		// dispatch-ahead limit.
 		Events: map[EventType]EventHandlers{
 			Event_Dispatched: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
-					Actions: []ActionRule{
-						{Action: action_AllocateSigningIdentity},
-						{Action: action_DispatchPrepare},
-					},
 					Transitions: []Transition{
 						{
 							To: State_Dispatched,
@@ -853,11 +859,6 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				}},
 			},
-			// When we see a dependency reset or revert while in Ready_For_Dispatch:
-			// - A transaction with a chained dependency will always go to PreAssembly_Blocked as its
-			// chained dependency is now unassembled.
-			// - A trasanction without a chained dependency will always go to Pooled as its post assembly
-			// dependencies are now cleared, and it too far along to have preassembly dependencies.
 			Event_DependencyReset:             dependencyResetHandler,
 			Event_DependencyConfirmedReverted: dependencyRevertedHandler,
 			Event_ChainedDependencyFailed:     chainedDependencyFailedHandler,
@@ -865,9 +866,8 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Dispatched: {
 		OnTransitionTo: []ActionRule{
-			{If: guard_WillDispatchPublicTransaction, Action: action_MarkDispatchedInFlight},
+			{Action: action_MarkDispatchedInFlight},
 			{Action: action_NotifyDispatched},
-			{Action: action_CleanUpAssemblyPayload},
 		},
 		OnTransitionFrom: []ActionRule{
 			{Action: action_ClearDispatchedInFlight},
