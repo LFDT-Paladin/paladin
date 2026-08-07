@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
@@ -32,11 +33,17 @@ import org.lfdt.paladin.sdk.client.rpc.HttpRpcClient;
 import org.lfdt.paladin.sdk.client.rpc.MockJsonRpcServer;
 import org.lfdt.paladin.sdk.core.key.KeyMappingAndVerifier;
 import org.lfdt.paladin.sdk.core.key.KeyQueryEntry;
+import org.lfdt.paladin.sdk.core.key.WalletInfo;
 import org.lfdt.paladin.sdk.core.query.QueryJSON;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 
 class KeyManagerClientTest {
+
+  // The shape a node actually returns from keymgr_wallets — objects, not bare names.
+  private static final String WALLETS_JSON =
+      "[{\"name\":\"signer-1\",\"keySelector\":\".*\",\"keySelectorMustNotMatch\":false},"
+          + "{\"name\":\"hsm-1\",\"keySelector\":\"^hsm\\\\.\",\"keySelectorMustNotMatch\":true}]";
 
   private static final String MAPPING_JSON =
       "{\"identifier\":\"key1\",\"wallet\":\"w1\",\"keyHandle\":\"h1\","
@@ -64,10 +71,15 @@ class KeyManagerClientTest {
   void wallets() throws IOException {
     try (MockJsonRpcServer server =
             new MockJsonRpcServer(
-                (n, req) -> MockJsonRpcServer.Response.of(200, success("[\"w-a\",\"w-b\"]")));
+                (n, req) -> MockJsonRpcServer.Response.of(200, success(WALLETS_JSON)));
         HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
-      final List<String> wallets = new KeyManagerClient(rpc).wallets().join();
-      assertEquals(List.of("w-a", "w-b"), wallets);
+      final List<WalletInfo> wallets = new KeyManagerClient(rpc).wallets().join();
+      assertEquals(2, wallets.size());
+      assertEquals("signer-1", wallets.get(0).name());
+      assertEquals(".*", wallets.get(0).keySelector());
+      assertFalse(wallets.get(0).keySelectorMustNotMatch());
+      assertEquals("hsm-1", wallets.get(1).name());
+      assertTrue(wallets.get(1).keySelectorMustNotMatch());
       final JsonNode req = server.requests().get(0);
       assertEquals("keymgr_wallets", req.get("method").asText());
       // No-arg calls omit the params array (JSON-RPC envelope uses NON_EMPTY inclusion).
