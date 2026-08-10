@@ -25,6 +25,11 @@ import java.util.Objects;
  * <p>A wallet claims key identifiers by matching them against its key selector, a regular
  * expression. When {@link #keySelectorMustNotMatch()} is set the sense is inverted: the wallet
  * claims identifiers that do <em>not</em> match. Immutable.
+ *
+ * <p>Selectors are evaluated on the node against <a href="https://golang.org/s/re2syntax">RE2
+ * syntax</a>, not {@link java.util.regex}. RE2 has no backreferences ({@code \1}) and no lookahead
+ * or lookbehind ({@code (?=...)}, {@code (?<!...)}), so a selector using them is rejected by the
+ * node even though it would compile as a Java pattern.
  */
 @JsonPropertyOrder({"name", "keySelector", "keySelectorMustNotMatch"})
 public final class WalletInfo {
@@ -54,7 +59,8 @@ public final class WalletInfo {
   }
 
   /**
-   * The regular expression used to select which key identifiers this wallet holds.
+   * The regular expression used to select which key identifiers this wallet holds, in <a
+   * href="https://golang.org/s/re2syntax">RE2 syntax</a>.
    *
    * @return the key selector expression
    */
