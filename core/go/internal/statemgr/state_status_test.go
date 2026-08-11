@@ -118,13 +118,23 @@ func newTestDomainContext(t *testing.T, ctx context.Context, ss *stateManager, n
 	return contractAddress, dqc.(*domainQueryContext)
 }
 
-func newTestDomainStateWriter(t *testing.T, ctx context.Context, ss *stateManager, name string, customHashFunction bool) (*pldtypes.EthAddress, *domainStateWriter) {
+// testStateResolver validates states against the writer's domain and contract, standing in for the
+// coordinator's call to StateManager.ValidateStatesWithLabels ahead of StageWrites.
+type testStateResolver func(states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error)
+
+func newTestDomainStateWriter(t *testing.T, ctx context.Context, ss *stateManager, name string, customHashFunction bool) (*pldtypes.EthAddress, *domainStateWriter, testStateResolver) {
 	md := componentsmocks.NewDomain(t)
 	md.On("Name").Return(name)
-	md.On("CustomHashFunction").Return(customHashFunction)
+	md.On("CustomHashFunction").Return(customHashFunction).Maybe()
 	contractAddress := pldtypes.RandAddress()
 	dsw := ss.NewDomainStateWriter(ctx, md, *contractAddress)
-	return contractAddress, dsw.(*domainStateWriter)
+	sw := dsw.(*domainStateWriter)
+	// Reads sw.contractAddress on each call, so tests that re-point the writer at another contract
+	// resolve against that same contract.
+	resolve := func(states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error) {
+		return ss.ValidateStatesWithLabels(ctx, ss.p.NOTX(), md, sw.contractAddress, states...)
+	}
+	return contractAddress, sw, resolve
 }
 
 func TestStateLockingQuery(t *testing.T) {
