@@ -283,28 +283,19 @@ func (dc *domainContract) AssembleTransaction(ctx context.Context, dqc component
 	return assemblyResponse, nil
 }
 
-// Happens only on the sequencing node
-func (dc *domainContract) ResolvePotentialStates(ctx context.Context, dsw components.DomainStateWriter, readTX persistence.DBTX, tx *components.PrivateTransaction) (err error) {
+// Resolve the OutputStatesPotential+InfoStatesPotential arrays into validated and normalized
+// proto EndorsableStates and StatesWithLabels for use in post assembly sequencing steps.
+func (dc *domainContract) ResolvePotentialStates(ctx context.Context, readTX persistence.DBTX, tx *components.PrivateTransaction) (err error) {
 	if tx.PreAssembly == nil || tx.PreAssembly.TransactionSpecification == nil || tx.PostAssembly == nil {
 		return i18n.NewError(ctx, msgs.MsgDomainTXIncompleteWritePotentialStates)
 	}
 
-	// Resolve the OutputStatesPotential+InfoStatesPotential arrays into concrete states. This runs on
-	// the coordinator once the transaction has been assembled:
-	// 1) Computing their identifiers and storing them into the OutputStates/InfoStates lists
-	// 2) Holding the resolved states in StatesToStage for the write buffer to persist at dispatch
 	postAssembly := tx.PostAssembly
 	outputStatesPotential := postAssembly.AssembleResponse.GetOutputStatesPotential()
 	infoStatesPotential := postAssembly.AssembleResponse.GetInfoStatesPotential()
-	log.L(ctx).Debugf("ResolvePotentialStates: Resolving %+v output states", len(outputStatesPotential))
-	var outputResolved, infoResolved []*components.StateWithLabels
-	postAssembly.OutputStates, outputResolved, err = dc.resolvePotentialStates(ctx, dsw, readTX, tx, outputStatesPotential)
+	postAssembly.OutputStates, postAssembly.OutputStatesWithLabels, err = dc.resolvePotentialStates(ctx, readTX, outputStatesPotential)
 	if err == nil {
-		log.L(ctx).Debugf("ResolvePotentialStates: Resolving %+v info potentialstates", len(infoStatesPotential))
-		postAssembly.InfoStates, infoResolved, err = dc.resolvePotentialStates(ctx, dsw, readTX, tx, infoStatesPotential)
-	}
-	if err == nil {
-		postAssembly.StatesToStage = append(outputResolved, infoResolved...)
+		postAssembly.InfoStates, postAssembly.InfoStatesWithLabels, err = dc.resolvePotentialStates(ctx, readTX, infoStatesPotential)
 	}
 	if err == nil && log.IsDebugEnabled() {
 		stateIDs := ""
@@ -316,15 +307,14 @@ func (dc *domainContract) ResolvePotentialStates(ctx context.Context, dsw compon
 	return err
 }
 
-// resolvePotentialStates validates the domain's potential states to compute their canonical IDs and
-// label values, returning the proto states (with computed IDs) alongside the label-bearing resolved states.
-func (dc *domainContract) resolvePotentialStates(ctx context.Context, dsw components.DomainStateWriter, readTX persistence.DBTX, tx *components.PrivateTransaction, potentialStates []*prototk.NewState) (endorsableStates []*prototk.EndorsableState, resolvedStates []*components.StateWithLabels, err error) {
+// resolvePotentialStates validates the domain's potential states to compute their state IDs and
+// label values, returning the proto states (with those IDs) alongside the states with labels.
+// Both forms come from a single validation pass: the proto states carry the IDs onwards to the endorsers,
+// the base ledger and other nodes, while the states with labels are what is eventually persisted.
+func (dc *domainContract) resolvePotentialStates(ctx context.Context, readTX persistence.DBTX, potentialStates []*prototk.NewState) (endorsableStates []*prototk.EndorsableState, resolvedStates []*components.StateWithLabels, err error) {
 	if len(potentialStates) == 0 {
 		return nil, nil, nil
 	}
-	contractAddr := tx.PreAssembly.TransactionSpecification.ContractInfo.ContractAddress
-	log.L(ctx).Infof("Resolving %d states for transaction=%s domain=%s contract-address=%s", len(potentialStates), tx.ID, dc.d.name, contractAddr)
-
 	toValidate := make([]*prototk.EndorsableState, len(potentialStates))
 	for i, s := range potentialStates {
 		es := &prototk.EndorsableState{SchemaId: s.SchemaId, StateDataJson: s.StateDataJson}
@@ -334,13 +324,19 @@ func (dc *domainContract) resolvePotentialStates(ctx context.Context, dsw compon
 		toValidate[i] = es
 	}
 
-	resolvedStates, err = dsw.ResolveStates(ctx, readTX, toValidate...)
+	resolvedStates, err = dc.dm.stateStore.ValidateStatesWithLabels(ctx, readTX, dc.d, dc.info.Address, toValidate...)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	endorsableStates = make([]*prototk.EndorsableState, len(resolvedStates))
 	for i, s := range resolvedStates {
+		// convert the resolved state back to endorsable form as well, so the
+		// consumer can store both forms instead of performing repeat conversion.
+		// Part of the validation was normalization of the state data against the
+		// state ABI schema, so the data converted back into this new endorsable
+		// state is not necessarily the same as the state data passed into the
+		// validate function, even if both are prototk.EndorsableState types.
 		endorsableStates[i] = &prototk.EndorsableState{
 			Id:            s.ID.String(),
 			SchemaId:      s.Schema.String(),

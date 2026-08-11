@@ -415,6 +415,15 @@ func TestWritePreVerifiedStates_ClearsCompletionRows(t *testing.T) {
 	assert.Empty(t, remaining)
 }
 
+// validationDomain is a minimal domain for the state validation calls, which read only the domain
+// name and whether the domain calculates its own state hashes.
+func validationDomain(t *testing.T, name string, customHashFunction bool) components.Domain {
+	md := componentsmocks.NewDomain(t)
+	md.On("Name").Return(name).Maybe()
+	md.On("CustomHashFunction").Return(customHashFunction).Maybe()
+	return md
+}
+
 func TestValidateStates(t *testing.T) {
 
 	ctx, ss, _, done := newDBTestStateManager(t)
@@ -434,7 +443,7 @@ func TestValidateStates(t *testing.T) {
 		SchemaId:      schemaID.String(),
 		StateDataJson: fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32)),
 	}
-	states, err := ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, true,
+	states, err := ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", true), contractAddress,
 		state1,
 		&prototk.EndorsableState{
 			Id:            fakeHash2.String(),
@@ -444,11 +453,11 @@ func TestValidateStates(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Len(t, states, 2)
-	assert.NotEmpty(t, states[0].Id)
-	assert.Equal(t, fakeHash2.String(), states[1].Id)
+	assert.NotEmpty(t, states[0].ID)
+	assert.Equal(t, fakeHash2, states[1].ID)
 
 	// Empty call is a no-op
-	states, err = ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, true)
+	states, err = ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", true), contractAddress)
 	require.NoError(t, err)
 	require.Empty(t, states)
 
@@ -460,11 +469,29 @@ func TestValidateStatesBadSchema(t *testing.T) {
 	defer done()
 
 	contractAddress := *pldtypes.RandAddress()
-	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, false, &prototk.EndorsableState{
+	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
 		SchemaId:      pldtypes.RandBytes32().String(),
 		StateDataJson: `{}`,
 	})
 	assert.Regexp(t, "PD010106", err) // unknown schema
+
+}
+
+func TestValidateStatesBadData(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schemas, err := ss.EnsureABISchemas(ctx, ss.p.NOTX(), "domain1", []*abi.Parameter{testABIParam(t, fakeCoinABI)})
+	require.NoError(t, err)
+	require.Len(t, schemas, 1)
+
+	contractAddress := *pldtypes.RandAddress()
+	_, err = ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
+		SchemaId:      schemas[0].ID().String(),
+		StateDataJson: `{!!! wrong`,
+	})
+	assert.Regexp(t, "PD010116", err)
 
 }
 
@@ -474,7 +501,7 @@ func TestValidateStatesBadStateID(t *testing.T) {
 	defer done()
 
 	contractAddress := *pldtypes.RandAddress()
-	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), "domain1", contractAddress, false, &prototk.EndorsableState{
+	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
 		Id:            "not-valid-hex",
 		SchemaId:      pldtypes.RandBytes32().String(),
 		StateDataJson: `{}`,

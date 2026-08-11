@@ -507,7 +507,7 @@ func TestABISchemaProcessStateInvalidType(t *testing.T) {
 	var err error
 	as.tc, err = as.definition.TypeComponentTreeCtx(ctx)
 	require.NoError(t, err)
-	_, err = as.ProcessState(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{"field1": 12345}`), nil, false, true)
+	_, err = as.ProcessStateWithLabels(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{"field1": 12345}`), nil, false)
 	assert.Regexp(t, "PD010103", err)
 }
 
@@ -539,7 +539,7 @@ func TestABISchemaProcessStateLabelMissing(t *testing.T) {
 	var err error
 	as.tc, err = as.definition.TypeComponentTreeCtx(ctx)
 	require.NoError(t, err)
-	_, err = as.ProcessState(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{"field1": 12345}`), nil, false, true)
+	_, err = as.ProcessStateWithLabels(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{"field1": 12345}`), nil, false)
 	assert.Regexp(t, "PD010110", err)
 }
 
@@ -575,7 +575,7 @@ func TestABISchemaProcessStateBadValue(t *testing.T) {
 	var err error
 	as.tc, err = as.definition.TypeComponentTreeCtx(ctx)
 	require.NoError(t, err)
-	_, err = as.ProcessState(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{!!! wrong`), nil, false, true)
+	_, err = as.ProcessStateWithLabels(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{!!! wrong`), nil, false)
 	assert.Regexp(t, "PD010116", err)
 }
 
@@ -600,7 +600,7 @@ func TestABISchemaProcessStateMismatchValue(t *testing.T) {
 	var err error
 	as.tc, err = as.definition.TypeComponentTreeCtx(ctx)
 	require.NoError(t, err)
-	_, err = as.ProcessState(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{"field1":{}}`), nil, false, true)
+	_, err = as.ProcessStateWithLabels(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{"field1":{}}`), nil, false)
 	assert.Regexp(t, "FF22030", err)
 }
 
@@ -625,11 +625,39 @@ func TestABISchemaProcessStateEIP712Failure(t *testing.T) {
 	var err error
 	as.tc, err = as.definition.TypeComponentTreeCtx(ctx)
 	require.NoError(t, err)
-	_, err = as.ProcessState(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{"field1":"0x753A7decf94E48a05Fa1B342D8984acA9bFaf6B2"}`), nil, false, true)
+	_, err = as.ProcessStateWithLabels(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{"field1":"0x753A7decf94E48a05Fa1B342D8984acA9bFaf6B2"}`), nil, false)
 	assert.Regexp(t, "FF22073", err)
 }
 
-func TestABISchemaProcessStateDataFailure(t *testing.T) {
+// TestABISchemaBuildStateSerializeFailure covers the re-serialization failure in buildState, using a
+// parsed value tree that no state data could produce (the parse would fail first).
+func TestABISchemaBuildStateSerializeFailure(t *testing.T) {
+
+	ctx, _, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	as := &abiSchema{Schema: &pldapi.Schema{}}
+	_, err := as.buildState(ctx, pldtypes.RandAddress(), &parsedStateData{cv: &abi.ComponentValue{}}, nil, false)
+	assert.Regexp(t, "FF22041", err)
+}
+
+// TestABISchemaProcessStateParseFailure covers the parse failure propagating out of the labels-free
+// ProcessState variant.
+func TestABISchemaProcessStateParseFailure(t *testing.T) {
+
+	ctx, _, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	as, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+
+	_, err = as.ProcessState(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{!!! wrong`), nil, false)
+	assert.Regexp(t, "PD010116", err)
+}
+
+// TestRecoverLabelsFallbackLabelMissing covers a label build failure on the re-parse fallback path,
+// using a schema that declares a label field its definition does not contain.
+func TestRecoverLabelsFallbackLabelMissing(t *testing.T) {
 
 	ctx, _, _, _, done := newDBMockStateManager(t)
 	defer done()
@@ -642,16 +670,18 @@ func TestABISchemaProcessStateDataFailure(t *testing.T) {
 			Type:         "tuple",
 			Name:         "MyStruct",
 			InternalType: "struct MyStruct",
-			Components: abi.ParameterArray{
-				{Name: "field1", Type: "function"},
-			},
+			Components:   abi.ParameterArray{},
 		},
 	}
 	var err error
 	as.tc, err = as.definition.TypeComponentTreeCtx(ctx)
 	require.NoError(t, err)
-	_, err = as.ProcessState(ctx, pldtypes.RandAddress(), pldtypes.RawJSON(`{"field1":"0x753A7decf94E48a05Fa1B342D8984acA9bFaf6B2"}`), nil, false, true)
-	assert.Regexp(t, "FF22073", err)
+
+	// No label rows, so RecoverLabels re-parses the data - which parses cleanly, but has no field1
+	_, err = as.RecoverLabels(ctx, &pldapi.State{
+		StateBase: pldapi.StateBase{ID: pldtypes.HexBytes(pldtypes.RandBytes(32)), Data: pldtypes.RawJSON(`{}`)},
+	})
+	assert.Regexp(t, "PD010110", err)
 }
 
 func TestABISchemaMapLabelResolverBadType(t *testing.T) {
@@ -685,7 +715,7 @@ func TestABISchemaInsertCustomHashNoID(t *testing.T) {
 	tc, err := as.definition.Components.TypeComponentTree()
 	require.NoError(t, err)
 	as.tc = tc
-	_, err = as.ProcessState(context.Background(), pldtypes.RandAddress(), pldtypes.RawJSON(`{}`), nil, true, true)
+	_, err = as.ProcessStateWithLabels(context.Background(), pldtypes.RandAddress(), pldtypes.RawJSON(`{}`), nil, true)
 	assert.Regexp(t, "PD010130", err)
 }
 
@@ -697,8 +727,8 @@ func TestABISchemaInsertStandardHashMismatch(t *testing.T) {
 		Components:   abi.ParameterArray{},
 	})
 	require.NoError(t, err)
-	_, err = as.ProcessState(context.Background(), pldtypes.RandAddress(),
-		pldtypes.RawJSON(`{}`), pldtypes.RandBytes(32), false, true)
+	_, err = as.ProcessStateWithLabels(context.Background(), pldtypes.RandAddress(),
+		pldtypes.RawJSON(`{}`), pldtypes.RandBytes(32), false)
 	assert.Regexp(t, "PD010129", err)
 }
 
@@ -712,7 +742,7 @@ func TestABISchemaInsertCustomHashBadData(t *testing.T) {
 	tc, err := as.definition.Components.TypeComponentTree()
 	require.NoError(t, err)
 	as.tc = tc
-	_, err = as.ProcessState(context.Background(), pldtypes.RandAddress(), pldtypes.RawJSON(`{}`), pldtypes.RandBytes(32), false, true)
+	_, err = as.ProcessStateWithLabels(context.Background(), pldtypes.RandAddress(), pldtypes.RawJSON(`{}`), pldtypes.RandBytes(32), false)
 	assert.Regexp(t, "FF22040", err)
 }
 

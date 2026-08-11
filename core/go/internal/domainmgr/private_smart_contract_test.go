@@ -748,7 +748,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	ptx.PostAssembly = &components.TransactionPostAssembly{AssembleResponse: assemblyResponse}
 
 	// Write the output states
-	err = psc.ResolvePotentialStates(td.ctx, td.dsw, td.c.dbTX, ptx)
+	err = psc.ResolvePotentialStates(td.ctx, td.c.dbTX, ptx)
 	require.NoError(t, err)
 
 	// Output state5 was written to the DomainStateWriter (unflushed). It is NOT yet visible
@@ -1030,13 +1030,14 @@ func TestDomainResolvePotentialStatesFail(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockHighestBlock)
 	defer done()
 
-	td.mdsw.On("ResolveStates", mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop"))
+	td.mc.stateStore.On("ValidateStatesWithLabels", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("pop"))
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
 	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
 		{SchemaId: schemaID.String()},
 	}
-	err := psc.ResolvePotentialStates(td.ctx, td.mdsw, td.c.dbTX, tx)
+	err := psc.ResolvePotentialStates(td.ctx, td.c.dbTX, tx)
 	assert.Regexp(t, "pop", err)
 }
 
@@ -1060,11 +1061,12 @@ func TestDomainResolvePotentialStatesDebugLogging(t *testing.T) {
 	}
 	tx.PostAssembly.AssembleResponse.InfoStatesPotential = nil
 
-	td.mdsw.On("ResolveStates", mock.Anything, mock.Anything, mock.Anything).Return([]*components.StateWithLabels{
-		{State: &pldapi.State{StateBase: pldapi.StateBase{ID: stateID, Schema: schemaID}}},
-	}, nil)
+	td.mc.stateStore.On("ValidateStatesWithLabels", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*components.StateWithLabels{
+			{State: &pldapi.State{StateBase: pldapi.StateBase{ID: stateID, Schema: schemaID}}},
+		}, nil)
 
-	err := psc.ResolvePotentialStates(td.ctx, td.mdsw, td.c.dbTX, tx)
+	err := psc.ResolvePotentialStates(td.ctx, td.c.dbTX, tx)
 	require.NoError(t, err)
 	require.Len(t, tx.PostAssembly.OutputStates, 1)
 	assert.Equal(t, pldtypes.HexBytes(stateID).String(), tx.PostAssembly.OutputStates[0].GetId())
@@ -1276,7 +1278,7 @@ func TestIncompleteStages(t *testing.T) {
 	_, err = psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, ptx.ID, ptx.PreAssembly, localTx, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "PD011627", err)
 
-	err = psc.ResolvePotentialStates(td.ctx, td.mdsw, td.c.dbTX, ptx)
+	err = psc.ResolvePotentialStates(td.ctx, td.c.dbTX, ptx)
 	assert.Regexp(t, "PD011628", err)
 
 	_, err = psc.EndorseTransaction(td.ctx, td.mdc, td.c.dbTX, nil)

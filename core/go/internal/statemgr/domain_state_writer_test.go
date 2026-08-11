@@ -48,8 +48,8 @@ func parseFakeCoin(t *testing.T, s *pldapi.State) *FakeCoin {
 	return &c
 }
 
-func stageStates(t *testing.T, ctx context.Context, sw *domainStateWriter, states ...*prototk.EndorsableState) []*components.StateWithLabels {
-	validated, err := sw.ResolveStates(ctx, sw.ss.p.NOTX(), states...)
+func stageStates(t *testing.T, ctx context.Context, sw *domainStateWriter, resolve testStateResolver, states ...*prototk.EndorsableState) []*components.StateWithLabels {
+	validated, err := resolve(states...)
 	require.NoError(t, err)
 	require.NoError(t, sw.StageWrites(ctx, validated))
 	return validated
@@ -102,7 +102,7 @@ func TestDSWFlushNoWork(t *testing.T) {
 	ctx, ss, mdb, _, done := newDBMockStateManager(t)
 	defer done()
 
-	_, sw := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
+	_, sw, _ := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
 
 	mdb.ExpectBegin()
 	mdb.ExpectCommit()
@@ -117,7 +117,7 @@ func TestDSWFlushNoWork(t *testing.T) {
 
 }
 
-// TestDSWUpsertSchemaAndStates verifies ResolveStates + StageWrites on the DomainStateWriter.
+// TestDSWUpsertSchemaAndStates verifies state validation + StageWrites on the DomainStateWriter.
 func TestDSWUpsertSchemaAndStates(t *testing.T) {
 
 	ctx, ss, _, done := newDBTestStateManager(t)
@@ -136,13 +136,13 @@ func TestDSWUpsertSchemaAndStates(t *testing.T) {
 	fakeHash1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	fakeHash2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
-	_, sw := newTestDomainStateWriter(t, ctx, ss, "domain1", true)
+	_, sw, resolve := newTestDomainStateWriter(t, ctx, ss, "domain1", true)
 
 	state1 := &prototk.EndorsableState{Id: fakeHash1.String(), SchemaId: schemaID.String(), StateDataJson: fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32))}
 	state2 := &prototk.EndorsableState{Id: fakeHash2.String(), SchemaId: schemaID.String(), StateDataJson: fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32))}
 
-	// ResolveStates computes IDs (recomputed from content) without touching the buffer.
-	resolved, err := sw.ResolveStates(ctx, ss.p.NOTX(), state1, state2)
+	// Validation computes IDs (recomputed from content) without touching the buffer.
+	resolved, err := resolve(state1, state2)
 	require.NoError(t, err)
 	require.Len(t, resolved, 2)
 	assert.NotEmpty(t, resolved[0].ID)
@@ -154,7 +154,7 @@ func TestDSWUpsertSchemaAndStates(t *testing.T) {
 	require.Len(t, sw.unFlushed.states, 2)
 
 	// Staging the same state again does not de-dup - the buffer just grows.
-	restaged, err := sw.ResolveStates(ctx, ss.p.NOTX(), state1)
+	restaged, err := resolve(state1)
 	require.NoError(t, err)
 	require.NoError(t, sw.StageWrites(ctx, restaged))
 	require.Len(t, sw.unFlushed.states, 3)
@@ -191,10 +191,10 @@ func TestDSWStateContextMintSpendMint(t *testing.T) {
 	schemaID := schemas[0].ID()
 	infoSchema := schemas[1].ID()
 
-	_, sw := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
+	_, sw, resolve := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
 
 	// Batch 1: tx1 creates 3 coins + 1 info; tx3 creates 2 coins
-	tx1states := stageStates(t, ctx, sw,
+	tx1states := stageStates(t, ctx, sw, resolve,
 		&prototk.EndorsableState{SchemaId: schemaID.String(), StateDataJson: fmt.Sprintf(`{"amount": 100, "owner": "0xf7b1c69F5690993F2C8ecE56cc89D42b1e737180", "salt": "%s"}`, pldtypes.RandHex(32))},
 		&prototk.EndorsableState{SchemaId: schemaID.String(), StateDataJson: fmt.Sprintf(`{"amount": 10,  "owner": "0xf7b1c69F5690993F2C8ecE56cc89D42b1e737180", "salt": "%s"}`, pldtypes.RandHex(32))},
 		&prototk.EndorsableState{SchemaId: schemaID.String(), StateDataJson: fmt.Sprintf(`{"amount": 75,  "owner": "0xf7b1c69F5690993F2C8ecE56cc89D42b1e737180", "salt": "%s"}`, pldtypes.RandHex(32))},
@@ -203,7 +203,7 @@ func TestDSWStateContextMintSpendMint(t *testing.T) {
 	assert.Len(t, tx1states, 4)
 
 	// tx3: spends tx1states[1]=10 and tx1states[2]=75, creates 35 and 50
-	tx3states := stageStates(t, ctx, sw,
+	tx3states := stageStates(t, ctx, sw, resolve,
 		&prototk.EndorsableState{SchemaId: schemaID.String(), StateDataJson: fmt.Sprintf(`{"amount": 35, "owner": "0xf7b1c69F5690993F2C8ecE56cc89D42b1e737180", "salt": "%s"}`, pldtypes.RandHex(32))},
 		&prototk.EndorsableState{SchemaId: schemaID.String(), StateDataJson: fmt.Sprintf(`{"amount": 50, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))},
 	)
@@ -240,7 +240,7 @@ func TestDSWStateContextMintSpendMint(t *testing.T) {
 
 	// Batch 2: tx4 creates coin20 and coin30 (it will spend coin50 and read coin100 at finalization)
 	transactionID4 := uuid.New()
-	tx4states := stageStates(t, ctx, sw,
+	tx4states := stageStates(t, ctx, sw, resolve,
 		&prototk.EndorsableState{SchemaId: schemaID.String(), StateDataJson: fmt.Sprintf(`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))},
 		&prototk.EndorsableState{SchemaId: schemaID.String(), StateDataJson: fmt.Sprintf(`{"amount": 30, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))},
 	)
@@ -326,7 +326,7 @@ func TestDSWStateContextMintSpendWithNullifier(t *testing.T) {
 	data1 := pldtypes.RawJSON(fmt.Sprintf(`{"amount": 100, "owner": "0xf7b1c69F5690993F2C8ecE56cc89D42b1e737180", "salt": "%s"}`, pldtypes.RandHex(32)))
 	data2 := pldtypes.RawJSON(fmt.Sprintf(`{"amount": 10,  "owner": "0xf7b1c69F5690993F2C8ecE56cc89D42b1e737180", "salt": "%s"}`, pldtypes.RandHex(32)))
 
-	_, sw := newTestDomainStateWriter(t, ctx, ss, "domain1", true)
+	_, sw, resolve := newTestDomainStateWriter(t, ctx, ss, "domain1", true)
 
 	states := []*prototk.EndorsableState{
 		{Id: stateID1.String(), SchemaId: schemaID.String(), StateDataJson: string(data1)},
@@ -334,7 +334,7 @@ func TestDSWStateContextMintSpendWithNullifier(t *testing.T) {
 	}
 
 	// A single call with two conflicting nullifiers for the same state is rejected before anything is queued
-	conflicting, err := sw.ResolveStates(ctx, ss.p.NOTX(), states...)
+	conflicting, err := resolve(states...)
 	require.NoError(t, err)
 	err = sw.StageWrites(ctx, conflicting,
 		&components.NullifierUpsert{State: stateID1, ID: nullifier1},
@@ -344,7 +344,7 @@ func TestDSWStateContextMintSpendWithNullifier(t *testing.T) {
 	require.Nil(t, sw.unFlushed)
 
 	// Stage the 2 states and attach nullifier1 to the first, atomically
-	tx1states, err := sw.ResolveStates(ctx, ss.p.NOTX(), states...)
+	tx1states, err := resolve(states...)
 	require.NoError(t, err)
 	require.Len(t, tx1states, 2)
 	err = sw.StageWrites(ctx, tx1states, &components.NullifierUpsert{State: stateID1, ID: nullifier1})
@@ -400,7 +400,7 @@ func TestDSWStateContextMintSpendWithNullifier(t *testing.T) {
 	assert.Regexp(t, "PD010126", err)
 
 	// Passing the state alongside its nullifier in one call succeeds
-	tx2states, err := sw.ResolveStates(ctx, ss.p.NOTX(), &prototk.EndorsableState{Id: stateID2.String(), SchemaId: schemaID.String(), StateDataJson: string(data2)})
+	tx2states, err := resolve(&prototk.EndorsableState{Id: stateID2.String(), SchemaId: schemaID.String(), StateDataJson: string(data2)})
 	require.NoError(t, err)
 	err = sw.StageWrites(ctx, tx2states, &components.NullifierUpsert{State: stateID2, ID: nullifier2})
 	require.NoError(t, err)
@@ -414,9 +414,9 @@ func TestDSWValidateStatesFailSchemaLookup(t *testing.T) {
 
 	db.ExpectQuery("SELECT.*schema").WillReturnError(fmt.Errorf("pop"))
 
-	_, sw := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
+	_, _, resolve := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
 
-	_, err := sw.ResolveStates(ctx, ss.p.NOTX(), &prototk.EndorsableState{
+	_, err := resolve(&prototk.EndorsableState{
 		Id:       pldtypes.HexBytes(pldtypes.RandBytes(32)).String(),
 		SchemaId: pldtypes.Bytes32(pldtypes.RandBytes(32)).String(),
 	})
@@ -435,9 +435,9 @@ func TestDSWUpsertBadData(t *testing.T) {
 	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
 	require.NoError(t, err)
 
-	_, sw := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
+	_, _, resolve := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
 
-	_, err = sw.ResolveStates(ctx, ss.p.NOTX(), &prototk.EndorsableState{SchemaId: schema.ID().String(), StateDataJson: `"wrong"`})
+	_, err = resolve(&prototk.EndorsableState{SchemaId: schema.ID().String(), StateDataJson: `"wrong"`})
 	assert.Regexp(t, "FF22038", err)
 
 }
@@ -459,10 +459,10 @@ func TestDSWFlushErrorCapture(t *testing.T) {
 
 	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schemas[0].ID()), schemas[0])
 
-	_, sw := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
+	_, sw, resolve := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
 
 	data1 := fmt.Sprintf(`{"amount": 100, "owner": "0xf7b1c69F5690993F2C8ecE56cc89D42b1e737180", "salt": "%s"}`, pldtypes.RandHex(32))
-	stageStates(t, ctx, sw, genWidget(t, schemas[0].ID(), data1))
+	stageStates(t, ctx, sw, resolve, genWidget(t, schemas[0].ID(), data1))
 
 	// Flush returns an error from the DB
 	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
@@ -471,7 +471,7 @@ func TestDSWFlushErrorCapture(t *testing.T) {
 	require.Regexp(t, "pop", err)
 
 	// StageWrites returns the captured error until Reset (validation itself does not touch the buffer)
-	captured, err := sw.ResolveStates(ctx, ss.p.NOTX(), genWidget(t, schemas[0].ID(), data1))
+	captured, err := resolve(genWidget(t, schemas[0].ID(), data1))
 	require.NoError(t, err)
 	err = sw.StageWrites(ctx, captured)
 	assert.Regexp(t, "PD010119.*pop", err)
@@ -492,8 +492,8 @@ func TestDSWFlushErrorCapture(t *testing.T) {
 	require.NoError(t, err)
 
 	// After Reset, upserts and a successful flush work again
-	stageStates(t, ctx, sw, genWidget(t, schemas[0].ID(), data1))
-	stageStates(t, ctx, sw, genWidget(t, schemas[0].ID(), data1))
+	stageStates(t, ctx, sw, resolve, genWidget(t, schemas[0].ID(), data1))
+	stageStates(t, ctx, sw, resolve, genWidget(t, schemas[0].ID(), data1))
 
 	db.ExpectBegin()
 	db.ExpectExec("INSERT.*states").WillReturnResult(driver.ResultNoRows)
@@ -513,7 +513,7 @@ func TestDSWFlushErrorCapture(t *testing.T) {
 	sw.flushing = newPendingStateWrites(sw.ss)
 	sw.finalizer(ctx, fmt.Errorf("crackle"))
 
-	crackled, err := sw.ResolveStates(ctx, ss.p.NOTX(), genWidget(t, schemas[0].ID(), data1))
+	crackled, err := resolve(genWidget(t, schemas[0].ID(), data1))
 	require.NoError(t, err)
 	err = sw.StageWrites(ctx, crackled)
 	assert.Regexp(t, "PD010119.*crackle", err)

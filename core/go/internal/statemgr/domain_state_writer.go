@@ -27,19 +27,17 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 // domainStateWriter implements components.DomainStateWriter.
 // It is the sequencer's long-lived write buffer for a single private contract.
 type domainStateWriter struct {
-	ss                 *stateManager
-	domainName         string
-	customHashFunction bool
-	contractAddress    pldtypes.EthAddress
-	stateLock          sync.Mutex
-	unFlushed          *pendingStateWrites
-	flushing           *pendingStateWrites
+	ss              *stateManager
+	domainName      string
+	contractAddress pldtypes.EthAddress
+	stateLock       sync.Mutex
+	unFlushed       *pendingStateWrites
+	flushing        *pendingStateWrites
 }
 
 // NewDomainStateWriter creates a coordinator-owned write buffer for a single contract.
@@ -47,10 +45,9 @@ func (ss *stateManager) NewDomainStateWriter(ctx context.Context, domain compone
 	log.L(ctx).Debugf("Domain state writer for domain %s contract %s created", domain.Name(), contractAddress)
 
 	return &domainStateWriter{
-		ss:                 ss,
-		domainName:         domain.Name(),
-		customHashFunction: domain.CustomHashFunction(),
-		contractAddress:    contractAddress,
+		ss:              ss,
+		domainName:      domain.Name(),
+		contractAddress: contractAddress,
 	}
 }
 
@@ -71,10 +68,6 @@ func (sw *domainStateWriter) checkResetInitUnFlushed(ctx context.Context) error 
 		sw.unFlushed = newPendingStateWrites(sw.ss)
 	}
 	return nil
-}
-
-func (sw *domainStateWriter) ResolveStates(ctx context.Context, dbTX persistence.DBTX, states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error) {
-	return sw.ss.validateStates(ctx, sw.domainName, sw.contractAddress, sw.customHashFunction, dbTX, states...)
 }
 
 // StageWrites validates the nullifiers against the supplied states and, only once the whole batch is

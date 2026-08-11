@@ -162,7 +162,7 @@ func (tb *testbed) writeNullifiersToContext(dsw components.DomainStateWriter, tx
 		return err
 	}
 
-	return dsw.StageWrites(tb.ctx, tx.PostAssembly.StatesToStage, nullifiers...)
+	return dsw.StageWrites(tb.ctx, append(tx.PostAssembly.OutputStatesWithLabels, tx.PostAssembly.InfoStatesWithLabels...), nullifiers...)
 
 }
 
