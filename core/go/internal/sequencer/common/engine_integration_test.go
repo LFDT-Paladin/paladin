@@ -40,7 +40,6 @@ import (
 type eiMocks struct {
 	allComponents       *componentsmocks.AllComponents
 	domainSmartContract *componentsmocks.DomainSmartContract
-	domainStateWriter   *componentsmocks.DomainStateWriter
 	domain              *componentsmocks.Domain
 	stateManager        *componentsmocks.StateManager
 	txManager           *componentsmocks.TXManager
@@ -54,7 +53,6 @@ func newTestEngineIntegration(t *testing.T) (EngineIntegration, *eiMocks) {
 	m := &eiMocks{
 		allComponents:       componentsmocks.NewAllComponents(t),
 		domainSmartContract: componentsmocks.NewDomainSmartContract(t),
-		domainStateWriter:   componentsmocks.NewDomainStateWriter(t),
 		domain:              componentsmocks.NewDomain(t),
 		stateManager:        componentsmocks.NewStateManager(t),
 		txManager:           componentsmocks.NewTXManager(t),
@@ -69,7 +67,7 @@ func newTestEngineIntegration(t *testing.T) (EngineIntegration, *eiMocks) {
 	m.allComponents.On("KeyManager").Return(m.keyManager).Maybe()
 	m.allComponents.On("DomainManager").Return(m.domainManager).Maybe()
 
-	ei := NewEngineIntegration(context.Background(), m.allComponents, "node1", m.domainSmartContract, m.domainStateWriter)
+	ei := NewEngineIntegration(context.Background(), m.allComponents, "node1", m.domainSmartContract)
 	return ei, m
 }
 
@@ -111,7 +109,7 @@ func TestEngineIntegration_ResolveStatesForTransaction_WithPotentialStates_Succe
 		},
 	}
 
-	m.domainSmartContract.On("ResolvePotentialStates", mock.Anything, m.domainStateWriter, mock.Anything, txn).
+	m.domainSmartContract.On("ResolvePotentialStates", mock.Anything, mock.Anything, txn).
 		Return(nil).Once()
 	m.domainSmartContract.On("Domain").Return(m.domain).Once()
 	m.domain.On("Name").Return("test-domain").Once()
@@ -136,7 +134,7 @@ func TestEngineIntegration_ResolveStatesForTransaction_WithPotentialStates_Error
 		},
 	}
 
-	m.domainSmartContract.On("ResolvePotentialStates", mock.Anything, m.domainStateWriter, mock.Anything, txn).
+	m.domainSmartContract.On("ResolvePotentialStates", mock.Anything, mock.Anything, txn).
 		Return(fmt.Errorf("write failed")).Once()
 
 	err = ei.ResolveStatesForTransaction(ctx, txn)

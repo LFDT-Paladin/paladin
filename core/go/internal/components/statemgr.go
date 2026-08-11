@@ -50,8 +50,12 @@ type StateManager interface {
 	// State finalizations are written on the DB context of the block indexer, by the domain manager.
 	WriteStateFinalizations(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord, reads []*pldapi.StateReadRecord, confirms []*pldapi.StateConfirmRecord, infoRecords []*pldapi.StateInfoRecord) (err error)
 
-	// Validate a set of states against their schemas
-	ValidateStates(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, states ...*prototk.EndorsableState) ([]*prototk.EndorsableState, error)
+	// ValidateStates validates and normalizes each state's data against its schema, and calculates its state ID.
+	ValidateStates(ctx context.Context, dbTX persistence.DBTX, domain Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*pldapi.State, error)
+
+	// ValidateStatesWithLabels performs the same validation and normalization as ValidateStates, additionally
+	// extracting the state's label values.
+	ValidateStatesWithLabels(ctx context.Context, dbTX persistence.DBTX, domain Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*StateWithLabels, error)
 
 	// MUST NOT be called for states received over a network from another node.
 	// Writes a batch of states that have been pre-verified BY THIS NODE so can bypass domain hash verification.
@@ -94,11 +98,6 @@ type StateQueryOptions struct {
 
 // DomainStateWriter is a long-lived write buffer used for flushing domain states and nullifiers to the DB.
 type DomainStateWriter interface {
-	// ResolveStates validates proto states at the trust boundary and resolves them to states
-	// (computing IDs and label values) without staging them in the write buffer. Callers stage
-	// the results later via StageWrites.
-	ResolveStates(ctx context.Context, dbTX persistence.DBTX, states ...*prototk.EndorsableState) (s []*StateWithLabels, err error)
-
 	// StageWrites validates the nullifiers against the supplied states and, only if the whole batch is
 	// consistent, atomically appends both the states and their nullifiers to the in-memory write buffer.
 	// The nullified state must be present in the states passed to this same call. Written on the next flush.
@@ -173,6 +172,7 @@ type Schema interface {
 	ID() pldtypes.Bytes32
 	Signature() string
 	Persisted() *pldapi.Schema
-	ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool, withLabels bool) (*StateWithLabels, error)
+	ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool) (*pldapi.State, error)
+	ProcessStateWithLabels(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool) (*StateWithLabels, error)
 	RecoverLabels(ctx context.Context, s *pldapi.State) (*StateWithLabels, error)
 }

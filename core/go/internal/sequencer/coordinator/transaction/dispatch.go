@@ -85,7 +85,7 @@ func (t *coordinatorTransaction) dispatchPrepare(ctx context.Context) error {
 
 	// Stage the output/info states (resolved at assembly) together with their nullifiers for write in
 	// a single atomic call
-	statesToStage := t.pt.PostAssembly.StatesToStage
+	statesToStage := append(t.pt.PostAssembly.OutputStatesWithLabels, t.pt.PostAssembly.InfoStatesWithLabels...)
 	if len(statesToStage) > 0 || len(localNullifiers) > 0 {
 		if err = t.dsw.StageWrites(ctx, statesToStage, localNullifiers...); err != nil {
 			log.L(ctx).Errorf("error staging states and nullifiers: %s", err)

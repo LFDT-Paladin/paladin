@@ -50,11 +50,10 @@ type EngineIntegration interface {
 	ResolveVerifiers(ctx context.Context, requiredVerifiers []*prototk.ResolveVerifierRequest) ([]*prototk.ResolvedVerifier, error)
 }
 
-func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract, domainStateWriter components.DomainStateWriter) EngineIntegration {
+func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract) EngineIntegration {
 	return &engineIntegration{
 		components:          allComponents,
 		domainSmartContract: domainSmartContract,
-		domainStateWriter:   domainStateWriter,
 		nodeName:            nodeName,
 	}
 
@@ -63,7 +62,6 @@ func NewEngineIntegration(ctx context.Context, allComponents components.AllCompo
 type engineIntegration struct {
 	components          components.AllComponents
 	domainSmartContract components.DomainSmartContract
-	domainStateWriter   components.DomainStateWriter
 	nodeName            string
 }
 
@@ -72,7 +70,7 @@ func (e *engineIntegration) ResolveStatesForTransaction(ctx context.Context, txn
 	if (txn.PostAssembly.AssembleResponse.GetOutputStatesPotential() != nil && txn.PostAssembly.OutputStates == nil) ||
 		(txn.PostAssembly.AssembleResponse.GetInfoStatesPotential() != nil && txn.PostAssembly.InfoStates == nil) {
 		readTX := e.components.Persistence().NOTX() // no DB transaction required here for the reads from the DB (writes happen on syncpoint flusher)
-		err := e.domainSmartContract.ResolvePotentialStates(ctx, e.domainStateWriter, readTX, txn)
+		err := e.domainSmartContract.ResolvePotentialStates(ctx, readTX, txn)
 		if err != nil {
 			// Any error from ResolvePotentialStates is likely to be caused by an invalid init or assemble of the transaction
 			// which is most likely a programming error in the domain or the domain manager or the sequencer

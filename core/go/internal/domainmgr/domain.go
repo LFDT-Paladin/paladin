@@ -918,12 +918,22 @@ func (d *domain) ValidateStates(ctx context.Context, req *prototk.ValidateStates
 		}
 		statesToValidate[i] = es
 	}
-	validated, err := d.dm.stateStore.ValidateStates(ctx, c.dbTX, d.Name(), c.dqc.ContractAddress(), d.CustomHashFunction(), statesToValidate...)
+	// The validated response is a pldapi struct with richer types. Convert it back to a proto type
+	// to send back to the domain. Validation will have computed the ID and normalized the state data.
+	validated, err := d.dm.stateStore.ValidateStates(ctx, c.dbTX, d, c.dqc.ContractAddress(), statesToValidate...)
 	if err != nil {
 		return nil, err
 	}
+	validatedStates := make([]*prototk.EndorsableState, len(validated))
+	for i, s := range validated {
+		validatedStates[i] = &prototk.EndorsableState{
+			Id:            s.ID.String(),
+			SchemaId:      s.Schema.String(),
+			StateDataJson: string(s.Data),
+		}
+	}
 	return &prototk.ValidateStatesResponse{
-		States: validated,
+		States: validatedStates,
 	}, nil
 }
 
