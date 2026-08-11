@@ -166,8 +166,8 @@ func (gp *provider) getMigrate(ctx context.Context) (m *migrate.Migrate, err err
 	return m, err
 }
 
-func (gp *provider) DB() *gorm.DB {
-	return gp.gdb
+func (gp *provider) DB(ctx context.Context) *gorm.DB {
+	return gp.gdb.WithContext(ctx)
 }
 
 func (gp *provider) Close() {

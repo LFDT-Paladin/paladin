@@ -57,5 +57,5 @@ func (p *postgresProvider) GetMigrationDriver(db *sql.DB) (migratedb.Driver, err
 }
 
 func (p *postgresProvider) TakeNamedLock(ctx context.Context, dbTX DBTX, lockName string) error {
-	return dbTX.DB().Exec(`SELECT pg_advisory_xact_lock( ? )`, hashCode(lockName)).Error
+	return dbTX.DB(ctx).Exec(`SELECT pg_advisory_xact_lock( ? )`, hashCode(lockName)).Error
 }

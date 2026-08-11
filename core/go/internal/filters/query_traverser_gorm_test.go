@@ -107,7 +107,7 @@ func TestBuildQueryJSONNestedAndOr(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"tag":      StringField("tag"),
@@ -143,7 +143,7 @@ func TestBuildQuerySingleNestedOr(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"tag": StringField("tag"),
@@ -173,7 +173,7 @@ func TestBuildQuerySingleNestedWithResolverErrorTag(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	_ = p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	_ = p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{}).Count(&count)
 		assert.Regexp(t, "PD010700.*tag", db.Error)
@@ -200,7 +200,7 @@ func TestBuildQuerySingleNestedWithResolverErrorValue(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	_ = p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	_ = p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"tag": StringField("tag"),
@@ -224,7 +224,7 @@ func TestBuildQueryResolverErrorMissing(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	_ = p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	_ = p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"tag": StringField("tag"),
@@ -278,7 +278,7 @@ func TestBuildQueryJSONEqual(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"tag":      StringField("tag"),
@@ -326,7 +326,7 @@ func TestBuildQueryJSONLike(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"tag":      StringField("tag"),
@@ -359,7 +359,7 @@ func TestBuildQueryJSONGreaterThan(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"sequence": Int64Field("sequence"),
@@ -391,7 +391,7 @@ func TestBuildQueryJSONLessThan(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"amount": Uint256Field("amount"),
@@ -424,7 +424,7 @@ func TestBuildQueryJSONGreaterThanOrEqual(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"sequence": Int64Field("sequence"),
@@ -453,7 +453,7 @@ func TestBuildQueryJSONLessThanOrEqual(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"sequence": Int64Field("sequence"),
@@ -486,7 +486,7 @@ func TestBuildQueryJSONIn(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"tag": StringField("tag"),
@@ -579,9 +579,9 @@ func TestBuildQueryJSONNestedAndOrWithANY(t *testing.T) {
 
 	// Apply the UseAny function to enable ANY clause replacement
 	// Only need to do this because it's the mock provider
-	persistence.UseAny(p.P.DB())
+	persistence.UseAny(p.P.DB(context.Background()))
 
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("test"), FieldMap{
 			"tag":      StringField("tag"),
@@ -713,9 +713,9 @@ func TestBuildQueryJSONComplexNestedWithANY(t *testing.T) {
 
 	// Apply the UseAny function to enable ANY clause replacement
 	// Only need to do this because it's the mock provider, on by default for the real provider
-	persistence.UseAny(p.P.DB())
+	persistence.UseAny(p.P.DB(context.Background()))
 
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("tasks"), FieldMap{
 			"status":      StringField("status"),
@@ -751,7 +751,7 @@ func TestBuildQueryJSONBadModifiers(t *testing.T) {
 		err := json.Unmarshal([]byte(j), &qf)
 		require.NoError(t, err)
 		var count int64
-		db := BuildGORM(context.Background(), &qf, p.P.DB().Table("test"), FieldMap{
+		db := BuildGORM(context.Background(), &qf, p.P.DB(context.Background()).Table("test"), FieldMap{
 			"tag": StringField("tag"),
 		}).Count(&count)
 		return db.Error
@@ -787,7 +787,7 @@ func TestBuildQueryJSONBadFields(t *testing.T) {
 		err := json.Unmarshal([]byte(j), &qf)
 		require.NoError(t, err)
 		var count int64
-		db := BuildGORM(context.Background(), &qf, p.P.DB().Table("test"), FieldMap{
+		db := BuildGORM(context.Background(), &qf, p.P.DB(context.Background()).Table("test"), FieldMap{
 			"tag": StringField("tag"),
 		}).Count(&count)
 		return db.Error
@@ -836,7 +836,7 @@ func TestBuildQueryJSONContainsShortNames(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf1, tx.Table("test"), FieldMap{
 			"sequence": Int64Field("sequence"),
@@ -863,7 +863,7 @@ func TestBuildQueryJSONContainsShortNames(t *testing.T) {
 	}`), &qf2)
 	require.NoError(t, err)
 
-	generatedSQL = p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL = p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf2, tx.Table("test"), FieldMap{
 			"sequence": Int64Field("sequence"),
@@ -880,7 +880,7 @@ func TestBuildQueryJSONLikeEmptyValue(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	db := BuildGORM(context.Background(), qf, p.P.DB().Table("test"), FieldMap{
+	db := BuildGORM(context.Background(), qf, p.P.DB(context.Background()).Table("test"), FieldMap{
 		"tag": StringField("tag"),
 	})
 	assert.ErrorContains(t, db.Error, "PD")
@@ -892,7 +892,7 @@ func TestBuildQueryJSONLikeInvalidJSON(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	db := BuildGORM(context.Background(), qf, p.P.DB().Table("test"), FieldMap{
+	db := BuildGORM(context.Background(), qf, p.P.DB(context.Background()).Table("test"), FieldMap{
 		"tag": StringField("tag"),
 	})
 	assert.Error(t, db.Error)
@@ -904,7 +904,7 @@ func TestBuildQueryJSONLikeNonStringValue(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	db := BuildGORM(context.Background(), qf, p.P.DB().Table("test"), FieldMap{
+	db := BuildGORM(context.Background(), qf, p.P.DB(context.Background()).Table("test"), FieldMap{
 		"tag": StringField("tag"),
 	})
 	assert.ErrorContains(t, db.Error, "PD")

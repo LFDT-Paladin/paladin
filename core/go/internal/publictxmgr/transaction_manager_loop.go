@@ -144,11 +144,11 @@ func (ptm *pubTxManager) poll(ctx context.Context) (polled int, total int) {
 
 			const dbQueryNothingInFlight = dbQueryBase + ` LIMIT ?`
 			if len(inFlightSigningAddresses) == 0 {
-				return true, ptm.p.DB().Raw(dbQueryNothingInFlight, ptm.nodeName, spaces).Scan(&additionalNonInFlightSigners).Error
+				return true, ptm.p.DB(ctx).Raw(dbQueryNothingInFlight, ptm.nodeName, spaces).Scan(&additionalNonInFlightSigners).Error
 			}
 
 			const dbQueryInFlight = dbQueryBase + ` AND t."from" NOT IN (?) LIMIT ?`
-			return true, ptm.p.DB().Raw(dbQueryInFlight, ptm.nodeName, inFlightSigningAddresses, spaces).Scan(&additionalNonInFlightSigners).Error
+			return true, ptm.p.DB(ctx).Raw(dbQueryInFlight, ptm.nodeName, inFlightSigningAddresses, spaces).Scan(&additionalNonInFlightSigners).Error
 		})
 		if err != nil {
 			log.L(ctx).Infof("Engine polling context cancelled while retrying")

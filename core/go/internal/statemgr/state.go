@@ -114,7 +114,7 @@ func (ss *stateManager) WriteNullifiersForReceivedStates(ctx context.Context, db
 	}
 
 	if len(stateNullifiers) > 0 {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("state_nullifiers").
 			Clauses(clause.OnConflict{
 				DoNothing: true, // immutable
@@ -160,9 +160,8 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 	}
 
 	if len(states) > 0 {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("states").
-			WithContext(ctx).
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "domain_name"}, {Name: "id"}},
 				DoNothing: true, // immutable
@@ -172,7 +171,7 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 			Error
 	}
 	if err == nil && len(labels) > 0 {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("state_labels").
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "domain_name"}, {Name: "state"}, {Name: "label"}},
@@ -182,7 +181,7 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 			Error
 	}
 	if err == nil && len(int64Labels) > 0 {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("state_int64_labels").
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "domain_name"}, {Name: "state"}, {Name: "label"}},
@@ -209,7 +208,7 @@ func (ss *stateManager) getStateIDsMissingPrivateData(ctx context.Context, dbTX 
 		return nil, nil
 	}
 	var found []pldtypes.HexBytes
-	if err := dbTX.DB().Table("states").WithContext(ctx).
+	if err := dbTX.DB(ctx).Table("states").
 		Where("domain_name = ?", domainName).
 		Where("id IN ?", stateIDs).
 		Pluck("id", &found).Error; err != nil {
@@ -233,7 +232,7 @@ func (ss *stateManager) getStateIDsMissingPrivateData(ctx context.Context, dbTX 
 
 func (ss *stateManager) GetStatesByID(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, stateIDs []pldtypes.HexBytes, failNotFound, withLabels bool) ([]*pldapi.State, error) {
 	ctx = log.WithComponent(ctx, "statemanager")
-	q := dbTX.DB().Table("states")
+	q := dbTX.DB(ctx).Table("states")
 	if withLabels {
 		q = q.Preload("Labels").Preload("Int64Labels")
 	}
@@ -329,11 +328,11 @@ func (ss *stateManager) findStates(
 	if options.StatusQualifier == "" {
 		options.StatusQualifier = pldapi.StateStatusAll
 	}
-	whereClause, isPlainDB := whereClauseForQual(dbTX.DB(), options.StatusQualifier, "Spent")
+	whereClause, isPlainDB := whereClauseForQual(dbTX.DB(ctx), options.StatusQualifier, "Spent")
 	if isPlainDB {
 		return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
-			q = q.Joins("Confirmed", dbTX.DB().Select("transaction")).
-				Joins("Spent", dbTX.DB().Select("transaction"))
+			q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
+				Joins("Spent", dbTX.DB(ctx).Select("transaction"))
 
 			if len(options.ExcludedIDs) > 0 {
 				q = q.Not(`"states"."id" IN(?)`, options.ExcludedIDs)
@@ -378,14 +377,14 @@ func (ss *stateManager) findNullifiers(
 	if options.StatusQualifier == "" {
 		options.StatusQualifier = pldapi.StateStatusAll
 	}
-	whereClause, isPlainDB := whereClauseForQual(dbTX.DB(), options.StatusQualifier, "Nullifier__Spent")
+	whereClause, isPlainDB := whereClauseForQual(dbTX.DB(ctx), options.StatusQualifier, "Nullifier__Spent")
 	if isPlainDB {
 		schema, s, err = ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
-			hasNullifier := dbTX.DB().Where(`"Nullifier"."id" IS NOT NULL`)
+			hasNullifier := dbTX.DB(ctx).Where(`"Nullifier"."id" IS NOT NULL`)
 
-			q = q.Joins("Confirmed", dbTX.DB().Select("transaction")).
-				Joins("Nullifier", dbTX.DB().Select(`"Nullifier"."id"`)).
-				Joins("Nullifier.Spent", dbTX.DB().Select("transaction")).
+			q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
+				Joins("Nullifier", dbTX.DB(ctx).Select(`"Nullifier"."id"`)).
+				Joins("Nullifier.Spent", dbTX.DB(ctx).Select("transaction")).
 				Where(hasNullifier)
 
 			if len(options.ExcludedIDs) > 0 {
@@ -442,7 +441,7 @@ func (ss *stateManager) findStatesCommon(
 	tracker := ss.labelSetFor(schema)
 
 	// Build the query
-	q := filters.BuildGORM(ctx, jq, dbTX.DB().Table("states"), tracker)
+	q := filters.BuildGORM(ctx, jq, dbTX.DB(ctx).Table("states"), tracker)
 	if q.Error != nil {
 		return nil, nil, q.Error
 	}

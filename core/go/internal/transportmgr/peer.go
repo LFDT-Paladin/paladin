@@ -405,8 +405,7 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 			fullScan,
 			lastPageEnd,
 		)
-		query := p.tm.persistence.DB().
-			WithContext(p.ctx).
+		query := p.tm.persistence.DB(p.ctx).
 			Order("sequence ASC").
 			Joins("Ack").
 			Where(`"Ack"."time" IS NULL`).
@@ -544,8 +543,7 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 
 	// Persist any bad message failures
 	if len(errorAcks) > 0 {
-		err := p.tm.persistence.DB().
-			WithContext(p.ctx).
+		err := p.tm.persistence.DB(p.ctx).
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(errorAcks).
 			Error

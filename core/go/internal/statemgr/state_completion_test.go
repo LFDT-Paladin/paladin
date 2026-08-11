@@ -46,7 +46,7 @@ func (p *lockControlledPersistence) TakeNamedLock(_ context.Context, _ persisten
 func queryAllPendingRows(t *testing.T, ss *stateManager) []pendingPrivateStateData {
 	t.Helper()
 	var rows []pendingPrivateStateData
-	err := ss.p.DB().Find(&rows).Error
+	err := ss.p.DB(context.Background()).Find(&rows).Error
 	require.NoError(t, err)
 	return rows
 }
@@ -54,7 +54,7 @@ func queryAllPendingRows(t *testing.T, ss *stateManager) []pendingPrivateStateDa
 // seedPendingRow inserts a row directly, bypassing business logic.
 func seedPendingRow(t *testing.T, ss *stateManager, contract string, stateID pldtypes.HexBytes, blockNumber int64) {
 	t.Helper()
-	err := ss.p.DB().Create(&pendingPrivateStateData{
+	err := ss.p.DB(context.Background()).Create(&pendingPrivateStateData{
 		StateID:     stateID.String(),
 		Contract:    contract,
 		BlockNumber: blockNumber,

@@ -272,7 +272,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			ackQuery[i] = a.MessageID
 		}
 		var matchedMsgs []*pldapi.ReliableMessage
-		err := dbTX.DB().WithContext(ctx).
+		err := dbTX.DB(ctx).
 			Model(&pldapi.ReliableMessage{}).
 			Select("id").
 			Where("id IN ?", ackQuery).

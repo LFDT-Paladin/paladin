@@ -391,7 +391,7 @@ func TestWritePreVerifiedStates_ClearsCompletionRows(t *testing.T) {
 
 	// Seed pending rows for both state IDs.
 	for _, s := range states {
-		err = ss.p.DB().Create(&pendingPrivateStateData{
+		err = ss.p.DB(ctx).Create(&pendingPrivateStateData{
 			StateID:     s.ID.String(),
 			Contract:    contractAddr.String(),
 			BlockNumber: 1,
@@ -410,7 +410,7 @@ func TestWritePreVerifiedStates_ClearsCompletionRows(t *testing.T) {
 	require.NoError(t, err)
 
 	var remaining []pendingPrivateStateData
-	err = ss.p.DB().Find(&remaining).Error
+	err = ss.p.DB(ctx).Find(&remaining).Error
 	require.NoError(t, err)
 	assert.Empty(t, remaining)
 }

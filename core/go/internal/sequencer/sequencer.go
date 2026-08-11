@@ -891,8 +891,7 @@ func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, 
 			// Otherwise this node is not the relevant coordinator context for this confirmation.
 			if completion.ContractAddress == nil {
 				var chainedCount int64
-				err := persistence.NOTX().DB().
-					WithContext(ctx).
+				err := persistence.NOTX().DB(ctx).
 					Table("chained_dispatches").
 					Where(`"transaction" = ?`, completion.TransactionID).
 					Count(&chainedCount).
