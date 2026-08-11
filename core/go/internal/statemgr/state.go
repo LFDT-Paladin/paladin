@@ -135,7 +135,7 @@ func (ss *stateManager) processInsertStates(ctx context.Context, dbTX persistenc
 			return nil, err
 		}
 
-		s, err := schema.ProcessState(ctx, inState.ContractAddress, inState.Data, inState.ID, d.CustomHashFunction(), true)
+		s, err := schema.ProcessStateWithLabels(ctx, inState.ContractAddress, inState.Data, inState.ID, d.CustomHashFunction())
 		if err != nil {
 			return nil, err
 		}
@@ -472,69 +472,53 @@ func (ss *stateManager) findStatesCommon(
 	return schema, states, nil
 }
 
-type validatedStateSet struct {
-	states     []*pldapi.State
-	withValues []*components.StateWithLabels
-}
-
-// processStateForSet validates a single (id, schema, data) triple against its schema, recomputing the
-// state hash at the trust boundary and extracting label values for in-memory query filtering
-func (ss *stateManager) processStateForSet(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, dbTX persistence.DBTX, id pldtypes.HexBytes, schemaID pldtypes.Bytes32, data pldtypes.RawJSON, withLabels bool) (*components.StateWithLabels, error) {
-	schema, err := ss.getSchemaByID(ctx, dbTX, domainName, schemaID, true)
-	if err != nil {
-		return nil, err
-	}
-	return schema.ProcessState(ctx, &contractAddress, data, id, customHashFunction, withLabels)
-}
-
-// validateStateUpserts validates state upserts against their schemas (write-buffer path).
-func (ss *stateManager) validateStateUpserts(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, dbTX persistence.DBTX, stateUpserts ...*components.StateUpsert) (*validatedStateSet, error) {
-	vss := &validatedStateSet{
-		states:     make([]*pldapi.State, len(stateUpserts)),
-		withValues: make([]*components.StateWithLabels, len(stateUpserts)),
-	}
-	for i, ns := range stateUpserts {
-		vs, err := ss.processStateForSet(ctx, domainName, contractAddress, customHashFunction, dbTX, ns.ID, ns.Schema, ns.Data, true)
-		if err != nil {
-			return nil, err
-		}
-		vss.withValues[i] = vs
-		vss.states[i] = vs.State
-	}
-	return vss, nil
-}
-
-// validateAndConvertEndorsableState validates a single proto-native state at a cross-node trust boundary.
-// This function also acts as the single point of conversion to the more strongly typed components.StateWithLabels
-func (ss *stateManager) validateAndConvertEndorsableState(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, dbTX persistence.DBTX, es *prototk.EndorsableState, withLabels bool) (*components.StateWithLabels, error) {
+func (ss *stateManager) parseSchemaAndIDFromEndorsableState(ctx context.Context, dbTX persistence.DBTX, domainName string, es *prototk.EndorsableState) (components.Schema, pldtypes.HexBytes, error) {
 	schemaID, err := pldtypes.ParseBytes32Ctx(ctx, es.GetSchemaId())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var stateID pldtypes.HexBytes
 	if idStr := es.GetId(); idStr != "" {
-		stateID, err = pldtypes.ParseHexBytes(ctx, idStr)
-		if err != nil {
-			return nil, err
+		if stateID, err = pldtypes.ParseHexBytes(ctx, idStr); err != nil {
+			return nil, nil, err
 		}
 	}
-	return ss.processStateForSet(ctx, domainName, contractAddress, customHashFunction, dbTX, stateID, schemaID, pldtypes.RawJSON(es.GetStateDataJson()), withLabels)
+	schema, err := ss.getSchemaByID(ctx, dbTX, domainName, schemaID, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	return schema, stateID, nil
 }
 
-// ValidateStates verifies states against their schemas without persisting them,
-// returning each state with its computed id.
-func (ss *stateManager) ValidateStates(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, states ...*prototk.EndorsableState) ([]*prototk.EndorsableState, error) {
-	validated := make([]*prototk.EndorsableState, len(states))
+// ValidateStates validates and normalizes state data against the state's schema, and computes the state ID.
+func (ss *stateManager) ValidateStates(ctx context.Context, dbTX persistence.DBTX, domain components.Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*pldapi.State, error) {
+	validated := make([]*pldapi.State, len(states))
 	for i, es := range states {
-		vs, err := ss.validateAndConvertEndorsableState(ctx, domainName, contractAddress, customHashFunction, dbTX, es, false)
+		schema, stateID, err := ss.parseSchemaAndIDFromEndorsableState(ctx, dbTX, domain.Name(), es)
 		if err != nil {
 			return nil, err
 		}
-		validated[i] = &prototk.EndorsableState{
-			Id:            vs.ID.String(),
-			SchemaId:      vs.Schema.String(),
-			StateDataJson: string(vs.Data),
+		validated[i], err = schema.ProcessState(ctx, &contractAddress, pldtypes.RawJSON(es.GetStateDataJson()), stateID, domain.CustomHashFunction())
+		if err != nil {
+			return nil, err
 		}
 	}
 	return validated, nil
+}
+
+// ValidateStatesWithLabels is ValidateStates, additionally extracting label values.
+func (ss *stateManager) ValidateStatesWithLabels(ctx context.Context, dbTX persistence.DBTX, domain components.Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error) {
+	withLabels := make([]*components.StateWithLabels, len(states))
+	for i, es := range states {
+		schema, stateID, err := ss.parseSchemaAndIDFromEndorsableState(ctx, dbTX, domain.Name(), es)
+		if err != nil {
+			return nil, err
+		}
+		vs, err := schema.ProcessStateWithLabels(ctx, &contractAddress, pldtypes.RawJSON(es.GetStateDataJson()), stateID, domain.CustomHashFunction())
+		if err != nil {
+			return nil, err
+		}
+		withLabels[i] = vs
+	}
+	return withLabels, nil
 }

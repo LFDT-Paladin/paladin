@@ -40,7 +40,6 @@ import (
 type eiMocks struct {
 	allComponents       *componentsmocks.AllComponents
 	domainSmartContract *componentsmocks.DomainSmartContract
-	domainStateWriter   *componentsmocks.DomainStateWriter
 	domain              *componentsmocks.Domain
 	stateManager        *componentsmocks.StateManager
 	txManager           *componentsmocks.TXManager
@@ -54,7 +53,6 @@ func newTestEngineIntegration(t *testing.T) (EngineIntegration, *eiMocks) {
 	m := &eiMocks{
 		allComponents:       componentsmocks.NewAllComponents(t),
 		domainSmartContract: componentsmocks.NewDomainSmartContract(t),
-		domainStateWriter:   componentsmocks.NewDomainStateWriter(t),
 		domain:              componentsmocks.NewDomain(t),
 		stateManager:        componentsmocks.NewStateManager(t),
 		txManager:           componentsmocks.NewTXManager(t),
@@ -69,7 +67,7 @@ func newTestEngineIntegration(t *testing.T) (EngineIntegration, *eiMocks) {
 	m.allComponents.On("KeyManager").Return(m.keyManager).Maybe()
 	m.allComponents.On("DomainManager").Return(m.domainManager).Maybe()
 
-	ei := NewEngineIntegration(context.Background(), m.allComponents, "node1", m.domainSmartContract, m.domainStateWriter)
+	ei := NewEngineIntegration(context.Background(), m.allComponents, "node1", m.domainSmartContract)
 	return ei, m
 }
 
@@ -80,40 +78,22 @@ func TestNewEngineIntegration(t *testing.T) {
 	assert.NotNil(t, ei)
 }
 
-// ─── MapPotentialStates ───────────────────────────────────────────────
+// ─── ResolveStatesForTransaction ────────────────────────────────────────
 
-func TestEngineIntegration_MapPotentialStates(t *testing.T) {
-	ctx := context.Background()
-	ei, m := newTestEngineIntegration(t)
-
-	potentialStates := []*prototk.NewState{{SchemaId: "schema1"}}
-	tx := &components.PrivateTransaction{ID: uuid.New()}
-	expected := []*components.StateUpsert{{}}
-
-	m.domainSmartContract.On("MapPotentialStates", mock.Anything, potentialStates, true, tx).
-		Return(expected, nil).Once()
-
-	result, err := ei.MapPotentialStates(ctx, potentialStates, tx)
-	require.NoError(t, err)
-	assert.Equal(t, expected, result)
-}
-
-// ─── WriteStatesForTransaction ────────────────────────────────────────
-
-func TestEngineIntegration_WriteStatesForTransaction_NoPotentialStates(t *testing.T) {
-	// OutputStatesPotential == nil → no-op, returns nil without calling WritePotentialStates.
+func TestEngineIntegration_ResolveStatesForTransaction_NoPotentialStates(t *testing.T) {
+	// OutputStatesPotential == nil → no-op, returns nil without calling ResolvePotentialStates.
 	ctx := context.Background()
 	ei, _ := newTestEngineIntegration(t)
 
 	txn := &components.PrivateTransaction{
 		PostAssembly: &components.TransactionPostAssembly{},
 	}
-	err := ei.WriteStatesForTransaction(ctx, txn)
+	err := ei.ResolveStatesForTransaction(ctx, txn)
 	require.NoError(t, err)
 }
 
-func TestEngineIntegration_WriteStatesForTransaction_WithPotentialStates_Success(t *testing.T) {
-	// OutputStatesPotential != nil && OutputStates == nil → calls WritePotentialStates.
+func TestEngineIntegration_ResolveStatesForTransaction_WithPotentialStates_Success(t *testing.T) {
+	// OutputStatesPotential != nil && OutputStates == nil → calls ResolvePotentialStates.
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
@@ -129,16 +109,16 @@ func TestEngineIntegration_WriteStatesForTransaction_WithPotentialStates_Success
 		},
 	}
 
-	m.domainSmartContract.On("WritePotentialStates", mock.Anything, m.domainStateWriter, mock.Anything, txn).
+	m.domainSmartContract.On("ResolvePotentialStates", mock.Anything, mock.Anything, txn).
 		Return(nil).Once()
 	m.domainSmartContract.On("Domain").Return(m.domain).Once()
 	m.domain.On("Name").Return("test-domain").Once()
 
-	err = ei.WriteStatesForTransaction(ctx, txn)
+	err = ei.ResolveStatesForTransaction(ctx, txn)
 	require.NoError(t, err)
 }
 
-func TestEngineIntegration_WriteStatesForTransaction_WithPotentialStates_Error(t *testing.T) {
+func TestEngineIntegration_ResolveStatesForTransaction_WithPotentialStates_Error(t *testing.T) {
 	ctx := context.Background()
 	ei, m := newTestEngineIntegration(t)
 
@@ -154,10 +134,10 @@ func TestEngineIntegration_WriteStatesForTransaction_WithPotentialStates_Error(t
 		},
 	}
 
-	m.domainSmartContract.On("WritePotentialStates", mock.Anything, m.domainStateWriter, mock.Anything, txn).
+	m.domainSmartContract.On("ResolvePotentialStates", mock.Anything, mock.Anything, txn).
 		Return(fmt.Errorf("write failed")).Once()
 
-	err = ei.WriteStatesForTransaction(ctx, txn)
+	err = ei.ResolveStatesForTransaction(ctx, txn)
 	require.ErrorContains(t, err, "write failed")
 }
 

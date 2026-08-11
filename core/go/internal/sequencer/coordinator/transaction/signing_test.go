@@ -249,8 +249,7 @@ func TestCoordinator_Assembling_SignedFastForward_AppliesAssemblyAndSignature(t 
 	reqID := txn.pendingAssembleRequest.IdempotencyKey()
 	signedPlan := twoSignPlan()
 
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
-	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, &SignedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -278,7 +277,7 @@ func TestCoordinator_Assembling_SignedFastForward_AppliesAssemblyAndSignature(t 
 }
 
 func TestCoordinator_Assembling_SignedFastForward_ApplyPostAssemblyError(t *testing.T) {
-	// When the piggybacked plan fails to apply (e.g. writing lock states errors), action_AssembleAndSign
+	// When the piggybacked plan fails to apply (e.g. resolving states errors), action_AssembleAndSign
 	// must propagate the error and never reach applySignature.
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -287,7 +286,7 @@ func TestCoordinator_Assembling_SignedFastForward_ApplyPostAssemblyError(t *test
 		Build()
 
 	mocks.SyncPoints.On("QueueTransactionFinalize", ctx, mock.Anything, mock.Anything, mock.Anything).Return()
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write lock error"))
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write lock error"))
 
 	err := action_AssembleAndSign(ctx, txn, &SignedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},

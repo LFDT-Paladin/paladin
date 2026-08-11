@@ -169,8 +169,8 @@ type testPlugin struct {
 
 type testDomainContext struct {
 	ctx             context.Context
+	mc              *mockComponents
 	mdc             *componentsmocks.DomainQueryContext
-	mdsw            *componentsmocks.DomainStateWriter
 	dm              *domainManager
 	d               *domain
 	tp              *testPlugin
@@ -225,7 +225,6 @@ func newTestDomain(t *testing.T, realDB bool, domainConfig *prototk.DomainConfig
 
 	var c *inFlightDomainRequest
 	var mdc *componentsmocks.DomainQueryContext
-	var mdsw *componentsmocks.DomainStateWriter
 	var dsw components.DomainStateWriter
 	addr := *pldtypes.RandAddress()
 	if realDB {
@@ -236,20 +235,19 @@ func newTestDomain(t *testing.T, realDB bool, domainConfig *prototk.DomainConfig
 		mdc = componentsmocks.NewDomainQueryContext(t)
 		mdc.On("ID").Return(uuid.New()).Maybe()
 		mdc.On("Close", mock.Anything).Return()
-		mdsw = componentsmocks.NewDomainStateWriter(t)
 		c = tp.d.newInFlightDomainRequest(dm.persistence.NOTX(), mdc, true /* readonly unless modified by test */)
 		mc.stateStore.On("NewDomainQueryContext", mock.Anything, tp.d, mock.Anything, mock.Anything).Return(mdc).Maybe()
 	}
 
 	return &testDomainContext{
 			ctx:             ctx,
+			mc:              mc,
 			dm:              dm,
 			d:               tp.d,
 			tp:              tp,
 			c:               c,
 			dsw:             dsw,
 			mdc:             mdc,
-			mdsw:            mdsw,
 			contractAddress: addr,
 		}, func() {
 			c.close()
@@ -551,16 +549,16 @@ func storeTestState(t *testing.T, td *testDomainContext, txID uuid.UUID, amount 
 	stateJSON, err := json.Marshal(state)
 	require.NoError(t, err)
 
-	// Call the real statestore via the DomainStateWriter, flush, then confirm so the state
-	// appears as "available" when queried by the domain context during assembly.
+	// Validate against the real statestore, stage into the DomainStateWriter, flush, then confirm
+	// so the state appears as "available" when queried by the domain context during assembly.
 	schemaID := pldtypes.MustParseBytes32(td.tp.stateSchemas[0].Id)
-	states, err := td.dsw.StageStateUpserts(td.ctx, td.c.dbTX, &components.StateUpsert{
-		Schema:    schemaID,
-		Data:      stateJSON,
-		CreatedBy: &txID,
+	states, err := td.dm.stateStore.ValidateStatesWithLabels(td.ctx, td.c.dbTX, td.d, td.contractAddress, &prototk.EndorsableState{
+		SchemaId:      schemaID.String(),
+		StateDataJson: string(stateJSON),
 	})
 	require.NoError(t, err)
 	require.Len(t, states, 1)
+	require.NoError(t, td.dsw.StageWrites(td.ctx, states))
 	err = td.dm.persistence.Transaction(td.ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		return td.dsw.Flush(ctx, dbTX)
 	})
