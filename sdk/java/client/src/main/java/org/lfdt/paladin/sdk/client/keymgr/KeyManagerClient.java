@@ -21,6 +21,7 @@ import java.util.concurrent.CompletableFuture;
 import org.lfdt.paladin.sdk.client.rpc.RpcClient;
 import org.lfdt.paladin.sdk.core.key.KeyMappingAndVerifier;
 import org.lfdt.paladin.sdk.core.key.KeyQueryEntry;
+import org.lfdt.paladin.sdk.core.key.WalletInfo;
 import org.lfdt.paladin.sdk.core.query.QueryJSON;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
@@ -46,12 +47,12 @@ public final class KeyManagerClient {
   }
 
   /**
-   * Lists the available wallets ({@code keymgr_wallets}).
+   * Lists the wallets configured on the node ({@code keymgr_wallets}).
    *
-   * @return a future completing with the wallet names
+   * @return a future completing with the wallets, each with its name and key selector
    */
-  public CompletableFuture<List<String>> wallets() {
-    return rpc.callRpc(new TypeReference<List<String>>() {}, "keymgr_wallets");
+  public CompletableFuture<List<WalletInfo>> wallets() {
+    return rpc.callRpc(new TypeReference<List<WalletInfo>>() {}, "keymgr_wallets");
   }
 
   /**
