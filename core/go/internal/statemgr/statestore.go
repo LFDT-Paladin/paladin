@@ -138,6 +138,17 @@ func (ss *stateManager) Stop() {
 // become fully unavailable.
 func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord, reads []*pldapi.StateReadRecord, confirms []*pldapi.StateConfirmRecord, infoRecords []*pldapi.StateInfoRecord) (err error) {
 	ctx = log.WithComponent(ctx, "statemanager")
+	// The spent/confirmed flags on states are denormalized from these records via setStatesSpent/
+	// setStatesConfirmed. A record can be written before its state row exists (private data not yet
+	// received), in which case the flag UPDATE matches nothing and setStateAvailableFromSpendConfirmRecords sets it
+	// on arrival. availabilityFlagLock serializes this flag maintenance against that arrival-path
+	// reconciliation, so whichever transaction commits second sees the other's rows/records and the
+	// flag ends up set exactly once.
+	if len(spends) > 0 || len(confirms) > 0 {
+		if err = ss.p.TakeNamedLock(ctx, dbTX, availabilityFlagLock); err != nil {
+			return err
+		}
+	}
 	if len(spends) > 0 {
 		log.L(ctx).Debugf("Finalizing spends: %s", logStateSpendRecords(spends))
 		err = dbTX.DB(ctx).
@@ -145,6 +156,9 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(spends).
 			Error
+		if err == nil {
+			err = setStatesSpent(ctx, dbTX, spends)
+		}
 	}
 	if err == nil && len(reads) > 0 {
 		log.L(ctx).Debugf("Finalizing reads: %s", logStateReadRecords(reads))
@@ -161,6 +175,9 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(confirms).
 			Error
+		if err == nil {
+			err = setStatesConfirmed(ctx, dbTX, confirms)
+		}
 	}
 	if err == nil && len(infoRecords) > 0 {
 		log.L(ctx).Debugf("Finalizing info: %s", logStateInfoRecords(infoRecords))
