@@ -30,6 +30,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -1524,4 +1525,51 @@ func Test_getCoordinatorSigningIdentity_ConcurrentWithRotation(t *testing.T) {
 	wg.Wait()
 
 	assert.False(t, malformed.Load(), "every returned signing identity must be a well-formed non-empty domains.* value")
+}
+
+func Test_action_ImportStatesAndLocks_NilSnapshot(t *testing.T) {
+	ctx := context.Background()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Prepared).Build()
+
+	// No coordinator snapshot at all — no-op.
+	err := action_ImportStatesAndLocks(ctx, c, &common.HeartbeatReceivedEvent{})
+	require.NoError(t, err)
+
+	// A snapshot with no states/locks — also a no-op.
+	err = action_ImportStatesAndLocks(ctx, c, &common.HeartbeatReceivedEvent{
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{StateSnapshot: &prototk.StateSnapshot{}},
+	})
+	require.NoError(t, err)
+}
+
+func Test_action_ImportStatesAndLocks_LabelledStatesKept(t *testing.T) {
+	ctx := context.Background()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Prepared).Build()
+
+	stateID := pldtypes.HexBytes{0x01, 0x02}
+	schemaID := pldtypes.Bytes32(pldtypes.RandBytes(32))
+	confirmedAtBlock := uint64(9)
+	// The snapshot state carries labels (current peer): they are trusted as sent and kept, so the
+	// state is offered to ahead-of-chain queries.
+	err := action_ImportStatesAndLocks(ctx, c, &common.HeartbeatReceivedEvent{
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{
+			StateSnapshot: &prototk.StateSnapshot{
+				States: []*prototk.SnapshotState{{
+					State:        &prototk.EndorsableState{Id: stateID.String(), SchemaId: schemaID.String()},
+					AllowedNodes: []string{"node1"},
+					Labels:       &prototk.StateLabels{},
+				}},
+				Locks: []*prototk.SnapshotStateLock{{StateId: stateID.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAtBlock}},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	candidates, _ := c.grapher.SnapshotViewForNode(ctx, "node1")
+	assert.Len(t, candidates, 1, "the imported labels must make the state queryable as-is")
+}
+
+func TestCoordinatorStateViewServerAccessor(t *testing.T) {
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build()
+	assert.NotNil(t, c.StateViewServer())
 }

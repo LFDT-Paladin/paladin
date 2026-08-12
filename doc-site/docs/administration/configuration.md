@@ -879,8 +879,15 @@
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
 | schemaCache | Schema cache configuration | [`CacheConfig`](#statestoreschemacache) | - |
+| validatedStateCache | Validated-state cache configuration | [`CacheConfig`](#statestorevalidatedstatecache) | - |
 
 ## statestore.schemaCache
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| capacity | Cache capacity | `int` | `1000` |
+
+## statestore.validatedStateCache
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|

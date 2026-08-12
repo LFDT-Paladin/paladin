@@ -752,8 +752,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	require.NoError(t, err)
 
 	// Output state5 was written to the DomainStateWriter (unflushed). It is NOT yet visible
-	// via FindAvailableStates because the DomainQueryContext only sees confirmed DB states and its
-	// own snapshot (from ImportSnapshot). The DSW's unflushed pool is not merged here.
+	// via FindAvailableStates because the DomainQueryContext only sees confirmed DB states.
 	stateRes, err := domain.FindAvailableStates(td.ctx, &prototk.FindAvailableStatesRequest{
 		StateQueryContext: td.c.id,
 		SchemaId:          ptx.PostAssembly.AssembleResponse.GetOutputStatesPotential()[0].SchemaId,
@@ -1070,6 +1069,36 @@ func TestDomainResolvePotentialStatesDebugLogging(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tx.PostAssembly.OutputStates, 1)
 	assert.Equal(t, pldtypes.HexBytes(stateID).String(), tx.PostAssembly.OutputStates[0].GetId())
+}
+
+// TestDomainResolvePotentialStatesPreAssignedID proves a potential state carrying a
+// domain-assigned ID passes that ID through to state validation.
+func TestDomainResolvePotentialStatesPreAssignedID(t *testing.T) {
+	schema := componentsmocks.NewSchema(t)
+	schemaID := pldtypes.RandBytes32()
+	schema.On("ID").Return(schemaID)
+	schema.On("Signature").Return("schema1_signature")
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockHighestBlock)
+	defer done()
+
+	psc, tx := doDomainInitAssembleTransactionOK(t, td)
+	stateID := pldtypes.RandBytes(32)
+	idStr := pldtypes.HexBytes(stateID).String()
+	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
+		{SchemaId: schemaID.String(), StateDataJson: `{}`, Id: &idStr},
+	}
+	tx.PostAssembly.AssembleResponse.InfoStatesPotential = nil
+
+	td.mc.stateStore.On("ValidateStatesWithLabels", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.MatchedBy(func(es []*prototk.EndorsableState) bool { return len(es) == 1 && es[0].GetId() == idStr })).
+		Return([]*components.StateWithLabels{
+			{State: &pldapi.State{StateBase: pldapi.StateBase{ID: stateID, Schema: schemaID}}},
+		}, nil)
+
+	err := psc.ResolvePotentialStates(td.ctx, td.c.dbTX, tx)
+	require.NoError(t, err)
+	require.Len(t, tx.PostAssembly.OutputStates, 1)
+	assert.Equal(t, idStr, tx.PostAssembly.OutputStates[0].GetId())
 }
 
 func TestEndorseTransactionFail(t *testing.T) {

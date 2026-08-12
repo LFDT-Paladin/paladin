@@ -146,9 +146,35 @@ func action_ImportStatesAndLocks(ctx context.Context, c *coordinator, event comm
 	stateSnapshot := e.CoordinatorSnapshot.StateSnapshot
 	if stateSnapshot != nil && (len(stateSnapshot.GetLocks()) > 0 || len(stateSnapshot.GetStates()) > 0) {
 		log.L(ctx).Debugf("action_ImportStatesAndLocks: importing %d output states and %d locks from previous coordinator snapshot", len(stateSnapshot.GetStates()), len(stateSnapshot.GetLocks()))
+		c.dropUnlabelledHandoverStates(ctx, stateSnapshot)
 		c.grapher.ImportStatesAndLocks(ctx, stateSnapshot)
 	}
 	return nil
+}
+
+// dropUnlabelledHandoverStates removes handover snapshot states that arrive without labels since
+// they cannot be exported as refs in an assemble request. This will have the effect of making the state
+// unavailable for selection at assembly time. In reality this should never occur as all Paladin nodes post
+// v1.1 should include labels in their handover snapshots, and there are other documented interface differences
+// which would stop v1.0 and v1.1+ nodes from participating in sequencing for the same contract.
+//
+// The labels of states that DO carry them are trusted as sent — we deliberately do not validate them
+// here. Validation will happen on the originator at the point a state is actually used to assemble a
+// transaction (ID recompute + label equality against the fetched data).
+func (c *coordinator) dropUnlabelledHandoverStates(ctx context.Context, stateSnapshot *prototk.StateSnapshot) {
+	kept := make([]*prototk.SnapshotState, 0, len(stateSnapshot.GetStates()))
+	var dropped []string
+	for _, snapState := range stateSnapshot.GetStates() {
+		if snapState.GetLabels() == nil {
+			dropped = append(dropped, snapState.GetState().GetId())
+			continue
+		}
+		kept = append(kept, snapState)
+	}
+	if len(dropped) > 0 {
+		log.L(ctx).Warnf("dropUnlabelledHandoverStates: dropping %d handover states without labels: %v", len(dropped), dropped)
+	}
+	stateSnapshot.States = kept
 }
 
 // Originators send only the delegated transactions that they believe the coordinator needs to know/be reminded about. Which transactions are
@@ -238,12 +264,12 @@ func action_RefreshBlockHeight(ctx context.Context, c *coordinator, _ common.Eve
 }
 
 // refreshBlockHeight queries the live block height, caches it in c.currentBlockHeight,
-// calls grapher.ForgetLocks, recomputes the priority list, and queues an internal
+// calls grapher.ForgetConfirmedLocks, recomputes the priority list, and queues an internal
 // EpochBoundaryReachedEvent when the effective block height advances to a new epoch.
 func (c *coordinator) refreshBlockHeight(ctx context.Context) {
 	liveHeight := c.engineIntegration.GetBlockHeight(ctx)
 	c.currentBlockHeight = liveHeight
-	c.grapher.ForgetLocks(ctx, uint64(liveHeight))
+	c.grapher.ForgetConfirmedLocks(ctx, uint64(liveHeight))
 	c.calculateCoordinatorPriorities(ctx)
 	newEffective := common.ComputeEffectiveBlockHeight(uint64(liveHeight), c.coordinatorSelectionBlockRange)
 	if newEffective != c.effectiveBlockHeight {
@@ -282,6 +308,7 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.assembleErrorRetryThreshhold,
 		c.signErrorRetryThreshhold,
 		c.grapher,
+		c.stateViewServer,
 		c.stateVisibilityTracker,
 		c.dependencyTracker,
 		c.metrics,
@@ -551,8 +578,8 @@ func action_CleanUpTransactionsNotYetDispatched(ctx context.Context, c *coordina
 	for _, txn := range txns {
 		c.cleanUpTransaction(ctx, txn.GetID())
 	}
-	// cleanUpTransaction deletes the assembling tx without a state transition, so the slot-freed
-	// handler never fires. Reset the flag here so a re-elected State_Active entry selects again.
+	// cleanUpTransaction deletes the assembling tx without a state transition so we
+	// need to reset the in flight flag here
 	c.assemblyInFlight = false
 	c.assemblingTxID = uuid.Nil
 	// Drain any Ready_For_Dispatch items still sitting in the dispatch channel.

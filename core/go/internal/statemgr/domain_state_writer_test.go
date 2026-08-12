@@ -407,6 +407,23 @@ func TestDSWStateContextMintSpendWithNullifier(t *testing.T) {
 
 }
 
+// TestDSWCheckResetInitUnFlushedFlushPending verifies that an in-flight flush (flushed channel
+// not yet closed) does not block staging new writes: checkResetInitUnFlushed takes the default
+// select branch and still initializes a fresh unFlushed buffer.
+func TestDSWCheckResetInitUnFlushedFlushPending(t *testing.T) {
+
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	_, sw, _ := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
+	sw.flushing = newPendingStateWrites(ss)
+
+	err := sw.checkResetInitUnFlushed(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, sw.unFlushed)
+
+}
+
 func TestDSWValidateStatesFailSchemaLookup(t *testing.T) {
 
 	ctx, ss, db, _, done := newDBMockStateManager(t)

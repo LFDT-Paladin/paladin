@@ -285,8 +285,15 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Assembling: {
 		OnTransitionTo: []ActionRule{
 			{Action: action_ScheduleStateTimeout},
+			// Refresh block height for the request, then open a stateview session that captures a
+			// snapshot of the states available to the originator.
+			// OnTransitionFrom closes the session on every exit from this state.
 			{Action: action_RefreshBlockHeight},
+			{Action: action_OpenStateViewSession},
 			{Action: action_SendAssembleRequest},
+		},
+		OnTransitionFrom: []ActionRule{
+			{Action: action_CloseStateViewSession},
 		},
 		Events: map[EventType]EventHandlers{
 			Event_AssembleSuccess: {

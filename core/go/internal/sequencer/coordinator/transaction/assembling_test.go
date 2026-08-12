@@ -22,12 +22,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/stateviewmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/statevisibilitytrackermocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -212,11 +216,50 @@ func Test_applyPostAssembly_Success_Complete(t *testing.T) {
 
 	// Mock engine integration to succeed
 	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
-	mockVisibility.EXPECT().RecordAssemblyOutput(mock.Anything, mock.Anything, proto.GetOutputStatesPotential()).Once()
+	mockVisibility.EXPECT().RecordAssemblyOutput(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Once()
 
 	err := txn.applyPostAssembly(ctx, proto, uuid.New())
 	require.NoError(t, err)
 	assert.Equal(t, proto, txn.pt.PostAssembly.AssembleResponse)
+}
+
+func Test_applyPostAssembly_RecordsOutputStateVisibility(t *testing.T) {
+	ctx := t.Context()
+	mockVisibility := statevisibilitytrackermocks.NewStateVisibilityStore(t)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).StateVisibility(mockVisibility).Build()
+
+	proto := &prototk.TransactionPostAssembly{
+		AssemblyResult:        prototk.AssembleTransactionResponse_OK,
+		OutputStatesPotential: []*prototk.NewState{{DistributionList: []string{"alice@node1"}}},
+	}
+
+	stateID := "0x" + strings.Repeat("aa", 32)
+	// ResolveStatesForTransaction is what settles OutputStates/OutputStatesWithLabels on PostAssembly; emulate it.
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, txn.pt).
+		Run(func(_ context.Context, tx *components.PrivateTransaction) {
+			tx.PostAssembly.OutputStates = []*prototk.EndorsableState{{Id: stateID}}
+			tx.PostAssembly.OutputStatesWithLabels = []*components.StateWithLabels{{State: &pldapi.State{
+				Labels: []*pldapi.StateLabel{{Label: "owner", Value: "0xfeed"}},
+			}}}
+		}).Return(nil)
+
+	var gotStates []*prototk.EndorsableState
+	var gotLabels []*prototk.StateLabels
+	var gotDist [][]string
+	mockVisibility.EXPECT().RecordAssemblyOutput(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, states []*prototk.EndorsableState, labels []*prototk.StateLabels, dist [][]string) {
+			gotStates, gotLabels, gotDist = states, labels, dist
+		}).Once()
+
+	err := txn.applyPostAssembly(ctx, proto, uuid.New())
+	require.NoError(t, err)
+
+	require.Len(t, gotStates, 1)
+	assert.Equal(t, stateID, gotStates[0].GetId())
+	require.Len(t, gotLabels, 1)
+	require.Len(t, gotLabels[0].GetLabels(), 1)
+	assert.Equal(t, "owner", gotLabels[0].GetLabels()[0].GetLabel())
+	require.Equal(t, [][]string{{"alice@node1"}}, gotDist)
 }
 
 func Test_sendAssembleRequest_Success(t *testing.T) {
@@ -235,19 +278,6 @@ func Test_sendAssembleRequest_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, txn.pendingAssembleRequest)
 	assert.NotNil(t, txn.cancelRequestTimeoutSchedule)
-}
-
-func Test_sendAssembleRequest_ExportStatesAndLocksError(t *testing.T) {
-	ctx := t.Context()
-	mockGrapher := graphermocks.NewGrapher(t)
-	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything, mock.Anything).Return(nil, errors.New("export states and locks failed"))
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(mockGrapher).
-		Build()
-
-	err := txn.sendAssembleRequest(ctx)
-	require.ErrorContains(t, err, "export states and locks failed")
 }
 
 func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
@@ -912,4 +942,60 @@ func Test_validator_IsAssembleRejection_NoMatch(t *testing.T) {
 	match, err := v(ctx, txn, event)
 	require.NoError(t, err)
 	assert.False(t, match)
+}
+
+func Test_sendAssembleRequest_CarriesSessionIDOnly(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
+		UseMockTransportWriter().
+		WithCurrentBlockHeight(100).
+		Build()
+
+	// No state data rides the request: the originator pulls candidates and spent state IDs on
+	// demand through the stateview session keyed by the assemble request ID.
+	spentStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("aa", 32))
+	txn.grapher.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: spentStateID.String()}}, uuid.New())
+
+	var sentRequestIDs []string
+	mocks.TransportWriter.EXPECT().SendAssembleRequest(
+		mock.Anything, txn.originatorNode, mock.Anything,
+	).Run(func(_ context.Context, _ string, msg *engineProto.AssembleRequest) {
+		sentRequestIDs = append(sentRequestIDs, msg.GetAssembleRequestId())
+	}).Return(nil).Twice()
+
+	err := txn.sendAssembleRequest(ctx)
+	require.NoError(t, err)
+	require.Len(t, sentRequestIDs, 1)
+	assert.Equal(t, txn.assembleSessionID.String(), sentRequestIDs[0])
+
+	// A nudge re-sends under the same session ID, so the frozen view still serves it.
+	err = txn.nudgeAssembleRequest(ctx)
+	require.NoError(t, err)
+	require.Len(t, sentRequestIDs, 2)
+	assert.Equal(t, sentRequestIDs[0], sentRequestIDs[1])
+}
+
+func Test_action_OpenStateViewSession_OpensSessionForOriginatorNode(t *testing.T) {
+	ctx := t.Context()
+	mockServer := stateviewmocks.NewServer(t)
+	mockServer.EXPECT().OpenSession(mock.Anything, mock.Anything, "node1").Return()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		StateViewServer(mockServer).
+		Build()
+
+	require.NoError(t, action_OpenStateViewSession(ctx, txn, nil))
+	require.NotEqual(t, uuid.Nil, txn.assembleSessionID)
+}
+
+func Test_action_CloseStateViewSession_ClosesSession(t *testing.T) {
+	ctx := t.Context()
+	mockServer := stateviewmocks.NewServer(t)
+	mockServer.EXPECT().CloseSession(mock.Anything, mock.Anything).Return()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		StateViewServer(mockServer).
+		Build()
+
+	require.NoError(t, action_CloseStateViewSession(ctx, txn, nil))
 }

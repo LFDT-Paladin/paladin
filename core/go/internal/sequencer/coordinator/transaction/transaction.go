@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
@@ -77,6 +78,7 @@ type coordinatorTransaction struct {
 	stateEntryTime                     time.Time
 
 	pendingAssembleRequest       *common.IdempotentRequest
+	assembleSessionID            uuid.UUID                                       // ID for the in-flight assemble; keys the stateview session and the idempotent request
 	cancelRequestTimeoutSchedule func()                                          // Short timeout for retry e.g. network blip
 	cancelStateTimeoutSchedule   func()                                          // Timeout for state completion before repooling
 	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
@@ -98,6 +100,7 @@ type coordinatorTransaction struct {
 	clock                             common.Clock
 	transportWriter                   transport.TransportWriter
 	grapher                           grapher.Grapher
+	stateViewServer                   stateview.Server
 	stateVisibilityTracker            statevisibilitytracker.StateVisibilityStore
 	dependencyTracker                 dependencytracker.DependencyTracker
 	engineIntegration                 common.EngineIntegration
@@ -143,6 +146,7 @@ func NewTransaction(ctx context.Context,
 	assembleErrorRetryThreshhold int,
 	signErrorRetryThreshhold int,
 	grapher grapher.Grapher,
+	stateViewServer stateview.Server,
 	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
 	dependencyTracker dependencytracker.DependencyTracker,
 	metrics metrics.DistributedSequencerMetrics,
@@ -176,6 +180,7 @@ func NewTransaction(ctx context.Context,
 		assembleErrorRetryThreshhold,
 		signErrorRetryThreshhold,
 		grapher,
+		stateViewServer,
 		stateVisibilityTracker,
 		dependencyTracker,
 		metrics,
@@ -211,6 +216,7 @@ func newTransaction(
 	assembleErrorRetryThreshhold int,
 	signErrorRetryThreshhold int,
 	grapher grapher.Grapher,
+	stateViewServer stateview.Server,
 	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
 	dependencyTracker dependencytracker.DependencyTracker,
 	metrics metrics.DistributedSequencerMetrics,
@@ -247,6 +253,7 @@ func newTransaction(
 		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
 		signErrorRetryThreshhold:          signErrorRetryThreshhold,
 		grapher:                           grapher,
+		stateViewServer:                   stateViewServer,
 		stateVisibilityTracker:            stateVisibilityTracker,
 		dependencyTracker:                 dependencyTracker,
 		metrics:                           metrics,

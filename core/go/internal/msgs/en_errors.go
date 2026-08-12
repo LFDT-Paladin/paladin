@@ -116,8 +116,11 @@ var (
 	MsgStateHashMismatch              = pde("PD010129", "The supplied state ID '%s' does not match the state hash '%s'")
 	MsgStateIDMissing                 = pde("PD010130", "The state id must be supplied for this domain")
 	MsgStateFlushInProgress           = pde("PD010131", "A flush is already in progress for this domain context")
-	MsgDomainContextImportInvalidJSON = pde("PD010132", "Attempted to import state locks but the JSON could not be parsed")
-	MsgDomainContextImportBadStates   = pde("PD010133", "Attempted to import state failed")
+	// PD010132 and PD010133 removed
+	MsgStateViewQueryFailed            = pde("PD010134", "Remote state view query failed")
+	MsgStateQueriedStateNoMatch        = pde("PD010135", "Coordinator returned state %s whose validated labels do not match the query")
+	MsgStateQueriedStateSchemaMismatch = pde("PD010136", "Coordinator returned state %s with schema %s for a query against schema %s")
+	MsgStateViewSpentIDsFailed         = pde("PD010137", "Failed to fetch spent state IDs from the remote state view")
 
 	// Persistence PD0102XX
 	MsgPersistenceInvalidType          = pde("PD010200", "Invalid persistence type: %s")
@@ -525,6 +528,10 @@ var (
 	MsgSequencerInvalidEndorserCandidate           = pde("PD012646", "Invalid coordinator endorser candidate identity '%s'")
 	MsgSequencerGrapherAddMinterAlreadyExistsError = pde("PD012647", "Error adding TX %s as minter for state %s, already minted by %s")
 	MsgSequencerStaticCoordinatorNotSet            = pde("PD012648", "Static coordinator mode for contract %s has no configured coordinator node")
+	MsgSequencerStateViewFailed                    = pde("PD012655", "Coordinator state view request %s failed: %s")
+	MsgSequencerStateViewInvalid                   = pde("PD012656", "Invalid state view request %s: %s")
+	MsgSequencerStateViewUnknownSession            = pde("PD012657", "Unknown assemble session %s")
+	MsgSequencerStateViewWrongNode                 = pde("PD012658", "Assemble session %s not owned by requesting node")
 
 	// Entrypoint PD0127XX
 	MsgResolveVerifierRemoteFailed = pde("PD012701", "Failed to resolve verifier on remote node with lookup %s algorithm %s: Error %s")

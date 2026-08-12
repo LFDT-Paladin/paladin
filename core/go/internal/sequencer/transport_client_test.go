@@ -35,6 +35,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencermetricsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/stateviewmocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -137,6 +138,9 @@ func TestHandlePaladinMsg_Routing(t *testing.T) {
 		{"NonceAssigned", transport.MessageType_NonceAssigned},
 		{"TransactionSubmitted", transport.MessageType_TransactionSubmitted},
 		{"TransactionConfirmed", transport.MessageType_TransactionConfirmed},
+		{"QueryAvailableStatesRequest", transport.MessageType_QueryAvailableStatesRequest},
+		{"QueryAvailableStatesResponse", transport.MessageType_QueryAvailableStatesResponse},
+		{"StateViewError", transport.MessageType_StateViewError},
 		{"Unknown", "UnknownMessageType"},
 	}
 
@@ -173,7 +177,6 @@ func TestHandleAssembleRequest_Success(t *testing.T) {
 		TransactionId:          txID.String(),
 		AssembleRequestId:      requestID.String(),
 		ContractAddress:        contractAddr.String(),
-		StateSnapshot:          &prototk.StateSnapshot{},
 		CoordinatorBlockHeight: 100,
 	}
 	payload, _ := proto.Marshal(assembleRequest)
@@ -228,7 +231,6 @@ func TestHandleAssembleRequest_InvalidContractAddress(t *testing.T) {
 		TransactionId:          txID.String(),
 		AssembleRequestId:      requestID.String(),
 		ContractAddress:        "invalid-address",
-		StateSnapshot:          &prototk.StateSnapshot{},
 		CoordinatorBlockHeight: 100,
 	}
 	payload, _ := proto.Marshal(assembleRequest)
@@ -257,7 +259,6 @@ func TestHandleAssembleRequest_SequencerNotLoaded(t *testing.T) {
 		TransactionId:          txID.String(),
 		AssembleRequestId:      requestID.String(),
 		ContractAddress:        contractAddr.String(),
-		StateSnapshot:          &prototk.StateSnapshot{},
 		CoordinatorBlockHeight: 100,
 	}
 	payload, _ := proto.Marshal(assembleRequest)
@@ -2763,5 +2764,305 @@ func TestHandleSignError_SequencerNotLoaded(t *testing.T) {
 	sm.handleSignError(ctx, &components.ReceivedMessage{
 		FromNode: "test-node", MessageID: uuid.New(),
 		MessageType: transport.MessageType_SignError, Payload: payload,
+	})
+}
+
+// --- State query message routing (off both event loops) ---
+
+func TestHandleQueryAvailableStatesRequest_RoutedToCoordinatorServer(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	request := &engineProto.QueryAvailableStatesRequest{
+		ContractAddress: contractAddr.String(),
+		RequestId:       "req1",
+		SchemaId:        "0xaa",
+		QueryJson:       "{}",
+	}
+	payload, _ := proto.Marshal(request)
+	message := &components.ReceivedMessage{
+		FromNode:    "requesting-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_QueryAvailableStatesRequest,
+		Payload:     payload,
+	}
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	server := stateviewmocks.NewServer(t)
+	mocks.coordinator.EXPECT().StateViewServer().Return(server).Once()
+	// The transport-authenticated FromNode is passed for the visibility filtering — the routing
+	// never queues onto the coordinator event loop.
+	server.EXPECT().HandleQueryAvailableStates(ctx, "requesting-node", mock.MatchedBy(func(req *engineProto.QueryAvailableStatesRequest) bool {
+		return req.GetRequestId() == "req1" && req.GetSchemaId() == "0xaa"
+	})).Once()
+
+	sm.handleQueryAvailableStatesRequest(ctx, message)
+}
+
+func TestHandleQueryAvailableStatesRequest_SequencerNotLoaded(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	payload, _ := proto.Marshal(&engineProto.QueryAvailableStatesRequest{ContractAddress: contractAddr.String(), RequestId: "req1"})
+	// No sequencer registered: the message is dropped (never loads a sequencer).
+	sm.handleQueryAvailableStatesRequest(ctx, &components.ReceivedMessage{
+		FromNode: "requesting-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_QueryAvailableStatesRequest, Payload: payload,
+	})
+}
+
+func TestHandleQueryAvailableStatesRequest_BadPayloadAndAddress(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	sm.handleQueryAvailableStatesRequest(ctx, &components.ReceivedMessage{
+		FromNode: "requesting-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_QueryAvailableStatesRequest, Payload: []byte("not-a-proto"),
+	})
+
+	payload, _ := proto.Marshal(&engineProto.QueryAvailableStatesRequest{ContractAddress: "not-an-address"})
+	sm.handleQueryAvailableStatesRequest(ctx, &components.ReceivedMessage{
+		FromNode: "requesting-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_QueryAvailableStatesRequest, Payload: payload,
+	})
+}
+
+func TestHandleQueryAvailableStatesResponse_RoutedToOriginatorClient(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	response := &engineProto.QueryAvailableStatesResponse{
+		ContractAddress: contractAddr.String(),
+		RequestId:       "req1",
+		States:          []*prototk.QueriedState{{State: &prototk.EndorsableState{Id: "0xaa"}}},
+	}
+	payload, _ := proto.Marshal(response)
+	message := &components.ReceivedMessage{
+		FromNode:    "coordinator-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_QueryAvailableStatesResponse,
+		Payload:     payload,
+	}
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	client := stateviewmocks.NewClient(t)
+	mocks.originator.EXPECT().StateViewClient().Return(client).Once()
+	client.EXPECT().HandleQueryAvailableStatesResponse(ctx, "coordinator-node", mock.MatchedBy(func(resp *engineProto.QueryAvailableStatesResponse) bool {
+		return resp.GetRequestId() == "req1" && len(resp.GetStates()) == 1
+	})).Once()
+
+	sm.handleQueryAvailableStatesResponse(ctx, message)
+}
+
+func TestHandleQueryAvailableStatesResponse_SequencerNotLoaded(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	payload, _ := proto.Marshal(&engineProto.QueryAvailableStatesResponse{ContractAddress: contractAddr.String(), RequestId: "req1"})
+	sm.handleQueryAvailableStatesResponse(ctx, &components.ReceivedMessage{
+		FromNode: "coordinator-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_QueryAvailableStatesResponse, Payload: payload,
+	})
+}
+
+func TestHandleQueryAvailableStatesResponse_BadPayloadAndAddress(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	sm.handleQueryAvailableStatesResponse(ctx, &components.ReceivedMessage{
+		FromNode: "coordinator-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_QueryAvailableStatesResponse, Payload: []byte("not-a-proto"),
+	})
+
+	payload, _ := proto.Marshal(&engineProto.QueryAvailableStatesResponse{ContractAddress: "not-an-address"})
+	sm.handleQueryAvailableStatesResponse(ctx, &components.ReceivedMessage{
+		FromNode: "coordinator-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_QueryAvailableStatesResponse, Payload: payload,
+	})
+}
+
+func TestHandleStateViewError_RoutedToOriginatorClient(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	stateViewError := &engineProto.StateViewError{
+		ContractAddress: contractAddr.String(),
+		RequestId:       "req1",
+		ErrorMessage:    "pop",
+	}
+	payload, _ := proto.Marshal(stateViewError)
+	message := &components.ReceivedMessage{
+		FromNode:    "coordinator-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_StateViewError,
+		Payload:     payload,
+	}
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	client := stateviewmocks.NewClient(t)
+	mocks.originator.EXPECT().StateViewClient().Return(client).Once()
+	client.EXPECT().HandleError(ctx, "coordinator-node", mock.MatchedBy(func(errMsg *engineProto.StateViewError) bool {
+		return errMsg.GetRequestId() == "req1" && errMsg.GetErrorMessage() == "pop"
+	})).Once()
+
+	sm.handleStateViewError(ctx, message)
+}
+
+func TestHandleStateViewError_SequencerNotLoaded(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	payload, _ := proto.Marshal(&engineProto.StateViewError{ContractAddress: contractAddr.String(), RequestId: "req1"})
+	sm.handleStateViewError(ctx, &components.ReceivedMessage{
+		FromNode: "coordinator-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_StateViewError, Payload: payload,
+	})
+}
+
+func TestHandleStateViewError_BadPayloadAndAddress(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	sm.handleStateViewError(ctx, &components.ReceivedMessage{
+		FromNode: "coordinator-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_StateViewError, Payload: []byte("not-a-proto"),
+	})
+
+	payload, _ := proto.Marshal(&engineProto.StateViewError{ContractAddress: "not-an-address"})
+	sm.handleStateViewError(ctx, &components.ReceivedMessage{
+		FromNode: "coordinator-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_StateViewError, Payload: payload,
+	})
+}
+
+func TestHandleGetSpentStateIDsRequest_RoutedToCoordinatorServer(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	request := &engineProto.GetSpentStateIDsRequest{
+		ContractAddress: contractAddr.String(),
+		RequestId:       "req1",
+		SessionId:       "session-1",
+	}
+	payload, _ := proto.Marshal(request)
+	message := &components.ReceivedMessage{
+		FromNode:    "requesting-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_GetSpentStateIDsRequest,
+		Payload:     payload,
+	}
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	server := stateviewmocks.NewServer(t)
+	mocks.coordinator.EXPECT().StateViewServer().Return(server).Once()
+	server.EXPECT().HandleGetSpentStateIDs(ctx, "requesting-node", mock.MatchedBy(func(req *engineProto.GetSpentStateIDsRequest) bool {
+		return req.GetRequestId() == "req1" && req.GetSessionId() == "session-1"
+	})).Once()
+
+	sm.handleGetSpentStateIDsRequest(ctx, message)
+}
+
+func TestHandleGetSpentStateIDsRequest_SequencerNotLoaded_BadPayloadAndAddress(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	// No sequencer registered: the message is dropped (never loads a sequencer).
+	payload, _ := proto.Marshal(&engineProto.GetSpentStateIDsRequest{ContractAddress: contractAddr.String(), RequestId: "req1"})
+	sm.handleGetSpentStateIDsRequest(ctx, &components.ReceivedMessage{
+		FromNode: "requesting-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_GetSpentStateIDsRequest, Payload: payload,
+	})
+
+	sm.handleGetSpentStateIDsRequest(ctx, &components.ReceivedMessage{
+		FromNode: "requesting-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_GetSpentStateIDsRequest, Payload: []byte("not-a-proto"),
+	})
+
+	payload, _ = proto.Marshal(&engineProto.GetSpentStateIDsRequest{ContractAddress: "not-an-address"})
+	sm.handleGetSpentStateIDsRequest(ctx, &components.ReceivedMessage{
+		FromNode: "requesting-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_GetSpentStateIDsRequest, Payload: payload,
+	})
+}
+
+func TestHandleGetSpentStateIDsResponse_RoutedToOriginatorClient(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	response := &engineProto.GetSpentStateIDsResponse{
+		ContractAddress: contractAddr.String(),
+		RequestId:       "req1",
+		SpentStateIds:   [][]byte{{0x01, 0x02}},
+	}
+	payload, _ := proto.Marshal(response)
+	message := &components.ReceivedMessage{
+		FromNode:    "coordinator-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_GetSpentStateIDsResponse,
+		Payload:     payload,
+	}
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	client := stateviewmocks.NewClient(t)
+	mocks.originator.EXPECT().StateViewClient().Return(client).Once()
+	client.EXPECT().HandleGetSpentStateIDsResponse(ctx, "coordinator-node", mock.MatchedBy(func(resp *engineProto.GetSpentStateIDsResponse) bool {
+		return resp.GetRequestId() == "req1" && len(resp.GetSpentStateIds()) == 1
+	})).Once()
+
+	sm.handleGetSpentStateIDsResponse(ctx, message)
+}
+
+func TestHandleGetSpentStateIDsResponse_SequencerNotLoaded_BadPayloadAndAddress(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	payload, _ := proto.Marshal(&engineProto.GetSpentStateIDsResponse{ContractAddress: contractAddr.String(), RequestId: "req1"})
+	sm.handleGetSpentStateIDsResponse(ctx, &components.ReceivedMessage{
+		FromNode: "coordinator-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_GetSpentStateIDsResponse, Payload: payload,
+	})
+
+	sm.handleGetSpentStateIDsResponse(ctx, &components.ReceivedMessage{
+		FromNode: "coordinator-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_GetSpentStateIDsResponse, Payload: []byte("not-a-proto"),
+	})
+
+	payload, _ = proto.Marshal(&engineProto.GetSpentStateIDsResponse{ContractAddress: "not-an-address"})
+	sm.handleGetSpentStateIDsResponse(ctx, &components.ReceivedMessage{
+		FromNode: "coordinator-node", MessageID: uuid.New(),
+		MessageType: transport.MessageType_GetSpentStateIDsResponse, Payload: payload,
 	})
 }

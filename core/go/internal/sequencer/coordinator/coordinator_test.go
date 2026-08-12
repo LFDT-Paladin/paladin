@@ -843,13 +843,29 @@ func TestCoordinator_WaitForDone_CtxCancelledWhileDispatchLoopRunning_ReturnsEar
 	}
 }
 
+// mockDomainSmartContractForConstructor satisfies the domain lookups NewCoordinator performs when
+// wiring the state query server.
+func mockDomainSmartContractForConstructor(t *testing.T) *componentsmocks.DomainSmartContract {
+	domainAPI := componentsmocks.NewDomainSmartContract(t)
+	domain := componentsmocks.NewDomain(t)
+	domain.On("Name").Return("test-domain").Maybe()
+	domainAPI.On("Domain").Return(domain).Maybe()
+	return domainAPI
+}
+
+func mockAllComponentsForConstructor(t *testing.T) *componentsmocks.AllComponents {
+	allComponents := componentsmocks.NewAllComponents(t)
+	allComponents.On("StateManager").Return(componentsmocks.NewStateManager(t)).Maybe()
+	return allComponents
+}
+
 func TestNewCoordinator_SenderMode_SetsCurrentActiveCoordinatorToNodeName(t *testing.T) {
 	const nodeName = "senderNode"
 	c := NewCoordinator(
 		pldtypes.RandAddress(),
-		componentsmocks.NewDomainSmartContract(t),
+		mockDomainSmartContractForConstructor(t),
 		nil,
-		componentsmocks.NewAllComponents(t),
+		mockAllComponentsForConstructor(t),
 		nil,
 		nil,
 		testutil.NewSentMessageRecorder(),
@@ -871,9 +887,9 @@ func TestNewCoordinator_EndorserMode_SetsEndorserCandidates(t *testing.T) {
 	endorsers := []string{"endorser1@node1", "endorser2@node2"}
 	c := NewCoordinator(
 		pldtypes.RandAddress(),
-		componentsmocks.NewDomainSmartContract(t),
+		mockDomainSmartContractForConstructor(t),
 		nil,
-		componentsmocks.NewAllComponents(t),
+		mockAllComponentsForConstructor(t),
 		nil,
 		nil,
 		testutil.NewSentMessageRecorder(),

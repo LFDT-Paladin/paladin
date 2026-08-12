@@ -34,17 +34,18 @@ import (
 )
 
 type stateManager struct {
-	p                 persistence.Persistence
-	bgCtx             context.Context
-	cancelCtx         context.CancelFunc
-	conf              *pldconf.StateStoreConfig
-	domainManager     components.DomainManager
-	txManager         components.TXManager
-	transportManager  components.TransportManager
-	abiSchemaCache    cache.Cache[string, components.Schema]
-	rpcModule         *rpcserver.RPCModule
-	domainContextLock sync.Mutex
-	domainContexts    map[uuid.UUID]*domainQueryContext
+	p                   persistence.Persistence
+	bgCtx               context.Context
+	cancelCtx           context.CancelFunc
+	conf                *pldconf.StateStoreConfig
+	domainManager       components.DomainManager
+	txManager           components.TXManager
+	transportManager    components.TransportManager
+	abiSchemaCache      cache.Cache[string, components.Schema]
+	validatedStateCache cache.Cache[string, *components.StateWithLabels]
+	rpcModule           *rpcserver.RPCModule
+	domainContextLock   sync.Mutex
+	domainContexts      map[uuid.UUID]*domainQueryContext
 }
 
 type logStateSpendRecords []*pldapi.StateSpendRecord
@@ -92,6 +93,8 @@ func NewStateManager(ctx context.Context, conf *pldconf.StateStoreConfig, p pers
 		p:              p,
 		conf:           conf,
 		abiSchemaCache: cache.NewCache[string, components.Schema](&conf.SchemaCache, &pldconf.StateStoreConfigDefaults.SchemaCache),
+		validatedStateCache: cache.NewCache[string, *components.StateWithLabels](
+			&conf.ValidatedStateCache, &pldconf.StateStoreConfigDefaults.ValidatedStateCache),
 		domainContexts: make(map[uuid.UUID]*domainQueryContext),
 	}
 	ss.bgCtx, ss.cancelCtx = context.WithCancel(log.WithComponent(ctx, "statemanager"))

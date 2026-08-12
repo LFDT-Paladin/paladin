@@ -27,15 +27,44 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm/clause"
 )
+
+// countingStateCache wraps the validated-state cache so tests can assert hit/miss behavior.
+type countingStateCache struct {
+	cache.Cache[string, *components.StateWithLabels]
+	hits, misses int
+}
+
+func (c *countingStateCache) Get(key string) (*components.StateWithLabels, bool) {
+	v, ok := c.Cache.Get(key)
+	if ok {
+		c.hits++
+	} else {
+		c.misses++
+	}
+	return v, ok
+}
+
+// cacheCounts returns the validated-state cache hit/miss tallies recorded so far.
+func cacheCounts(ss *stateManager) (hits, misses int) {
+	cc := ss.validatedStateCache.(*countingStateCache)
+	return cc.hits, cc.misses
+}
+
+// peekCache inspects the validated-state cache without disturbing the hit/miss tallies.
+func peekCache(ss *stateManager, key string) (*components.StateWithLabels, bool) {
+	return ss.validatedStateCache.(*countingStateCache).Cache.Get(key)
+}
 
 type mockComponents struct {
 	domainManager    *componentsmocks.DomainManager
@@ -66,6 +95,8 @@ func newDBTestStateManager(t *testing.T) (context.Context, *stateManager, *mockC
 	p, pDone, err := persistence.NewUnitTestPersistence(ctx, "statemgr")
 	require.NoError(t, err)
 	ss := NewStateManager(ctx, &pldconf.StateStoreConfig{}, p)
+	ssm := ss.(*stateManager)
+	ssm.validatedStateCache = &countingStateCache{Cache: ssm.validatedStateCache}
 
 	m := newMockComponents(t)
 
@@ -91,6 +122,8 @@ func newDBMockStateManager(t *testing.T) (context.Context, *stateManager, sqlmoc
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
 	ss := NewStateManager(ctx, &pldconf.StateStoreConfig{}, p.P)
+	ssm := ss.(*stateManager)
+	ssm.validatedStateCache = &countingStateCache{Cache: ssm.validatedStateCache}
 
 	m := newMockComponents(t)
 

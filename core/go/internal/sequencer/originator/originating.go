@@ -51,6 +51,7 @@ func (o *originator) newOriginatorTransaction(ctx context.Context, pt *component
 		localTx,
 		o.nodeName,
 		o.transportWriter,
+		o.stateViewClient,
 		o.queueEventInternal,
 		o.engineIntegration,
 		o.metrics,

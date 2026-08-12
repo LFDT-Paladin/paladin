@@ -78,6 +78,7 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(postAssembly.AssembleResponse, nil)
 	o.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: txn})
 	// Delegation happens asynchronously: the transaction first resolves its required verifiers
@@ -88,7 +89,7 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 	o.QueueEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{TransactionID: txn.ID},
 		RequestID: assembleRequestIdempotencyKey, Coordinator: coordinatorNode,
-		CoordinatorBlockHeight: 0, StateSnapshot: &prototk.StateSnapshot{},
+		CoordinatorBlockHeight: 0,
 	})
 	// Assembly runs in a background goroutine so use Eventually to wait for the response.
 	require.Eventually(t, mocks.SentMessageRecorder.HasSentAssembleSuccessResponse, 2*time.Second, 10*time.Millisecond, "Assemble success response should be sent")
@@ -158,7 +159,6 @@ func Test_propagateEventToTransaction_UnknownTransaction_AssembleRequestSendsRej
 		RequestID:              assembleRequestIdempotencyKey,
 		Coordinator:            coordinatorLocator,
 		CoordinatorBlockHeight: 1000,
-		StateSnapshot:          &prototk.StateSnapshot{},
 	}
 	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, event))
 	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "SendAssembleRejection should be called for unknown transaction")
@@ -353,4 +353,9 @@ func TestNewOriginator_EndorserMode_SetsEndorserCandidates(t *testing.T) {
 		},
 	)
 	assert.Equal(t, endorsers, o.endorserCandidates)
+}
+
+func TestOriginator_StateViewClientAccessor(t *testing.T) {
+	o, _ := NewOriginatorBuilderForTesting(t, State_Idle).Build()
+	assert.NotNil(t, o.StateViewClient())
 }

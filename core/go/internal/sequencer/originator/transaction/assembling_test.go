@@ -23,6 +23,8 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/stateviewmocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -241,14 +243,15 @@ func Test_handleAssemble_CalledWithCorrectParameters(t *testing.T) {
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}
 
-	// Mock Assemble with specific parameter expectations
+	// Mock Assemble with specific parameter expectations. The view is bound to the requesting
+	// coordinator by handleAssemble for the duration of the assembly.
 	mocks.EngineIntegration.On(
 		"Assemble",
 		ctx,
 		txn.pt.ID,
 		preAssembly,
 		resolvedVerifiers,
-		req.stateSnapshot,
+		mock.MatchedBy(func(view components.RemoteStateView) bool { return view != nil }),
 		req.coordinatorsBlockHeight,
 		mock.Anything,
 	).Return(expectedResponse, nil)
@@ -283,6 +286,7 @@ func Test_action_Assemble_SpawnsGoroutineThatQueuesEvent(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -308,7 +312,6 @@ func Test_action_AssembleRequestReceived_SetsDelegateAndLatestRequest(t *testing
 		RequestID:              requestID,
 		Coordinator:            coordinator,
 		CoordinatorBlockHeight: 100,
-		StateSnapshot:          &prototk.StateSnapshot{},
 	}
 	err := action_AssembleRequestReceived(ctx, txn, event)
 	require.NoError(t, err)
@@ -484,6 +487,7 @@ func Test_action_Assemble_UsesDeadlineContext_WhenExpirySet(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(nil, context.DeadlineExceeded)
 
 	err := action_Assemble(ctx, txn, nil)
@@ -559,7 +563,7 @@ func Test_action_Assemble_NilCancelIsNoOp(t *testing.T) {
 	builder.fakeEngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -599,7 +603,7 @@ func Test_action_Assemble_CancelsPreviousGoroutine(t *testing.T) {
 	builder.fakeEngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Once().Run(func(args mock.Arguments) {
 		assembleCtx := args.Get(0).(context.Context)
 		close(blocked)
@@ -612,7 +616,7 @@ func Test_action_Assemble_CancelsPreviousGoroutine(t *testing.T) {
 	builder.fakeEngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Once().Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -661,7 +665,7 @@ func Test_action_Assemble_SetsCurrentAssemblyRequestID(t *testing.T) {
 	builder.fakeEngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -695,7 +699,7 @@ func Test_action_Assemble_NudgeDoesNotCancelInFlightAssembly(t *testing.T) {
 	builder.fakeEngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Once().Run(func(_ mock.Arguments) {
 		close(blocked)
 		<-unblock
@@ -850,4 +854,35 @@ func TestValidator_AssembleRequestMatchesCurrentAssembly_NoCancelFunc(t *testing
 	matches, err := validator_AssembleRequestMatchesInProgressAssembly(ctx, txn, &AssembleRequestReceivedEvent{RequestID: requestID})
 	require.NoError(t, err)
 	assert.False(t, matches)
+}
+
+func Test_handleAssemble_BindsQuerierToRequestingCoordinator(t *testing.T) {
+	ctx := context.Background()
+	mockClient := stateviewmocks.NewClient(t)
+	mockView := componentsmocks.NewRemoteStateView(t)
+	builder := NewTransactionBuilderForTesting(t, State_Assembling).WithStateViewClient(mockClient)
+	txn, mocks := builder.BuildWithMocks()
+
+	require.NotNil(t, txn.latestAssembleRequest)
+	txn.latestAssembleRequest.coordinator = "coordinator-node"
+	req := *txn.latestAssembleRequest
+
+	// The view is bound to the node the assemble request came from — state view requests are
+	// answered by (and only by) that coordinator.
+	mockClient.EXPECT().ForCoordinator("coordinator-node", req.requestID.String()).Return(mockView).Once()
+
+	preAssembly := &prototk.TransactionPreAssembly{}
+	mocks.EngineIntegration.On(
+		"Assemble",
+		mock.Anything,
+		txn.pt.ID,
+		preAssembly,
+		mock.Anything,
+		mockView, // the bound view IS the one handed to assembly
+		mock.Anything,
+		mock.Anything,
+	).Return(&prototk.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_OK}, nil)
+
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
+	<-mocks.Events
 }

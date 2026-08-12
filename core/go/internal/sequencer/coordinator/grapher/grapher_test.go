@@ -288,7 +288,7 @@ func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
 
 	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterID))
 	// Seed visibility directly so ExportStatesAndLocks can return this state for "test-node"
-	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"test-node"}})
+	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"test-node"}, Labels: &prototk.StateLabels{}})
 	g.LockMintsOnReadAndSpend(ctx, endorsable(stateID), endorsable(), consumerID)
 
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
@@ -418,7 +418,7 @@ func TestForgetTransactionAndLocks_ClearsMinterConsumerAndLocks(t *testing.T) {
 	assert.False(t, ok)
 	_, ok = g.outputStatesByMinter[minterID]
 	assert.False(t, ok)
-	// statevisibilitytracker store must be empty — no AllowedNodes were ever set, and forgetLocks
+	// statevisibilitytracker store must be empty — no AllowedNodes were ever set, and forgetTxLocks
 	// must not leave stale entries even after a cascade delete on an absent key.
 	assert.Empty(t, g.stateVisibilityTracker.GetForNode("any-node"))
 }
@@ -463,7 +463,7 @@ func TestForgetTransaction_OutputStateRemainsForHeartbeatsUntilLockExpires(t *te
 
 	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, txID))
 	// Seed visibility so ExportStatesAndLocks returns this state for "test-node"
-	g.stateVisibilityTracker.ImportIfAbsent(s.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"test-node"}})
+	g.stateVisibilityTracker.ImportIfAbsent(s.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"test-node"}, Labels: &prototk.StateLabels{}})
 	g.LockMintsOnCreate(ctx, []*prototk.EndorsableState{{Id: s.String()}}, txID)
 	g.ForgetTransaction(ctx, txID, 100)
 
@@ -474,7 +474,7 @@ func TestForgetTransaction_OutputStateRemainsForHeartbeatsUntilLockExpires(t *te
 	assert.Equal(t, s.String(), data.GetStates()[0].GetState().GetId())
 
 	// Once the lock expires, both the lock and the OutputState are removed
-	g.ForgetLocks(ctx, 100+testBlockHeightTolerance)
+	g.ForgetConfirmedLocks(ctx, 100+testBlockHeightTolerance)
 	data, err = g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
 	assert.Empty(t, data.GetLocks())
@@ -565,7 +565,7 @@ func TestForgetTransaction_ClearsInFlightIndexesButKeepsStateData(t *testing.T) 
 
 	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, txID))
 	// Seed visibility for node1
-	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}})
+	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}, Labels: &prototk.StateLabels{}})
 	g.LockMintsOnCreate(ctx, []*prototk.EndorsableState{{Id: stateID.String()}}, txID)
 	g.ForgetTransaction(ctx, txID, 50)
 
@@ -579,7 +579,7 @@ func TestForgetTransaction_ClearsInFlightIndexesButKeepsStateData(t *testing.T) 
 	assert.Len(t, g.stateVisibilityTracker.GetForNode("node1"), 1, "state must remain visible to node1 after confirmation")
 
 	// Once the lock expires, OutputState is also cleaned up
-	g.ForgetLocks(ctx, 50+testBlockHeightTolerance)
+	g.ForgetConfirmedLocks(ctx, 50+testBlockHeightTolerance)
 	assert.Empty(t, g.stateVisibilityTracker.GetForNode("node1"), "state must be gone after lock expires")
 }
 
@@ -593,7 +593,7 @@ func TestForgetTransaction_UnknownTransaction_NoOp(t *testing.T) {
 	assert.Empty(t, data.GetLocks())
 }
 
-func TestForgetLocks_RemovesExpiredLocks(t *testing.T) {
+func TestForgetConfirmedLocks_RemovesExpiredLocks(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapher(t)
 	txID := uuid.New()
@@ -602,18 +602,18 @@ func TestForgetLocks_RemovesExpiredLocks(t *testing.T) {
 	g.ForgetTransaction(ctx, txID, 100)
 
 	// tolerance = 5, confirmedAt = 100, expires at >= 105
-	g.ForgetLocks(ctx, 104) // not yet expired
+	g.ForgetConfirmedLocks(ctx, 104) // not yet expired
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
 	assert.Len(t, data.GetLocks(), 1)
 
-	g.ForgetLocks(ctx, 105) // exactly at expiry
+	g.ForgetConfirmedLocks(ctx, 105) // exactly at expiry
 	data, err = g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
 	assert.Empty(t, data.GetLocks())
 }
 
-func TestForgetLocks_RemovesExpiredSpendLocks(t *testing.T) {
+func TestForgetConfirmedLocks_RemovesExpiredSpendLocks(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapher(t)
 	txID := uuid.New()
@@ -622,18 +622,18 @@ func TestForgetLocks_RemovesExpiredSpendLocks(t *testing.T) {
 	g.ForgetTransaction(ctx, txID, 100)
 
 	// tolerance = 5, confirmedAt = 100, expires at >= 105
-	g.ForgetLocks(ctx, 104) // not yet expired
+	g.ForgetConfirmedLocks(ctx, 104) // not yet expired
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
 	assert.Len(t, data.GetLocks(), 1)
 
-	g.ForgetLocks(ctx, 105) // exactly at expiry
+	g.ForgetConfirmedLocks(ctx, 105) // exactly at expiry
 	data, err = g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
 	assert.Empty(t, data.GetLocks())
 }
 
-func TestForgetLocks_DoesNotRemoveTransactionOwnedLocks(t *testing.T) {
+func TestForgetConfirmedLocks_DoesNotRemoveTransactionOwnedLocks(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapher(t)
 	txID := uuid.New()
@@ -641,7 +641,7 @@ func TestForgetLocks_DoesNotRemoveTransactionOwnedLocks(t *testing.T) {
 	g.LockMintsOnReadAndSpend(ctx, endorsable(s), endorsable(), txID)
 
 	// Should not touch transaction-owned locks
-	g.ForgetLocks(ctx, 99999)
+	g.ForgetConfirmedLocks(ctx, 99999)
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
 	assert.Len(t, data.GetLocks(), 1)
@@ -706,7 +706,7 @@ func TestImportStatesAndLocks_ExpiredAfterImport(t *testing.T) {
 	confirmedAt := uint64(10)
 	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{Locks: []*prototk.SnapshotStateLock{{StateId: s.String(), Type: prototk.SnapshotStateLock_READ, ConfirmedAtBlock: &confirmedAt}}})
 
-	g.ForgetLocks(ctx, 15) // 10 + 5 = 15, should expire
+	g.ForgetConfirmedLocks(ctx, 15) // 10 + 5 = 15, should expire
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
 	assert.Empty(t, data.GetLocks())
@@ -749,7 +749,7 @@ func TestImportStatesAndLocks_ImportsConfirmedOutputStates(t *testing.T) {
 
 	// Confirmed lock — no transaction
 	snapshot := &prototk.StateSnapshot{
-		States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: s.String()}, AllowedNodes: []string{"node1"}}},
+		States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: s.String()}, AllowedNodes: []string{"node1"}, Labels: &prototk.StateLabels{}}},
 		Locks:  []*prototk.SnapshotStateLock{{StateId: s.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAt}},
 	}
 
@@ -788,7 +788,7 @@ func TestImportStatesAndLocks_ExistingOutputStatePreserved(t *testing.T) {
 	// Seed an existing output state via direct visibility store access
 	err := g.AddMinter(ctx, []*prototk.EndorsableState{{Id: stateID.String()}}, txID)
 	require.NoError(t, err)
-	original := &prototk.SnapshotState{State: &prototk.EndorsableState{Id: stateID.String()}, AllowedNodes: []string{"node1"}}
+	original := &prototk.SnapshotState{State: &prototk.EndorsableState{Id: stateID.String()}, AllowedNodes: []string{"node1"}, Labels: &prototk.StateLabels{}}
 	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), original)
 
 	// Build an import with a confirmed lock for the same state ID but different AllowedNodes.
@@ -819,7 +819,7 @@ func TestExportStatesAndLocks_SpendLockSuppressesPrivateStateData(t *testing.T) 
 
 	// Minter assembles: create lock + private state data visible to "node1".
 	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterTx))
-	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}})
+	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}, Labels: &prototk.StateLabels{}})
 	g.LockMintsOnCreate(ctx,
 		[]*prototk.EndorsableState{{Id: stateID.String()}},
 		minterTx,
@@ -921,8 +921,8 @@ func TestCreateLockSurvivesSpendLockRevert(t *testing.T) {
 	assert.Equal(t, minterTx.String(), *createLock.Transaction)
 	assert.Equal(t, prototk.SnapshotStateLock_CREATE, createLock.GetType())
 
-	// Step 5: ExportStatesAndLocks must still include the create lock so that a reassembled
-	// transaction on the assembler node can find stateID via ImportSnapshot → creatingStates.
+	// Step 5: ExportStatesAndLocks must still include the create lock so that a handed-over
+	// coordinator keeps stateID selectable ahead-of-chain.
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
 	require.Len(t, data.GetLocks(), 1, "exactly the create lock must be exported")
@@ -971,4 +971,151 @@ func TestReadLockSurvivesSpendLockRevert(t *testing.T) {
 	assert.Equal(t, prototk.SnapshotStateLock_READ, data.GetLocks()[0].GetType())
 	require.NotNil(t, data.GetLocks()[0].Transaction)
 	assert.Equal(t, readerTx.String(), *data.GetLocks()[0].Transaction)
+}
+
+// seedLabelledState stores a state (with labels, so its query-evaluation form is prebuilt) in the
+// visibility tracker.
+func seedLabelledState(g *grapher, stateID pldtypes.HexBytes, nodes ...string) {
+	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{
+		State:        &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("66", 32)).String(), StateDataJson: `{"x":1}`},
+		AllowedNodes: nodes,
+		Labels:       &prototk.StateLabels{Labels: []*prototk.StateLabel{{Label: "x", Value: "1"}}},
+	})
+}
+
+func TestSnapshotViewForNode_CreateLockedState(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	minterID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("55", 32))
+
+	seedLabelledState(g, stateID, "test-node")
+	g.LockMintsOnCreate(ctx, endorsable(stateID), minterID)
+
+	states, spentStateIDs := g.SnapshotViewForNode(ctx, "test-node")
+	require.Len(t, states, 1)
+	assert.Equal(t, stateID.String(), states[0].GetState().GetId())
+	assert.Equal(t, "x", states[0].GetLabels().GetLabels()[0].GetLabel(), "candidates must carry their labels")
+	assert.Empty(t, spentStateIDs)
+
+	// A node with no visibility gets nothing (default-deny).
+	otherStates, _ := g.SnapshotViewForNode(ctx, "other-node")
+	assert.Empty(t, otherStates)
+}
+
+func TestSnapshotViewForNode_EmptyGrapher(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapher(t)
+	states, spentStateIDs := g.SnapshotViewForNode(ctx, "test-node")
+	assert.Empty(t, states)
+	assert.Empty(t, spentStateIDs)
+}
+
+func TestSnapshotViewForNode_SpendLockExcludesState(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	minterID := uuid.New()
+	consumerID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("57", 32))
+
+	readStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("59", 32))
+	seedLabelledState(g, stateID, "test-node")
+	g.LockMintsOnCreate(ctx, endorsable(stateID), minterID)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(readStateID), endorsable(stateID), consumerID)
+
+	// The state is spend-locked ahead of chain: it cannot be selected for assembly, so it must
+	// not be offered as a candidate — and its ID must appear in the view's spent set.
+	states, spentStateIDs := g.SnapshotViewForNode(ctx, "test-node")
+	assert.Empty(t, states)
+	require.Len(t, spentStateIDs, 1)
+	assert.Equal(t, stateID, spentStateIDs[0])
+}
+
+func TestSnapshotViewForNode_NoCreateLockExcludesState(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("5a", 32))
+
+	// Visible and labelled, but with no create lock (e.g. the lock already expired): the state is
+	// not selectable ahead-of-chain.
+	seedLabelledState(g, stateID, "test-node")
+	states, _ := g.SnapshotViewForNode(ctx, "test-node")
+	assert.Empty(t, states)
+}
+
+func TestSnapshotViewForNode_UnparseableSpendLockKeySkipped(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	minterID := uuid.New()
+	consumerID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("5b", 32))
+
+	seedLabelledState(g, stateID, "test-node")
+	g.LockMintsOnCreate(ctx, endorsable(stateID), minterID)
+	g.LockMintsOnReadAndSpend(ctx, nil, endorsable(stateID), consumerID)
+
+	// Lock keys are always locally-resolved hex state IDs, so an unparseable key cannot occur in
+	// practice — but if one ever did, it must be skipped rather than corrupting the spent set.
+	g.spendLocksByStateID["not-hex"] = &prototk.SnapshotStateLock{Type: prototk.SnapshotStateLock_SPEND}
+
+	states, spentStateIDs := g.SnapshotViewForNode(ctx, "test-node")
+	assert.Empty(t, states)
+	require.Len(t, spentStateIDs, 1, "the unparseable key must be skipped, the valid one kept")
+	assert.Equal(t, stateID, spentStateIDs[0])
+}
+
+func TestUnlabelledStateNeverAdvertised(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	minterID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("58", 32))
+
+	// A state without labels is internally inconsistent (assembly always resolves labels), so it is
+	// stored but advertised on neither the query nor the handover path.
+	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{
+		State:        &prototk.EndorsableState{Id: stateID.String()},
+		AllowedNodes: []string{"test-node"},
+	})
+	g.LockMintsOnCreate(ctx, endorsable(stateID), minterID)
+
+	states, _ := g.SnapshotViewForNode(ctx, "test-node")
+	assert.Empty(t, states)
+
+	full, err := g.ExportStatesAndLocks(ctx, "test-node")
+	require.NoError(t, err)
+	assert.Empty(t, full.GetStates())
+}
+
+func TestForgetConfirmedLocks_SweepsDueLocksAndCascadesToTracker(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	dueTxID := uuid.New()
+	inToleranceTxID := uuid.New()
+	inFlightTxID := uuid.New()
+	dueState := pldtypes.MustParseHexBytes("0x" + strings.Repeat("62", 32))
+	inToleranceState := pldtypes.MustParseHexBytes("0x" + strings.Repeat("63", 32))
+	inFlightState := pldtypes.MustParseHexBytes("0x" + strings.Repeat("64", 32))
+
+	// Confirmed create lock with visibility, due at 105
+	state := &prototk.EndorsableState{Id: dueState.String(), StateDataJson: `{}`}
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, dueTxID))
+	g.stateVisibilityTracker.ImportIfAbsent(dueState.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"test-node"}, Labels: &prototk.StateLabels{}})
+	g.LockMintsOnCreate(ctx, endorsable(dueState), dueTxID)
+	g.ForgetTransaction(ctx, dueTxID, 100)
+
+	// Confirmed spend lock still within tolerance at 105 (due at 106)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(inToleranceState), inToleranceTxID)
+	g.ForgetTransaction(ctx, inToleranceTxID, 101)
+
+	// Transaction-owned lock, never eligible for block-driven forgets
+	g.LockMintsOnReadAndSpend(ctx, endorsable(inFlightState), endorsable(), inFlightTxID)
+
+	g.ForgetConfirmedLocks(ctx, 105)
+	data, err := g.ExportStatesAndLocks(ctx, "test-node")
+	require.NoError(t, err)
+	require.Len(t, data.GetLocks(), 2, "exactly the due lock must be swept")
+	for _, lock := range data.GetLocks() {
+		assert.NotEqual(t, dueState.String(), lock.GetStateId())
+	}
+	assert.Empty(t, data.GetStates(), "removing the create lock must cascade to the visibility tracker")
 }

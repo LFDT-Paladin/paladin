@@ -97,8 +97,8 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, assembly
 		return err
 	}
 
-	// Record private state visibility after AddMinter succeeds
-	t.stateVisibilityTracker.RecordAssemblyOutput(ctx, pa.OutputStates, pa.AssembleResponse.GetOutputStatesPotential())
+	// Record private state visibility after AddMinter succeeds.
+	t.recordOutputStateVisibility(ctx)
 
 	// Add a lock for every output we create.
 	t.grapher.LockMintsOnCreate(ctx, pa.OutputStates, t.pt.ID)
@@ -107,6 +107,30 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, assembly
 	t.grapher.LockMintsOnReadAndSpend(ctx, pa.AssembleResponse.GetReadStates(), pa.AssembleResponse.GetInputStates(), t.pt.ID)
 
 	return nil
+}
+
+// recordOutputStateVisibility loads newly minted output-state visibility into the tracker. The three
+// index-aligned slices are derived from the transaction's PostAssembly: each output state, its
+// proto labels (OutputStatesWithLabels, in OutputStates order), and its distribution
+// list from the matching potential output (the authoritative AllowedNodes source).
+//
+// All three of these sources are guaranteed 1:1 with OutputStates in the output of ResolvePotentialStates.
+// This pattern of multiple aligned slices is fragile, but the fragility is kept to the single
+// function in the state visibility tracker and this one call site. The alternative involves either
+// composite types specifically for this function call, which come with the risk of being misused elsewhere,
+// or reusing existing types with multiple back and forth conversions between different field types
+// (e.g. pldtypes hex to proto string), which drives high CPU through allocs -> GC.
+func (t *coordinatorTransaction) recordOutputStateVisibility(ctx context.Context) {
+	pa := t.pt.PostAssembly
+	outputs := pa.OutputStates
+	potentials := pa.AssembleResponse.GetOutputStatesPotential()
+	labels := make([]*prototk.StateLabels, len(outputs))
+	distributionLists := make([][]string, len(outputs))
+	for i := range outputs {
+		labels[i] = pa.OutputStatesWithLabels[i].ProtoLabels()
+		distributionLists[i] = potentials[i].GetDistributionList()
+	}
+	t.stateVisibilityTracker.RecordAssemblyOutput(ctx, outputs, labels, distributionLists)
 }
 
 func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error {
@@ -118,18 +142,11 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	// When we first send the request, we start a ticker to emit a requestTimeout event for each tick
 	// and nudge the request every requestTimeout event to implement the short retry.
 	// The state machine will deal with the longer state timeout via timeout guards.
-	t.pendingAssembleRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		stateSnapshot, err := t.grapher.ExportStatesAndLocks(ctx, t.originatorNode)
-		if err != nil {
-			log.L(ctx).Errorf("failed to export grapher state snapshot: %s", err)
-			return err
-		}
-		log.L(ctx).Debugf("assemble request state snapshot for tx %s: %d states, %d locks", t.pt.ID, len(stateSnapshot.GetStates()), len(stateSnapshot.GetLocks()))
+	t.pendingAssembleRequest = common.NewIdempotentRequestWithKey(ctx, t.clock, t.requestTimeout, t.assembleSessionID, func(ctx context.Context, idempotencyKey uuid.UUID) error {
 		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, &engineProto.AssembleRequest{
 			TransactionId:          t.pt.ID.String(),
 			AssembleRequestId:      idempotencyKey.String(),
 			ContractAddress:        t.pt.Address.HexString(),
-			StateSnapshot:          stateSnapshot,
 			CoordinatorBlockHeight: t.getBlockHeight(),
 			ExpiryTimeUnixMs:       t.clock.Now().Add(t.stateTimeout).UnixMilli(),
 			BlockHeightTolerance:   int64(t.blockHeightTolerance),
@@ -234,6 +251,23 @@ func action_AssembleError(ctx context.Context, t *coordinatorTransaction, event 
 
 func action_SendAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	return txn.sendAssembleRequest(ctx)
+}
+
+// action_OpenStateViewSession initialises the assembleSessionID for this attempt and opens a
+// stateview session that captures the view served to the originator: the states currently available
+// to it plus the IDs of the states already spend-locked. Every state view request for this assemble
+// is answered from that captured view, so the originator's view cannot shift while the assemble is in
+// flight. The assembleSessionID is reused as the idempotency key of the assemble request so state queries
+// and the session can be correlated.
+func action_OpenStateViewSession(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.assembleSessionID = uuid.New()
+	txn.stateViewServer.OpenSession(ctx, txn.assembleSessionID.String(), txn.originatorNode)
+	return nil
+}
+
+func action_CloseStateViewSession(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.stateViewServer.CloseSession(ctx, txn.assembleSessionID.String())
+	return nil
 }
 
 func action_NudgeAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {

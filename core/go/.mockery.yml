@@ -87,3 +87,6 @@ packages:
     config:
       pkgname: statemachinemocks
       dir: mocks/statemachinemocks
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/stateview:
+    config:
+      all: true

@@ -37,18 +37,24 @@ import (
 //
 // States are held natively as *prototk.SnapshotState (an EndorsableState plus the AllowedNodes set of
 // nodes permitted to hold the private data, derived from the assembly response DistributionList). A nil
-// or empty AllowedNodes means the distribution is unknown and the state is excluded from all exports —
-// this is the default-deny posture. Storing the proto directly means the export/handover paths (the
-// hot paths) need no per-state conversion.
+// or empty AllowedNodes means the distribution is unknown and the state is excluded from all exports.
 type StateVisibilityStore interface {
 	// RecordAssemblyOutput is the only path by which newly minted state visibility is written.
-	// It derives AllowedNodes for each output state from the DistributionList in the assembly
-	// response and stores the result.
-	RecordAssemblyOutput(ctx context.Context, states []*prototk.EndorsableState, potentials []*prototk.NewState)
+	// The three slices must be index-aligned per new output state: the resolved endorsable state, its proto
+	// labels, and its distribution list. This is a somewhat clunky function signature, but it allows its
+	// single caller (a coordinator processing an assembly result) to pass in the necessary details of the state
+	// in both the formats it already has, and the formats the state visibility store needs, without forcing
+	// unnecessary type conversions and high allocations which drive garbage collection.
+	RecordAssemblyOutput(ctx context.Context, states []*prototk.EndorsableState, labels []*prototk.StateLabels, distributionLists [][]string)
 
-	// GetForNode returns all states that node is explicitly listed in AllowedNodes for.
-	// States with nil or empty AllowedNodes are always excluded (default-deny).
+	// GetForNode returns all states that node is explicitly listed in AllowedNodes for. States with
+	// nil or empty AllowedNodes are always excluded.
 	GetForNode(node string) []*prototk.SnapshotState
+
+	// RangeForNode calls fn for every state visible to node, under the same node/label filter as
+	// GetForNode, without allocating an intermediate slice.
+	// fn must not call back into the store as the read lock is held for the duration.
+	RangeForNode(node string, fn func(*prototk.SnapshotState))
 
 	// ImportIfAbsent records state only if no entry already exists for stateID.
 	// Existing entries always take precedence — a coordinator's own knowledge must never be
@@ -71,17 +77,32 @@ func NewStore() StateVisibilityStore {
 	}
 }
 
-func (s *store) RecordAssemblyOutput(ctx context.Context, states []*prototk.EndorsableState, potentials []*prototk.NewState) {
-	// Derive AllowedNodes before acquiring the lock — no shared state is read here.
-	allowedNodes := allowedNodesFromDistributionList(ctx, states, potentials)
+func (s *store) RecordAssemblyOutput(ctx context.Context, states []*prototk.EndorsableState, labels []*prototk.StateLabels, distributionLists [][]string) {
+	// Build snapshots before acquiring the lock — no shared state is read here. states[i], labels[i]
+	// and distributionLists[i] describe the same state; a missing distribution list leaves AllowedNodes
+	// empty. We stamp each state's created here: it is a coordinator-local ordering property,
+	// distinct from the persisted states.created (a local insert-time written by the DB layer on every node).
+	snapshots := make([]*prototk.SnapshotState, len(states))
+	for i, state := range states {
+		var distributionList []string
+		if i < len(distributionLists) {
+			distributionList = distributionLists[i]
+		}
+		var stateLabels *prototk.StateLabels
+		if i < len(labels) {
+			stateLabels = labels[i]
+		}
+		snapshots[i] = &prototk.SnapshotState{
+			State:        state,
+			AllowedNodes: allowedNodesFromDistributionList(ctx, distributionList),
+			Labels:       stateLabels,
+			Created:      pldtypes.TimestampNow().UnixNano(),
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, state := range states {
-		stateID := state.GetId()
-		s.statesByID[stateID] = &prototk.SnapshotState{
-			State:        state,
-			AllowedNodes: allowedNodes[stateID],
-		}
+	for _, snapshot := range snapshots {
+		s.statesByID[snapshot.GetState().GetId()] = snapshot
 	}
 }
 
@@ -89,12 +110,22 @@ func (s *store) GetForNode(node string) []*prototk.SnapshotState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*prototk.SnapshotState, 0, len(s.statesByID))
-	for _, state := range s.statesByID {
-		if nodeInAllowedList(state.GetAllowedNodes(), node) {
-			result = append(result, state)
+	for _, snapshot := range s.statesByID {
+		if snapshot.GetLabels() != nil && nodeInAllowedList(snapshot.GetAllowedNodes(), node) {
+			result = append(result, snapshot)
 		}
 	}
 	return result
+}
+
+func (s *store) RangeForNode(node string, fn func(*prototk.SnapshotState)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, snapshot := range s.statesByID {
+		if snapshot.GetLabels() != nil && nodeInAllowedList(snapshot.GetAllowedNodes(), node) {
+			fn(snapshot)
+		}
+	}
 }
 
 func (s *store) ImportIfAbsent(stateID string, state *prototk.SnapshotState) bool {
@@ -113,32 +144,25 @@ func (s *store) Delete(stateID string) {
 	delete(s.statesByID, stateID)
 }
 
-// allowedNodesFromDistributionList builds the stateID → node names map for output states by
-// reading the DistributionList that the domain included in its assembly response. This is the
-// authoritative source for which nodes are permitted to hold each state's private data.
-// If a locator cannot be parsed, a warning is logged and that recipient is skipped — the state
-// is still stored but will be invisible to the unparseable node (default-deny).
-func allowedNodesFromDistributionList(ctx context.Context, states []*prototk.EndorsableState, potentials []*prototk.NewState) map[string][]string {
-	allowedNodes := make(map[string][]string)
-	for i, state := range states {
-		if i >= len(potentials) {
-			break
+// allowedNodesFromDistributionList extracts the node names from a state's DistributionList — the
+// authoritative set of nodes permitted to hold that state's private data. If a locator cannot be
+// parsed, a warning is logged and that recipient is skipped, so the state is invisible to the
+// unparseable node.
+func allowedNodesFromDistributionList(ctx context.Context, distributionList []string) []string {
+	var allowedNodes []string
+	for _, recipient := range distributionList {
+		node, err := pldtypes.PrivateIdentityLocator(recipient).Node(ctx, false)
+		if err != nil {
+			log.L(ctx).Warnf("statevisibilitytracker: could not extract node from locator %q: %s", recipient, err)
+			continue
 		}
-		stateID := state.GetId()
-		for _, recipient := range potentials[i].DistributionList {
-			node, err := pldtypes.PrivateIdentityLocator(recipient).Node(ctx, false)
-			if err != nil {
-				log.L(ctx).Warnf("statevisibilitytracker: could not extract node from locator %q: %s", recipient, err)
-				continue
-			}
-			allowedNodes[stateID] = append(allowedNodes[stateID], node)
-		}
+		allowedNodes = append(allowedNodes, node)
 	}
 	return allowedNodes
 }
 
 // nodeInAllowedList reports whether node appears in the allowed list.
-// A nil or empty allowed list means unknown distribution — the state is excluded (default-deny).
+// A nil or empty allowed list means unknown distribution — the state is excluded.
 func nodeInAllowedList(allowed []string, node string) bool {
 	for _, n := range allowed {
 		if n == node {

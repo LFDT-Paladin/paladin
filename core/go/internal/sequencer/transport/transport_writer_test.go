@@ -349,12 +349,11 @@ func testEndorsementErrorMsg(transactionId, idempotencyKey, contractAddress, err
 	}
 }
 
-func testAssembleRequestMsg(txID, idempotencyId uuid.UUID, contractAddress *pldtypes.EthAddress, stateSnapshot *prototk.StateSnapshot, blockHeight int64, expiry time.Time, blockHeightTolerance int64) (*engineProto.AssembleRequest, error) {
+func testAssembleRequestMsg(txID, idempotencyId uuid.UUID, contractAddress *pldtypes.EthAddress, blockHeight int64, expiry time.Time, blockHeightTolerance int64) (*engineProto.AssembleRequest, error) {
 	return &engineProto.AssembleRequest{
 		TransactionId:          txID.String(),
 		AssembleRequestId:      idempotencyId.String(),
 		ContractAddress:        contractAddress.HexString(),
-		StateSnapshot:          stateSnapshot,
 		CoordinatorBlockHeight: blockHeight,
 		ExpiryTimeUnixMs:       expiry.UnixMilli(),
 		BlockHeightTolerance:   blockHeightTolerance,
@@ -1631,8 +1630,6 @@ func TestSendAssembleRequest_Success(t *testing.T) {
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	blockHeight := int64(100)
 
-	stateSnapshot := &prototk.StateSnapshot{}
-
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := sequencertransportmocks.NewLoopbackTransportManager(t)
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
@@ -1674,7 +1671,7 @@ func TestSendAssembleRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	assembleMsg, err := testAssembleRequestMsg(txID, idempotencyId, contractAddress, stateSnapshot, blockHeight, time.Time{}, 0)
+	assembleMsg, err := testAssembleRequestMsg(txID, idempotencyId, contractAddress, blockHeight, time.Time{}, 0)
 	require.NoError(t, err)
 	err = tw.SendAssembleRequest(ctx, assemblingNode, assembleMsg)
 	require.NoError(t, err)
@@ -1687,7 +1684,6 @@ func TestSendAssembleRequest_SerialisesExpiryTimeIntoProto(t *testing.T) {
 	idempotencyId := uuid.New()
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	blockHeight := int64(100)
-	stateSnapshot := &prototk.StateSnapshot{}
 	expiry := time.Now().Truncate(time.Millisecond) // truncate to ms precision to match UnixMilli roundtrip
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
@@ -1710,7 +1706,7 @@ func TestSendAssembleRequest_SerialisesExpiryTimeIntoProto(t *testing.T) {
 		loopbackTransport: mockLoopbackTransport,
 		contractAddress:   contractAddress,
 	}
-	assembleMsg, err := testAssembleRequestMsg(txID, idempotencyId, contractAddress, stateSnapshot, blockHeight, expiry, 0)
+	assembleMsg, err := testAssembleRequestMsg(txID, idempotencyId, contractAddress, blockHeight, expiry, 0)
 	require.NoError(t, err)
 	err = tw.SendAssembleRequest(ctx, assemblingNode, assembleMsg)
 	require.NoError(t, err)
@@ -1725,8 +1721,6 @@ func TestSendAssembleRequest_SendError(t *testing.T) {
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	blockHeight := int64(100)
 
-	stateSnapshot := &prototk.StateSnapshot{}
-
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := sequencertransportmocks.NewLoopbackTransportManager(t)
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
@@ -1740,7 +1734,7 @@ func TestSendAssembleRequest_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	assembleMsg, err := testAssembleRequestMsg(txID, idempotencyId, contractAddress, stateSnapshot, blockHeight, time.Time{}, 0)
+	assembleMsg, err := testAssembleRequestMsg(txID, idempotencyId, contractAddress, blockHeight, time.Time{}, 0)
 	require.NoError(t, err)
 	err = tw.SendAssembleRequest(ctx, assemblingNode, assembleMsg)
 	require.NoError(t, err)
@@ -3446,5 +3440,116 @@ func TestSendSignError_Success(t *testing.T) {
 	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
 
 	err := tw.SendSignError(ctx, "coordinator-node", &engineProto.SignError{TransactionId: "tx1"})
+	require.NoError(t, err)
+}
+
+func TestSendQueryAvailableStatesRequest_Success(t *testing.T) {
+	ctx := context.Background()
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTM := componentsmocks.NewTransportManager(t)
+	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
+	mockTM.On("LocalNodeName").Return("local-node").Maybe()
+	mockTM.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		if msg.MessageType != MessageType_QueryAvailableStatesRequest || msg.Node != "coordinator-node" {
+			return false
+		}
+		var req engineProto.QueryAvailableStatesRequest
+		return proto.Unmarshal(msg.Payload, &req) == nil && req.RequestId == "req1" && req.SchemaId == "0xaa"
+	})).Return(nil)
+
+	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
+
+	err := tw.SendQueryAvailableStatesRequest(ctx, "coordinator-node", &engineProto.QueryAvailableStatesRequest{RequestId: "req1", SchemaId: "0xaa", QueryJson: "{}"})
+	require.NoError(t, err)
+}
+
+func TestSendQueryAvailableStatesResponse_Success(t *testing.T) {
+	ctx := context.Background()
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTM := componentsmocks.NewTransportManager(t)
+	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
+	mockTM.On("LocalNodeName").Return("local-node").Maybe()
+	mockTM.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		if msg.MessageType != MessageType_QueryAvailableStatesResponse || msg.Node != "originator-node" {
+			return false
+		}
+		var resp engineProto.QueryAvailableStatesResponse
+		return proto.Unmarshal(msg.Payload, &resp) == nil && resp.RequestId == "req1" && len(resp.States) == 1
+	})).Return(nil)
+
+	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
+
+	err := tw.SendQueryAvailableStatesResponse(ctx, "originator-node", &engineProto.QueryAvailableStatesResponse{
+		RequestId: "req1",
+		States:    []*prototk.QueriedState{{State: &prototk.EndorsableState{Id: "0xaa"}}},
+	})
+	require.NoError(t, err)
+}
+
+func TestSendGetSpentStateIDsRequest_Success(t *testing.T) {
+	ctx := context.Background()
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTM := componentsmocks.NewTransportManager(t)
+	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
+	mockTM.On("LocalNodeName").Return("local-node").Maybe()
+	mockTM.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		if msg.MessageType != MessageType_GetSpentStateIDsRequest || msg.Node != "coordinator-node" {
+			return false
+		}
+		var req engineProto.GetSpentStateIDsRequest
+		return proto.Unmarshal(msg.Payload, &req) == nil && req.RequestId == "req1" && req.SessionId == "session-1"
+	})).Return(nil)
+
+	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
+
+	err := tw.SendGetSpentStateIDsRequest(ctx, "coordinator-node", &engineProto.GetSpentStateIDsRequest{RequestId: "req1", SessionId: "session-1"})
+	require.NoError(t, err)
+}
+
+func TestSendGetSpentStateIDsResponse_Success(t *testing.T) {
+	ctx := context.Background()
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTM := componentsmocks.NewTransportManager(t)
+	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
+	mockTM.On("LocalNodeName").Return("local-node").Maybe()
+	mockTM.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		if msg.MessageType != MessageType_GetSpentStateIDsResponse || msg.Node != "originator-node" {
+			return false
+		}
+		var resp engineProto.GetSpentStateIDsResponse
+		return proto.Unmarshal(msg.Payload, &resp) == nil && resp.RequestId == "req1" && len(resp.SpentStateIds) == 1
+	})).Return(nil)
+
+	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
+
+	err := tw.SendGetSpentStateIDsResponse(ctx, "originator-node", &engineProto.GetSpentStateIDsResponse{
+		RequestId:     "req1",
+		SpentStateIds: [][]byte{{0x01, 0x02}},
+	})
+	require.NoError(t, err)
+}
+
+func TestSendStateViewError_Success(t *testing.T) {
+	ctx := context.Background()
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTM := componentsmocks.NewTransportManager(t)
+	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
+	mockTM.On("LocalNodeName").Return("local-node").Maybe()
+	mockTM.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		if msg.MessageType != MessageType_StateViewError || msg.Node != "originator-node" {
+			return false
+		}
+		var errMsg engineProto.StateViewError
+		return proto.Unmarshal(msg.Payload, &errMsg) == nil && errMsg.RequestId == "req1" && errMsg.ErrorMessage == "pop"
+	})).Return(nil)
+
+	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
+
+	err := tw.SendStateViewError(ctx, "originator-node", &engineProto.StateViewError{RequestId: "req1", ErrorMessage: "pop"})
 	require.NoError(t, err)
 }

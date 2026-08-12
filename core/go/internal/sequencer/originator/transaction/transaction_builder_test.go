@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
@@ -70,6 +71,7 @@ type TransactionBuilderForTesting struct {
 	resolveRetryBackoff    time.Duration
 	resolveVerifiersResult []*prototk.ResolvedVerifier
 	resolveVerifiersErr    error
+	stateViewClient        stateview.Client
 }
 
 // Function NewTransactionBuilderForTesting creates a TransactionBuilderForTesting with random values for all fields.
@@ -158,6 +160,13 @@ func (b *TransactionBuilderForTesting) WithCheckPendingPrivateStateDataError(err
 	return b
 }
 
+// WithStateViewClient swaps the real state query client for the given one (typically a mock)
+// so tests can assert on the querier handed to assembly.
+func (b *TransactionBuilderForTesting) WithStateViewClient(client stateview.Client) *TransactionBuilderForTesting {
+	b.stateViewClient = client
+	return b
+}
+
 // WithMockClock swaps the real clock for a mock so tests can assert on scheduled retry timers.
 func (b *TransactionBuilderForTesting) WithMockClock() *TransactionBuilderForTesting {
 	b.mockClock = sequencercommonmocks.NewClock(b.t)
@@ -226,11 +235,16 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		transportWriter = b.mockTransportWriter
 	}
 
+	if b.stateViewClient == nil {
+		b.stateViewClient = stateview.NewClient(privateTransaction.Address.HexString(), transportWriter, time.Second, common.RealClock())
+	}
+
 	txn := newTransaction(privateTransaction,
 		nil,
 		"node1",
 		b.fakeEngineIntegration,
 		transportWriter,
+		b.stateViewClient,
 		b.queueEventForOriginator,
 		b.metrics,
 		func(_ context.Context) {},
@@ -317,7 +331,8 @@ func (m *TransactionDependencyFakes) MockForAssembleRequestOK() *mock.Call {
 		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
 		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
-		mock.Anything, //stateLocksJSON []byte
+		mock.Anything, //spendStateIDs []pldtypes.HexBytes
+		mock.Anything, //snapshotQuerier components.RemoteStateView
 		mock.Anything, //blockHeight int64
 		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
@@ -333,7 +348,8 @@ func (m *TransactionDependencyFakes) MockForAssembleRequestRevert() *mock.Call {
 		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
 		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
-		mock.Anything, //stateLocksJSON []byte
+		mock.Anything, //spendStateIDs []pldtypes.HexBytes
+		mock.Anything, //snapshotQuerier components.RemoteStateView
 		mock.Anything, //blockHeight int64
 		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
@@ -350,7 +366,8 @@ func (m *TransactionDependencyFakes) MockForAssembleRequestPark() *mock.Call {
 		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *prototk.TransactionPreAssembly
 		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
-		mock.Anything, //stateLocksJSON []byte
+		mock.Anything, //spendStateIDs []pldtypes.HexBytes
+		mock.Anything, //snapshotQuerier components.RemoteStateView
 		mock.Anything, //blockHeight int64
 		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
