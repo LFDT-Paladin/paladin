@@ -492,19 +492,16 @@ func TestDispatchBatch_NoChainedChildren_SkipsHandoff(t *testing.T) {
 	mocks.SequencerManager.AssertNotCalled(t, "HandleNewTx")
 }
 
-// TestDispatchBatch_PersistError_ResetsAndRetries verifies that when the batch commit fails, the loop
-// resets the domain state writer, re-stages the batch's states and retries the commit; chained children
-// are handed off only after the commit eventually succeeds.
-func TestDispatchBatch_PersistError_ResetsAndRetries(t *testing.T) {
+// TestDispatchBatch_PersistError_Retries verifies that when the batch commit fails, the loop retries the
+// commit; chained children are handed off only after the commit eventually succeeds.
+func TestDispatchBatch_PersistError_Retries(t *testing.T) {
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Active).Build()
 
 	pd := chainedDispatch()
-	pd.StatesToStage = []*components.StateWithLabels{{}}
+	pd.StatesToWrite = []*components.StateWithLabels{{}}
 
-	mocks.DomainStateWriter.EXPECT().StageWrites(mock.Anything, pd.StatesToStage).Return(nil).Twice()
 	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Return(errors.New("persist failed")).Once()
-	mocks.DomainStateWriter.EXPECT().Reset().Return().Once()
 	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Return(nil).Once()
 	mocks.SequencerManager.EXPECT().HandleNewTx(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.Persistence.Mock.ExpectBegin()
@@ -523,7 +520,6 @@ func TestDispatchBatch_PersistError_ContextCancelled_SkipsChainedHandoff(t *test
 	mocks.SyncPoints.EXPECT().PersistDispatchBatch(mock.Anything, mock.Anything).Run(func(ctx context.Context, batch *syncpoints.DispatchBatch) {
 		cancel()
 	}).Return(errors.New("persist failed"))
-	mocks.DomainStateWriter.EXPECT().Reset().Return()
 
 	c.dispatchBatch(ctx, []queuedDispatch{newDispatchQueued(t, chainedDispatch())})
 

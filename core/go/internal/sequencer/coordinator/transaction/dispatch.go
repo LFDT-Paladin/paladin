@@ -117,14 +117,14 @@ func action_QueuePreparedDispatch(ctx context.Context, t *coordinatorTransaction
 
 // prepareAndBuildDispatch runs off the coordinator event loop. It prepares the transaction via the
 // domain, builds the transaction dispatch, resolves state distributions, and builds the nullifier
-// records validated against and linked to the states to be staged. The private transaction is only
+// records validated against and linked to the states to be written. The private transaction is only
 // ever read: the prepare outputs are returned by the domain and everything built from them goes into
 // the returned pending dispatch, so nothing is written back to shared transaction state from this
 // goroutine.
 func (t *coordinatorTransaction) prepareAndBuildDispatch(ctx context.Context, pt *components.PrivateTransaction, revertCount int) (*syncpoints.PendingDispatch, error) {
 	// TODO: should this domain query context be populated with a snapshot of the domain's states at the point the transaction
 	// finished assembling? Doing this would require storing a grapher snapshot for every transaction.
-	// In a previous iteration of this code where the domain state writer and domain query context coexisted
+	// In a previous iteration of this code where state/nullifer writing and domain query context capabilities coexisted
 	// in a single domain context, the context was effectively loaded with the entire coordinator ahead of chain view,
 	// including transactions assembled after this one. This was arguably too far ahead, as the domain shouldn't be able
 	// to query the future when preparing the transaction. At this stage the domain should not really need to be querying
@@ -161,12 +161,12 @@ func (t *coordinatorTransaction) prepareAndBuildDispatch(ctx context.Context, pt
 	}
 
 	// The output/info states (resolved at assembly) and their nullifiers are carried on the pending
-	// dispatch; the dispatch loop stages them into the domain state writer immediately before the flush.
+	// dispatch; they are written to the DB in the same transaction that persists the dispatch.
 	return &syncpoints.PendingDispatch{
 		TransactionID:      pt.ID,
 		Dispatch:           dispatch,
 		StateDistributions: remoteStateDistributions,
-		StatesToStage:      append(pt.PostAssembly.OutputStatesWithLabels, pt.PostAssembly.InfoStatesWithLabels...),
+		StatesToWrite:      append(pt.PostAssembly.OutputStatesWithLabels, pt.PostAssembly.InfoStatesWithLabels...),
 		Nullifiers:         nullifiers,
 	}, nil
 }

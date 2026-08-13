@@ -103,7 +103,7 @@ var (
 	MsgStateLabelFieldNotUnique       = pde("PD010115", "Label field with index %d has a duplicate name '%s'")
 	MsgStateInvalidValue              = pde("PD010116", "Invalid value")
 	MsgStateLockCreateNotInContext    = pde("PD010118", "Cannot mark a creating lock for state %s as it was not added in this context")
-	MsgStateFlushFailedDomainReset    = pde("PD010119", "Flush of state for domain %s contract %s has failed. The domain context must be reset")
+	// PD010119 removed
 	MsgStateSpendConflictUnexpected   = pde("PD010120", "Pending spend for transaction %s found when attempting to spend from transaction %s")
 	MsgStateConfirmConflictUnexpected = pde("PD010121", "Pending confirmation for transaction %s found when attempting to confirm from transaction %s")
 	MsgStateDomainContextClosed       = pde("PD010122", "Domain context has been closed")
@@ -115,8 +115,7 @@ var (
 	MsgStateInvalidCalculatingHash = pde("PD010128", "Failed to generate hash as state is invalid")
 	MsgStateHashMismatch           = pde("PD010129", "The supplied state ID '%s' does not match the state hash '%s'")
 	MsgStateIDMissing              = pde("PD010130", "The state id must be supplied for this domain")
-	MsgStateFlushInProgress        = pde("PD010131", "A flush is already in progress for this domain context")
-	// PD010132 and PD010133 removed
+	// PD010131, PD010132, PD010133 removed
 	MsgStateViewQueryFailed            = pde("PD010134", "Remote state view query failed")
 	MsgStateQueriedStateNoMatch        = pde("PD010135", "Coordinator returned state %s whose validated labels do not match the query")
 	MsgStateQueriedStateSchemaMismatch = pde("PD010136", "Coordinator returned state %s with schema %s for a query against schema %s")

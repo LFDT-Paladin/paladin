@@ -751,7 +751,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	err = psc.ResolvePotentialStates(td.ctx, td.c.dbTX, ptx)
 	require.NoError(t, err)
 
-	// Output state5 was written to the DomainStateWriter (unflushed). It is NOT yet visible
+	// Output state5 was only resolved in memory, not written to the DB. It is NOT visible
 	// via FindAvailableStates because the DomainQueryContext only sees confirmed DB states.
 	stateRes, err := domain.FindAvailableStates(td.ctx, &prototk.FindAvailableStatesRequest{
 		StateQueryContext: td.c.id,

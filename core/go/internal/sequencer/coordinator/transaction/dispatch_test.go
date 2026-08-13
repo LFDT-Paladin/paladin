@@ -517,7 +517,7 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 	ctx := t.Context()
 	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	nullifierID := pldtypes.HexBytes(pldtypes.RandBytes(32))
-	statesToStage := []*components.StateWithLabels{{State: &pldapi.State{StateBase: pldapi.StateBase{ID: stateID}}}}
+	statesToWrite := []*components.StateWithLabels{{State: &pldapi.State{StateBase: pldapi.StateBase{ID: stateID}}}}
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Preparing).
 		PreAssembly(&prototk.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
@@ -527,7 +527,7 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 		}).
 		PostAssembly(&components.TransactionPostAssembly{
 			AssembleResponse:       &prototk.TransactionPostAssembly{},
-			OutputStatesWithLabels: statesToStage,
+			OutputStatesWithLabels: statesToWrite,
 		}).
 		Build()
 	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&components.PrepareTransactionResult{PreparedPrivateTransaction: &pldapi.TransactionInput{}}, nil)
@@ -538,12 +538,11 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 
 	pd, err := txn.prepareAndBuildDispatch(ctx, txn.pt, 0)
 	require.NoError(t, err)
-	// The nullifiers are carried on the pending dispatch for the dispatch loop to stage immediately
-	// before the flush.
+	// The nullifiers are carried on the pending dispatch to be written when the batch is persisted.
 	require.Len(t, pd.Nullifiers, 1)
 	assert.Equal(t, nullifierID, pd.Nullifiers[0].ID)
 	assert.Equal(t, stateID, pd.Nullifiers[0].State)
-	assert.Equal(t, statesToStage, pd.StatesToStage)
+	assert.Equal(t, statesToWrite, pd.StatesToWrite)
 }
 
 // Test_dispatch_PendingDispatch_CarriesRemoteStateDistributions verifies that prepareAndBuildDispatch resolves the
@@ -665,6 +664,17 @@ func Test_HandleEvent_PrepareSucceeded_StalePrepareIDIgnored(t *testing.T) {
 	assert.Equal(t, State_Preparing, txn.GetCurrentState())
 	assert.Empty(t, mocks.EnqueuedDispatches)
 	assert.NotNil(t, txn.pt.PostAssembly)
+}
+
+func Test_validator_MatchesInFlightPrepareID_OtherEventType(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Preparing).Build()
+
+	matches, err := validator_MatchesInFlightPrepareID(ctx, txn, &DispatchedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+	})
+	require.NoError(t, err)
+	assert.False(t, matches)
 }
 
 func Test_HandleEvent_PrepareFailed_Repools(t *testing.T) {

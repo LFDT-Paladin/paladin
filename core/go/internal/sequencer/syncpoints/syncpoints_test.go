@@ -34,8 +34,9 @@ func TestNewSyncPoints(t *testing.T) {
 	txMgr := componentsmocks.NewTXManager(t)
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr)
+	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr, stateMgr)
 
 	require.NotNil(t, sp)
 
@@ -47,6 +48,7 @@ func TestNewSyncPoints(t *testing.T) {
 	assert.Equal(t, txMgr, syncPointsImpl.txMgr)
 	assert.Equal(t, pubTxMgr, syncPointsImpl.pubTxMgr)
 	assert.Equal(t, transportMgr, syncPointsImpl.transportMgr)
+	assert.Equal(t, stateMgr, syncPointsImpl.stateMgr)
 	assert.NotNil(t, syncPointsImpl.writer, "writer should be initialized")
 	assert.False(t, syncPointsImpl.started, "started should be false initially")
 }
@@ -58,8 +60,9 @@ func TestNewSyncPoints_WithEmptyConfig(t *testing.T) {
 	txMgr := componentsmocks.NewTXManager(t)
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr)
+	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr, stateMgr)
 
 	require.NotNil(t, sp)
 	syncPointsImpl, ok := sp.(*syncPoints)
@@ -74,8 +77,9 @@ func TestSyncPoints_Start(t *testing.T) {
 	txMgr := componentsmocks.NewTXManager(t)
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr)
+	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr, stateMgr)
 	syncPointsImpl := sp.(*syncPoints)
 
 	// Initially not started
@@ -99,8 +103,9 @@ func TestSyncPoints_Start_InitializesWriter(t *testing.T) {
 	txMgr := componentsmocks.NewTXManager(t)
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr)
+	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr, stateMgr)
 	syncPointsImpl := sp.(*syncPoints)
 
 	// Writer should exist before Start
@@ -119,8 +124,9 @@ func TestSyncPoints_Close(t *testing.T) {
 	txMgr := componentsmocks.NewTXManager(t)
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr)
+	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr, stateMgr)
 	syncPointsImpl := sp.(*syncPoints)
 
 	// Start first
@@ -142,8 +148,9 @@ func TestSyncPoints_Close_WithoutStart(t *testing.T) {
 	txMgr := componentsmocks.NewTXManager(t)
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr)
+	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr, stateMgr)
 
 	// Close without starting should not panic
 	sp.Close()
@@ -156,8 +163,9 @@ func TestSyncPoints_Close_CanBeCalledMultipleTimes(t *testing.T) {
 	txMgr := componentsmocks.NewTXManager(t)
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr)
+	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr, stateMgr)
 
 	sp.Start()
 
@@ -174,8 +182,9 @@ func TestSyncPoints_StartClose_Lifecycle(t *testing.T) {
 	txMgr := componentsmocks.NewTXManager(t)
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr)
+	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr, stateMgr)
 	syncPointsImpl := sp.(*syncPoints)
 
 	// Verify initial state
@@ -203,13 +212,15 @@ func TestSyncPoints_NewSyncPoints_AllComponentsSet(t *testing.T) {
 	txMgr := componentsmocks.NewTXManager(t)
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr)
+	sp := NewSyncPoints(ctx, conf, p, txMgr, pubTxMgr, transportMgr, stateMgr)
 	syncPointsImpl := sp.(*syncPoints)
 
 	// Verify all components are set
 	assert.Equal(t, txMgr, syncPointsImpl.txMgr)
 	assert.Equal(t, pubTxMgr, syncPointsImpl.pubTxMgr)
 	assert.Equal(t, transportMgr, syncPointsImpl.transportMgr)
+	assert.Equal(t, stateMgr, syncPointsImpl.stateMgr)
 	assert.NotNil(t, syncPointsImpl.writer)
 }

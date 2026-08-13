@@ -143,6 +143,35 @@ func (ss *stateManager) processInsertStates(ctx context.Context, dbTX persistenc
 	return processedStates, nil
 }
 
+// WriteStateBatch writes fully-built states and their pre-built nullifier records within the caller's
+// DB transaction. Nullifiers must be validated against and linked to their creating states by the caller.
+func (ss *stateManager) WriteStateBatch(ctx context.Context, dbTX persistence.DBTX, statesWithLabels []*components.StateWithLabels, nullifiers ...*pldapi.StateNullifier) (err error) {
+	states := make([]*pldapi.State, len(statesWithLabels))
+	for i, s := range statesWithLabels {
+		states[i] = s.State
+	}
+	log.L(ctx).Debugf("Writing state batch states=%d nullifiers=%d", len(states), len(nullifiers))
+	if log.IsTraceEnabled() {
+		for _, s := range states {
+			log.L(ctx).Tracef("Writing state for contract %s, data=%s, domain=%s, created=%s", s.ContractAddress, s.Data, s.DomainName, s.Created)
+		}
+	}
+
+	if len(states) > 0 {
+		err = ss.writeStates(ctx, dbTX, states)
+	}
+	if err == nil && len(nullifiers) > 0 {
+		err = dbTX.DB(ctx).
+			Table("state_nullifiers").
+			Clauses(clause.OnConflict{
+				DoNothing: true, // immutable
+			}).
+			Create(nullifiers).
+			Error
+	}
+	return err
+}
+
 func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, states []*pldapi.State) (err error) {
 	var labels []*pldapi.StateLabel
 	var int64Labels []*pldapi.StateInt64Label
