@@ -50,7 +50,7 @@ func TestBuildQueryJSONOrPaginationCursor(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		var count int64
 		db := BuildGORM(context.Background(), &qf, tx.Table("indexed_transactions"), FieldMap{
 			"blockNumber":      Int64Field("block_number"),
@@ -104,7 +104,7 @@ func TestBuildQueryJSONOrPaginationCursorWithJoins(t *testing.T) {
 
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
-	generatedSQL := p.P.DB().ToSQL(func(tx *gorm.DB) *gorm.DB {
+	generatedSQL := p.P.DB(context.Background()).ToSQL(func(tx *gorm.DB) *gorm.DB {
 		q := tx.Table("indexed_transactions").Joins("Block").
 			Where(`EXISTS (SELECT 1 FROM transaction_receipts WHERE "transaction_receipts"."tx_hash" = "indexed_transactions"."hash")`)
 		var results []*pldapi.IndexedTransaction

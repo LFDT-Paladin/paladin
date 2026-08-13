@@ -898,34 +898,6 @@ func (d *domain) ReverseKeyLookup(ctx context.Context, req *prototk.ReverseKeyLo
 	return &prototk.ReverseKeyLookupResponse{Results: results}, nil
 }
 
-func (d *domain) mapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, isOutput bool, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
-	stateUpserts = make([]*components.StateUpsert, len(potentialStates))
-	for i, s := range potentialStates {
-		schema := d.schemasByID[s.SchemaId]
-		if schema == nil {
-			return nil, i18n.NewError(ctx, msgs.MsgDomainUnknownSchema, s.SchemaId)
-		}
-		var id pldtypes.HexBytes
-		if s.Id != nil {
-			id, err = pldtypes.ParseHexBytes(ctx, *s.Id)
-			if err != nil {
-				return nil, err
-			}
-		}
-		stateUpsert := &components.StateUpsert{
-			ID:     id,
-			Schema: schema.ID(),
-			Data:   pldtypes.RawJSON(s.StateDataJson),
-		}
-		if isOutput {
-			// These are marked as locked and creating in the transaction, and become available for other transaction to read
-			stateUpsert.CreatedBy = &createdByTX.ID
-		}
-		stateUpserts[i] = stateUpsert
-	}
-	return stateUpserts, nil
-}
-
 func (d *domain) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
 	c, err := d.checkInFlight(ctx, req.StateQueryContext, false)
 	if err != nil {
@@ -946,12 +918,22 @@ func (d *domain) ValidateStates(ctx context.Context, req *prototk.ValidateStates
 		}
 		statesToValidate[i] = es
 	}
-	validated, err := d.dm.stateStore.ValidateStates(ctx, c.dbTX, d.Name(), c.dqc.ContractAddress(), d.CustomHashFunction(), statesToValidate...)
+	// The validated response is a pldapi struct with richer types. Convert it back to a proto type
+	// to send back to the domain. Validation will have computed the ID and normalized the state data.
+	validated, err := d.dm.stateStore.ValidateStates(ctx, c.dbTX, d, c.dqc.ContractAddress(), statesToValidate...)
 	if err != nil {
 		return nil, err
 	}
+	validatedStates := make([]*prototk.EndorsableState, len(validated))
+	for i, s := range validated {
+		validatedStates[i] = &prototk.EndorsableState{
+			Id:            s.ID.String(),
+			SchemaId:      s.Schema.String(),
+			StateDataJson: string(s.Data),
+		}
+	}
 	return &prototk.ValidateStatesResponse{
-		States: validated,
+		States: validatedStates,
 	}, nil
 }
 

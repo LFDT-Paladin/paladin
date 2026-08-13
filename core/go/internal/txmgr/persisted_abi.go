@@ -56,8 +56,7 @@ func (tm *txManager) getABIByHash(ctx context.Context, dbTX persistence.DBTX, ha
 		return pa, nil
 	}
 	var pABIs []*PersistedABI
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Table("abis").
 		Where("hash = ?", hash).
 		Find(&pABIs).
@@ -123,7 +122,7 @@ func (tm *txManager) UpsertABI(ctx context.Context, dbTX persistence.DBTX, a abi
 	// Otherwise ask the DB to store
 	abiBytes, err := json.Marshal(a)
 	if err == nil {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("abis").
 			Clauses(clause.OnConflict{
 				Columns: []clause.Column{
@@ -138,7 +137,7 @@ func (tm *txManager) UpsertABI(ctx context.Context, dbTX persistence.DBTX, a abi
 			Error
 	}
 	if err == nil && len(abiEntries) > 0 {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("abi_entries").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(abiEntries).

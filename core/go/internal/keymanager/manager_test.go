@@ -951,7 +951,7 @@ func TestQueryKeysFindError(t *testing.T) {
 	mc.db.ExpectQuery("SELECT.*key_paths.*").WillReturnError(fmt.Errorf("database error"))
 
 	jq := query.NewQueryBuilder().Query()
-	_, err := km.QueryKeys(ctx, km.p.DB(), jq)
+	_, err := km.QueryKeys(ctx, km.p.NOTX(), jq)
 	assert.Regexp(t, "database error", err)
 }
 
@@ -1057,6 +1057,6 @@ func TestQueryKeysScanVerifiersError(t *testing.T) {
 	mc.db.ExpectQuery("SELECT.*key_verifiers.*").WillReturnError(fmt.Errorf("verifier scan error"))
 
 	jq := query.NewQueryBuilder().Query()
-	_, err := km.QueryKeys(ctx, km.p.DB(), jq)
+	_, err := km.QueryKeys(ctx, km.p.NOTX(), jq)
 	assert.Regexp(t, "verifier scan error", err)
 }

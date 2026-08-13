@@ -42,20 +42,20 @@ import (
 // We keep this separate from the pldapi.TransactionXYZ interfaces that clients and applications use to interact
 // with this, so we have a separation of concerns on the GORM annotations and data serialization format
 type persistedTransaction struct {
-	ID                 uuid.UUID                             `gorm:"column:id;primaryKey"`
-	IdempotencyKey     *string                               `gorm:"column:idempotency_key"`
-	SubmitMode         pldtypes.Enum[pldapi.SubmitMode]      `gorm:"column:submit_mode"`
-	Type               pldtypes.Enum[pldapi.TransactionType] `gorm:"column:type"`
-	Created            pldtypes.Timestamp                    `gorm:"column:created;autoCreateTime:false"` // set by code before insert
-	ABIReference       *pldtypes.Bytes32                     `gorm:"column:abi_ref"`
-	Function           *string                               `gorm:"column:function"`
-	Domain             *string                               `gorm:"column:domain"`
-	From               string                                `gorm:"column:from"`
-	To                 *pldtypes.EthAddress                  `gorm:"column:to"`
-	Data               pldtypes.RawJSON                      `gorm:"column:data"` // we always store in JSON object format
-	TransactionDeps        []*transactionDep        `gorm:"foreignKey:transaction;references:id"`
-	TransactionChainedDeps []*transactionChainedDep `gorm:"foreignKey:transaction;references:id"`
-	TransactionReceipt     *transactionReceipt      `gorm:"foreignKey:transaction;references:id"`
+	ID                     uuid.UUID                             `gorm:"column:id;primaryKey"`
+	IdempotencyKey         *string                               `gorm:"column:idempotency_key"`
+	SubmitMode             pldtypes.Enum[pldapi.SubmitMode]      `gorm:"column:submit_mode"`
+	Type                   pldtypes.Enum[pldapi.TransactionType] `gorm:"column:type"`
+	Created                pldtypes.Timestamp                    `gorm:"column:created;autoCreateTime:false"` // set by code before insert
+	ABIReference           *pldtypes.Bytes32                     `gorm:"column:abi_ref"`
+	Function               *string                               `gorm:"column:function"`
+	Domain                 *string                               `gorm:"column:domain"`
+	From                   string                                `gorm:"column:from"`
+	To                     *pldtypes.EthAddress                  `gorm:"column:to"`
+	Data                   pldtypes.RawJSON                      `gorm:"column:data"` // we always store in JSON object format
+	TransactionDeps        []*transactionDep                     `gorm:"foreignKey:transaction;references:id"`
+	TransactionChainedDeps []*transactionChainedDep              `gorm:"foreignKey:transaction;references:id"`
+	TransactionReceipt     *transactionReceipt                   `gorm:"foreignKey:transaction;references:id"`
 }
 
 type transactionDep struct {
@@ -417,8 +417,7 @@ func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persiste
 		}
 		log.L(ctx).Warnf("insert count mismatch - checking for idempotency key clashes: %v", idempotencyKeys)
 		var txsInDB []*persistedTransaction
-		err := dbTX.DB().
-			WithContext(ctx).
+		err := dbTX.DB(ctx).
 			Select("id", "created", "idempotency_key").
 			Where("idempotency_key in (?)", idempotencyKeys).
 			Find(&txsInDB).
@@ -452,9 +451,8 @@ func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persiste
 }
 
 func (tm *txManager) writeChainingRecords(ctx context.Context, dbTX persistence.DBTX, chainingRecords []*persistedChainedDispatch) error {
-	return dbTX.DB().
+	return dbTX.DB(ctx).
 		Clauses(clause.OnConflict{DoNothing: true}).
-		WithContext(ctx).
 		Create(chainingRecords).Error
 }
 
@@ -782,8 +780,7 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 	}
 
 	log.L(ctx).Debugf("insertTransactions to table 'transactions'")
-	insert := dbTX.DB().
-		WithContext(ctx).
+	insert := dbTX.DB(ctx).
 		Table("transactions").
 		Omit("TransactionDeps", "TransactionChainedDeps")
 	if ignoreConflicts {
@@ -793,14 +790,14 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 	err := txInsertResult.Error
 	if err == nil {
 		log.L(ctx).Debugf("insertTransactions to table 'transaction_history'")
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("transaction_history").
 			Create(txhs).
 			Error
 	}
 	if err == nil && len(transactionDeps) > 0 {
 		log.L(ctx).Debugf("insertTransactions to table 'transaction_deps'")
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("transaction_deps").
 			Clauses(clause.OnConflict{DoNothing: true}). // for idempotency retry
 			Create(transactionDeps).
@@ -808,7 +805,7 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 	}
 	if err == nil && len(transactionChainedDeps) > 0 {
 		log.L(ctx).Debugf("insertTransactions to table 'transaction_chained_deps'")
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("transaction_chained_deps").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(transactionChainedDeps).
@@ -904,8 +901,7 @@ func (tm *txManager) UpdateTransaction(ctx context.Context, id uuid.UUID, tx *pl
 
 func (tm *txManager) processUpdatedTransaction(ctx context.Context, dbTX persistence.DBTX, id *uuid.UUID, validatedTransaction *components.ValidatedTransaction) error {
 	// only update the fields which might have changed with this request
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Table("transactions").
 		Where("id = ?", id).
 		Updates(&persistedTransaction{
@@ -935,7 +931,7 @@ func (tm *txManager) processUpdatedTransaction(ctx context.Context, dbTX persist
 			MaxFeePerGas:         tx.MaxFeePerGas,
 			MaxPriorityFeePerGas: tx.MaxPriorityFeePerGas,
 		}
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("transaction_history").
 			Create(txh).
 			Error
