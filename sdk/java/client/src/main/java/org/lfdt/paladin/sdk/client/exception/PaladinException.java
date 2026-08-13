@@ -30,8 +30,8 @@ package org.lfdt.paladin.sdk.client.exception;
  *   <li>{@link PaladinTimeoutException} — the connect or request deadline elapsed.
  *   <li>{@link PaladinConnectionException} — the request never reached the node (connection
  *       refused, DNS failure, socket reset, or other transport-level I/O error).
- *   <li>{@link PaladinTransactionException} — a transaction definition was rejected client-side,
- *       before anything reached the node.
+ *   <li>{@link PaladinInvalidTransactionException} — a transaction definition was rejected
+ *       client-side, before anything reached the node.
  * </ul>
  */
 public class PaladinException extends RuntimeException {

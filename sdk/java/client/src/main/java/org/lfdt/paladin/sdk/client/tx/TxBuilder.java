@@ -26,8 +26,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import org.lfdt.paladin.sdk.client.exception.PaladinInvalidTransactionException;
 import org.lfdt.paladin.sdk.client.exception.PaladinTimeoutException;
-import org.lfdt.paladin.sdk.client.exception.PaladinTransactionException;
 import org.lfdt.paladin.sdk.client.ptx.PtxClient;
 import org.lfdt.paladin.sdk.client.rpc.RpcClient;
 import org.lfdt.paladin.sdk.core.abi.AbiEntry;
@@ -113,7 +113,7 @@ public final class TxBuilder {
   private Duration pollingInterval = DEFAULT_POLLING_INTERVAL;
   private Duration receiptTimeout = DEFAULT_RECEIPT_TIMEOUT;
 
-  private PaladinTransactionException deferredError;
+  private PaladinInvalidTransactionException deferredError;
 
   private TxBuilder(final PtxClient ptx) {
     this.ptx = Objects.requireNonNull(ptx, "ptx");
@@ -485,9 +485,10 @@ public final class TxBuilder {
    * further modified.
    *
    * @return the assembled transaction body
-   * @throws PaladinTransactionException if a chaining call failed earlier, or the definition is
-   *     structurally invalid (no type, no signing identity, a private transaction without a domain,
-   *     a function invoke without a target, or a deploy whose bytecode does not match its type)
+   * @throws PaladinInvalidTransactionException if a chaining call failed earlier, or the definition
+   *     is structurally invalid (no type, no signing identity, a private transaction without a
+   *     domain, a function invoke without a target, or a deploy whose bytecode does not match its
+   *     type)
    */
   public TransactionInput build() {
     if (deferredError != null) {
@@ -517,13 +518,13 @@ public final class TxBuilder {
    * Builds and submits the transaction without waiting for it to be mined.
    *
    * @return a future completing with the node-assigned transaction id, or failing with the same
-   *     {@link PaladinTransactionException} {@link #build()} would throw
+   *     {@link PaladinInvalidTransactionException} {@link #build()} would throw
    */
   public CompletableFuture<UUID> submit() {
     final TransactionInput tx;
     try {
       tx = build();
-    } catch (final PaladinTransactionException e) {
+    } catch (final PaladinInvalidTransactionException e) {
       return CompletableFuture.failedFuture(e);
     }
     return ptx.sendTransaction(tx);
@@ -537,7 +538,7 @@ public final class TxBuilder {
    * TransactionReceipt#failureMessage()} explains why.
    *
    * @return a future completing with the transaction's receipt; failing with a {@link
-   *     PaladinTransactionException} if the definition is invalid, with a {@link
+   *     PaladinInvalidTransactionException} if the definition is invalid, with a {@link
    *     PaladinTimeoutException} if no receipt arrives within {@link #receiptTimeout(Duration)}, or
    *     with the underlying transport failure if a call to the node fails
    */
@@ -591,8 +592,8 @@ public final class TxBuilder {
     if (deferredError == null) {
       deferredError =
           cause == null
-              ? new PaladinTransactionException(message)
-              : new PaladinTransactionException(message, cause);
+              ? new PaladinInvalidTransactionException(message)
+              : new PaladinInvalidTransactionException(message, cause);
     }
   }
 
@@ -601,20 +602,21 @@ public final class TxBuilder {
    */
   private void validate() {
     if (type == null) {
-      throw new PaladinTransactionException(
+      throw new PaladinInvalidTransactionException(
           "transaction type is required: call publicTx(), privateTx() or type(...)");
     }
     if (isBlank(from)) {
-      throw new PaladinTransactionException("a signing identity is required: call from(...)");
+      throw new PaladinInvalidTransactionException(
+          "a signing identity is required: call from(...)");
     }
     if (type == TransactionType.PRIVATE && isBlank(domain)) {
-      throw new PaladinTransactionException(
+      throw new PaladinInvalidTransactionException(
           "a domain is required for private transactions: call domain(...)");
     }
     if (isBlank(function)) {
       validateDeploy();
     } else if (to == null) {
-      throw new PaladinTransactionException(
+      throw new PaladinInvalidTransactionException(
           "a target address is required to invoke function '" + function + "': call to(...)");
     }
   }
@@ -622,15 +624,15 @@ public final class TxBuilder {
   /** Checks the constructor/deploy shape, reached only when no function is set. */
   private void validateDeploy() {
     if (to != null) {
-      throw new PaladinTransactionException(
+      throw new PaladinInvalidTransactionException(
           "a function is required when a target address is set: call function(...)");
     }
     if (type == TransactionType.PRIVATE && bytecode != null) {
-      throw new PaladinTransactionException(
+      throw new PaladinInvalidTransactionException(
           "bytecode cannot be supplied for a private deploy; the domain provides it");
     }
     if (type == TransactionType.PUBLIC && (bytecode == null || bytecode.isEmpty())) {
-      throw new PaladinTransactionException(
+      throw new PaladinInvalidTransactionException(
           "bytecode is required for a public deploy: call bytecode(...)");
     }
   }

@@ -25,7 +25,7 @@ package org.lfdt.paladin.sdk.client.exception;
  * <p>Unlike the transport-level failures in this package it never indicates a problem with the node
  * or the network; the transaction as described could not be assembled at all.
  */
-public class PaladinTransactionException extends PaladinException {
+public class PaladinInvalidTransactionException extends PaladinException {
 
   private static final long serialVersionUID = 1L;
 
@@ -34,7 +34,7 @@ public class PaladinTransactionException extends PaladinException {
    *
    * @param message the detail message
    */
-  public PaladinTransactionException(final String message) {
+  public PaladinInvalidTransactionException(final String message) {
     super(message);
   }
 
@@ -44,7 +44,7 @@ public class PaladinTransactionException extends PaladinException {
    * @param message the detail message
    * @param cause the underlying cause
    */
-  public PaladinTransactionException(final String message, final Throwable cause) {
+  public PaladinInvalidTransactionException(final String message, final Throwable cause) {
     super(message, cause);
   }
 }

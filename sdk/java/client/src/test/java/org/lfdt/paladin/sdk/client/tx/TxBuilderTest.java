@@ -34,9 +34,9 @@ import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.Test;
 import org.lfdt.paladin.sdk.client.config.RetryPolicy;
 import org.lfdt.paladin.sdk.client.config.RpcClientConfig;
+import org.lfdt.paladin.sdk.client.exception.PaladinInvalidTransactionException;
 import org.lfdt.paladin.sdk.client.exception.PaladinRpcException;
 import org.lfdt.paladin.sdk.client.exception.PaladinTimeoutException;
-import org.lfdt.paladin.sdk.client.exception.PaladinTransactionException;
 import org.lfdt.paladin.sdk.client.ptx.PtxClient;
 import org.lfdt.paladin.sdk.client.rpc.HttpRpcClient;
 import org.lfdt.paladin.sdk.client.rpc.MockJsonRpcServer;
@@ -270,8 +270,8 @@ class TxBuilderTest {
           final TxBuilder builder =
               TxBuilder.on(rpc).publicTx().from("alice").to("not-an-address").function("transfer");
 
-          final PaladinTransactionException e =
-              assertThrows(PaladinTransactionException.class, builder::build);
+          final PaladinInvalidTransactionException e =
+              assertThrows(PaladinInvalidTransactionException.class, builder::build);
           assertTrue(e.getMessage().contains("invalid 'to' address"));
           assertNotNull(e.getCause());
         });
@@ -283,8 +283,8 @@ class TxBuilderTest {
         node(0, receiptJson(true)),
         (server, rpc) -> {
           final TxBuilder builder = validInvoke(rpc).abiJson("{not json");
-          final PaladinTransactionException e =
-              assertThrows(PaladinTransactionException.class, builder::build);
+          final PaladinInvalidTransactionException e =
+              assertThrows(PaladinInvalidTransactionException.class, builder::build);
           assertEquals("invalid ABI JSON", e.getMessage());
         });
   }
@@ -297,7 +297,7 @@ class TxBuilderTest {
           final TxBuilder builder = validInvoke(rpc).inputsJson("{oops");
           assertEquals(
               "invalid transaction inputs JSON",
-              assertThrows(PaladinTransactionException.class, builder::build).getMessage());
+              assertThrows(PaladinInvalidTransactionException.class, builder::build).getMessage());
         });
   }
 
@@ -310,7 +310,7 @@ class TxBuilderTest {
           final TxBuilder builder = validInvoke(rpc).inputs(new Object());
           assertEquals(
               "invalid transaction inputs",
-              assertThrows(PaladinTransactionException.class, builder::build).getMessage());
+              assertThrows(PaladinInvalidTransactionException.class, builder::build).getMessage());
         });
   }
 
@@ -322,7 +322,7 @@ class TxBuilderTest {
           final TxBuilder builder = validInvoke(rpc).bytecode("zzzz");
           assertEquals(
               "invalid bytecode",
-              assertThrows(PaladinTransactionException.class, builder::build).getMessage());
+              assertThrows(PaladinInvalidTransactionException.class, builder::build).getMessage());
         });
   }
 
@@ -333,38 +333,38 @@ class TxBuilderTest {
         (server, rpc) -> {
           assertTrue(
               assertThrows(
-                      PaladinTransactionException.class,
+                      PaladinInvalidTransactionException.class,
                       () -> validInvoke(rpc).pollingInterval(Duration.ZERO).build())
                   .getMessage()
                   .contains("polling interval must be positive"));
           assertTrue(
               assertThrows(
-                      PaladinTransactionException.class,
+                      PaladinInvalidTransactionException.class,
                       () -> validInvoke(rpc).receiptTimeout(Duration.ofSeconds(-1)).build())
                   .getMessage()
                   .contains("receipt timeout must be positive"));
           assertTrue(
               assertThrows(
-                      PaladinTransactionException.class,
+                      PaladinInvalidTransactionException.class,
                       () -> validInvoke(rpc).receiptTimeout(null).build())
                   .getMessage()
                   .contains("receipt timeout must be positive"));
           // The two setters reject the same shapes, so check the mirrored cases too.
           assertTrue(
               assertThrows(
-                      PaladinTransactionException.class,
+                      PaladinInvalidTransactionException.class,
                       () -> validInvoke(rpc).pollingInterval(null).build())
                   .getMessage()
                   .contains("polling interval must be positive"));
           assertTrue(
               assertThrows(
-                      PaladinTransactionException.class,
+                      PaladinInvalidTransactionException.class,
                       () -> validInvoke(rpc).pollingInterval(Duration.ofMillis(-1)).build())
                   .getMessage()
                   .contains("polling interval must be positive"));
           assertTrue(
               assertThrows(
-                      PaladinTransactionException.class,
+                      PaladinInvalidTransactionException.class,
                       () -> validInvoke(rpc).receiptTimeout(Duration.ZERO).build())
                   .getMessage()
                   .contains("receipt timeout must be positive"));
@@ -394,7 +394,7 @@ class TxBuilderTest {
                   .abiJson("{not json")
                   .bytecode("zzzz");
           assertTrue(
-              assertThrows(PaladinTransactionException.class, builder::build)
+              assertThrows(PaladinInvalidTransactionException.class, builder::build)
                   .getMessage()
                   .contains("invalid 'to' address"));
         });
@@ -410,8 +410,9 @@ class TxBuilderTest {
 
           // Neither terminal throws synchronously; both hand the error to the future.
           assertInstanceOf(
-              PaladinTransactionException.class, causeOf(() -> builder.submit().join()));
-          assertInstanceOf(PaladinTransactionException.class, causeOf(() -> builder.send().join()));
+              PaladinInvalidTransactionException.class, causeOf(() -> builder.submit().join()));
+          assertInstanceOf(
+              PaladinInvalidTransactionException.class, causeOf(() -> builder.send().join()));
           assertEquals(0, server.requestCount(), "nothing should reach the node");
         });
   }
@@ -427,7 +428,7 @@ class TxBuilderTest {
         (server, rpc) ->
             assertTrue(
                 assertThrows(
-                        PaladinTransactionException.class,
+                        PaladinInvalidTransactionException.class,
                         () -> TxBuilder.on(rpc).from("alice").to(CONTRACT).function("f").build())
                     .getMessage()
                     .contains("transaction type is required")));
@@ -440,7 +441,7 @@ class TxBuilderTest {
         (server, rpc) ->
             assertTrue(
                 assertThrows(
-                        PaladinTransactionException.class,
+                        PaladinInvalidTransactionException.class,
                         () -> TxBuilder.on(rpc).publicTx().to(CONTRACT).function("f").build())
                     .getMessage()
                     .contains("signing identity is required")));
@@ -453,7 +454,7 @@ class TxBuilderTest {
         (server, rpc) ->
             assertTrue(
                 assertThrows(
-                        PaladinTransactionException.class,
+                        PaladinInvalidTransactionException.class,
                         () ->
                             TxBuilder.on(rpc)
                                 .privateTx()
@@ -472,7 +473,7 @@ class TxBuilderTest {
         (server, rpc) ->
             assertTrue(
                 assertThrows(
-                        PaladinTransactionException.class,
+                        PaladinInvalidTransactionException.class,
                         () -> TxBuilder.on(rpc).publicTx().from("alice").function("f").build())
                     .getMessage()
                     .contains("target address is required to invoke function 'f'")));
@@ -485,7 +486,7 @@ class TxBuilderTest {
         (server, rpc) ->
             assertTrue(
                 assertThrows(
-                        PaladinTransactionException.class,
+                        PaladinInvalidTransactionException.class,
                         () -> TxBuilder.on(rpc).publicTx().from("alice").to(CONTRACT).build())
                     .getMessage()
                     .contains("function is required when a target address is set")));
@@ -498,14 +499,14 @@ class TxBuilderTest {
         (server, rpc) -> {
           assertTrue(
               assertThrows(
-                      PaladinTransactionException.class,
+                      PaladinInvalidTransactionException.class,
                       () -> TxBuilder.on(rpc).publicTx().from("alice").build())
                   .getMessage()
                   .contains("bytecode is required for a public deploy"));
           // Empty bytecode counts as absent, matching the Go builder.
           assertTrue(
               assertThrows(
-                      PaladinTransactionException.class,
+                      PaladinInvalidTransactionException.class,
                       () ->
                           TxBuilder.on(rpc)
                               .publicTx()
@@ -524,7 +525,7 @@ class TxBuilderTest {
         (server, rpc) ->
             assertTrue(
                 assertThrows(
-                        PaladinTransactionException.class,
+                        PaladinInvalidTransactionException.class,
                         () ->
                             TxBuilder.on(rpc)
                                 .privateTx()
