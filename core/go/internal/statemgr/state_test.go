@@ -477,6 +477,12 @@ func TestValidateStatesBadSchema(t *testing.T) {
 	})
 	assert.Regexp(t, "PD010106", err) // unknown schema
 
+	_, err = ss.ValidateStatesWithLabels(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
+		SchemaId:      pldtypes.RandBytes32().String(),
+		StateDataJson: `{}`,
+	})
+	assert.Regexp(t, "PD010106", err) // unknown schema
+
 }
 
 func TestValidateStatesBadData(t *testing.T) {

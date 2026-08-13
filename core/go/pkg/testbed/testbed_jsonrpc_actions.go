@@ -270,10 +270,9 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 		tx.localTx.Transaction.From = fmt.Sprintf("%s@%s", sender, tb.c.TransportManager().LocalNodeName())
 	}
 
-	// Testbed uses a domain context (for queries) and a domain state writer (for writes).
+	// Testbed uses a domain context for queries; writes go directly to the state manager below.
 	dqc := tb.c.StateManager().NewDomainQueryContext(ctx, tx.psc.Domain(), tx.psc.Address())
 	defer dqc.Close(ctx)
-	dsw := tb.c.StateManager().NewDomainStateWriter(ctx, tx.psc.Domain(), tx.psc.Address())
 
 	// First we call init on the smart contract to:
 	// - validate the transaction ABI is understood by the contract
@@ -320,7 +319,7 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 
 	// The testbed always chooses to take the assemble output and progress to endorse
 	// (no complex sequence selection routine that might result in abandonment).
-	// So just resolve the states (staging into the writer happens with the nullifiers below)
+	// So just resolve the states (they are written with the nullifiers below)
 	if err := tx.psc.ResolvePotentialStates(ctx, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
 		return err
 	}
@@ -352,14 +351,14 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	tx.ptx.PreparedPrivateTransaction = prep.PreparedPrivateTransaction
 	tx.ptx.PreparedMetadata = prep.PreparedMetadata
 
-	// Build any nullifiers
-	if err := tb.writeNullifiersToContext(dsw, tx.ptx); err != nil {
+	// Build any nullifiers, then write the new states and nullifiers to the DB
+	nullifiers, err := tb.buildNullifiers(tx.ptx)
+	if err != nil {
 		return err
 	}
-
-	// Flush the state writer
 	err = tb.Components().Persistence().Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		return dsw.Flush(ctx, dbTX)
+		return tb.c.StateManager().WriteStateBatch(ctx, dbTX,
+			append(tx.ptx.PostAssembly.OutputStatesWithLabels, tx.ptx.PostAssembly.InfoStatesWithLabels...), nullifiers...)
 	})
 	if err != nil {
 		return err

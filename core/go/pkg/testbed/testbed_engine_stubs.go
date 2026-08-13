@@ -145,25 +145,19 @@ func (tb *testbed) gatherSignatures(ctx context.Context, tx *testbedTransaction)
 	return nil
 }
 
-func (tb *testbed) writeNullifiersToContext(dsw components.DomainStateWriter, tx *components.PrivateTransaction) error {
+func (tb *testbed) buildNullifiers(tx *components.PrivateTransaction) ([]*pldapi.StateNullifier, error) {
 
 	distributions, err := tb.c.SequencerManager().BuildStateDistributions(tb.ctx, tx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if len(distributions.Remote) > 0 {
 		log.L(tb.ctx).Errorf("States for remote nodes: %+v", distributions.Remote)
-		return fmt.Errorf("testbed does not support states for remote nodes")
+		return nil, fmt.Errorf("testbed does not support states for remote nodes")
 	}
 
-	nullifiers, err := tb.c.SequencerManager().BuildNullifiers(tb.ctx, distributions.Local)
-	if err != nil {
-		return err
-	}
-
-	return dsw.StageWrites(tb.ctx, append(tx.PostAssembly.OutputStatesWithLabels, tx.PostAssembly.InfoStatesWithLabels...), nullifiers...)
-
+	return tb.c.SequencerManager().BuildNullifiers(tb.ctx, distributions.Local)
 }
 
 func (tb *testbed) gatherEndorsements(ctx context.Context, dc components.DomainQueryContext, tx *testbedTransaction) error {

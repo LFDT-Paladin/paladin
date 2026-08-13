@@ -60,7 +60,7 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 		case qd := <-c.dispatchQueue:
 			c.metrics.ObserveDispatchQueueWait(c.clock.Now().Sub(qd.enqueuedAt))
 			// Wait for dispatch-ahead capacity, then pull a batch (this tx plus any others already queued,
-			// capped to the capacity) and prepare, stage and commit them in a single flush.
+			// capped to the capacity) and commit them in a single flush.
 			capacity := c.awaitDispatchAheadCapacity(ctx)
 			if capacity <= 0 {
 				log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
@@ -129,8 +129,7 @@ func (c *coordinator) dispatchBatch(ctx context.Context, batch []queuedDispatch)
 	//     unprocessed rows ORDER BY pub_txn_id and assigns gapless sequential nonces in that order.
 	// So pull order -> Append order -> insert order -> pub_txn_id order -> nonce order.
 	dispatchBatch := &syncpoints.DispatchBatch{
-		DomainStateWriter: c.dsw,
-		ContractAddress:   *c.contractAddress,
+		ContractAddress: *c.contractAddress,
 	}
 	for _, qd := range batch {
 		txID := qd.prepared.TransactionID
@@ -167,32 +166,14 @@ func (c *coordinator) dispatchBatch(ctx context.Context, batch []queuedDispatch)
 	c.metrics.ObserveDispatchBatchSize("private", private)
 	c.metrics.ObserveDispatchBatchSize("prepared", prepared)
 
-	// Stage this batch's states and nullifiers into the domain state writer, then commit the whole batch in
-	// a single DB transaction. Persistence happens off the transaction lock so the DB commit does not block
-	// the coordinator event loop behind a tx lock. Staging happens here, on the dispatch loop, synchronously
-	// before the flush, so the writer buffer holds only this batch's states at flush time. That makes a
-	// failed flush (typically transient DB unavailability) recoverable: a failure poisons the writer and
-	// rolls back the whole DB transaction, so Reset on the error discards exactly this batch's staged
-	// states, and the next attempt re-stages from the in-memory pending dispatches and re-flushes,
-	// retrying indefinitely with backoff. The batch's transactions remain in State_Dispatched throughout
-	// and are persisted when a retry succeeds.
+	// Commit the whole batch in a single DB transaction, including each dispatch's new states and
+	// nullifiers, which the pending dispatches carry in memory. Persistence happens off the transaction
+	// lock so the DB commit does not block the coordinator event loop behind a tx lock. A failed commit
+	// (typically transient DB unavailability) rolls back the whole DB transaction and the next attempt
+	// re-writes everything from the in-memory batch, retrying indefinitely with backoff. The batch's
+	// transactions remain in State_Dispatched throughout and are persisted when a retry succeeds.
 	err := c.dispatchRetry.Do(ctx, func(_ int) (bool, error) {
-		for _, pd := range dispatchBatch.Dispatches() {
-			if len(pd.StatesToStage) > 0 || len(pd.Nullifiers) > 0 {
-				// The nullifiers were validated against the states when the dispatch was built, so the
-				// only staging error is a poisoned writer from an earlier failed flush, cleared by the
-				// Reset here before the retry.
-				if err := c.dsw.StageWrites(ctx, pd.StatesToStage, pd.Nullifiers...); err != nil {
-					c.dsw.Reset()
-					return true, err
-				}
-			}
-		}
-		if err := c.syncPoints.PersistDispatchBatch(ctx, dispatchBatch); err != nil {
-			c.dsw.Reset()
-			return true, err
-		}
-		return false, nil
+		return true, c.syncPoints.PersistDispatchBatch(ctx, dispatchBatch)
 	})
 	if err != nil {
 		// The retry only returns an error when the context is cancelled, so the dispatch loop is shutting

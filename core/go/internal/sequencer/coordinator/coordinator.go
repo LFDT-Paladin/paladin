@@ -140,7 +140,6 @@ type coordinator struct {
 
 	/* Dependencies */
 	domainAPI             components.DomainSmartContract
-	dsw                   components.DomainStateWriter
 	components            components.AllComponents
 	transportWriter       transport.TransportWriter
 	clock                 common.Clock
@@ -154,7 +153,7 @@ type coordinator struct {
 	dispatchQueue      chan queuedDispatch
 	dispatchLoopCancel context.CancelFunc // non-nil iff this coordinator owns a running loop
 	dispatchLoopDone   chan struct{}      // per-run done channel; nil = never started / already stopped+waited
-	dispatchRetry      *retry.Retry       // indefinite retry of the per-batch stage+commit in the dispatch loop
+	dispatchRetry      *retry.Retry       // indefinite retry of the per-batch commit in the dispatch loop
 	inFlightTxns       map[uuid.UUID]struct{}
 	inFlightMutex      *sync.Cond
 }
@@ -162,7 +161,6 @@ type coordinator struct {
 func NewCoordinator(
 	contractAddress *pldtypes.EthAddress,
 	domainAPI components.DomainSmartContract,
-	dsw components.DomainStateWriter,
 	allComponents components.AllComponents,
 	newPrivateTransaction func(context.Context, []*components.ValidatedTransaction) error,
 	transportWriter transport.TransportWriter,
@@ -183,7 +181,6 @@ func NewCoordinator(
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]transaction.CoordinatorTransaction),
 		domainAPI:                          domainAPI,
-		dsw:                                dsw,
 		components:                         allComponents,
 		newPrivateTransaction:              newPrivateTransaction,
 		transportWriter:                    transportWriter,

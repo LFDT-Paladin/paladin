@@ -854,7 +854,6 @@ func TestNewCoordinator_SenderMode_SetsCurrentActiveCoordinatorToNodeName(t *tes
 	c := NewCoordinator(
 		pldtypes.RandAddress(),
 		mockDomainSmartContractForConstructor(t),
-		nil,
 		mockAllComponentsForConstructor(t),
 		nil,
 		testutil.NewSentMessageRecorder(),
@@ -877,7 +876,6 @@ func TestNewCoordinator_EndorserMode_SetsEndorserCandidates(t *testing.T) {
 	c := NewCoordinator(
 		pldtypes.RandAddress(),
 		mockDomainSmartContractForConstructor(t),
-		nil,
 		mockAllComponentsForConstructor(t),
 		nil,
 		testutil.NewSentMessageRecorder(),
