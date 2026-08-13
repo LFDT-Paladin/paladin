@@ -418,10 +418,19 @@ func TestHandleWithdrawEvent(t *testing.T) {
 
 func TestParseStatesFromEvent(t *testing.T) {
 	txID := pldtypes.RandBytes32()
-	states := parseStatesFromEvent(txID, []pldtypes.HexUint256{*pldtypes.MustParseHexUint256("0x1234"), *pldtypes.MustParseHexUint256("0x0")})
-	assert.Len(t, states, 2)
+	states := parseStatesFromEvent(txID, []pldtypes.HexUint256{
+		*pldtypes.MustParseHexUint256("0x1234"),
+		// the UTXO arrays are padded out to the size the circuit requires, and the padding is not a state
+		*pldtypes.MustParseHexUint256("0x0"),
+		*pldtypes.MustParseHexUint256("0x5678"),
+	})
+	require.Len(t, states, 2)
 	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000001234", states[0].Id)
-	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000000000", states[1].Id)
+	assert.Equal(t, txID.String(), states[0].TransactionId)
+	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000005678", states[1].Id)
+
+	assert.Empty(t, parseStatesFromEvent(txID, []pldtypes.HexUint256{*pldtypes.MustParseHexUint256("0x0")}))
+	assert.Empty(t, parseStatesFromEvent(txID, nil))
 }
 
 func TestHandleIdentityRegisteredEvent(t *testing.T) {
