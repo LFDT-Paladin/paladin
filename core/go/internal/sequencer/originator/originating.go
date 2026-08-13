@@ -124,12 +124,7 @@ func action_FailoverToNextCoordinator(ctx context.Context, o *originator, _ comm
 		log.L(ctx).Debugf("originator failing over from %s to %s (failoverIndex now %d)",
 			prev, o.currentActiveCoordinator, o.failoverIndex)
 	}
-	// Notify the batching loop that a full delegation is required. Sending on a nil channel is never
-	// ready, so this is a safe no-op if the loop is not running.
-	select {
-	case o.notifyFullDelegation <- struct{}{}:
-	default:
-	}
+	o.requestFullDelegation()
 	return nil
 }
 
