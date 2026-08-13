@@ -33,15 +33,9 @@ func (z *Zeto) buildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 	log.L(ctx).Debugf("Building receipt for Zeto transaction %s", req.TransactionId)
 	receipt := &types.ZetoDomainReceipt{}
 
-	// The transaction data is carried on info states. Handlers write one per transfer entry, so a
-	// multi-recipient transfer has several - we report the last, as Noto does for prepareUnlock.
-	infoStates := filterSchema(req.InfoStates, []string{z.dataSchema.Id})
-	if len(infoStates) > 0 {
-		info, err := unmarshalInfo(infoStates[len(infoStates)-1].StateDataJson)
-		if err != nil {
-			return nil, err
-		}
-		receipt.Data = info.Data
+	data, err := transferData(filterSchema(req.InfoStates, []string{z.dataSchema.Id}))
+	if err != nil {
+		return nil, err
 	}
 
 	// Nullifier tokens record their sparse merkle tree updates against the transaction as well, so
@@ -60,7 +54,7 @@ func (z *Zeto) buildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 	receipt.States.LockedInputs = inputs.lockedStates
 	receipt.States.Outputs = outputs.states
 	receipt.States.LockedOutputs = outputs.lockedStates
-	receipt.Transfers = append(buildFungibleTransfers(ctx, inputs, outputs), buildNonFungibleTransfers(ctx, inputs, outputs)...)
+	receipt.Transfers = append(buildFungibleTransfers(ctx, inputs, outputs, data), buildNonFungibleTransfers(ctx, inputs, outputs)...)
 
 	receiptJSON, err := json.Marshal(receipt)
 	if err != nil {
@@ -86,6 +80,28 @@ func unmarshalInfo(stateData string) (*types.TransactionData, error) {
 	var info types.TransactionData
 	err := json.Unmarshal([]byte(stateData), &info)
 	return &info, err
+}
+
+// transferData returns the data supplied on each transfer entry, in entry order.
+//
+// None of Zeto's methods take a top-level data parameter - data is supplied per transfer entry, and
+// each entry gets its own info state. An info state's content is just a salt and the data, with
+// nothing naming the entry it belongs to, so entries are identified by position: the handlers write
+// the info states in entry order, and the ids are carried through the on-chain transaction data as
+// an ordered list, so the order survives to here.
+//
+// A party only receives the info states for the entries it is party to, so a recipient sees just
+// their own - which is also the only output coin they see, keeping the positions aligned.
+func transferData(infoStates []*prototk.EndorsableState) ([]pldtypes.HexBytes, error) {
+	data := make([]pldtypes.HexBytes, len(infoStates))
+	for i, state := range infoStates {
+		info, err := unmarshalInfo(state.StateDataJson)
+		if err != nil {
+			return nil, err
+		}
+		data[i] = info.Data
+	}
+	return data, nil
 }
 
 func unmarshalCoin(stateData string) (*types.ZetoCoin, error) {
@@ -116,24 +132,23 @@ func receiptState(ctx context.Context, state *prototk.EndorsableState) (*types.R
 	}, nil
 }
 
-// buildFungibleTransfers reduces the coins a transaction spent and created down to the value that
-// moved between owners. A Zeto transaction only ever spends coins belonging to a single owner, so
-// anything else means we cannot describe it as a set of transfers and we report none.
+// buildFungibleTransfers reports the value each output coin moved.
 //
-// Locked coins take part in the arithmetic alongside unlocked ones, so that locking value (which
-// replaces unlocked coins with locked coins of the same total, owned by the same party) correctly
-// reports no transfer at all.
-func buildFungibleTransfers(ctx context.Context, inputs, outputs *parsedCoins) []*types.ReceiptTransfer {
+// One transfer is reported per coin rather than per recipient. Data is supplied per transfer entry
+// and each entry produces exactly one coin, so combining a recipient's coins into a single transfer
+// would leave their entries sharing one transfer with no way to report their data separately.
+//
+// A Zeto transaction only ever spends coins belonging to a single owner, so anything else means we
+// cannot describe it as a set of transfers and we report none.
+//
+// Coins that come back to the sender - change, or the locked half of a lock - are netted off rather
+// than reported, so locking (which replaces unlocked coins with locked coins of the same total owned
+// by the same party) correctly reports that nothing moved.
+func buildFungibleTransfers(ctx context.Context, inputs, outputs *parsedCoins, entryData []pldtypes.HexBytes) []*types.ReceiptTransfer {
 	var from pldtypes.HexBytes
 	fromAmount := new(big.Int)
 
-	// Recipients are keyed by the hex of their public key, as HexBytes is a slice and so cannot be
-	// a map key itself. The insertion order is tracked so the receipt is deterministic.
-	toAmounts := make(map[string]*big.Int)
-	toOwners := make(map[string]pldtypes.HexBytes)
-	var recipients []string
-
-	for _, coin := range slices.Concat(inputs.coins, inputs.lockedCoins) {
+	for _, coin := range inputs.coins {
 		if from == nil {
 			from = coin.Owner
 		} else if !coin.Owner.Equals(from) {
@@ -143,46 +158,47 @@ func buildFungibleTransfers(ctx context.Context, inputs, outputs *parsedCoins) [
 		fromAmount.Add(fromAmount, coinAmount(coin))
 	}
 
-	for _, coin := range slices.Concat(outputs.coins, outputs.lockedCoins) {
+	transfers := make([]*types.ReceiptTransfer, 0, len(outputs.coins))
+	for i, coin := range outputs.coins {
 		amount := coinAmount(coin)
+		fromAmount.Sub(fromAmount, amount)
 		if coin.Owner.Equals(from) {
-			// Value returned to the sender - change, or the locked half of a lock
-			fromAmount.Sub(fromAmount, amount)
+			// Returned to the sender - change, or the locked half of a lock
 			continue
 		}
-		key := coin.Owner.String()
-		if existing, ok := toAmounts[key]; ok {
-			existing.Add(existing, amount)
+		if amount.Sign() == 0 {
+			// Handlers pad their outputs out to the width the circuit requires
 			continue
 		}
-		toAmounts[key] = new(big.Int).Set(amount)
-		toOwners[key] = coin.Owner
-		recipients = append(recipients, key)
+		transfers = append(transfers, &types.ReceiptTransfer{
+			From:   from,
+			To:     coin.Owner,
+			Amount: (*pldtypes.HexUint256)(amount),
+			Data:   dataForEntry(entryData, i),
+		})
 	}
 
-	if len(recipients) == 0 {
-		if from != nil && fromAmount.Sign() > 0 {
-			// Burn or withdraw - value left the token with no recipient
-			return []*types.ReceiptTransfer{{
-				From:   from,
-				Amount: (*pldtypes.HexUint256)(fromAmount),
-			}}
-		}
-		return nil
-	}
-
-	transfers := make([]*types.ReceiptTransfer, 0, len(recipients))
-	for _, key := range recipients {
-		amount := toAmounts[key]
-		if amount.Sign() > 0 {
-			transfers = append(transfers, &types.ReceiptTransfer{
-				From:   from,
-				To:     toOwners[key],
-				Amount: (*pldtypes.HexUint256)(amount),
-			})
-		}
+	if len(transfers) == 0 && from != nil && fromAmount.Sign() > 0 {
+		// Burn or withdraw - value left the token with no recipient
+		return []*types.ReceiptTransfer{{
+			From:   from,
+			Amount: (*pldtypes.HexUint256)(fromAmount),
+		}}
 	}
 	return transfers
+}
+
+// dataForEntry returns the data supplied on the transfer entry that produced the output coin at the
+// given position.
+//
+// Handlers write one info state per entry and one output coin per entry, both in entry order, so the
+// two line up by position. Coins beyond the entries - change, or the outputs of methods that take no
+// data at all, such as deposit - have no entry and so no data.
+func dataForEntry(entryData []pldtypes.HexBytes, i int) pldtypes.HexBytes {
+	if i < len(entryData) {
+		return entryData[i]
+	}
+	return nil
 }
 
 // buildNonFungibleTransfers matches each token the transaction created back to the token of the same
@@ -248,9 +264,11 @@ func tokenKey(nft *types.ZetoNFToken) string {
 }
 
 type parsedCoins struct {
-	coins       []*types.ZetoCoin
-	lockedCoins []*types.ZetoCoin
-	nfts        []*types.ZetoNFToken
+	// coins holds the fungible coins, locked and unlocked alike, in the order they appeared in the
+	// request - which for outputs is the order of the transfer entries that produced them, so a coin's
+	// position identifies its entry. Locked coins are told apart by their own Locked flag.
+	coins []*types.ZetoCoin
+	nfts  []*types.ZetoNFToken
 	// states holds the unlocked coins and the non-fungible tokens (which have no locked form),
 	// lockedStates the locked coins - in the order they appeared in the request.
 	states       []*types.ReceiptState
@@ -277,11 +295,10 @@ func (z *Zeto) parseCoinList(ctx context.Context, label string, states []*protot
 			if err != nil {
 				return nil, i18n.NewError(ctx, msgs.MsgInvalidListInput, label, i, state.Id, err)
 			}
+			result.coins = append(result.coins, coin)
 			if coin.Locked {
-				result.lockedCoins = append(result.lockedCoins, coin)
 				result.lockedStates = append(result.lockedStates, rState)
 			} else {
-				result.coins = append(result.coins, coin)
 				result.states = append(result.states, rState)
 			}
 

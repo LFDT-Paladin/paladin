@@ -1,17 +1,18 @@
-/*
- * Copyright © 2026 Kaleido, Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- * specific language governing permissions and limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// Copyright contributors to Paladin, an LFDT project
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package zeto
 
@@ -117,32 +118,103 @@ func TestBuildReceiptNoStates(t *testing.T) {
 	assert.Empty(t, receipt.States.Outputs)
 	assert.Empty(t, receipt.States.LockedOutputs)
 	assert.Empty(t, receipt.Transfers)
-	assert.Empty(t, receipt.Data)
 }
 
 func TestBuildReceiptMint(t *testing.T) {
-	// Two coins minted to the same owner aggregate into a single transfer, and each mint entry
-	// contributes its own info state
+	// Each mint entry is reported as its own transfer, carrying that entry's data, even where the
+	// entries are to the same owner
 	receipt := buildTestReceipt(t, newReceiptTestZeto(), &prototk.BuildReceiptRequest{
 		InfoStates: []*prototk.EndorsableState{
 			infoState(infoStateID, "0xdeadbeef"),
-			infoState(otherInfoStateID, "0xdeadbeef"),
+			infoState(otherInfoStateID, "0xfeedface"),
 		},
 		OutputStates: []*prototk.EndorsableState{
 			coinState(stateID1, owner1, 10, false),
 			coinState(stateID2, owner1, 20, false),
 		},
 	})
-	assert.Equal(t, pldtypes.MustParseHexBytes("0xdeadbeef"), receipt.Data)
 	assert.Empty(t, receipt.States.Inputs)
 	require.Len(t, receipt.States.Outputs, 2)
 	assert.Equal(t, pldtypes.MustParseHexBytes(stateID1), receipt.States.Outputs[0].ID)
 	assert.Equal(t, pldtypes.MustParseBytes32(coinSchemaID), receipt.States.Outputs[0].Schema)
 	assert.Equal(t, pldtypes.MustParseHexBytes(stateID2), receipt.States.Outputs[1].ID)
-	assert.Equal(t, []*types.ReceiptTransfer{{
-		To:     owner1,
-		Amount: pldtypes.Int64ToInt256(30),
-	}}, receipt.Transfers)
+	assert.Equal(t, []*types.ReceiptTransfer{
+		{To: owner1, Amount: pldtypes.Int64ToInt256(10), Data: pldtypes.MustParseHexBytes("0xdeadbeef")},
+		{To: owner1, Amount: pldtypes.Int64ToInt256(20), Data: pldtypes.MustParseHexBytes("0xfeedface")},
+	}, receipt.Transfers)
+}
+
+func TestBuildReceiptTransferDataPerRecipient(t *testing.T) {
+	// A recipient is only distributed the info state for their own entry, so from their point of view
+	// there is one info state and one transfer, and the data is theirs
+	receipt := buildTestReceipt(t, newReceiptTestZeto(), &prototk.BuildReceiptRequest{
+		InfoStates: []*prototk.EndorsableState{infoState(infoStateID, "0xfeedface")},
+		OutputStates: []*prototk.EndorsableState{
+			coinState(stateID1, owner2, 25, false),
+		},
+	})
+	require.Len(t, receipt.Transfers, 1)
+	assert.Equal(t, pldtypes.MustParseHexBytes("0xfeedface"), receipt.Transfers[0].Data)
+}
+
+func TestBuildReceiptTransferDataPerEntry(t *testing.T) {
+	// The sender sees every info state. Entries are matched to their coin by position, so each
+	// recipient gets the data that was supplied on their own entry.
+	receipt := buildTestReceipt(t, newReceiptTestZeto(), &prototk.BuildReceiptRequest{
+		InfoStates: []*prototk.EndorsableState{
+			infoState(infoStateID, "0xdeadbeef"),
+			infoState(otherInfoStateID, "0xfeedface"),
+		},
+		InputStates: []*prototk.EndorsableState{
+			coinState(stateID1, owner1, 100, false),
+		},
+		OutputStates: []*prototk.EndorsableState{
+			coinState(stateID2, owner2, 40, false),
+			coinState(stateID3, owner3, 60, false),
+		},
+	})
+	assert.Equal(t, []*types.ReceiptTransfer{
+		{From: owner1, To: owner2, Amount: pldtypes.Int64ToInt256(40), Data: pldtypes.MustParseHexBytes("0xdeadbeef")},
+		{From: owner1, To: owner3, Amount: pldtypes.Int64ToInt256(60), Data: pldtypes.MustParseHexBytes("0xfeedface")},
+	}, receipt.Transfers)
+}
+
+func TestBuildReceiptChangeCarriesNoData(t *testing.T) {
+	// Change is appended after the entries, so it falls beyond the info states and is netted off
+	// rather than reported - the entry's data must not leak onto it
+	receipt := buildTestReceipt(t, newReceiptTestZeto(), &prototk.BuildReceiptRequest{
+		InfoStates: []*prototk.EndorsableState{infoState(infoStateID, "0xdeadbeef")},
+		InputStates: []*prototk.EndorsableState{
+			coinState(stateID1, owner1, 100, false),
+		},
+		OutputStates: []*prototk.EndorsableState{
+			coinState(stateID2, owner2, 40, false),
+			coinState(stateID3, owner1, 60, false), // change back to the sender
+		},
+	})
+	assert.Equal(t, []*types.ReceiptTransfer{
+		{From: owner1, To: owner2, Amount: pldtypes.Int64ToInt256(40), Data: pldtypes.MustParseHexBytes("0xdeadbeef")},
+	}, receipt.Transfers)
+}
+
+func TestBuildReceiptNoTopLevelData(t *testing.T) {
+	// None of Zeto's methods take a top-level data parameter, so the receipt must not report one
+	res, err := newReceiptTestZeto().buildReceipt(context.Background(), &prototk.BuildReceiptRequest{
+		InfoStates:   []*prototk.EndorsableState{infoState(infoStateID, "0xdeadbeef")},
+		OutputStates: []*prototk.EndorsableState{coinState(stateID1, owner1, 10, false)},
+	})
+	require.NoError(t, err)
+
+	var raw struct {
+		Data      *pldtypes.HexBytes `json:"data"`
+		Transfers []struct {
+			Data *pldtypes.HexBytes `json:"data"`
+		} `json:"transfers"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(res.ReceiptJson), &raw))
+	assert.Nil(t, raw.Data, "no top-level data on the receipt")
+	require.Len(t, raw.Transfers, 1)
+	assert.Equal(t, pldtypes.MustParseHexBytes("0xdeadbeef"), *raw.Transfers[0].Data)
 }
 
 func TestBuildReceiptBurn(t *testing.T) {
@@ -196,10 +268,15 @@ func TestBuildReceiptTransferWithChange(t *testing.T) {
 	}}, receipt.Transfers)
 }
 
-func TestBuildReceiptTransferSplitAcrossCoinsAggregates(t *testing.T) {
-	// A recipient receiving more than one output coin is reported as a single transfer of the total.
-	// This is the case for a batch transfer that has to split a recipient's value across coins.
+func TestBuildReceiptTransferReportsEachCoinSeparately(t *testing.T) {
+	// A recipient named by more than one entry gets a transfer per entry rather than one combined
+	// transfer, so that each entry's own data can be reported against it
 	receipt := buildTestReceipt(t, newReceiptTestZeto(), &prototk.BuildReceiptRequest{
+		InfoStates: []*prototk.EndorsableState{
+			infoState(stateID1, "0x01"),
+			infoState(infoStateID, "0x02"),
+			infoState(otherInfoStateID, "0x03"),
+		},
 		InputStates: []*prototk.EndorsableState{
 			coinState(stateID1, owner1, 100, false),
 		},
@@ -210,8 +287,9 @@ func TestBuildReceiptTransferSplitAcrossCoinsAggregates(t *testing.T) {
 		},
 	})
 	assert.Equal(t, []*types.ReceiptTransfer{
-		{From: owner1, To: owner2, Amount: pldtypes.Int64ToInt256(50)},
-		{From: owner1, To: owner3, Amount: pldtypes.Int64ToInt256(50)},
+		{From: owner1, To: owner2, Amount: pldtypes.Int64ToInt256(30), Data: pldtypes.MustParseHexBytes("0x01")},
+		{From: owner1, To: owner2, Amount: pldtypes.Int64ToInt256(20), Data: pldtypes.MustParseHexBytes("0x02")},
+		{From: owner1, To: owner3, Amount: pldtypes.Int64ToInt256(50), Data: pldtypes.MustParseHexBytes("0x03")},
 	}, receipt.Transfers)
 }
 
@@ -513,7 +591,7 @@ func TestBuildFungibleTransfersMultipleSenders(t *testing.T) {
 			{Owner: owner2, Amount: pldtypes.Int64ToInt256(50)},
 		},
 	}
-	assert.Nil(t, buildFungibleTransfers(context.Background(), inputs, &parsedCoins{}))
+	assert.Nil(t, buildFungibleTransfers(context.Background(), inputs, &parsedCoins{}, nil))
 }
 
 func TestBuildFungibleTransfersZeroAmount(t *testing.T) {
@@ -525,7 +603,7 @@ func TestBuildFungibleTransfersZeroAmount(t *testing.T) {
 			{Owner: owner2, Amount: pldtypes.Int64ToInt256(0)},
 		},
 	}
-	transfers := buildFungibleTransfers(context.Background(), inputs, outputs)
+	transfers := buildFungibleTransfers(context.Background(), inputs, outputs, nil)
 	assert.Equal(t, []*types.ReceiptTransfer{
 		{To: owner1, Amount: pldtypes.Int64ToInt256(100)},
 	}, transfers)
@@ -538,11 +616,32 @@ func TestBuildFungibleTransfersDoesNotMutateCoins(t *testing.T) {
 			{Owner: owner1, Amount: pldtypes.Int64ToInt256(20)},
 		},
 	}
-	transfers := buildFungibleTransfers(context.Background(), &parsedCoins{}, outputs)
-	require.Len(t, transfers, 1)
-	assert.Equal(t, pldtypes.Int64ToInt256(50), transfers[0].Amount)
+	transfers := buildFungibleTransfers(context.Background(), &parsedCoins{}, outputs, nil)
+	require.Len(t, transfers, 2)
+	assert.Equal(t, pldtypes.Int64ToInt256(30), transfers[0].Amount)
+	assert.Equal(t, pldtypes.Int64ToInt256(20), transfers[1].Amount)
 	assert.Equal(t, pldtypes.Int64ToInt256(30), outputs.coins[0].Amount)
 	assert.Equal(t, pldtypes.Int64ToInt256(20), outputs.coins[1].Amount)
+}
+
+func TestBuildFungibleTransfersLockedCoinsKeepEntryPositions(t *testing.T) {
+	// Locked and unlocked coins share one ordered list, so a locked output does not shift the entry
+	// positions the data is matched on
+	inputs := &parsedCoins{coins: []*types.ZetoCoin{{Owner: owner1, Amount: pldtypes.Int64ToInt256(100)}}}
+	outputs := &parsedCoins{
+		coins: []*types.ZetoCoin{
+			{Owner: owner2, Amount: pldtypes.Int64ToInt256(40), Locked: true},
+			{Owner: owner3, Amount: pldtypes.Int64ToInt256(60)},
+		},
+	}
+	entryData := []pldtypes.HexBytes{
+		pldtypes.MustParseHexBytes("0x01"),
+		pldtypes.MustParseHexBytes("0x02"),
+	}
+	assert.Equal(t, []*types.ReceiptTransfer{
+		{From: owner1, To: owner2, Amount: pldtypes.Int64ToInt256(40), Data: pldtypes.MustParseHexBytes("0x01")},
+		{From: owner1, To: owner3, Amount: pldtypes.Int64ToInt256(60), Data: pldtypes.MustParseHexBytes("0x02")},
+	}, buildFungibleTransfers(context.Background(), inputs, outputs, entryData))
 }
 
 func TestBuildNonFungibleTransfersSelfTransfer(t *testing.T) {
@@ -591,10 +690,13 @@ func TestParseCoinList(t *testing.T) {
 		nftState(stateID3, owner1, "0xdeadbeef"),
 	})
 	require.NoError(t, err)
-	require.Len(t, result.coins, 1)
+	// Locked and unlocked coins share one ordered list, so that a coin's position still identifies
+	// the transfer entry that produced it
+	require.Len(t, result.coins, 2)
 	assert.Equal(t, pldtypes.Int64ToInt256(100), result.coins[0].Amount)
-	require.Len(t, result.lockedCoins, 1)
-	assert.Equal(t, pldtypes.Int64ToInt256(50), result.lockedCoins[0].Amount)
+	assert.False(t, result.coins[0].Locked)
+	assert.Equal(t, pldtypes.Int64ToInt256(50), result.coins[1].Amount)
+	assert.True(t, result.coins[1].Locked)
 	require.Len(t, result.nfts, 1)
 	assert.Equal(t, pldtypes.MustParseHexUint256("0xdeadbeef"), result.nfts[0].TokenID)
 

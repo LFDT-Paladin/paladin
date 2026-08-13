@@ -142,14 +142,15 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	require.Len(t, mintReceipt.States.Outputs, 2)
 	assert.Empty(t, mintReceipt.States.LockedInputs)
 	assert.Empty(t, mintReceipt.States.LockedOutputs)
-	// Transfers are aggregated per recipient, so the two coins minted to the controller are reported as
-	// a single transfer of the total. Noto applies the same rule, but only ever mints one coin at a
-	// time, so unlike Zeto it never has more than one output coin per recipient to combine.
-	require.Len(t, mintReceipt.Transfers, 1)
-	assert.Empty(t, mintReceipt.Transfers[0].From, "a mint has no sender")
-	assert.Equal(t, controllerAddr.String(), mintReceipt.Transfers[0].To.String())
-	assert.Equal(t, int64(30), mintReceipt.Transfers[0].Amount.Int().Int64())
-	assert.Nil(t, mintReceipt.Transfers[0].TokenID, "a fungible transfer has no token id")
+	// One transfer is reported per mint entry, in entry order, even though both are to the same owner -
+	// each entry carries its own data, so they are not combined
+	require.Len(t, mintReceipt.Transfers, 2)
+	for i, amount := range []int64{10, 20} {
+		assert.Empty(t, mintReceipt.Transfers[i].From, "a mint has no sender")
+		assert.Equal(t, controllerAddr.String(), mintReceipt.Transfers[i].To.String())
+		assert.Equal(t, amount, mintReceipt.Transfers[i].Amount.Int().Int64())
+		assert.Nil(t, mintReceipt.Transfers[i].TokenID, "a fungible transfer has no token id")
+	}
 
 	jq := query.NewQueryBuilder().Limit(100).Equal("locked", false).Query()
 	methodName := "pstate_queryContractStates"
@@ -264,10 +265,10 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	assert.Empty(t, depositReceipt.States.Inputs)
 	// the deposit call produces two output UTXOs, one bearing the amount and one of zero value
 	require.Len(t, depositReceipt.States.Outputs, 2)
-	// the deposit handler records no info state, so there is no transaction data on the receipt
-	assert.Empty(t, depositReceipt.Data)
-	// both output coins belong to the controller, so they are reported as one transfer of the total
+	// only the coin bearing the amount is a transfer - the zero-value padding coin is not reported
 	require.Len(t, depositReceipt.Transfers, 1)
+	// deposit takes no data parameter and records no info state, so the transfer carries no data
+	assert.Empty(t, depositReceipt.Transfers[0].Data)
 	assert.Empty(t, depositReceipt.Transfers[0].From, "value entering the token has no sender")
 	assert.Equal(t, controllerAddr.String(), depositReceipt.Transfers[0].To.String())
 	assert.Equal(t, int64(100), depositReceipt.Transfers[0].Amount.Int().Int64())

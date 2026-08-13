@@ -202,10 +202,14 @@ export interface IZetoDomainReceipt {
     lockedInputs?: IReceiptState<IZetoCoin>[];
     lockedOutputs?: IReceiptState<IZetoCoin>[];
   };
+  // No top-level data: none of Zeto's methods take a top-level data parameter. Data is supplied per
+  // transfer entry, so it is reported on the individual transfers.
   transfers?: IZetoReceiptTransfer[];
-  data?: string;
 }
 
+// One transfer is reported per transfer entry rather than per recipient, so a recipient named by
+// several entries appears several times, each carrying its own data.
+//
 // Owners are Baby Jubjub public keys rather than Ethereum addresses. An absent "from" is a mint and
 // an absent "to" is a burn, which includes withdrawing back to the ERC-20 balance.
 export interface IZetoReceiptTransfer {
@@ -213,6 +217,9 @@ export interface IZetoReceiptTransfer {
   to?: string;
   amount?: string; // fungible tokens only
   tokenId?: string; // non-fungible tokens only
+  // The data supplied on the transfer entry that produced this transfer. Absent for outputs with no
+  // entry behind them, such as those of methods that take no data at all.
+  data?: string;
 }
 
 export interface IZetoCoin {
