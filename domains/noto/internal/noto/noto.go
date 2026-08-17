@@ -798,9 +798,8 @@ func (n *Noto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTrans
 	if err != nil {
 		return nil, err
 	}
-	// Defense in depth for the nullifier variants: the notary is the only party that can
-	// detect a nullifier collision, as the base ledger never sees the coins behind the
-	// nullifiers. Applied to every handler here rather than per-handler, so no transaction
+	// Defense in depth for the nullifier variants: catches invald transactions that includes inputs/outputs states
+	// with colliding nullifiers. Applied to every handler here rather than per-handler, so no transaction
 	// type can be missed.
 	if tx.DomainConfig.IsNullifierVariant() {
 		if err := n.validateDistinctNullifiers(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.Inputs, req.Outputs); err != nil {
