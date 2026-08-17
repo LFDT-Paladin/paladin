@@ -287,8 +287,7 @@ func (oc *orchestrator) initNextNonceFromDBRetry(ctx context.Context) error {
 
 func (oc *orchestrator) initNextNonceFromDB(ctx context.Context) error {
 	var txns []*DBPublicTxn
-	err := oc.p.DB().
-		WithContext(ctx).
+	err := oc.p.DB(ctx).
 		Where(`"from" = ?`, oc.signingAddress).
 		Where("nonce IS NOT NULL").
 		Where("dispatcher = ? OR dispatcher = ''", oc.nodeName).
@@ -359,7 +358,7 @@ func (oc *orchestrator) allocateNonces(ctx context.Context, txns []*DBPublicTxn)
 		}
 		sqlQuery += ` ) UPDATE "public_txns" SET "nonce" = nu."nonce" FROM ( SELECT "pub_txn_id", "nonce" FROM nonce_updates ) AS nu ` +
 			`WHERE "public_txns"."pub_txn_id" = nu."pub_txn_id";`
-		return dbTX.DB().WithContext(ctx).Exec(sqlQuery, values...).Error
+		return dbTX.DB(ctx).Exec(sqlQuery, values...).Error
 	})
 	if err != nil {
 		return err
@@ -426,8 +425,7 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 		// We retry the get from persistence indefinitely (until the context cancels)
 		var additional []*DBPublicTxn
 		err := oc.retry.Do(ctx, func(attempt int) (retry bool, err error) {
-			q := oc.p.DB().
-				WithContext(ctx).
+			q := oc.p.DB(ctx).
 				Table("public_txns").
 				Where(`"completed" IS FALSE`).
 				Where("suspended IS FALSE").

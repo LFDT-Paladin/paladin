@@ -173,8 +173,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		// in transaction A will be lower than transaction B (not guaranteed otherwise).
 		err := tm.p.TakeNamedLock(ctx, dbTX, "transaction_receipts")
 		if err == nil && len(receiptsToInsert) > 0 {
-			tx := dbTX.DB().Table("transaction_receipts").
-				WithContext(ctx).
+			tx := dbTX.DB(ctx).Table("transaction_receipts").
 				Clauses(clause.OnConflict{
 					Columns:   []clause.Column{{Name: "transaction"}},
 					DoNothing: true, // once inserted, the receipt is immutable
@@ -193,7 +192,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 
 	if len(transactionIDs) > 0 {
 		var chainingRecords []*persistedChainedDispatch
-		err := dbTX.DB().
+		err := dbTX.DB(ctx).
 			Where(`"chained_transaction" IN ?`, transactionIDs).
 			Find(&chainingRecords).
 			Error
@@ -259,8 +258,7 @@ func (tm *txManager) ensureSuccessOverridesFailure(ctx context.Context, dbTX per
 	var replacementIDsToDelete []uuid.UUID
 	var replacementInserts []*transactionReceipt
 	var existingReceipts []*transactionReceipt
-	err := dbTX.DB().Table("transaction_receipts").
-		WithContext(ctx).
+	err := dbTX.DB(ctx).Table("transaction_receipts").
 		Where(`"transaction" IN ?`, transactionIDs).
 		Find(&existingReceipts).
 		Error
@@ -290,14 +288,12 @@ func (tm *txManager) ensureSuccessOverridesFailure(ctx context.Context, dbTX per
 		}
 	}
 	if err == nil && len(replacementIDsToDelete) > 0 {
-		err = dbTX.DB().Table("transaction_receipts").
-			WithContext(ctx).
+		err = dbTX.DB(ctx).Table("transaction_receipts").
 			Delete(&transactionReceipt{}, `"transaction" IN ?`, replacementIDsToDelete).
 			Error
 	}
 	if err == nil && len(replacementInserts) > 0 {
-		err = dbTX.DB().Table("transaction_receipts").
-			WithContext(ctx).
+		err = dbTX.DB(ctx).Table("transaction_receipts").
 			Create(replacementInserts). // note no OnConflict, as we just deleted all the conflicts
 			Error
 	}
@@ -322,7 +318,7 @@ func (tm *txManager) DecodeRevertError(ctx context.Context, dbTX persistence.DBT
 
 	// There is potential with a 4 byte selector for clashes, so we do a distinct on the full hash
 	var errorDefs []*PersistedABIEntry
-	err := dbTX.DB().Table("abi_entries").
+	err := dbTX.DB(ctx).Table("abi_entries").
 		Where("selector = ?", selector).
 		Where("type = ?", abi.Error).
 		Distinct("full_hash", "definition").
@@ -370,7 +366,7 @@ func (tm *txManager) DecodeCall(ctx context.Context, dbTX persistence.DBTX, call
 
 	// There is potential with a 4 byte selector for clashes, so we do a distinct on the full hash
 	var functionDefs []*PersistedABIEntry
-	err := dbTX.DB().Table("abi_entries").
+	err := dbTX.DB(ctx).Table("abi_entries").
 		Where("selector = ?", selector).
 		Where("type = ?", abi.Function).
 		Distinct("full_hash", "definition").
@@ -416,7 +412,7 @@ func (tm *txManager) DecodeEvent(ctx context.Context, dbTX persistence.DBTX, top
 	}
 
 	var eventDefs []*PersistedABIEntry
-	err := dbTX.DB().Table("abi_entries").
+	err := dbTX.DB(ctx).Table("abi_entries").
 		Where("full_hash = ?", topics[0]).
 		Where("type = ?", abi.Event).
 		Find(&eventDefs).
@@ -479,8 +475,7 @@ func (tm *txManager) getTransactionReceiptByIDWithTX(ctx context.Context, dbTX p
 		dbTX = tm.p.NOTX()
 	}
 	var prs []*transactionReceipt
-	err := dbTX.DB().Table("transaction_receipts").
-		WithContext(ctx).
+	err := dbTX.DB(ctx).Table("transaction_receipts").
 		Where(`"transaction" = ?`, id).
 		Order(`"sequence" DESC`).
 		Limit(1).

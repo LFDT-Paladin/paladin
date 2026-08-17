@@ -192,8 +192,7 @@ func (gm *groupManager) insertGroup(ctx context.Context, dbTX persistence.DBTX, 
 		Configuration: pldtypes.JSONString(pgGenesis.Configuration.Map()),
 		GenesisTX:     genesisTx,
 	}
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "domain"}, {Name: "id"}},
 			DoNothing: true,
@@ -209,7 +208,7 @@ func (gm *groupManager) insertGroup(ctx context.Context, dbTX persistence.DBTX, 
 				Identity: identity,
 			}
 		}
-		err = dbTX.DB().WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "domain"}, {Name: "group"}, {Name: "idx"}},
 				DoNothing: true,
@@ -386,7 +385,7 @@ func (gm *groupManager) enrichMembers(ctx context.Context, dbTX persistence.DBTX
 		groupIDs[i] = pg.ID
 	}
 	var dbMembers []*persistedGroupMember
-	err := dbTX.DB().WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Where(`"group" IN ?`, groupIDs).
 		Order("domain").
 		Order(`"group"`).

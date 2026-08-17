@@ -50,8 +50,12 @@ type StateManager interface {
 	// State finalizations are written on the DB context of the block indexer, by the domain manager.
 	WriteStateFinalizations(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord, reads []*pldapi.StateReadRecord, confirms []*pldapi.StateConfirmRecord, infoRecords []*pldapi.StateInfoRecord) (err error)
 
-	// Validate a set of states against their schemas
-	ValidateStates(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, states ...*prototk.EndorsableState) ([]*prototk.EndorsableState, error)
+	// ValidateStates validates and normalizes each state's data against its schema, and calculates its state ID.
+	ValidateStates(ctx context.Context, dbTX persistence.DBTX, domain Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*pldapi.State, error)
+
+	// ValidateStatesWithLabels performs the same validation and normalization as ValidateStates, additionally
+	// extracting the state's label values.
+	ValidateStatesWithLabels(ctx context.Context, dbTX persistence.DBTX, domain Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*StateWithLabels, error)
 
 	// MUST NOT be called for states received over a network from another node.
 	// Writes a batch of states that have been pre-verified BY THIS NODE so can bypass domain hash verification.
@@ -94,12 +98,10 @@ type StateQueryOptions struct {
 
 // DomainStateWriter is a long-lived write buffer used for flushing domain states and nullifiers to the DB.
 type DomainStateWriter interface {
-	// StageStateUpserts creates or updates states in the in-memory write buffer.
-	StageStateUpserts(ctx context.Context, dbTX persistence.DBTX, states ...*StateUpsert) (s []*pldapi.State, err error)
-
-	// StageNullifierUpserts creates nullifier records associated with states.
-	// Nullifiers will be written to the DB on the next flush.
-	StageNullifierUpserts(ctx context.Context, nullifiers ...*NullifierUpsert) error
+	// StageWrites validates the nullifiers against the supplied states and, only if the whole batch is
+	// consistent, atomically appends both the states and their nullifiers to the in-memory write buffer.
+	// The nullified state must be present in the states passed to this same call. Written on the next flush.
+	StageWrites(ctx context.Context, states []*StateWithLabels, nullifiers ...*NullifierUpsert) error
 
 	// Flush writes all pending states and nullifiers to the database within the given transaction.
 	// Must be called within an active DB transaction. Returns an error if a flush is already in
@@ -143,13 +145,6 @@ type DomainQueryContext interface {
 	Close(ctx context.Context)
 }
 
-type StateUpsert struct {
-	ID        pldtypes.HexBytes `json:"id"`
-	Schema    pldtypes.Bytes32  `json:"schema"`
-	Data      pldtypes.RawJSON  `json:"data"`
-	CreatedBy *uuid.UUID        `json:"createdBy,omitempty"` // not exported
-}
-
 type StateUpsertOutsideContext struct {
 	ID              pldtypes.HexBytes
 	SchemaID        pldtypes.Bytes32
@@ -177,6 +172,7 @@ type Schema interface {
 	ID() pldtypes.Bytes32
 	Signature() string
 	Persisted() *pldapi.Schema
-	ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool, withLabels bool) (*StateWithLabels, error)
+	ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool) (*pldapi.State, error)
+	ProcessStateWithLabels(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool) (*StateWithLabels, error)
 	RecoverLabels(ctx context.Context, s *pldapi.State) (*StateWithLabels, error)
 }

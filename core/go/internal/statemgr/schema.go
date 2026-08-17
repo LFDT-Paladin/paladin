@@ -63,9 +63,8 @@ func schemaCacheKey(domainName string, id pldtypes.Bytes32) string {
 }
 
 func (ss *stateManager) persistSchemas(ctx context.Context, dbTX persistence.DBTX, schemas []*pldapi.Schema) error {
-	return dbTX.DB().
+	return dbTX.DB(ctx).
 		Table("schemas").
-		WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{
 				{Name: "domain_name"},
@@ -95,7 +94,7 @@ func (ss *stateManager) getSchemaByID(ctx context.Context, dbTX persistence.DBTX
 	}
 
 	var results []*pldapi.Schema
-	err := dbTX.DB().
+	err := dbTX.DB(ctx).
 		Table("schemas").
 		Where("domain_name = ?", domainName).
 		Where("id = ?", schemaID).
@@ -128,7 +127,7 @@ func (ss *stateManager) restoreSchema(ctx context.Context, persisted *pldapi.Sch
 
 func (ss *stateManager) ListSchemas(ctx context.Context, dbTX persistence.DBTX, domainName string) (results []components.Schema, err error) {
 	var ids []*idOnly
-	err = ss.p.DB().
+	err = ss.p.DB(ctx).
 		Table("schemas").
 		Select("id").
 		Where("domain_name = ?", domainName).

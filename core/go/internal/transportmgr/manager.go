@@ -352,8 +352,7 @@ func (tm *transportManager) SendReliable(ctx context.Context, dbTX persistence.D
 	}
 
 	if err == nil {
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Create(msgs).
 			Error
 	}
@@ -387,8 +386,7 @@ func (tm *transportManager) writeAcks(ctx context.Context, dbTX persistence.DBTX
 		log.L(ctx).Infof("ack received for message %s", ack.MessageID)
 		ack.Time = pldtypes.TimestampNow()
 	}
-	return dbTX.DB().
-		WithContext(ctx).
+	return dbTX.DB(ctx).
 		Clauses(clause.OnConflict{DoNothing: true}).
 		Create(acks).
 		Error
@@ -397,8 +395,7 @@ func (tm *transportManager) writeAcks(ctx context.Context, dbTX persistence.DBTX
 //nolint:unused // May be used in future
 func (tm *transportManager) getReliableMessageByID(ctx context.Context, dbTX persistence.DBTX, id uuid.UUID) (*pldapi.ReliableMessage, error) {
 	var rms []*pldapi.ReliableMessage
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Order("sequence ASC").
 		Joins("Ack").
 		Where(`"reliable_msgs"."id" = ?`, id).

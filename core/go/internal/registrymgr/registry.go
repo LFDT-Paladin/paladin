@@ -85,6 +85,7 @@ func (r *registry) init() {
 		res, err := r.api.ConfigureRegistry(r.ctx, &prototk.ConfigureRegistryRequest{
 			Name:       r.name,
 			ConfigJson: string(confJSON),
+			LogLevel:   log.GetLevel(),
 		})
 		if err == nil {
 			r.config = res.RegistryConfig
@@ -287,8 +288,7 @@ func (r *registry) upsertRegistryRecords(ctx context.Context, dbTX persistence.D
 	var err error
 
 	if len(dbEntries) > 0 {
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Table("reg_entries").
 			Clauses(clause.OnConflict{
 				Columns: []clause.Column{
@@ -313,8 +313,7 @@ func (r *registry) upsertRegistryRecords(ctx context.Context, dbTX persistence.D
 	}
 
 	if len(dbProps) > 0 {
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Table("reg_props").
 			Clauses(clause.OnConflict{
 				Columns: []clause.Column{
@@ -389,7 +388,7 @@ func (r *registry) QueryEntries(ctx context.Context, dbTX persistence.DBTX, fAct
 	dfs := &dynamicFieldSet{propIndexes: make(map[string]int)}
 
 	q := filters.BuildGORM(ctx, jq,
-		dbTX.DB().WithContext(ctx).
+		dbTX.DB(ctx).
 			Table("reg_entries").
 			Where(`"reg_entries"."registry" = ?`, r.name),
 		dfs)
@@ -458,7 +457,7 @@ func (r *registry) QueryEntries(ctx context.Context, dbTX persistence.DBTX, fAct
 func (r *registry) GetEntryProperties(ctx context.Context, dbTX persistence.DBTX, fActive pldapi.ActiveFilter, entryIDs ...pldtypes.HexBytes) ([]*pldapi.RegistryProperty, error) {
 	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("registry-%s", r.name)))
 	var dbProps []*DBProperty
-	q := dbTX.DB().WithContext(ctx).
+	q := dbTX.DB(ctx).
 		Table("reg_props").
 		Where("registry = ?", r.name).
 		Where("entry_id IN (?)", entryIDs)

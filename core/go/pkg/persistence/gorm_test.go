@@ -182,7 +182,7 @@ func TestUseAnyClause(t *testing.T) {
 	// Test with small list (should use IN)
 	smallList := []int{1}
 	mdb.ExpectQuery(`SELECT .* WHERE .* IN`).WithArgs(1).WillReturnRows(sqlmock.NewRows([]string{"id"}))
-	db := p.DB()
+	db := p.DB(context.Background())
 	UseAny(db)
 	db.Table("test").Where("id IN (?)", smallList).Find(&struct{}{})
 
@@ -515,7 +515,7 @@ func TestANYBuildFallbackToINForGormDB(t *testing.T) {
 // Using clause.IN{} directly is the only way to hit that code path.
 func TestUseAnyClauseWithClauseIN(t *testing.T) {
 	p, mdb := newMockGormPSQLPersistence(t)
-	db := p.DB()
+	db := p.DB(context.Background())
 	UseAny(db)
 
 	// Multiple plain values: hasNonValue=false, len>1 → Build writes "= ANY (...)".
@@ -540,7 +540,7 @@ func TestUseAnyClauseWithClauseIN(t *testing.T) {
 // TestUseAnyClauseExprFallbackPaths covers the two early-return paths in the c.Expr branch of Build.
 func TestUseAnyClauseExprFallbackPaths(t *testing.T) {
 	p, mdb := newMockGormPSQLPersistence(t)
-	db := p.DB()
+	db := p.DB(context.Background())
 	UseAny(db)
 
 	// Vars contains []any: hasNonValue=true → early return via c.Expr.Build (covers return true in Expr ContainsFunc)

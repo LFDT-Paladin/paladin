@@ -141,9 +141,9 @@ func TestDCMergeSnapshotRequireNullifier(t *testing.T) {
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 	defer dqc.Close(ctx)
 
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 	dqc.creatingStates[s1.ID.String()] = s1
 
@@ -189,13 +189,13 @@ func TestDCMergeSnapshotApplyLocksMultipleSchemas(t *testing.T) {
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 	defer dqc.Close(ctx)
 
-	s1, err := schema1.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema1.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
-	s2, err := schema2.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s2, err := schema2.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"tokenUri": "%s", "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32), pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32), pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	dqc.creatingStates[s1.ID.String()] = s1
@@ -222,14 +222,14 @@ func TestDCMergeSnapshotDedupAndSpendExclusion(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// s1 is included in snapshot, s2 is included but spent
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 10, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s2, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	tx1 := uuid.New()
@@ -267,9 +267,9 @@ func TestDCMergeSnapshotEvalError(t *testing.T) {
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 	defer dqc.Close(ctx)
 
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 	dqc.creatingStates[s1.ID.String()] = s1
 
@@ -291,9 +291,9 @@ func TestDCMMergeAndSortStatesSortFail(t *testing.T) {
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 	defer dqc.Close(ctx)
 
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	_, err = dqc.mergeAndSortStates(ctx, schema, []*pldapi.State{
@@ -334,9 +334,9 @@ func TestDCMergeSnapshotStatesResultMergeFail(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// A matching creating state ensures len(matches) > 0 so mergeInMemoryMatches runs.
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 	dqc.creatingStates[s1.ID.String()] = s1
 
@@ -402,9 +402,9 @@ func TestMergeInMemoryMatchesLimit(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	mkState := func(amount int) *components.StateWithLabels {
-		s, e := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		s, e := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 			`{"amount": %d, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-			amount, pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+			amount, pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 		require.NoError(t, e)
 		return s
 	}
@@ -447,9 +447,9 @@ func TestGetStatesByIDWithSnapshotState(t *testing.T) {
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 	defer dqc.Close(ctx)
 
-	s1, err := schema1.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema1.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 	dqc.creatingStates[s1.ID.String()] = s1
 
@@ -535,26 +535,26 @@ func TestImportSnapshot(t *testing.T) {
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 	defer dqc.Close(ctx)
 
-	s1, err := schema1.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema1.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s2, err := schema1.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s2, err := schema1.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	s3ID := pldtypes.RandHex(32)
 
-	s4, err := schema1.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s4, err := schema1.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s5, err := schema1.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s5, err := schema1.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	transactionID1 := uuid.New()
@@ -606,21 +606,21 @@ func TestFindNullifiersSpendingExclusion(t *testing.T) {
 
 	contractAddress, _ := newTestDomainContext(t, ctx, ss, "domain1", false)
 
-	_, sw := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
+	_, sw, resolve := newTestDomainStateWriter(t, ctx, ss, "domain1", false)
 	sw.contractAddress = *contractAddress
 
 	// Write two states each with a nullifier
 	nullID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	nullID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	tx1 := uuid.New()
-	states1, err := sw.StageStateUpserts(ctx, ss.p.NOTX(),
-		genWidget(t, schema1.ID(), &tx1, fmt.Sprintf(`{"amount": 11, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
-		genWidget(t, schema1.ID(), &tx1, fmt.Sprintf(`{"amount": 22, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
+	states1, err := resolve(
+		genWidget(t, schema1.ID(), fmt.Sprintf(`{"amount": 11, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
+		genWidget(t, schema1.ID(), fmt.Sprintf(`{"amount": 22, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
 	)
 	require.NoError(t, err)
 	require.Len(t, states1, 2)
 
-	err = sw.StageNullifierUpserts(ctx,
+	err = sw.StageWrites(ctx, states1,
 		&components.NullifierUpsert{State: states1[0].ID, ID: nullID1},
 		&components.NullifierUpsert{State: states1[1].ID, ID: nullID2},
 	)
@@ -701,6 +701,33 @@ func TestImportSnapshotBadStates(t *testing.T) {
 
 }
 
+func TestImportSnapshotBadStateData(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schema1, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema1.Schema})
+	require.NoError(t, err)
+
+	_, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dqc.Close(ctx)
+
+	// The schema resolves, but the state data does not parse against it
+	err = dqc.ImportSnapshot(ctx, &prototk.StateSnapshot{
+		States: []*prototk.SnapshotState{
+			{State: &prototk.EndorsableState{
+				Id:            pldtypes.RandHex(32),
+				SchemaId:      schema1.ID().String(),
+				StateDataJson: `{!!! wrong`,
+			}},
+		},
+	})
+	require.Regexp(t, "PD010133.*PD010116", err)
+
+}
+
 func TestImportSnapshotUnparseableStateID(t *testing.T) {
 
 	ctx, ss, _, _, done := newDBMockStateManager(t)
@@ -731,9 +758,9 @@ func TestImportSnapshotReplaces(t *testing.T) {
 	_, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 	defer dqc.Close(ctx)
 
-	s1, err := schema1.ProcessState(ctx, &dqc.contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema1.ProcessStateWithLabels(ctx, &dqc.contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 10, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	txID := uuid.New()
@@ -786,9 +813,9 @@ func TestFindSnapshotMatchesBasic(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// Create a state and add it to creatingStates
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 	dqc.creatingStates[s1.ID.String()] = s1
 
@@ -815,14 +842,14 @@ func TestFindSnapshotMatchesSchemaFiltering(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// Create states with different schemas
-	s1, err := schema1.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema1.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s2, err := schema2.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s2, err := schema2.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"tokenUri": "%s", "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32), pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32), pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	dqc.creatingStates[s1.ID.String()] = s1
@@ -853,14 +880,14 @@ func TestFindSnapshotMatchesExcludeSpent(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// Create two states
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s2, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 200, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	dqc.creatingStates[s1.ID.String()] = s1
@@ -899,14 +926,14 @@ func TestFindSnapshotMatchesRequireNullifier(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// Create two states
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s2, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 200, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	// Add nullifier to s1 only
@@ -943,14 +970,14 @@ func TestFindSnapshotMatchesQueryFiltering(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// Create states with different amounts
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s2, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 200, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	dqc.creatingStates[s1.ID.String()] = s1
@@ -981,9 +1008,9 @@ func TestFindSnapshotMatchesDuplicateDetection(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// Create a state
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	dqc.creatingStates[s1.ID.String()] = s1
@@ -1013,9 +1040,9 @@ func TestFindSnapshotMatchesQueryError(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// Create a state
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	dqc.creatingStates[s1.ID.String()] = s1
@@ -1055,19 +1082,19 @@ func TestFindSnapshotMatchesMultipleMatches(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// Create multiple states that all match the query
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s2, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 200, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s3, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s3, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 300, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	dqc.creatingStates[s1.ID.String()] = s1
@@ -1101,19 +1128,19 @@ func TestFindSnapshotMatchesCombinedFilters(t *testing.T) {
 	defer dqc.Close(ctx)
 
 	// Create multiple states with different properties
-	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s2, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 200, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
-	s3, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+	s3, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 300, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-		pldtypes.RandHex(32))), nil, dqc.customHashFunction, true)
+		pldtypes.RandHex(32))), nil, dqc.customHashFunction)
 	require.NoError(t, err)
 
 	// Add nullifier to s1 and s3

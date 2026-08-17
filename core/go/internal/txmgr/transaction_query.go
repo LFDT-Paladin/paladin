@@ -267,8 +267,7 @@ func (tm *txManager) QueryTransactionsFullTx(ctx context.Context, jq *query.Quer
 
 func (tm *txManager) AddTransactionHistory(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
 	txhs := []*persistedTransactionHistory{}
-	err := dbTX.DB().Table("transaction_history").
-		WithContext(ctx).
+	err := dbTX.DB(ctx).Table("transaction_history").
 		Order(`"created" DESC`).
 		Where(`"tx_id" IN (?)`, txIDs).
 		Find(&txhs).
@@ -295,8 +294,7 @@ func (tm *txManager) AddTransactionHistory(ctx context.Context, dbTX persistence
 
 func (tm *txManager) AddSequencerActivity(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
 	txsas := []*seqcommon.DBSequencingActivity{}
-	err := dbTX.DB().Table("sequencer_activities").
-		WithContext(ctx).
+	err := dbTX.DB(ctx).Table("sequencer_activities").
 		Order(`"timestamp" DESC`).
 		Where(`"transaction_id" IN (?)`, txIDs).
 		Find(&txsas).
@@ -427,8 +425,7 @@ func (tm *txManager) GetTransactionByIdempotencyKey(ctx context.Context, idempot
 func (tm *txManager) getTransactionDependenciesWithinTX(ctx context.Context, id uuid.UUID, dbTX persistence.DBTX) (*pldapi.TransactionDependencies, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	var persistedDeps []*transactionDep
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Table(`transaction_deps`).
 		Where(`"transaction" = ?`, id).
 		Or("depends_on = ?", id).

@@ -1255,11 +1255,11 @@ func TestProcessCatchupEventMultiPageRealDB(t *testing.T) {
 				Return(nil)
 		}
 	}
-	err := bi.persistence.DB().Table("indexed_blocks").Create(allBlocks).Error
+	err := bi.persistence.DB(ctx).Table("indexed_blocks").Create(allBlocks).Error
 	require.NoError(t, err)
-	err = bi.persistence.DB().Table("indexed_transactions").Create(allTransactions).Error
+	err = bi.persistence.DB(ctx).Table("indexed_transactions").Create(allTransactions).Error
 	require.NoError(t, err)
-	err = bi.persistence.DB().Table("indexed_events").Create(allEvents).Error
+	err = bi.persistence.DB(ctx).Table("indexed_events").Create(allEvents).Error
 	require.NoError(t, err)
 
 	es := &eventStream{

@@ -72,10 +72,11 @@ func Test_handleAssemble_EngineIntegrationError(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(nil, expectedError)
 
 	// Execute the method
-	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
 
 	// Verify AssembleErrorEvent was emitted so coordinator can park or discard the transaction
 	event := <-mocks.Events
@@ -112,10 +113,11 @@ func Test_handleAssemble_Success_OK(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
 
 	// Verify AssembleSuccessEvent was emitted
 	event := <-mocks.Events
@@ -156,10 +158,11 @@ func Test_handleAssemble_Success_REVERT(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
 
 	// Verify AssembleRevertEvent was emitted
 	event := <-mocks.Events
@@ -198,10 +201,11 @@ func Test_handleAssemble_PARK(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
 
 	// Verify AssembleParkEvent was emitted
 	event := <-mocks.Events
@@ -246,10 +250,11 @@ func Test_handleAssemble_CalledWithCorrectParameters(t *testing.T) {
 		resolvedVerifiers,
 		req.stateSnapshot,
 		req.coordinatorsBlockHeight,
+		mock.Anything,
 	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, resolvedVerifiers)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, resolvedVerifiers, nil)
 
 	// Verify Assemble was called with correct parameters
 	mocks.EngineIntegration.AssertExpectations(t)
@@ -273,6 +278,7 @@ func Test_action_Assemble_SpawnsGoroutineThatQueuesEvent(t *testing.T) {
 		"Assemble",
 		mock.Anything,
 		txn.pt.ID,
+		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
@@ -442,9 +448,10 @@ func Test_handleAssemble_AbandonsSilently_WhenContextExpired(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(nil, context.Canceled)
 
-	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
 
 	// No event should have been queued — the mock will fail if any unexpected call happens
 	select {
@@ -472,6 +479,7 @@ func Test_action_Assemble_UsesDeadlineContext_WhenExpirySet(t *testing.T) {
 		"Assemble",
 		mock.Anything,
 		txn.pt.ID,
+		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
@@ -551,6 +559,7 @@ func Test_action_Assemble_NilCancelIsNoOp(t *testing.T) {
 	builder.fakeEngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -590,6 +599,7 @@ func Test_action_Assemble_CancelsPreviousGoroutine(t *testing.T) {
 	builder.fakeEngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Once().Run(func(args mock.Arguments) {
 		assembleCtx := args.Get(0).(context.Context)
 		close(blocked)
@@ -602,6 +612,7 @@ func Test_action_Assemble_CancelsPreviousGoroutine(t *testing.T) {
 	builder.fakeEngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Once().Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -650,6 +661,7 @@ func Test_action_Assemble_SetsCurrentAssemblyRequestID(t *testing.T) {
 	builder.fakeEngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -683,6 +695,7 @@ func Test_action_Assemble_NudgeDoesNotCancelInFlightAssembly(t *testing.T) {
 	builder.fakeEngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Once().Run(func(_ mock.Arguments) {
 		close(blocked)
 		<-unblock

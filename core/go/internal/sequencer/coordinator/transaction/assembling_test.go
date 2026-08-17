@@ -161,7 +161,7 @@ func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return()
 
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write lock error"))
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write lock error"))
 
 	proto := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
@@ -194,31 +194,11 @@ func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
 	}
 
 	// Mock engine integration to succeed (OutputStates remain nil; AddMinter is called with nil)
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.applyPostAssembly(ctx, proto, uuid.New())
 	assert.Error(t, err)
 	// No RecordAssemblyOutput expectation registered — the mock will fail the test if it is called.
-}
-
-func Test_applyPostAssembly_Success_MapPotentialStatesError(t *testing.T) {
-	ctx := t.Context()
-	mockGrapher := graphermocks.NewGrapher(t)
-	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(mockGrapher).
-		Build()
-
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
-	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, txn.pt).Return(nil, errors.New("map potential states error"))
-
-	proto := &prototk.TransactionPostAssembly{
-		AssemblyResult: prototk.AssembleTransactionResponse_OK,
-	}
-
-	err := txn.applyPostAssembly(ctx, proto, uuid.New())
-	require.ErrorContains(t, err, "map potential states error")
 }
 
 func Test_applyPostAssembly_Success_Complete(t *testing.T) {
@@ -231,8 +211,7 @@ func Test_applyPostAssembly_Success_Complete(t *testing.T) {
 	}
 
 	// Mock engine integration to succeed
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
-	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, txn.pt).Return(nil, nil)
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 	mockVisibility.EXPECT().RecordAssemblyOutput(mock.Anything, mock.Anything, proto.GetOutputStatesPotential()).Once()
 
 	err := txn.applyPostAssembly(ctx, proto, uuid.New())
@@ -319,26 +298,6 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 
 	err = txn.nudgeAssembleRequest(ctx)
 	assert.NoError(t, err)
-}
-
-func Test_writeLockStates_Success(t *testing.T) {
-	ctx := t.Context()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, txn.pt).Return(nil)
-
-	err := txn.writeStates(ctx)
-	require.NoError(t, err)
-}
-
-func Test_writeLockStates_Error(t *testing.T) {
-	ctx := t.Context()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write error"))
-
-	err := txn.writeStates(ctx)
-	require.Error(t, err)
 }
 
 func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *testing.T) {
@@ -764,8 +723,7 @@ func Test_AssembleSuccess_TransitionsToBlocked_WhenAttestationFulfilledButDepsNo
 		InputStateIDs(dependency.pt.PostAssembly.OutputStates[0].GetId())
 
 	txn, mocks := txnBuilder.Build()
-	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, txnBuilder.BuildAssembleSuccessEvent())
 	require.NoError(t, err)

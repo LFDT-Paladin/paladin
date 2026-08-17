@@ -17,7 +17,6 @@
 package pldtypes
 
 import (
-	"bytes"
 	"context"
 	"database/sql/driver"
 	"encoding/json"
@@ -79,14 +78,11 @@ func (hi *HexUint64) setString(text string) error {
 
 // Parses with/without 0x in any case
 func (hi *HexUint64) UnmarshalJSON(b []byte) error {
-	var iVal interface{}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.UseNumber() // It's not safe to use a JSON number decoder as it uses float64, so can (and does) lose precision
-	err := decoder.Decode(&iVal)
-	if err == nil {
-		err = hi.Scan(iVal)
+	text, ok := jsonNumericText(b)
+	if !ok {
+		return i18n.NewError(context.Background(), pldmsgs.MsgTypesScanFail, string(b), hi)
 	}
-	return err
+	return hi.setString(text)
 }
 
 // Get string with 0x prefix - nil is all zeros
