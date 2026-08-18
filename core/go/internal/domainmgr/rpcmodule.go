@@ -147,7 +147,6 @@ func (dm *domainManager) rpcInvokeRPC() rpcserver.RPCHandler {
 				return i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
 			}
 			dqc := dm.stateStore.NewDomainQueryContext(ctx, sc.Domain(), address)
-			defer dqc.Close(ctx)
 			resultJSON, err = sc.InvokeRPC(ctx, dqc, dbTX, rpcCall)
 			return err
 		})

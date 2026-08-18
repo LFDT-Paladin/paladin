@@ -577,6 +577,5 @@ func (gm *groupManager) invokeRPC(ctx context.Context, dbTX persistence.DBTX, do
 		return nil, i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
 	}
 	dqc := gm.stateManager.NewDomainQueryContext(ctx, psc.Domain(), *pg.ContractAddress)
-	defer dqc.Close(ctx)
 	return psc.InvokeRPC(ctx, dqc, dbTX, rpcCall)
 }

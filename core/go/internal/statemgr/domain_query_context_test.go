@@ -208,19 +208,6 @@ func TestUpsertSchemaEmptyList(t *testing.T) {
 
 }
 
-// TestDCClosedErrorPaths verifies that a closed DomainQueryContext returns the correct errors.
-func TestDCClosedErrorPaths(t *testing.T) {
-
-	ctx, ss, _, _, done := newDBMockStateManager(t)
-	defer done()
-
-	_, dc2 := newTestDomainContext(t, ctx, ss, "domain1", false)
-	dc2.Close(ctx)
-	_, _, err := dc2.FindAvailableStates(ctx, ss.p.NOTX(), pldtypes.Bytes32(pldtypes.RandBytes(32)), nil)
-	assert.Regexp(t, "PD010122", err) // closed
-
-}
-
 func TestDomainQueryContextContractAddress(t *testing.T) {
 
 	ctx, ss, _, _, done := newDBMockStateManager(t)
@@ -247,7 +234,6 @@ func TestDCMergeRemoteViewDedup(t *testing.T) {
 
 	view := &staticView{states: queriedStatesOf(0, s1)}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, view)
-	defer dqc.Close(ctx)
 
 	// Simulate the DB having returned s1 already — the coordinator copy is dropped, and since
 	// nothing else was returned the DB result is passed through untouched.
@@ -279,7 +265,6 @@ func TestDCMMergeAndSortStatesSortFail(t *testing.T) {
 	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
 
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
-	defer dqc.Close(ctx)
 
 	s1, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
 		`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
@@ -302,7 +287,6 @@ func TestDCMergeAndSortStatesRecoverLabelsFail(t *testing.T) {
 	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
 
 	_, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
-	defer dqc.Close(ctx)
 
 	// State with no preloaded labels and unparseable data forces the RecoverLabels re-parse to fail.
 	_, err = dqc.mergeSortLimit(ctx, schema, []*pldapi.State{
@@ -326,7 +310,6 @@ func TestDCMergeCoordinatorStatesResultMergeFail(t *testing.T) {
 	s1 := makeFakeCoin(t, ctx, schema, contractAddress, false, 20)
 	view := &staticView{states: queriedStatesOf(0, s1)}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, view)
-	defer dqc.Close(ctx)
 
 	// The DB state has unparseable data, so the merge fails recovering its labels.
 	q := query.NewQueryBuilder().Query()
@@ -351,7 +334,6 @@ func TestDCFindBadQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	_, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
-	defer dqc.Close(ctx)
 
 	schemaID := schema.ID()
 	assert.Equal(t, "type=FakeCoin(bytes32 salt,address owner,uint256 amount),labels=[owner,amount]", schema.Signature())
@@ -375,7 +357,6 @@ func TestMergeInMemoryMatchesLimit(t *testing.T) {
 	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
 
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
-	defer dqc.Close(ctx)
 
 	mkState := func(amount int) *components.StateWithLabels {
 		s, e := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
@@ -390,30 +371,6 @@ func TestMergeInMemoryMatchesLimit(t *testing.T) {
 	result, err := dqc.mergeSortLimit(ctx, schema, dbStates, nil, query.NewQueryBuilder().Limit(limit).Sort(".created").Query(), ss.labelSetFor(schema))
 	require.NoError(t, err)
 	assert.Len(t, result, 2)
-}
-
-// TestMergeCoordinatorClosedContext verifies that a closed assembly DomainQueryContext fails at
-// the query entry points, before the DB read or the remote fetch is launched.
-func TestMergeCoordinatorClosedContext(t *testing.T) {
-	ctx, ss, _, _, done := newDBMockStateManager(t)
-	defer done()
-
-	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
-	require.NoError(t, err)
-	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
-
-	contractAddress := pldtypes.RandAddress()
-	view := &staticView{}
-	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, view)
-	dqc.Close(ctx)
-
-	_, _, err = dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema.ID(), query.NewQueryBuilder().Query())
-	assert.Regexp(t, "PD010122", err)
-
-	_, _, err = dqc.GetStatesByID(ctx, ss.p.NOTX(), schema.ID(), []string{pldtypes.RandHex(32)})
-	assert.Regexp(t, "PD010122", err)
-
-	assert.Zero(t, view.calls)
 }
 
 // blockingDBTX holds every DB access blocked until release is closed, signalling the first
@@ -456,7 +413,6 @@ func TestFindAvailableStatesOverlapsRemoteFetch(t *testing.T) {
 		fetchStarted:    make(chan struct{}),
 	}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, view)
-	defer dqc.Close(ctx)
 
 	dbTX := &blockingDBTX{DBTX: ss.p.NOTX(), dbAccessed: make(chan struct{}), release: make(chan struct{})}
 
@@ -477,19 +433,6 @@ func TestFindAvailableStatesOverlapsRemoteFetch(t *testing.T) {
 	assert.Equal(t, s1.ID, states[0].ID)
 }
 
-// TestFindAvailableNullifiersClosedContext verifies FindAvailableNullifiers
-// returns an error when the DomainQueryContext is closed.
-func TestFindAvailableNullifiersClosedContext(t *testing.T) {
-	ctx, ss, _, _, done := newDBMockStateManager(t)
-	defer done()
-
-	_, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
-	dqc.Close(ctx)
-
-	_, _, err := dqc.FindAvailableNullifiers(ctx, ss.p.NOTX(), pldtypes.Bytes32(pldtypes.RandBytes(32)), nil)
-	assert.Regexp(t, "PD010122", err)
-}
-
 func TestBadSchema(t *testing.T) {
 
 	ctx, ss, _, _, done := newDBMockStateManager(t)
@@ -505,7 +448,6 @@ func TestCheckEvalGTTimestamp(t *testing.T) {
 	defer done()
 
 	_, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
-	defer dqc.Close(ctx)
 
 	jq := query.NewQueryBuilder().GreaterThan(".created", 1726545933211347000).Limit(10).Sort(".created").Query()
 
@@ -553,7 +495,6 @@ func TestFindAvailableStatesWithRemoteView(t *testing.T) {
 	s2 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 20)
 
 	view, dqc := newTestRemoteViewContext(t, ctx, ss, contractAddress, s1, s2)
-	defer dqc.Close(ctx)
 
 	_, states, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	require.NoError(t, err)
@@ -585,7 +526,6 @@ func TestFindAvailableStatesQueryEvaluatedOnCoordinator(t *testing.T) {
 	s30 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 30)
 
 	_, dqc := newTestRemoteViewContext(t, ctx, ss, contractAddress, s10, s20, s30)
-	defer dqc.Close(ctx)
 
 	// Label equality
 	_, states, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(),
@@ -616,7 +556,6 @@ func TestFindAvailableStatesSchemaFilteredOnCoordinator(t *testing.T) {
 
 	s1 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 10)
 	view, dqc := newTestRemoteViewContext(t, ctx, ss, contractAddress, s1)
-	defer dqc.Close(ctx)
 
 	_, states, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema2.ID(), query.NewQueryBuilder().Query())
 	require.NoError(t, err)
@@ -632,7 +571,6 @@ func TestNullifierQueriesSkipRemoteView(t *testing.T) {
 
 	s1 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 10)
 	view, dqc := newTestRemoteViewContext(t, ctx, ss, contractAddress, s1)
-	defer dqc.Close(ctx)
 
 	_, states, err := dqc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	require.NoError(t, err)
@@ -647,7 +585,6 @@ func TestRemoteViewQueryError(t *testing.T) {
 
 	view := &testRemoteView{err: errors.New("pop")}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, view)
-	defer dqc.Close(ctx)
 
 	_, _, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	assert.Regexp(t, "PD010134.*pop", err)
@@ -666,13 +603,11 @@ func TestQueriedStateBadIDsRejected(t *testing.T) {
 	})
 	_, _, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	require.Error(t, err)
-	dqc.Close(ctx)
 
 	// Bad schema ID
 	dqc2 := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, &staticView{
 		states: []*prototk.QueriedState{{State: &prototk.EndorsableState{Id: pldtypes.RandHex(32), SchemaId: "not-a-schema"}}},
 	})
-	defer dqc2.Close(ctx)
 	_, _, err = dqc2.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	require.Error(t, err)
 }
@@ -693,7 +628,6 @@ func TestQueriedStateSchemaMismatch(t *testing.T) {
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, &staticView{
 		states: queriedStatesOf(0, s1),
 	})
-	defer dqc.Close(ctx)
 
 	_, _, err = dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema2.ID(), query.NewQueryBuilder().Query())
 	assert.Regexp(t, "PD010136", err)
@@ -711,7 +645,6 @@ func TestQueriedStateNoMatchRejected(t *testing.T) {
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, &staticView{
 		states: queriedStatesOf(0, s1),
 	})
-	defer dqc.Close(ctx)
 
 	jq := query.NewQueryBuilder().Equal("amount", 9999).Query()
 	_, _, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), jq)
@@ -740,7 +673,6 @@ func TestQueriedStatePopulatesCache(t *testing.T) {
 	const coordinatorCreated int64 = 1_700_000_000_000_000_000
 	view := &testRemoteView{ss: ss, domainName: "domain1", candidates: []*prototk.SnapshotState{snapshotStateOf(s1, coordinatorCreated)}}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, view)
-	defer dqc.Close(ctx)
 
 	_, states, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	require.NoError(t, err)
@@ -793,7 +725,6 @@ func TestQueriedStateCustomHashBypass(t *testing.T) {
 	view := &testRemoteView{ss: ss, domainName: "domain1", candidates: []*prototk.SnapshotState{snapshotStateOf(s1, 0)}}
 
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", true, contractAddress, view)
-	defer dqc.Close(ctx)
 	_, states, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	require.Len(t, states, 1)
@@ -829,7 +760,6 @@ func TestQueriedStateCustomHashDomainErrors(t *testing.T) {
 	dqc := newTestAssemblyContext(t, ctx, ss, "customdomain", true, contractAddress, &staticView{
 		states: queriedStatesOf(0, s1),
 	})
-	defer dqc.Close(ctx)
 
 	// The domain lookup fails: the whole select fails.
 	m.domainManager.On("GetDomainByName", mock.Anything, "customdomain").Return(nil, errors.New("no such domain")).Once()
@@ -867,7 +797,6 @@ func TestQueriedStateCachePoisoning(t *testing.T) {
 			StateDataJson: string(s1.Data),
 		}}},
 	})
-	defer dqc.Close(ctx)
 
 	_, _, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	assert.Regexp(t, "PD010129", err) // state hash mismatch
@@ -895,7 +824,6 @@ func TestQueriedCreatedOrdering(t *testing.T) {
 		snapshotStateOf(early, 1000),
 	}}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, view)
-	defer dqc.Close(ctx)
 
 	_, states, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Sort(".created").Query())
 	require.NoError(t, err)
@@ -968,14 +896,12 @@ func TestQueriedStatesMixedHitMiss(t *testing.T) {
 	_, dqc1 := newTestRemoteViewContext(t, ctx, ss, contractAddress, cachedState)
 	_, _, err := dqc1.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	require.NoError(t, err)
-	dqc1.Close(ctx)
 
 	hits, misses := cacheCounts(ss)
 	require.Equal(t, 0, hits)
 	require.Equal(t, 1, misses)
 
 	_, dqc2 := newTestRemoteViewContext(t, ctx, ss, contractAddress, cachedState, freshState)
-	defer dqc2.Close(ctx)
 	_, states, err := dqc2.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Sort(".created").Query())
 	require.NoError(t, err)
 	require.Len(t, states, 2)
@@ -1086,7 +1012,6 @@ func TestQueriedStateEvalQueryError(t *testing.T) {
 
 	view := &staticView{states: queriedStatesOf(0, s1)}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, view)
-	defer dqc.Close(ctx)
 
 	// The returned state validates, but the query references an unknown field, so the
 	// re-evaluation against the recomputed labels fails.
@@ -1105,7 +1030,6 @@ func TestFindAvailableStatesSpentIDsFetchError(t *testing.T) {
 
 	view := &testRemoteView{spentErr: errors.New("pop")}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, pldtypes.RandAddress(), view)
-	defer dqc.Close(ctx)
 
 	_, _, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), pldtypes.RandBytes32(), query.NewQueryBuilder().Query())
 	assert.Regexp(t, "PD010137.*pop", err)
@@ -1120,7 +1044,6 @@ func TestFindAvailableNullifiersSpentIDsFetchError(t *testing.T) {
 
 	view := &testRemoteView{spentErr: errors.New("pop")}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, pldtypes.RandAddress(), view)
-	defer dqc.Close(ctx)
 
 	_, _, err := dqc.FindAvailableNullifiers(ctx, ss.p.NOTX(), pldtypes.RandBytes32(), query.NewQueryBuilder().Query())
 	assert.Regexp(t, "PD010137.*pop", err)
@@ -1135,7 +1058,6 @@ func TestFindAvailableStatesUnmarshalableQuery(t *testing.T) {
 
 	view := &staticView{}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, pldtypes.RandAddress(), view)
-	defer dqc.Close(ctx)
 
 	// A raw JSON value that is not valid JSON fails json.Marshal of the whole query.
 	q := &query.QueryJSON{
@@ -1169,7 +1091,6 @@ func TestGetStatesByIDWithRemoteView(t *testing.T) {
 	writeStateBatch(t, ctx, ss, dbStates)
 
 	view, dqc := newTestRemoteViewContext(t, ctx, ss, contractAddress, sRemote)
-	defer dqc.Close(ctx)
 
 	schema, states, err := dqc.GetStatesByID(ctx, ss.p.NOTX(), schema1.ID(), []string{sDB.ID.String(), sRemote.ID.String()})
 	require.NoError(t, err)
@@ -1188,7 +1109,6 @@ func TestGetStatesByIDRemoteFetchError(t *testing.T) {
 
 	view := &testRemoteView{err: errors.New("pop")}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, view)
-	defer dqc.Close(ctx)
 
 	_, _, err := dqc.GetStatesByID(ctx, ss.p.NOTX(), schema1.ID(), []string{pldtypes.RandHex(32)})
 	assert.Regexp(t, "PD010134.*pop", err)
@@ -1204,7 +1124,6 @@ func TestGetStatesByIDMergeError(t *testing.T) {
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, &staticView{
 		states: queriedStatesOf(0, s1),
 	})
-	defer dqc.Close(ctx)
 
 	_, _, err := dqc.GetStatesByID(ctx, ss.p.NOTX(), schema1.ID(), []string{pldtypes.RandHex(32)})
 	assert.Regexp(t, "PD010135", err)
@@ -1214,7 +1133,6 @@ func TestGetStatesByIDFail(t *testing.T) {
 	ctx, ss, db, _, done := newDBMockStateManager(t)
 	defer done()
 	_, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
-	defer dqc.Close(ctx)
 
 	db.ExpectQuery("SELECT.*schemas").WillReturnError(fmt.Errorf("pop"))
 
@@ -1234,7 +1152,6 @@ func TestNewDomainQueryContextWithRemoteView_DelegatesSpentIDsToView(t *testing.
 	md.On("CustomHashFunction").Return(false)
 
 	dqc := ss.NewDomainQueryContextWithRemoteView(ctx, md, *pldtypes.RandAddress(), view)
-	defer dqc.Close(ctx)
 
 	// Construction does not fetch the exclusion set.
 	assert.Zero(t, view.spentCalls)
@@ -1262,7 +1179,6 @@ func TestNewDomainQueryContextWithRemoteView_SpentIDsFetchError(t *testing.T) {
 	md.On("CustomHashFunction").Return(false)
 
 	dqc := ss.NewDomainQueryContextWithRemoteView(ctx, md, *pldtypes.RandAddress(), view)
-	defer dqc.Close(ctx)
 
 	// The fetch is lazy, so the error surfaces from the query rather than construction, and a
 	// failed fetch is not cached — the next call retries.

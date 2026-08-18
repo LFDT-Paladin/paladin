@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"maps"
 	"strings"
-	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -61,36 +60,28 @@ func createLogContext(ctx context.Context, domainName string, contractAddress pl
 	return ctx
 }
 
-// Short-lived, registered in the state manager. Always closed by the caller via defer dqc.Close(ctx).
+// Short-lived, and holds no resources of its own - it is collected once its consumer drops it.
 // May carry a remote view (spend exclusions + on-demand state queries) for FindAvailableStates queries.
 type domainQueryContext struct {
 	ss                 *stateManager
 	domainName         string
 	customHashFunction bool
 	contractAddress    pldtypes.EthAddress
-	stateLock          sync.Mutex
-	id                 uuid.UUID
-	closed             bool
+	id                 uuid.UUID // correlates this context's log lines
 	remoteStateView    components.RemoteStateView
 }
 
-// Very important that callers Close domain query contexts they open.
 func (ss *stateManager) NewDomainQueryContext(ctx context.Context, domain components.Domain, contractAddress pldtypes.EthAddress) components.DomainQueryContext {
 	id := uuid.New()
 	log.L(ctx).Debugf("Domain context %s for domain %s contract %s created", id, domain.Name(), contractAddress)
 
-	ss.domainContextLock.Lock()
-	defer ss.domainContextLock.Unlock()
-
-	dqc := &domainQueryContext{
+	return &domainQueryContext{
 		ss:                 ss,
 		domainName:         domain.Name(),
 		customHashFunction: domain.CustomHashFunction(),
 		contractAddress:    contractAddress,
 		id:                 id,
 	}
-	ss.domainContexts[id] = dqc
-	return dqc
 }
 
 // NewDomainQueryContextWithRemoteView creates a domain query context whose FindAvailableStates
@@ -102,10 +93,7 @@ func (ss *stateManager) NewDomainQueryContextWithRemoteView(ctx context.Context,
 	id := uuid.New()
 	log.L(ctx).Debugf("Assembly domain context %s for domain %s contract %s created", id, domain.Name(), contractAddress)
 
-	ss.domainContextLock.Lock()
-	defer ss.domainContextLock.Unlock()
-
-	dqc := &domainQueryContext{
+	return &domainQueryContext{
 		ss:                 ss,
 		domainName:         domain.Name(),
 		customHashFunction: domain.CustomHashFunction(),
@@ -113,8 +101,6 @@ func (ss *stateManager) NewDomainQueryContextWithRemoteView(ctx context.Context,
 		id:                 id,
 		remoteStateView:    remoteStateView,
 	}
-	ss.domainContexts[id] = dqc
-	return dqc
 }
 
 // getSpentStateIDs returns the remote view's spend exclusion set. Returns nil for local-only contexts.
@@ -130,49 +116,9 @@ func (dqc *domainQueryContext) getSpentStateIDs(ctx context.Context) ([]pldtypes
 	return spendStateIDs, nil
 }
 
-// nil if not found
-func (ss *stateManager) GetDomainQueryContext(ctx context.Context, id uuid.UUID) components.DomainQueryContext {
-	ss.domainContextLock.Lock()
-	defer ss.domainContextLock.Unlock()
-
-	ret, found := ss.domainContexts[id]
-	if found {
-		return ret
-	}
-	return nil // means an actual nil value to the interface
-}
-
-// ensureOpen fails if the context has been closed.
-func (dqc *domainQueryContext) ensureOpen(ctx context.Context) error {
-	dqc.stateLock.Lock()
-	defer dqc.stateLock.Unlock()
-	if dqc.closed {
-		return i18n.NewError(ctx, msgs.MsgStateDomainContextClosed)
-	}
-	return nil
-}
-
-// ID returns the UUID that identifies this context in the state manager registry.
-func (dqc *domainQueryContext) ID() uuid.UUID {
-	return dqc.id
-}
-
 // ContractAddress returns the contract address this context was opened for.
 func (dqc *domainQueryContext) ContractAddress() pldtypes.EthAddress {
 	return dqc.contractAddress
-}
-
-// Close deregisters the context from the state manager.
-func (dqc *domainQueryContext) Close(ctx context.Context) {
-	dqc.stateLock.Lock()
-	dqc.closed = true
-	dqc.stateLock.Unlock()
-
-	log.L(ctx).Debugf("Domain query context %s for domain %s contract %s closed", dqc.id, dqc.domainName, dqc.contractAddress)
-
-	dqc.ss.domainContextLock.Lock()
-	defer dqc.ss.domainContextLock.Unlock()
-	delete(dqc.ss.domainContexts, dqc.id)
 }
 
 // labelPreloadModifier returns a query modifier that preloads the persisted label rows, but only
@@ -398,10 +344,6 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, &schemaID)
 	log.L(ctx).Debugf("FindAvailableStates query=%s", q)
 
-	if err := dqc.ensureOpen(ctx); err != nil {
-		return nil, nil, err
-	}
-
 	spentStateIDs, err := dqc.getSpentStateIDs(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -446,10 +388,6 @@ func (dqc *domainQueryContext) FindAvailableNullifiers(ctx context.Context, dbTX
 	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, &schemaID)
 	log.L(ctx).Debugf("FindAvailableNullifiers query=%s", q)
 
-	if err := dqc.ensureOpen(ctx); err != nil {
-		return nil, nil, err
-	}
-
 	spentStateIDs, err := dqc.getSpentStateIDs(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -469,10 +407,6 @@ func (dqc *domainQueryContext) GetStatesByID(ctx context.Context, dbTX persisten
 		idsAny[i] = id
 	}
 	q := query.NewQueryBuilder().In(".id", idsAny).Sort(".created").Query()
-
-	if err := dqc.ensureOpen(ctx); err != nil {
-		return nil, nil, err
-	}
 
 	waitRemote := dqc.startRemoteViewFetch(ctx, schemaID, q)
 	schema, dbStates, dbErr := dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q, &components.StateQueryOptions{

@@ -43,7 +43,7 @@ var (
 	MsgTypesInvalidDBUint256                 = pde("PD020013", "Integer incorrectly serialized to the database for a uint256: %s")
 	MsgTypesInvalidJSONFormatOptions         = pde("PD020014", "The JSON formatting options must be a valid set of key=value pairs in URL query string format '%s'")
 	MsgTypesUnknownJSONFormatOptions         = pde("PD020015", "JSON formatting option unknown %s=%s")
-	MsgTypesInvalidStateQualifier            = pde("PD020016", "Status must be one of 'available','confirmed','unconfirmed','spent','locked','all' or the UUID of a transaction")
+	MsgTypesInvalidStateQualifier            = pde("PD020016", "Status must be one of 'available','confirmed','unconfirmed','spent','all'")
 	MsgTypesPrivateIdentityReqFullyQualified = pde("PD020017", "Locator string %s must be fully qualified with a node name")
 	MsgTypesRestoreFailed                    = pde("PD020018", "Failed to restore type '%T' into '%T'")
 	MsgTypesTimeParseFail                    = pde("PD020019", "Cannot parse time as RFC3339, Unix, or UnixNano: '%s'", 400)
