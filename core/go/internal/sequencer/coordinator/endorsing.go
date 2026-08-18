@@ -18,7 +18,9 @@ package coordinator
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -209,6 +211,12 @@ func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *Endorseme
 	}
 
 	revertReason := ""
+
+	// A revert reason when the result is not a revert is an indication of a domain bug- log at WARN level
+	if endorsementResult.Result != prototk.EndorseTransactionResponse_REVERT && endorsementResult.RevertReason != nil {
+		log.L(ctx).Warn(i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerEndorseRevertReasonIgnored),
+			endorsementResult.Result, e.TransactionId, *endorsementResult.RevertReason))
+	}
 
 	switch endorsementResult.Result {
 	case prototk.EndorseTransactionResponse_REVERT:

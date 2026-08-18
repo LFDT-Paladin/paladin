@@ -619,22 +619,38 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				}},
 			},
-			// Domain returned REVERT: endorser rejected the assembly as invalid. Record the
-			// failed party (stops nudging them) and check whether remaining non-failed parties
-			// can still fulfill the plan. If tolerance exceeded → repool with full request reset;
-			// otherwise stay put — the remaining parties may still provide enough endorsements.
+			// Domain returned REVERT: the endorser rejected the assembly as invalid.
+			// Record the failed party (stops nudging them), then pick the outcome:
+			//
+			//  1. Reverts alone now exceed the tolerance — the threshold is unreachable and the
+			//     reason will recur on every retry, so finalize rather than reassembling into the
+			//     same failures.
+			//  2. Total failures exceed the tolerance but reverts alone do not — some of those
+			//     failures may be transient, so repool and let reassembly try again.
+			//  3. Neither — stay put, the remaining parties may still fulfill the plan.
 			Event_EndorseRevert: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
 					Actions: []ActionRule{{Action: action_RecordEndorseFailure}},
-					Transitions: []Transition{{
-						If: guard_EndorseFailureExceedsTolerance,
-						To: State_Pooled,
-						Actions: []ActionRule{
-							{Action: action_NotifyDependentsOfReset},
-							{Action: action_ResetEndorsementRequests},
+					Transitions: []Transition{
+						{
+							If: guard_EndorseRevertExceedsTolerance,
+							To: State_Reverted,
+							Actions: []ActionRule{
+								{Action: action_NotifyOriginatorOfEndorseRevert},
+								{Action: action_NotifyDependentsOfRevertedConfirmation},
+								{Action: action_FinalizeEndorseRevert},
+							},
 						},
-					}},
+						{
+							If: guard_EndorseFailureExceedsTolerance,
+							To: State_Pooled,
+							Actions: []ActionRule{
+								{Action: action_NotifyDependentsOfReset},
+								{Action: action_ResetEndorsementRequests},
+							},
+						},
+					},
 				}},
 			},
 			// Unexpected endorser error. Record the failed party (stops nudging them),

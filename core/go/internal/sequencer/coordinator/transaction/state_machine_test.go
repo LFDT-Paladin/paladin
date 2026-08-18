@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -843,8 +844,10 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToBlocked_OnEndorsed_IfAtt
 	assert.Equal(t, State_Blocked, txn2.GetCurrentState(), "current state is %s", txn2.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRevert_ToleranceExceeded(t *testing.T) {
-	// Single-party requirement → tolerance=0. Any revert exceeds tolerance → repool.
+func TestCoordinatorTransaction_Endorsement_Gathering_ToReverted_OnEndorseRevert_ToleranceExceeded(t *testing.T) {
+	// Single-party requirement → tolerance=0. One revert puts the threshold out of reach for a
+	// deterministic reason, so the transaction is finalized rather than repooled: reassembling
+	// would only collect the same reverts again.
 	ctx := context.Background()
 	mockGrapher := graphermocks.NewGrapher(t)
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -852,12 +855,137 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRevert_T
 		AddPendingEndorsementRequest().
 		EndorseTolerance(0)
 
-	txn, _ := builder.Build()
+	txn, mocks := builder.Build()
 	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, txn.GetID())
+
+	var finalized *syncpoints.TransactionFinalizeRequest
+	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Run(func(_ context.Context, req *syncpoints.TransactionFinalizeRequest, _ func(context.Context), _ func(context.Context, error)) {
+		finalized = req
+	}).Return()
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorseRevertEvent())
 	require.NoError(t, err)
+	assert.Equal(t, State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+
+	// The receipt must name the endorser that refused and carry its reason.
+	require.NotNil(t, finalized, "transaction must be finalized, not left for retry")
+	assert.Equal(t, txn.pt.ID, finalized.TransactionID)
+	assert.Contains(t, finalized.FailureMessage, "PD012649")
+	assert.Contains(t, finalized.FailureMessage, "some reason for revert")
+
+	// The originator must be told, or its own state machine waits for a dispatch that never comes.
+	sent := mocks.SentMessageRecorder.SentTransactionConfirmed()
+	require.Len(t, sent, 1)
+	assert.Equal(t, engineProto.TransactionConfirmed_OUTCOME_REVERTED, sent[0].Outcome)
+	assert.Equal(t, txn.pt.ID.String(), sent[0].TransactionId)
+	assert.Contains(t, sent[0].FailureMessage, "some reason for revert")
+}
+
+func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRevert_MixedFailuresExceedTolerance(t *testing.T) {
+	// 2-of-3 plan → tolerance=1. One party already errored; now a second party reverts. Combined
+	// failures (2) exceed the tolerance but reverts alone (1) do not, so the outcome is a repool
+	// rather than a finalize: the error may have been transient, and reassembly may produce a
+	// transaction the reverting party accepts.
+	ctx := context.Background()
+	mockGrapher := graphermocks.NewGrapher(t)
+	party1 := "party1@node1"
+	party2 := "party2@node2"
+	party3 := "party3@node3"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(mockGrapher).
+		NumberOfRequiredEndorsers(0). // suppress the standard per-endorser plan
+		Build()
+	txn.endorseToleranceByRequirement = map[string]int{"endorse-multisig": 1}
+
+	threshold := int32(2)
+	txn.pt.PostAssembly.AssembleResponse.AttestationPlan = []*prototk.AttestationRequest{
+		{
+			Name:            "endorse-multisig",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			Threshold:       &threshold,
+			Parties:         []string{party1, party2, party3},
+		},
+	}
+	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
+		"endorse-multisig": {
+			party1: nil, // nil sentinel: already errored, within tolerance=1
+			party2: common.NewIdempotentRequest(ctx, common.RealClock(), time.Second, func(_ context.Context, _ uuid.UUID) error { return nil }),
+		},
+	}
+	// party1's earlier failure was an error, so it counts towards failures but not reverts.
+	txn.endorseFailureCountByRequirement = map[string]int{"endorse-multisig": 1}
+
+	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, txn.GetID())
+
+	event := &EndorseRevertEvent{
+		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		Party:                  party2,
+		RevertReason:           "some reason for revert",
+		AttestationRequestName: "endorse-multisig",
+	}
+	err := txn.HandleEvent(ctx, event)
+	require.NoError(t, err)
 	assert.Equal(t, State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestCoordinatorTransaction_Endorsement_Gathering_ToReverted_OnEndorseRevert_RevertsAloneExceedTolerance(t *testing.T) {
+	// Same 2-of-3 plan, but both failures are reverts. Reverts alone (2) exceed the tolerance,
+	// so this finalizes where the mixed case above repools.
+	ctx := context.Background()
+	mockGrapher := graphermocks.NewGrapher(t)
+	party1 := "party1@node1"
+	party2 := "party2@node2"
+	party3 := "party3@node3"
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(mockGrapher).
+		NumberOfRequiredEndorsers(0).
+		Build()
+	txn.endorseToleranceByRequirement = map[string]int{"endorse-multisig": 1}
+
+	threshold := int32(2)
+	txn.pt.PostAssembly.AssembleResponse.AttestationPlan = []*prototk.AttestationRequest{
+		{
+			Name:            "endorse-multisig",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			Threshold:       &threshold,
+			Parties:         []string{party1, party2, party3},
+		},
+	}
+	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
+		"endorse-multisig": {
+			party1: nil, // nil sentinel: already reverted, within tolerance=1
+			party2: common.NewIdempotentRequest(ctx, common.RealClock(), time.Second, func(_ context.Context, _ uuid.UUID) error { return nil }),
+		},
+	}
+	txn.endorseFailureCountByRequirement = map[string]int{"endorse-multisig": 1}
+	txn.endorseRevertCountByRequirement = map[string]int{"endorse-multisig": 1}
+	txn.endorseRevertReasons = []string{"[" + party1 + "] first reason"}
+
+	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, txn.GetID())
+
+	var finalized *syncpoints.TransactionFinalizeRequest
+	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Run(func(_ context.Context, req *syncpoints.TransactionFinalizeRequest, _ func(context.Context), _ func(context.Context, error)) {
+		finalized = req
+	}).Return()
+
+	event := &EndorseRevertEvent{
+		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		Party:                  party2,
+		RevertReason:           "second reason",
+		AttestationRequestName: "endorse-multisig",
+	}
+	err := txn.HandleEvent(ctx, event)
+	require.NoError(t, err)
+	assert.Equal(t, State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+
+	// Both refusals are reported, not just the one that tipped it over the tolerance.
+	require.NotNil(t, finalized)
+	assert.Contains(t, finalized.FailureMessage, "first reason")
+	assert.Contains(t, finalized.FailureMessage, "second reason")
 }
 
 func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseRevert_WithinTolerance(t *testing.T) {

@@ -1121,8 +1121,9 @@ func TestTransactionErrorDuringAssembly(t *testing.T) {
 }
 
 func TestTransactionRevertDuringEndorsement(t *testing.T) {
-	// Test that a transaction which reverts at endorsement time is still successful
-	// due to the transaction being re-assembled and then successfully endorsed.
+	// An endorsement revert recurs on retry, so re-assembling and asking again would only get the same
+	// answer. Test that the coordinator finalizes the transaction as reverted, and that the receipt
+	// tells the originator which party reverted it and why.
 	ctx := t.Context()
 	domainRegistryAddress := deployDomainRegistry(t, "alice")
 
@@ -1163,9 +1164,70 @@ func TestTransactionRevertDuringEndorsement(t *testing.T) {
 			"from": "",
 			"to": "` + bob.GetIdentityLocator() + `",
 			"amount": "1002"
-		}`)). // Special value 1002 in the simple domain causes revert at endorsement time
+		}`)). // Special value 1002 in the simple domain causes revert at endorsement time, every time
 		Send().Wait(transactionLatencyThreshold(t))
+
+	require.Error(t, aliceTx.Error())
+	require.NotNil(t, aliceTx.Receipt())
+	require.False(t, aliceTx.Receipt().Success)
+
+	// The originator is told the endorsement threshold could not be met, and the domain's own words are
+	// carried through alongside the party that reverted - without that the receipt cannot be acted on.
+	failureMessage := aliceTx.Receipt().FailureMessage
+	require.Contains(t, failureMessage, "PD012649")
+	require.Contains(t, failureMessage, "simple domain revert - special transfer amount 1002 intentionally rejected")
+	require.Contains(t, failureMessage, alice.GetIdentityLocator())
+}
+
+func TestTransactionErrorDuringEndorsement(t *testing.T) {
+	// The counterpart to TestTransactionRevertDuringEndorsement. An error from a domain at endorsement
+	// time says nothing about the transaction, only that this endorser hit an unexpected error, so the
+	// coordinator must put the transaction back in the pool rather than finalizing it. Test that the
+	// transaction is re-assembled, endorsed on the second attempt, and confirmed.
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{}
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, alice)
+		stopNode(t, bob)
+	})
+
+	constructorParameters := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.SelfEndorsement,
+	}
+
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+
+	aliceTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx1-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "1007"
+		}`)). // Special value 1007 in the simple domain errors at endorsement time once, then endorses
+		Send().Wait(transactionLatencyThreshold(t))
+
 	require.NoError(t, aliceTx.Error())
+	require.NotNil(t, aliceTx.Receipt())
+	require.True(t, aliceTx.Receipt().Success)
 }
 
 func TestTransactionRevertOnBaseLedger(t *testing.T) {
