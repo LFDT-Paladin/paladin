@@ -798,7 +798,7 @@ func (n *Noto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTrans
 	if err != nil {
 		return nil, err
 	}
-	// Defense in depth for the nullifier variants: catches invald transactions that includes inputs/outputs states
+	// Defense in depth for the nullifier variants: catches invalid transactions that includes inputs/outputs states
 	// with colliding nullifiers. Applied to every handler here rather than per-handler, so no transaction
 	// type can be missed.
 	if tx.DomainConfig.IsNullifierVariant() {
