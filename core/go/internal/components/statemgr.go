@@ -32,12 +32,11 @@ import (
 type StateManager interface {
 	ManagerLifecycle
 
-	// Create a new domain query context - caller is responsible for closing it.
+	// Create a new domain query context.
 	NewDomainQueryContext(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress) DomainQueryContext
 
 	// Create a domain query context that answers queries by merging the local DB view with a
 	// remote in-memory view: view serves its matching unconfirmed states and spent state IDs on demand.
-	// Caller is responsible for closing it.
 	NewDomainQueryContextWithRemoteView(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress, view RemoteStateView) DomainQueryContext
 
 	// FindMatchingInMemoryStates evaluates a domain state query against caller-supplied snapshot
@@ -48,9 +47,6 @@ type StateManager interface {
 	// nullifier records to the database within the given transaction. Nullifiers must be validated
 	// against and linked to their creating states by the caller.
 	WriteStateBatch(ctx context.Context, dbTX persistence.DBTX, states []*StateWithLabels, nullifiers ...*pldapi.StateNullifier) error
-
-	// Get a previously created domain query context
-	GetDomainQueryContext(ctx context.Context, id uuid.UUID) DomainQueryContext
 
 	// Ensure ABI schemas upserts all the specified schemas, using the given DB transaction
 	EnsureABISchemas(ctx context.Context, dbTX persistence.DBTX, domainName string, defs []*abi.Parameter) ([]Schema, error)
@@ -119,12 +115,9 @@ type StateQueryOptions struct {
 // be backed by a remote view, in which case queries are executed against both the remote view and
 // the local persisted state store, with the results merged together.
 //
-// A DomainQueryContext is typically short-lived and must be closed by its consumer when no longer needed
-// to avoid leaking resources.
+// A DomainQueryContext is typically short-lived, holds no resources of its own, and is collected
+// once its consumer drops it.
 type DomainQueryContext interface {
-	// ID returns the UUID that identifies this context in the state manager registry.
-	ID() uuid.UUID
-
 	// FindAvailableStates is the primary query function, returning only available states.
 	// For contexts created with a remote view, results merge the view's matches and respect
 	// its spend exclusions.
@@ -139,9 +132,6 @@ type DomainQueryContext interface {
 
 	// ContractAddress returns the contract address this context was opened for.
 	ContractAddress() pldtypes.EthAddress
-
-	// Close deregisters the context from the state manager and prevents further use.
-	Close(ctx context.Context)
 }
 
 type StateUpsertOutsideContext struct {

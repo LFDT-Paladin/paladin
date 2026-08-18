@@ -858,7 +858,6 @@ func (sMgr *sequencerManager) CallPrivateSmartContract(ctx context.Context, call
 
 	// Create a throwaway domain context for this call
 	dc := sMgr.components.StateManager().NewDomainQueryContext(ctx, psc.Domain(), psc.Address())
-	defer dc.Close(ctx)
 
 	// Do the actual call
 	return psc.ExecCall(ctx, dc, sMgr.components.Persistence().NOTX(), call, verifiers)

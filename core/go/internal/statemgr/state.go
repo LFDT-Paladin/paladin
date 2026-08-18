@@ -27,7 +27,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -354,50 +353,35 @@ func (ss *stateManager) findStates(
 	if options.StatusQualifier == "" {
 		options.StatusQualifier = pldapi.StateStatusAll
 	}
-	// Available is served from the maintained confirmed/spent flags and the states_available
-	// partial index, so it needs neither the Confirmed/Spent joins nor whereClauseForQual. Every
-	// other plain-DB qualifier still expresses status via those joins.
+	// Available, and its synonym confirmed, are served from the maintained confirmed/spent flags
+	// and the states_available partial index, so they need neither the Confirmed/Spent joins nor
+	// whereClauseForQual. Every other qualifier expresses status via those joins.
 	var whereClause *gorm.DB
-	needsStatusJoins, isPlainDB := true, true
-	if options.StatusQualifier == pldapi.StateStatusAvailable {
+	var needsStatusJoins bool
+	if options.StatusQualifier == pldapi.StateStatusAvailable || options.StatusQualifier == pldapi.StateStatusConfirmed {
 		whereClause = dbTX.DB(ctx).Where(`"states"."confirmed" AND NOT "states"."spent"`)
-		needsStatusJoins = false
 	} else {
-		whereClause, isPlainDB = whereClauseForQual(dbTX.DB(ctx), options.StatusQualifier, "Spent")
+		whereClause = whereClauseForQual(dbTX.DB(ctx), options.StatusQualifier, "Spent")
+		needsStatusJoins = true
 	}
-	if isPlainDB {
-		return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
-			if needsStatusJoins {
-				q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
-					Joins("Spent", dbTX.DB(ctx).Select("transaction"))
-			}
-
-			if len(options.ExcludedIDs) > 0 {
-				q = q.Not(`"states"."id" IN(?)`, options.ExcludedIDs)
-			}
-
-			// Scope the query based on the status qualifier
-			q = q.Where(whereClause)
-
-			if options.QueryModifier != nil {
-				q = options.QueryModifier(dbTX, q)
-			}
-			return q
-		})
-	}
-
-	// Otherwise, we need to run it against the specified domain context
-	var dqc components.DomainQueryContext
-	dcID, err := uuid.Parse(string(options.StatusQualifier))
-	if err == nil {
-		if dqc = ss.GetDomainQueryContext(ctx, dcID); dqc == nil {
-			err = i18n.NewError(ctx, msgs.MsgStateDomainContextNotActive, dcID)
+	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
+		if needsStatusJoins {
+			q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
+				Joins("Spent", dbTX.DB(ctx).Select("transaction"))
 		}
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	return dqc.FindAvailableStates(ctx, dbTX, schemaID, jq)
+
+		if len(options.ExcludedIDs) > 0 {
+			q = q.Not(`"states"."id" IN(?)`, options.ExcludedIDs)
+		}
+
+		// Scope the query based on the status qualifier
+		q = q.Where(whereClause)
+
+		if options.QueryModifier != nil {
+			q = options.QueryModifier(dbTX, q)
+		}
+		return q
+	})
 }
 
 func (ss *stateManager) findNullifiers(
@@ -415,47 +399,31 @@ func (ss *stateManager) findNullifiers(
 	if options.StatusQualifier == "" {
 		options.StatusQualifier = pldapi.StateStatusAll
 	}
-	whereClause, isPlainDB := whereClauseForQual(dbTX.DB(ctx), options.StatusQualifier, "Nullifier__Spent")
-	if isPlainDB {
-		schema, s, err = ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
-			hasNullifier := dbTX.DB(ctx).Where(`"Nullifier"."id" IS NOT NULL`)
+	whereClause := whereClauseForQual(dbTX.DB(ctx), options.StatusQualifier, "Nullifier__Spent")
+	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
+		hasNullifier := dbTX.DB(ctx).Where(`"Nullifier"."id" IS NOT NULL`)
 
-			q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
-				Joins("Nullifier", dbTX.DB(ctx).Select(`"Nullifier"."id"`)).
-				Joins("Nullifier.Spent", dbTX.DB(ctx).Select("transaction")).
-				Where(hasNullifier)
+		q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
+			Joins("Nullifier", dbTX.DB(ctx).Select(`"Nullifier"."id"`)).
+			Joins("Nullifier.Spent", dbTX.DB(ctx).Select("transaction")).
+			Where(hasNullifier)
 
-			if len(options.ExcludedIDs) > 0 {
-				q = q.Not(`"states"."id" IN(?)`, options.ExcludedIDs)
-			}
-			if len(options.ExcludedNullifierIDs) > 0 {
-				q = q.Not(`"Nullifier"."id" IN(?)`, options.ExcludedNullifierIDs)
-			}
-
-			// Scope to only unspent
-			q = q.Where(whereClause)
-
-			if options.QueryModifier != nil {
-				q = options.QueryModifier(dbTX, q)
-			}
-
-			return q
-		})
-		return schema, s, err
-	}
-
-	// Otherwise, we need to run it against the specified domain context
-	var dqc components.DomainQueryContext
-	dcID, err := uuid.Parse(string(options.StatusQualifier))
-	if err == nil {
-		if dqc = ss.GetDomainQueryContext(ctx, dcID); dqc == nil {
-			err = i18n.NewError(ctx, msgs.MsgStateDomainContextNotActive, dcID)
+		if len(options.ExcludedIDs) > 0 {
+			q = q.Not(`"states"."id" IN(?)`, options.ExcludedIDs)
 		}
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	return dqc.FindAvailableNullifiers(ctx, dbTX, schemaID, jq)
+		if len(options.ExcludedNullifierIDs) > 0 {
+			q = q.Not(`"Nullifier"."id" IN(?)`, options.ExcludedNullifierIDs)
+		}
+
+		// Scope to only unspent
+		q = q.Where(whereClause)
+
+		if options.QueryModifier != nil {
+			q = options.QueryModifier(dbTX, q)
+		}
+
+		return q
+	})
 }
 
 func (ss *stateManager) findStatesCommon(

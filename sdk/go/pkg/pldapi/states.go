@@ -44,17 +44,27 @@ func (st SchemaType) Options() []string {
 	}
 }
 
-// Queries against the state store can be made in the context of a
-// transaction UUID, or one of the standard qualifiers
-// (confirmed/unconfirmed/spent/all)
+// Queries against the state store are qualified by the confirm/spend status of the states to
+// return, using one of the standard qualifiers below.
 //
-// Note this is not modelled as a normal Paladin Enum, as you can fall back to a UUID.
+// Note this is not modelled as a normal Paladin Enum, as the set of qualifiers is open to
+// extension with forms that are not a fixed list of options - such as a reference to a
+// particular point in the history of the chain.
 type StateStatusQualifier string
 
+// States with a confirmation record, and no spend record
 const StateStatusAvailable StateStatusQualifier = "available"
+
+// Synonym for StateStatusAvailable - a state is confirmed for use only while it is also unspent
 const StateStatusConfirmed StateStatusQualifier = "confirmed"
+
+// States with no confirmation record
 const StateStatusUnconfirmed StateStatusQualifier = "unconfirmed"
+
+// States with a spend record
 const StateStatusSpent StateStatusQualifier = "spent"
+
+// All states, whatever their confirm/spend status
 const StateStatusAll StateStatusQualifier = "all"
 
 func (q *StateStatusQualifier) UnmarshalJSON(b []byte) error {
@@ -70,11 +80,7 @@ func (q *StateStatusQualifier) UnmarshalJSON(b []byte) error {
 			StateStatusAll:
 			*q = qText
 		default:
-			u, err := uuid.Parse(string(text))
-			if err != nil {
-				return i18n.NewError(context.Background(), pldmsgs.MsgTypesInvalidStateQualifier)
-			}
-			*q = (StateStatusQualifier)(u.String())
+			return i18n.NewError(context.Background(), pldmsgs.MsgTypesInvalidStateQualifier)
 		}
 	}
 	return err
