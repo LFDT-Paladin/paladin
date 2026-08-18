@@ -21,6 +21,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.lfdt.paladin.sdk.client.rpc.RpcClient;
+import org.lfdt.paladin.sdk.client.tx.TxBuilder;
 import org.lfdt.paladin.sdk.core.abi.ABIDecodedData;
 import org.lfdt.paladin.sdk.core.abi.AbiEntry;
 import org.lfdt.paladin.sdk.core.abi.StoredABI;
@@ -63,6 +64,29 @@ public final class PtxClient {
    */
   public PtxClient(final RpcClient rpc) {
     this.rpc = Objects.requireNonNull(rpc, "rpc");
+  }
+
+  /**
+   * Starts a fluent transaction builder against this client.
+   *
+   * <p>The ergonomic front door for submitting a transaction: chain the definition, {@link
+   * TxBuilder#send() send()} it, then wait on the returned handle.
+   *
+   * <pre>{@code
+   * TransactionReceipt receipt =
+   *     ptx.newTx()
+   *         .privateTx()
+   *         .domain("noto")
+   *         .from("alice")
+   *         .send()
+   *         .waitForReceipt()
+   *         .join();
+   * }</pre>
+   *
+   * @return a new builder bound to this client
+   */
+  public TxBuilder newTx() {
+    return TxBuilder.on(this);
   }
 
   /**

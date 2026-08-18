@@ -16,9 +16,11 @@
 /**
  * The fluent transaction builder — the ergonomic front door for submitting transactions.
  *
- * <p>{@link org.lfdt.paladin.sdk.client.tx.TxBuilder} layers method chaining, deferred validation
- * and asynchronous receipt polling over the raw {@code ptx_*} calls in {@link
- * org.lfdt.paladin.sdk.client.ptx}, so a transaction can be described and awaited in a single
- * expression.
+ * <p>{@link org.lfdt.paladin.sdk.client.tx.TxBuilder} layers method chaining and deferred
+ * validation over the raw {@code ptx_*} calls in {@link org.lfdt.paladin.sdk.client.ptx}, so a
+ * transaction can be described in a single expression. Submitting and waiting are two steps, as in
+ * the Go and TypeScript SDKs: {@code send()} returns a {@link
+ * org.lfdt.paladin.sdk.client.tx.SentTransaction} handle as soon as the transaction is on its way,
+ * and {@code waitForReceipt()} on that handle polls asynchronously for the receipt.
  */
 package org.lfdt.paladin.sdk.client.tx;

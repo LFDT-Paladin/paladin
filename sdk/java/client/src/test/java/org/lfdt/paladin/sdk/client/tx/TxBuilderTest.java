@@ -27,9 +27,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.Test;
 import org.lfdt.paladin.sdk.client.config.RetryPolicy;
@@ -42,6 +44,7 @@ import org.lfdt.paladin.sdk.client.rpc.HttpRpcClient;
 import org.lfdt.paladin.sdk.client.rpc.MockJsonRpcServer;
 import org.lfdt.paladin.sdk.core.abi.AbiEntry;
 import org.lfdt.paladin.sdk.core.abi.AbiParameter;
+import org.lfdt.paladin.sdk.core.transaction.Transaction;
 import org.lfdt.paladin.sdk.core.transaction.TransactionInput;
 import org.lfdt.paladin.sdk.core.transaction.TransactionReceipt;
 import org.lfdt.paladin.sdk.core.transaction.TransactionType;
@@ -252,6 +255,26 @@ class TxBuilderTest {
                   .to(CONTRACT)
                   .function("transfer")
                   .send()
+                  .waitForReceipt()
+                  .join();
+          assertTrue(receipt.success());
+        });
+  }
+
+  @Test
+  void newTxOnPtxClientBuildsAgainstThatClient() throws IOException {
+    withNode(
+        node(0, receiptJson(true)),
+        (server, rpc) -> {
+          final TransactionReceipt receipt =
+              new PtxClient(rpc)
+                  .newTx()
+                  .publicTx()
+                  .from("alice")
+                  .to(CONTRACT)
+                  .function("transfer")
+                  .send()
+                  .waitForReceipt()
                   .join();
           assertTrue(receipt.success());
         });
@@ -408,11 +431,18 @@ class TxBuilderTest {
           final TxBuilder builder =
               TxBuilder.on(rpc).publicTx().from("alice").to("not-an-address").function("transfer");
 
-          // Neither terminal throws synchronously; both hand the error to the future.
+          // send() itself does not throw; every future on the handle replays the error.
+          final SentTransaction sent = builder.send();
           assertInstanceOf(
-              PaladinInvalidTransactionException.class, causeOf(() -> builder.submit().join()));
+              PaladinInvalidTransactionException.class, causeOf(() -> sent.id().join()));
           assertInstanceOf(
-              PaladinInvalidTransactionException.class, causeOf(() -> builder.send().join()));
+              PaladinInvalidTransactionException.class,
+              causeOf(() -> sent.waitForReceipt().join()));
+          assertInstanceOf(
+              PaladinInvalidTransactionException.class, causeOf(() -> sent.getReceipt().join()));
+          assertInstanceOf(
+              PaladinInvalidTransactionException.class,
+              causeOf(() -> sent.getTransaction().join()));
           assertEquals(0, server.requestCount(), "nothing should reach the node");
         });
   }
@@ -550,17 +580,17 @@ class TxBuilderTest {
   }
 
   // -----------------------------------------------------------------------------------------
-  // Submit and receipt polling
+  // Sending — send() submits and returns a handle, without waiting
   // -----------------------------------------------------------------------------------------
 
   @Test
-  void submitSendsWithoutPolling() throws IOException {
+  void sendSubmitsWithoutPolling() throws IOException {
     withNode(
         node(0, receiptJson(true)),
         (server, rpc) -> {
-          final UUID id = validInvoke(rpc).submit().join();
+          final UUID id = validInvoke(rpc).send().id().join();
           assertEquals(UUID.fromString(TX_ID), id);
-          assertEquals(1, server.requestCount(), "submit must not poll for a receipt");
+          assertEquals(1, server.requestCount(), "send must not poll for a receipt");
           assertEquals("ptx_sendTransaction", server.requests().get(0).get("method").asText());
           final JsonNode body = server.requests().get(0).get("params").get(0);
           assertEquals("public", body.get("type").asText());
@@ -570,11 +600,78 @@ class TxBuilderTest {
   }
 
   @Test
-  void sendReturnsTheReceiptOnTheFirstPoll() throws IOException {
+  void sendDoesNotPollUntilWaitForReceiptIsCalled() throws IOException {
     withNode(
         node(0, receiptJson(true)),
         (server, rpc) -> {
-          final TransactionReceipt receipt = validInvoke(rpc).send().join();
+          final SentTransaction sent = validInvoke(rpc).send();
+          // Settle the submission so the send RPC has definitely completed.
+          assertEquals(UUID.fromString(TX_ID), sent.id().join());
+          assertEquals(1, server.requestCount(), "no receipt poll before waitForReceipt()");
+
+          assertTrue(sent.waitForReceipt().join().success());
+          assertEquals(2, server.requestCount(), "the wait adds exactly one poll");
+          assertEquals(
+              "ptx_getTransactionReceipt", server.requests().get(1).get("method").asText());
+        });
+  }
+
+  /**
+   * The shape asked for in review: send() hands back a handle, waitForReceipt() gives the future.
+   */
+  @Test
+  void sendThenWaitForReceiptComposesWithWhenComplete() throws IOException {
+    withNode(
+        node(0, receiptJson(true)),
+        (server, rpc) -> {
+          final CompletableFuture<TransactionReceipt> future =
+              new PtxClient(rpc)
+                  .newTx()
+                  .type(TransactionType.PRIVATE)
+                  .domain("noto")
+                  .from("alice")
+                  .to(CONTRACT)
+                  .function("transfer")
+                  .send()
+                  .waitForReceipt();
+
+          final TransactionReceipt[] seen = new TransactionReceipt[1];
+          final Throwable[] failed = new Throwable[1];
+          future
+              .whenComplete(
+                  (receipt, error) -> {
+                    seen[0] = receipt;
+                    failed[0] = error;
+                  })
+              .join();
+
+          assertNull(failed[0]);
+          assertTrue(seen[0].success());
+        });
+  }
+
+  @Test
+  void waitForReceiptIsRepeatableOnOneHandle() throws IOException {
+    withNode(
+        node(0, receiptJson(true)),
+        (server, rpc) -> {
+          final SentTransaction sent = validInvoke(rpc).send();
+          assertTrue(sent.waitForReceipt().join().success());
+          assertTrue(sent.waitForReceipt().join().success(), "the handle is not consumed by use");
+          assertEquals(3, server.requestCount(), "one send plus two polls");
+        });
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Waiting — receipt polling on the handle
+  // -----------------------------------------------------------------------------------------
+
+  @Test
+  void waitForReceiptReturnsTheReceiptOnTheFirstPoll() throws IOException {
+    withNode(
+        node(0, receiptJson(true)),
+        (server, rpc) -> {
+          final TransactionReceipt receipt = validInvoke(rpc).send().waitForReceipt().join();
           assertTrue(receipt.success());
           assertEquals(42L, receipt.blockNumber());
           assertEquals(2, server.requestCount(), "one send plus one receipt poll");
@@ -585,30 +682,30 @@ class TxBuilderTest {
   }
 
   @Test
-  void sendPollsUntilTheReceiptLands() throws IOException {
+  void waitForReceiptPollsUntilTheReceiptLands() throws IOException {
     withNode(
         node(2, receiptJson(true)),
         (server, rpc) -> {
           final TransactionReceipt receipt =
-              validInvoke(rpc).pollingInterval(Duration.ofMillis(5)).send().join();
+              validInvoke(rpc).pollingInterval(Duration.ofMillis(5)).send().waitForReceipt().join();
           assertTrue(receipt.success());
           assertEquals(4, server.requestCount(), "one send plus three receipt polls");
         });
   }
 
   @Test
-  void sendCompletesNormallyForARevertedTransaction() throws IOException {
+  void waitForReceiptCompletesNormallyForARevertedTransaction() throws IOException {
     withNode(
         node(0, receiptJson(false)),
         (server, rpc) -> {
-          final TransactionReceipt receipt = validInvoke(rpc).send().join();
+          final TransactionReceipt receipt = validInvoke(rpc).send().waitForReceipt().join();
           assertFalse(receipt.success());
           assertEquals("reverted: nope", receipt.failureMessage());
         });
   }
 
   @Test
-  void sendTimesOutWhenNoReceiptArrives() throws IOException {
+  void waitForReceiptTimesOutWhenNoReceiptArrives() throws IOException {
     withNode(
         node(Integer.MAX_VALUE, null),
         (server, rpc) -> {
@@ -620,6 +717,7 @@ class TxBuilderTest {
                           .pollingInterval(Duration.ofMillis(5))
                           .receiptTimeout(Duration.ofMillis(60))
                           .send()
+                          .waitForReceipt()
                           .join());
           final Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
 
@@ -648,6 +746,7 @@ class TxBuilderTest {
                           .pollingInterval(Duration.ofSeconds(30))
                           .receiptTimeout(Duration.ofMillis(50))
                           .send()
+                          .waitForReceipt()
                           .join()));
           // The sleep is clamped to the time remaining, so we do not wait out the 30s interval.
           assertTrue(Duration.ofNanos(System.nanoTime() - start).toSeconds() < 5);
@@ -655,7 +754,7 @@ class TxBuilderTest {
   }
 
   @Test
-  void sendPropagatesATransportFailureFromPolling() throws IOException {
+  void waitForReceiptPropagatesATransportFailureFromPolling() throws IOException {
     withNode(
         (n, req) ->
             "ptx_sendTransaction".equals(req.get("method").asText())
@@ -666,7 +765,8 @@ class TxBuilderTest {
                         + "\"message\":\"PD012345: boom\"}}"),
         (server, rpc) ->
             assertInstanceOf(
-                PaladinRpcException.class, causeOf(() -> validInvoke(rpc).send().join())));
+                PaladinRpcException.class,
+                causeOf(() -> validInvoke(rpc).send().waitForReceipt().join())));
   }
 
   @Test
@@ -675,10 +775,96 @@ class TxBuilderTest {
         node(1, receiptJson(true)),
         (server, rpc) -> {
           final TxBuilder builder = validInvoke(rpc).pollingInterval(Duration.ofMillis(5));
-          final TransactionReceipt receipt = builder.send().join();
-          // Mutating the builder afterwards must not disturb the in-flight send.
+          final SentTransaction sent = builder.send();
+          // Mutating the builder afterwards must not disturb the handle it already produced.
           assertSame(builder, builder.pollingInterval(Duration.ofMinutes(5)));
-          assertTrue(receipt.success());
+          assertTrue(sent.waitForReceipt().join().success());
+        });
+  }
+
+  @Test
+  void waitForReceiptWithAnExplicitTimeoutOverridesTheBuilder() throws IOException {
+    // A per-call timeout long enough to outlast a builder default that would have expired.
+    withNode(
+        node(2, receiptJson(true)),
+        (server, rpc) -> {
+          final SentTransaction sent =
+              validInvoke(rpc)
+                  .pollingInterval(Duration.ofMillis(5))
+                  .receiptTimeout(Duration.ofMillis(1))
+                  .send();
+          assertTrue(sent.waitForReceipt(Duration.ofSeconds(10)).join().success());
+        });
+
+    // ...and a shorter one that expires where the builder default would have succeeded.
+    withNode(
+        node(Integer.MAX_VALUE, null),
+        (server, rpc) -> {
+          final PaladinTimeoutException timeout =
+              assertInstanceOf(
+                  PaladinTimeoutException.class,
+                  causeOf(
+                      () ->
+                          validInvoke(rpc)
+                              .pollingInterval(Duration.ofMillis(5))
+                              .receiptTimeout(Duration.ofMinutes(10))
+                              .send()
+                              .waitForReceipt(Duration.ofMillis(40))
+                              .join()));
+          assertTrue(timeout.getMessage().contains("40ms"));
+        });
+  }
+
+  @Test
+  void waitForReceiptRejectsANonPositiveTimeout() throws IOException {
+    withNode(
+        node(0, receiptJson(true)),
+        (server, rpc) -> {
+          final SentTransaction sent = validInvoke(rpc).send();
+          sent.id().join(); // settle the submission, so only polls could add requests
+          for (final Duration bad : Arrays.asList(null, Duration.ZERO, Duration.ofMillis(-1))) {
+            final Throwable cause = causeOf(() -> sent.waitForReceipt(bad).join());
+            assertTrue(
+                assertInstanceOf(PaladinInvalidTransactionException.class, cause)
+                    .getMessage()
+                    .contains("receipt timeout must be positive"));
+          }
+          assertEquals(1, server.requestCount(), "a rejected timeout must not poll");
+        });
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // One-shot lookups on the handle
+  // -----------------------------------------------------------------------------------------
+
+  @Test
+  void getReceiptFetchesOnceWithoutWaiting() throws IOException {
+    withNode(
+        node(1, receiptJson(true)),
+        (server, rpc) -> {
+          final SentTransaction sent = validInvoke(rpc).send();
+          // The node has no receipt yet, and getReceipt() does not wait for one.
+          assertNull(sent.getReceipt().join());
+          assertEquals(2, server.requestCount(), "one send plus exactly one lookup");
+          assertTrue(sent.getReceipt().join().success());
+        });
+  }
+
+  @Test
+  void getTransactionFetchesTheTransaction() throws IOException {
+    withNode(
+        (n, req) ->
+            MockJsonRpcServer.Response.of(
+                200,
+                "ptx_sendTransaction".equals(req.get("method").asText())
+                    ? success("\"" + TX_ID + "\"")
+                    : success("{\"id\":\"" + TX_ID + "\",\"from\":\"alice\"}")),
+        (server, rpc) -> {
+          final Transaction tx = validInvoke(rpc).send().getTransaction().join();
+          assertEquals(UUID.fromString(TX_ID), tx.id());
+          assertEquals("alice", tx.from());
+          assertEquals("ptx_getTransaction", server.requests().get(1).get("method").asText());
+          assertEquals(TX_ID, server.requests().get(1).get("params").get(0).asText());
         });
   }
 }

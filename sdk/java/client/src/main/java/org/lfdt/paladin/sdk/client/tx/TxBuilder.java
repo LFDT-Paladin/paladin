@@ -24,8 +24,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
 import org.lfdt.paladin.sdk.client.exception.PaladinInvalidTransactionException;
 import org.lfdt.paladin.sdk.client.exception.PaladinTimeoutException;
 import org.lfdt.paladin.sdk.client.ptx.PtxClient;
@@ -33,7 +31,6 @@ import org.lfdt.paladin.sdk.client.rpc.RpcClient;
 import org.lfdt.paladin.sdk.core.abi.AbiEntry;
 import org.lfdt.paladin.sdk.core.json.PaladinObjectMapper;
 import org.lfdt.paladin.sdk.core.transaction.TransactionInput;
-import org.lfdt.paladin.sdk.core.transaction.TransactionReceipt;
 import org.lfdt.paladin.sdk.core.transaction.TransactionType;
 import org.lfdt.paladin.sdk.core.types.Bytes32;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
@@ -46,12 +43,12 @@ import org.lfdt.paladin.sdk.core.types.HexUint64;
  * {@code pldclient.TxBuilder}.
  *
  * <p>It sits one level above {@link PtxClient}: instead of assembling a {@link TransactionInput}
- * and hand-rolling a receipt poll loop, describe the transaction by chaining and finish with {@link
- * #send()}:
+ * and hand-rolling a receipt poll loop, describe the transaction by chaining, finish with {@link
+ * #send()}, and wait on the handle it returns:
  *
  * <pre>{@code
  * TransactionReceipt receipt =
- *     TxBuilder.on(rpc)
+ *     ptx.newTx()
  *         .publicTx()
  *         .from("alice")
  *         .to("0x0102030405060708090a0b0c0d0e0f1011121314")
@@ -60,6 +57,7 @@ import org.lfdt.paladin.sdk.core.types.HexUint64;
  *         .inputs(Map.of("to", "0x...", "amount", 100))
  *         .receiptTimeout(Duration.ofMinutes(1))
  *         .send()
+ *         .waitForReceipt()
  *         .join();
  * }</pre>
  *
@@ -68,18 +66,19 @@ import org.lfdt.paladin.sdk.core.types.HexUint64;
  * <p>No chaining call ever throws. Setters that can fail — parsing an address, ABI JSON, or
  * arbitrary input values — record the failure instead and return {@code this}, so a chain reads
  * uninterrupted and a malformed transaction surfaces at exactly one place. The first recorded error
- * wins and is replayed from {@link #build()} (thrown) and from {@link #submit()} / {@link #send()}
- * (as a failed future), together with the structural checks in {@link #build()}.
+ * wins and is replayed from {@link #build()} (thrown) and from every future on the {@link
+ * SentTransaction} {@link #send()} returns, together with the structural checks in {@link
+ * #build()}.
  *
- * <h2>Receipt polling</h2>
+ * <h2>Sending and waiting are separate</h2>
  *
- * <p>{@link #send()} submits the transaction and then polls {@code ptx_getTransactionReceipt} every
- * {@link #pollingInterval(Duration)} (default one second) until a receipt lands or {@link
- * #receiptTimeout(Duration)} (default 30 seconds) elapses, at which point the future fails with a
- * {@link PaladinTimeoutException}. Polling is fully asynchronous — it occupies no thread while
- * waiting. A transaction that reverted still produces a receipt, so {@code send()} completes
- * <em>normally</em> with {@code success() == false}; inspect {@link TransactionReceipt#success()}
- * rather than relying on the future failing. Use {@link #submit()} to submit without waiting.
+ * <p>{@link #send()} submits and returns immediately, exactly as Go's {@code Send()} and
+ * TypeScript's {@code sendTransaction()} do. Waiting is a second, explicit step on the returned
+ * {@link SentTransaction}: {@link SentTransaction#waitForReceipt()} polls {@code
+ * ptx_getTransactionReceipt} every {@link #pollingInterval(Duration)} (default one second) until a
+ * receipt lands or {@link #receiptTimeout(Duration)} (default 30 seconds) elapses, at which point
+ * the future fails with a {@link PaladinTimeoutException}. Take the transaction id alone, without
+ * waiting, from {@link SentTransaction#id()}.
  *
  * <p>Instances are mutable and not thread-safe; build and send from a single thread. The returned
  * futures may be composed freely from any thread.
@@ -140,7 +139,7 @@ public final class TxBuilder {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Chaining setters — these never throw; failures are deferred to build()/submit()/send().
+  // Chaining setters — these never throw; failures are deferred to build()/send().
   // ---------------------------------------------------------------------------------------------
 
   /**
@@ -443,8 +442,8 @@ public final class TxBuilder {
   }
 
   /**
-   * Sets how long {@link #send()} waits between receipt polls. A non-positive or {@code null}
-   * interval is deferred, not thrown.
+   * Sets the delay between receipt polls used by {@link SentTransaction#waitForReceipt()}. A
+   * non-positive or {@code null} interval is deferred, not thrown.
    *
    * @param pollingInterval the delay between polls
    * @return this builder
@@ -459,8 +458,10 @@ public final class TxBuilder {
   }
 
   /**
-   * Sets how long {@link #send()} waits in total for a receipt before failing with a {@link
-   * PaladinTimeoutException}. A non-positive or {@code null} timeout is deferred, not thrown.
+   * Sets how long {@link SentTransaction#waitForReceipt()} waits in total for a receipt before
+   * failing with a {@link PaladinTimeoutException}. Overridable per call via {@link
+   * SentTransaction#waitForReceipt(Duration)}. A non-positive or {@code null} timeout is deferred,
+   * not thrown.
    *
    * @param receiptTimeout the total receipt wait
    * @return this builder
@@ -515,77 +516,32 @@ public final class TxBuilder {
   }
 
   /**
-   * Builds and submits the transaction without waiting for it to be mined.
+   * Builds and submits the transaction, without waiting for it to be mined.
    *
-   * @return a future completing with the node-assigned transaction id, or failing with the same
-   *     {@link PaladinInvalidTransactionException} {@link #build()} would throw
+   * <p>Returns immediately with a handle on the in-flight submission — matching Go's {@code
+   * TxBuilder.Send()} and TypeScript's {@code sendTransaction()}, neither of which waits. Chain
+   * {@link SentTransaction#waitForReceipt()} onto the result to wait for the receipt.
+   *
+   * <p>This never throws: a chain that recorded a deferred error, or a definition that fails
+   * validation, produces a handle whose futures all fail with that {@link
+   * PaladinInvalidTransactionException}.
+   *
+   * @return a handle on the submitted transaction, carrying the polling settings in force at this
+   *     point
    */
-  public CompletableFuture<UUID> submit() {
-    final TransactionInput tx;
+  public SentTransaction send() {
+    CompletableFuture<UUID> id;
     try {
-      tx = build();
+      id = ptx.sendTransaction(build());
     } catch (final PaladinInvalidTransactionException e) {
-      return CompletableFuture.failedFuture(e);
+      id = CompletableFuture.failedFuture(e);
     }
-    return ptx.sendTransaction(tx);
-  }
-
-  /**
-   * Builds and submits the transaction, then polls until its receipt is available.
-   *
-   * <p>A reverted transaction still completes the future normally — with a receipt whose {@link
-   * TransactionReceipt#success()} is {@code false} and whose {@link
-   * TransactionReceipt#failureMessage()} explains why.
-   *
-   * @return a future completing with the transaction's receipt; failing with a {@link
-   *     PaladinInvalidTransactionException} if the definition is invalid, with a {@link
-   *     PaladinTimeoutException} if no receipt arrives within {@link #receiptTimeout(Duration)}, or
-   *     with the underlying transport failure if a call to the node fails
-   */
-  public CompletableFuture<TransactionReceipt> send() {
-    final Duration timeout = receiptTimeout;
-    final Duration interval = pollingInterval;
-    return submit()
-        .thenCompose(id -> pollForReceipt(id, System.nanoTime() + timeout.toNanos(), interval, 1));
+    return new SentTransaction(ptx, id, pollingInterval, receiptTimeout);
   }
 
   // ---------------------------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------------------------
-
-  /**
-   * Polls for a receipt until one lands or the deadline passes, without holding a thread between
-   * attempts.
-   */
-  private CompletableFuture<TransactionReceipt> pollForReceipt(
-      final UUID id, final long deadlineNanos, final Duration interval, final int attempt) {
-    return ptx.getTransactionReceipt(id)
-        .thenCompose(
-            receipt -> {
-              if (receipt != null) {
-                return CompletableFuture.completedFuture(receipt);
-              }
-              final long remaining = deadlineNanos - System.nanoTime();
-              if (remaining <= 0) {
-                return CompletableFuture.failedFuture(
-                    new PaladinTimeoutException(
-                        "no receipt for transaction "
-                            + id
-                            + " after "
-                            + attempt
-                            + " attempt(s) over "
-                            + receiptTimeout.toMillis()
-                            + "ms"));
-              }
-              // Never sleep past the deadline, so the timeout fires on schedule even when the
-              // polling interval is coarser than the time left.
-              final long delayNanos = Math.min(interval.toNanos(), remaining);
-              final Executor delayed =
-                  CompletableFuture.delayedExecutor(delayNanos, TimeUnit.NANOSECONDS);
-              return CompletableFuture.supplyAsync(() -> null, delayed)
-                  .thenCompose(ignored -> pollForReceipt(id, deadlineNanos, interval, attempt + 1));
-            });
-  }
 
   /** Records a deferred error; the first one wins, matching the Go builder. */
   private void defer(final String message, final Throwable cause) {
