@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -463,9 +464,11 @@ func (ss *stateManager) findStatesCommon(
 	q = modifyQuery(dbTX, q)
 
 	var states []*pldapi.State
-	q = q.Find(&states)
-	if q.Error != nil {
-		return nil, nil, q.Error
+	dbStart := time.Now()
+	err = q.Find(&states).Error
+	ss.metrics.ObserveStateQueryDB(domainName, time.Since(dbStart))
+	if err != nil {
+		return nil, nil, err
 	}
 	return schema, states, nil
 }
