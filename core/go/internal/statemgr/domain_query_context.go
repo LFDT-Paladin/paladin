@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -315,6 +316,9 @@ func (dqc *domainQueryContext) mergeSortLimit(ctx context.Context, schema compon
 func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, q *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
 	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, &schemaID)
 	log.L(ctx).Debugf("FindAvailableStates query=%s", q)
+
+	queryStart := time.Now()
+	defer func() { dqc.ss.metrics.ObserveFindAvailableStates(dqc.domainName, time.Since(queryStart)) }()
 
 	var schema components.Schema
 	var states []*pldapi.State

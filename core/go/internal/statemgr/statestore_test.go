@@ -28,6 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
@@ -82,6 +83,7 @@ func newMockComponents(t *testing.T) *mockComponents {
 	m.allComponents.On("DomainManager").Return(m.domainManager)
 	m.allComponents.On("TxManager").Return(m.txManager)
 	m.allComponents.On("TransportManager").Return(m.transportManager)
+	m.allComponents.On("MetricsManager").Return(metrics.NewMetricsManager(context.Background())).Maybe()
 	return m
 }
 
