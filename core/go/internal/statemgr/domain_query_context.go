@@ -282,17 +282,37 @@ func (dqc *domainQueryContext) validateQueriedStates(ctx context.Context, dbTX p
 	return validated, nil
 }
 
+// sortValueSet returns one DB state paired with the values mergeSortLimit compares to place it in the
+// combined order.
+//
+// If the query sorts only on base fields (.created, .id, contractAddress) then no labels are needed:
+// those values are on the state row itself. If it sorts on a schema label then they are needed, and
+// because the state was read without its label rows, they have to be recovered - which re-parses the
+// state's data. This could be optimised by projecting the labels, but since no domain requires that
+// today it does not justify the additional complexity.
+func sortValueSet(ctx context.Context, schema components.Schema, s *pldapi.State, sort []string) (*components.StateWithLabels, error) {
+	for _, instruction := range sort {
+		if _, isBase := baseStateFields[sortFieldBaseName(instruction)]; !isBase {
+			return schema.RecoverLabels(ctx, s)
+		}
+	}
+	return &components.StateWithLabels{
+		State:       s,
+		LabelValues: addStateBaseLabels(make(filters.PassthroughValueSet, 2), s.ID, s.Created),
+	}, nil
+}
+
 // mergeSortLimit merges the DB states with the validated view-returned states, sorts the combined
 // list on the query's sort instructions, and applies the query limit. Runs unlocked — inputs are
 // owned by the caller.
 func (dqc *domainQueryContext) mergeSortLimit(ctx context.Context, schema components.Schema, dbStates []*pldapi.State, remoteViewStates []*components.StateWithLabels, q *query.QueryJSON, labelSet *trackingLabelSet) ([]*pldapi.State, error) {
 	fullList := make([]*components.StateWithLabels, 0, len(dbStates)+len(remoteViewStates))
 	for _, s := range dbStates {
-		withLabels, err := schema.RecoverLabels(ctx, s)
+		withSortValues, err := sortValueSet(ctx, schema, s, q.Sort)
 		if err != nil {
 			return nil, err
 		}
-		fullList = append(fullList, withLabels)
+		fullList = append(fullList, withSortValues)
 	}
 	fullList = append(fullList, remoteViewStates...)
 

@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -292,6 +293,12 @@ func addStateBaseLabels(labelValues filters.PassthroughValueSet, id pldtypes.Hex
 	return labelValues
 }
 
+// sortFieldBaseName reduces a sort instruction ("[-]field[ asc|desc]") to the field name it orders on.
+func sortFieldBaseName(sortInstruction string) string {
+	name, _ := strings.CutPrefix(strings.SplitN(sortInstruction, " ", 2)[0], "-")
+	return name
+}
+
 type trackingLabelSet struct {
 	labels map[string]*schemaLabelInfo
 	used   map[string]*schemaLabelInfo
@@ -361,18 +368,7 @@ func (ss *stateManager) findStates(
 }
 
 // findStatesForRemoteViewMerge reads states for a domain context that has a remote view, ready to be
-// merged with the view's own matches. It excludes the states the view reports spent ahead of the
-// chain, and brings each state's persisted label rows with it, because the merge sorts DB states and
-// view states into a single order and needs label values for both sides.
-//
-// TODO: the label rows cost two extra SELECTs, on state_labels and state_int64_labels, per query.
-// findStatesCommon already INNER-JOINs the label tables for the fields the query filters and sorts
-// on, and the merge sort needs only the sort-key labels, so selecting those already-joined columns
-// alongside the states would supply the sort values with no extra round-trips and no re-parse. That
-// needs a custom projection/scan, since GORM will not map arbitrary selected columns onto
-// pldapi.State, and the values need somewhere to live other than pldapi.State.Labels: a sort-key-only
-// subset there would fail the completeness check RecoverLabels makes before trusting those fields,
-// and would leave an API-visible label set that understates what the state has.
+// merged with the view's own matches. It excludes the states the view reports spent ahead of the chain.
 func (ss *stateManager) findStatesForRemoteViewMerge(
 	ctx context.Context,
 	dbTX persistence.DBTX,
@@ -385,9 +381,7 @@ func (ss *stateManager) findStatesForRemoteViewMerge(
 ) (components.Schema, []*pldapi.State, error) {
 	scope := statusScope(ctx, dbTX, status, excludedIDs)
 	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq,
-		func(_ persistence.DBTX, q *gorm.DB) *gorm.DB {
-			return scope(q).Preload("Labels").Preload("Int64Labels")
-		})
+		func(_ persistence.DBTX, q *gorm.DB) *gorm.DB { return scope(q) })
 }
 
 // findNullifierBackedStates reads states that carry a nullifier, dropping those that do not. Status is
