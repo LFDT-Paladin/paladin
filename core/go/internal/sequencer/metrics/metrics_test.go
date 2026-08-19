@@ -268,36 +268,36 @@ func TestObserveSequencerTXStateChange(t *testing.T) {
 	metricFamilies, err := registry.Gather()
 	assert.NoError(t, err, "Unexpected error gathering metrics")
 
-	// Find the sequencer stage metric
-	var stageMetric *dto.MetricFamily
+	// Find the transaction state duration metric
+	var stateMetric *dto.MetricFamily
 	for _, mf := range metricFamilies {
-		if mf.GetName() == "distributed_sequencer_stage_duration_ms" {
-			stageMetric = mf
+		if mf.GetName() == "distributed_sequencer_state_duration_seconds" {
+			stateMetric = mf
 			break
 		}
 	}
 
-	stageLabel := func(metric *dto.Metric) string {
+	stateLabel := func(metric *dto.Metric) string {
 		for _, l := range metric.GetLabel() {
-			if l.GetName() == "stage" {
+			if l.GetName() == "state" {
 				return l.GetValue()
 			}
 		}
 		return ""
 	}
 
-	assert.NotNil(t, stageMetric, "stage_duration_ms metric should exist")
-	assert.Equal(t, dto.MetricType_HISTOGRAM, stageMetric.GetType(), "stage_duration_ms should be a histogram")
+	assert.NotNil(t, stateMetric, "state_duration_seconds metric should exist")
+	assert.Equal(t, dto.MetricType_HISTOGRAM, stateMetric.GetType(), "state_duration_seconds should be a histogram")
 
 	// Verify observations were recorded for different states
 	metricsFound := 0
-	for _, metric := range stageMetric.GetMetric() {
-		stage := stageLabel(metric)
-		if stage != "" {
+	for _, metric := range stateMetric.GetMetric() {
+		state := stateLabel(metric)
+		if state != "" {
 			histogram := metric.GetHistogram()
 			if histogram != nil {
 				sampleCount := histogram.GetSampleCount()
-				assert.Greater(t, sampleCount, uint64(0), "Histogram should have observations for stage: %s", stage)
+				assert.Greater(t, sampleCount, uint64(0), "Histogram should have observations for state: %s", state)
 				metricsFound++
 			}
 		}
@@ -308,8 +308,8 @@ func TestObserveSequencerTXStateChange(t *testing.T) {
 
 	// Verify specific observations - check that "accepted" state has 2 observations
 	var acceptedMetric *dto.Metric
-	for _, metric := range stageMetric.GetMetric() {
-		if stageLabel(metric) == "accepted" {
+	for _, metric := range stateMetric.GetMetric() {
+		if stateLabel(metric) == "accepted" {
 			acceptedMetric = metric
 			break
 		}
@@ -346,9 +346,9 @@ func TestObserveDomainCall(t *testing.T) {
 	metrics.ObserveDomainCall("noto", "assemble", 50*time.Millisecond)
 	metrics.ObserveDomainCall("noto", "assemble", 75*time.Millisecond)
 
-	mf := findMetricFamily(t, registry, "distributed_sequencer_domain_call_ms")
-	assert.NotNil(t, mf, "domain_call_ms metric should exist")
-	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "domain_call_ms should be a histogram")
+	mf := findMetricFamily(t, registry, "distributed_sequencer_domain_call_duration_seconds")
+	assert.NotNil(t, mf, "domain_call_duration_seconds metric should exist")
+	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "domain_call_duration_seconds should be a histogram")
 
 	var m *dto.Metric
 	for _, metric := range mf.GetMetric() {
@@ -370,9 +370,9 @@ func TestObserveAssembleResponseApply(t *testing.T) {
 	metrics.ObserveAssembleResponseApply(20 * time.Millisecond)
 	metrics.ObserveAssembleResponseApply(30 * time.Millisecond)
 
-	mf := findMetricFamily(t, registry, "distributed_sequencer_assemble_response_apply_ms")
-	assert.NotNil(t, mf, "assemble_response_apply_ms metric should exist")
-	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "assemble_response_apply_ms should be a histogram")
+	mf := findMetricFamily(t, registry, "distributed_sequencer_assemble_response_apply_duration_seconds")
+	assert.NotNil(t, mf, "assemble_response_apply_duration_seconds metric should exist")
+	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "assemble_response_apply_duration_seconds should be a histogram")
 	assert.Equal(t, uint64(3), mf.GetMetric()[0].GetHistogram().GetSampleCount(), "Should have 3 observations")
 }
 
@@ -384,9 +384,9 @@ func TestObserveDispatchQueueWait(t *testing.T) {
 	metrics.ObserveDispatchQueueWait(5 * time.Millisecond)
 	metrics.ObserveDispatchQueueWait(15 * time.Millisecond)
 
-	mf := findMetricFamily(t, registry, "distributed_sequencer_dispatch_queue_wait_ms")
-	assert.NotNil(t, mf, "dispatch_queue_wait_ms metric should exist")
-	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "dispatch_queue_wait_ms should be a histogram")
+	mf := findMetricFamily(t, registry, "distributed_sequencer_dispatch_queue_wait_seconds")
+	assert.NotNil(t, mf, "dispatch_queue_wait_seconds metric should exist")
+	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "dispatch_queue_wait_seconds should be a histogram")
 	assert.Equal(t, uint64(2), mf.GetMetric()[0].GetHistogram().GetSampleCount(), "Should have 2 observations")
 }
 
@@ -399,9 +399,9 @@ func TestObserveDispatchInflightWait(t *testing.T) {
 	metrics.ObserveDispatchInflightWait(4 * time.Millisecond)
 	metrics.ObserveDispatchInflightWait(6 * time.Millisecond)
 
-	mf := findMetricFamily(t, registry, "distributed_sequencer_dispatch_inflight_wait_ms")
-	assert.NotNil(t, mf, "dispatch_inflight_wait_ms metric should exist")
-	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "dispatch_inflight_wait_ms should be a histogram")
+	mf := findMetricFamily(t, registry, "distributed_sequencer_dispatch_inflight_wait_seconds")
+	assert.NotNil(t, mf, "dispatch_inflight_wait_seconds metric should exist")
+	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "dispatch_inflight_wait_seconds should be a histogram")
 	assert.Equal(t, uint64(3), mf.GetMetric()[0].GetHistogram().GetSampleCount(), "Should have 3 observations")
 }
 
@@ -413,9 +413,9 @@ func TestObserveEventProcessing(t *testing.T) {
 	metrics.ObserveEventProcessing("coordinator", "SomeEvent", 5*time.Millisecond)
 	metrics.ObserveEventProcessing("coordinator", "SomeEvent", 10*time.Millisecond)
 
-	mf := findMetricFamily(t, registry, "distributed_sequencer_event_processing_ms")
-	assert.NotNil(t, mf, "event_processing_ms metric should exist")
-	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "event_processing_ms should be a histogram")
+	mf := findMetricFamily(t, registry, "distributed_sequencer_event_processing_duration_seconds")
+	assert.NotNil(t, mf, "event_processing_duration_seconds metric should exist")
+	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "event_processing_duration_seconds should be a histogram")
 
 	var m *dto.Metric
 	for _, metric := range mf.GetMetric() {
@@ -514,8 +514,8 @@ func TestEventLoopMetricsAdapter(t *testing.T) {
 	adapter.SetEventQueueDepth("priority", 6)
 
 	// Event processing is recorded with the baked-in role.
-	processing := findMetricFamily(t, registry, "distributed_sequencer_event_processing_ms")
-	assert.NotNil(t, processing, "event_processing_ms metric should exist")
+	processing := findMetricFamily(t, registry, "distributed_sequencer_event_processing_duration_seconds")
+	assert.NotNil(t, processing, "event_processing_duration_seconds metric should exist")
 	var processingMetric *dto.Metric
 	for _, metric := range processing.GetMetric() {
 		if labelValue(metric, "role") == "coordinator" && labelValue(metric, "event_type") == "SomeEvent" {
@@ -563,4 +563,55 @@ func TestSetActiveSequencers(t *testing.T) {
 
 	assert.NotNil(t, sequencersMetric, "active_sequencers metric should exist")
 	assert.Equal(t, sequencersMetric.GetMetric()[0].GetGauge().GetValue(), float64(3))
+}
+
+func TestObservationsRecordSubMillisecondDurations(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := InitMetrics(context.Background(), registry)
+
+	metrics.ObserveDomainCall("noto", "assemble", 250*time.Microsecond)
+	metrics.ObserveEventProcessing("coordinator", "SomeEvent", 250*time.Microsecond)
+	metrics.ObserveAssembleResponseApply(250 * time.Microsecond)
+	metrics.ObserveSequencerTXStateChange("coordinator", "accepted", 250*time.Microsecond)
+	metrics.ObserveDispatchQueueWait(250 * time.Microsecond)
+	metrics.ObserveDispatchInflightWait(250 * time.Microsecond)
+
+	for _, name := range []string{
+		"distributed_sequencer_domain_call_duration_seconds",
+		"distributed_sequencer_event_processing_duration_seconds",
+		"distributed_sequencer_assemble_response_apply_duration_seconds",
+		"distributed_sequencer_state_duration_seconds",
+		"distributed_sequencer_dispatch_queue_wait_seconds",
+		"distributed_sequencer_dispatch_inflight_wait_seconds",
+	} {
+		mf := findMetricFamily(t, registry, name)
+		assert.NotNil(t, mf, "%s metric should exist", name)
+		h := mf.GetMetric()[0].GetHistogram()
+		assert.Equal(t, uint64(1), h.GetSampleCount(), "%s should have 1 observation", name)
+		assert.InDelta(t, 0.00025, h.GetSampleSum(), 1e-9, "%s should record the duration in seconds", name)
+	}
+}
+
+func TestWaitHistogramsSpanProlongedStalls(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := InitMetrics(context.Background(), registry)
+
+	// A saturated pipeline blocks for far longer than any single operation, so the wait
+	// histograms must still discriminate above the ten seconds an operation tops out at.
+	metrics.ObserveDispatchQueueWait(45 * time.Second)
+	metrics.ObserveDispatchInflightWait(45 * time.Second)
+	metrics.ObserveSequencerTXStateChange("coordinator", "pooled", 45*time.Second)
+
+	for _, name := range []string{
+		"distributed_sequencer_dispatch_queue_wait_seconds",
+		"distributed_sequencer_dispatch_inflight_wait_seconds",
+		"distributed_sequencer_state_duration_seconds",
+	} {
+		mf := findMetricFamily(t, registry, name)
+		assert.NotNil(t, mf, "%s metric should exist", name)
+		buckets := mf.GetMetric()[0].GetHistogram().GetBucket()
+		highest := buckets[len(buckets)-1]
+		assert.Greater(t, highest.GetUpperBound(), float64(45), "%s needs a bucket above 45s", name)
+		assert.Equal(t, uint64(1), highest.GetCumulativeCount(), "%s should place a 45s wait below its ceiling", name)
+	}
 }
