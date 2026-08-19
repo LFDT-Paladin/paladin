@@ -8,7 +8,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/integration-test/helpers"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
@@ -31,6 +30,9 @@ func (s *nonFungibleTestSuiteHelper) TestZeto_NfAnon() {
 }
 
 func (s *nonFungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, isNullifiersToken bool) {
+	receipts := subscribeToZetoReceipts(s.T(), s.pldClient, s.domainName)
+	defer receipts.close(s.T())
+
 	ctx := context.Background()
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Deploying an instance of the %s token", tokenName)
@@ -40,6 +42,10 @@ func (s *nonFungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, is
 	zetoAddress := zeto.Address
 	log.L(ctx).Infof("Zeto instance deployed to %s", zeto.Address)
 
+	controllerAddr := s.resolveZetoKey(t, ctx, controllerName)
+	recipient1Addr := s.resolveZetoKey(t, ctx, recipient1Name)
+	recipient2Addr := s.resolveZetoKey(t, ctx, recipient2Name)
+
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Mint two UTXOs to controller")
 	log.L(ctx).Info("*************************************")
@@ -48,11 +54,17 @@ func (s *nonFungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, is
 		"https://example.com/token/name1",
 		"https://example.com/token/name2",
 	}
-	zeto.Mint(ctx, []string{controllerName, controllerName}, uris).SignAndSend(controllerName, true).Wait()
-
-	var controllerAddr pldtypes.Bytes32
-	rpcerr := s.rpc.CallRPC(ctx, &controllerAddr, "ptx_resolveVerifier", controllerName, zetosignerapi.AlgoDomainZetoSnarkBJJ(s.domainName), zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X)
-	require.Nil(t, rpcerr)
+	mintReceipt := receipts.invokeAndWait(t, zeto.Mint(ctx, []string{controllerName, controllerName}, uris), controllerName)
+	assert.Empty(t, mintReceipt.States.Inputs)
+	require.Len(t, mintReceipt.States.Outputs, len(uris))
+	// Each token is reported individually, identified by its token id rather than an amount
+	require.Len(t, mintReceipt.Transfers, len(uris))
+	for _, transfer := range mintReceipt.Transfers {
+		assert.Empty(t, transfer.From, "a mint has no sender")
+		assert.Equal(t, controllerAddr.String(), transfer.To.String())
+		assert.NotNil(t, transfer.TokenID)
+		assert.Nil(t, transfer.Amount, "a non-fungible transfer has no amount")
+	}
 
 	// confirm that the controller has the two UTXOs
 	controllerNFTs := findAvailableNFTs(t, ctx, s.rpc, s.domain.Name(), s.domain.NFTSchemaID(), zetoAddress, nil, isNullifiersToken, &controllerAddr)
@@ -72,12 +84,15 @@ func (s *nonFungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, is
 	log.L(ctx).Info("*************************************")
 
 	// transfer the first UTXO to recipient1
-	zeto.Transfer(ctx, recipient1Name, controllerNFTs[0].Data.TokenID).SignAndSend(controllerName, true).Wait()
-
-	// get recipient1 address
-	var recipient1Addr pldtypes.Bytes32
-	rpcerr = s.rpc.CallRPC(ctx, &recipient1Addr, "ptx_resolveVerifier", recipient1Name, zetosignerapi.AlgoDomainZetoSnarkBJJ(s.domainName), zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X)
-	require.Nil(t, rpcerr)
+	transferredTokenID := controllerNFTs[0].Data.TokenID
+	transferReceipt := receipts.invokeAndWait(t, zeto.Transfer(ctx, recipient1Name, transferredTokenID), controllerName)
+	require.Len(t, transferReceipt.States.Inputs, 1)
+	require.Len(t, transferReceipt.States.Outputs, 1)
+	require.Len(t, transferReceipt.Transfers, 1)
+	assert.Equal(t, controllerAddr.String(), transferReceipt.Transfers[0].From.String())
+	assert.Equal(t, recipient1Addr.String(), transferReceipt.Transfers[0].To.String())
+	// the same token id is spent and recreated under its new owner
+	assert.Equal(t, transferredTokenID.String(), transferReceipt.Transfers[0].TokenID.String())
 
 	// confirm that the recipient1 has the UTXO
 	recipient1NFTs := findAvailableNFTs(t, ctx, s.rpc, s.domain.Name(), s.domain.NFTSchemaID(), zetoAddress, nil, isNullifiersToken, &recipient1Addr)
@@ -106,12 +121,10 @@ func (s *nonFungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, is
 	log.L(ctx).Info("*************************************")
 
 	// transfer the UTXO from recipient1 to recipient2
-	zeto.Transfer(ctx, recipient2Name, recipient1NFTs[0].Data.TokenID).SignAndSend(recipient1Name, true).Wait()
-
-	// get recipient2 address
-	var recipient2Addr pldtypes.Bytes32
-	rpcerr = s.rpc.CallRPC(ctx, &recipient2Addr, "ptx_resolveVerifier", recipient2Name, zetosignerapi.AlgoDomainZetoSnarkBJJ(s.domainName), zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X)
-	require.Nil(t, rpcerr)
+	onwardReceipt := receipts.invokeAndWait(t, zeto.Transfer(ctx, recipient2Name, recipient1NFTs[0].Data.TokenID), recipient1Name)
+	require.Len(t, onwardReceipt.Transfers, 1)
+	assert.Equal(t, recipient1Addr.String(), onwardReceipt.Transfers[0].From.String())
+	assert.Equal(t, recipient2Addr.String(), onwardReceipt.Transfers[0].To.String())
 
 	// confirm that the recipient2 has the UTXO
 	recipient2NFTs := findAvailableNFTs(t, ctx, s.rpc, s.domain.Name(), s.domain.NFTSchemaID(), zetoAddress, nil, isNullifiersToken, &recipient2Addr)

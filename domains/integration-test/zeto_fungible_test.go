@@ -18,6 +18,7 @@ package integrationtest
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"testing"
@@ -28,7 +29,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -88,6 +88,9 @@ func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierKycBatch() {
 }
 
 func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBatch bool, isNullifiersToken bool, isKycToken ...bool) {
+	receipts := subscribeToZetoReceipts(s.T(), s.pldClient, s.domainName)
+	defer receipts.close(s.T())
+
 	ctx := context.Background()
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Deploying an instance of the %s token", tokenName)
@@ -109,37 +112,24 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Infof("Setting the ERC20 contract (%s) to the Zeto instance", erc20Address)
 	zeto.SetERC20(ctx, s.tb, controllerName, erc20Address)
 
-	var controllerAddr pldtypes.Bytes32
-	rpcerr = s.rpc.CallRPC(ctx, &controllerAddr, "ptx_resolveVerifier", controllerName, zetosignerapi.AlgoDomainZetoSnarkBJJ(s.domainName), zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X)
-	require.Nil(t, rpcerr)
+	// Zeto receipts identify owners by their Baby Jubjub public key
+	controllerAddr := s.resolveZetoKey(t, ctx, controllerName)
+	recipient1Addr := s.resolveZetoKey(t, ctx, recipient1Name)
+	recipient2Addr := s.resolveZetoKey(t, ctx, recipient2Name)
+	recipient3Addr := s.resolveZetoKey(t, ctx, recipient3Name)
 
 	if len(isKycToken) > 0 && isKycToken[0] {
-		log.L(ctx).Infof("Registering participant %s in the KYC registry (pubKey=%s)", controllerName, controllerAddr.String())
-		pubKey, err := zetosigner.DecodeBabyJubJubPublicKey(controllerAddr.HexString())
-		require.NoError(t, err)
-		zeto.Register(ctx, s.tb, controllerName, []*big.Int{pubKey.X, pubKey.Y})
-
-		var recipientAddr pldtypes.Bytes32
-		rpcerr = s.rpc.CallRPC(ctx, &recipientAddr, "ptx_resolveVerifier", recipient1Name, zetosignerapi.AlgoDomainZetoSnarkBJJ(s.domainName), zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X)
-		require.Nil(t, rpcerr)
-		log.L(ctx).Infof("Registering participant %s in the KYC registry", recipient1Name)
-		pubKey, err = zetosigner.DecodeBabyJubJubPublicKey(recipientAddr.HexString())
-		require.NoError(t, err)
-		zeto.Register(ctx, s.tb, controllerName, []*big.Int{pubKey.X, pubKey.Y})
-
-		rpcerr = s.rpc.CallRPC(ctx, &recipientAddr, "ptx_resolveVerifier", recipient2Name, zetosignerapi.AlgoDomainZetoSnarkBJJ(s.domainName), zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X)
-		require.Nil(t, rpcerr)
-		log.L(ctx).Infof("Registering participant %s in the KYC registry", recipient2Name)
-		pubKey, err = zetosigner.DecodeBabyJubJubPublicKey(recipientAddr.HexString())
-		require.NoError(t, err)
-		zeto.Register(ctx, s.tb, controllerName, []*big.Int{pubKey.X, pubKey.Y})
-
-		rpcerr = s.rpc.CallRPC(ctx, &recipientAddr, "ptx_resolveVerifier", recipient3Name, zetosignerapi.AlgoDomainZetoSnarkBJJ(s.domainName), zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X)
-		require.Nil(t, rpcerr)
-		log.L(ctx).Infof("Registering participant %s in the KYC registry", recipient3Name)
-		pubKey, err = zetosigner.DecodeBabyJubJubPublicKey(recipientAddr.HexString())
-		require.NoError(t, err)
-		zeto.Register(ctx, s.tb, controllerName, []*big.Int{pubKey.X, pubKey.Y})
+		for name, addr := range map[string]pldtypes.Bytes32{
+			controllerName: controllerAddr,
+			recipient1Name: recipient1Addr,
+			recipient2Name: recipient2Addr,
+			recipient3Name: recipient3Addr,
+		} {
+			log.L(ctx).Infof("Registering participant %s in the KYC registry (pubKey=%s)", name, addr.String())
+			pubKey, err := zetosigner.DecodeBabyJubJubPublicKey(addr.HexString())
+			require.NoError(t, err)
+			zeto.Register(ctx, s.tb, controllerName, []*big.Int{pubKey.X, pubKey.Y})
+		}
 
 		time.Sleep(5 * time.Second) // wait for the KYC registry to be updated
 	}
@@ -147,7 +137,20 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Mint two UTXOs (10, 20) from controller to controller")
 	log.L(ctx).Info("*************************************")
-	zeto.Mint(ctx, controllerName, []uint64{10, 20}).SignAndSend(controllerName, true).Wait()
+	mintReceipt := receipts.invokeAndWait(t, zeto.Mint(ctx, controllerName, []uint64{10, 20}), controllerName)
+	assert.Empty(t, mintReceipt.States.Inputs)
+	require.Len(t, mintReceipt.States.Outputs, 2)
+	assert.Empty(t, mintReceipt.States.LockedInputs)
+	assert.Empty(t, mintReceipt.States.LockedOutputs)
+	// One transfer is reported per mint entry, in entry order, even though both are to the same owner -
+	// each entry carries its own data, so they are not combined
+	require.Len(t, mintReceipt.Transfers, 2)
+	for i, amount := range []int64{10, 20} {
+		assert.Empty(t, mintReceipt.Transfers[i].From, "a mint has no sender")
+		assert.Equal(t, controllerAddr.String(), mintReceipt.Transfers[i].To.String())
+		assert.Equal(t, amount, mintReceipt.Transfers[i].Amount.Int().Int64())
+		assert.Nil(t, mintReceipt.Transfers[i].TokenID, "a fungible transfer has no token id")
+	}
 
 	jq := query.NewQueryBuilder().Limit(100).Equal("locked", false).Query()
 	methodName := "pstate_queryContractStates"
@@ -171,7 +174,13 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 		log.L(ctx).Info("*************************************")
 		log.L(ctx).Infof("Mint 30 from controller to controller")
 		log.L(ctx).Info("*************************************")
-		zeto.Mint(ctx, controllerName, []uint64{30}).SignAndSend(controllerName, true).Wait()
+		batchMintReceipt := receipts.invokeAndWait(t, zeto.Mint(ctx, controllerName, []uint64{30}), controllerName)
+		assert.Empty(t, batchMintReceipt.States.Inputs)
+		require.Len(t, batchMintReceipt.States.Outputs, 1)
+		require.Len(t, batchMintReceipt.Transfers, 1)
+		assert.Equal(t, controllerAddr.String(), batchMintReceipt.Transfers[0].To.String())
+		assert.Equal(t, int64(30), batchMintReceipt.Transfers[0].Amount.Int().Int64())
+
 		balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
 		assert.Equal(t, "60", balanceOfResult["totalBalance"].(string), "Balance of controller should be 60")
 	}
@@ -183,15 +192,26 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 		log.L(ctx).Info("*************************************")
 		log.L(ctx).Infof("Transfer %d from controller to recipient1 (%d) and recipient2 (%d)", amount1+amount2, amount1, amount2)
 		log.L(ctx).Info("*************************************")
-		zeto.Transfer(ctx, []string{recipient1Name, recipient2Name}, []uint64{uint64(amount1), uint64(amount2)}).SignAndSend(controllerName, true).Wait()
+		transferReceipt := receipts.invokeAndWait(t, zeto.Transfer(ctx, []string{recipient1Name, recipient2Name}, []uint64{uint64(amount1), uint64(amount2)}), controllerName)
+		// all three coins (10, 20, 30) are spent to produce 15, 40 and 5 of change
+		require.Len(t, transferReceipt.States.Inputs, 3)
+		require.Len(t, transferReceipt.States.Outputs, 3)
+		require.Len(t, transferReceipt.Transfers, 2, "the change back to the sender is not a transfer")
+		requireTransferTo(t, transferReceipt.Transfers, controllerAddr, recipient1Addr, int64(amount1))
+		requireTransferTo(t, transferReceipt.Transfers, controllerAddr, recipient2Addr, int64(amount2))
 	} else {
 		amount := 25
 		log.L(ctx).Info("*************************************")
 		log.L(ctx).Infof("Transfer %d from controller to recipient1", amount)
 		log.L(ctx).Info("*************************************")
-		zeto.Transfer(ctx, []string{recipient1Name}, []uint64{uint64(amount)}).SignAndSend(controllerName, true).Wait()
-
+		transferReceipt := receipts.invokeAndWait(t, zeto.Transfer(ctx, []string{recipient1Name}, []uint64{uint64(amount)}), controllerName)
+		// both coins (10, 20) are spent to produce 25 and 5 of change
+		require.Len(t, transferReceipt.States.Inputs, 2)
+		require.Len(t, transferReceipt.States.Outputs, 2)
+		require.Len(t, transferReceipt.Transfers, 1, "the change back to the sender is not a transfer")
+		requireTransferTo(t, transferReceipt.Transfers, controllerAddr, recipient1Addr, int64(amount))
 	}
+
 	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
 	assert.Equal(t, "5", balanceOfResult["totalBalance"].(string), "Balance of controller should be 5")
 
@@ -241,7 +261,17 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Deposit from ERC20 balance to Zeto")
 	log.L(ctx).Info("*************************************")
-	zeto.Deposit(ctx, 100).SignAndSend(controllerName, true).Wait()
+	depositReceipt := receipts.invokeAndWait(t, zeto.Deposit(ctx, 100), controllerName)
+	assert.Empty(t, depositReceipt.States.Inputs)
+	// the deposit call produces two output UTXOs, one bearing the amount and one of zero value
+	require.Len(t, depositReceipt.States.Outputs, 2)
+	// only the coin bearing the amount is a transfer - the zero-value padding coin is not reported
+	require.Len(t, depositReceipt.Transfers, 1)
+	// deposit takes no data parameter and records no info state, so the transfer carries no data
+	assert.Empty(t, depositReceipt.Transfers[0].Data)
+	assert.Empty(t, depositReceipt.Transfers[0].From, "value entering the token has no sender")
+	assert.Equal(t, controllerAddr.String(), depositReceipt.Transfers[0].To.String())
+	assert.Equal(t, int64(100), depositReceipt.Transfers[0].Amount.Int().Int64())
 
 	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
 	assert.Equal(t, "105", balanceOfResult["totalBalance"].(string), "Balance of controller should be 105")
@@ -255,7 +285,14 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Withdraw back to ERC20 balance from Zeto")
 	log.L(ctx).Info("*************************************")
-	zeto.Withdraw(ctx, 100).SignAndSend(controllerName, true).Wait()
+	withdrawReceipt := receipts.invokeAndWait(t, zeto.Withdraw(ctx, 100), controllerName)
+	assert.NotEmpty(t, withdrawReceipt.States.Inputs)
+	require.Len(t, withdrawReceipt.States.Outputs, 1, "withdrawing returns the remainder as a single coin")
+	// withdrawing takes value out of the token, so it is reported as a burn with no recipient
+	require.Len(t, withdrawReceipt.Transfers, 1)
+	assert.Equal(t, controllerAddr.String(), withdrawReceipt.Transfers[0].From.String())
+	assert.Empty(t, withdrawReceipt.Transfers[0].To, "value leaving the token has no recipient")
+	assert.Equal(t, int64(100), withdrawReceipt.Transfers[0].Amount.Int().Int64())
 
 	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
 	assert.Equal(t, "5", balanceOfResult["totalBalance"].(string), "Balance of controller should be 5")
@@ -274,8 +311,15 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	rpcerr = s.rpc.CallRPC(ctx, &recipient1EthAddrStr, "ptx_resolveVerifier", recipient1Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.Nil(t, rpcerr)
 	recipient1EthAddr := pldtypes.MustEthAddress(recipient1EthAddrStr)
-	zeto.Lock(ctx, recipient1EthAddr, 1).SignAndSend(controllerName, true).Wait()
-	zeto.Lock(ctx, recipient1EthAddr, 1).SignAndSend(controllerName, true).Wait()
+	for i := range 2 {
+		lockReceipt := receipts.invokeAndWait(t, zeto.Lock(ctx, recipient1EthAddr, 1), controllerName)
+		// Locking replaces unlocked value with locked value belonging to the same party, so the locked
+		// coin is reported separately and nothing is reported as having moved
+		assert.NotEmpty(t, lockReceipt.States.Inputs, "lock %d", i)
+		assert.Empty(t, lockReceipt.States.LockedInputs, "lock %d", i)
+		require.Len(t, lockReceipt.States.LockedOutputs, 1, "lock %d", i)
+		assert.Empty(t, lockReceipt.Transfers, "lock %d moves no value", i)
+	}
 
 	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
 	assert.Equal(t, "3", balanceOfResult["totalBalance"].(string), "Balance of controller should be 3")
@@ -292,7 +336,13 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Infof("Recipient1 unlocks one of the locked UTXOs %s", locked2.String())
 	log.L(ctx).Info("*************************************")
 	// unlocking by calling transferlocked()
-	zeto.TransferLocked(ctx, locked2, recipient1Name, controllerName, 1).SignAndSend(controllerName, true).Wait()
+	unlockReceipt := receipts.invokeAndWait(t, zeto.TransferLocked(ctx, locked2, recipient1Name, controllerName, 1), controllerName)
+	assert.Empty(t, unlockReceipt.States.Inputs)
+	require.Len(t, unlockReceipt.States.LockedInputs, 1, "the locked coin is spent")
+	require.Len(t, unlockReceipt.States.Outputs, 1, "and replaced with an unlocked coin")
+	assert.Empty(t, unlockReceipt.States.LockedOutputs)
+	// the coin was unlocked back to its own owner, so no value changed hands
+	assert.Empty(t, unlockReceipt.Transfers)
 
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Recipient1 delegates the lock to recipient2")
@@ -309,6 +359,19 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Info("*************************************")
 	// the owner of the locked UTXO is the controller, who needs to generate the proof for the transfer.
 	result := zeto.TransferLocked(ctx, locked1, recipient2Name, recipient3Name, 1).Prepare(controllerName)
+
+	// testbed_prepare builds the domain receipt from the states it just assembled, which is the only
+	// place we can see the receipt for a transfer the delegate submits on the owner's behalf
+	require.NotNil(t, result.DomainReceipt)
+	var preparedReceipt types.ZetoDomainReceipt
+	require.NoError(t, json.Unmarshal(result.DomainReceipt, &preparedReceipt))
+	require.Len(t, preparedReceipt.States.LockedInputs, 1)
+	assert.Empty(t, preparedReceipt.States.Inputs)
+	require.Len(t, preparedReceipt.States.Outputs, 1)
+	require.Len(t, preparedReceipt.Transfers, 1)
+	// the locked coin belongs to the controller, so that is who the value moves from
+	requireTransferTo(t, preparedReceipt.Transfers, controllerAddr, recipient3Addr, 1)
+
 	// the delegate of the locked UTXO is recipient2, who needs to send the prepared transaction
 	zeto.SendTransferLocked(ctx, s.tb, recipient2Name, result)
 }
