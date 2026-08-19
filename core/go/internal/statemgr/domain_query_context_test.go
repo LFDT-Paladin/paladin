@@ -288,11 +288,11 @@ func TestDCMergeAndSortStatesRecoverLabelsFail(t *testing.T) {
 
 	_, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 
-	// State with no preloaded labels and unparseable data forces the RecoverLabels re-parse to fail.
+	// The state's data cannot be parsed, so recovering the labels that a sort on "amount" needs fails.
 	_, err = dqc.mergeSortLimit(ctx, schema, []*pldapi.State{
 		{StateBase: pldapi.StateBase{ID: pldtypes.HexBytes(pldtypes.RandBytes(32)), Data: pldtypes.RawJSON(`!!! bad`)}},
-	}, nil, query.NewQueryBuilder().Query(), ss.labelSetFor(schema))
-	require.Error(t, err)
+	}, nil, query.NewQueryBuilder().Sort("amount").Query(), ss.labelSetFor(schema))
+	assert.Regexp(t, "PD010116", err)
 }
 
 func TestDCMergeCoordinatorStatesResultMergeFail(t *testing.T) {
@@ -311,8 +311,8 @@ func TestDCMergeCoordinatorStatesResultMergeFail(t *testing.T) {
 	view := &staticView{states: queriedStatesOf(0, s1)}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, view)
 
-	// The DB state has unparseable data, so the merge fails recovering its labels.
-	q := query.NewQueryBuilder().Query()
+	// The DB state has unparseable data, so the merge fails recovering the labels the sort needs.
+	q := query.NewQueryBuilder().Sort("amount").Query()
 	qJSON, err := json.Marshal(q)
 	require.NoError(t, err)
 	queried, err := dqc.fetchRemoteViewStates(ctx, schema.ID(), string(qJSON))
@@ -1201,4 +1201,97 @@ func TestNewDomainQueryContextWithRemoteView_SpentIDsFetchError(t *testing.T) {
 	_, err = dqc.(*domainQueryContext).getSpentStateIDs(ctx)
 	assert.Regexp(t, "PD010137", err)
 	assert.Equal(t, 2, view.spentCalls)
+}
+
+// writeAvailableCoin persists one coin and confirms it, so the DB serves it as available.
+func writeAvailableCoin(t *testing.T, ctx context.Context, ss *stateManager, s *components.StateWithLabels) {
+	writeStateBatch(t, ctx, ss, []*components.StateWithLabels{s})
+	err := ss.WriteStateFinalizations(ss.bgCtx, ss.p.NOTX(),
+		[]*pldapi.StateSpendRecord{}, []*pldapi.StateReadRecord{},
+		[]*pldapi.StateConfirmRecord{
+			{DomainName: "domain1", State: s.ID, Transaction: uuid.New()},
+		}, []*pldapi.StateInfoRecord{})
+	require.NoError(t, err)
+}
+
+// TestFindAvailableStatesLabelSortMergesDBAndCoordinator sorts on a label field, so the DB states need
+// their labels recovered before they can be ordered against the coordinator's candidates. Ascending and
+// descending, the two sides interleave.
+func TestFindAvailableStatesLabelSortMergesDBAndCoordinator(t *testing.T) {
+	ctx, ss, _, schema1, contractAddress, done := coinTestSetup(t)
+	defer done()
+
+	db10 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 10)
+	db30 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 30)
+	writeAvailableCoin(t, ctx, ss, db10)
+	writeAvailableCoin(t, ctx, ss, db30)
+
+	view20 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 20)
+	view40 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 40)
+	_, dqc := newTestRemoteViewContext(t, ctx, ss, contractAddress, view20, view40)
+
+	_, states, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(),
+		query.NewQueryBuilder().Sort("amount").Query())
+	require.NoError(t, err)
+	require.Len(t, states, 4)
+	assert.Equal(t, []pldtypes.HexBytes{db10.ID, view20.ID, db30.ID, view40.ID},
+		[]pldtypes.HexBytes{states[0].ID, states[1].ID, states[2].ID, states[3].ID})
+
+	_, states, err = dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(),
+		query.NewQueryBuilder().Sort("-amount").Limit(2).Query())
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+	assert.Equal(t, []pldtypes.HexBytes{view40.ID, db30.ID},
+		[]pldtypes.HexBytes{states[0].ID, states[1].ID})
+}
+
+const intLabelABI = `{
+	"type": "tuple",
+	"internalType": "struct IntLabelled",
+	"components": [
+		{
+			"name": "salt",
+			"type": "bytes32"
+		},
+		{
+			"name": "rank",
+			"type": "uint32",
+			"indexed": true
+		}
+	]
+}`
+
+// TestFindAvailableStatesLabelSortOrdersInt64Label covers an int64-indexed label as the sort field, so
+// the sort orders on the integer rather than comparing text (where "10" would precede "9").
+func TestFindAvailableStatesLabelSortOrdersInt64Label(t *testing.T) {
+	ctx, ss, _, dbDone := newDBTestStateManager(t)
+	defer dbDone()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, intLabelABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+	contractAddress := pldtypes.RandAddress()
+
+	makeRanked := func(rank int) *components.StateWithLabels {
+		s, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+			`{"rank": %d, "salt": "%s"}`, rank, pldtypes.RandHex(32))), nil, false)
+		require.NoError(t, err)
+		return s
+	}
+
+	db9 := makeRanked(9)
+	db10 := makeRanked(10)
+	writeAvailableCoin(t, ctx, ss, db9)
+	writeAvailableCoin(t, ctx, ss, db10)
+
+	view11 := makeRanked(11)
+	_, dqc := newTestRemoteViewContext(t, ctx, ss, contractAddress, view11)
+
+	_, states, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema.ID(),
+		query.NewQueryBuilder().Sort("rank").Query())
+	require.NoError(t, err)
+	require.Len(t, states, 3)
+	assert.Equal(t, []pldtypes.HexBytes{db9.ID, db10.ID, view11.ID},
+		[]pldtypes.HexBytes{states[0].ID, states[1].ID, states[2].ID})
 }
