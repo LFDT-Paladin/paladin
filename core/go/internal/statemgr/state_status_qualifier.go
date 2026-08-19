@@ -36,7 +36,7 @@ func whereClauseForQual(db *gorm.DB /* must be the DB not the query */, q pldapi
 		return db.Where(`"Confirmed"."transaction" IS NULL`)
 	case pldapi.StateStatusSpent:
 		return db.Where(fmt.Sprintf(`"%s"."transaction" IS NOT NULL`, spentColumn))
-	default: // pldapi.StateStatusAll, which is also what the reader defaults an unset qualifier to
+	default: // pldapi.StateStatusAll, and an unset qualifier, which also means all
 		return db.Where("TRUE")
 	}
 }

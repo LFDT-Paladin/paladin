@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -90,7 +89,7 @@ func TestFindStatesUnsetQualifier(t *testing.T) {
 	mockGetSchemaOK(mdb)
 	mdb.ExpectQuery(`SELECT.*FROM "states".*WHERE.*TRUE`).WillReturnError(fmt.Errorf("called"))
 
-	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", pldtypes.RandBytes32(),
-		query.NewQueryBuilder().Query(), &components.StateQueryOptions{})
+	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", nil, pldtypes.RandBytes32(),
+		query.NewQueryBuilder().Query(), "")
 	assert.Regexp(t, "called", err)
 }

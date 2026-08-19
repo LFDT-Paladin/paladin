@@ -341,7 +341,7 @@ func TestDCFindBadQuery(t *testing.T) {
 	_, _, err = dqc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("wrong").Query())
 	assert.Regexp(t, "PD010700", err)
 
-	_, _, err = dqc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("wrong").Query())
+	_, _, err = dqc.FindAvailableNullifierBackedStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("wrong").Query())
 	assert.Regexp(t, "PD010700", err)
 
 }
@@ -572,7 +572,7 @@ func TestNullifierQueriesSkipRemoteView(t *testing.T) {
 	s1 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 10)
 	view, dqc := newTestRemoteViewContext(t, ctx, ss, contractAddress, s1)
 
-	_, states, err := dqc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
+	_, states, err := dqc.FindAvailableNullifierBackedStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	assert.Empty(t, states)
 	assert.Empty(t, view.calls)
@@ -953,47 +953,24 @@ func TestFindNullifiersSpendingExclusion(t *testing.T) {
 	require.NoError(t, err)
 
 	// Both are visible without exclusions
-	found, err := ss.FindContractNullifiers(ctx, ss.p.NOTX(), "domain1", *contractAddress, schema1.ID(),
-		query.NewQueryBuilder().Query(), pldapi.StateStatusAvailable)
+	_, found, err := ss.findNullifierBackedStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schema1.ID(),
+		query.NewQueryBuilder().Query(), pldapi.StateStatusAvailable, nil)
 	require.NoError(t, err)
 	assert.Len(t, found, 2)
 
-	// Exclude state[0] via spendingStates — only state[1] should appear
-	_, found, err = ss.findNullifiers(ctx, ss.p.NOTX(), "domain1", contractAddress, schema1.ID(),
-		query.NewQueryBuilder().Query(), &components.StateQueryOptions{
-			StatusQualifier: pldapi.StateStatusAvailable,
-			ExcludedIDs:     []pldtypes.HexBytes{states1[0].ID},
-		})
+	// Exclude state[0] by state ID — only state[1] should appear
+	_, found, err = ss.findNullifierBackedStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schema1.ID(),
+		query.NewQueryBuilder().Query(), pldapi.StateStatusAvailable,
+		[]pldtypes.HexBytes{states1[0].ID})
 	require.NoError(t, err)
 	assert.Len(t, found, 1)
 	assert.Equal(t, states1[1].ID, found[0].ID)
 
-	// Exclude state[1]'s nullifier via spendingNullifiers — only state[0] should appear
-	_, found, err = ss.findNullifiers(ctx, ss.p.NOTX(), "domain1", contractAddress, schema1.ID(),
-		query.NewQueryBuilder().Query(), &components.StateQueryOptions{
-			StatusQualifier:      pldapi.StateStatusAvailable,
-			ExcludedNullifierIDs: []pldtypes.HexBytes{nullID2},
-		})
-	require.NoError(t, err)
-	assert.Len(t, found, 1)
-	assert.Equal(t, states1[0].ID, found[0].ID)
-
-	// nil options defaults the status qualifier to "all" and returns both nullifier states
-	_, found, err = ss.findNullifiers(ctx, ss.p.NOTX(), "domain1", contractAddress, schema1.ID(),
-		query.NewQueryBuilder().Query(), nil)
+	// An omitted status qualifier means all, returning both nullifier states
+	_, found, err = ss.findNullifierBackedStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schema1.ID(),
+		query.NewQueryBuilder().Query(), "", nil)
 	require.NoError(t, err)
 	assert.Len(t, found, 2)
-
-	// empty options also defaults the status qualifier, and a QueryModifier narrows to state[0]
-	_, found, err = ss.findNullifiers(ctx, ss.p.NOTX(), "domain1", contractAddress, schema1.ID(),
-		query.NewQueryBuilder().Query(), &components.StateQueryOptions{
-			QueryModifier: func(_ persistence.DBTX, q *gorm.DB) *gorm.DB {
-				return q.Where(`"states"."id" = ?`, states1[0].ID)
-			},
-		})
-	require.NoError(t, err)
-	assert.Len(t, found, 1)
-	assert.Equal(t, states1[0].ID, found[0].ID)
 }
 
 // TestQueriedStateEvalQueryError proves a query that cannot be evaluated against the schema's
@@ -1036,16 +1013,16 @@ func TestFindAvailableStatesSpentIDsFetchError(t *testing.T) {
 	assert.Empty(t, view.calls)
 }
 
-// TestFindAvailableNullifiersSpentIDsFetchError proves the same spend exclusion fetch failure
-// fails FindAvailableNullifiers.
-func TestFindAvailableNullifiersSpentIDsFetchError(t *testing.T) {
+// TestFindAvailableNullifierBackedStatesSpentIDsFetchError proves the same spend exclusion fetch failure
+// fails FindAvailableNullifierBackedStates.
+func TestFindAvailableNullifierBackedStatesSpentIDsFetchError(t *testing.T) {
 	ctx, ss, _, _, done := newDBMockStateManager(t)
 	defer done()
 
 	view := &testRemoteView{spentErr: errors.New("pop")}
 	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, pldtypes.RandAddress(), view)
 
-	_, _, err := dqc.FindAvailableNullifiers(ctx, ss.p.NOTX(), pldtypes.RandBytes32(), query.NewQueryBuilder().Query())
+	_, _, err := dqc.FindAvailableNullifierBackedStates(ctx, ss.p.NOTX(), pldtypes.RandBytes32(), query.NewQueryBuilder().Query())
 	assert.Regexp(t, "PD010137.*pop", err)
 	assert.Empty(t, view.calls)
 }

@@ -26,7 +26,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"gorm.io/gorm"
 )
 
 type StateManager interface {
@@ -74,9 +73,6 @@ type StateManager interface {
 	// Write a batch of nullifiers that correspond to states just received
 	WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*pldapi.StateNullifier) error
 
-	// Find states from outside of a domain context (noting you can reference a domain context by ID)
-	FindStates(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, extQueryOptions *StateQueryOptions) (s []*pldapi.State, err error)
-
 	// GetState returns state by ID, with optional labels
 	GetStatesByID(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, stateIDs []pldtypes.HexBytes, failNotFound, withLabels bool) ([]*pldapi.State, error)
 
@@ -104,13 +100,6 @@ type PendingPrivateStateDataEntry struct {
 	BlockNumber int64
 }
 
-type StateQueryOptions struct {
-	StatusQualifier      pldapi.StateStatusQualifier
-	ExcludedIDs          []pldtypes.HexBytes
-	ExcludedNullifierIDs []pldtypes.HexBytes
-	QueryModifier        func(db persistence.DBTX, query *gorm.DB) *gorm.DB
-}
-
 // DomainQueryContext is the state query interface exposed outside of the statestore package. It may
 // be backed by a remote view, in which case queries are executed against both the remote view and
 // the local persisted state store, with the results merged together.
@@ -123,8 +112,11 @@ type DomainQueryContext interface {
 	// its spend exclusions.
 	FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
 
-	// FindAvailableNullifiers is similar to FindAvailableStates for nullifier-based domains.
-	FindAvailableNullifiers(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
+	// FindAvailableNullifierBackedStates returns available states for domains that spend via nullifiers,
+	// where availability is decided by the nullifier's spend record rather than the state's own. A remote
+	// view carries no nullifiers, so these queries are answered from the local persisted state store
+	// alone, though the view's spend exclusions still apply.
+	FindAvailableNullifierBackedStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
 
 	// GetStatesByID retrieves states by ID regardless of confirmation/spend status,
 	// including states pending in memory.

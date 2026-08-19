@@ -317,27 +317,34 @@ func (ss *stateManager) labelSetFor(schema components.Schema) *trackingLabelSet 
 	return &tls
 }
 
-func (ss *stateManager) FindContractStates(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, schemaID pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (s []*pldapi.State, err error) {
-	_, s, err = ss.findStates(ctx, dbTX, domainName, contractAddress, schemaID, query, &components.StateQueryOptions{StatusQualifier: status})
-	return s, err
+// statusScope returns the query modifier that scopes a states query to a status qualifier and
+// excludes the given state IDs. Available, and its synonym confirmed, are served from the maintained
+// confirmed/spent flags and the states_available partial index, so they need neither the
+// Confirmed/Spent joins nor whereClauseForQual. Every other qualifier expresses status via those joins.
+func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.StateStatusQualifier, excludedIDs []pldtypes.HexBytes) func(*gorm.DB) *gorm.DB {
+	var whereClause *gorm.DB
+	var needsStatusJoins bool
+	if status == pldapi.StateStatusAvailable || status == pldapi.StateStatusConfirmed {
+		whereClause = dbTX.DB(ctx).Where(`"states"."confirmed" AND NOT "states"."spent"`)
+	} else {
+		whereClause = whereClauseForQual(dbTX.DB(ctx), status, "Spent")
+		needsStatusJoins = true
+	}
+	return func(q *gorm.DB) *gorm.DB {
+		if needsStatusJoins {
+			q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
+				Joins("Spent", dbTX.DB(ctx).Select("transaction"))
+		}
+		if len(excludedIDs) > 0 {
+			q = q.Not(`"states"."id" IN(?)`, excludedIDs)
+		}
+		return q.Where(whereClause)
+	}
 }
 
-func (ss *stateManager) FindStates(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, options *components.StateQueryOptions) (s []*pldapi.State, err error) {
-	ctx = log.WithComponent(ctx, "statemanager")
-	_, s, err = ss.findStates(ctx, dbTX, domainName, nil, schemaID, query, options)
-	return s, err
-}
-
-func (ss *stateManager) FindContractNullifiers(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress pldtypes.EthAddress, schemaID pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (s []*pldapi.State, err error) {
-	_, s, err = ss.findNullifiers(ctx, dbTX, domainName, &contractAddress, schemaID, query, &components.StateQueryOptions{StatusQualifier: status})
-	return s, err
-}
-
-func (ss *stateManager) FindNullifiers(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (s []*pldapi.State, err error) {
-	_, s, err = ss.findNullifiers(ctx, dbTX, domainName, nil, schemaID, query, &components.StateQueryOptions{StatusQualifier: status})
-	return s, err
-}
-
+// findStates reads states from the local DB alone, scoped by the given status qualifier and
+// provided query. It serves the query API, which passes whatever qualifier its
+// caller asked for, and domain query contexts with no remote view, which have nothing to merge against.
 func (ss *stateManager) findStates(
 	ctx context.Context,
 	dbTX persistence.DBTX,
@@ -345,61 +352,57 @@ func (ss *stateManager) findStates(
 	contractAddress *pldtypes.EthAddress,
 	schemaID pldtypes.Bytes32,
 	jq *query.QueryJSON,
-	options *components.StateQueryOptions,
-) (schema components.Schema, s []*pldapi.State, err error) {
-	if options == nil {
-		options = &components.StateQueryOptions{}
-	}
-	if options.StatusQualifier == "" {
-		options.StatusQualifier = pldapi.StateStatusAll
-	}
-	// Available, and its synonym confirmed, are served from the maintained confirmed/spent flags
-	// and the states_available partial index, so they need neither the Confirmed/Spent joins nor
-	// whereClauseForQual. Every other qualifier expresses status via those joins.
-	var whereClause *gorm.DB
-	var needsStatusJoins bool
-	if options.StatusQualifier == pldapi.StateStatusAvailable || options.StatusQualifier == pldapi.StateStatusConfirmed {
-		whereClause = dbTX.DB(ctx).Where(`"states"."confirmed" AND NOT "states"."spent"`)
-	} else {
-		whereClause = whereClauseForQual(dbTX.DB(ctx), options.StatusQualifier, "Spent")
-		needsStatusJoins = true
-	}
-	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
-		if needsStatusJoins {
-			q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
-				Joins("Spent", dbTX.DB(ctx).Select("transaction"))
-		}
-
-		if len(options.ExcludedIDs) > 0 {
-			q = q.Not(`"states"."id" IN(?)`, options.ExcludedIDs)
-		}
-
-		// Scope the query based on the status qualifier
-		q = q.Where(whereClause)
-
-		if options.QueryModifier != nil {
-			q = options.QueryModifier(dbTX, q)
-		}
-		return q
-	})
+	status pldapi.StateStatusQualifier,
+) (components.Schema, []*pldapi.State, error) {
+	scope := statusScope(ctx, dbTX, status, nil)
+	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq,
+		func(_ persistence.DBTX, q *gorm.DB) *gorm.DB { return scope(q) })
 }
 
-func (ss *stateManager) findNullifiers(
+// findStatesForRemoteViewMerge reads states for a domain context that has a remote view, ready to be
+// merged with the view's own matches. It excludes the states the view reports spent ahead of the
+// chain, and brings each state's persisted label rows with it, because the merge sorts DB states and
+// view states into a single order and needs label values for both sides.
+//
+// TODO: the label rows cost two extra SELECTs, on state_labels and state_int64_labels, per query.
+// findStatesCommon already INNER-JOINs the label tables for the fields the query filters and sorts
+// on, and the merge sort needs only the sort-key labels, so selecting those already-joined columns
+// alongside the states would supply the sort values with no extra round-trips and no re-parse. That
+// needs a custom projection/scan, since GORM will not map arbitrary selected columns onto
+// pldapi.State, and the values need somewhere to live other than pldapi.State.Labels: a sort-key-only
+// subset there would fail the completeness check RecoverLabels makes before trusting those fields,
+// and would leave an API-visible label set that understates what the state has.
+func (ss *stateManager) findStatesForRemoteViewMerge(
 	ctx context.Context,
 	dbTX persistence.DBTX,
 	domainName string,
 	contractAddress *pldtypes.EthAddress,
 	schemaID pldtypes.Bytes32,
 	jq *query.QueryJSON,
-	options *components.StateQueryOptions,
-) (schema components.Schema, s []*pldapi.State, err error) {
-	if options == nil {
-		options = &components.StateQueryOptions{}
-	}
-	if options.StatusQualifier == "" {
-		options.StatusQualifier = pldapi.StateStatusAll
-	}
-	whereClause := whereClauseForQual(dbTX.DB(ctx), options.StatusQualifier, "Nullifier__Spent")
+	status pldapi.StateStatusQualifier,
+	excludedIDs []pldtypes.HexBytes,
+) (components.Schema, []*pldapi.State, error) {
+	scope := statusScope(ctx, dbTX, status, excludedIDs)
+	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq,
+		func(_ persistence.DBTX, q *gorm.DB) *gorm.DB {
+			return scope(q).Preload("Labels").Preload("Int64Labels")
+		})
+}
+
+// findNullifierBackedStates reads states that carry a nullifier, dropping those that do not. Status is
+// expressed through the Confirmed join and the nullifier's own spend join, since the chain records the
+// spend against the nullifier rather than against the state it consumes.
+func (ss *stateManager) findNullifierBackedStates(
+	ctx context.Context,
+	dbTX persistence.DBTX,
+	domainName string,
+	contractAddress *pldtypes.EthAddress,
+	schemaID pldtypes.Bytes32,
+	jq *query.QueryJSON,
+	status pldapi.StateStatusQualifier,
+	excludedIDs []pldtypes.HexBytes,
+) (components.Schema, []*pldapi.State, error) {
+	whereClause := whereClauseForQual(dbTX.DB(ctx), status, "Nullifier__Spent")
 	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
 		hasNullifier := dbTX.DB(ctx).Where(`"Nullifier"."id" IS NOT NULL`)
 
@@ -408,21 +411,11 @@ func (ss *stateManager) findNullifiers(
 			Joins("Nullifier.Spent", dbTX.DB(ctx).Select("transaction")).
 			Where(hasNullifier)
 
-		if len(options.ExcludedIDs) > 0 {
-			q = q.Not(`"states"."id" IN(?)`, options.ExcludedIDs)
-		}
-		if len(options.ExcludedNullifierIDs) > 0 {
-			q = q.Not(`"Nullifier"."id" IN(?)`, options.ExcludedNullifierIDs)
+		if len(excludedIDs) > 0 {
+			q = q.Not(`"states"."id" IN(?)`, excludedIDs)
 		}
 
-		// Scope to only unspent
-		q = q.Where(whereClause)
-
-		if options.QueryModifier != nil {
-			q = options.QueryModifier(dbTX, q)
-		}
-
-		return q
+		return q.Where(whereClause)
 	})
 }
 

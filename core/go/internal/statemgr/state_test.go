@@ -33,7 +33,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 func TestPersistStateMissingSchema(t *testing.T) {
@@ -103,7 +102,7 @@ func TestFindStatesMissingSchema(t *testing.T) {
 	db.ExpectQuery("SELECT").WillReturnRows(db.NewRows([]string{}))
 
 	contractAddress := pldtypes.RandAddress()
-	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, pldtypes.Bytes32Keccak(([]byte)("schema1")), &query.QueryJSON{}, "all")
+	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, pldtypes.Bytes32Keccak(([]byte)("schema1")), &query.QueryJSON{}, "all")
 	assert.Regexp(t, "PD010106", err)
 }
 
@@ -118,7 +117,7 @@ func TestFindStatesBadQuery(t *testing.T) {
 	})
 
 	contractAddress := pldtypes.RandAddress()
-	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
+	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
 		Statements: query.Statements{
 			Ops: query.Ops{
 				Equal: []*query.OpSingleVal{
@@ -145,7 +144,7 @@ func TestFindStatesFail(t *testing.T) {
 	db.ExpectQuery("SELECT.*created").WillReturnError(fmt.Errorf("pop"))
 
 	contractAddress := pldtypes.RandAddress()
-	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
+	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
 		Statements: query.Statements{
 			Ops: query.Ops{
 				GreaterThan: []*query.OpSingleVal{
@@ -250,37 +249,6 @@ func TestWriteNullifiersForReceivedStatesBadDomain(t *testing.T) {
 		},
 	})
 	assert.Regexp(t, "not found", err)
-
-}
-
-func TestFindStatesWithAdvancedDBQueryModifier(t *testing.T) {
-	ctx, ss, mdb, _, done := newDBMockStateManager(t)
-	defer done()
-
-	mockGetSchemaOK(mdb)
-	mdb.ExpectQuery(`SELECT.*FROM "states".*LEFT JOIN "another_table".*"j"."state_id" IS NOT NULL`).
-		WillReturnError(fmt.Errorf("called"))
-
-	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", pldtypes.RandBytes32(), query.NewQueryBuilder().Query(), &components.StateQueryOptions{
-		QueryModifier: func(db persistence.DBTX, query *gorm.DB) *gorm.DB {
-			return query.
-				Joins(`LEFT JOIN "another_table" AS "j" WHERE "j"."state_id" = "states"."id"`).
-				Where(`"j"."state_id" IS NOT NULL`)
-		},
-	})
-	assert.Regexp(t, "called", err)
-
-}
-
-func TestFindStatesWithNilOptions(t *testing.T) {
-	ctx, ss, mdb, _, done := newDBMockStateManager(t)
-	defer done()
-
-	mockGetSchemaOK(mdb)
-	mdb.ExpectQuery(`SELECT.*FROM`).WillReturnError(fmt.Errorf("called"))
-
-	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", pldtypes.RandBytes32(), query.NewQueryBuilder().Query(), nil)
-	assert.Regexp(t, "called", err)
 
 }
 
