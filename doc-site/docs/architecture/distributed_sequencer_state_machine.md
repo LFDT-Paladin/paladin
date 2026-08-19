@@ -96,6 +96,7 @@ stateDiagram-v2
     Signing --> Evicted
     Endorsement_Gathering --> Confirming_Dispatchable
     Endorsement_Gathering --> Blocked
+    Endorsement_Gathering --> Reverted
     Endorsement_Gathering --> Pooled
     Blocked --> Confirming_Dispatchable
     Confirming_Dispatchable --> Ready_For_Dispatch
