@@ -845,9 +845,9 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToBlocked_OnEndorsed_IfAtt
 }
 
 func TestCoordinatorTransaction_Endorsement_Gathering_ToReverted_OnEndorseRevert_ToleranceExceeded(t *testing.T) {
-	// Single-party requirement → tolerance=0. One revert puts the threshold out of reach for a
-	// deterministic reason, so the transaction is finalized rather than repooled: reassembling
-	// would only collect the same reverts again.
+	// Single-party requirement → tolerance=0. One revert puts the threshold out of reach, and a
+	// correctly implemented domain would not have assembled a transaction its endorser refuses,
+	// so the transaction is finalized as reverted rather than repooled.
 	ctx := context.Background()
 	mockGrapher := graphermocks.NewGrapher(t)
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -886,8 +886,8 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToReverted_OnEndorseRevert
 func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRevert_MixedFailuresExceedTolerance(t *testing.T) {
 	// 2-of-3 plan → tolerance=1. One party already errored; now a second party reverts. Combined
 	// failures (2) exceed the tolerance but reverts alone (1) do not, so the outcome is a repool
-	// rather than a finalize: the error may have been transient, and reassembly may produce a
-	// transaction the reverting party accepts.
+	// rather than a finalize: the error may have been transient, and the reverts on their own leave
+	// the threshold reachable.
 	ctx := context.Background()
 	mockGrapher := graphermocks.NewGrapher(t)
 	party1 := "party1@node1"

@@ -619,14 +619,15 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				}},
 			},
-			// Domain returned REVERT: the endorser rejected the assembly as invalid.
+			// Domain returned REVERT: the endorser rejected the assembly as invalid. A correctly
+			// implemented domain does not assemble a transaction that its own endorsers would
+			// revert, so a revert says the transaction cannot be executed.
+			//
 			// Record the failed party (stops nudging them), then pick the outcome:
 			//
-			//  1. Reverts alone now exceed the tolerance — the threshold is unreachable and the
-			//     reason will recur on every retry, so finalize rather than reassembling into the
-			//     same failures.
-			//  2. Total failures exceed the tolerance but reverts alone do not — some of those
-			//     failures may be transient, so repool and let reassembly try again.
+			//  1. Reverts alone now exceed the tolerance — so finalize it as reverted.
+			//  2. Total failures exceed the tolerance but reverts alone do not — the remaining
+			//     failures were errors or rejections, which may be transient, so repool.
 			//  3. Neither — stay put, the remaining parties may still fulfill the plan.
 			Event_EndorseRevert: {
 				Match: statemachine.MatchFirst,

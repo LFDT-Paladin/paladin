@@ -280,9 +280,9 @@ func guard_EndorseFailureExceedsTolerance(_ context.Context, txn *coordinatorTra
 }
 
 // guard_EndorseRevertExceedsTolerance returns true if the number of endorsement reverts for any
-// single attestation requirement now exceeds its tolerance. That means the threshold can no longer
-// be reached and, unlike guard_EndorseFailureExceedsTolerance, the reverts will recur: repooling
-// would reassemble and collect the same ones again. The transaction is finalized instead.
+// single attestation requirement now exceeds its tolerance, meaning the threshold can no longer be
+// reached. A correctly implemented domain does not assemble a transaction that its own endorsers
+// would revert, so the transaction is finalized as reverted rather than repooled.
 // action_RecordEndorseFailure increments the count before this guard runs.
 func guard_EndorseRevertExceedsTolerance(_ context.Context, txn *coordinatorTransaction) bool {
 	for reqName, tolerance := range txn.endorseToleranceByRequirement {
@@ -346,13 +346,14 @@ func action_FinalizeEndorseRevert(ctx context.Context, t *coordinatorTransaction
 //
 //   - endorseFailureCountByRequirement counts every failure whatever the cause, and answers
 //     "can this attestation plan still be fulfilled this round".
-//   - endorseRevertCountByRequirement counts only endorsement reverts, and answers "will this
-//     recur". A revert means the endorser evaluated the transaction and would not endorse it, so
-//     re-requesting the same assembly gets the same revert.
+//   - endorseRevertCountByRequirement counts only endorsement reverts, and answers "did an
+//     endorser judge this transaction invalid". A revert means the endorser evaluated the
+//     transaction and refused it; a correctly implemented domain should never assemble a
+//     transaction that reverts at endorsement.
 //
 // A revert increments both: it is a failure like any other for the threshold arithmetic, and
-// additionally one that will recur. Unexpected errors and rejections increment only the first,
-// since either may be transient and succeed on a retry.
+// additionally a rejection of the transaction itself. Unexpected errors and rejections increment
+// only the first, since either may be transient and succeed on a retry.
 func action_RecordEndorseFailure(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	var reqName, party, revertReason string
 	isRevert := false

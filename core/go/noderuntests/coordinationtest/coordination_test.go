@@ -1121,9 +1121,10 @@ func TestTransactionErrorDuringAssembly(t *testing.T) {
 }
 
 func TestTransactionRevertDuringEndorsement(t *testing.T) {
-	// An endorsement revert recurs on retry, so re-assembling and asking again would only get the same
-	// answer. Test that the coordinator finalizes the transaction as reverted, and that the receipt
-	// tells the originator which party reverted it and why.
+	// A correctly implemented domain does not assemble a transaction that its own endorsers would
+	// revert, so an endorsement revert means the transaction cannot be executed. Test that the
+	// coordinator finalizes the transaction as reverted, and that the receipt tells the originator
+	// which party reverted it and why.
 	ctx := t.Context()
 	domainRegistryAddress := deployDomainRegistry(t, "alice")
 
