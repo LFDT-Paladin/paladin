@@ -733,6 +733,47 @@ func Test_action_SwitchActiveCoordinator_UpdatesCoordinatorAndResetsLivenessTime
 	assert.Equal(t, 0, o.heartbeatIntervalsSinceLastReceive, "liveness timer must be reset when switching coordinator")
 }
 
+// The node being switched to has never seen our transactions, so the switch must raise the full
+// delegation flag rather than leaving them stranded until the dropped-transaction check notices
+// their absence a heartbeat interval later.
+func Test_action_SwitchActiveCoordinator_RequestsFullDelegation(t *testing.T) {
+	ctx := context.Background()
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("node2").
+		Build()
+	o.notifyFullDelegation = make(chan struct{}, 1)
+	o.notifyPartialDelegation = make(chan struct{}, 1)
+
+	event := &common.HeartbeatReceivedEvent{
+		FromNode:            "node1",
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{},
+	}
+
+	require.NoError(t, action_SwitchActiveCoordinator(ctx, o, event))
+
+	assert.Len(t, o.notifyFullDelegation, 1, "switching coordinator must request a full redelegation")
+	assert.Len(t, o.notifyPartialDelegation, 0, "a partial delegation would not reach the new coordinator with the full backlog")
+	assert.False(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "the request must be raised as a flag, not sent synchronously")
+}
+
+// The delegation loop is not running outside State_Sending, which nils the notify channels. The
+// switch must tolerate that rather than panicking or blocking.
+func Test_action_SwitchActiveCoordinator_FullDelegationRequestIsNoOpWhenLoopStopped(t *testing.T) {
+	ctx := context.Background()
+	o, _ := NewOriginatorBuilderForTesting(t, State_Sending).
+		CurrentActiveCoordinator("node2").
+		Build()
+	o.notifyFullDelegation = nil
+
+	event := &common.HeartbeatReceivedEvent{
+		FromNode:            "node1",
+		CoordinatorSnapshot: &common.CoordinatorSnapshot{},
+	}
+
+	require.NoError(t, action_SwitchActiveCoordinator(ctx, o, event))
+	assert.Equal(t, "node1", o.currentActiveCoordinator)
+}
+
 // ── State_Sending integration: coordinator switching ─────────────────────────
 
 // A live heartbeat from a higher-priority node redirects the active coordinator (step 2) and then
