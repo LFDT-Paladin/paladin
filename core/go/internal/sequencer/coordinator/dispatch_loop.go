@@ -27,7 +27,7 @@ import (
 )
 
 // queuedDispatch carries a transaction onto the dispatch queue along with the time it was enqueued,
-// so the dispatch loop can observe how long it waited before being dequeued.
+// so the dispatch loop can record a metric for how long it waited before being dequeued.
 type queuedDispatch struct {
 	txn        transaction.CoordinatorTransaction
 	enqueuedAt time.Time
