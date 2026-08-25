@@ -804,7 +804,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_Threshold1of3_TransitionsA
 
 	err := txn.HandleEvent(ctx, &EndorsedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
-		RequestID:            req1.IdempotencyKey().String(),
+		RequestID:            req1.IdempotencyKey(),
 		Endorsement: &prototk.AttestationResult{
 			Name:            attName,
 			AttestationType: prototk.AttestationType_ENDORSE,
@@ -924,7 +924,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRevert_M
 		Party:                  party2,
 		RevertReason:           "some reason for revert",
 		AttestationRequestName: "endorse-multisig",
-		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party2].IdempotencyKey().String(),
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party2].IdempotencyKey(),
 	}
 	err := txn.HandleEvent(ctx, event)
 	require.NoError(t, err)
@@ -978,7 +978,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToReverted_OnEndorseRevert
 		Party:                  party2,
 		RevertReason:           "second reason",
 		AttestationRequestName: "endorse-multisig",
-		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party2].IdempotencyKey().String(),
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party2].IdempotencyKey(),
 	}
 	err := txn.HandleEvent(ctx, event)
 	require.NoError(t, err)
@@ -1018,7 +1018,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseReve
 		Party:                  party1,
 		AttestationRequestName: "endorse-multisig",
 		RevertReason:           "assembly state is stale",
-		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey().String(),
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey(),
 	}
 	err := txn.HandleEvent(ctx, event)
 	require.NoError(t, err)
@@ -1079,7 +1079,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseErro
 		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
 		Party:                  party1,
 		AttestationRequestName: "endorse-multisig",
-		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey().String(),
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey(),
 	}
 
 	err := txn.HandleEvent(ctx, event)
@@ -1130,7 +1130,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseError_To
 		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
 		Party:                  party2,
 		AttestationRequestName: "endorse-multisig",
-		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party2].IdempotencyKey().String(),
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party2].IdempotencyKey(),
 	}
 	err := txn.HandleEvent(ctx, event)
 	require.NoError(t, err)
@@ -1188,7 +1188,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseRequ
 		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
 		Party:                  party1,
 		AttestationRequestName: "endorse-multisig",
-		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey().String(),
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey(),
 		RejectionReason:        engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
 		CoordinatorBlockHeight: 100,
 		EndorserBlockHeight:    200,
@@ -1244,7 +1244,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnDuplicateEn
 		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
 		Party:                  party1,
 		AttestationRequestName: "endorse-multisig",
-		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey().String(),
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey(),
 	}
 	require.NoError(t, txn.HandleEvent(ctx, event))
 	require.NoError(t, txn.HandleEvent(ctx, event))
@@ -1268,7 +1268,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseReve
 	txn, _ := builder.Build()
 
 	staleEvent := builder.BuildEndorseRevertEvent()
-	staleEvent.RequestID = uuid.NewString()
+	staleEvent.RequestID = uuid.New()
 	require.NoError(t, txn.HandleEvent(ctx, staleEvent))
 
 	assert.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
@@ -1305,7 +1305,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorsement
 	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
 		"endorse-multisig": {party1: pendingRequest},
 	}
-	requestID := pendingRequest.IdempotencyKey().String()
+	requestID := pendingRequest.IdempotencyKey()
 
 	// A 2-of-3 requirement gives tolerance=1, so one failure leaves the transaction in state
 	require.NoError(t, txn.HandleEvent(ctx, &EndorseErrorEvent{

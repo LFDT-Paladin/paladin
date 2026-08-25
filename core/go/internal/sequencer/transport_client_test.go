@@ -1462,7 +1462,7 @@ func TestHandleEndorsementResponse_Success(t *testing.T) {
 
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.EndorsedEvent)
-		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey.String() && event.Endorsement != nil
+		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey && event.Endorsement != nil
 	})).Once()
 
 	sm.handleEndorsementResponse(ctx, message)
@@ -1503,7 +1503,7 @@ func TestHandleEndorsementResponse_Revert(t *testing.T) {
 
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.EndorseRevertEvent)
-		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey.String() && event.RevertReason == revertReason && event.AttestationRequestName == attestationRequestName
+		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey && event.RevertReason == revertReason && event.AttestationRequestName == attestationRequestName
 	})).Once()
 
 	sm.handleEndorsementResponse(ctx, message)
@@ -1611,7 +1611,7 @@ func TestHandleEndorsementError_QueuesToCoordinator(t *testing.T) {
 
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.EndorseErrorEvent)
-		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey.String()
+		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey
 	})).Once()
 
 	sm.handleEndorsementError(ctx, message)
@@ -2069,7 +2069,7 @@ func TestHandlePaladinMsg_RoutesEndorsementRejection(t *testing.T) {
 	done := make(chan struct{})
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.EndorseRequestRejectedEvent)
-		if ok && event.TransactionID == txID && event.RequestID == reqID.String() {
+		if ok && event.TransactionID == txID && event.RequestID == reqID {
 			close(done)
 		}
 		return ok
@@ -2766,27 +2766,35 @@ func TestHandleSignError_SequencerNotLoaded(t *testing.T) {
 	})
 }
 
-// An endorsement reply carries its transaction ID as a string from a peer node, and without a valid
-// one there is no transaction to deliver the reply to, so it is logged and dropped. It must never be
-// parsed with uuid.MustParse: these handlers run as bare goroutines with no recover, so one bad value
-// from any peer would take the node down instead of losing a single endorsement. The strict
-// coordinator mock has no expectations, so it fails the test if any event is queued.
-func TestHandleEndorsementReplies_UnusableTransactionID_AreDroppedWithoutQueueingEvents(t *testing.T) {
+// Every ID in a sequencer message is a string a peer node filled in, so one that is not a UUID has to
+// be dropped rather than parsed with uuid.MustParse: these handlers run as bare goroutines with no
+// recover, so a single bad value from any peer would take the node down instead of losing one message.
+// The originator and coordinator mocks are strict and given no expectations, so the test fails if any
+// handler queues an event off a message it should have dropped.
+func TestHandleMessages_UnusableIDs_AreDroppedWithoutQueueingEvents(t *testing.T) {
+	postAssembly := func(result prototk.AssembleTransactionResponse_Result) *prototk.TransactionPostAssembly {
+		return &prototk.TransactionPostAssembly{AssemblyResult: result}
+	}
+
 	revertReason := "transaction reverted"
 
-	replyKinds := []struct {
-		name        string
-		messageType string
-		build       func(contractAddress, transactionID, idempotencyKey string) []byte
-		handle      func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage)
+	messageKinds := []struct {
+		name string
+		// hasRequestID is false for the messages that carry only a transaction ID, so the request ID
+		// cases below are skipped for them - there is nothing to make unusable
+		hasRequestID bool
+		messageType  string
+		build        func(contractAddress, transactionID, requestID string) []byte
+		handle       func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage)
 	}{
 		{
-			name:        "endorsement",
-			messageType: transport.MessageType_EndorsementResponse,
-			build: func(contractAddress, transactionID, idempotencyKey string) []byte {
+			name:         "endorsement response",
+			hasRequestID: true,
+			messageType:  transport.MessageType_EndorsementResponse,
+			build: func(contractAddress, transactionID, requestID string) []byte {
 				payload, _ := proto.Marshal(&engineProto.EndorsementResponse{
 					TransactionId:          transactionID,
-					IdempotencyKey:         idempotencyKey,
+					IdempotencyKey:         requestID,
 					ContractAddress:        contractAddress,
 					Endorsement:            &prototk.AttestationResult{Name: "test-endorsement"},
 					AttestationRequestName: "endorsement1",
@@ -2798,12 +2806,13 @@ func TestHandleEndorsementReplies_UnusableTransactionID_AreDroppedWithoutQueuein
 			},
 		},
 		{
-			name:        "endorsement revert",
-			messageType: transport.MessageType_EndorsementResponse,
-			build: func(contractAddress, transactionID, idempotencyKey string) []byte {
+			name:         "endorsement response revert",
+			hasRequestID: true,
+			messageType:  transport.MessageType_EndorsementResponse,
+			build: func(contractAddress, transactionID, requestID string) []byte {
 				payload, _ := proto.Marshal(&engineProto.EndorsementResponse{
 					TransactionId:          transactionID,
-					IdempotencyKey:         idempotencyKey,
+					IdempotencyKey:         requestID,
 					ContractAddress:        contractAddress,
 					RevertReason:           &revertReason,
 					AttestationRequestName: "endorsement1",
@@ -2815,12 +2824,13 @@ func TestHandleEndorsementReplies_UnusableTransactionID_AreDroppedWithoutQueuein
 			},
 		},
 		{
-			name:        "endorsement rejection",
-			messageType: transport.MessageType_EndorsementRejection,
-			build: func(contractAddress, transactionID, idempotencyKey string) []byte {
+			name:         "endorsement rejection",
+			hasRequestID: true,
+			messageType:  transport.MessageType_EndorsementRejection,
+			build: func(contractAddress, transactionID, requestID string) []byte {
 				payload, _ := proto.Marshal(&engineProto.EndorsementRejection{
 					TransactionId:          transactionID,
-					IdempotencyKey:         idempotencyKey,
+					IdempotencyKey:         requestID,
 					ContractAddress:        contractAddress,
 					AttestationRequestName: "endorsement1",
 					RejectionReason:        engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
@@ -2832,12 +2842,13 @@ func TestHandleEndorsementReplies_UnusableTransactionID_AreDroppedWithoutQueuein
 			},
 		},
 		{
-			name:        "endorsement error",
-			messageType: transport.MessageType_EndorsementError,
-			build: func(contractAddress, transactionID, idempotencyKey string) []byte {
+			name:         "endorsement error",
+			hasRequestID: true,
+			messageType:  transport.MessageType_EndorsementError,
+			build: func(contractAddress, transactionID, requestID string) []byte {
 				payload, _ := proto.Marshal(&engineProto.EndorsementError{
 					TransactionId:          transactionID,
-					IdempotencyKey:         idempotencyKey,
+					IdempotencyKey:         requestID,
 					ContractAddress:        contractAddress,
 					AttestationRequestName: "endorsement1",
 					ErrorMessage:           "something went wrong",
@@ -2848,35 +2859,308 @@ func TestHandleEndorsementReplies_UnusableTransactionID_AreDroppedWithoutQueuein
 				sm.handleEndorsementError(ctx, message)
 			},
 		},
+		{
+			name:         "assemble request",
+			hasRequestID: true,
+			messageType:  transport.MessageType_AssembleRequest,
+			build: func(contractAddress, transactionID, requestID string) []byte {
+				payload, _ := proto.Marshal(&engineProto.AssembleRequest{
+					TransactionId:     transactionID,
+					AssembleRequestId: requestID,
+					ContractAddress:   contractAddress,
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleAssembleRequest(ctx, message)
+			},
+		},
+		{
+			name:         "assemble response",
+			hasRequestID: true,
+			messageType:  transport.MessageType_AssembleResponse,
+			build: func(contractAddress, transactionID, requestID string) []byte {
+				payload, _ := proto.Marshal(&engineProto.AssembleResponse{
+					TransactionId:     transactionID,
+					AssembleRequestId: requestID,
+					ContractAddress:   contractAddress,
+					PostAssembly:      postAssembly(prototk.AssembleTransactionResponse_OK),
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleAssembleResponse(ctx, message)
+			},
+		},
+		{
+			name:         "assemble response revert",
+			hasRequestID: true,
+			messageType:  transport.MessageType_AssembleResponse,
+			build: func(contractAddress, transactionID, requestID string) []byte {
+				payload, _ := proto.Marshal(&engineProto.AssembleResponse{
+					TransactionId:     transactionID,
+					AssembleRequestId: requestID,
+					ContractAddress:   contractAddress,
+					PostAssembly:      postAssembly(prototk.AssembleTransactionResponse_REVERT),
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleAssembleResponse(ctx, message)
+			},
+		},
+		{
+			name:         "assemble error",
+			hasRequestID: true,
+			messageType:  transport.MessageType_AssembleError,
+			build: func(contractAddress, transactionID, requestID string) []byte {
+				payload, _ := proto.Marshal(&engineProto.AssembleError{
+					TransactionId:     transactionID,
+					AssembleRequestId: requestID,
+					ContractAddress:   contractAddress,
+					ErrorMessage:      "something went wrong",
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleAssembleError(ctx, message)
+			},
+		},
+		{
+			name:         "assemble rejection",
+			hasRequestID: true,
+			messageType:  transport.MessageType_AssembleRejection,
+			build: func(contractAddress, transactionID, requestID string) []byte {
+				payload, _ := proto.Marshal(&engineProto.AssembleRejection{
+					TransactionId:     transactionID,
+					AssembleRequestId: requestID,
+					ContractAddress:   contractAddress,
+					RejectionReason:   engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleAssembleRejection(ctx, message)
+			},
+		},
+		{
+			name:         "sign response",
+			hasRequestID: true,
+			messageType:  transport.MessageType_SignResponse,
+			build: func(contractAddress, transactionID, requestID string) []byte {
+				payload, _ := proto.Marshal(&engineProto.SignResponse{
+					TransactionId:     transactionID,
+					AssembleRequestId: requestID,
+					ContractAddress:   contractAddress,
+					AttestationResult: &prototk.AttestationResult{Name: "test-signature"},
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleSignResponse(ctx, message)
+			},
+		},
+		{
+			name:         "sign error",
+			hasRequestID: true,
+			messageType:  transport.MessageType_SignError,
+			build: func(contractAddress, transactionID, requestID string) []byte {
+				payload, _ := proto.Marshal(&engineProto.SignError{
+					TransactionId:     transactionID,
+					AssembleRequestId: requestID,
+					ContractAddress:   contractAddress,
+					ErrorMessage:      "something went wrong",
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleSignError(ctx, message)
+			},
+		},
+		{
+			name:         "pre-dispatch request",
+			hasRequestID: true,
+			messageType:  transport.MessageType_PreDispatchRequest,
+			build: func(contractAddress, transactionID, requestID string) []byte {
+				payload, _ := proto.Marshal(&engineProto.PreDispatchRequest{
+					Id:              requestID,
+					TransactionId:   transactionID,
+					ContractAddress: contractAddress,
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handlePreDispatchRequest(ctx, message)
+			},
+		},
+		{
+			name:         "pre-dispatch response",
+			hasRequestID: true,
+			messageType:  transport.MessageType_PreDispatchResponse,
+			build: func(contractAddress, transactionID, requestID string) []byte {
+				payload, _ := proto.Marshal(&engineProto.PreDispatchResponse{
+					Id:              requestID,
+					TransactionId:   transactionID,
+					ContractAddress: contractAddress,
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handlePreDispatchResponse(ctx, message)
+			},
+		},
+		{
+			name:        "dispatched",
+			messageType: transport.MessageType_Dispatched,
+			build: func(contractAddress, transactionID, _ string) []byte {
+				payload, _ := proto.Marshal(&engineProto.TransactionDispatched{
+					TransactionId:   transactionID,
+					ContractAddress: contractAddress,
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleDispatchedEvent(ctx, message)
+			},
+		},
+		{
+			name:        "nonce assigned",
+			messageType: transport.MessageType_NonceAssigned,
+			build: func(contractAddress, transactionID, _ string) []byte {
+				payload, _ := proto.Marshal(&engineProto.NonceAssigned{
+					TransactionId:   transactionID,
+					ContractAddress: contractAddress,
+					Nonce:           1,
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleNonceAssigned(ctx, message)
+			},
+		},
+		{
+			name:        "transaction submitted",
+			messageType: transport.MessageType_TransactionSubmitted,
+			build: func(contractAddress, transactionID, _ string) []byte {
+				payload, _ := proto.Marshal(&engineProto.TransactionSubmitted{
+					TransactionId:   transactionID,
+					ContractAddress: contractAddress,
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleTransactionSubmitted(ctx, message)
+			},
+		},
+		{
+			name:        "transaction confirmed",
+			messageType: transport.MessageType_TransactionConfirmed,
+			build: func(contractAddress, transactionID, _ string) []byte {
+				payload, _ := proto.Marshal(&engineProto.TransactionConfirmed{
+					TransactionId:   transactionID,
+					ContractAddress: contractAddress,
+					Outcome:         engineProto.TransactionConfirmed_OUTCOME_SUCCESS,
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleTransactionConfirmed(ctx, message)
+			},
+		},
+		{
+			name:        "transaction confirmed reverted",
+			messageType: transport.MessageType_TransactionConfirmed,
+			build: func(contractAddress, transactionID, _ string) []byte {
+				payload, _ := proto.Marshal(&engineProto.TransactionConfirmed{
+					TransactionId:   transactionID,
+					ContractAddress: contractAddress,
+					Outcome:         engineProto.TransactionConfirmed_OUTCOME_REVERTED,
+					FailureMessage:  "reverted",
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleTransactionConfirmed(ctx, message)
+			},
+		},
 	}
 
 	idCases := []struct {
-		name           string
-		transactionID  string
-		idempotencyKey string
+		name          string
+		transactionID string
+		requestID     string
+		// onlyRequestID marks the cases that make the request ID unusable, which only apply to the
+		// messages that carry one
+		onlyRequestID bool
 	}{
-		{name: "no transaction ID", transactionID: "", idempotencyKey: uuid.NewString()},
-		{name: "transaction ID is not a UUID", transactionID: "not-a-uuid", idempotencyKey: uuid.NewString()},
+		{name: "no transaction ID", transactionID: "", requestID: uuid.NewString()},
+		{name: "transaction ID is not a UUID", transactionID: "not-a-uuid", requestID: uuid.NewString()},
+		{name: "no request ID", transactionID: uuid.NewString(), requestID: "", onlyRequestID: true},
+		{name: "request ID is not a UUID", transactionID: uuid.NewString(), requestID: "not-a-uuid", onlyRequestID: true},
 	}
 
-	for _, replyKind := range replyKinds {
+	for _, messageKind := range messageKinds {
 		for _, idCase := range idCases {
-			t.Run(replyKind.name+": "+idCase.name, func(t *testing.T) {
+			if idCase.onlyRequestID && !messageKind.hasRequestID {
+				continue
+			}
+			t.Run(messageKind.name+": "+idCase.name, func(t *testing.T) {
 				ctx := context.Background()
 				mocks := newTransportClientTestMocks(t)
 				sm := newSequencerManagerForTransportClientTesting(t, mocks)
 				contractAddr := pldtypes.RandAddress()
 				sm.sequencers[contractAddr.String()] = newSequencerForTransportClientTesting(contractAddr, mocks)
 
-				replyKind.handle(sm, ctx, &components.ReceivedMessage{
+				messageKind.handle(sm, ctx, &components.ReceivedMessage{
 					FromNode:    "test-node",
 					MessageID:   uuid.New(),
-					MessageType: replyKind.messageType,
-					Payload:     replyKind.build(contractAddr.String(), idCase.transactionID, idCase.idempotencyKey),
+					MessageType: messageKind.messageType,
+					Payload:     messageKind.build(contractAddr.String(), idCase.transactionID, idCase.requestID),
 				})
 
+				mocks.originator.AssertExpectations(t)
 				mocks.coordinator.AssertExpectations(t)
 			})
 		}
+	}
+}
+
+// The submission hash arrives as raw bytes from a peer, and converting a slice shorter than 32 bytes
+// to a Bytes32 panics, so a wrong-length hash has to be dropped rather than converted. The strict
+// originator mock has no expectations, so it fails the test if an event is queued.
+func TestHandleTransactionSubmitted_UnusableHash_IsDroppedWithoutQueueingEvent(t *testing.T) {
+	hashCases := []struct {
+		name string
+		hash []byte
+	}{
+		{name: "no hash", hash: nil},
+		{name: "hash shorter than 32 bytes", hash: pldtypes.RandBytes(31)},
+		{name: "hash longer than 32 bytes", hash: pldtypes.RandBytes(33)},
+	}
+
+	for _, hashCase := range hashCases {
+		t.Run(hashCase.name, func(t *testing.T) {
+			ctx := context.Background()
+			mocks := newTransportClientTestMocks(t)
+			sm := newSequencerManagerForTransportClientTesting(t, mocks)
+			contractAddr := pldtypes.RandAddress()
+			sm.sequencers[contractAddr.String()] = newSequencerForTransportClientTesting(contractAddr, mocks)
+
+			payload, err := proto.Marshal(&engineProto.TransactionSubmitted{
+				TransactionId:   uuid.NewString(),
+				ContractAddress: contractAddr.String(),
+				Hash:            hashCase.hash,
+			})
+			require.NoError(t, err)
+
+			sm.handleTransactionSubmitted(ctx, &components.ReceivedMessage{
+				FromNode:    "test-node",
+				MessageID:   uuid.New(),
+				MessageType: transport.MessageType_TransactionSubmitted,
+				Payload:     payload,
+			})
+
+			mocks.originator.AssertExpectations(t)
+		})
 	}
 }

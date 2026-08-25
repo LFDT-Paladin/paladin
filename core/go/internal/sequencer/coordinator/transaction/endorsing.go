@@ -341,12 +341,10 @@ func action_FinalizeEndorseRevert(ctx context.Context, t *coordinatorTransaction
 // time for a party that has only failed once, and could push a requirement past a tolerance whose
 // parties had not actually been exhausted.
 func validator_MatchesPendingEndorsementRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
-	var reqName, party, requestID string
+	var reqName, party string
+	var requestID uuid.UUID
 	switch e := event.(type) {
 	case *EndorsedEvent:
-		// The endorsement is carried straight from the wire, so it is only trusted to identify a
-		// request once it is known to name a verifier
-		// TODO AM
 		if e.Endorsement == nil || e.Endorsement.Verifier == nil {
 			log.L(ctx).Warnf("ignoring endorsement response for transaction %s because it carries no verifier", txn.pt.ID)
 			return false, nil
@@ -361,16 +359,12 @@ func validator_MatchesPendingEndorsementRequest(ctx context.Context, txn *coordi
 	default:
 		return false, nil
 	}
-	if requestID == "" {
-		log.L(ctx).Warnf("ignoring %s for transaction %s from %s: no idempotency key, so it cannot be matched to a request for '%s'", event.TypeString(), txn.pt.ID, party, reqName)
-		return false, nil
-	}
 	pendingRequest, ok := txn.pendingEndorsementRequests[reqName][party]
 	if !ok || pendingRequest == nil {
 		log.L(ctx).Warnf("ignoring %s for transaction %s from %s because no request for '%s' is outstanding for that party", event.TypeString(), txn.pt.ID, party, reqName)
 		return false, nil
 	}
-	if pendingRequest.IdempotencyKey().String() != requestID {
+	if pendingRequest.IdempotencyKey() != requestID {
 		log.L(ctx).Warnf("ignoring %s for transaction %s from %s because request ID %s is not the outstanding request %s for '%s'", event.TypeString(), txn.pt.ID, party, requestID, pendingRequest.IdempotencyKey(), reqName)
 		return false, nil
 	}

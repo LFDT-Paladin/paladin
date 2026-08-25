@@ -286,7 +286,7 @@ func TestEndorsedEvent_GetTransactionID(t *testing.T) {
 
 func TestEndorsedEvent_Fields(t *testing.T) {
 	txID := uuid.New()
-	requestID := uuid.NewString()
+	requestID := uuid.New()
 	endorsement := &prototk.AttestationResult{
 		Name:            "test-endorsement",
 		AttestationType: prototk.AttestationType_ENDORSE,
@@ -331,7 +331,7 @@ func TestEndorseRequestRejectedEvent_GetTransactionID(t *testing.T) {
 
 func TestEndorseRequestRejectedEvent_Fields(t *testing.T) {
 	txID := uuid.New()
-	requestID := uuid.NewString()
+	requestID := uuid.New()
 	var coordinatorBlockHeight int64 = 100
 	var endorserBlockHeight int64 = 200
 
@@ -427,7 +427,7 @@ func TestEndorseRevertEvent_GetTransactionID(t *testing.T) {
 
 func TestEndorseRevertEvent_Fields(t *testing.T) {
 	txID := uuid.New()
-	requestID := uuid.NewString()
+	requestID := uuid.New()
 
 	event := &EndorseRevertEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -471,7 +471,7 @@ func TestEndorseErrorEvent_GetTransactionID(t *testing.T) {
 
 func TestEndorseErrorEvent_Fields(t *testing.T) {
 	txID := uuid.New()
-	requestID := uuid.NewString()
+	requestID := uuid.New()
 
 	event := &EndorseErrorEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{

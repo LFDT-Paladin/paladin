@@ -142,7 +142,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
-		RequestID:   mocks.SentMessageRecorder.SentEndorsementRequestsForPartyIdempotencyKey(transactionBuilder.GetEndorserIdentityLocator(0)).String(),
+		RequestID:   mocks.SentMessageRecorder.SentEndorsementRequestsForPartyIdempotencyKey(transactionBuilder.GetEndorserIdentityLocator(0)),
 		Endorsement: transactionBuilder.BuildEndorsement(0),
 	})
 

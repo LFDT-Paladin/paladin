@@ -346,7 +346,7 @@ func Test_validator_MatchesPendingEndorsementRequest(t *testing.T) {
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).AddPendingEndorsementRequest()
 	txn, _ := builder.Build()
 	party := "endorser-0@node-0"
-	pendingRequestID := txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey().String()
+	pendingRequestID := txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey()
 	// A party already recorded as failed this round is left in the map as a nil sentinel
 	failedParty := "endorser-1@node-1"
 	txn.pendingEndorsementRequests["endorse-0"][failedParty] = nil
@@ -370,12 +370,14 @@ func Test_validator_MatchesPendingEndorsementRequest(t *testing.T) {
 			event: &EndorseRevertEvent{
 				AttestationRequestName: "endorse-0",
 				Party:                  party,
-				RequestID:              uuid.NewString(),
+				RequestID:              uuid.New(),
 			},
 			expected: false,
 		},
 		{
-			name: "response carrying no idempotency key",
+			// A reply whose request ID could not be parsed never reaches here - the transport client
+			// drops it - so the zero UUID only stands for a reply that named no request at all
+			name: "response carrying no request ID",
 			event: &EndorseErrorEvent{
 				AttestationRequestName: "endorse-0",
 				Party:                  party,

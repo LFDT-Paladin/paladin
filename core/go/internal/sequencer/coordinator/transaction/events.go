@@ -160,7 +160,7 @@ func (*SignErrorEvent) TypeString() string {
 type EndorsedEvent struct {
 	BaseCoordinatorEvent
 	Endorsement *prototk.AttestationResult
-	RequestID   string
+	RequestID   uuid.UUID
 }
 
 func (*EndorsedEvent) Type() EventType {
@@ -176,7 +176,7 @@ type EndorseRevertEvent struct {
 	Party                  string
 	RevertReason           string
 	AttestationRequestName string
-	RequestID              string
+	RequestID              uuid.UUID
 }
 
 func (*EndorseRevertEvent) Type() EventType {
@@ -191,7 +191,7 @@ func (*EndorseRevertEvent) TypeString() string {
 // request (domain error, key resolution failure, etc.).
 type EndorseErrorEvent struct {
 	BaseCoordinatorEvent
-	RequestID              string
+	RequestID              uuid.UUID
 	Party                  string
 	AttestationRequestName string
 }
@@ -210,7 +210,7 @@ type EndorseRequestRejectedEvent struct {
 	BaseCoordinatorEvent
 	Party                  string
 	AttestationRequestName string
-	RequestID              string
+	RequestID              uuid.UUID
 	RejectionReason        engineProto.RejectionReason
 	CoordinatorBlockHeight int64
 	EndorserBlockHeight    int64
