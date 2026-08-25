@@ -35,6 +35,7 @@ import {
   ITransactionReceiptListener,
   ITransactionStates,
   IWalletInfo,
+  IZetoDomainReceipt,
   JsonRpcResult,
   Logger,
   PaladinConfig,
@@ -592,7 +593,9 @@ export default class PaladinClient {
 
     getDomainReceipt: async (domain: string, txID: string) => {
       const res = await this.post<
-        JsonRpcResult<INotoDomainReceipt | IPenteDomainReceipt>
+        JsonRpcResult<
+          INotoDomainReceipt | IPenteDomainReceipt | IZetoDomainReceipt
+        >
       >("ptx_getDomainReceipt", [domain, txID], {
         validateStatus: (status) => status < 300 || status === 404,
       });
