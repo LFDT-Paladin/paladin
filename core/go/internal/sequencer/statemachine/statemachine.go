@@ -82,9 +82,19 @@ import (
 type EventLoopMetrics interface {
 	// ObserveEventProcessing records the wall time of one processEvent call.
 	ObserveEventProcessing(eventType string, duration time.Duration)
-	// SetEventQueueDepth records the current depth of a named queue ("normal" | "priority").
-	SetEventQueueDepth(priority string, depth int)
+	// ObserveEventQueueWait records how long an event sat on one of the loop's queues before being
+	// dequeued.
+	ObserveEventQueueWait(queue string, duration time.Duration)
+	// SetEventQueueDepth records the current depth of one of the loop's queues.
+	SetEventQueueDepth(queue string, depth int)
 }
+
+// The names the event loop reports its two queues under. They are the only values the loop passes as
+// the queue argument to EventLoopMetrics, so a typo cannot silently open a third series.
+const (
+	queueNormal   = "normal"
+	queuePriority = "priority"
+)
 
 // State is a constraint for state types - must be comparable (typically int-based enums)
 // and implement String() for use in transition logging.
@@ -459,6 +469,13 @@ func (sm *StateMachine[S, E]) GetLatestEvent() string {
 	return sm.latestEvent
 }
 
+// queuedEvent pairs an event with the time it was placed on a queue, so the loop can report how long
+// it waited there before being picked up.
+type queuedEvent struct {
+	event      common.Event
+	enqueuedAt time.Time
+}
+
 // StateMachineEventLoop combines a StateMachine and an event loop into a single
 // coordinated unit. This is the recommended way to use the state machine package
 // as it handles all the wiring between components.
@@ -467,8 +484,8 @@ func (sm *StateMachine[S, E]) GetLatestEvent() string {
 type StateMachineEventLoop[S State, E Lockable] struct {
 	stateMachine   *StateMachine[S, E]
 	entity         E
-	events         chan common.Event
-	eventsPriority chan common.Event
+	events         chan queuedEvent
+	eventsPriority chan queuedEvent
 	loopStopped    chan struct{}
 	name           string
 	running        bool
@@ -542,8 +559,8 @@ func NewStateMachineEventLoop[S State, E Lockable](config StateMachineEventLoopC
 	sel := &StateMachineEventLoop[S, E]{
 		stateMachine:   sm,
 		entity:         config.Entity,
-		events:         make(chan common.Event, config.EventQueueSize),
-		eventsPriority: make(chan common.Event, config.PriorityEventQueueSize),
+		events:         make(chan queuedEvent, config.EventQueueSize),
+		eventsPriority: make(chan queuedEvent, config.PriorityEventQueueSize),
 		loopStopped:    make(chan struct{}),
 		name:           config.Name,
 		processEvent:   processEvent,
@@ -570,13 +587,15 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 	log.L(ctx).Debugf("%s | %s | event loop started", sel.name, sel.stateMachine.GetCurrentState().String())
 
 	for {
-		sel.metrics.SetEventQueueDepth("normal", len(sel.events))
-		sel.metrics.SetEventQueueDepth("priority", len(sel.eventsPriority))
+		sel.metrics.SetEventQueueDepth(queueNormal, len(sel.events))
+		sel.metrics.SetEventQueueDepth(queuePriority, len(sel.eventsPriority))
 		// Drain the priority queue fully before taking work from the main queue
 	drainPriority:
 		for {
 			select {
-			case event := <-sel.eventsPriority:
+			case qe := <-sel.eventsPriority:
+				sel.metrics.ObserveEventQueueWait(queuePriority, time.Since(qe.enqueuedAt))
+				event := qe.event
 				if syncEv, ok := isSyncEvent(event); ok {
 					log.L(ctx).Debugf("%s | %s | sync event processed (priority)", sel.name, sel.stateMachine.GetCurrentState().String())
 					close(syncEv.Done)
@@ -593,7 +612,9 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 		}
 
 		select {
-		case event := <-sel.eventsPriority:
+		case qe := <-sel.eventsPriority:
+			sel.metrics.ObserveEventQueueWait(queuePriority, time.Since(qe.enqueuedAt))
+			event := qe.event
 			if syncEv, ok := isSyncEvent(event); ok {
 				log.L(ctx).Debugf("%s | %s | sync event processed (priority)", sel.name, sel.stateMachine.GetCurrentState().String())
 				close(syncEv.Done)
@@ -604,7 +625,9 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 			if err != nil {
 				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString(), err)
 			}
-		case event := <-sel.events:
+		case qe := <-sel.events:
+			sel.metrics.ObserveEventQueueWait(queueNormal, time.Since(qe.enqueuedAt))
+			event := qe.event
 			if syncEv, ok := isSyncEvent(event); ok {
 				log.L(ctx).Debugf("%s | %s | sync event processed", sel.name, sel.stateMachine.GetCurrentState().String())
 				close(syncEv.Done)
@@ -628,7 +651,7 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 func (sel *StateMachineEventLoop[S, E]) QueueEvent(ctx context.Context, event common.Event) {
 	log.L(ctx).Tracef("%s | %s | queueing event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	select {
-	case sel.events <- event:
+	case sel.events <- queuedEvent{event: event, enqueuedAt: time.Now()}:
 	case <-ctx.Done():
 		log.L(ctx).Warnf("%s | %s | context cancelled, dropping event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	}
@@ -639,7 +662,7 @@ func (sel *StateMachineEventLoop[S, E]) QueueEvent(ctx context.Context, event co
 // This function should only be used if it is acceptable for the event to never be processed, e.g. because it is a periodic event,
 func (sel *StateMachineEventLoop[S, E]) TryQueueEvent(ctx context.Context, event common.Event) bool {
 	select {
-	case sel.events <- event:
+	case sel.events <- queuedEvent{event: event, enqueuedAt: time.Now()}:
 		log.L(ctx).Tracef("%s | %s | queued event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 		return true
 	default:
@@ -653,7 +676,7 @@ func (sel *StateMachineEventLoop[S, E]) TryQueueEvent(ctx context.Context, event
 func (sel *StateMachineEventLoop[S, E]) QueuePriorityEvent(ctx context.Context, event common.Event) {
 	log.L(ctx).Tracef("%s | %s | queueing priority event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	select {
-	case sel.eventsPriority <- event:
+	case sel.eventsPriority <- queuedEvent{event: event, enqueuedAt: time.Now()}:
 	case <-ctx.Done():
 		log.L(ctx).Warnf("%s | %s | context cancelled, dropping priority event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 	}
@@ -663,7 +686,7 @@ func (sel *StateMachineEventLoop[S, E]) QueuePriorityEvent(ctx context.Context, 
 // Returns true if the event was queued, false if the priority buffer is full.
 func (sel *StateMachineEventLoop[S, E]) TryQueuePriorityEvent(ctx context.Context, event common.Event) bool {
 	select {
-	case sel.eventsPriority <- event:
+	case sel.eventsPriority <- queuedEvent{event: event, enqueuedAt: time.Now()}:
 		log.L(ctx).Tracef("%s | %s | queued priority event %s", sel.name, sel.stateMachine.GetCurrentState().String(), event.TypeString())
 		return true
 	default:
@@ -688,8 +711,8 @@ func (sel *StateMachineEventLoop[S, E]) DrainPendingEvents(ctx context.Context) 
 		// Drain all priority events before touching the regular queue.
 		for draining := true; draining; {
 			select {
-			case event := <-sel.eventsPriority:
-				if err := sel.processEvent(ctx, event); err != nil {
+			case qe := <-sel.eventsPriority:
+				if err := sel.processEvent(ctx, qe.event); err != nil {
 					return err
 				}
 				processed = true
@@ -699,8 +722,8 @@ func (sel *StateMachineEventLoop[S, E]) DrainPendingEvents(ctx context.Context) 
 		}
 		// Process one regular event (priority events queued by it will be picked up next iteration).
 		select {
-		case event := <-sel.events:
-			if err := sel.processEvent(ctx, event); err != nil {
+		case qe := <-sel.events:
+			if err := sel.processEvent(ctx, qe.event); err != nil {
 				return err
 			}
 			processed = true

@@ -34,6 +34,7 @@ import (
 func newTestEventLoopMetrics(t *testing.T) *statemachinemocks.EventLoopMetrics {
 	m := statemachinemocks.NewEventLoopMetrics(t)
 	m.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything).Maybe()
+	m.EXPECT().ObserveEventQueueWait(mock.Anything, mock.Anything).Maybe()
 	m.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything).Maybe()
 	return m
 }
@@ -2773,4 +2774,72 @@ func TestMatchFirst_NilValidatorWarning(t *testing.T) {
 	err := entity.sm.ProcessEvent(context.Background(), entity, newTestEvent(Event_Start))
 	require.NoError(t, err)
 	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+}
+
+// TestStateMachineEventLoop_ObservesQueueWait verifies that every event dequeued by the loop reports
+// how long it sat on its queue, under the name of the queue it came off.
+func TestStateMachineEventLoop_ObservesQueueWait(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandlers[TestState, *TestEntity]{
+				Event_Start: {Handlers: []EventHandler[TestState, *TestEntity]{{
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				}}},
+			},
+		},
+	}
+
+	var mu sync.Mutex
+	var normalWaits, priorityWaits []time.Duration
+	metrics := statemachinemocks.NewEventLoopMetrics(t)
+	metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything).Maybe()
+	metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything).Maybe()
+	// Expecting each queue name explicitly means an observation under any other name fails the test.
+	metrics.EXPECT().ObserveEventQueueWait(queueNormal, mock.Anything).Run(func(queue string, duration time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		normalWaits = append(normalWaits, duration)
+	})
+	metrics.EXPECT().ObserveEventQueueWait(queuePriority, mock.Anything).Run(func(queue string, duration time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		priorityWaits = append(priorityWaits, duration)
+	})
+
+	entity := newTestEntity(definitions, "test-entity")
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState:           State_Idle,
+		Definitions:            definitions,
+		Entity:                 entity,
+		EventQueueSize:         10,
+		PriorityEventQueueSize: 10,
+		Name:                   "queue-wait-test",
+		Metrics:                metrics,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Queue before starting the loop, so the events demonstrably sit on their queues for a while.
+	sel.QueueEvent(ctx, newTestEvent(Event_Start))
+	require.True(t, sel.TryQueuePriorityEvent(ctx, newTestEvent(Event_Start)))
+	held := 5 * time.Millisecond
+	time.Sleep(held)
+
+	go sel.Start(ctx)
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	cancel()
+	waitForLoopDone(t, sel)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, normalWaits, "events off the main queue should report their wait")
+	require.NotEmpty(t, priorityWaits, "events off the priority queue should report their wait")
+	assert.GreaterOrEqual(t, normalWaits[0], held, "the wait should span the time the event was held before the loop started")
+	assert.GreaterOrEqual(t, priorityWaits[0], held, "the wait should span the time the event was held before the loop started")
 }

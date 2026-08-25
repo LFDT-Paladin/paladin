@@ -114,6 +114,7 @@ func newSequencerLifecycleTestMocksWithPersistence(t *testing.T, sqlPersistence 
 	// the lifecycle tests assert on.
 	m.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()
 	m.metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	m.metrics.EXPECT().ObserveEventQueueWait(mock.Anything, mock.Anything, mock.Anything).Maybe()
 
 	return m
 }
@@ -123,6 +124,7 @@ func (m *sequencerLifecycleTestMocks) setupDefaultExpectations(ctx context.Conte
 	m.metrics.EXPECT().SetActiveCoordinators(mock.Anything).Maybe()
 	m.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()
 	m.metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	m.metrics.EXPECT().ObserveEventQueueWait(mock.Anything, mock.Anything, mock.Anything).Maybe()
 }
 
 type mockContractConfig struct{}
@@ -1645,6 +1647,7 @@ func TestSequencerManager_LoadSequencer_WithProvidedDomainAPI(t *testing.T) {
 	mocks.metrics.EXPECT().SetActiveSequencers(0).Once()
 	mocks.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()
 	mocks.metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	mocks.metrics.EXPECT().ObserveEventQueueWait(mock.Anything, mock.Anything, mock.Anything).Maybe()
 
 	result, err := sm.LoadSequencer(ctx, nil, *contractAddr, mockDomainSmartContract, nil)
 	require.NoError(t, err)
@@ -1727,6 +1730,7 @@ func TestSequencerManager_LoadSequencer_ReachesTargetLimit(t *testing.T) {
 	mocks1.metrics.EXPECT().SetActiveSequencers(1).Once()
 	mocks1.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()
 	mocks1.metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	mocks1.metrics.EXPECT().ObserveEventQueueWait(mock.Anything, mock.Anything, mock.Anything).Maybe()
 
 	result, err := sm.LoadSequencer(ctx, nil, *contractAddr3, nil, nil)
 	require.NoError(t, err)

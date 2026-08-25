@@ -428,6 +428,30 @@ func TestObserveEventProcessing(t *testing.T) {
 	assert.Equal(t, uint64(2), m.GetHistogram().GetSampleCount(), "Should have 2 observations")
 }
 
+func TestObserveEventQueueWait(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := InitMetrics(context.Background(), registry)
+	assert.NotNil(t, metrics)
+
+	metrics.ObserveEventQueueWait("coordinator", "normal", 5*time.Millisecond)
+	metrics.ObserveEventQueueWait("coordinator", "normal", 10*time.Millisecond)
+	metrics.ObserveEventQueueWait("coordinator", "priority", 1*time.Millisecond)
+
+	mf := findMetricFamily(t, registry, "distributed_sequencer_event_queue_wait_seconds")
+	assert.NotNil(t, mf, "event_queue_wait_seconds metric should exist")
+	assert.Equal(t, dto.MetricType_HISTOGRAM, mf.GetType(), "event_queue_wait_seconds should be a histogram")
+
+	var m *dto.Metric
+	for _, metric := range mf.GetMetric() {
+		if labelValue(metric, "role") == "coordinator" && labelValue(metric, "queue") == "normal" {
+			m = metric
+			break
+		}
+	}
+	assert.NotNil(t, m, "Should have a metric labelled role=coordinator queue=normal")
+	assert.Equal(t, uint64(2), m.GetHistogram().GetSampleCount(), "Should have 2 observations for queue=normal")
+}
+
 func TestSetEventQueueDepth(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	metrics := InitMetrics(context.Background(), registry)
@@ -441,12 +465,12 @@ func TestSetEventQueueDepth(t *testing.T) {
 
 	var m *dto.Metric
 	for _, metric := range mf.GetMetric() {
-		if labelValue(metric, "role") == "originator" && labelValue(metric, "priority") == "normal" {
+		if labelValue(metric, "role") == "originator" && labelValue(metric, "queue") == "normal" {
 			m = metric
 			break
 		}
 	}
-	assert.NotNil(t, m, "Should have a metric labelled role=originator priority=normal")
+	assert.NotNil(t, m, "Should have a metric labelled role=originator queue=normal")
 	assert.Equal(t, float64(7), m.GetGauge().GetValue(), "Gauge should reflect the last value set")
 }
 
@@ -511,6 +535,7 @@ func TestEventLoopMetricsAdapter(t *testing.T) {
 	assert.NotNil(t, adapter)
 
 	adapter.ObserveEventProcessing("SomeEvent", 5*time.Millisecond)
+	adapter.ObserveEventQueueWait("priority", 2*time.Millisecond)
 	adapter.SetEventQueueDepth("priority", 6)
 
 	// Event processing is recorded with the baked-in role.
@@ -526,12 +551,25 @@ func TestEventLoopMetricsAdapter(t *testing.T) {
 	assert.NotNil(t, processingMetric, "Adapter should record processing under role=coordinator")
 	assert.Equal(t, uint64(1), processingMetric.GetHistogram().GetSampleCount(), "Should have 1 observation")
 
+	// Queue wait is recorded with the baked-in role.
+	wait := findMetricFamily(t, registry, "distributed_sequencer_event_queue_wait_seconds")
+	assert.NotNil(t, wait, "event_queue_wait_seconds metric should exist")
+	var waitMetric *dto.Metric
+	for _, metric := range wait.GetMetric() {
+		if labelValue(metric, "role") == "coordinator" && labelValue(metric, "queue") == "priority" {
+			waitMetric = metric
+			break
+		}
+	}
+	assert.NotNil(t, waitMetric, "Adapter should record queue wait under role=coordinator")
+	assert.Equal(t, uint64(1), waitMetric.GetHistogram().GetSampleCount(), "Should have 1 observation")
+
 	// Queue depth is recorded with the baked-in role.
 	depth := findMetricFamily(t, registry, "distributed_sequencer_event_queue_depth")
 	assert.NotNil(t, depth, "event_queue_depth metric should exist")
 	var depthMetric *dto.Metric
 	for _, metric := range depth.GetMetric() {
-		if labelValue(metric, "role") == "coordinator" && labelValue(metric, "priority") == "priority" {
+		if labelValue(metric, "role") == "coordinator" && labelValue(metric, "queue") == "priority" {
 			depthMetric = metric
 			break
 		}
@@ -601,11 +639,13 @@ func TestWaitHistogramsSpanProlongedStalls(t *testing.T) {
 	metrics.ObserveDispatchQueueWait(45 * time.Second)
 	metrics.ObserveDispatchInflightWait(45 * time.Second)
 	metrics.ObserveSequencerTXStateChange("coordinator", "pooled", 45*time.Second)
+	metrics.ObserveEventQueueWait("coordinator", "normal", 45*time.Second)
 
 	for _, name := range []string{
 		"distributed_sequencer_dispatch_queue_wait_seconds",
 		"distributed_sequencer_dispatch_inflight_wait_seconds",
 		"distributed_sequencer_state_duration_seconds",
+		"distributed_sequencer_event_queue_wait_seconds",
 	} {
 		mf := findMetricFamily(t, registry, name)
 		assert.NotNil(t, mf, "%s metric should exist", name)

@@ -39,7 +39,8 @@ type DistributedSequencerMetrics interface {
 	ObserveDispatchQueueWait(duration time.Duration)
 	ObserveDispatchInflightWait(duration time.Duration)
 	ObserveEventProcessing(role, eventType string, duration time.Duration)
-	SetEventQueueDepth(role, priority string, depth int)
+	ObserveEventQueueWait(role, queue string, duration time.Duration)
+	SetEventQueueDepth(role, queue string, depth int)
 	SetPooledTxns(count int)
 	SetInflightDispatchedTxns(count int)
 	ObserveDispatchBatchSize(kind string, size int)
@@ -67,10 +68,10 @@ var METRICS_SUBSYSTEM = "distributed_sequencer"
 // 1-2.5-5 ladder from 100us to 10s.
 var operationBuckets = []float64{0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 
-// waitBuckets time how long a transaction sits rather than runs - queued for dispatch, blocked on a
-// dispatch-ahead slot, or held in one state of the state machine. They run from 1ms to 5 minutes,
-// coarse while a wait is too short to care about, tightening through the seconds where a stall
-// becomes visible.
+// waitBuckets time how long something sits rather than runs - a transaction queued for dispatch,
+// blocked on a dispatch-ahead slot or held in one state of the state machine, or an event sitting on
+// an event loop queue before the loop picks it up. They run from 1ms to 5 minutes, coarse while a wait
+// is too short to care about, tightening through the seconds where a stall becomes visible.
 var waitBuckets = []float64{0.001, 0.005, 0.025, 0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 300}
 
 // batchSizeBuckets emphasise the low end so a batch-of-1 collapse is visible.
@@ -92,6 +93,7 @@ type distributedSequencerMetrics struct {
 	dispatchQueueWait        prometheus.Histogram
 	dispatchInflightWait     prometheus.Histogram
 	eventProcessing          *prometheus.HistogramVec
+	eventQueueWait           *prometheus.HistogramVec
 	eventQueueDepth          *prometheus.GaugeVec
 	pooledTransactions       prometheus.Gauge
 	inflightDispatchedTxns   prometheus.Gauge
@@ -124,15 +126,17 @@ func InitMetrics(ctx context.Context, registry *prometheus.Registry) *distribute
 	metrics.domainCall = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "domain_call_duration_seconds",
 		Help: "Wall time of one domain-plugin RequestReply round-trip", Subsystem: METRICS_SUBSYSTEM, Buckets: operationBuckets}, []string{"domain", "method"})
 	metrics.assembleResponseApply = prometheus.NewHistogram(prometheus.HistogramOpts{Name: "assemble_response_apply_duration_seconds",
-		Help: "Coordinator response-queue wait plus applyPostAssembly", Subsystem: METRICS_SUBSYSTEM, Buckets: operationBuckets})
+		Help: "Wall time of one coordinator applyPostAssembly call", Subsystem: METRICS_SUBSYSTEM, Buckets: operationBuckets})
 	metrics.dispatchQueueWait = prometheus.NewHistogram(prometheus.HistogramOpts{Name: "dispatch_queue_wait_seconds",
 		Help: "Time from dispatch enqueue to dispatch loop dequeue", Subsystem: METRICS_SUBSYSTEM, Buckets: waitBuckets})
 	metrics.dispatchInflightWait = prometheus.NewHistogram(prometheus.HistogramOpts{Name: "dispatch_inflight_wait_seconds",
 		Help: "Time blocked waiting for a free dispatch-ahead slot", Subsystem: METRICS_SUBSYSTEM, Buckets: waitBuckets})
 	metrics.eventProcessing = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "event_processing_duration_seconds",
 		Help: "Wall time of one processEvent", Subsystem: METRICS_SUBSYSTEM, Buckets: operationBuckets}, []string{"role", "event_type"})
+	metrics.eventQueueWait = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "event_queue_wait_seconds",
+		Help: "Time an event spent on an event loop queue before being dequeued", Subsystem: METRICS_SUBSYSTEM, Buckets: waitBuckets}, []string{"role", "queue"})
 	metrics.eventQueueDepth = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "event_queue_depth",
-		Help: "Depth of the event loop queues", Subsystem: METRICS_SUBSYSTEM}, []string{"role", "priority"})
+		Help: "Depth of the event loop queues", Subsystem: METRICS_SUBSYSTEM}, []string{"role", "queue"})
 	metrics.pooledTransactions = prometheus.NewGauge(prometheus.GaugeOpts{Name: "pooled_txns",
 		Help: "Number of transactions in the coordinator pool", Subsystem: METRICS_SUBSYSTEM})
 	metrics.inflightDispatchedTxns = prometheus.NewGauge(prometheus.GaugeOpts{Name: "inflight_dispatched_txns",
@@ -154,6 +158,7 @@ func InitMetrics(ctx context.Context, registry *prometheus.Registry) *distribute
 	registry.MustRegister(metrics.dispatchQueueWait)
 	registry.MustRegister(metrics.dispatchInflightWait)
 	registry.MustRegister(metrics.eventProcessing)
+	registry.MustRegister(metrics.eventQueueWait)
 	registry.MustRegister(metrics.eventQueueDepth)
 	registry.MustRegister(metrics.pooledTransactions)
 	registry.MustRegister(metrics.inflightDispatchedTxns)
@@ -209,8 +214,12 @@ func (dtm *distributedSequencerMetrics) ObserveEventProcessing(role, eventType s
 	dtm.eventProcessing.WithLabelValues(role, eventType).Observe(duration.Seconds())
 }
 
-func (dtm *distributedSequencerMetrics) SetEventQueueDepth(role, priority string, depth int) {
-	dtm.eventQueueDepth.WithLabelValues(role, priority).Set(float64(depth))
+func (dtm *distributedSequencerMetrics) ObserveEventQueueWait(role, queue string, duration time.Duration) {
+	dtm.eventQueueWait.WithLabelValues(role, queue).Observe(duration.Seconds())
+}
+
+func (dtm *distributedSequencerMetrics) SetEventQueueDepth(role, queue string, depth int) {
+	dtm.eventQueueDepth.WithLabelValues(role, queue).Set(float64(depth))
 }
 
 func (dtm *distributedSequencerMetrics) SetPooledTxns(count int) {
@@ -241,8 +250,12 @@ func (e *EventLoopMetricsAdapter) ObserveEventProcessing(eventType string, durat
 	e.metrics.ObserveEventProcessing(e.role, eventType, duration)
 }
 
-func (e *EventLoopMetricsAdapter) SetEventQueueDepth(priority string, depth int) {
-	e.metrics.SetEventQueueDepth(e.role, priority, depth)
+func (e *EventLoopMetricsAdapter) ObserveEventQueueWait(queue string, duration time.Duration) {
+	e.metrics.ObserveEventQueueWait(e.role, queue, duration)
+}
+
+func (e *EventLoopMetricsAdapter) SetEventQueueDepth(queue string, depth int) {
+	e.metrics.SetEventQueueDepth(e.role, queue, depth)
 }
 
 func (dtm *distributedSequencerMetrics) SetActiveCoordinators(numberOfActiveCoordinators int) {
