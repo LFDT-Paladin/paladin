@@ -147,18 +147,56 @@ func action_AddEndorsementRequestSenderToEndorserCandidates(ctx context.Context,
 // The goroutine uses c.components and c.transportWriter directly. Both are safe to call from
 // concurrent goroutines: remote sends go through TransportManager.Send (goroutine-safe) and
 // loopback sends go through a buffered channel.
+//
+// Requests are deduplicated by idempotency key, since a coordinator nudges an outstanding
+// endorsement request by resending it with the same key. Without this, a nudge arriving while the
+// first attempt is still in the domain would start a second concurrent endorsement of the same
+// transaction, doubling the domain and signing work and racing to send two responses for one request.
+//
+// A request carrying no idempotency key is not endorsed at all. Every reply echoes the key back so
+// the requester can match it to the request it answers, so there is no reply we could send that the
+// requester is able to act on - including an endorsement error. Doing the domain work would only
+// produce an unusable response, so the request is dropped and left to the requester's own timeout.
 func action_HandleEndorsementRequest(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*EndorsementRequestReceivedEvent)
+	if e.IdempotencyKey == "" {
+		log.L(ctx).Errorf("ignoring endorsement request for tx %s from %s: no idempotency key, so no response could be matched to it", e.TransactionId, e.FromNode)
+		return nil
+	}
+	if !c.beginEndorsement(e.IdempotencyKey) {
+		log.L(ctx).Debugf("endorsement of tx %s for %s already in flight (idempotencyKey=%s): ignoring duplicate request", e.TransactionId, e.Party, e.IdempotencyKey)
+		return nil
+	}
 	endorseCtx := ctx
 	cancel := func() {}
 	if !e.Expiry.IsZero() {
 		endorseCtx, cancel = context.WithDeadline(ctx, e.Expiry)
 	}
 	go func() {
-		defer cancel()
 		c.handleEndorsementRequest(endorseCtx, e)
+		c.endEndorsement(e.IdempotencyKey)
+		cancel()
 	}()
 	return nil
+}
+
+// beginEndorsement claims the endorsement request identified by idempotencyKey, returning false if
+// this node is already endorsing that request. Called on the event loop, so only one claim can be in
+// progress at a time.
+func (c *coordinator) beginEndorsement(idempotencyKey string) bool {
+	c.inFlightEndorsementsMutex.Lock()
+	defer c.inFlightEndorsementsMutex.Unlock()
+	if _, inFlight := c.inFlightEndorsements[idempotencyKey]; inFlight {
+		return false
+	}
+	c.inFlightEndorsements[idempotencyKey] = struct{}{}
+	return true
+}
+
+func (c *coordinator) endEndorsement(idempotencyKey string) {
+	c.inFlightEndorsementsMutex.Lock()
+	defer c.inFlightEndorsementsMutex.Unlock()
+	delete(c.inFlightEndorsements, idempotencyKey)
 }
 
 func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *EndorsementRequestReceivedEvent) {

@@ -1306,7 +1306,7 @@ func TestHandleEndorsementRequest_LoadSequencerError(t *testing.T) {
 	}
 
 	endorsementRequest := &engineProto.EndorsementRequest{
-		TransactionId: txID, ContractAddress: contractAddr.String(), Party: party,
+		TransactionId: txID, IdempotencyKey: uuid.NewString(), ContractAddress: contractAddr.String(), Party: party,
 		TransactionSpecification: txSpec,
 		Verifiers:                []*prototk.ResolvedVerifier{verifier}, Signatures: []*prototk.AttestationResult{signature},
 		InputStates: []*prototk.EndorsableState{state}, ReadStates: []*prototk.EndorsableState{state},
@@ -1397,7 +1397,7 @@ func TestHandleEndorsementRequest_SignValidationError(t *testing.T) {
 	}
 
 	endorsementRequest := &engineProto.EndorsementRequest{
-		TransactionId: txID, ContractAddress: contractAddr.String(), Party: party,
+		TransactionId: txID, IdempotencyKey: uuid.NewString(), ContractAddress: contractAddr.String(), Party: party,
 		TransactionSpecification: txSpec, AttestationRequest: attestationRequest,
 	}
 	payload, _ := proto.Marshal(endorsementRequest)
@@ -1462,7 +1462,7 @@ func TestHandleEndorsementResponse_Success(t *testing.T) {
 
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.EndorsedEvent)
-		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey && event.Endorsement != nil
+		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey.String() && event.Endorsement != nil
 	})).Once()
 
 	sm.handleEndorsementResponse(ctx, message)
@@ -1503,7 +1503,7 @@ func TestHandleEndorsementResponse_Revert(t *testing.T) {
 
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.EndorseRevertEvent)
-		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey && event.RevertReason == revertReason && event.AttestationRequestName == attestationRequestName
+		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey.String() && event.RevertReason == revertReason && event.AttestationRequestName == attestationRequestName
 	})).Once()
 
 	sm.handleEndorsementResponse(ctx, message)
@@ -1611,7 +1611,7 @@ func TestHandleEndorsementError_QueuesToCoordinator(t *testing.T) {
 
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.EndorseErrorEvent)
-		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey
+		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey.String()
 	})).Once()
 
 	sm.handleEndorsementError(ctx, message)
@@ -2069,7 +2069,7 @@ func TestHandlePaladinMsg_RoutesEndorsementRejection(t *testing.T) {
 	done := make(chan struct{})
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.EndorseRequestRejectedEvent)
-		if ok && event.TransactionID == txID && event.RequestID == reqID {
+		if ok && event.TransactionID == txID && event.RequestID == reqID.String() {
 			close(done)
 		}
 		return ok
@@ -2764,4 +2764,119 @@ func TestHandleSignError_SequencerNotLoaded(t *testing.T) {
 		FromNode: "test-node", MessageID: uuid.New(),
 		MessageType: transport.MessageType_SignError, Payload: payload,
 	})
+}
+
+// An endorsement reply carries its transaction ID as a string from a peer node, and without a valid
+// one there is no transaction to deliver the reply to, so it is logged and dropped. It must never be
+// parsed with uuid.MustParse: these handlers run as bare goroutines with no recover, so one bad value
+// from any peer would take the node down instead of losing a single endorsement. The strict
+// coordinator mock has no expectations, so it fails the test if any event is queued.
+func TestHandleEndorsementReplies_UnusableTransactionID_AreDroppedWithoutQueueingEvents(t *testing.T) {
+	revertReason := "transaction reverted"
+
+	replyKinds := []struct {
+		name        string
+		messageType string
+		build       func(contractAddress, transactionID, idempotencyKey string) []byte
+		handle      func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage)
+	}{
+		{
+			name:        "endorsement",
+			messageType: transport.MessageType_EndorsementResponse,
+			build: func(contractAddress, transactionID, idempotencyKey string) []byte {
+				payload, _ := proto.Marshal(&engineProto.EndorsementResponse{
+					TransactionId:          transactionID,
+					IdempotencyKey:         idempotencyKey,
+					ContractAddress:        contractAddress,
+					Endorsement:            &prototk.AttestationResult{Name: "test-endorsement"},
+					AttestationRequestName: "endorsement1",
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleEndorsementResponse(ctx, message)
+			},
+		},
+		{
+			name:        "endorsement revert",
+			messageType: transport.MessageType_EndorsementResponse,
+			build: func(contractAddress, transactionID, idempotencyKey string) []byte {
+				payload, _ := proto.Marshal(&engineProto.EndorsementResponse{
+					TransactionId:          transactionID,
+					IdempotencyKey:         idempotencyKey,
+					ContractAddress:        contractAddress,
+					RevertReason:           &revertReason,
+					AttestationRequestName: "endorsement1",
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleEndorsementResponse(ctx, message)
+			},
+		},
+		{
+			name:        "endorsement rejection",
+			messageType: transport.MessageType_EndorsementRejection,
+			build: func(contractAddress, transactionID, idempotencyKey string) []byte {
+				payload, _ := proto.Marshal(&engineProto.EndorsementRejection{
+					TransactionId:          transactionID,
+					IdempotencyKey:         idempotencyKey,
+					ContractAddress:        contractAddress,
+					AttestationRequestName: "endorsement1",
+					RejectionReason:        engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleEndorsementRejection(ctx, message)
+			},
+		},
+		{
+			name:        "endorsement error",
+			messageType: transport.MessageType_EndorsementError,
+			build: func(contractAddress, transactionID, idempotencyKey string) []byte {
+				payload, _ := proto.Marshal(&engineProto.EndorsementError{
+					TransactionId:          transactionID,
+					IdempotencyKey:         idempotencyKey,
+					ContractAddress:        contractAddress,
+					AttestationRequestName: "endorsement1",
+					ErrorMessage:           "something went wrong",
+				})
+				return payload
+			},
+			handle: func(sm *sequencerManager, ctx context.Context, message *components.ReceivedMessage) {
+				sm.handleEndorsementError(ctx, message)
+			},
+		},
+	}
+
+	idCases := []struct {
+		name           string
+		transactionID  string
+		idempotencyKey string
+	}{
+		{name: "no transaction ID", transactionID: "", idempotencyKey: uuid.NewString()},
+		{name: "transaction ID is not a UUID", transactionID: "not-a-uuid", idempotencyKey: uuid.NewString()},
+	}
+
+	for _, replyKind := range replyKinds {
+		for _, idCase := range idCases {
+			t.Run(replyKind.name+": "+idCase.name, func(t *testing.T) {
+				ctx := context.Background()
+				mocks := newTransportClientTestMocks(t)
+				sm := newSequencerManagerForTransportClientTesting(t, mocks)
+				contractAddr := pldtypes.RandAddress()
+				sm.sequencers[contractAddr.String()] = newSequencerForTransportClientTesting(contractAddr, mocks)
+
+				replyKind.handle(sm, ctx, &components.ReceivedMessage{
+					FromNode:    "test-node",
+					MessageID:   uuid.New(),
+					MessageType: replyKind.messageType,
+					Payload:     replyKind.build(contractAddr.String(), idCase.transactionID, idCase.idempotencyKey),
+				})
+
+				mocks.coordinator.AssertExpectations(t)
+			})
+		}
+	}
 }

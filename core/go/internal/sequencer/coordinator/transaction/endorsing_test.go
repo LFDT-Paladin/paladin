@@ -216,99 +216,27 @@ func Test_action_RecordEndorseFailure_UnknownEventType_WarnsAndReturnsNil(t *tes
 	require.NoError(t, err)
 }
 
-func Test_applyEndorsement_NoPendingRequestForAttestationName_IgnoresAndReturnsNil(t *testing.T) {
+func Test_applyEndorsement_CollectsEndorsementAndClearsPendingRequest(t *testing.T) {
+	// applyEndorsement runs only for an endorsement that validator_MatchesPendingEndorsementRequest
+	// has matched, so it collects unconditionally and clears the request it answers.
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
-			AssembleResponse: &prototk.TransactionPostAssembly{
-				Endorsements: []*prototk.AttestationResult{},
-			},
-		}).
-		Build()
-	// No entry for "att1" so applyEndorsement will hit the "no pending request found for attestation request name" path
-
-	endorsement := &prototk.AttestationResult{
-		Name:     "att1",
-		Verifier: &prototk.ResolvedVerifier{Lookup: "party1"},
-	}
-
-	err := txn.applyEndorsement(ctx, endorsement, uuid.New())
-	require.NoError(t, err)
-	assert.Empty(t, txn.pt.PostAssembly.AssembleResponse.GetEndorsements())
-}
-
-func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := t.Context()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		PostAssembly(&components.TransactionPostAssembly{
-			AssembleResponse: &prototk.TransactionPostAssembly{
-				Endorsements: []*prototk.AttestationResult{},
-			},
+			AssembleResponse: &prototk.TransactionPostAssembly{},
 		}).
 		AddPendingEndorsementRequest().
 		Build()
 
+	party := "endorser-0@node-0"
 	endorsement := &prototk.AttestationResult{
 		Name:     "endorse-0",
-		Verifier: &prototk.ResolvedVerifier{Lookup: "party1"},
-	}
-	wrongRequestID := uuid.New() // different from pr.IdempotencyKey()
-
-	err := txn.applyEndorsement(ctx, endorsement, wrongRequestID)
-	require.NoError(t, err)
-	assert.Empty(t, txn.pt.PostAssembly.AssembleResponse.GetEndorsements())
-}
-
-// Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty covers the branch that logs
-// "ignoring endorsement response ... because idempotency key ... does not match expected".
-// We use the same attestation name and party as the pending request so we find the request,
-// then pass a requestID that does not match the pending request's IdempotencyKey.
-func Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := t.Context()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		PostAssembly(&components.TransactionPostAssembly{
-			AssembleResponse: &prototk.TransactionPostAssembly{
-				Endorsements: []*prototk.AttestationResult{},
-			},
-		}).
-		AddPendingEndorsementRequest().
-		Build()
-
-	// AddPendingEndorsementRequest() creates attName "endorse-0" and party "endorser-0@node-0"
-	expectedKey := txn.pendingEndorsementRequests["endorse-0"]["endorser-0@node-0"].IdempotencyKey()
-	wrongRequestID := uuid.New()
-	require.NotEqual(t, expectedKey, wrongRequestID, "test must use a different request ID")
-
-	endorsement := &prototk.AttestationResult{
-		Name:     "endorse-0",
-		Verifier: &prototk.ResolvedVerifier{Lookup: "endorser-0@node-0"},
+		Verifier: &prototk.ResolvedVerifier{Lookup: party},
 	}
 
-	err := txn.applyEndorsement(ctx, endorsement, wrongRequestID)
+	err := txn.applyEndorsement(ctx, endorsement)
 	require.NoError(t, err)
-	assert.Empty(t, txn.pt.PostAssembly.AssembleResponse.GetEndorsements(), "endorsement with mismatched idempotency key should be ignored")
-}
-
-func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := t.Context()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		PostAssembly(&components.TransactionPostAssembly{
-			AssembleResponse: &prototk.TransactionPostAssembly{
-				Endorsements: []*prototk.AttestationResult{},
-			},
-		}).
-		AddPendingEndorsementRequest().
-		Build()
-
-	endorsement := &prototk.AttestationResult{
-		Name:     "att1",
-		Verifier: &prototk.ResolvedVerifier{Lookup: "wrong-lookup"},
-	}
-	requestID := uuid.New()
-
-	err := txn.applyEndorsement(ctx, endorsement, requestID)
-	require.NoError(t, err)
-	assert.Empty(t, txn.pt.PostAssembly.AssembleResponse.GetEndorsements())
+	assert.Equal(t, []*prototk.AttestationResult{endorsement}, txn.pt.PostAssembly.CollectedEndorsements)
+	assert.NotContains(t, txn.pendingEndorsementRequests["endorse-0"], party, "the answered request is no longer outstanding")
 }
 
 func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testing.T) {
@@ -411,6 +339,124 @@ func Test_requestEndorsement_InvalidPartyLocator_ReturnsError(t *testing.T) {
 	// "a@b@c" has too many @ signs and fails locator parsing.
 	err := txn.requestEndorsement(ctx, uuid.New(), "a@b@c", &prototk.AttestationRequest{})
 	require.Error(t, err)
+}
+
+func Test_validator_MatchesPendingEndorsementRequest(t *testing.T) {
+	ctx := t.Context()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).AddPendingEndorsementRequest()
+	txn, _ := builder.Build()
+	party := "endorser-0@node-0"
+	pendingRequestID := txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey().String()
+	// A party already recorded as failed this round is left in the map as a nil sentinel
+	failedParty := "endorser-1@node-1"
+	txn.pendingEndorsementRequests["endorse-0"][failedParty] = nil
+
+	tests := []struct {
+		name     string
+		event    common.Event
+		expected bool
+	}{
+		{
+			name: "matches the outstanding request",
+			event: &EndorseErrorEvent{
+				AttestationRequestName: "endorse-0",
+				Party:                  party,
+				RequestID:              pendingRequestID,
+			},
+			expected: true,
+		},
+		{
+			name: "request ID from an earlier round",
+			event: &EndorseRevertEvent{
+				AttestationRequestName: "endorse-0",
+				Party:                  party,
+				RequestID:              uuid.NewString(),
+			},
+			expected: false,
+		},
+		{
+			name: "response carrying no idempotency key",
+			event: &EndorseErrorEvent{
+				AttestationRequestName: "endorse-0",
+				Party:                  party,
+			},
+			expected: false,
+		},
+		{
+			name: "no outstanding request for the attestation requirement",
+			event: &EndorseRequestRejectedEvent{
+				AttestationRequestName: "endorse-unknown",
+				Party:                  party,
+				RequestID:              pendingRequestID,
+			},
+			expected: false,
+		},
+		{
+			name: "no outstanding request for the party",
+			event: &EndorseErrorEvent{
+				AttestationRequestName: "endorse-0",
+				Party:                  "other@node-1",
+				RequestID:              pendingRequestID,
+			},
+			expected: false,
+		},
+		{
+			name: "matches the outstanding request with an endorsement",
+			event: &EndorsedEvent{
+				RequestID: pendingRequestID,
+				Endorsement: &prototk.AttestationResult{
+					Name:     "endorse-0",
+					Verifier: &prototk.ResolvedVerifier{Lookup: party},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "endorsement from a party already recorded as failed",
+			event: &EndorsedEvent{
+				RequestID: pendingRequestID,
+				Endorsement: &prototk.AttestationResult{
+					Name:     "endorse-0",
+					Verifier: &prototk.ResolvedVerifier{Lookup: failedParty},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "failure response from a party already recorded as failed",
+			event: &EndorseErrorEvent{
+				AttestationRequestName: "endorse-0",
+				Party:                  failedParty,
+				RequestID:              pendingRequestID,
+			},
+			expected: false,
+		},
+		{
+			name: "endorsement naming no verifier",
+			event: &EndorsedEvent{
+				RequestID:   pendingRequestID,
+				Endorsement: &prototk.AttestationResult{Name: "endorse-0"},
+			},
+			expected: false,
+		},
+		{
+			name:     "endorsement carrying no attestation result",
+			event:    &EndorsedEvent{RequestID: pendingRequestID},
+			expected: false,
+		},
+		{
+			name:     "event type that carries no endorsement request",
+			event:    &RequestTimeoutIntervalEvent{},
+			expected: false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			matches, err := validator_MatchesPendingEndorsementRequest(ctx, txn, test.event)
+			require.NoError(t, err)
+			assert.Equal(t, test.expected, matches)
+		})
+	}
 }
 
 func Test_action_RecordEndorseFailure_EndorserIsActiveCoordinator_LogsWarning(t *testing.T) {

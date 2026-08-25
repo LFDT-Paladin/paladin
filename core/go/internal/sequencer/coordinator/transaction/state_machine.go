@@ -595,6 +595,7 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_Endorsed: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					Validator: validator_MatchesPendingEndorsementRequest,
 					Actions: []ActionRule{
 						{
 							Action: action_Endorsed,
@@ -632,7 +633,8 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_EndorseRevert: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
-					Actions: []ActionRule{{Action: action_RecordEndorseFailure}},
+					Validator: validator_MatchesPendingEndorsementRequest,
+					Actions:   []ActionRule{{Action: action_RecordEndorseFailure}},
 					Transitions: []Transition{
 						{
 							If: guard_EndorseRevertExceedsTolerance,
@@ -661,7 +663,8 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_EndorseError: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
-					Actions: []ActionRule{{Action: action_RecordEndorseFailure}},
+					Validator: validator_MatchesPendingEndorsementRequest,
+					Actions:   []ActionRule{{Action: action_RecordEndorseFailure}},
 					Transitions: []Transition{{
 						If: guard_EndorseFailureExceedsTolerance,
 						To: State_Pooled,
@@ -677,7 +680,8 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_EndorseRequestRejected: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
-					Actions: []ActionRule{{Action: action_RecordEndorseFailure}},
+					Validator: validator_MatchesPendingEndorsementRequest,
+					Actions:   []ActionRule{{Action: action_RecordEndorseFailure}},
 					Transitions: []Transition{{
 						If: guard_EndorseFailureExceedsTolerance,
 						To: State_Pooled,

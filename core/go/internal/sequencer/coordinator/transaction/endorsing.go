@@ -35,28 +35,18 @@ type endorsementRequirement struct {
 	party      string
 }
 
-func (t *coordinatorTransaction) applyEndorsement(ctx context.Context, endorsement *prototk.AttestationResult, requestID uuid.UUID) error {
-	log.L(ctx).Debugf("apply endorsement - received endorsement name '%s'", endorsement.Name)
-	pendingRequestsForAttRequest, ok := t.pendingEndorsementRequests[endorsement.Name]
-	if !ok {
-		log.L(ctx).Debugf("ignoring endorsement response for transaction %s from %s because no pending request found for attestation request name %s", t.pt.ID, endorsement.Verifier.Lookup, endorsement.Name)
-		return nil
-	}
-	if pendingRequest, ok := pendingRequestsForAttRequest[endorsement.Verifier.Lookup]; ok {
-		if pendingRequest.IdempotencyKey() == requestID {
-			log.L(ctx).Debugf("endorsement '%s' received for transaction %s from %s", endorsement.Name, t.pt.ID, endorsement.Verifier.Lookup)
-			delete(t.pendingEndorsementRequests[endorsement.Name], endorsement.Verifier.Lookup)
-			t.pt.PostAssembly.CollectedEndorsements = append(t.pt.PostAssembly.CollectedEndorsements, endorsement)
+// applyEndorsement collects an endorsement and clears the request it answers, so the party is not
+// nudged again. It is only reached for an endorsement that validator_MatchesPendingEndorsementRequest
+// has matched to the request still outstanding for that attestation requirement and party, which is
+// also what makes the verifier safe to dereference here.
+func (t *coordinatorTransaction) applyEndorsement(ctx context.Context, endorsement *prototk.AttestationResult) error {
+	log.L(ctx).Debugf("endorsement '%s' received for transaction %s from %s", endorsement.Name, t.pt.ID, endorsement.Verifier.Lookup)
+	delete(t.pendingEndorsementRequests[endorsement.Name], endorsement.Verifier.Lookup)
+	t.pt.PostAssembly.CollectedEndorsements = append(t.pt.PostAssembly.CollectedEndorsements, endorsement)
 
-			// MRW TODO - Hashing the TX for dispatch confirmation requires that there is > 0 signatures. Need to follow up where an endorsed TX populates the signatures. Temporarily put this workaround in.
-			// log.L(ctx).Infof("Applying endorsement. Appending %+v to list of endorsements received for transaction %s from %s", endorsement, t.pt.ID, endorsement.Verifier.Lookup)
-			// t.pt.PostAssembly.Signatures = append(t.pt.PostAssembly.Signatures, endorsement)
-		} else {
-			log.L(ctx).Debugf("ignoring endorsement response for transaction %s from %s because idempotency key %s does not match expected %s ", t.pt.ID, endorsement.Verifier.Lookup, requestID.String(), pendingRequest.IdempotencyKey().String())
-		}
-	} else {
-		log.L(ctx).Debugf("ignoring endorsement response for transaction %s from %s because no pending request found", t.pt.ID, endorsement.Verifier.Lookup)
-	}
+	// MRW TODO - Hashing the TX for dispatch confirmation requires that there is > 0 signatures. Need to follow up where an endorsed TX populates the signatures. Temporarily put this workaround in.
+	// log.L(ctx).Infof("Applying endorsement. Appending %+v to list of endorsements received for transaction %s from %s", endorsement, t.pt.ID, endorsement.Verifier.Lookup)
+	// t.pt.PostAssembly.Signatures = append(t.pt.PostAssembly.Signatures, endorsement)
 
 	// Log complete list of current endorsements
 	for _, endorsement := range t.pt.PostAssembly.CollectedEndorsements {
@@ -241,7 +231,7 @@ func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempot
 
 func action_Endorsed(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*EndorsedEvent)
-	return t.applyEndorsement(ctx, e.Endorsement, e.RequestID)
+	return t.applyEndorsement(ctx, e.Endorsement)
 }
 
 func action_RefreshBlockHeight(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
@@ -337,6 +327,54 @@ func action_FinalizeEndorseRevert(ctx context.Context, t *coordinatorTransaction
 	}
 	tryFinalize()
 	return nil
+}
+
+// validator_MatchesPendingEndorsementRequest gates every endorsement outcome - endorsed, reverted,
+// errored and rejected - so that each outstanding request is answered at most once. The pending
+// requests map is the record of what is still outstanding this round, so a response is only acted on
+// when it belongs to a request still waiting for an answer: a missing attestation requirement or
+// party means the round has already been reset or the party has already answered, a nil entry means
+// this party has already been recorded as failed, and a request ID that does not match the
+// outstanding request means the response belongs to an earlier round.
+//
+// Without this, a duplicate or late failure response would increment the failure counters a second
+// time for a party that has only failed once, and could push a requirement past a tolerance whose
+// parties had not actually been exhausted.
+func validator_MatchesPendingEndorsementRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
+	var reqName, party, requestID string
+	switch e := event.(type) {
+	case *EndorsedEvent:
+		// The endorsement is carried straight from the wire, so it is only trusted to identify a
+		// request once it is known to name a verifier
+		// TODO AM
+		if e.Endorsement == nil || e.Endorsement.Verifier == nil {
+			log.L(ctx).Warnf("ignoring endorsement response for transaction %s because it carries no verifier", txn.pt.ID)
+			return false, nil
+		}
+		reqName, party, requestID = e.Endorsement.Name, e.Endorsement.Verifier.Lookup, e.RequestID
+	case *EndorseErrorEvent:
+		reqName, party, requestID = e.AttestationRequestName, e.Party, e.RequestID
+	case *EndorseRequestRejectedEvent:
+		reqName, party, requestID = e.AttestationRequestName, e.Party, e.RequestID
+	case *EndorseRevertEvent:
+		reqName, party, requestID = e.AttestationRequestName, e.Party, e.RequestID
+	default:
+		return false, nil
+	}
+	if requestID == "" {
+		log.L(ctx).Warnf("ignoring %s for transaction %s from %s: no idempotency key, so it cannot be matched to a request for '%s'", event.TypeString(), txn.pt.ID, party, reqName)
+		return false, nil
+	}
+	pendingRequest, ok := txn.pendingEndorsementRequests[reqName][party]
+	if !ok || pendingRequest == nil {
+		log.L(ctx).Warnf("ignoring %s for transaction %s from %s because no request for '%s' is outstanding for that party", event.TypeString(), txn.pt.ID, party, reqName)
+		return false, nil
+	}
+	if pendingRequest.IdempotencyKey().String() != requestID {
+		log.L(ctx).Warnf("ignoring %s for transaction %s from %s because request ID %s is not the outstanding request %s for '%s'", event.TypeString(), txn.pt.ID, party, requestID, pendingRequest.IdempotencyKey(), reqName)
+		return false, nil
+	}
+	return true, nil
 }
 
 // action_RecordEndorseFailure records the failing party for the given attestation requirement,

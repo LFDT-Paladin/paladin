@@ -141,7 +141,7 @@ func (s *ChainedDependenciesSuite) progressToReadyForDispatch(txIDs ...uuid.UUID
 		endorser := b.GetEndorserIdentityLocator(0)
 		s.handleEvent(&transaction.EndorsedEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: id},
-			RequestID:            rec.EndorseKeyForTxAndParty(id, endorser),
+			RequestID:            rec.EndorseKeyForTxAndParty(id, endorser).String(),
 			Endorsement:          b.BuildEndorsement(0),
 		})
 

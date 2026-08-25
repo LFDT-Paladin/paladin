@@ -100,6 +100,13 @@ type coordinator struct {
 	// Handover request tracking
 	pendingHandoverRequest *common.IdempotentRequest // idempotent request in flight while in State_Elect
 
+	// Endorsement request tracking: the idempotency keys of the endorsement requests currently being
+	// processed by a background goroutine on this node as an endorser. Guarded by its own mutex rather
+	// than the coordinator's RWMutex above: that lock is held by the event loop for the duration of
+	// event processing, so taking it from an endorsement goroutine would invert the lock ordering.
+	inFlightEndorsements      map[string]struct{}
+	inFlightEndorsementsMutex sync.Mutex
+
 	// Request/state timeout timers
 	cancelRequestTimeout func() // cancels the pending request-nudge timer; armed once on Elect entry
 	cancelStateTimeout   func() // cancels the pending give-up timer
@@ -214,6 +221,7 @@ func NewCoordinator(
 	c.initializeStateMachineEventLoop(State_Initial, coordinatorEventQueueSize, coordinatorPriorityEventQueueSize)
 
 	c.originatorActivity = make(map[string]int)
+	c.inFlightEndorsements = make(map[string]struct{})
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]struct{}, c.maxDispatchAhead)
 	c.pooledTransactions = make([]transaction.CoordinatorTransaction, 0, c.maxInflightTransactions)

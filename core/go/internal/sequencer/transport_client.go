@@ -99,6 +99,23 @@ func (sMgr *sequencerManager) logPaladinMessageFieldMissingError(ctx context.Con
 	log.L(ctx).Errorf("<< field %s missing from proto message %s received from %s", field, message.MessageType, message.FromNode)
 }
 
+func (sMgr *sequencerManager) logPaladinMessageFieldInvalidError(ctx context.Context, message *components.ReceivedMessage, field string, value string, err error) {
+	log.L(ctx).Errorf("<< field %s of proto message %s received from %s could not be parsed (value %q): %s", field, message.MessageType, message.FromNode, value, err)
+}
+
+func (sMgr *sequencerManager) parseTransactionID(ctx context.Context, message *components.ReceivedMessage, transactionID string) (uuid.UUID, bool) {
+	if transactionID == "" {
+		sMgr.logPaladinMessageFieldMissingError(ctx, message, "transaction_id")
+		return uuid.UUID{}, false
+	}
+	parsed, err := uuid.Parse(transactionID)
+	if err != nil {
+		sMgr.logPaladinMessageFieldInvalidError(ctx, message, "transaction_id", transactionID, err)
+		return uuid.UUID{}, false
+	}
+	return parsed, true
+}
+
 func (sMgr *sequencerManager) parseContractAddressString(ctx context.Context, contractAddressString string, message *components.ReceivedMessage) *pldtypes.EthAddress {
 	contractAddress, err := pldtypes.ParseEthAddress(contractAddressString)
 	if err != nil {
@@ -676,6 +693,11 @@ func (sMgr *sequencerManager) handleEndorsementResponse(ctx context.Context, mes
 		return
 	}
 
+	transactionID, ok := sMgr.parseTransactionID(ctx, message, endorsementResponse.TransactionId)
+	if !ok {
+		return
+	}
+
 	// Get rather than load the sequencer- it must already have the transaction in memory to process the endorsement response
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
@@ -687,8 +709,8 @@ func (sMgr *sequencerManager) handleEndorsementResponse(ctx context.Context, mes
 	// Endorsement reverted
 	if endorsementResponse.GetRevertReason() != "" {
 		endorseRevertEvent := &coordTransaction.EndorseRevertEvent{}
-		endorseRevertEvent.TransactionID = uuid.MustParse(endorsementResponse.TransactionId)
-		endorseRevertEvent.RequestID = uuid.MustParse(endorsementResponse.IdempotencyKey)
+		endorseRevertEvent.TransactionID = transactionID
+		endorseRevertEvent.RequestID = endorsementResponse.IdempotencyKey
 		endorseRevertEvent.EventTime = time.Now()
 		endorseRevertEvent.Party = endorsementResponse.Party
 		endorseRevertEvent.RevertReason = endorsementResponse.GetRevertReason()
@@ -701,8 +723,8 @@ func (sMgr *sequencerManager) handleEndorsementResponse(ctx context.Context, mes
 	endorsement := endorsementResponse.Endorsement
 
 	endorsementResponseEvent := &coordTransaction.EndorsedEvent{}
-	endorsementResponseEvent.TransactionID = uuid.MustParse(endorsementResponse.TransactionId)
-	endorsementResponseEvent.RequestID = uuid.MustParse(endorsementResponse.IdempotencyKey)
+	endorsementResponseEvent.TransactionID = transactionID
+	endorsementResponseEvent.RequestID = endorsementResponse.IdempotencyKey
 	endorsementResponseEvent.Endorsement = endorsement
 	endorsementResponseEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, endorsementResponseEvent)
@@ -721,6 +743,11 @@ func (sMgr *sequencerManager) handleEndorsementRejection(ctx context.Context, me
 		return
 	}
 
+	transactionID, ok := sMgr.parseTransactionID(ctx, message, endorsementRejection.TransactionId)
+	if !ok {
+		return
+	}
+
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
 		log.L(ctx).Warnf("sequencer for contract %s is not loaded: endorsement rejection for transaction %s cannot be processed unless already in memory",
@@ -729,8 +756,8 @@ func (sMgr *sequencerManager) handleEndorsementRejection(ctx context.Context, me
 	}
 
 	endorseRejectedEvent := &coordTransaction.EndorseRequestRejectedEvent{}
-	endorseRejectedEvent.TransactionID = uuid.MustParse(endorsementRejection.TransactionId)
-	endorseRejectedEvent.RequestID = uuid.MustParse(endorsementRejection.IdempotencyKey)
+	endorseRejectedEvent.TransactionID = transactionID
+	endorseRejectedEvent.RequestID = endorsementRejection.IdempotencyKey
 	endorseRejectedEvent.EventTime = time.Now()
 	endorseRejectedEvent.Party = endorsementRejection.Party
 	endorseRejectedEvent.AttestationRequestName = endorsementRejection.AttestationRequestName
@@ -754,6 +781,11 @@ func (sMgr *sequencerManager) handleEndorsementError(ctx context.Context, messag
 		return
 	}
 
+	transactionID, ok := sMgr.parseTransactionID(ctx, message, endorsementError.TransactionId)
+	if !ok {
+		return
+	}
+
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
 		log.L(ctx).Warnf("sequencer for contract %s is not loaded: endorsement error for transaction %s cannot be processed unless already in memory",
@@ -762,8 +794,8 @@ func (sMgr *sequencerManager) handleEndorsementError(ctx context.Context, messag
 	}
 
 	endorseErrorEvent := &coordTransaction.EndorseErrorEvent{}
-	endorseErrorEvent.TransactionID = uuid.MustParse(endorsementError.TransactionId)
-	endorseErrorEvent.RequestID = uuid.MustParse(endorsementError.IdempotencyKey)
+	endorseErrorEvent.TransactionID = transactionID
+	endorseErrorEvent.RequestID = endorsementError.IdempotencyKey
 	endorseErrorEvent.EventTime = time.Now()
 	endorseErrorEvent.Party = endorsementError.Party
 	endorseErrorEvent.AttestationRequestName = endorsementError.AttestationRequestName

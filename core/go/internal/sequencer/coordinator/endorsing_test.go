@@ -18,6 +18,7 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +35,18 @@ import (
 
 // partyKeyVerifier is the resolved verifier string used for party key resolution in tests.
 const partyKeyVerifier = "party-verifier"
+
+// inFlightEndorsementKeys returns the idempotency keys of the endorsements currently in flight,
+// taking the mutex that the endorsement goroutines take when they release their claim.
+func inFlightEndorsementKeys(c *coordinator) []string {
+	c.inFlightEndorsementsMutex.Lock()
+	defer c.inFlightEndorsementsMutex.Unlock()
+	keys := make([]string, 0, len(c.inFlightEndorsements))
+	for key := range c.inFlightEndorsements {
+		keys = append(keys, key)
+	}
+	return keys
+}
 
 // matchEndorsementErrorMsg returns a mock.MatchedBy matcher that inspects the EndorsementError
 // proto struct to verify the transaction ID and idempotency key.
@@ -750,4 +763,113 @@ func Test_action_AddEndorsementRequestSenderToEndorserCandidates_AddsSenderNode(
 
 	assert.ElementsMatch(t, []string{"node1", "node2"}, c.endorserCandidates)
 	assert.Len(t, c.coordinatorPriorityList, 2)
+}
+
+func Test_action_HandleEndorsementRequest_IgnoresDuplicateRequestWhileEndorsementInFlight(t *testing.T) {
+	// A coordinator nudges an outstanding endorsement request by resending it with the same
+	// idempotency key. While the first attempt is still in the domain, the resend must not start a
+	// second endorsement of the same transaction.
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		WithMockTransportWriter().
+		Build()
+
+	setupEndorsementMocks(t, mocks)
+	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
+
+	endorsementResult := &components.EndorsementResult{
+		Result:   prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
+		Endorser: &prototk.ResolvedVerifier{Lookup: "party1@node2"},
+	}
+	var endorseCalls atomic.Int32
+	inDomain := make(chan struct{}, 2)
+	release := make(chan struct{})
+	mocks.DomainAPI.On("EndorseTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ mock.Arguments) {
+			endorseCalls.Add(1)
+			inDomain <- struct{}{}
+			<-release
+		}).
+		Return(endorsementResult, nil)
+
+	var responsesSent atomic.Int32
+	responded := make(chan struct{}, 2)
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ string, _ *engineProto.EndorsementResponse) {
+			responsesSent.Add(1)
+			responded <- struct{}{}
+		}).
+		Return(nil)
+
+	require.NoError(t, action_HandleEndorsementRequest(ctx, c, buildEndorsementEvent("node2")))
+	<-inDomain // the first attempt is now inside the domain call
+
+	// The resend carries the same idempotency key, so it must be dropped without spawning a goroutine.
+	// Checking the in-flight set rather than the call counts keeps this deterministic: the claim is
+	// taken synchronously by the action, whereas a wrongly spawned goroutine would reach the domain
+	// call at some later, unpredictable point.
+	require.NoError(t, action_HandleEndorsementRequest(ctx, c, buildEndorsementEvent("node2")))
+	assert.Equal(t, []string{"ik-1"}, inFlightEndorsementKeys(c))
+
+	close(release)
+	<-responded
+	assert.Equal(t, int32(1), endorseCalls.Load())
+	assert.Equal(t, int32(1), responsesSent.Load())
+}
+
+func Test_action_HandleEndorsementRequest_EndorsesAfreshAfterPreviousRequestCompletes(t *testing.T) {
+	// Deduplication only covers endorsements that are still running: once one has finished, a request
+	// carrying the same idempotency key is endorsed again, so a response lost in transit can still be
+	// recovered by a nudge.
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		WithMockTransportWriter().
+		Build()
+
+	setupEndorsementMocks(t, mocks)
+	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
+
+	endorsementResult := &components.EndorsementResult{
+		Result:   prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
+		Endorser: &prototk.ResolvedVerifier{Lookup: "party1@node2"},
+	}
+	var endorseCalls atomic.Int32
+	mocks.DomainAPI.On("EndorseTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ mock.Arguments) { endorseCalls.Add(1) }).
+		Return(endorsementResult, nil)
+
+	responded := make(chan struct{}, 2)
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ string, _ *engineProto.EndorsementResponse) { responded <- struct{}{} }).
+		Return(nil)
+
+	require.NoError(t, action_HandleEndorsementRequest(ctx, c, buildEndorsementEvent("node2")))
+	<-responded
+	// The claim is released by the goroutine's defer, which runs after the response is sent
+	require.Eventually(t, func() bool { return len(inFlightEndorsementKeys(c)) == 0 }, time.Second, time.Millisecond)
+
+	require.NoError(t, action_HandleEndorsementRequest(ctx, c, buildEndorsementEvent("node2")))
+	<-responded
+	assert.Equal(t, int32(2), endorseCalls.Load())
+}
+
+func Test_action_HandleEndorsementRequest_IgnoresRequestWithNoIdempotencyKey(t *testing.T) {
+	// Every endorsement reply echoes the request's idempotency key so the requester can match it, so a
+	// request without one cannot be answered usefully and must not reach the domain. The strict mocks
+	// fail the test if the domain is called or any reply is sent.
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		WithMockTransportWriter().
+		Build()
+
+	setupEndorsementMocks(t, mocks)
+	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
+
+	event := buildEndorsementEvent("node2")
+	event.IdempotencyKey = ""
+	require.NoError(t, action_HandleEndorsementRequest(ctx, c, event))
+
+	assert.Empty(t, inFlightEndorsementKeys(c))
 }

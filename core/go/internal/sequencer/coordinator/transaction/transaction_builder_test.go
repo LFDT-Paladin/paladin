@@ -663,7 +663,7 @@ func (b *TransactionBuilderForTesting) BuildEndorsedEvent(endorserIndex int) *En
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: b.txn.pt.ID,
 		},
-		RequestID:   b.txn.pendingEndorsementRequests[b.privateTransactionBuilder.GetEndorsementName(endorserIndex)][b.privateTransactionBuilder.GetEndorserIdentityLocator(endorserIndex)].IdempotencyKey(),
+		RequestID:   b.txn.pendingEndorsementRequests[b.privateTransactionBuilder.GetEndorsementName(endorserIndex)][b.privateTransactionBuilder.GetEndorserIdentityLocator(endorserIndex)].IdempotencyKey().String(),
 		Endorsement: b.privateTransactionBuilder.BuildEndorsement(endorserIndex),
 	}
 
@@ -676,7 +676,7 @@ func (b *TransactionBuilderForTesting) BuildEndorseRevertEvent() *EndorseRevertE
 		Party:                  party,
 		RevertReason:           "some reason for revert",
 		AttestationRequestName: "endorse-0",
-		RequestID:              b.txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey(),
+		RequestID:              b.txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey().String(),
 	}
 }
 
@@ -686,7 +686,7 @@ func (b *TransactionBuilderForTesting) BuildEndorseRequestRejectedEvent() *Endor
 		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: b.txn.pt.ID},
 		Party:                  party,
 		AttestationRequestName: "endorse-0",
-		RequestID:              b.txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey(),
+		RequestID:              b.txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey().String(),
 		CoordinatorBlockHeight: 100,
 		EndorserBlockHeight:    200,
 	}
@@ -698,7 +698,7 @@ func (b *TransactionBuilderForTesting) BuildEndorseErrorEvent() *EndorseErrorEve
 		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: b.txn.pt.ID},
 		Party:                  party,
 		AttestationRequestName: "endorse-0",
-		RequestID:              b.txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey(),
+		RequestID:              b.txn.pendingEndorsementRequests["endorse-0"][party].IdempotencyKey().String(),
 	}
 }
 
