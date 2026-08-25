@@ -983,7 +983,7 @@ func seedLabelledState(g *grapher, stateID pldtypes.HexBytes, nodes ...string) {
 	})
 }
 
-func TestSnapshotViewForNode_CreateLockedState(t *testing.T) {
+func TestSnapshotView_CreateLockedState(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
@@ -992,26 +992,26 @@ func TestSnapshotViewForNode_CreateLockedState(t *testing.T) {
 	seedLabelledState(g, stateID, "test-node")
 	g.LockMintsOnCreate(ctx, endorsable(stateID), minterID)
 
-	states, spentStateIDs := g.SnapshotViewForNode(ctx, "test-node")
+	states, spentStateIDs := g.SnapshotView(ctx, "test-node")
 	require.Len(t, states, 1)
 	assert.Equal(t, stateID.String(), states[0].GetState().GetId())
 	assert.Equal(t, "x", states[0].GetLabels().GetLabels()[0].GetLabel(), "candidates must carry their labels")
 	assert.Empty(t, spentStateIDs)
 
 	// A node with no visibility gets nothing (default-deny).
-	otherStates, _ := g.SnapshotViewForNode(ctx, "other-node")
+	otherStates, _ := g.SnapshotView(ctx, "other-node")
 	assert.Empty(t, otherStates)
 }
 
-func TestSnapshotViewForNode_EmptyGrapher(t *testing.T) {
+func TestSnapshotView_EmptyGrapher(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapher(t)
-	states, spentStateIDs := g.SnapshotViewForNode(ctx, "test-node")
+	states, spentStateIDs := g.SnapshotView(ctx, "test-node")
 	assert.Empty(t, states)
 	assert.Empty(t, spentStateIDs)
 }
 
-func TestSnapshotViewForNode_SpendLockExcludesState(t *testing.T) {
+func TestSnapshotView_SpendLockExcludesState(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
@@ -1025,13 +1025,13 @@ func TestSnapshotViewForNode_SpendLockExcludesState(t *testing.T) {
 
 	// The state is spend-locked ahead of chain: it cannot be selected for assembly, so it must
 	// not be offered as a candidate — and its ID must appear in the view's spent set.
-	states, spentStateIDs := g.SnapshotViewForNode(ctx, "test-node")
+	states, spentStateIDs := g.SnapshotView(ctx, "test-node")
 	assert.Empty(t, states)
 	require.Len(t, spentStateIDs, 1)
 	assert.Equal(t, stateID, spentStateIDs[0])
 }
 
-func TestSnapshotViewForNode_NoCreateLockExcludesState(t *testing.T) {
+func TestSnapshotView_NoCreateLockExcludesState(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("5a", 32))
@@ -1039,11 +1039,11 @@ func TestSnapshotViewForNode_NoCreateLockExcludesState(t *testing.T) {
 	// Visible and labelled, but with no create lock (e.g. the lock already expired): the state is
 	// not selectable ahead-of-chain.
 	seedLabelledState(g, stateID, "test-node")
-	states, _ := g.SnapshotViewForNode(ctx, "test-node")
+	states, _ := g.SnapshotView(ctx, "test-node")
 	assert.Empty(t, states)
 }
 
-func TestSnapshotViewForNode_UnparseableSpendLockKeySkipped(t *testing.T) {
+func TestSnapshotView_UnparseableSpendLockKeySkipped(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
@@ -1058,7 +1058,7 @@ func TestSnapshotViewForNode_UnparseableSpendLockKeySkipped(t *testing.T) {
 	// practice — but if one ever did, it must be skipped rather than corrupting the spent set.
 	g.spendLocksByStateID["not-hex"] = &prototk.SnapshotStateLock{Type: prototk.SnapshotStateLock_SPEND}
 
-	states, spentStateIDs := g.SnapshotViewForNode(ctx, "test-node")
+	states, spentStateIDs := g.SnapshotView(ctx, "test-node")
 	assert.Empty(t, states)
 	require.Len(t, spentStateIDs, 1, "the unparseable key must be skipped, the valid one kept")
 	assert.Equal(t, stateID, spentStateIDs[0])
@@ -1078,7 +1078,7 @@ func TestUnlabelledStateNeverAdvertised(t *testing.T) {
 	})
 	g.LockMintsOnCreate(ctx, endorsable(stateID), minterID)
 
-	states, _ := g.SnapshotViewForNode(ctx, "test-node")
+	states, _ := g.SnapshotView(ctx, "test-node")
 	assert.Empty(t, states)
 
 	full, err := g.ExportStatesAndLocks(ctx, "test-node")

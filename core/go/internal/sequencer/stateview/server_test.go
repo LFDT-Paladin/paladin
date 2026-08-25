@@ -175,7 +175,7 @@ func TestServer_HandleQueryAvailableStates_BadSchemaID(t *testing.T) {
 	errs := recorder.SentStateViewErrors()
 	require.Len(t, errs, 1)
 	assert.Equal(t, "req1", errs[0].GetRequestId())
-	assert.Regexp(t, "PD012656", errs[0].GetErrorMessage())
+	assert.Regexp(t, "PD012650", errs[0].GetErrorMessage())
 }
 
 func TestServer_HandleQueryAvailableStates_BadQueryJSON(t *testing.T) {
@@ -193,7 +193,7 @@ func TestServer_HandleQueryAvailableStates_BadQueryJSON(t *testing.T) {
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
 	errs := recorder.SentStateViewErrors()
 	require.Len(t, errs, 1)
-	assert.Regexp(t, "PD012656", errs[0].GetErrorMessage())
+	assert.Regexp(t, "PD012650", errs[0].GetErrorMessage())
 }
 
 func TestServer_HandleQueryAvailableStates_EvaluationError(t *testing.T) {
@@ -233,7 +233,7 @@ func TestServer_HandleQueryAvailableStates_UnknownSession(t *testing.T) {
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
 	errs := recorder.SentStateViewErrors()
 	require.Len(t, errs, 1)
-	assert.Regexp(t, "PD012657", errs[0].GetErrorMessage())
+	assert.Regexp(t, "PD012651", errs[0].GetErrorMessage())
 }
 
 func TestServer_HandleQueryAvailableStates_WrongNode(t *testing.T) {
@@ -252,7 +252,7 @@ func TestServer_HandleQueryAvailableStates_WrongNode(t *testing.T) {
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
 	errs := recorder.SentStateViewErrors()
 	require.Len(t, errs, 1)
-	assert.Regexp(t, "PD012658", errs[0].GetErrorMessage())
+	assert.Regexp(t, "PD012652", errs[0].GetErrorMessage())
 }
 
 func TestServer_CloseSession_MakesSubsequentQueriesUnknown(t *testing.T) {
@@ -272,7 +272,7 @@ func TestServer_CloseSession_MakesSubsequentQueriesUnknown(t *testing.T) {
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
 	errs := recorder.SentStateViewErrors()
 	require.Len(t, errs, 1)
-	assert.Regexp(t, "PD012657", errs[0].GetErrorMessage())
+	assert.Regexp(t, "PD012651", errs[0].GetErrorMessage())
 }
 
 func TestServer_HandleGetSpentStateIDs_ServesFrozenSpentSet(t *testing.T) {
@@ -320,7 +320,7 @@ func TestServer_HandleGetSpentStateIDs_UnknownSession(t *testing.T) {
 	errs := recorder.SentStateViewErrors()
 	require.Len(t, errs, 1)
 	assert.Equal(t, "req1", errs[0].GetRequestId())
-	assert.Regexp(t, "PD012657", errs[0].GetErrorMessage())
+	assert.Regexp(t, "PD012651", errs[0].GetErrorMessage())
 }
 
 func TestServer_HandleGetSpentStateIDs_WrongNode(t *testing.T) {
@@ -336,7 +336,7 @@ func TestServer_HandleGetSpentStateIDs_WrongNode(t *testing.T) {
 	require.Empty(t, recorder.SentGetSpentStateIDsResponses())
 	errs := recorder.SentStateViewErrors()
 	require.Len(t, errs, 1)
-	assert.Regexp(t, "PD012658", errs[0].GetErrorMessage())
+	assert.Regexp(t, "PD012652", errs[0].GetErrorMessage())
 }
 
 func TestServer_OpenSession_ExistingSessionKept(t *testing.T) {
@@ -354,7 +354,7 @@ func TestServer_OpenSession_ExistingSessionKept(t *testing.T) {
 	})
 	errs := recorder.SentStateViewErrors()
 	require.Len(t, errs, 1)
-	assert.Regexp(t, "PD012658", errs[0].GetErrorMessage())
+	assert.Regexp(t, "PD012652", errs[0].GetErrorMessage())
 
 	// The original owner can still query the session.
 	s.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{

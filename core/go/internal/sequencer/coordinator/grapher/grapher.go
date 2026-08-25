@@ -34,7 +34,7 @@ import (
 //    base-ledger state changes are correctly ordered, crucial to transaction success.
 // 2. It records ahead-of-chain state changes, such as inputs being locked, to allow successful ahead-of-chain assembly for new transactions.
 // 3. It provides interfaces onto the current ahead-of-chain state changes: query evaluation for assembling originators
-//    (SnapshotViewForNode) and export for coordinator handover (ExportStatesAndLocks).
+//    (SnapshotView) and export for coordinator handover (ExportStatesAndLocks).
 
 // An instance of the grapher is owned by the coordinator for a given sequencer. Transactions can query the grapher in thread-safe manner to
 // understand their relationships to other transactions. For example:
@@ -59,9 +59,9 @@ type Grapher interface {
 	// AllowedNodes are included. All locks are returned unfiltered — lock data (state IDs, types,
 	// block numbers) is on-chain metadata and does not need privacy protection.
 	ExportStatesAndLocks(ctx context.Context, node string) (*prototk.StateSnapshot, error)
-	// SnapshotViewForNode returns a snapshot the two halves of the state view served to an assembling node:
+	// SnapshotView returns a snapshot the two halves of the state view served to an assembling node:
 	// the states available to the node and the IDs of every spend-locked state.
-	SnapshotViewForNode(ctx context.Context, node string) (candidates []*prototk.SnapshotState, spentStateIDs []pldtypes.HexBytes)
+	SnapshotView(ctx context.Context, node string) (candidates []*prototk.SnapshotState, spentStateIDs []pldtypes.HexBytes)
 	// ForgetTransactionAndLocks fully removes a transaction and all its locks. Used for failure/reset paths (revert, repool, eviction).
 	// No-op if the transaction is not known (e.g. already confirmed).
 	ForgetTransactionAndLocks(ctx context.Context, transactionID uuid.UUID)
@@ -435,7 +435,7 @@ func (g *grapher) ExportStatesAndLocks(ctx context.Context, node string) (*proto
 	return result, nil
 }
 
-func (g *grapher) SnapshotViewForNode(ctx context.Context, node string) ([]*prototk.SnapshotState, []pldtypes.HexBytes) {
+func (g *grapher) SnapshotView(ctx context.Context, node string) ([]*prototk.SnapshotState, []pldtypes.HexBytes) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -460,12 +460,12 @@ func (g *grapher) SnapshotViewForNode(ctx context.Context, node string) ([]*prot
 		if err != nil {
 			// Lock keys are produced from locally-resolved state IDs, so this cannot happen in
 			// practice; skipping keeps the set a valid superset of the consumed states.
-			log.L(ctx).Warnf("SnapshotViewForNode: skipping unparseable state id %q: %s", stateID, err)
+			log.L(ctx).Warnf("SnapshotView: skipping unparseable state id %q: %s", stateID, err)
 			continue
 		}
 		spentStateIDs = append(spentStateIDs, id)
 	}
 
-	log.L(ctx).Debugf("SnapshotViewForNode: %d candidate states, %d spent state IDs (node=%q)", len(candidates), len(spentStateIDs), node)
+	log.L(ctx).Debugf("SnapshotView: %d candidate states, %d spent state IDs (node=%q)", len(candidates), len(spentStateIDs), node)
 	return candidates, spentStateIDs
 }

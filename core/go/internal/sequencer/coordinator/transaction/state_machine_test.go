@@ -742,7 +742,7 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 	// The coordinator advances well past the tolerance window mid-assemble; the block-driven forget
 	// removes the state from the live grapher, but the frozen session snapshot keeps serving it.
 	g.ForgetConfirmedLocks(ctx, 200)
-	liveCandidates, _ := g.SnapshotViewForNode(ctx, "node1")
+	liveCandidates, _ := g.SnapshotView(ctx, "node1")
 	require.Empty(t, liveCandidates, "the live grapher view forgets the confirmed lock")
 	require.Equal(t, 1, runQuery(), "state must stay visible to per-select queries while the assemble is in flight")
 
@@ -761,7 +761,7 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
 	errs := recorder.SentStateViewErrors()
 	require.Len(t, errs, 1, "the session must be closed once the assemble is no longer in flight")
-	assert.Regexp(t, "PD012657", errs[0].GetErrorMessage())
+	assert.Regexp(t, "PD012651", errs[0].GetErrorMessage())
 }
 
 func TestCoordinatorTransaction_Assembling_ToEvicted_OnAssembleError_IfAboveRetryThreshold(t *testing.T) {

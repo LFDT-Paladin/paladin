@@ -99,7 +99,7 @@ func (s *server) OpenSession(ctx context.Context, sessionID string, node string)
 		log.L(ctx).Debugf("stateview server: session %s already open, keeping existing view", sessionID)
 		return
 	}
-	candidates, spentStateIDs := s.grapher.SnapshotViewForNode(ctx, node)
+	candidates, spentStateIDs := s.grapher.SnapshotView(ctx, node)
 	log.L(ctx).Debugf("stateview server: open session %s for node %s with %d candidate states and %d spent state IDs", sessionID, node, len(candidates), len(spentStateIDs))
 	s.sessions[sessionID] = &serverSession{node: node, candidates: candidates, spentStateIDs: spentStateIDs}
 }
