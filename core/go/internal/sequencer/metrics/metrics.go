@@ -29,7 +29,7 @@ type DistributedSequencerMetrics interface {
 	IncDispatchedTransactions()
 	IncConfirmedTransactions()
 	IncRevertedTransactions()
-	ObserveSequencerTXStateChange(role, state string, duration time.Duration)
+	ObserveSequencerTXStateChange(role, fromState string, duration time.Duration)
 	SetActiveCoordinators(numberOfActiveCoordinators int)
 	SetActiveSequencers(numberOfActiveSequencers int)
 	IncCoordinatingTransactions()
