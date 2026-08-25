@@ -151,8 +151,8 @@ func TestDispatchLoop_HandleEventError_ContinuesLoop(t *testing.T) {
 	tx2.EXPECT().PendingDispatch(mock.Anything).Return(nil)
 
 	// Pre-queue both transactions before starting the loop (buffered channel)
-	c.dispatchQueue <- tx1
-	c.dispatchQueue <- tx2
+	c.dispatchQueue <- queuedDispatch{txn: tx1}
+	c.dispatchQueue <- queuedDispatch{txn: tx2}
 
 	done := make(chan struct{})
 	c.dispatchLoopDone = done
@@ -208,8 +208,8 @@ func TestDispatchLoop_SkipsRepooledTransaction_ContinuesLoop(t *testing.T) {
 	dispatched := make(chan struct{}, 1)
 	tx2.EXPECT().PendingDispatch(mock.Anything).Run(func(context.Context) { dispatched <- struct{}{} }).Return(nil)
 
-	c.dispatchQueue <- tx1
-	c.dispatchQueue <- tx2
+	c.dispatchQueue <- queuedDispatch{txn: tx1}
+	c.dispatchQueue <- queuedDispatch{txn: tx2}
 
 	done := make(chan struct{})
 	c.dispatchLoopDone = done
@@ -256,7 +256,7 @@ func TestDispatchLoop_DispatchesQueuedTransaction(t *testing.T) {
 	})).Run(func(context.Context, common.Event) { dispatched <- struct{}{} }).Return(nil)
 	tx.EXPECT().PendingDispatch(mock.Anything).Return(nil)
 
-	c.dispatchQueue <- tx
+	c.dispatchQueue <- queuedDispatch{txn: tx}
 
 	done := make(chan struct{})
 	c.dispatchLoopDone = done
@@ -312,7 +312,7 @@ func TestDispatchLoop_WaitsAtCapacityThenProceeds(t *testing.T) {
 	occupyingID := uuid.New()
 	c.setDispatchedInFlight(occupyingID, true)
 
-	c.dispatchQueue <- tx
+	c.dispatchQueue <- queuedDispatch{txn: tx}
 
 	done := make(chan struct{})
 	c.dispatchLoopDone = done
@@ -365,9 +365,9 @@ func TestDispatchLoop_PullCapRespectsInFlight(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		tx := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 		tx.EXPECT().GetID().Return(uuid.New()).Maybe()
-		c.dispatchQueue <- tx
+		c.dispatchQueue <- queuedDispatch{txn: tx}
 	}
-	first := <-c.dispatchQueue
+	first := (<-c.dispatchQueue).txn
 	batch := c.pullDispatchBatch(first, capacity)
 	assert.Len(t, batch, 3, "batch must be capped at the dispatch-ahead capacity")
 	assert.Len(t, c.dispatchQueue, 2, "transactions beyond the cap must remain queued")
@@ -419,7 +419,7 @@ func TestDispatchLoop_CapsBatchSize(t *testing.T) {
 		tx := newDispatchTxMock(t, pd)
 		// newDispatchTxMock stamps pd.TransactionID with the mock's own id.
 		wantOrder = append(wantOrder, pd.TransactionID)
-		c.dispatchQueue <- tx
+		c.dispatchQueue <- queuedDispatch{txn: tx}
 	}
 
 	// Capture each committed batch's transaction ids. The .Run runs on the dispatch-loop goroutine; the

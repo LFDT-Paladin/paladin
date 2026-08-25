@@ -57,6 +57,8 @@ func action_SwitchActiveCoordinator(ctx context.Context, o *originator, event co
 	o.currentActiveCoordinator = e.FromNode
 	o.resetFailoverIndex()
 	o.heartbeatIntervalsSinceLastReceive = 0
+	// The node we are switching to has never seen our transactions, so redelegate the full backlog
+	o.requestFullDelegation()
 	return nil
 }
 

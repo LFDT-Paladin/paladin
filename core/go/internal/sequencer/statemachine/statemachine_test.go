@@ -23,9 +23,21 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/mocks/statemachinemocks"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// newTestEventLoopMetrics returns an EventLoopMetrics mock that accepts any observation, keeping the
+// event-loop tests focused on state-machine behaviour rather than metrics assertions.
+func newTestEventLoopMetrics(t *testing.T) *statemachinemocks.EventLoopMetrics {
+	m := statemachinemocks.NewEventLoopMetrics(t)
+	m.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything).Maybe()
+	m.EXPECT().ObserveEventQueueWait(mock.Anything, mock.Anything).Maybe()
+	m.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything).Maybe()
+	return m
+}
 
 // Test state types
 type TestState int
@@ -1089,6 +1101,7 @@ func TestNewStateMachineEventLoop_Basic(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "basic-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	require.NotNil(t, sel)
@@ -1125,6 +1138,7 @@ func TestStateMachineEventLoop_StartStopAndMethods(t *testing.T) {
 		Entity:         entity,
 		EventQueueSize: 10,
 		Name:           "pel-test",
+		Metrics:        newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1179,6 +1193,7 @@ func TestStateMachineEventLoop_ProcessEventSync(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "process-event-sync-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx := context.Background()
@@ -1207,6 +1222,7 @@ func TestStateMachineEventLoop_CancelWaitForDone(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "stop-async-wait-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1241,6 +1257,7 @@ func TestStateMachineEventLoop_StopCancelsWithoutFinalEvent(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "onstop-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1277,6 +1294,7 @@ func TestStateMachineEventLoop_WithTransitionCallback(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "transition-callback-test",
+		Metrics:      newTestEventLoopMetrics(t),
 		TransitionCallback: func(ctx context.Context, e *TestEntity, from, to TestState, event common.Event) {
 			fromState = from
 			toState = to
@@ -1310,6 +1328,7 @@ func TestStateMachineEventLoop_WithName(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "eventloop-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx := context.Background()
@@ -1338,6 +1357,7 @@ func TestStateMachineEventLoop_WithPreProcessHandled(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "preprocess-handled-test",
+		Metrics:      newTestEventLoopMetrics(t),
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			if event.Type() == Event_Start {
 				preHandled = true
@@ -1388,6 +1408,7 @@ func TestStateMachineEventLoop_WithPreProcessError(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "preprocess-error-test",
+		Metrics:      newTestEventLoopMetrics(t),
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			return false, preErr
 		},
@@ -1473,6 +1494,7 @@ func TestStateMachineEventLoop_PriorityQueueDrainedBeforeMain(t *testing.T) {
 		Entity:         entity,
 		EventQueueSize: 10,
 		Name:           "priority-drain-test",
+		Metrics:        newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1529,6 +1551,7 @@ func TestStateMachineEventLoop_QueuePriorityEvent(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "priority-queue-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1581,6 +1604,7 @@ func TestStateMachineEventLoop_TryQueuePriorityEvent(t *testing.T) {
 		EventQueueSize:         10,
 		PriorityEventQueueSize: 2,
 		Name:                   "try-priority-test",
+		Metrics:                newTestEventLoopMetrics(t),
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			blockCount++
 			if blockCount == 1 {
@@ -1640,6 +1664,7 @@ func TestStateMachineEventLoop_PrioritySyncEvent(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "priority-sync-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1685,6 +1710,7 @@ func TestStateMachineEventLoop_PriorityEventQueueSize(t *testing.T) {
 		EventQueueSize:         50,
 		PriorityEventQueueSize: 3,
 		Name:                   "priority-buffer-size-test",
+		Metrics:                newTestEventLoopMetrics(t),
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			blockCount++
 			if blockCount == 1 {
@@ -1746,6 +1772,7 @@ func TestStateMachineEventLoop_TryQueueEvent_BufferFull(t *testing.T) {
 		EventQueueSize:         2,
 		PriorityEventQueueSize: 10,
 		Name:                   "try-queue-test",
+		Metrics:                newTestEventLoopMetrics(t),
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			blockCount++
 			if blockCount == 1 {
@@ -1803,6 +1830,7 @@ func TestStateMachineEventLoop_QueueEvent_ContextCancelledWhenBufferFull(t *test
 		Entity:         entity,
 		EventQueueSize: 1,
 		Name:           "queue-event-cancelled-full-buffer-test",
+		Metrics:        newTestEventLoopMetrics(t),
 	})
 
 	// Do not start the loop: fill the single-slot queue so the next QueueEvent would block.
@@ -1841,6 +1869,7 @@ func TestStateMachineEventLoop_QueuePriorityEvent_ContextCancelledWhenBufferFull
 		Entity:                 entity,
 		PriorityEventQueueSize: 1,
 		Name:                   "queue-priority-event-cancelled-full-buffer-test",
+		Metrics:                newTestEventLoopMetrics(t),
 	})
 
 	// Do not start the loop: fill the single-slot queue so the next QueuePriorityEvent would block.
@@ -1877,6 +1906,7 @@ func TestStateMachineEventLoop_Cancel_WhenAlreadyStopped(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "stop-when-stopped-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1915,6 +1945,7 @@ func TestStateMachineEventLoop_Cancel_ConcurrentCalls(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "stop-concurrent-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1965,6 +1996,7 @@ func TestStateMachineEventLoop_Cancel_WhenAlreadyStopped_Equivalent(t *testing.T
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "stop-async-when-stopped-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2003,6 +2035,7 @@ func TestStateMachineEventLoop_Cancel_ConcurrentCalls_Equivalent(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "stop-async-concurrent-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2053,6 +2086,7 @@ func TestStateMachineEventLoop_ContextCancelled(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "context-cancelled-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2092,6 +2126,7 @@ func TestStateMachineEventLoop_StopAfterWork(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "stop-ignores-queued-events-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2133,6 +2168,7 @@ func TestStateMachineEventLoop_ProcessEventError_Priority(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "process-error-priority-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2180,6 +2216,7 @@ func TestStateMachineEventLoop_ProcessEventError_Main(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "process-error-main-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2235,6 +2272,7 @@ func TestStateMachineEventLoop_ProcessEventError_PriorityDrain(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "process-error-priority-drain-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2278,6 +2316,7 @@ func TestStateMachineEventLoop_SyncEventFromPrioritySelect(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "sync-from-priority-select-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2306,6 +2345,7 @@ func TestDrainPendingEvents_Empty(t *testing.T) {
 		Definitions:            definitions,
 		Entity:                 entity,
 		Name:                   "drain-empty-test",
+		Metrics:                newTestEventLoopMetrics(t),
 		EventQueueSize:         10,
 		PriorityEventQueueSize: 10,
 	})
@@ -2345,6 +2385,7 @@ func TestDrainPendingEvents_PriorityAndRegular(t *testing.T) {
 		Definitions:            definitions,
 		Entity:                 entity,
 		Name:                   "drain-mixed-test",
+		Metrics:                newTestEventLoopMetrics(t),
 		EventQueueSize:         10,
 		PriorityEventQueueSize: 10,
 	})
@@ -2387,6 +2428,7 @@ func TestDrainPendingEvents_PriorityError(t *testing.T) {
 		Definitions:            definitions,
 		Entity:                 entity,
 		Name:                   "drain-priority-err-test",
+		Metrics:                newTestEventLoopMetrics(t),
 		EventQueueSize:         10,
 		PriorityEventQueueSize: 10,
 	})
@@ -2425,6 +2467,7 @@ func TestDrainPendingEvents_RegularError(t *testing.T) {
 		Definitions:            definitions,
 		Entity:                 entity,
 		Name:                   "drain-regular-err-test",
+		Metrics:                newTestEventLoopMetrics(t),
 		EventQueueSize:         10,
 		PriorityEventQueueSize: 10,
 	})
@@ -2464,6 +2507,7 @@ func TestStateMachineEventLoop_ProcessEventError_PriorityFromSelect(t *testing.T
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "process-error-priority-select-test",
+		Metrics:      newTestEventLoopMetrics(t),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2730,4 +2774,72 @@ func TestMatchFirst_NilValidatorWarning(t *testing.T) {
 	err := entity.sm.ProcessEvent(context.Background(), entity, newTestEvent(Event_Start))
 	require.NoError(t, err)
 	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+}
+
+// TestStateMachineEventLoop_ObservesQueueWait verifies that every event dequeued by the loop reports
+// how long it sat on its queue, under the name of the queue it came off.
+func TestStateMachineEventLoop_ObservesQueueWait(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandlers[TestState, *TestEntity]{
+				Event_Start: {Handlers: []EventHandler[TestState, *TestEntity]{{
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				}}},
+			},
+		},
+	}
+
+	var mu sync.Mutex
+	var normalWaits, priorityWaits []time.Duration
+	metrics := statemachinemocks.NewEventLoopMetrics(t)
+	metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything).Maybe()
+	metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything).Maybe()
+	// Expecting each queue name explicitly means an observation under any other name fails the test.
+	metrics.EXPECT().ObserveEventQueueWait(queueNormal, mock.Anything).Run(func(queue string, duration time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		normalWaits = append(normalWaits, duration)
+	})
+	metrics.EXPECT().ObserveEventQueueWait(queuePriority, mock.Anything).Run(func(queue string, duration time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		priorityWaits = append(priorityWaits, duration)
+	})
+
+	entity := newTestEntity(definitions, "test-entity")
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState:           State_Idle,
+		Definitions:            definitions,
+		Entity:                 entity,
+		EventQueueSize:         10,
+		PriorityEventQueueSize: 10,
+		Name:                   "queue-wait-test",
+		Metrics:                metrics,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Queue before starting the loop, so the events demonstrably sit on their queues for a while.
+	sel.QueueEvent(ctx, newTestEvent(Event_Start))
+	require.True(t, sel.TryQueuePriorityEvent(ctx, newTestEvent(Event_Start)))
+	held := 5 * time.Millisecond
+	time.Sleep(held)
+
+	go sel.Start(ctx)
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	cancel()
+	waitForLoopDone(t, sel)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, normalWaits, "events off the main queue should report their wait")
+	require.NotEmpty(t, priorityWaits, "events off the priority queue should report their wait")
+	assert.GreaterOrEqual(t, normalWaits[0], held, "the wait should span the time the event was held before the loop started")
+	assert.GreaterOrEqual(t, priorityWaits[0], held, "the wait should span the time the event was held before the loop started")
 }

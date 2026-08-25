@@ -1089,6 +1089,12 @@ func (t *originatorTransaction) initializeStateMachine(initialState State) {
 	t.stateMachine = statemachine.NewStateMachine(initialState, stateDefinitionsMap,
 		fmt.Sprintf("orig-tx-%s", t.pt.ID.String()[0:8]),
 		statemachine.WithTransitionCallback(func(ctx context.Context, t *originatorTransaction, from, to State, event common.Event) {
+			// Record how long the transaction spent in the state it is leaving.
+			prev := t.stateEntryTime
+			now := t.clock.Now()
+			t.stateEntryTime = now
+			t.metrics.ObserveSequencerTXStateChange("originator", from.String(), now.Sub(prev))
+
 			if t.queueEventForOriginator != nil {
 				t.queueEventForOriginator(ctx, &common.TransactionStateTransitionEvent[State]{
 					BaseEvent:     common.BaseEvent{EventTime: time.Now()},
@@ -1099,6 +1105,7 @@ func (t *originatorTransaction) initializeStateMachine(initialState State) {
 			}
 		}),
 	)
+	t.stateEntryTime = t.clock.Now()
 }
 
 func (t *originatorTransaction) HandleEvent(ctx context.Context, event common.Event) error {

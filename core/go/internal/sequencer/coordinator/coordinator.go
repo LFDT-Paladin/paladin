@@ -144,7 +144,7 @@ type coordinator struct {
 	notifyOriginator      func(ctx context.Context, event common.Event) // optional callback to push events to the co-located originator
 
 	/* Dispatch loop */
-	dispatchQueue      chan transaction.CoordinatorTransaction
+	dispatchQueue      chan queuedDispatch
 	dispatchLoopCancel context.CancelFunc // non-nil iff this coordinator owns a running loop
 	dispatchLoopDone   chan struct{}      // per-run done channel; nil = never started / already stopped+waited
 	inFlightTxns       map[uuid.UUID]struct{}
@@ -228,7 +228,7 @@ func NewCoordinator(
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]struct{}, c.maxDispatchAhead)
 	c.pooledTransactions = make([]transaction.CoordinatorTransaction, 0, c.maxInflightTransactions)
-	c.dispatchQueue = make(chan transaction.CoordinatorTransaction, c.maxInflightTransactions)
+	c.dispatchQueue = make(chan queuedDispatch, c.maxInflightTransactions)
 
 	return c
 }
@@ -322,6 +322,7 @@ func (c *coordinator) setDispatchedInFlight(txID uuid.UUID, inFlight bool) {
 		delete(c.inFlightTxns, txID)
 		c.inFlightMutex.Signal()
 	}
+	c.metrics.SetInflightDispatchedTxns(len(c.inFlightTxns))
 }
 
 func (c *coordinator) getTransactionsInStates(ctx context.Context, states []transaction.State) []transaction.CoordinatorTransaction {

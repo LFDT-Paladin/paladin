@@ -1043,7 +1043,7 @@ func Test_action_CleanUpTransactionsNotYetDispatched_DrainsPendingDispatchQueueI
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Transactions(txPooled).Build()
 
 	// Pre-populate the dispatch queue with a transaction reference to exercise the drain path.
-	c.dispatchQueue <- txPooled
+	c.dispatchQueue <- queuedDispatch{txn: txPooled}
 
 	err := action_CleanUpTransactionsNotYetDispatched(ctx, c, nil)
 	require.NoError(t, err)

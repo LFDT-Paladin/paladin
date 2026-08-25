@@ -167,27 +167,35 @@ func sendDelegationRequest(ctx context.Context, o *originator, full bool) error 
 	})
 }
 
-// action_NotifyPartialDelegation indicates to the delegation batching loop that a partial delegation
+// requestPartialDelegation indicates to the delegation batching loop that a partial delegation
 // (only transactions State_Pending / State_Delegated) will be required on its next tick. Sending all
 // transactions in these states is required to preserve FIFO ordering from this originator until first
-// assembly. o.notifyPartialDelegation has length 1, so that multiple notfications result in a single
+// assembly. o.notifyPartialDelegation has length 1, so that multiple notifications result in a single
 // delegation request.
-func action_NotifyPartialDelegation(_ context.Context, o *originator, _ common.Event) error {
+func (o *originator) requestPartialDelegation() {
 	select {
 	case o.notifyPartialDelegation <- struct{}{}:
 	default:
 	}
-	return nil
 }
 
-// action_NotifyFullDelegation indicates to the delegation batching loop that a full delegation
-// (all resolved but unconfirmed transactions) will be required on its next tick. o.notifyFullDelegation
-// has length 1, so that multiple notfications result in a single delegation request.
-func action_NotifyFullDelegation(_ context.Context, o *originator, _ common.Event) error {
+// requestFullDelegation indicates to the delegation batching loop that a full delegation (all
+// resolved but unconfirmed transactions) will be required on its next tick. o.notifyFullDelegation
+// has length 1, so that multiple notifications result in a single delegation request.
+func (o *originator) requestFullDelegation() {
 	select {
 	case o.notifyFullDelegation <- struct{}{}:
 	default:
 	}
+}
+
+func action_NotifyPartialDelegation(_ context.Context, o *originator, _ common.Event) error {
+	o.requestPartialDelegation()
+	return nil
+}
+
+func action_NotifyFullDelegation(_ context.Context, o *originator, _ common.Event) error {
+	o.requestFullDelegation()
 	return nil
 }
 
