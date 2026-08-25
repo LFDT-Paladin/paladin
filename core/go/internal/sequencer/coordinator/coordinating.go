@@ -468,6 +468,7 @@ func (c *coordinator) addTransactionToBackOfPool(txn transaction.CoordinatorTran
 		}
 	}
 	c.pooledTransactions = append(c.pooledTransactions, txn)
+	c.metrics.SetPooledTxns(len(c.pooledTransactions))
 }
 
 func (c *coordinator) popNextPooledTransaction() transaction.CoordinatorTransaction {
@@ -477,6 +478,7 @@ func (c *coordinator) popNextPooledTransaction() transaction.CoordinatorTransact
 	nextPooledTx := c.pooledTransactions[0]
 	c.pooledTransactions[0] = nil // clear reference so the backing array doesn't pin the transaction from GC
 	c.pooledTransactions = c.pooledTransactions[1:]
+	c.metrics.SetPooledTxns(len(c.pooledTransactions))
 	return nextPooledTx
 }
 
@@ -485,6 +487,7 @@ func (c *coordinator) removeTransactionFromPool(id uuid.UUID) {
 		if txn.GetID() == id {
 			c.pooledTransactions[i] = nil
 			c.pooledTransactions = append(c.pooledTransactions[:i], c.pooledTransactions[i+1:]...)
+			c.metrics.SetPooledTxns(len(c.pooledTransactions))
 			return
 		}
 	}
@@ -532,7 +535,7 @@ func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, eve
 	txn := c.transactionsByID[e.TransactionID]
 	if txn != nil {
 		select {
-		case c.dispatchQueue <- txn:
+		case c.dispatchQueue <- queuedDispatch{txn: txn, enqueuedAt: c.clock.Now()}:
 		case <-ctx.Done():
 		}
 	}

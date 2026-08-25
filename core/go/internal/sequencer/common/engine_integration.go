@@ -18,11 +18,13 @@ package common
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -50,11 +52,12 @@ type EngineIntegration interface {
 	ResolveVerifiers(ctx context.Context, requiredVerifiers []*prototk.ResolveVerifierRequest) ([]*prototk.ResolvedVerifier, error)
 }
 
-func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract) EngineIntegration {
+func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract, metrics metrics.DistributedSequencerMetrics) EngineIntegration {
 	return &engineIntegration{
 		components:          allComponents,
 		domainSmartContract: domainSmartContract,
 		nodeName:            nodeName,
+		metrics:             metrics,
 	}
 
 }
@@ -63,6 +66,7 @@ type engineIntegration struct {
 	components          components.AllComponents
 	domainSmartContract components.DomainSmartContract
 	nodeName            string
+	metrics             metrics.DistributedSequencerMetrics
 }
 
 func (e *engineIntegration) ResolveStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
@@ -188,7 +192,9 @@ func (e *engineIntegration) assemble(ctx context.Context, transactionID uuid.UUI
 	 * Assemble
 	 */
 	log.L(ctx).Debugf("Assembling transaction %s", transactionID)
+	assembleStart := time.Now()
 	assemblyResponse, err := e.domainSmartContract.AssembleTransaction(ctx, domainQueryContext, e.components.Persistence().NOTX(), transactionID, preAssembly, localTx, resolvedVerifiers)
+	e.metrics.ObserveDomainCall(e.domainSmartContract.Domain().Name(), "assemble", time.Since(assembleStart))
 	if err != nil {
 		log.L(ctx).Errorf("error assembling transaction: %s", err)
 		return nil, err

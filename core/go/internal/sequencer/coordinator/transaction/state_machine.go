@@ -1013,10 +1013,12 @@ func (t *coordinatorTransaction) initializeStateMachine(initialState State) {
 		statemachine.WithTransitionCallback(func(ctx context.Context, t *coordinatorTransaction, from, to State, event common.Event) {
 			// Reset heartbeat counter on state change
 			t.heartbeatIntervalsSinceStateChange = 0
-			t.stateEntryTime = t.clock.Now()
+			prev := t.stateEntryTime
+			now := t.clock.Now()
+			t.stateEntryTime = now
 
-			// Record metrics
-			t.metrics.ObserveSequencerTXStateChange("Coord_"+to.String(), time.Duration(event.GetEventTime().Sub(t.stateMachine.GetLastStateChange()).Milliseconds()))
+			// Record how long the transaction spent in the state it is leaving.
+			t.metrics.ObserveSequencerTXStateChange("coordinator", from.String(), now.Sub(prev))
 
 			// Queue state transition event for the coordinator
 			if t.queueEventForCoordinator != nil {

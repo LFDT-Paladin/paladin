@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/sequencermetricsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -46,6 +47,7 @@ type eiMocks struct {
 	identityResolver    *componentsmocks.IdentityResolver
 	keyManager          *componentsmocks.KeyManager
 	domainManager       *componentsmocks.DomainManager
+	metrics             *sequencermetricsmocks.DistributedSequencerMetrics
 }
 
 func newTestEngineIntegration(t *testing.T) (EngineIntegration, *eiMocks) {
@@ -59,15 +61,17 @@ func newTestEngineIntegration(t *testing.T) (EngineIntegration, *eiMocks) {
 		identityResolver:    componentsmocks.NewIdentityResolver(t),
 		keyManager:          componentsmocks.NewKeyManager(t),
 		domainManager:       componentsmocks.NewDomainManager(t),
+		metrics:             sequencermetricsmocks.NewDistributedSequencerMetrics(t),
 	}
 
+	m.metrics.On("ObserveDomainCall", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 	m.allComponents.On("StateManager").Return(m.stateManager).Maybe()
 	m.allComponents.On("TxManager").Return(m.txManager).Maybe()
 	m.allComponents.On("IdentityResolver").Return(m.identityResolver).Maybe()
 	m.allComponents.On("KeyManager").Return(m.keyManager).Maybe()
 	m.allComponents.On("DomainManager").Return(m.domainManager).Maybe()
 
-	ei := NewEngineIntegration(context.Background(), m.allComponents, "node1", m.domainSmartContract)
+	ei := NewEngineIntegration(context.Background(), m.allComponents, "node1", m.domainSmartContract, m.metrics)
 	return ei, m
 }
 

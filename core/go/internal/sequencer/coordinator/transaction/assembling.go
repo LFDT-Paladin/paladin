@@ -51,6 +51,9 @@ func (t *coordinatorTransaction) revertTransactionFailedAssembly(ctx context.Con
 }
 
 func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, assemblyResponse *prototk.TransactionPostAssembly, requestID uuid.UUID) error {
+	applyStart := t.clock.Now()
+	defer func() { t.metrics.ObserveAssembleResponseApply(t.clock.Now().Sub(applyStart)) }()
+
 	t.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssembleResponse:      assemblyResponse,
 		CollectedEndorsements: append([]*prototk.AttestationResult{}, assemblyResponse.GetEndorsements()...),
