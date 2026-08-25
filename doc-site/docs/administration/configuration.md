@@ -805,6 +805,7 @@
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
 | delegationBatchInterval | Interval over which originator delegation requests are coalesced into a single batched send while in the sending state | `string` | `"50ms"` |
 | dispatchMaxBatchSize | Maximum number of transactions prepared and committed in a single dispatch batch | `int` | `100` |
+| endorseRetry | Retry configuration for endorsements performed by this node | [`RetryConfigWithMax`](#sequencermanagerendorseretry) | - |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
 | idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
 | inactiveGracePeriod | Number of heartbeat intervals without activity before a node is considered inactive | `int` | `2` |
@@ -820,6 +821,15 @@
 | transactionResumePageSize | Page size for reading pending transactions to resume | `int` | `1000` |
 | transactionResumePollInterval | Poll interval for resuming transactions | `string` | `"5m"` |
 | writer | Writer configuration | [`FlushWriterConfig`](#sequencermanagerwriter) | - |
+
+## sequencerManager.endorseRetry
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| factor | Exponential backoff factor | `float64` | `2.00` |
+| initialDelay | Initial delay before retry | `string` | `"250ms"` |
+| maxAttempts | Maximum number of retry attempts | `int` | `3` |
+| maxDelay | Maximum delay between retries | `string` | `"30s"` |
 
 ## sequencerManager.writer
 

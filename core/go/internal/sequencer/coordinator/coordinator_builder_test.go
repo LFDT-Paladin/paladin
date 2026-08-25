@@ -160,6 +160,15 @@ func copySequencerDefaultsForTest() *pldconf.SequencerConfig {
 		v := *def.Writer.BatchMaxSize
 		copy.Writer.BatchMaxSize = &v
 	}
+	// Very short retry delay for tests
+	copy.EndorseRetry = pldconf.RetryConfigWithMax{
+		RetryConfig: pldconf.RetryConfig{
+			InitialDelay: confutil.P("1ms"),
+			MaxDelay:     confutil.P("1ms"),
+			Factor:       confutil.P(1.0),
+		},
+		MaxAttempts: def.EndorseRetry.MaxAttempts,
+	}
 	return copy
 }
 
@@ -209,6 +218,13 @@ func (b *CoordinatorBuilderForTesting) GetSequencerConfig() *pldconf.SequencerCo
 
 func (b *CoordinatorBuilderForTesting) OverrideSequencerConfig(config *pldconf.SequencerConfig) *CoordinatorBuilderForTesting {
 	b.sequencerConfig = config
+	return b
+}
+
+// EndorseRetryMaxAttempts sets how many attempts the endorser-side endorsement work makes before
+// reporting an endorsement error back to the requester.
+func (b *CoordinatorBuilderForTesting) EndorseRetryMaxAttempts(n int) *CoordinatorBuilderForTesting {
+	b.sequencerConfig.EndorseRetry.MaxAttempts = confutil.P(n)
 	return b
 }
 

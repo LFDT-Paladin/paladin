@@ -738,6 +738,7 @@ var (
 	SequencerConfigCoordinatorEventQueueSize         = pdm("SequencerConfig.coordinatorEventQueueSize", "Queue size for coordinator state machine events")
 	SequencerConfigCoordinatorPriorityEventQueueSize = pdm("SequencerConfig.coordinatorPriorityEventQueueSize", "Queue size for coordinator priority events")
 	SequencerConfigDispatchMaxBatchSize              = pdm("SequencerConfig.dispatchMaxBatchSize", "Maximum number of transactions prepared and committed in a single dispatch batch")
+	SequencerConfigEndorseRetry                      = pdm("SequencerConfig.endorseRetry", "Retry configuration for endorsements performed by this node")
 	SequencerConfigOriginatorEventQueueSize          = pdm("SequencerConfig.originatorEventQueueSize", "Queue size for originator state machine events")
 	SequencerConfigOriginatorPriorityEventQueueSize  = pdm("SequencerConfig.originatorPriorityEventQueueSize", "Queue size for originator priority events")
 	SequencerConfigClosingGracePeriod                = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")
