@@ -653,7 +653,7 @@ func TestBlockIndexerListenFromCurrentUsingCheckpointBlock(t *testing.T) {
 	blocks, receipts := testBlockArray(t, 15)
 	mockBlocksRPCCalls(mRPC, blocks, receipts)
 
-	bi.persistence.DB().Table("indexed_blocks").Create(&pldapi.IndexedBlock{
+	bi.persistence.DB(context.Background()).Table("indexed_blocks").Create(&pldapi.IndexedBlock{
 		Number: 12345,
 		Hash:   pldtypes.MustParseBytes32(pldtypes.RandHex(32)),
 	})
@@ -1626,7 +1626,7 @@ func TestQueryIndexedTransactionsHasPaladinReceipt(t *testing.T) {
 	require.Len(t, txs, 1)
 	require.Equal(t, txHash, txs[0].Hash)
 
-	err = bi.persistence.DB().Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, tx_hash) VALUES (?, ?, ?, ?, ?)`,
+	err = bi.persistence.DB(ctx).Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, tx_hash) VALUES (?, ?, ?, ?, ?)`,
 		uuid.New(),
 		"",
 		pldtypes.TimestampNow(),

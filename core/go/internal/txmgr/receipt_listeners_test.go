@@ -503,7 +503,7 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	requireStrEqual(t, txID6, (<-r1.receipts).ID)
 
 	// Write the state that's missing
-	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+	err = txm.p.DB(ctx).WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
 		missingStateID1, pldtypes.TimestampNow(), "domain1", contract1,
 	).Error
 	require.NoError(t, err)
@@ -515,7 +515,7 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	requireStrEqual(t, txID2, (<-r1.receipts).ID)
 
 	// Write the second state that's missing
-	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+	err = txm.p.DB(ctx).WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
 		missingStateID2, pldtypes.TimestampNow(), "domain1", contract1,
 	).Error
 	require.NoError(t, err)
@@ -683,7 +683,7 @@ func TestBuildListenerDBQueryFailBadTypeDomainFilterCombos(t *testing.T) {
 		Filters: pldapi.TransactionReceiptFilters{
 			Domain: "not-private-filtered",
 		},
-	}, txm.p.DB())
+	}, txm.p.DB(ctx))
 	require.Regexp(t, "PD012236", err)
 
 	_, err = txm.buildListenerDBQuery(ctx, &pldapi.TransactionReceiptListener{
@@ -691,14 +691,14 @@ func TestBuildListenerDBQueryFailBadTypeDomainFilterCombos(t *testing.T) {
 			Type:   confutil.P(pldapi.TransactionTypePublic.Enum()),
 			Domain: "not-private",
 		},
-	}, txm.p.DB())
+	}, txm.p.DB(ctx))
 	require.Regexp(t, "PD012236", err)
 
 	_, err = txm.buildListenerDBQuery(ctx, &pldapi.TransactionReceiptListener{
 		Filters: pldapi.TransactionReceiptFilters{
 			Type: confutil.P(pldapi.TransactionType("badness").Enum()),
 		},
-	}, txm.p.DB())
+	}, txm.p.DB(ctx))
 	require.Regexp(t, "PD012236", err)
 }
 
@@ -1628,7 +1628,7 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	requireStrEqual(t, txID6, (<-r1.receipts).ID)
 
 	// Write the state that's missing
-	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+	err = txm.p.DB(ctx).WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
 		missingStateID1, pldtypes.TimestampNow(), "domain1", contract1,
 	).Error
 	require.NoError(t, err)
@@ -1640,7 +1640,7 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	requireStrEqual(t, txID2, (<-r1.receipts).ID)
 
 	// Write the second state that's missing
-	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+	err = txm.p.DB(ctx).WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
 		missingStateID2, pldtypes.TimestampNow(), "domain1", contract1,
 	).Error
 	require.NoError(t, err)
@@ -1649,7 +1649,7 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	txm.NotifyStatesDBChanged(ctx)
 
 	// Write the third state that's missing
-	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+	err = txm.p.DB(ctx).WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
 		missingStateID3, pldtypes.TimestampNow(), "domain1", contract1,
 	).Error
 	require.NoError(t, err)
@@ -1661,7 +1661,7 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	requireStrEqual(t, txID3, (<-r1.receipts).ID)
 
 	// And the fourth
-	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+	err = txm.p.DB(ctx).WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
 		missingStateID4, pldtypes.TimestampNow(), "domain1", contract1,
 	).Error
 	require.NoError(t, err)
@@ -1794,20 +1794,20 @@ func TestProcessStaleIncompletesStillIncomplete(t *testing.T) {
 
 	// Retrieve the inserted receipt's sequence number
 	var receipt transactionReceipt
-	err = txm.p.DB().Where(`"transaction" = ?`, txID).First(&receipt).Error
+	err = txm.p.DB(ctx).Where(`"transaction" = ?`, txID).First(&receipt).Error
 	require.NoError(t, err)
 
 	// Insert a state into the states table (required for InnerJoins("State")).
 	// Use raw SQL to satisfy the NOT NULL constraint on the `created` column.
 	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
-	err = txm.p.DB().Exec(
+	err = txm.p.DB(ctx).Exec(
 		`INSERT INTO states (id, created, domain_name) VALUES (?, ?, ?)`,
 		stateID, time.Now().UnixMilli(), "domain1",
 	).Error
 	require.NoError(t, err)
 
 	// Insert the incomplete record linking the receipt and state
-	err = txm.p.DB().Create(&persistedReceiptIncomplete{
+	err = txm.p.DB(ctx).Create(&persistedReceiptIncomplete{
 		Listener:   "listener1",
 		Sequence:   receipt.Sequence,
 		DomainName: "domain1",
@@ -1824,7 +1824,7 @@ func TestProcessStaleIncompletesStillIncomplete(t *testing.T) {
 
 	// Verify the incomplete record was updated with the new blocking state
 	var updated persistedReceiptIncomplete
-	err = txm.p.DB().Where(`"listener" = ? AND "sequence" = ?`, "listener1", receipt.Sequence).First(&updated).Error
+	err = txm.p.DB(ctx).Where(`"listener" = ? AND "sequence" = ?`, "listener1", receipt.Sequence).First(&updated).Error
 	require.NoError(t, err)
 	require.Equal(t, newMissingStateID, updated.StateID)
 

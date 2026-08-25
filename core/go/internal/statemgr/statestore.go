@@ -137,8 +137,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 	ctx = log.WithComponent(ctx, "statemanager")
 	if len(spends) > 0 {
 		log.L(ctx).Debugf("Finalizing spends: %s", logStateSpendRecords(spends))
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Table("state_spend_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(spends).
@@ -146,8 +145,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 	}
 	if err == nil && len(reads) > 0 {
 		log.L(ctx).Debugf("Finalizing reads: %s", logStateReadRecords(reads))
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Table("state_read_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(reads).
@@ -155,8 +153,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 	}
 	if err == nil && len(confirms) > 0 {
 		log.L(ctx).Debugf("Finalizing confirms: %s", logStateConfirmRecords(confirms))
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Table("state_confirm_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(confirms).
@@ -164,8 +161,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 	}
 	if err == nil && len(infoRecords) > 0 {
 		log.L(ctx).Debugf("Finalizing info: %s", logStateInfoRecords(infoRecords))
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Table("state_info_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(infoRecords).
@@ -179,8 +175,7 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 
 	// We query from the records table, joining in the other fields
 	var records []*transactionStateRecord
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		// This query joins across three tables in a single query - pushing the complexity to the DB.
 		// The reason we have three tables is to make the queries for available states simpler.
 		// Previously we used OR join condition to join the records table with the states table.

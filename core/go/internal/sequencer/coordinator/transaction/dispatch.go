@@ -78,12 +78,19 @@ func (t *coordinatorTransaction) dispatchPrepare(ctx context.Context) error {
 	}
 
 	localNullifiers, err := t.components.SequencerManager().BuildNullifiers(ctx, stateDistributionSet.Local)
-	if err == nil && len(localNullifiers) > 0 {
-		err = t.dsw.StageNullifierUpserts(ctx, localNullifiers...)
-	}
 	if err != nil {
 		log.L(ctx).Errorf("error building nullifiers: %s", err)
 		return err
+	}
+
+	// Stage the output/info states (resolved at assembly) together with their nullifiers for write in
+	// a single atomic call
+	statesToStage := append(t.pt.PostAssembly.OutputStatesWithLabels, t.pt.PostAssembly.InfoStatesWithLabels...)
+	if len(statesToStage) > 0 || len(localNullifiers) > 0 {
+		if err = t.dsw.StageWrites(ctx, statesToStage, localNullifiers...); err != nil {
+			log.L(ctx).Errorf("error staging states and nullifiers: %s", err)
+			return err
+		}
 	}
 
 	t.pendingDispatch = dispatch

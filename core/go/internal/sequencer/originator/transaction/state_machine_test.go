@@ -486,7 +486,7 @@ func Test_Delegated_PrivateStateComplete_ProceedsToAssembly(t *testing.T) {
 
 	// Builder default already returns true, nil; no override needed for the complete path.
 	mocks.EngineIntegration.On(
-		"Assemble", mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		"Assemble", mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil).Maybe()
@@ -695,6 +695,7 @@ func TestOriginatorTransaction_Assembling_StaysInAssembling_OnAssembleRequestRec
 	mocks.EngineIntegration.On(
 		"Assemble",
 		mock.Anything, txn.GetID(), mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Maybe().Return(nil, context.Canceled)
 
 	newRequestID := uuid.New()

@@ -47,18 +47,19 @@ type EthDeployTransaction struct {
 	Inputs         *abi.ComponentValue
 }
 
-// TransactionPostAssembly holds the proto assembly response alongside the go representations
-// of the same states. This approaches minimises CPU time spent converting between the two representations
-// at the expense of memory usage, since the same private state data is stored multiple times.
 type TransactionPostAssembly struct {
 	// Immutable proto: the wire format received/sent in AssembleResponse.
 	AssembleResponse *prototk.TransactionPostAssembly
 
 	// Output/Info states resolved from the OutputStatesPotential/InfoStatesPotential arrays in
-	// AssembleResponse, carrying the state IDs (hashes) computed by the write path. InputStates and
-	// ReadStates are returned with IDs in the AssembleResponse
-	OutputStates []*prototk.EndorsableState
-	InfoStates   []*prototk.EndorsableState
+	// AssembleResponse, with state IDs and labels computed. The post assembly steps of sequencing
+	// require these states in both prototk.EndorsableState and StateWithLabels form, so we store
+	// both representations upfront. This approaches intentionally minimises CPU time spent converting
+	// between the two representations at the expense of memory usage.
+	OutputStates           []*prototk.EndorsableState
+	OutputStatesWithLabels []*StateWithLabels
+	InfoStates             []*prototk.EndorsableState
+	InfoStatesWithLabels   []*StateWithLabels
 
 	// Endorsements accumulated during the EndorsementGathering phase by the coordinator.
 	// Seeded from AssemblyResponse.Endorsements so any pre-assembly endorsements included

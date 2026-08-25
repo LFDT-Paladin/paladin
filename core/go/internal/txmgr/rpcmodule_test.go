@@ -753,7 +753,7 @@ func TestRPCReceiptListenersCRUDRealDB(t *testing.T) {
 	txm.receiptsInit()
 
 	// Force persistent state to be started
-	err = txm.p.DB().Model(&persistedReceiptListener{}).
+	err = txm.p.DB(ctx).Model(&persistedReceiptListener{}).
 		Where("name = ?", "listener1").Update("started", true).Error
 	require.NoError(t, err)
 

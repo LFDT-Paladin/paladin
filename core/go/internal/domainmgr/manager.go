@@ -373,10 +373,9 @@ func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persisten
 
 func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistence.DBTX, setWhere func(db *gorm.DB) *gorm.DB) (pscLoadResult, *domainContract, error) {
 	var contracts []*PrivateSmartContract
-	query := dbTX.DB().Table("private_smart_contracts")
+	query := dbTX.DB(ctx).Table("private_smart_contracts")
 	query = setWhere(query)
 	err := query.
-		WithContext(ctx).
 		Limit(1).
 		Find(&contracts).
 		Error

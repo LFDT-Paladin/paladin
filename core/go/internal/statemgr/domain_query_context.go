@@ -153,7 +153,12 @@ func (dqc *domainQueryContext) ImportSnapshot(ctx context.Context, snapshot *pro
 	snapshotStates := snapshot.GetStates()
 	processedStates := make(map[string]*components.StateWithLabels, len(snapshotStates))
 	for _, snapshotState := range snapshotStates {
-		vs, err := dqc.ss.validateAndConvertEndorsableState(ctx, dqc.domainName, dqc.contractAddress, dqc.customHashFunction, dqc.ss.p.NOTX(), snapshotState.GetState(), true)
+		es := snapshotState.GetState()
+		schema, stateID, err := dqc.ss.parseSchemaAndIDFromEndorsableState(ctx, dqc.ss.p.NOTX(), dqc.domainName, es)
+		if err != nil {
+			return i18n.WrapError(ctx, err, msgs.MsgDomainContextImportBadStates)
+		}
+		vs, err := schema.ProcessStateWithLabels(ctx, &dqc.contractAddress, pldtypes.RawJSON(es.GetStateDataJson()), stateID, dqc.customHashFunction)
 		if err != nil {
 			return i18n.WrapError(ctx, err, msgs.MsgDomainContextImportBadStates)
 		}

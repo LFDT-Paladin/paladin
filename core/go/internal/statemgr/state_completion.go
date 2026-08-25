@@ -92,8 +92,7 @@ func (ss *stateManager) WritePendingPrivateStateDataBatch(ctx context.Context, d
 		})
 	}
 
-	return dbTX.DB().
-		WithContext(ctx).
+	return dbTX.DB(ctx).
 		Clauses(clause.OnConflict{
 			DoNothing: true,
 		}).
@@ -121,8 +120,7 @@ func (ss *stateManager) updatePendingPrivateStateData(ctx context.Context, dbTX 
 		arrivedStrs[i] = id.String()
 	}
 
-	return dbTX.DB().
-		WithContext(ctx).
+	return dbTX.DB(ctx).
 		Where("state_id IN ?", arrivedStrs).
 		Delete(&pendingPrivateStateData{}).
 		Error
@@ -132,8 +130,7 @@ func (ss *stateManager) updatePendingPrivateStateData(ctx context.Context, dbTX 
 // the given contract at or below the given block number.
 func (ss *stateManager) CheckPendingPrivateStateDataForContract(ctx context.Context, dbTX persistence.DBTX, contract string, block int64) (bool, error) {
 	var count int64
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Model(&pendingPrivateStateData{}).
 		Where("contract = ? AND block_number <= ?", contract, block).
 		Count(&count).

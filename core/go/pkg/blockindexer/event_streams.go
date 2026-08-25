@@ -96,9 +96,8 @@ func (bi *blockIndexer) loadEventStreams(ctx context.Context) error {
 	// Paladin is optimized for a relatively small number of event streams
 	// We hold all event streams in memory, as we process all of them against every block.
 	var eventStreams []*EventStreamDefinition
-	err := bi.persistence.DB().
+	err := bi.persistence.DB(ctx).
 		Table("event_streams").
-		WithContext(ctx).
 		Find(&eventStreams).
 		Error
 	if err != nil {
@@ -168,11 +167,10 @@ func (bi *blockIndexer) upsertInternalEventStream(ctx context.Context, dbTX pers
 
 	// Find if one exists - as we need to check it matches, and get its uuid
 	var existing []*EventStreamDefinition
-	err := dbTX.DB().
+	err := dbTX.DB(ctx).
 		Table("event_streams").
 		Where("type = ?", def.Type).
 		Where("name = ?", def.Name).
-		WithContext(ctx).
 		Find(&existing).
 		Error
 	if err != nil {
@@ -199,11 +197,10 @@ func (bi *blockIndexer) upsertInternalEventStream(ctx context.Context, dbTX pers
 		// Update in the DB so we store the latest config
 		// only the config can be updated. In particular the
 		// "Source" is immutable after creation
-		err := dbTX.DB().
+		err := dbTX.DB(ctx).
 			Table("event_streams").
 			Where("type = ?", def.Type).
 			Where("name = ?", def.Name).
-			WithContext(ctx).
 			Updates(&EventStreamDefinition{Config: def.Config}).
 			Error
 		if err != nil {
@@ -212,9 +209,8 @@ func (bi *blockIndexer) upsertInternalEventStream(ctx context.Context, dbTX pers
 	} else {
 		// Otherwise we're just creating
 		def.ID = uuid.New()
-		err := dbTX.DB().
+		err := dbTX.DB(ctx).
 			Table("event_streams").
-			WithContext(ctx).
 			Create(def).
 			Error
 		if err != nil {
@@ -314,8 +310,7 @@ func (bi *blockIndexer) RemoveEventStream(ctx context.Context, id uuid.UUID) err
 		return i18n.NewError(ctx, msgs.MsgBlockIndexerEventStreamNotFound, id)
 	}
 
-	err := bi.persistence.NOTX().DB().
-		WithContext(ctx).
+	err := bi.persistence.NOTX().DB(ctx).
 		Table("event_streams").
 		Where("id = ?", id).
 		Delete(&EventStreamDefinition{}).
@@ -336,9 +331,8 @@ func (bi *blockIndexer) QueryEventStreamDefinitions(ctx context.Context, dbTX pe
 	if jq == nil || jq.Limit == nil || *jq.Limit == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgBlockIndexerLimitRequired)
 	}
-	q := dbTX.DB().
+	q := dbTX.DB(ctx).
 		Table("event_streams").
-		WithContext(ctx).
 		Where("type = ?", esType)
 
 	q = filters.BuildGORM(ctx, jq, q, EventStreamFilters)
@@ -411,8 +405,7 @@ func (es *eventStream) start(updateDB bool) error {
 		es.ctx, es.cancelCtx = context.WithCancel(log.WithLogField(es.bi.parentCtxForReset, "eventstream", es.definition.ID.String()))
 		log.L(es.ctx).Infof("Starting event stream %s [%s]", es.definition.Name, es.definition.ID)
 		if updateDB {
-			err := es.bi.persistence.NOTX().DB().
-				WithContext(es.ctx).
+			err := es.bi.persistence.NOTX().DB(es.ctx).
 				Table("event_streams").
 				Where("id = ?", es.definition.ID).
 				Update("started", true).
@@ -438,8 +431,7 @@ func (es *eventStream) start(updateDB bool) error {
 
 func (es *eventStream) stop(updateDB bool) error {
 	if updateDB {
-		err := es.bi.persistence.NOTX().DB().
-			WithContext(es.ctx).
+		err := es.bi.persistence.NOTX().DB(es.ctx).
 			Table("event_streams").
 			Where("id = ?", es.definition.ID).
 			Update("started", false).
@@ -470,10 +462,9 @@ func (es *eventStream) stop(updateDB bool) error {
 
 func (es *eventStream) readDBCheckpoint() (*int64, error) {
 	var checkpoints []*EventStreamCheckpoint
-	err := es.bi.persistence.DB().
+	err := es.bi.persistence.DB(es.ctx).
 		Table("event_stream_checkpoints").
 		Where("stream = ?", es.definition.ID).
-		WithContext(es.ctx).
 		Find(&checkpoints).
 		Error
 	if err != nil {
@@ -508,11 +499,10 @@ func (es *eventStream) processCheckpoint() (baseBlock *int64, err error) {
 func (bi *blockIndexer) getHighestIndexedBlock(ctx context.Context) (*int64, error) {
 	var blocks []*pldapi.IndexedBlock
 	err := bi.retry.Do(ctx, func(attempt int) (retryable bool, err error) {
-		return true, bi.persistence.DB().
+		return true, bi.persistence.DB(ctx).
 			Table("indexed_blocks").
 			Order("number DESC").
 			Limit(1).
-			WithContext(ctx).
 			Find(&blocks).
 			Error
 	})
@@ -756,8 +746,7 @@ func (es *eventStream) dispatcher() {
 }
 
 func (es *eventStream) updateCheckpoint(ctx context.Context, dbTX persistence.DBTX, blockNumber int64) error {
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Table("event_stream_checkpoints").
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "stream"}},
@@ -810,7 +799,7 @@ func (es *eventStream) processCatchupEventPage(lastCatchupEvent *pldapi.IndexedE
 	pageSize := es.bi.esCatchUpQueryPageSize
 	var page []*pldapi.IndexedEvent
 	err = es.bi.retry.Do(es.ctx, func(attempt int) (retryable bool, err error) {
-		db := es.bi.persistence.DB()
+		db := es.bi.persistence.DB(es.ctx)
 		q := db.
 			Table("indexed_events").
 			Joins("Block").

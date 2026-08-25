@@ -21,7 +21,6 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
@@ -75,7 +74,7 @@ type Grapher interface {
 	ImportStatesAndLocks(ctx context.Context, snapshot *prototk.StateSnapshot)
 	GetDependencies(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
 	GetDependents(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
-	LockMintsOnCreate(ctx context.Context, upserts []*components.StateUpsert, states []*prototk.EndorsableState, transactionID uuid.UUID)
+	LockMintsOnCreate(ctx context.Context, states []*prototk.EndorsableState, transactionID uuid.UUID)
 	LockMintsOnReadAndSpend(ctx context.Context, readStates []*prototk.EndorsableState, spendStates []*prototk.EndorsableState, transactionID uuid.UUID)
 }
 
@@ -349,20 +348,18 @@ func (g *grapher) GetDependents(ctx context.Context, transactionID uuid.UUID) []
 }
 
 // Caller must hold write lock.
-func (g *grapher) LockMintsOnCreate(ctx context.Context, upserts []*components.StateUpsert, states []*prototk.EndorsableState, transactionID uuid.UUID) {
+func (g *grapher) LockMintsOnCreate(ctx context.Context, states []*prototk.EndorsableState, transactionID uuid.UUID) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	g.addConsumer(transactionID)
 	txnStr := transactionID.String()
-	for i, ps := range upserts {
-		if ps.CreatedBy != nil {
-			stateID := states[i].GetId()
-			log.L(ctx).Debugf("LockMintsOnCreate: creating lock for potential state %s, it's full state ID is %s", ps.ID.String(), stateID)
-			lock := &prototk.SnapshotStateLock{StateId: stateID, Transaction: &txnStr, Type: prototk.SnapshotStateLock_CREATE}
-			g.createLocksByStateID[stateID] = lock
-			g.locksByTransaction[transactionID] = append(g.locksByTransaction[transactionID], lock)
-		}
+	for _, state := range states {
+		stateID := state.GetId()
+		log.L(ctx).Debugf("LockMintsOnCreate: creating lock for state %s", stateID)
+		lock := &prototk.SnapshotStateLock{StateId: stateID, Transaction: &txnStr, Type: prototk.SnapshotStateLock_CREATE}
+		g.createLocksByStateID[stateID] = lock
+		g.locksByTransaction[transactionID] = append(g.locksByTransaction[transactionID], lock)
 	}
 }
 

@@ -103,7 +103,7 @@ func (gm *groupManager) SendMessage(ctx context.Context, dbTX persistence.DBTX, 
 	if err := pMsg.preValidate(ctx); err != nil {
 		return nil, err
 	}
-	if err := dbTX.DB().WithContext(ctx).Create(pMsg).Error; err != nil {
+	if err := dbTX.DB(ctx).Create(pMsg).Error; err != nil {
 		return nil, err
 	}
 
@@ -182,8 +182,7 @@ func (gm *groupManager) ReceiveMessages(ctx context.Context, dbTX persistence.DB
 	}
 
 	if len(pMsgs) > 0 {
-		if err := dbTX.DB().
-			WithContext(ctx).
+		if err := dbTX.DB(ctx).
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(pMsgs).
 			Error; err != nil {
