@@ -395,6 +395,40 @@ func Test_handleEndorsementRequest_Revert_NoRevertReason_UsesDefaultMessage(t *t
 	c.handleEndorsementRequest(ctx, event)
 }
 
+func Test_handleEndorsementRequest_NonRevertResultWithRevertReason_LogsWarningAndIgnoresReason(t *testing.T) {
+	// A revert reason on a result that is not a REVERT is a domain bug - it is logged at WARN and
+	// dropped, so the response carries no revert reason.
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		WithMockTransportWriter().
+		Build()
+
+	setupEndorsementMocks(t, mocks)
+	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
+
+	revertMsg := "ignored by the coordinator"
+	endorsementResult := &components.EndorsementResult{
+		Result:       prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
+		RevertReason: &revertMsg,
+		Endorser:     &prototk.ResolvedVerifier{Lookup: "party1@node2"},
+	}
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+
+	var capturedMsg *engineProto.EndorsementResponse
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementResponse(mock.Anything, "node2", mock.Anything).
+		Run(func(_ context.Context, _ string, msg *engineProto.EndorsementResponse) {
+			capturedMsg = msg
+		}).
+		Return(nil)
+
+	event := buildEndorsementEvent("node2")
+	c.handleEndorsementRequest(ctx, event)
+
+	require.NotNil(t, capturedMsg)
+	assert.Nil(t, capturedMsg.RevertReason)
+}
+
 func Test_handleEndorsementRequest_PartyIdentityError_SendsEndorsementError(t *testing.T) {
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).

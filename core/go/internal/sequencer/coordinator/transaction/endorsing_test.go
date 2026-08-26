@@ -22,6 +22,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -339,6 +340,46 @@ func Test_requestEndorsement_InvalidPartyLocator_ReturnsError(t *testing.T) {
 	// "a@b@c" has too many @ signs and fails locator parsing.
 	err := txn.requestEndorsement(ctx, uuid.New(), "a@b@c", &prototk.AttestationRequest{})
 	require.Error(t, err)
+}
+
+func Test_action_FinalizeEndorseRevert_WritesFailureReceipt(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
+	txn.endorseRevertReasons = []string{"insufficient funds"}
+
+	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Run(func(_ context.Context, req *syncpoints.TransactionFinalizeRequest, onSuccess func(context.Context), _ func(context.Context, error)) {
+		assert.Equal(t, txn.pt.ID, req.TransactionID)
+		assert.Contains(t, req.FailureMessage, "insufficient funds")
+		onSuccess(ctx)
+	}).Return()
+
+	err := action_FinalizeEndorseRevert(ctx, txn, nil)
+	require.NoError(t, err)
+}
+
+func Test_action_FinalizeEndorseRevert_RetriesUntilTheReceiptLands(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
+	txn.endorseRevertReasons = []string{"insufficient funds"}
+
+	callCount := 0
+	maxCalls := 2
+	mocks.SyncPoints.On("QueueTransactionFinalize",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Run(func(args mock.Arguments) {
+		callCount++
+		if callCount < maxCalls {
+			args.Get(3).(func(context.Context, error))(ctx, errors.New("finalize failed"))
+		} else {
+			args.Get(2).(func(context.Context))(ctx)
+		}
+	}).Return()
+
+	err := action_FinalizeEndorseRevert(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.Equal(t, maxCalls, callCount)
 }
 
 func Test_validator_MatchesPendingEndorsementRequest(t *testing.T) {

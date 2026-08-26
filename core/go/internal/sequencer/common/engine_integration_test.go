@@ -413,6 +413,36 @@ func TestEngineIntegration_ResolveVerifiers_FirstErrorReturned(t *testing.T) {
 	assert.Nil(t, resolved)
 }
 
+func TestEngineIntegration_Assemble_NilLocalTx(t *testing.T) {
+	// The originator always supplies the resolved transaction, so a nil is a programming error
+	// in the state machine rather than a recoverable condition - it is rejected up front.
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name    string
+		localTx *components.ResolvedTransaction
+	}{
+		{name: "nil resolved transaction", localTx: nil},
+		{name: "resolved transaction with no transaction", localTx: &components.ResolvedTransaction{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ei, m := newTestEngineIntegration(t)
+
+			m.domainSmartContract.On("Domain").Return(m.domain)
+			m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
+
+			mockDqc := componentsmocks.NewDomainQueryContext(t)
+			m.stateManager.On("NewDomainQueryContext", mock.Anything, m.domain, mock.Anything).
+				Return(mockDqc).Once()
+			mockDqc.On("Close", mock.Anything).Return().Once()
+			mockDqc.On("ImportSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
+
+			_, err := ei.Assemble(ctx, uuid.New(), &prototk.TransactionPreAssembly{}, nil, nil, 100, tc.localTx)
+			require.Regexp(t, "PD012601", err)
+		})
+	}
+}
+
 func TestEngineIntegration_Assemble_WrongDomain(t *testing.T) {
 	// Transaction exists but is for a different domain → logs error and returns.
 	ctx := context.Background()

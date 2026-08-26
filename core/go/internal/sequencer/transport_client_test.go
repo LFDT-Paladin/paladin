@@ -2359,7 +2359,7 @@ func TestHandleDispatchedEvent_SequencerNotLoaded(t *testing.T) {
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
-	payload, _ := proto.Marshal(&engineProto.TransactionDispatched{ContractAddress: contractAddr.String(), TransactionId: "0x00000000000000000000000000000001"})
+	payload, _ := proto.Marshal(&engineProto.TransactionDispatched{ContractAddress: contractAddr.String(), TransactionId: uuid.New().String()})
 	sm.handleDispatchedEvent(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_Dispatched, Payload: payload})
 }
 
