@@ -31,15 +31,15 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatorstateviewmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
-	"github.com/LFDT-Paladin/paladin/core/mocks/stateviewmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -77,7 +77,7 @@ type TransactionBuilderForTesting struct {
 	useMockTransportWriter             bool
 	useMockClock                       bool
 	grapher                            grapher.Grapher
-	stateViewServer                    stateview.Server
+	stateViewProvider                  stateview.Provider
 	stateVisibilityTracker             statevisibilitytracker.StateVisibilityStore
 	dependencyTracker                  dependencytracker.DependencyTracker
 	txn                                *coordinatorTransaction
@@ -227,8 +227,8 @@ func (b *TransactionBuilderForTesting) Grapher(grapher grapher.Grapher) *Transac
 	return b
 }
 
-func (b *TransactionBuilderForTesting) StateViewServer(stateViewServer stateview.Server) *TransactionBuilderForTesting {
-	b.stateViewServer = stateViewServer
+func (b *TransactionBuilderForTesting) StateViewProvider(stateViewProvider stateview.Provider) *TransactionBuilderForTesting {
+	b.stateViewProvider = stateViewProvider
 	return b
 }
 
@@ -489,7 +489,7 @@ type transactionDependencyMocks struct {
 	PublicTxManager     *componentsmocks.PublicTxManager
 	TXManager           *componentsmocks.TXManager
 	SequenceManager     *componentsmocks.SequencerManager
-	StateViewServer     *stateviewmocks.Server
+	StateViewProvider   *coordinatorstateviewmocks.Provider
 	DB                  sqlmock.Sqlmock
 }
 
@@ -564,15 +564,15 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		clock = common.RealClock()
 	}
 
-	// Default the stateview session server to a permissive mock: session open/close fire on every
+	// Default the stateview provider to a permissive mock: view open/close fire on every
 	// entry/exit of State_Assembling, and most tests do not assert on them. Tests that do can inject
-	// a strict mock via StateViewServer(...).
-	stateViewServer := b.stateViewServer
-	if stateViewServer == nil {
-		mocks.StateViewServer = stateviewmocks.NewServer(b.t)
-		mocks.StateViewServer.EXPECT().OpenSession(mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mocks.StateViewServer.EXPECT().CloseSession(mock.Anything, mock.Anything).Return().Maybe()
-		stateViewServer = mocks.StateViewServer
+	// a strict mock via StateViewProvider(...).
+	stateViewProvider := b.stateViewProvider
+	if stateViewProvider == nil {
+		mocks.StateViewProvider = coordinatorstateviewmocks.NewProvider(b.t)
+		mocks.StateViewProvider.EXPECT().OpenView(mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mocks.StateViewProvider.EXPECT().CloseView(mock.Anything, mock.Anything).Return().Maybe()
+		stateViewProvider = mocks.StateViewProvider
 	}
 
 	txn := newTransaction(
@@ -604,7 +604,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.assembleErrorRetryThreshhold,
 		b.signErrorRetryThreshhold,
 		b.grapher,
-		stateViewServer,
+		stateViewProvider,
 		b.stateVisibilityTracker,
 		b.dependencyTracker,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),

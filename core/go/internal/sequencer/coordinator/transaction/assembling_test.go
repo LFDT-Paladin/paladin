@@ -26,8 +26,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatorstateviewmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
-	"github.com/LFDT-Paladin/paladin/core/mocks/stateviewmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/statevisibilitytrackermocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -944,7 +944,7 @@ func Test_validator_IsAssembleRejection_NoMatch(t *testing.T) {
 	assert.False(t, match)
 }
 
-func Test_sendAssembleRequest_CarriesSessionIDOnly(t *testing.T) {
+func Test_sendAssembleRequest_CarriesAssembleRequestIDOnly(t *testing.T) {
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
@@ -952,7 +952,7 @@ func Test_sendAssembleRequest_CarriesSessionIDOnly(t *testing.T) {
 		Build()
 
 	// No state data rides the request: the originator pulls candidates and spent state IDs on
-	// demand through the stateview session keyed by the assemble request ID.
+	// demand from the state view captured under the assemble request ID.
 	spentStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("aa", 32))
 	txn.grapher.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: spentStateID.String()}}, uuid.New())
 
@@ -966,36 +966,36 @@ func Test_sendAssembleRequest_CarriesSessionIDOnly(t *testing.T) {
 	err := txn.sendAssembleRequest(ctx)
 	require.NoError(t, err)
 	require.Len(t, sentRequestIDs, 1)
-	assert.Equal(t, txn.assembleSessionID.String(), sentRequestIDs[0])
+	assert.Equal(t, txn.assembleRequestID.String(), sentRequestIDs[0])
 
-	// A nudge re-sends under the same session ID, so the frozen view still serves it.
+	// A nudge re-sends under the same assemble request ID, so the frozen view still serves it.
 	err = txn.nudgeAssembleRequest(ctx)
 	require.NoError(t, err)
 	require.Len(t, sentRequestIDs, 2)
 	assert.Equal(t, sentRequestIDs[0], sentRequestIDs[1])
 }
 
-func Test_action_OpenStateViewSession_OpensSessionForOriginatorNode(t *testing.T) {
+func Test_action_OpenStateView_CapturesViewForOriginatorNode(t *testing.T) {
 	ctx := t.Context()
-	mockServer := stateviewmocks.NewServer(t)
-	mockServer.EXPECT().OpenSession(mock.Anything, mock.Anything, "node1").Return()
+	mockProvider := coordinatorstateviewmocks.NewProvider(t)
+	mockProvider.EXPECT().OpenView(mock.Anything, mock.Anything, "node1").Return()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		StateViewServer(mockServer).
+		StateViewProvider(mockProvider).
 		Build()
 
-	require.NoError(t, action_OpenStateViewSession(ctx, txn, nil))
-	require.NotEqual(t, uuid.Nil, txn.assembleSessionID)
+	require.NoError(t, action_OpenStateView(ctx, txn, nil))
+	require.NotEqual(t, uuid.Nil, txn.assembleRequestID)
 }
 
-func Test_action_CloseStateViewSession_ClosesSession(t *testing.T) {
+func Test_action_CloseStateView_DiscardsView(t *testing.T) {
 	ctx := t.Context()
-	mockServer := stateviewmocks.NewServer(t)
-	mockServer.EXPECT().CloseSession(mock.Anything, mock.Anything).Return()
+	mockProvider := coordinatorstateviewmocks.NewProvider(t)
+	mockProvider.EXPECT().CloseView(mock.Anything, mock.Anything).Return()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		StateViewServer(mockServer).
+		StateViewProvider(mockProvider).
 		Build()
 
-	require.NoError(t, action_CloseStateViewSession(ctx, txn, nil))
+	require.NoError(t, action_CloseStateView(ctx, txn, nil))
 }

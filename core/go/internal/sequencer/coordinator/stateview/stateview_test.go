@@ -38,24 +38,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testContractAddress = "0x1234567890123456789012345678901234567890"
+
 var (
-	testStateID   = pldtypes.MustParseHexBytes("0x" + strings.Repeat("aa", 32))
-	testSchemaID  = pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32))
-	testSessionID = "session-1"
+	testStateID           = pldtypes.MustParseHexBytes("0x" + strings.Repeat("aa", 32))
+	testSchemaID          = pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32))
+	testAssembleRequestID = "assemble-1"
 )
 
-// serverTestSetup builds a server over a real grapher + visibility tracker holding one labelled,
+// providerTestSetup builds a provider over a real grapher + visibility tracker holding one labelled,
 // CREATE-locked state visible to node1, with a mocked state manager for the match evaluation. A
-// session (testSessionID) is opened for node1, freezing that state as its candidate snapshot.
-func serverTestSetup(t *testing.T) (Server, *testutil.SentMessageRecorder, *componentsmocks.StateManager) {
+// view is captured for node1 under testAssembleRequestID, freezing that state as its candidate snapshot.
+func providerTestSetup(t *testing.T) (Provider, *testutil.SentMessageRecorder, *componentsmocks.StateManager) {
 	recorder := testutil.NewSentMessageRecorder()
-	s, stateManager := serverTestSetupWithWriter(t, recorder)
-	return s, recorder, stateManager
+	p, stateManager := providerTestSetupWithWriter(t, recorder)
+	return p, recorder, stateManager
 }
 
-// serverTestSetupWithWriter is serverTestSetup with a caller-supplied transport writer, for tests
+// providerTestSetupWithWriter is providerTestSetup with a caller-supplied transport writer, for tests
 // that exercise the fire-and-forget send-failure paths.
-func serverTestSetupWithWriter(t *testing.T, writer transport.TransportWriter) (Server, *componentsmocks.StateManager) {
+func providerTestSetupWithWriter(t *testing.T, writer transport.TransportWriter) (Provider, *componentsmocks.StateManager) {
 	ctx := t.Context()
 	tracker := statevisibilitytracker.NewStore()
 	g := grapher.NewGrapher(dependencytracker.NewDependencyTracker(), tracker, 10)
@@ -65,12 +67,12 @@ func serverTestSetupWithWriter(t *testing.T, writer transport.TransportWriter) (
 	g.LockMintsOnCreate(ctx, states, uuid.New())
 
 	stateManager := componentsmocks.NewStateManager(t)
-	s := NewServer("test-domain", testContractAddress, writer, g, stateManager)
-	s.OpenSession(ctx, testSessionID, "node1")
-	return s, stateManager
+	p := NewProvider("test-domain", testContractAddress, writer, g, stateManager)
+	p.OpenView(ctx, testAssembleRequestID, "node1")
+	return p, stateManager
 }
 
-// failingWriter wraps the SentMessageRecorder, failing selected sends so the server's
+// failingWriter wraps the SentMessageRecorder, failing selected sends so the provider's
 // fire-and-forget warn-only paths can be exercised.
 type failingWriter struct {
 	*testutil.SentMessageRecorder
@@ -100,9 +102,9 @@ func (w *failingWriter) SendStateViewError(ctx context.Context, node string, msg
 	return w.SentMessageRecorder.SendStateViewError(ctx, node, msg)
 }
 
-func TestServer_HandleQueryAvailableStates_ServesMatchingStates(t *testing.T) {
+func TestProvider_HandleQueryAvailableStates_ServesMatchingStates(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, stateManager := serverTestSetup(t)
+	p, recorder, stateManager := providerTestSetup(t)
 
 	// The matcher receives the visible candidates and returns the winners; the response carries
 	// their full data plus created.
@@ -113,12 +115,12 @@ func TestServer_HandleQueryAvailableStates_ServesMatchingStates(t *testing.T) {
 			return []*prototk.QueriedState{{State: candidates[0].GetState(), Created: candidates[0].GetCreated()}}, nil
 		}).Once()
 
-	s.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SchemaId:        testSchemaID.String(),
-		QueryJson:       `{}`,
-		SessionId:       testSessionID,
+	p.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		SchemaId:          testSchemaID.String(),
+		QueryJson:         `{}`,
+		AssembleRequestId: testAssembleRequestID,
 	})
 
 	require.Empty(t, recorder.SentStateViewErrors())
@@ -132,25 +134,25 @@ func TestServer_HandleQueryAvailableStates_ServesMatchingStates(t *testing.T) {
 	assert.NotZero(t, responses[0].GetStates()[0].GetCreated())
 }
 
-func TestServer_HandleQueryAvailableStates_UnentitledNodeGetsNoCandidates(t *testing.T) {
+func TestProvider_HandleQueryAvailableStates_UnentitledNodeGetsNoCandidates(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, stateManager := serverTestSetup(t)
+	p, recorder, stateManager := providerTestSetup(t)
 
-	// node2 has no visibility (default-deny): its session snapshot captures zero candidates — an
+	// node2 has no visibility (default-deny): its snapshot captures zero candidates — an
 	// empty response, never an error, and never a data leak.
-	s.OpenSession(ctx, "session-2", "node2")
+	p.OpenView(ctx, "assemble-2", "node2")
 	stateManager.EXPECT().FindMatchingInMemoryStates(mock.Anything, "test-domain", testSchemaID, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, _ string, _ pldtypes.Bytes32, _ *query.QueryJSON, candidates []*prototk.SnapshotState) ([]*prototk.QueriedState, error) {
 			assert.Empty(t, candidates)
 			return nil, nil
 		}).Once()
 
-	s.HandleQueryAvailableStates(ctx, "node2", &engineProto.QueryAvailableStatesRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SchemaId:        testSchemaID.String(),
-		QueryJson:       `{}`,
-		SessionId:       "session-2",
+	p.HandleQueryAvailableStates(ctx, "node2", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		SchemaId:          testSchemaID.String(),
+		QueryJson:         `{}`,
+		AssembleRequestId: "assemble-2",
 	})
 
 	require.Empty(t, recorder.SentStateViewErrors())
@@ -159,16 +161,16 @@ func TestServer_HandleQueryAvailableStates_UnentitledNodeGetsNoCandidates(t *tes
 	assert.Empty(t, responses[0].GetStates())
 }
 
-func TestServer_HandleQueryAvailableStates_BadSchemaID(t *testing.T) {
+func TestProvider_HandleQueryAvailableStates_BadSchemaID(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, _ := serverTestSetup(t)
+	p, recorder, _ := providerTestSetup(t)
 
-	s.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SchemaId:        "not-a-schema",
-		QueryJson:       `{}`,
-		SessionId:       testSessionID,
+	p.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		SchemaId:          "not-a-schema",
+		QueryJson:         `{}`,
+		AssembleRequestId: testAssembleRequestID,
 	})
 
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
@@ -178,16 +180,16 @@ func TestServer_HandleQueryAvailableStates_BadSchemaID(t *testing.T) {
 	assert.Regexp(t, "PD012650", errs[0].GetErrorMessage())
 }
 
-func TestServer_HandleQueryAvailableStates_BadQueryJSON(t *testing.T) {
+func TestProvider_HandleQueryAvailableStates_BadQueryJSON(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, _ := serverTestSetup(t)
+	p, recorder, _ := providerTestSetup(t)
 
-	s.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SchemaId:        testSchemaID.String(),
-		QueryJson:       `!!!not json`,
-		SessionId:       testSessionID,
+	p.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		SchemaId:          testSchemaID.String(),
+		QueryJson:         `!!!not json`,
+		AssembleRequestId: testAssembleRequestID,
 	})
 
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
@@ -196,19 +198,19 @@ func TestServer_HandleQueryAvailableStates_BadQueryJSON(t *testing.T) {
 	assert.Regexp(t, "PD012650", errs[0].GetErrorMessage())
 }
 
-func TestServer_HandleQueryAvailableStates_EvaluationError(t *testing.T) {
+func TestProvider_HandleQueryAvailableStates_EvaluationError(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, stateManager := serverTestSetup(t)
+	p, recorder, stateManager := providerTestSetup(t)
 
 	stateManager.EXPECT().FindMatchingInMemoryStates(mock.Anything, "test-domain", testSchemaID, mock.Anything, mock.Anything).
 		Return(nil, errors.New("pop")).Once()
 
-	s.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SchemaId:        testSchemaID.String(),
-		QueryJson:       `{}`,
-		SessionId:       testSessionID,
+	p.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		SchemaId:          testSchemaID.String(),
+		QueryJson:         `{}`,
+		AssembleRequestId: testAssembleRequestID,
 	})
 
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
@@ -218,16 +220,16 @@ func TestServer_HandleQueryAvailableStates_EvaluationError(t *testing.T) {
 	assert.Regexp(t, "pop", errs[0].GetErrorMessage())
 }
 
-func TestServer_HandleQueryAvailableStates_UnknownSession(t *testing.T) {
+func TestProvider_HandleQueryAvailableStates_UnknownAssemble(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, _ := serverTestSetup(t)
+	p, recorder, _ := providerTestSetup(t)
 
-	s.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SchemaId:        testSchemaID.String(),
-		QueryJson:       `{}`,
-		SessionId:       "no-such-session",
+	p.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		SchemaId:          testSchemaID.String(),
+		QueryJson:         `{}`,
+		AssembleRequestId: "no-such-assemble",
 	})
 
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
@@ -236,17 +238,17 @@ func TestServer_HandleQueryAvailableStates_UnknownSession(t *testing.T) {
 	assert.Regexp(t, "PD012651", errs[0].GetErrorMessage())
 }
 
-func TestServer_HandleQueryAvailableStates_WrongNode(t *testing.T) {
+func TestProvider_HandleQueryAvailableStates_WrongNode(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, _ := serverTestSetup(t)
+	p, recorder, _ := providerTestSetup(t)
 
-	// The session was opened for node1; node2 must not be able to query it.
-	s.HandleQueryAvailableStates(ctx, "node2", &engineProto.QueryAvailableStatesRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SchemaId:        testSchemaID.String(),
-		QueryJson:       `{}`,
-		SessionId:       testSessionID,
+	// The view was captured for node1; node2 must not be able to query it.
+	p.HandleQueryAvailableStates(ctx, "node2", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		SchemaId:          testSchemaID.String(),
+		QueryJson:         `{}`,
+		AssembleRequestId: testAssembleRequestID,
 	})
 
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
@@ -255,18 +257,18 @@ func TestServer_HandleQueryAvailableStates_WrongNode(t *testing.T) {
 	assert.Regexp(t, "PD012652", errs[0].GetErrorMessage())
 }
 
-func TestServer_CloseSession_MakesSubsequentQueriesUnknown(t *testing.T) {
+func TestProvider_CloseView_MakesSubsequentQueriesUnknown(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, _ := serverTestSetup(t)
+	p, recorder, _ := providerTestSetup(t)
 
-	s.CloseSession(ctx, testSessionID)
+	p.CloseView(ctx, testAssembleRequestID)
 
-	s.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SchemaId:        testSchemaID.String(),
-		QueryJson:       `{}`,
-		SessionId:       testSessionID,
+	p.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		SchemaId:          testSchemaID.String(),
+		QueryJson:         `{}`,
+		AssembleRequestId: testAssembleRequestID,
 	})
 
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
@@ -275,7 +277,7 @@ func TestServer_CloseSession_MakesSubsequentQueriesUnknown(t *testing.T) {
 	assert.Regexp(t, "PD012651", errs[0].GetErrorMessage())
 }
 
-func TestServer_HandleGetSpentStateIDs_ServesFrozenSpentSet(t *testing.T) {
+func TestProvider_HandleGetSpentStateIDs_ServesFrozenSpentSet(t *testing.T) {
 	ctx := t.Context()
 	recorder := testutil.NewSentMessageRecorder()
 	tracker := statevisibilitytracker.NewStore()
@@ -284,17 +286,17 @@ func TestServer_HandleGetSpentStateIDs_ServesFrozenSpentSet(t *testing.T) {
 	spentStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("cc", 32))
 	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: spentStateID.String()}}, uuid.New())
 
-	s := NewServer("test-domain", testContractAddress, recorder, g, componentsmocks.NewStateManager(t))
-	s.OpenSession(ctx, testSessionID, "node1")
+	p := NewProvider("test-domain", testContractAddress, recorder, g, componentsmocks.NewStateManager(t))
+	p.OpenView(ctx, testAssembleRequestID, "node1")
 
-	// A state spend-locked after the session opened must not appear: the view froze at open.
+	// A state spend-locked after the view was captured must not appear: the view froze at capture.
 	lateSpentStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("dd", 32))
 	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: lateSpentStateID.String()}}, uuid.New())
 
-	s.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SessionId:       testSessionID,
+	p.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		AssembleRequestId: testAssembleRequestID,
 	})
 
 	require.Empty(t, recorder.SentStateViewErrors())
@@ -306,14 +308,14 @@ func TestServer_HandleGetSpentStateIDs_ServesFrozenSpentSet(t *testing.T) {
 	assert.Equal(t, []byte(spentStateID), responses[0].GetSpentStateIds()[0])
 }
 
-func TestServer_HandleGetSpentStateIDs_UnknownSession(t *testing.T) {
+func TestProvider_HandleGetSpentStateIDs_UnknownAssemble(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, _ := serverTestSetup(t)
+	p, recorder, _ := providerTestSetup(t)
 
-	s.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SessionId:       "unknown-session",
+	p.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		AssembleRequestId: "unknown-assemble",
 	})
 
 	require.Empty(t, recorder.SentGetSpentStateIDsResponses())
@@ -323,14 +325,14 @@ func TestServer_HandleGetSpentStateIDs_UnknownSession(t *testing.T) {
 	assert.Regexp(t, "PD012651", errs[0].GetErrorMessage())
 }
 
-func TestServer_HandleGetSpentStateIDs_WrongNode(t *testing.T) {
+func TestProvider_HandleGetSpentStateIDs_WrongNode(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, _ := serverTestSetup(t)
+	p, recorder, _ := providerTestSetup(t)
 
-	s.HandleGetSpentStateIDs(ctx, "node2", &engineProto.GetSpentStateIDsRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SessionId:       testSessionID,
+	p.HandleGetSpentStateIDs(ctx, "node2", &engineProto.GetSpentStateIDsRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		AssembleRequestId: testAssembleRequestID,
 	})
 
 	require.Empty(t, recorder.SentGetSpentStateIDsResponses())
@@ -339,81 +341,81 @@ func TestServer_HandleGetSpentStateIDs_WrongNode(t *testing.T) {
 	assert.Regexp(t, "PD012652", errs[0].GetErrorMessage())
 }
 
-func TestServer_OpenSession_ExistingSessionKept(t *testing.T) {
+func TestProvider_OpenView_ExistingViewKept(t *testing.T) {
 	ctx := t.Context()
-	s, recorder, _ := serverTestSetup(t)
+	p, recorder, _ := providerTestSetup(t)
 
-	// Re-opening the same session ID for a different node keeps the existing view: the session
+	// Re-opening the same assemble request ID for a different node keeps the existing view: it
 	// still belongs to node1, so node2 is rejected.
-	s.OpenSession(ctx, testSessionID, "node2")
+	p.OpenView(ctx, testAssembleRequestID, "node2")
 
-	s.HandleGetSpentStateIDs(ctx, "node2", &engineProto.GetSpentStateIDsRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SessionId:       testSessionID,
+	p.HandleGetSpentStateIDs(ctx, "node2", &engineProto.GetSpentStateIDsRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		AssembleRequestId: testAssembleRequestID,
 	})
 	errs := recorder.SentStateViewErrors()
 	require.Len(t, errs, 1)
 	assert.Regexp(t, "PD012652", errs[0].GetErrorMessage())
 
-	// The original owner can still query the session.
-	s.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req2",
-		SessionId:       testSessionID,
+	// The original owner can still query the view.
+	p.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req2",
+		AssembleRequestId: testAssembleRequestID,
 	})
 	responses := recorder.SentGetSpentStateIDsResponses()
 	require.Len(t, responses, 1)
 	assert.Equal(t, "req2", responses[0].GetRequestId())
 }
 
-func TestServer_HandleQueryAvailableStates_ResponseSendFailureIsWarnOnly(t *testing.T) {
+func TestProvider_HandleQueryAvailableStates_ResponseSendFailureIsWarnOnly(t *testing.T) {
 	ctx := t.Context()
 	writer := &failingWriter{SentMessageRecorder: testutil.NewSentMessageRecorder(), failQueryResponse: true}
-	s, stateManager := serverTestSetupWithWriter(t, writer)
+	p, stateManager := providerTestSetupWithWriter(t, writer)
 
 	stateManager.EXPECT().FindMatchingInMemoryStates(mock.Anything, "test-domain", testSchemaID, mock.Anything, mock.Anything).
 		Return([]*prototk.QueriedState{}, nil).Once()
 
-	// The response send fails: fire-and-forget, the server only logs (the client will retry).
-	s.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SchemaId:        testSchemaID.String(),
-		QueryJson:       `{}`,
-		SessionId:       testSessionID,
+	// The response send fails: fire-and-forget, the provider only logs (the reader will retry).
+	p.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		SchemaId:          testSchemaID.String(),
+		QueryJson:         `{}`,
+		AssembleRequestId: testAssembleRequestID,
 	})
 
 	require.Empty(t, writer.SentStateViewErrors())
 	require.Empty(t, writer.SentQueryAvailableStatesResponses())
 }
 
-func TestServer_HandleGetSpentStateIDs_ResponseSendFailureIsWarnOnly(t *testing.T) {
+func TestProvider_HandleGetSpentStateIDs_ResponseSendFailureIsWarnOnly(t *testing.T) {
 	ctx := t.Context()
 	writer := &failingWriter{SentMessageRecorder: testutil.NewSentMessageRecorder(), failSpentResponse: true}
-	s, _ := serverTestSetupWithWriter(t, writer)
+	p, _ := providerTestSetupWithWriter(t, writer)
 
-	// The response send fails: fire-and-forget, the server only logs (the client will retry).
-	s.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SessionId:       testSessionID,
+	// The response send fails: fire-and-forget, the provider only logs (the reader will retry).
+	p.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		AssembleRequestId: testAssembleRequestID,
 	})
 
 	require.Empty(t, writer.SentStateViewErrors())
 	require.Empty(t, writer.SentGetSpentStateIDsResponses())
 }
 
-func TestServer_SendError_SendFailureIsWarnOnly(t *testing.T) {
+func TestProvider_SendError_SendFailureIsWarnOnly(t *testing.T) {
 	ctx := t.Context()
 	writer := &failingWriter{SentMessageRecorder: testutil.NewSentMessageRecorder(), failStateViewError: true}
-	s, _ := serverTestSetupWithWriter(t, writer)
+	p, _ := providerTestSetupWithWriter(t, writer)
 
-	// An unknown session triggers sendError; the error send itself fails and is only logged.
-	s.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{
-		ContractAddress: testContractAddress,
-		RequestId:       "req1",
-		SessionId:       "unknown-session",
+	// An unknown assemble triggers sendError; the error send itself fails and is only logged.
+	p.HandleGetSpentStateIDs(ctx, "node1", &engineProto.GetSpentStateIDsRequest{
+		ContractAddress:   testContractAddress,
+		RequestId:         "req1",
+		AssembleRequestId: "unknown-assemble",
 	})
 
 	require.Empty(t, writer.SentGetSpentStateIDsResponses())

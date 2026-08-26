@@ -355,7 +355,7 @@ func TestNewOriginator_EndorserMode_SetsEndorserCandidates(t *testing.T) {
 	assert.Equal(t, endorsers, o.endorserCandidates)
 }
 
-func TestOriginator_StateViewClientAccessor(t *testing.T) {
+func TestOriginator_StateViewReaderAccessor(t *testing.T) {
 	o, _ := NewOriginatorBuilderForTesting(t, State_Idle).Build()
-	assert.NotNil(t, o.StateViewClient())
+	assert.NotNil(t, o.StateViewReader())
 }

@@ -26,11 +26,11 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -64,10 +64,10 @@ type Coordinator interface {
 	// Query the state of the coordinator
 	GetCurrentState() State
 
-	// StateViewServer returns the server that state query requests from assembling originators
+	// StateViewProvider returns the provider that state view requests from assembling originators
 	// are routed to, directly from the transport handler (off the event loop).
-	// It is safe to call from any goroutine — the server is immutable after construction and internally thread-safe.
-	StateViewServer() stateview.Server
+	// It is safe to call from any goroutine — the provider is immutable after construction and internally thread-safe.
+	StateViewProvider() stateview.Provider
 
 	// WaitForDone blocks until the coordinator has stopped after context cancellation.
 	WaitForDone(ctx context.Context)
@@ -98,7 +98,7 @@ type coordinator struct {
 	dependencyTracker                  dependencytracker.DependencyTracker
 	grapher                            grapher.Grapher
 	stateVisibilityTracker             statevisibilitytracker.StateVisibilityStore
-	stateViewServer                    stateview.Server
+	stateViewProvider                  stateview.Provider
 	endorserCandidates                 []string       // ENDORSER mode only: candidate nodes for coordinator priority list and heartbeat fan-out
 	originatorActivity                 map[string]int // STATIC/SENDER only: heartbeat-intervals since last delegation activity per originator node
 	coordinatorPriorityList            []string       // priority-ordered list; index 0 is current active coordinator
@@ -169,7 +169,7 @@ func NewCoordinator(
 	dependencyTracker := dependencytracker.NewDependencyTracker()
 	stateVisibilityTracker := statevisibilitytracker.NewStore()
 	grapher := grapher.NewGrapher(dependencyTracker, stateVisibilityTracker, confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance))
-	stateViewServer := stateview.NewServer(domainAPI.Domain().Name(), contractAddress.HexString(), transportWriter, grapher, allComponents.StateManager())
+	stateViewProvider := stateview.NewProvider(domainAPI.Domain().Name(), contractAddress.HexString(), transportWriter, grapher, allComponents.StateManager())
 	c := &coordinator{
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]transaction.CoordinatorTransaction),
@@ -182,7 +182,7 @@ func NewCoordinator(
 		contractAddress:                    contractAddress,
 		dependencyTracker:                  dependencyTracker,
 		stateVisibilityTracker:             stateVisibilityTracker,
-		stateViewServer:                    stateViewServer,
+		stateViewProvider:                  stateViewProvider,
 		grapher:                            grapher,
 		clock:                              clock,
 		engineIntegration:                  engineIntegration,
@@ -269,8 +269,8 @@ func (c *coordinator) GetCurrentState() State {
 	return c.stateMachineEventLoop.GetCurrentState()
 }
 
-func (c *coordinator) StateViewServer() stateview.Server {
-	return c.stateViewServer
+func (c *coordinator) StateViewProvider() stateview.Provider {
+	return c.stateViewProvider
 }
 
 func (c *coordinator) WaitForDone(ctx context.Context) {

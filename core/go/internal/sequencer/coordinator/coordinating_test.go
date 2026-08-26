@@ -1569,7 +1569,7 @@ func Test_action_ImportStatesAndLocks_LabelledStatesKept(t *testing.T) {
 	assert.Len(t, candidates, 1, "the imported labels must make the state queryable as-is")
 }
 
-func TestCoordinatorStateViewServerAccessor(t *testing.T) {
+func TestCoordinatorStateViewProviderAccessor(t *testing.T) {
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build()
-	assert.NotNil(t, c.StateViewServer())
+	assert.NotNil(t, c.StateViewProvider())
 }

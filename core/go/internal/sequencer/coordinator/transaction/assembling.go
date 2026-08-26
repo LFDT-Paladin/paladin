@@ -142,7 +142,7 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	// When we first send the request, we start a ticker to emit a requestTimeout event for each tick
 	// and nudge the request every requestTimeout event to implement the short retry.
 	// The state machine will deal with the longer state timeout via timeout guards.
-	t.pendingAssembleRequest = common.NewIdempotentRequestWithKey(ctx, t.clock, t.requestTimeout, t.assembleSessionID, func(ctx context.Context, idempotencyKey uuid.UUID) error {
+	t.pendingAssembleRequest = common.NewIdempotentRequestWithKey(ctx, t.clock, t.requestTimeout, t.assembleRequestID, func(ctx context.Context, idempotencyKey uuid.UUID) error {
 		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, &engineProto.AssembleRequest{
 			TransactionId:          t.pt.ID.String(),
 			AssembleRequestId:      idempotencyKey.String(),
@@ -253,20 +253,18 @@ func action_SendAssembleRequest(ctx context.Context, txn *coordinatorTransaction
 	return txn.sendAssembleRequest(ctx)
 }
 
-// action_OpenStateViewSession initialises the assembleSessionID for this attempt and opens a
-// stateview session that captures the view served to the originator: the states currently available
-// to it plus the IDs of the states already spend-locked. Every state view request for this assemble
-// is answered from that captured view, so the originator's view cannot shift while the assemble is in
-// flight. The assembleSessionID is reused as the idempotency key of the assemble request so state queries
-// and the session can be correlated.
-func action_OpenStateViewSession(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	txn.assembleSessionID = uuid.New()
-	txn.stateViewServer.OpenSession(ctx, txn.assembleSessionID.String(), txn.originatorNode)
+// action_OpenStateView initialises the assembleRequestID for this attempt and captures the state view
+// served to the originator: the states currently available to it plus the IDs of the states already
+// spend-locked. Every state view request for this assemble is answered from that captured view, so the
+// originator's view cannot shift while the assemble is in flight.
+func action_OpenStateView(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.assembleRequestID = uuid.New()
+	txn.stateViewProvider.OpenView(ctx, txn.assembleRequestID.String(), txn.originatorNode)
 	return nil
 }
 
-func action_CloseStateViewSession(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	txn.stateViewServer.CloseSession(ctx, txn.assembleSessionID.String())
+func action_CloseStateView(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.stateViewProvider.CloseView(ctx, txn.assembleRequestID.String())
 	return nil
 }
 

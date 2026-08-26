@@ -45,6 +45,11 @@ packages:
   github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher:
     config:
       all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview:
+    config:
+      all: true
+      pkgname: coordinatorstateviewmocks
+      dir: mocks/coordinatorstateviewmocks
   github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker:
     config:
       all: true
@@ -73,6 +78,11 @@ packages:
       all: true
       pkgname: sequencermetricsmocks
       dir: mocks/sequencermetricsmocks
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/stateview:
+    config:
+      all: true
+      pkgname: originatorstateviewmocks
+      dir: mocks/originatorstateviewmocks
   github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction:
     config:
       all: true
@@ -87,6 +97,3 @@ packages:
     config:
       pkgname: statemachinemocks
       dir: mocks/statemachinemocks
-  github.com/LFDT-Paladin/paladin/core/internal/sequencer/stateview:
-    config:
-      all: true

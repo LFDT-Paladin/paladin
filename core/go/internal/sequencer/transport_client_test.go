@@ -31,11 +31,12 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatormocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatorstateviewmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/originatormocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/originatorstateviewmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencermetricsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
-	"github.com/LFDT-Paladin/paladin/core/mocks/stateviewmocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -2769,7 +2770,7 @@ func TestHandleSignError_SequencerNotLoaded(t *testing.T) {
 
 // --- State query message routing (off both event loops) ---
 
-func TestHandleQueryAvailableStatesRequest_RoutedToCoordinatorServer(t *testing.T) {
+func TestHandleQueryAvailableStatesRequest_RoutedToCoordinatorProvider(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
@@ -2792,11 +2793,11 @@ func TestHandleQueryAvailableStatesRequest_RoutedToCoordinatorServer(t *testing.
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	server := stateviewmocks.NewServer(t)
-	mocks.coordinator.EXPECT().StateViewServer().Return(server).Once()
+	provider := coordinatorstateviewmocks.NewProvider(t)
+	mocks.coordinator.EXPECT().StateViewProvider().Return(provider).Once()
 	// The transport-authenticated FromNode is passed for the visibility filtering — the routing
 	// never queues onto the coordinator event loop.
-	server.EXPECT().HandleQueryAvailableStates(ctx, "requesting-node", mock.MatchedBy(func(req *engineProto.QueryAvailableStatesRequest) bool {
+	provider.EXPECT().HandleQueryAvailableStates(ctx, "requesting-node", mock.MatchedBy(func(req *engineProto.QueryAvailableStatesRequest) bool {
 		return req.GetRequestId() == "req1" && req.GetSchemaId() == "0xaa"
 	})).Once()
 
@@ -2834,7 +2835,7 @@ func TestHandleQueryAvailableStatesRequest_BadPayloadAndAddress(t *testing.T) {
 	})
 }
 
-func TestHandleQueryAvailableStatesResponse_RoutedToOriginatorClient(t *testing.T) {
+func TestHandleQueryAvailableStatesResponse_RoutedToOriginatorReader(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
@@ -2856,9 +2857,9 @@ func TestHandleQueryAvailableStatesResponse_RoutedToOriginatorClient(t *testing.
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	client := stateviewmocks.NewClient(t)
-	mocks.originator.EXPECT().StateViewClient().Return(client).Once()
-	client.EXPECT().HandleQueryAvailableStatesResponse(ctx, "coordinator-node", mock.MatchedBy(func(resp *engineProto.QueryAvailableStatesResponse) bool {
+	reader := originatorstateviewmocks.NewReader(t)
+	mocks.originator.EXPECT().StateViewReader().Return(reader).Once()
+	reader.EXPECT().HandleQueryAvailableStatesResponse(ctx, "coordinator-node", mock.MatchedBy(func(resp *engineProto.QueryAvailableStatesResponse) bool {
 		return resp.GetRequestId() == "req1" && len(resp.GetStates()) == 1
 	})).Once()
 
@@ -2895,7 +2896,7 @@ func TestHandleQueryAvailableStatesResponse_BadPayloadAndAddress(t *testing.T) {
 	})
 }
 
-func TestHandleStateViewError_RoutedToOriginatorClient(t *testing.T) {
+func TestHandleStateViewError_RoutedToOriginatorReader(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
@@ -2917,9 +2918,9 @@ func TestHandleStateViewError_RoutedToOriginatorClient(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	client := stateviewmocks.NewClient(t)
-	mocks.originator.EXPECT().StateViewClient().Return(client).Once()
-	client.EXPECT().HandleError(ctx, "coordinator-node", mock.MatchedBy(func(errMsg *engineProto.StateViewError) bool {
+	reader := originatorstateviewmocks.NewReader(t)
+	mocks.originator.EXPECT().StateViewReader().Return(reader).Once()
+	reader.EXPECT().HandleError(ctx, "coordinator-node", mock.MatchedBy(func(errMsg *engineProto.StateViewError) bool {
 		return errMsg.GetRequestId() == "req1" && errMsg.GetErrorMessage() == "pop"
 	})).Once()
 
@@ -2956,16 +2957,16 @@ func TestHandleStateViewError_BadPayloadAndAddress(t *testing.T) {
 	})
 }
 
-func TestHandleGetSpentStateIDsRequest_RoutedToCoordinatorServer(t *testing.T) {
+func TestHandleGetSpentStateIDsRequest_RoutedToCoordinatorProvider(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
 
 	request := &engineProto.GetSpentStateIDsRequest{
-		ContractAddress: contractAddr.String(),
-		RequestId:       "req1",
-		SessionId:       "session-1",
+		ContractAddress:   contractAddr.String(),
+		RequestId:         "req1",
+		AssembleRequestId: "assemble-1",
 	}
 	payload, _ := proto.Marshal(request)
 	message := &components.ReceivedMessage{
@@ -2978,10 +2979,10 @@ func TestHandleGetSpentStateIDsRequest_RoutedToCoordinatorServer(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	server := stateviewmocks.NewServer(t)
-	mocks.coordinator.EXPECT().StateViewServer().Return(server).Once()
-	server.EXPECT().HandleGetSpentStateIDs(ctx, "requesting-node", mock.MatchedBy(func(req *engineProto.GetSpentStateIDsRequest) bool {
-		return req.GetRequestId() == "req1" && req.GetSessionId() == "session-1"
+	provider := coordinatorstateviewmocks.NewProvider(t)
+	mocks.coordinator.EXPECT().StateViewProvider().Return(provider).Once()
+	provider.EXPECT().HandleGetSpentStateIDs(ctx, "requesting-node", mock.MatchedBy(func(req *engineProto.GetSpentStateIDsRequest) bool {
+		return req.GetRequestId() == "req1" && req.GetAssembleRequestId() == "assemble-1"
 	})).Once()
 
 	sm.handleGetSpentStateIDsRequest(ctx, message)
@@ -3012,7 +3013,7 @@ func TestHandleGetSpentStateIDsRequest_SequencerNotLoaded_BadPayloadAndAddress(t
 	})
 }
 
-func TestHandleGetSpentStateIDsResponse_RoutedToOriginatorClient(t *testing.T) {
+func TestHandleGetSpentStateIDsResponse_RoutedToOriginatorReader(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
@@ -3034,9 +3035,9 @@ func TestHandleGetSpentStateIDsResponse_RoutedToOriginatorClient(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	client := stateviewmocks.NewClient(t)
-	mocks.originator.EXPECT().StateViewClient().Return(client).Once()
-	client.EXPECT().HandleGetSpentStateIDsResponse(ctx, "coordinator-node", mock.MatchedBy(func(resp *engineProto.GetSpentStateIDsResponse) bool {
+	reader := originatorstateviewmocks.NewReader(t)
+	mocks.originator.EXPECT().StateViewReader().Return(reader).Once()
+	reader.EXPECT().HandleGetSpentStateIDsResponse(ctx, "coordinator-node", mock.MatchedBy(func(resp *engineProto.GetSpentStateIDsResponse) bool {
 		return resp.GetRequestId() == "req1" && len(resp.GetSpentStateIds()) == 1
 	})).Once()
 

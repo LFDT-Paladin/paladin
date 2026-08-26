@@ -233,7 +233,7 @@ func (sMgr *sequencerManager) handleAssembleError(ctx context.Context, message *
 	seq.GetCoordinator().QueueEvent(ctx, assembleErrorEvent)
 }
 
-// The three state query message handlers below route directly to the state query server/client —
+// The three state query message handlers below route directly to the state view provider/reader —
 // never through the coordinator/originator event loops. Both are internally thread-safe; requests
 // are answered from the coordinator's current view and responses are correlated by request ID.
 // message.FromNode is transport-authenticated and is the identity used for visibility filtering.
@@ -259,7 +259,7 @@ func (sMgr *sequencerManager) handleQueryAvailableStatesRequest(ctx context.Cont
 		return
 	}
 
-	seq.GetCoordinator().StateViewServer().HandleQueryAvailableStates(ctx, message.FromNode, queryAvailableStatesRequest)
+	seq.GetCoordinator().StateViewProvider().HandleQueryAvailableStates(ctx, message.FromNode, queryAvailableStatesRequest)
 }
 
 func (sMgr *sequencerManager) handleQueryAvailableStatesResponse(ctx context.Context, message *components.ReceivedMessage) {
@@ -281,7 +281,7 @@ func (sMgr *sequencerManager) handleQueryAvailableStatesResponse(ctx context.Con
 		return
 	}
 
-	seq.GetOriginator().StateViewClient().HandleQueryAvailableStatesResponse(ctx, message.FromNode, queryAvailableStatesResponse)
+	seq.GetOriginator().StateViewReader().HandleQueryAvailableStatesResponse(ctx, message.FromNode, queryAvailableStatesResponse)
 }
 
 func (sMgr *sequencerManager) handleGetSpentStateIDsRequest(ctx context.Context, message *components.ReceivedMessage) {
@@ -305,7 +305,7 @@ func (sMgr *sequencerManager) handleGetSpentStateIDsRequest(ctx context.Context,
 		return
 	}
 
-	seq.GetCoordinator().StateViewServer().HandleGetSpentStateIDs(ctx, message.FromNode, getSpentStateIDsRequest)
+	seq.GetCoordinator().StateViewProvider().HandleGetSpentStateIDs(ctx, message.FromNode, getSpentStateIDsRequest)
 }
 
 func (sMgr *sequencerManager) handleGetSpentStateIDsResponse(ctx context.Context, message *components.ReceivedMessage) {
@@ -327,7 +327,7 @@ func (sMgr *sequencerManager) handleGetSpentStateIDsResponse(ctx context.Context
 		return
 	}
 
-	seq.GetOriginator().StateViewClient().HandleGetSpentStateIDsResponse(ctx, message.FromNode, getSpentStateIDsResponse)
+	seq.GetOriginator().StateViewReader().HandleGetSpentStateIDsResponse(ctx, message.FromNode, getSpentStateIDsResponse)
 }
 
 func (sMgr *sequencerManager) handleStateViewError(ctx context.Context, message *components.ReceivedMessage) {
@@ -349,7 +349,7 @@ func (sMgr *sequencerManager) handleStateViewError(ctx context.Context, message 
 		return
 	}
 
-	seq.GetOriginator().StateViewClient().HandleError(ctx, message.FromNode, stateViewError)
+	seq.GetOriginator().StateViewReader().HandleError(ctx, message.FromNode, stateViewError)
 }
 
 func (sMgr *sequencerManager) handleSignResponse(ctx context.Context, message *components.ReceivedMessage) {

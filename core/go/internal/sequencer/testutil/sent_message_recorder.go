@@ -63,7 +63,7 @@ type SentMessageRecorder struct {
 	sentSignResponses              []*engineProto.SignResponse
 	hasSentSignError               bool
 
-	// State request session tracking (both sides)
+	// State view request tracking (both sides)
 	sentQueryAvailableStatesRequests  []*engineProto.QueryAvailableStatesRequest
 	sentQueryAvailableStatesResponses []*engineProto.QueryAvailableStatesResponse
 	sentGetSpentStateIDsRequests      []*engineProto.GetSpentStateIDsRequest

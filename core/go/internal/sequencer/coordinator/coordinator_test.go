@@ -844,7 +844,7 @@ func TestCoordinator_WaitForDone_CtxCancelledWhileDispatchLoopRunning_ReturnsEar
 }
 
 // mockDomainSmartContractForConstructor satisfies the domain lookups NewCoordinator performs when
-// wiring the state query server.
+// wiring the state view provider.
 func mockDomainSmartContractForConstructor(t *testing.T) *componentsmocks.DomainSmartContract {
 	domainAPI := componentsmocks.NewDomainSmartContract(t)
 	domain := componentsmocks.NewDomain(t)

@@ -25,9 +25,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -49,10 +49,10 @@ type Originator interface {
 	GetTxStatus(ctx context.Context, txID uuid.UUID) (status components.PrivateTxStatus, err error)
 	GetCurrentState() State
 
-	// StateViewClient returns the client that state query responses/errors from coordinators
+	// StateViewReader returns the reader that state view responses/errors from coordinators
 	// are routed to, directly from the transport handler (off the event loop).
-	// It is safe to call from any goroutine — the client is immutable after construction and internally thread-safe.
-	StateViewClient() stateview.Client
+	// It is safe to call from any goroutine — the reader is immutable after construction and internally thread-safe.
+	StateViewReader() stateview.Reader
 
 	WaitForDone(ctx context.Context)
 }
@@ -102,7 +102,7 @@ type originator struct {
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
 	clock             common.Clock
-	stateViewClient   stateview.Client
+	stateViewReader   stateview.Reader
 }
 
 func NewOriginator(
@@ -129,7 +129,7 @@ func NewOriginator(
 		delegationBatchInterval: confutil.DurationMin(configuration.DelegationBatchInterval, pldconf.SequencerMinimum.DelegationBatchInterval, *pldconf.SequencerDefaults.DelegationBatchInterval),
 		heartbeatInterval:       confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
 		clock:                   clock,
-		stateViewClient:         stateview.NewClient(contractAddress.HexString(), transportWriter, requestTimeout, clock),
+		stateViewReader:         stateview.NewReader(contractAddress.HexString(), transportWriter, requestTimeout, clock),
 	}
 
 	switch selectionConfig.Mode {
@@ -177,8 +177,8 @@ func (o *originator) GetCurrentState() State {
 	return o.stateMachineEventLoop.GetCurrentState()
 }
 
-func (o *originator) StateViewClient() stateview.Client {
-	return o.stateViewClient
+func (o *originator) StateViewReader() stateview.Reader {
+	return o.stateViewReader
 }
 
 func (o *originator) QueueEvent(ctx context.Context, event common.Event) {

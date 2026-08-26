@@ -3500,12 +3500,12 @@ func TestSendGetSpentStateIDsRequest_Success(t *testing.T) {
 			return false
 		}
 		var req engineProto.GetSpentStateIDsRequest
-		return proto.Unmarshal(msg.Payload, &req) == nil && req.RequestId == "req1" && req.SessionId == "session-1"
+		return proto.Unmarshal(msg.Payload, &req) == nil && req.RequestId == "req1" && req.AssembleRequestId == "assemble-1"
 	})).Return(nil)
 
 	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
 
-	err := tw.SendGetSpentStateIDsRequest(ctx, "coordinator-node", &engineProto.GetSpentStateIDsRequest{RequestId: "req1", SessionId: "session-1"})
+	err := tw.SendGetSpentStateIDsRequest(ctx, "coordinator-node", &engineProto.GetSpentStateIDsRequest{RequestId: "req1", AssembleRequestId: "assemble-1"})
 	require.NoError(t, err)
 }
 

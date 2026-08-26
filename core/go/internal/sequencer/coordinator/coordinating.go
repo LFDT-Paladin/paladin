@@ -308,7 +308,7 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.assembleErrorRetryThreshhold,
 		c.signErrorRetryThreshhold,
 		c.grapher,
-		c.stateViewServer,
+		c.stateViewProvider,
 		c.stateVisibilityTracker,
 		c.dependencyTracker,
 		c.metrics,

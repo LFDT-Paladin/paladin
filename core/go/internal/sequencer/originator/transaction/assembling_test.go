@@ -24,7 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
-	"github.com/LFDT-Paladin/paladin/core/mocks/stateviewmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/originatorstateviewmocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -858,9 +858,9 @@ func TestValidator_AssembleRequestMatchesCurrentAssembly_NoCancelFunc(t *testing
 
 func Test_handleAssemble_BindsQuerierToRequestingCoordinator(t *testing.T) {
 	ctx := context.Background()
-	mockClient := stateviewmocks.NewClient(t)
+	mockReader := originatorstateviewmocks.NewReader(t)
 	mockView := componentsmocks.NewRemoteStateView(t)
-	builder := NewTransactionBuilderForTesting(t, State_Assembling).WithStateViewClient(mockClient)
+	builder := NewTransactionBuilderForTesting(t, State_Assembling).WithStateViewReader(mockReader)
 	txn, mocks := builder.BuildWithMocks()
 
 	require.NotNil(t, txn.latestAssembleRequest)
@@ -869,7 +869,7 @@ func Test_handleAssemble_BindsQuerierToRequestingCoordinator(t *testing.T) {
 
 	// The view is bound to the node the assemble request came from — state view requests are
 	// answered by (and only by) that coordinator.
-	mockClient.EXPECT().ForCoordinator("coordinator-node", req.requestID.String()).Return(mockView).Once()
+	mockReader.EXPECT().ForCoordinator("coordinator-node", req.requestID.String()).Return(mockView).Once()
 
 	preAssembly := &prototk.TransactionPreAssembly{}
 	mocks.EngineIntegration.On(

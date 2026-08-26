@@ -14,6 +14,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package stateview gives an assembling transaction on-demand read access to the coordinator's
+// ahead-of-chain view, over the view the coordinator captures when it sends the assemble request.
+// Requests are correlated to responses purely by request ID, and each carries the assemble request
+// ID so the coordinator answers from the view captured for that assemble. The coordinator side of
+// the exchange lives in sequencer/coordinator/stateview.
 package stateview
 
 import (
@@ -33,16 +38,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// Client is the originator-side dispatcher of coordinator state view requests. Requests are
-// correlated to responses purely by request ID. Each request carries the assemble session ID so
+// Reader is the originator-side dispatcher of coordinator state view requests. Requests are
+// correlated to responses purely by request ID. Each request carries the assemble request ID so
 // the coordinator answers it from the view captured for that assemble. All methods are
 // thread-safe: the Handle* methods run on transport goroutines, requests on assembly goroutines —
 // none of them touch the originator event loop.
-type Client interface {
+type Reader interface {
 	// ForCoordinator returns a RemoteStateView bound to
 	// a) coordinatorNode — the node requests are sent to and the only node whose responses are accepted for them.
-	// b) sessionID, the assemble session whose captured view the coordinator answers from. One is created per assembly.
-	ForCoordinator(coordinatorNode string, sessionID string) components.RemoteStateView
+	// b) assembleRequestID — the assemble whose captured view the coordinator answers from. One view is captured per assembly.
+	ForCoordinator(coordinatorNode string, assembleRequestID string) components.RemoteStateView
 
 	// HandleQueryAvailableStatesResponse delivers a state query response to the request that is
 	// waiting for it. Responses for unknown request IDs (stale, duplicate) and responses from any
@@ -69,7 +74,7 @@ type pendingRequest struct {
 	resultCh        chan *requestResult
 }
 
-type client struct {
+type reader struct {
 	mu              sync.Mutex
 	pending         map[string]*pendingRequest
 	transportWriter transport.TransportWriter
@@ -78,8 +83,8 @@ type client struct {
 	clock           common.Clock
 }
 
-func NewClient(contractAddress string, transportWriter transport.TransportWriter, requestTimeout time.Duration, clock common.Clock) Client {
-	return &client{
+func NewReader(contractAddress string, transportWriter transport.TransportWriter, requestTimeout time.Duration, clock common.Clock) Reader {
+	return &reader{
 		pending:         make(map[string]*pendingRequest),
 		transportWriter: transportWriter,
 		contractAddress: contractAddress,
@@ -89,11 +94,11 @@ func NewClient(contractAddress string, transportWriter transport.TransportWriter
 }
 
 type boundView struct {
-	client          *client
-	coordinatorNode string
-	sessionID       string
+	reader            *reader
+	coordinatorNode   string
+	assembleRequestID string
 
-	// The spend exclusion set is fixed for the session, so the first GetSpentStateIDs fetches it and
+	// The spend exclusion set is fixed for the captured view, so the first GetSpentStateIDs fetches it and
 	// every later call on this view returns the cached slice. A failed fetch is not cached, so a
 	// transient error is retried on the next call. spentMu guards the cache and is held across the
 	// round-trip, so concurrent callers make a single fetch.
@@ -102,20 +107,20 @@ type boundView struct {
 	spentStateIDs []pldtypes.HexBytes
 }
 
-func (c *client) ForCoordinator(coordinatorNode string, sessionID string) components.RemoteStateView {
-	return &boundView{client: c, coordinatorNode: coordinatorNode, sessionID: sessionID}
+func (r *reader) ForCoordinator(coordinatorNode string, assembleRequestID string) components.RemoteStateView {
+	return &boundView{reader: r, coordinatorNode: coordinatorNode, assembleRequestID: assembleRequestID}
 }
 
 // QueryAvailableStates blocks until the response arrives or ctx expires (the assembly deadline).
 // The returned states are NOT validated here — this is the responsibility of the caller.
 func (b *boundView) QueryAvailableStates(ctx context.Context, schemaID string, queryJSON string) ([]*prototk.QueriedState, error) {
-	result, err := b.client.roundTrip(ctx, b.coordinatorNode, func(requestID string) error {
-		return b.client.transportWriter.SendQueryAvailableStatesRequest(ctx, b.coordinatorNode, &engineProto.QueryAvailableStatesRequest{
-			ContractAddress: b.client.contractAddress,
-			RequestId:       requestID,
-			SchemaId:        schemaID,
-			QueryJson:       queryJSON,
-			SessionId:       b.sessionID,
+	result, err := b.reader.roundTrip(ctx, b.coordinatorNode, func(requestID string) error {
+		return b.reader.transportWriter.SendQueryAvailableStatesRequest(ctx, b.coordinatorNode, &engineProto.QueryAvailableStatesRequest{
+			ContractAddress:   b.reader.contractAddress,
+			RequestId:         requestID,
+			SchemaId:          schemaID,
+			QueryJson:         queryJSON,
+			AssembleRequestId: b.assembleRequestID,
 		})
 	})
 	if err != nil {
@@ -132,11 +137,11 @@ func (b *boundView) GetSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, 
 	if b.spentFetched {
 		return b.spentStateIDs, nil
 	}
-	result, err := b.client.roundTrip(ctx, b.coordinatorNode, func(requestID string) error {
-		return b.client.transportWriter.SendGetSpentStateIDsRequest(ctx, b.coordinatorNode, &engineProto.GetSpentStateIDsRequest{
-			ContractAddress: b.client.contractAddress,
-			RequestId:       requestID,
-			SessionId:       b.sessionID,
+	result, err := b.reader.roundTrip(ctx, b.coordinatorNode, func(requestID string) error {
+		return b.reader.transportWriter.SendGetSpentStateIDsRequest(ctx, b.coordinatorNode, &engineProto.GetSpentStateIDsRequest{
+			ContractAddress:   b.reader.contractAddress,
+			RequestId:         requestID,
+			AssembleRequestId: b.assembleRequestID,
 		})
 	})
 	if err != nil {
@@ -153,28 +158,28 @@ func (b *boundView) GetSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, 
 // roundTrip sends one idempotent request to the coordinator and does not return until a success
 // or error result is delivered or ctx expires (the assembly deadline). Unanswered requests are
 // retried on a configurable interval (requestTimeout).
-func (c *client) roundTrip(ctx context.Context, coordinatorNode string, send func(requestID string) error) (*requestResult, error) {
+func (r *reader) roundTrip(ctx context.Context, coordinatorNode string, send func(requestID string) error) (*requestResult, error) {
 	requestID := uuid.New().String()
 	pr := &pendingRequest{
 		coordinatorNode: coordinatorNode,
 		resultCh:        make(chan *requestResult, 1),
 	}
 
-	c.mu.Lock()
-	c.pending[requestID] = pr
-	c.mu.Unlock()
+	r.mu.Lock()
+	r.pending[requestID] = pr
+	r.mu.Unlock()
 	defer func() {
-		c.mu.Lock()
-		delete(c.pending, requestID)
-		c.mu.Unlock()
+		r.mu.Lock()
+		delete(r.pending, requestID)
+		r.mu.Unlock()
 	}()
 
 	for {
 		if err := send(requestID); err != nil {
-			log.L(ctx).Warnf("stateview client: failed to send state view request %s: %s", requestID, err)
+			log.L(ctx).Warnf("stateview reader: failed to send state view request %s: %s", requestID, err)
 		}
 		retryCh := make(chan struct{}, 1)
-		cancelTimer := c.clock.ScheduleTimer(ctx, c.requestTimeout, func() {
+		cancelTimer := r.clock.ScheduleTimer(ctx, r.requestTimeout, func() {
 			retryCh <- struct{}{}
 		})
 		select {
@@ -185,28 +190,28 @@ func (c *client) roundTrip(ctx context.Context, coordinatorNode string, send fun
 			cancelTimer()
 			return nil, ctx.Err()
 		case <-retryCh:
-			log.L(ctx).Debugf("stateview client: retrying state view request %s", requestID)
+			log.L(ctx).Debugf("stateview reader: retrying state view request %s", requestID)
 		}
 	}
 }
 
-func (c *client) HandleQueryAvailableStatesResponse(ctx context.Context, fromNode string, resp *engineProto.QueryAvailableStatesResponse) {
-	c.deliver(ctx, fromNode, resp.GetRequestId(), &requestResult{states: resp.GetStates()})
+func (r *reader) HandleQueryAvailableStatesResponse(ctx context.Context, fromNode string, resp *engineProto.QueryAvailableStatesResponse) {
+	r.deliver(ctx, fromNode, resp.GetRequestId(), &requestResult{states: resp.GetStates()})
 }
 
-func (c *client) HandleGetSpentStateIDsResponse(ctx context.Context, fromNode string, resp *engineProto.GetSpentStateIDsResponse) {
+func (r *reader) HandleGetSpentStateIDsResponse(ctx context.Context, fromNode string, resp *engineProto.GetSpentStateIDsResponse) {
 	raw := resp.GetSpentStateIds()
 	spentStateIDs := make([]pldtypes.HexBytes, len(raw))
 	for i, id := range raw {
 		spentStateIDs[i] = id
 	}
-	c.deliver(ctx, fromNode, resp.GetRequestId(), &requestResult{spentStateIDs: spentStateIDs})
+	r.deliver(ctx, fromNode, resp.GetRequestId(), &requestResult{spentStateIDs: spentStateIDs})
 }
 
 // HandleError delivers a StateViewError. The coordinator replies with an error instead of a
 // response when the request is invalid (bad schema id / query JSON) or evaluation fails.
-func (c *client) HandleError(ctx context.Context, fromNode string, errMsg *engineProto.StateViewError) {
-	c.deliver(ctx, fromNode, errMsg.GetRequestId(), &requestResult{
+func (r *reader) HandleError(ctx context.Context, fromNode string, errMsg *engineProto.StateViewError) {
+	r.deliver(ctx, fromNode, errMsg.GetRequestId(), &requestResult{
 		err: i18n.NewError(ctx, msgs.MsgSequencerStateViewFailed, errMsg.GetRequestId(), errMsg.GetErrorMessage()),
 	})
 }
@@ -214,21 +219,21 @@ func (c *client) HandleError(ctx context.Context, fromNode string, errMsg *engin
 // deliver hands a result to the request waiting on requestID. Unknown request IDs (stale retries,
 // duplicates) and results from the wrong node are dropped; the channel has capacity 1 and only the
 // first result is kept.
-func (c *client) deliver(ctx context.Context, fromNode string, requestID string, result *requestResult) {
-	c.mu.Lock()
-	pr := c.pending[requestID]
-	c.mu.Unlock()
+func (r *reader) deliver(ctx context.Context, fromNode string, requestID string, result *requestResult) {
+	r.mu.Lock()
+	pr := r.pending[requestID]
+	r.mu.Unlock()
 	if pr == nil {
-		log.L(ctx).Debugf("stateview client: dropping state view result for unknown request %s", requestID)
+		log.L(ctx).Debugf("stateview reader: dropping state view result for unknown request %s", requestID)
 		return
 	}
 	if fromNode != pr.coordinatorNode {
-		log.L(ctx).Warnf("stateview client: dropping state view result for request %s from %s: request was sent to a different node", requestID, fromNode)
+		log.L(ctx).Warnf("stateview reader: dropping state view result for request %s from %s: request was sent to a different node", requestID, fromNode)
 		return
 	}
 	select {
 	case pr.resultCh <- result:
 	default:
-		log.L(ctx).Debugf("stateview client: dropping duplicate state view result for request %s", requestID)
+		log.L(ctx).Debugf("stateview reader: dropping duplicate state view result for request %s", requestID)
 	}
 }

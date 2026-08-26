@@ -26,8 +26,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
@@ -694,8 +694,8 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 	g.LockMintsOnCreate(ctx, []*prototk.EndorsableState{state}, seedTxID)
 	g.ForgetTransaction(ctx, seedTxID, 100)
 
-	// A real stateview server backed by the same grapher: entering State_Assembling opens a
-	// session that freezes the candidate snapshot, and per-select queries are answered from it.
+	// A real state view provider backed by the same grapher: entering State_Assembling captures a
+	// view that freezes the candidate snapshot, and per-select queries are answered from it.
 	recorder := testutil.NewSentMessageRecorder()
 	stateManager := componentsmocks.NewStateManager(t)
 	stateManager.EXPECT().FindMatchingInMemoryStates(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -706,11 +706,11 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 			}
 			return out, nil
 		}).Maybe()
-	server := stateview.NewServer("test-domain", "0x", recorder, g, stateManager)
+	provider := stateview.NewProvider("test-domain", "0x", recorder, g, stateManager)
 
 	txnBuilder := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(g).
-		StateViewServer(server).
+		StateViewProvider(provider).
 		DependencyTracker(depTracker).
 		StateVisibility(visibilityStore).
 		WithCurrentBlockHeight(100).
@@ -723,13 +723,13 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 	})
 	require.NoError(t, err)
 	require.Equal(t, State_Assembling, txn.GetCurrentState())
-	sessionID := txn.assembleSessionID.String()
+	assembleRequestID := txn.assembleRequestID.String()
 	schemaID := pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32)).String()
 
 	runQuery := func() int {
 		recorder.Reset(ctx)
-		server.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
-			ContractAddress: "0x", RequestId: "q", SchemaId: schemaID, QueryJson: `{}`, SessionId: sessionID,
+		provider.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+			ContractAddress: "0x", RequestId: "q", SchemaId: schemaID, QueryJson: `{}`, AssembleRequestId: assembleRequestID,
 		})
 		require.Empty(t, recorder.SentStateViewErrors())
 		resps := recorder.SentQueryAvailableStatesResponses()
@@ -740,13 +740,13 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 	require.Equal(t, 1, runQuery(), "state must be visible to per-select queries at request time")
 
 	// The coordinator advances well past the tolerance window mid-assemble; the block-driven forget
-	// removes the state from the live grapher, but the frozen session snapshot keeps serving it.
+	// removes the state from the live grapher, but the frozen snapshot keeps serving it.
 	g.ForgetConfirmedLocks(ctx, 200)
 	liveCandidates, _ := g.SnapshotView(ctx, "node1")
 	require.Empty(t, liveCandidates, "the live grapher view forgets the confirmed lock")
 	require.Equal(t, 1, runQuery(), "state must stay visible to per-select queries while the assemble is in flight")
 
-	// Exit State_Assembling; the session is closed and further queries are rejected.
+	// Exit State_Assembling; the view is discarded and further queries are rejected.
 	err = txn.HandleEvent(ctx, &AssembleErrorEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
 		RequestID:            txn.pendingAssembleRequest.IdempotencyKey(),
@@ -755,12 +755,12 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 	require.Equal(t, State_Pooled, txn.GetCurrentState())
 
 	recorder.Reset(ctx)
-	server.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
-		ContractAddress: "0x", RequestId: "q", SchemaId: schemaID, QueryJson: `{}`, SessionId: sessionID,
+	provider.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress: "0x", RequestId: "q", SchemaId: schemaID, QueryJson: `{}`, AssembleRequestId: assembleRequestID,
 	})
 	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
 	errs := recorder.SentStateViewErrors()
-	require.Len(t, errs, 1, "the session must be closed once the assemble is no longer in flight")
+	require.Len(t, errs, 1, "the view must be discarded once the assemble is no longer in flight")
 	assert.Regexp(t, "PD012651", errs[0].GetErrorMessage())
 }
 

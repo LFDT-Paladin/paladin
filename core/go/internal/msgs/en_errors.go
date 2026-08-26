@@ -530,8 +530,8 @@ var (
 	MsgSequencerStaticCoordinatorNotSet            = pde("PD012648", "Static coordinator mode for contract %s has no configured coordinator node")
 	MsgSequencerStateViewFailed                    = pde("PD012649", "Coordinator state view request %s failed: %s")
 	MsgSequencerStateViewInvalid                   = pde("PD012650", "Invalid state view request %s: %s")
-	MsgSequencerStateViewUnknownSession            = pde("PD012651", "Unknown assemble session %s")
-	MsgSequencerStateViewWrongNode                 = pde("PD012652", "Assemble session %s not owned by requesting node")
+	MsgSequencerStateViewUnknownAssemble           = pde("PD012651", "No state view open for assemble request %s")
+	MsgSequencerStateViewWrongNode                 = pde("PD012652", "State view for assemble request %s not captured for requesting node %s")
 
 	// Entrypoint PD0127XX
 	MsgResolveVerifierRemoteFailed = pde("PD012701", "Failed to resolve verifier on remote node with lookup %s algorithm %s: Error %s")

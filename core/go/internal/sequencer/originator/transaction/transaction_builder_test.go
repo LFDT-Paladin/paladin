@@ -26,7 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/stateview"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
@@ -71,7 +71,7 @@ type TransactionBuilderForTesting struct {
 	resolveRetryBackoff    time.Duration
 	resolveVerifiersResult []*prototk.ResolvedVerifier
 	resolveVerifiersErr    error
-	stateViewClient        stateview.Client
+	stateViewReader        stateview.Reader
 }
 
 // Function NewTransactionBuilderForTesting creates a TransactionBuilderForTesting with random values for all fields.
@@ -160,10 +160,10 @@ func (b *TransactionBuilderForTesting) WithCheckPendingPrivateStateDataError(err
 	return b
 }
 
-// WithStateViewClient swaps the real state query client for the given one (typically a mock)
+// WithStateViewReader swaps the real state view reader for the given one (typically a mock)
 // so tests can assert on the querier handed to assembly.
-func (b *TransactionBuilderForTesting) WithStateViewClient(client stateview.Client) *TransactionBuilderForTesting {
-	b.stateViewClient = client
+func (b *TransactionBuilderForTesting) WithStateViewReader(reader stateview.Reader) *TransactionBuilderForTesting {
+	b.stateViewReader = reader
 	return b
 }
 
@@ -235,8 +235,8 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		transportWriter = b.mockTransportWriter
 	}
 
-	if b.stateViewClient == nil {
-		b.stateViewClient = stateview.NewClient(privateTransaction.Address.HexString(), transportWriter, time.Second, common.RealClock())
+	if b.stateViewReader == nil {
+		b.stateViewReader = stateview.NewReader(privateTransaction.Address.HexString(), transportWriter, time.Second, common.RealClock())
 	}
 
 	txn := newTransaction(privateTransaction,
@@ -244,7 +244,7 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		"node1",
 		b.fakeEngineIntegration,
 		transportWriter,
-		b.stateViewClient,
+		b.stateViewReader,
 		b.queueEventForOriginator,
 		b.metrics,
 		func(_ context.Context) {},

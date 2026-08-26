@@ -159,15 +159,16 @@ message AssembleRequest {
 }
 
 // QueryAvailableStatesRequest asks the coordinator to evaluate a state query against the snapshot
-// view captured when the assemble session was opened, replying with the matching states
+// view captured when the assemble request was sent, replying with the matching states
 // including their data. request_id is unique per query and reused across retries of the same query.
-// session_id is the assemble_request_id and routes the query to the session holding the view.
+// assemble_request_id identifies the assemble this query is part of, and routes it to the view
+// captured for that assemble.
 message QueryAvailableStatesRequest {
     string contract_address = 1;
     string request_id = 2;
     string schema_id = 3;
     string query_json = 4;
-    string session_id = 5;
+    string assemble_request_id = 5;
 }
 
 message QueryAvailableStatesResponse {
@@ -176,14 +177,14 @@ message QueryAvailableStatesResponse {
     repeated io.kaleido.paladin.toolkit.QueriedState states = 3;
 }
 
-// GetSpentStateIDsRequest asks the coordinator for the IDs of every state the frozen session view
+// GetSpentStateIDsRequest asks the coordinator for the IDs of every state the captured view
 // already knows to be consumed ahead-of-chain, applied by the receiver as an exclusion set on its
-// own DB queries. request_id is unique per request and reused across retries. session_id is the
-// assemble_request_id and routes the request to the session holding the view.
+// own DB queries. request_id is unique per request and reused across retries. assemble_request_id
+// identifies the assemble this request is part of, and routes it to the view captured for that assemble.
 message GetSpentStateIDsRequest {
     string contract_address = 1;
     string request_id = 2;
-    string session_id = 3;
+    string assemble_request_id = 3;
 }
 
 message GetSpentStateIDsResponse {

@@ -124,7 +124,7 @@ func (txn *originatorTransaction) handleAssemble(ctx context.Context, txID uuid.
 	// The domain query context answers each FindAvailableStates callback the domain makes by querying
 	// the coordinator's ahead-of-chain view through this remote view (bound to the node the request came from) and
 	// merging the matches with its own DB results.
-	view := txn.stateViewClient.ForCoordinator(req.coordinator, req.requestID.String())
+	view := txn.stateViewReader.ForCoordinator(req.coordinator, req.requestID.String())
 
 	assembleResponse, err := txn.engineIntegration.Assemble(ctx, txID, preAssembly, resolvedVerifiers, view, req.coordinatorsBlockHeight, localTx)
 	if err != nil {
