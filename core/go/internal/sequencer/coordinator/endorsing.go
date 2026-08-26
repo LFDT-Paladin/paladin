@@ -208,7 +208,7 @@ func (c *coordinator) endEndorsement(idempotencyKey string) {
 func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *EndorsementRequestReceivedEvent) {
 	var response *engineProto.EndorsementResponse
 	attempts := 0
-	err := c.endorseRetry.Do(ctx, func(attempt int) (bool, error) {
+	err := c.endorseErrorRetry.Do(ctx, func(attempt int) (bool, error) {
 		attempts = attempt
 		var retryable bool
 		var err error

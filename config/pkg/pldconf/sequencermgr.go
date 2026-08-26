@@ -30,7 +30,7 @@ type SequencerConfig struct {
 	CoordinatorPriorityEventQueueSize *int               `json:"coordinatorPriorityEventQueueSize"`
 	DelegationBatchInterval           *string            `json:"delegationBatchInterval"`
 	DispatchMaxBatchSize              *int               `json:"dispatchMaxBatchSize"`
-	EndorseRetry                      RetryConfigWithMax `json:"endorseRetry"`
+	EndorseErrorRetry                 RetryConfigWithMax `json:"endorseErrorRetry"`
 	HeartbeatInterval                 *string            `json:"heartbeatInterval"`
 	IdleSequencerCleanupInterval      *string            `json:"idleSequencerCleanupInterval"`
 	InactiveGracePeriod               *int               `json:"inactiveGracePeriod"`
@@ -84,7 +84,7 @@ var SequencerDefaults = SequencerConfig{
 	CoordinatorPriorityEventQueueSize: confutil.P(500),
 	DelegationBatchInterval:           confutil.P("50ms"),
 	DispatchMaxBatchSize:              confutil.P(100),
-	EndorseRetry:                      *GenericRetryDefaults,
+	EndorseErrorRetry:                 *GenericRetryDefaults,
 	HeartbeatInterval:                 confutil.P("10s"),
 	IdleSequencerCleanupInterval:      confutil.P("1m"),
 	InactiveGracePeriod:               confutil.P(2),

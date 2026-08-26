@@ -451,7 +451,7 @@ func Test_handleEndorsementRequest_PartyKeyResolveError_RetriesThenSendsEndorsem
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
 		WithMockTransportWriter().
-		EndorseRetryMaxAttempts(2).
+		EndorseErrorRetryMaxAttempts(2).
 		Build()
 
 	// Set up KeyManager to fail party key resolution; no StateManager or EndorseTransaction needed.
@@ -475,7 +475,7 @@ func Test_handleEndorsementRequest_EndorseTransactionError_RetriesThenSendsEndor
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
 		WithMockTransportWriter().
-		EndorseRetryMaxAttempts(3).
+		EndorseErrorRetryMaxAttempts(3).
 		Build()
 
 	setupEndorsementMocks(t, mocks)
@@ -571,7 +571,7 @@ func Test_handleEndorsementRequest_ExpiredContext_AbandonsRetryAfterOneAttempt(t
 
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
 		WithMockTransportWriter().
-		EndorseRetryMaxAttempts(3).
+		EndorseErrorRetryMaxAttempts(3).
 		Build()
 
 	// Key resolution fails with a retryable error, but the expired context stops the retry after the
@@ -668,7 +668,7 @@ func Test_handleEndorsementRequest_Sign_ResolveKeyError_RetriesThenSendsEndorsem
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
 		NodeName("node1").
 		WithMockTransportWriter().
-		EndorseRetryMaxAttempts(2).
+		EndorseErrorRetryMaxAttempts(2).
 		Build()
 
 	km := setupEndorsementMocks(t, mocks)
@@ -697,7 +697,7 @@ func Test_handleEndorsementRequest_Sign_SignError_RetriesThenSendsEndorsementErr
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
 		NodeName("node1").
 		WithMockTransportWriter().
-		EndorseRetryMaxAttempts(2).
+		EndorseErrorRetryMaxAttempts(2).
 		Build()
 
 	km := setupEndorsementMocks(t, mocks)

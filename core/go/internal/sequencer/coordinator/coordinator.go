@@ -122,7 +122,7 @@ type coordinator struct {
 	signErrorRetryThreshhold       int
 	requestTimeout                 time.Duration
 	stateTimeout                   time.Duration
-	endorseRetry                   *retry.Retry
+	endorseErrorRetry              *retry.Retry
 	nodeName                       string
 	coordinatorSelectionBlockRange uint64
 	maxInflightTransactions        int
@@ -199,7 +199,7 @@ func NewCoordinator(
 	c.dispatchMaxBatchSize = confutil.IntMin(configuration.DispatchMaxBatchSize, pldconf.SequencerMinimum.DispatchMaxBatchSize, *pldconf.SequencerDefaults.DispatchMaxBatchSize)
 	c.requestTimeout = confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
 	c.stateTimeout = confutil.DurationMin(configuration.StateTimeout, pldconf.SequencerMinimum.StateTimeout, *pldconf.SequencerDefaults.StateTimeout)
-	c.endorseRetry = retry.NewRetryLimited(&configuration.EndorseRetry, &pldconf.SequencerDefaults.EndorseRetry)
+	c.endorseErrorRetry = retry.NewRetryLimited(&configuration.EndorseErrorRetry, &pldconf.SequencerDefaults.EndorseErrorRetry)
 	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
 	c.closingGracePeriod = confutil.IntMin(configuration.ClosingGracePeriod, pldconf.SequencerMinimum.ClosingGracePeriod, *pldconf.SequencerDefaults.ClosingGracePeriod)
 	c.inactiveGracePeriod = confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod)
