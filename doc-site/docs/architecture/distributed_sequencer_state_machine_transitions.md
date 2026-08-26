@@ -131,6 +131,7 @@ stateDiagram-v2
     Signing --> Pooled : StateTimeoutInterval
     Endorsement_Gathering --> Confirming_Dispatchable : Endorsed [AttestationPlanFulfilled && !HasDependenciesNotReady]
     Endorsement_Gathering --> Blocked : Endorsed [AttestationPlanFulfilled && HasDependenciesNotReady]
+    Endorsement_Gathering --> Reverted : EndorseRevert [EndorseRevertExceedsTolerance]
     Endorsement_Gathering --> Pooled : EndorseRevert [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --> Pooled : EndorseError [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --> Pooled : EndorseRequestRejected [EndorseFailureExceedsTolerance]

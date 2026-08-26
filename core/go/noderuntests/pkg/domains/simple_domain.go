@@ -56,6 +56,10 @@ var simpleTokenBuild []byte // comes from Hardhat build
 // The simple domain can be used to test reverts but only once, then they need discarding for the next revert test
 var revertedOnce = make(map[string]bool)
 
+// Tracks whether we have already failed endorsement once for a transaction (amount 1007), so that the
+// second attempt succeeds and the test can prove the transaction recovered rather than just stalling.
+var erroredOnce = make(map[string]bool)
+
 // Tracks the first chained TX ID per origin TX for chained retry testing (amounts 1008).
 // When the first chained TX fails and the original TX retries with a new chained TX, the
 // new chained TX (different ID) will succeed.
@@ -839,11 +843,12 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 				// Basic special case for revert testing:
 				// If the amount is set to 1001 we will revert in the domain at assembly time
 				// Other error modes we handle in other functions are:
-				// If the amount is set to 1002 we will use a fixed, known salt and revert the domain at endorsement time (see EndorseTransaction)
+				// If the amount is set to 1002 we will revert the domain at endorsement time, every time (see EndorseTransaction)
 				// If the amount is set to 1003 we will trigger a retryable base ledger error on the first attempt, then succeed on retry
 				// If the amount is set to 1004 we will trigger a retryable base ledger error every time (will exceed retry threshold)
 				// If the amount is set to 1005 we will trigger a non-retryable base ledger error (fails immediately)
 				// If the amount is set to 1006 we will return an error (not a revert - to ensure the sequencer copes gracefully with it)
+				// If the amount is set to 1007 we will return an error from endorsement once, then endorse successfully (see EndorseTransaction)
 				if config.HookAddress == "" {
 					if amount.Cmp(big.NewInt(1001)) == 0 {
 						revertMessage := "simple domain revert - special transfer amount 1001 intentionally rejected"
@@ -1050,17 +1055,29 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					}
 				}
 
-				// Special case - amount 1002 causes us to revert at endorsement time. We do this only once since
-				// endorsement needs to be successful eventually. This contract is effectively throw-away once it's
-				// been used to test revert in this way but all tests deploy a new instance each time.
+				// The two special cases below are the two halves of the same distinction: an endorsement
+				// revert means we evaluated the transaction and will not endorse it, an error means we hit
+				// something unexpected. The coordinator must treat them differently, so there is a hook for
+				// each.
+
+				// Amount 1002 - we revert at endorsement time, every time. Asking us again about the same
+				// transaction gets the same answer, so re-assembly cannot help and the coordinator is
+				// expected to finalize the transaction as reverted.
 				if outCoins[0].Amount.BigInt().Cmp(big.NewInt(1002)) == 0 {
-					if !revertedOnce[req.Transaction.TransactionId] {
-						revertMessage := "simple domain revert - special transfer amount 1002 intentionally rejected"
-						revertedOnce[req.Transaction.TransactionId] = true
-						return &prototk.EndorseTransactionResponse{
-							EndorsementResult: prototk.EndorseTransactionResponse_REVERT,
-							RevertReason:      &revertMessage,
-						}, nil
+					revertMessage := "simple domain revert - special transfer amount 1002 intentionally rejected"
+					return &prototk.EndorseTransactionResponse{
+						EndorsementResult: prototk.EndorseTransactionResponse_REVERT,
+						RevertReason:      &revertMessage,
+					}, nil
+				}
+
+				// Amount 1007 - we fail to endorse once, then succeed. This stands in for a transient,
+				// node-specific problem: there is nothing wrong with the transaction, so the coordinator is
+				// expected to put it back in the pool and let it be assembled and endorsed again.
+				if outCoins[0].Amount.BigInt().Cmp(big.NewInt(1007)) == 0 {
+					if !erroredOnce[req.Transaction.TransactionId] {
+						erroredOnce[req.Transaction.TransactionId] = true
+						return nil, fmt.Errorf("simple domain endorsement error")
 					}
 				}
 

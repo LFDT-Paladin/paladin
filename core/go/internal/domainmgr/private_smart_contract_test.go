@@ -1072,6 +1072,41 @@ func TestDomainResolvePotentialStatesDebugLogging(t *testing.T) {
 	assert.Equal(t, pldtypes.HexBytes(stateID).String(), tx.PostAssembly.OutputStates[0].GetId())
 }
 
+func TestDomainResolvePotentialStatesCarriesDomainSuppliedID(t *testing.T) {
+	// A domain may choose the state ID itself, in which case it is carried through to validation
+	// rather than being computed from the state data.
+	schema := componentsmocks.NewSchema(t)
+	schemaID := pldtypes.RandBytes32()
+	schema.On("ID").Return(schemaID)
+	schema.On("Signature").Return("schema1_signature")
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockHighestBlock)
+	defer done()
+
+	psc, tx := doDomainInitAssembleTransactionOK(t, td)
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	suppliedID := stateID.String()
+	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
+		{Id: &suppliedID, SchemaId: schemaID.String(), StateDataJson: `{}`},
+	}
+	tx.PostAssembly.AssembleResponse.InfoStatesPotential = nil
+
+	var validated []*prototk.EndorsableState
+	td.mc.stateStore.On("ValidateStatesWithLabels", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			validated = args.Get(4).([]*prototk.EndorsableState)
+		}).
+		Return([]*components.StateWithLabels{
+			{State: &pldapi.State{StateBase: pldapi.StateBase{ID: stateID, Schema: schemaID}}},
+		}, nil)
+
+	err := psc.ResolvePotentialStates(td.ctx, td.c.dbTX, tx)
+	require.NoError(t, err)
+	require.Len(t, validated, 1)
+	assert.Equal(t, suppliedID, validated[0].Id)
+	require.Len(t, tx.PostAssembly.OutputStates, 1)
+	assert.Equal(t, suppliedID, tx.PostAssembly.OutputStates[0].GetId())
+}
+
 func TestEndorseTransactionFail(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()

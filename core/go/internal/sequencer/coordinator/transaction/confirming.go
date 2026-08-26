@@ -174,7 +174,7 @@ func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransa
 		t.syncPoints.QueueTransactionFinalize(ctx,
 			&syncpoints.TransactionFinalizeRequest{
 				Domain:          t.pt.Domain,
-				ContractAddress: pldtypes.EthAddress{},
+				ContractAddress: t.pt.Address,
 				Originator:      t.originator,
 				TransactionID:   t.pt.ID,
 				FailureMessage:  failureMessage,
