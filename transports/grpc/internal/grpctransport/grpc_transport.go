@@ -159,17 +159,19 @@ func (t *grpcTransport) ConfigureTransport(ctx context.Context, req *prototk.Con
 	// Kick off the gRPC listener
 	if t.serverDone == nil {
 		t.serverDone = make(chan struct{})
-		go t.serve()
+		go t.serve(t.grpcServer, t.listener, t.serverDone)
 	}
 
 	return &prototk.ConfigureTransportResponse{}, nil
 }
 
-func (t *grpcTransport) serve() {
-	defer close(t.serverDone)
+// The server, listener and done channel are passed in rather than read from the struct, as
+// shutdownTransport clears those fields and may run before this goroutine is scheduled.
+func (t *grpcTransport) serve(grpcServer *grpc.Server, listener net.Listener, serverDone chan struct{}) {
+	defer close(serverDone)
 
-	log.L(t.bgCtx).Infof("gRPC server for plugin %s starting on %s", t.name, t.listener.Addr())
-	err := t.grpcServer.Serve(t.listener)
+	log.L(t.bgCtx).Infof("gRPC server for plugin %s starting on %s", t.name, listener.Addr())
+	err := grpcServer.Serve(listener)
 	log.L(t.bgCtx).Infof("gRPC server for plugin %s stopped (err=%v)", t.name, err)
 }
 
