@@ -47,13 +47,13 @@ import (
 // Visibility is enforced against the transport-authenticated sender, which must match the node the
 // view was captured for.
 type Provider interface {
-	// OpenView captures a point in time — the states currently available to node plus the IDs of
+	// CaptureSnapshot captures a point in time — the states currently available to node plus the IDs of
 	// the states currently spend-locked — and holds it under assembleRequestID.
 	// node is the only node permitted to query against it.
-	OpenView(ctx context.Context, assembleRequestID string, node string)
+	CaptureSnapshot(ctx context.Context, assembleRequestID string, node string)
 
-	// CloseView discards the captured view. No-op if absent.
-	CloseView(ctx context.Context, assembleRequestID string)
+	// DeleteSnapshot discards the captured view. No-op if absent.
+	DeleteSnapshot(ctx context.Context, assembleRequestID string)
 
 	// HandleQueryAvailableStates serves a state query request against the view captured for the assemble
 	// it names, replying with a QueryAvailableStatesResponse carrying the matching states (with data), or a
@@ -95,7 +95,7 @@ func NewProvider(domainName string, contractAddress string, transportWriter tran
 	}
 }
 
-func (p *provider) OpenView(ctx context.Context, assembleRequestID string, node string) {
+func (p *provider) CaptureSnapshot(ctx context.Context, assembleRequestID string, node string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if _, exists := p.views[assembleRequestID]; exists {
@@ -107,7 +107,7 @@ func (p *provider) OpenView(ctx context.Context, assembleRequestID string, node 
 	p.views[assembleRequestID] = &capturedView{node: node, candidates: candidates, spentStateIDs: spentStateIDs}
 }
 
-func (p *provider) CloseView(ctx context.Context, assembleRequestID string) {
+func (p *provider) DeleteSnapshot(ctx context.Context, assembleRequestID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	log.L(ctx).Debugf("stateview provider: close view for assemble request %s", assembleRequestID)

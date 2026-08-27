@@ -570,8 +570,8 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	stateViewProvider := b.stateViewProvider
 	if stateViewProvider == nil {
 		mocks.StateViewProvider = coordinatorstateviewmocks.NewProvider(b.t)
-		mocks.StateViewProvider.EXPECT().OpenView(mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mocks.StateViewProvider.EXPECT().CloseView(mock.Anything, mock.Anything).Return().Maybe()
+		mocks.StateViewProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mocks.StateViewProvider.EXPECT().DeleteSnapshot(mock.Anything, mock.Anything).Return().Maybe()
 		stateViewProvider = mocks.StateViewProvider
 	}
 

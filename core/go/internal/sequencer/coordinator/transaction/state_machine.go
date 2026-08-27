@@ -289,11 +289,11 @@ var stateDefinitionsMap = StateDefinitions{
 			// states available to the originator.
 			// OnTransitionFrom discards that view on every exit from this state.
 			{Action: action_RefreshBlockHeight},
-			{Action: action_OpenStateView},
+			{Action: action_CaptureGrapherSnapshot},
 			{Action: action_SendAssembleRequest},
 		},
 		OnTransitionFrom: []ActionRule{
-			{Action: action_CloseStateView},
+			{Action: action_DeleteGrapherSnapshot},
 		},
 		Events: map[EventType]EventHandlers{
 			Event_AssembleSuccess: {

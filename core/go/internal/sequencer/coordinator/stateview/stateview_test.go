@@ -68,7 +68,7 @@ func providerTestSetupWithWriter(t *testing.T, writer transport.TransportWriter)
 
 	stateManager := componentsmocks.NewStateManager(t)
 	p := NewProvider("test-domain", testContractAddress, writer, g, stateManager)
-	p.OpenView(ctx, testAssembleRequestID, "node1")
+	p.CaptureSnapshot(ctx, testAssembleRequestID, "node1")
 	return p, stateManager
 }
 
@@ -140,7 +140,7 @@ func TestProvider_HandleQueryAvailableStates_UnentitledNodeGetsNoCandidates(t *t
 
 	// node2 has no visibility (default-deny): its snapshot captures zero candidates — an
 	// empty response, never an error, and never a data leak.
-	p.OpenView(ctx, "assemble-2", "node2")
+	p.CaptureSnapshot(ctx, "assemble-2", "node2")
 	stateManager.EXPECT().FindMatchingInMemoryStates(mock.Anything, "test-domain", testSchemaID, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, _ string, _ pldtypes.Bytes32, _ *query.QueryJSON, candidates []*prototk.SnapshotState) ([]*prototk.QueriedState, error) {
 			assert.Empty(t, candidates)
@@ -257,11 +257,11 @@ func TestProvider_HandleQueryAvailableStates_WrongNode(t *testing.T) {
 	assert.Regexp(t, "PD012652", errs[0].GetErrorMessage())
 }
 
-func TestProvider_CloseView_MakesSubsequentQueriesUnknown(t *testing.T) {
+func TestProvider_DeleteSnapshot_MakesSubsequentQueriesUnknown(t *testing.T) {
 	ctx := t.Context()
 	p, recorder, _ := providerTestSetup(t)
 
-	p.CloseView(ctx, testAssembleRequestID)
+	p.DeleteSnapshot(ctx, testAssembleRequestID)
 
 	p.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
 		ContractAddress:   testContractAddress,
@@ -287,7 +287,7 @@ func TestProvider_HandleGetSpentStateIDs_ServesFrozenSpentSet(t *testing.T) {
 	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: spentStateID.String()}}, uuid.New())
 
 	p := NewProvider("test-domain", testContractAddress, recorder, g, componentsmocks.NewStateManager(t))
-	p.OpenView(ctx, testAssembleRequestID, "node1")
+	p.CaptureSnapshot(ctx, testAssembleRequestID, "node1")
 
 	// A state spend-locked after the view was captured must not appear: the view froze at capture.
 	lateSpentStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("dd", 32))
@@ -341,13 +341,13 @@ func TestProvider_HandleGetSpentStateIDs_WrongNode(t *testing.T) {
 	assert.Regexp(t, "PD012652", errs[0].GetErrorMessage())
 }
 
-func TestProvider_OpenView_ExistingViewKept(t *testing.T) {
+func TestProvider_CaptureSnapshot_ExistingViewKept(t *testing.T) {
 	ctx := t.Context()
 	p, recorder, _ := providerTestSetup(t)
 
 	// Re-opening the same assemble request ID for a different node keeps the existing view: it
 	// still belongs to node1, so node2 is rejected.
-	p.OpenView(ctx, testAssembleRequestID, "node2")
+	p.CaptureSnapshot(ctx, testAssembleRequestID, "node2")
 
 	p.HandleGetSpentStateIDs(ctx, "node2", &engineProto.GetSpentStateIDsRequest{
 		ContractAddress:   testContractAddress,

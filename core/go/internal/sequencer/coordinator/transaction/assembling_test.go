@@ -975,27 +975,27 @@ func Test_sendAssembleRequest_CarriesAssembleRequestIDOnly(t *testing.T) {
 	assert.Equal(t, sentRequestIDs[0], sentRequestIDs[1])
 }
 
-func Test_action_OpenStateView_CapturesViewForOriginatorNode(t *testing.T) {
+func Test_action_CaptureGrapherSnapshot_CapturesViewForOriginatorNode(t *testing.T) {
 	ctx := t.Context()
 	mockProvider := coordinatorstateviewmocks.NewProvider(t)
-	mockProvider.EXPECT().OpenView(mock.Anything, mock.Anything, "node1").Return()
+	mockProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, "node1").Return()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		StateViewProvider(mockProvider).
 		Build()
 
-	require.NoError(t, action_OpenStateView(ctx, txn, nil))
+	require.NoError(t, action_CaptureGrapherSnapshot(ctx, txn, nil))
 	require.NotEqual(t, uuid.Nil, txn.assembleRequestID)
 }
 
-func Test_action_CloseStateView_DiscardsView(t *testing.T) {
+func Test_action_DeleteGrapherSnapshot_DiscardsView(t *testing.T) {
 	ctx := t.Context()
 	mockProvider := coordinatorstateviewmocks.NewProvider(t)
-	mockProvider.EXPECT().CloseView(mock.Anything, mock.Anything).Return()
+	mockProvider.EXPECT().DeleteSnapshot(mock.Anything, mock.Anything).Return()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		StateViewProvider(mockProvider).
 		Build()
 
-	require.NoError(t, action_CloseStateView(ctx, txn, nil))
+	require.NoError(t, action_DeleteGrapherSnapshot(ctx, txn, nil))
 }

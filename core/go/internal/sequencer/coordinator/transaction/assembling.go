@@ -253,18 +253,18 @@ func action_SendAssembleRequest(ctx context.Context, txn *coordinatorTransaction
 	return txn.sendAssembleRequest(ctx)
 }
 
-// action_OpenStateView initialises the assembleRequestID for this attempt and captures the state view
+// action_CaptureGrapherSnapshot initialises the assembleRequestID for this attempt and captures the state view
 // served to the originator: the states currently available to it plus the IDs of the states already
 // spend-locked. Every state view request for this assemble is answered from that captured view, so the
 // originator's view cannot shift while the assemble is in flight.
-func action_OpenStateView(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+func action_CaptureGrapherSnapshot(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	txn.assembleRequestID = uuid.New()
-	txn.stateViewProvider.OpenView(ctx, txn.assembleRequestID.String(), txn.originatorNode)
+	txn.stateViewProvider.CaptureSnapshot(ctx, txn.assembleRequestID.String(), txn.originatorNode)
 	return nil
 }
 
-func action_CloseStateView(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	txn.stateViewProvider.CloseView(ctx, txn.assembleRequestID.String())
+func action_DeleteGrapherSnapshot(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.stateViewProvider.DeleteSnapshot(ctx, txn.assembleRequestID.String())
 	return nil
 }
 
