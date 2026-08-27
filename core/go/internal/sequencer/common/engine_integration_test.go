@@ -404,23 +404,34 @@ func TestEngineIntegration_ResolveVerifiers_FirstErrorReturned(t *testing.T) {
 }
 
 func TestEngineIntegration_Assemble_NilLocalTx(t *testing.T) {
-	// A nil resolved transaction is a programming error → internal error, with no database read.
+	// The originator always supplies the resolved transaction, so a nil is a programming error
+	// in the state machine rather than a recoverable condition - it is rejected up front, and
+	// never recovered from by falling back to a database read.
 	ctx := context.Background()
-	ei, m := newTestEngineIntegration(t)
 
-	txID := uuid.New()
-	preAssembly := &prototk.TransactionPreAssembly{}
+	for _, tc := range []struct {
+		name    string
+		localTx *components.ResolvedTransaction
+	}{
+		{name: "nil resolved transaction", localTx: nil},
+		{name: "resolved transaction with no transaction", localTx: &components.ResolvedTransaction{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ei, m := newTestEngineIntegration(t)
 
-	mockDqc := componentsmocks.NewDomainQueryContext(t)
-	m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, mock.Anything, mock.Anything).
-		Return(mockDqc).Once()
-	m.domainSmartContract.On("Domain").Return(m.domain)
-	m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
-	mockDqc.On("Close", mock.Anything).Return().Once()
+			m.domainSmartContract.On("Domain").Return(m.domain)
+			m.domainSmartContract.On("Address").Return(*pldtypes.RandAddress())
 
-	_, err := ei.Assemble(ctx, txID, preAssembly, nil, nil, 100, nil)
-	require.Error(t, err)
-	m.txManager.AssertNotCalled(t, "GetResolvedTransactionByID", mock.Anything, mock.Anything)
+			mockDqc := componentsmocks.NewDomainQueryContext(t)
+			m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, mock.Anything, mock.Anything).
+				Return(mockDqc).Once()
+			mockDqc.On("Close", mock.Anything).Return().Once()
+
+			_, err := ei.Assemble(ctx, uuid.New(), &prototk.TransactionPreAssembly{}, nil, nil, 100, tc.localTx)
+			require.Regexp(t, "PD012601", err)
+			m.txManager.AssertNotCalled(t, "GetResolvedTransactionByID", mock.Anything, mock.Anything)
+		})
+	}
 }
 
 func TestEngineIntegration_Assemble_WrongDomain(t *testing.T) {

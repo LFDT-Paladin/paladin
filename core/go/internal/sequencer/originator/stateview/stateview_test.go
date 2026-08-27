@@ -175,7 +175,7 @@ func TestReader_QueryAvailableStates_Error(t *testing.T) {
 
 	outcome := <-done
 	require.Error(t, outcome.err)
-	assert.Regexp(t, "PD012649", outcome.err)
+	assert.Regexp(t, "PD012651", outcome.err)
 	assert.Regexp(t, "no states for you", outcome.err)
 }
 
@@ -410,7 +410,7 @@ func TestReader_GetSpentStateIDs_ErrorFailsFast(t *testing.T) {
 	})
 
 	outcome := <-done
-	require.ErrorContains(t, outcome.err, "PD012649")
+	require.ErrorContains(t, outcome.err, "PD012651")
 	require.ErrorContains(t, outcome.err, "no such assemble")
 }
 

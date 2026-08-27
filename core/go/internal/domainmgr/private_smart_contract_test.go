@@ -1071,9 +1071,9 @@ func TestDomainResolvePotentialStatesDebugLogging(t *testing.T) {
 	assert.Equal(t, pldtypes.HexBytes(stateID).String(), tx.PostAssembly.OutputStates[0].GetId())
 }
 
-// TestDomainResolvePotentialStatesPreAssignedID proves a potential state carrying a
-// domain-assigned ID passes that ID through to state validation.
-func TestDomainResolvePotentialStatesPreAssignedID(t *testing.T) {
+func TestDomainResolvePotentialStatesCarriesDomainSuppliedID(t *testing.T) {
+	// A domain may choose the state ID itself, in which case it is carried through to validation
+	// rather than being computed from the state data.
 	schema := componentsmocks.NewSchema(t)
 	schemaID := pldtypes.RandBytes32()
 	schema.On("ID").Return(schemaID)
@@ -1082,23 +1082,28 @@ func TestDomainResolvePotentialStatesPreAssignedID(t *testing.T) {
 	defer done()
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
-	stateID := pldtypes.RandBytes(32)
-	idStr := pldtypes.HexBytes(stateID).String()
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	suppliedID := stateID.String()
 	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
-		{SchemaId: schemaID.String(), StateDataJson: `{}`, Id: &idStr},
+		{Id: &suppliedID, SchemaId: schemaID.String(), StateDataJson: `{}`},
 	}
 	tx.PostAssembly.AssembleResponse.InfoStatesPotential = nil
 
-	td.mc.stateStore.On("ValidateStatesWithLabels", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.MatchedBy(func(es []*prototk.EndorsableState) bool { return len(es) == 1 && es[0].GetId() == idStr })).
+	var validated []*prototk.EndorsableState
+	td.mc.stateStore.On("ValidateStatesWithLabels", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			validated = args.Get(4).([]*prototk.EndorsableState)
+		}).
 		Return([]*components.StateWithLabels{
 			{State: &pldapi.State{StateBase: pldapi.StateBase{ID: stateID, Schema: schemaID}}},
 		}, nil)
 
 	err := psc.ResolvePotentialStates(td.ctx, td.c.dbTX, tx)
 	require.NoError(t, err)
+	require.Len(t, validated, 1)
+	assert.Equal(t, suppliedID, validated[0].Id)
 	require.Len(t, tx.PostAssembly.OutputStates, 1)
-	assert.Equal(t, idStr, tx.PostAssembly.OutputStates[0].GetId())
+	assert.Equal(t, suppliedID, tx.PostAssembly.OutputStates[0].GetId())
 }
 
 func TestEndorseTransactionFail(t *testing.T) {

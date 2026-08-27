@@ -18,7 +18,9 @@ package coordinator
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -145,44 +147,110 @@ func action_AddEndorsementRequestSenderToEndorserCandidates(ctx context.Context,
 // The goroutine uses c.components and c.transportWriter directly. Both are safe to call from
 // concurrent goroutines: remote sends go through TransportManager.Send (goroutine-safe) and
 // loopback sends go through a buffered channel.
+//
+// Requests are deduplicated by idempotency key, since a coordinator nudges an outstanding
+// endorsement request by resending it with the same key. Without this, a nudge arriving while the
+// first attempt is still in the domain would start a second concurrent endorsement of the same
+// transaction, doubling the domain and signing work and racing to send two responses for one request.
+//
+// A request carrying no idempotency key is not endorsed at all. Every reply echoes the key back so
+// the requester can match it to the request it answers, so there is no reply we could send that the
+// requester is able to act on - including an endorsement error. Doing the domain work would only
+// produce an unusable response, so the request is dropped and left to the requester's own timeout.
 func action_HandleEndorsementRequest(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*EndorsementRequestReceivedEvent)
+	if e.IdempotencyKey == "" {
+		log.L(ctx).Errorf("ignoring endorsement request for tx %s from %s: no idempotency key, so no response could be matched to it", e.TransactionId, e.FromNode)
+		return nil
+	}
+	if !c.beginEndorsement(e.IdempotencyKey) {
+		log.L(ctx).Debugf("endorsement of tx %s for %s already in flight (idempotencyKey=%s): ignoring duplicate request", e.TransactionId, e.Party, e.IdempotencyKey)
+		return nil
+	}
 	endorseCtx := ctx
 	cancel := func() {}
 	if !e.Expiry.IsZero() {
 		endorseCtx, cancel = context.WithDeadline(ctx, e.Expiry)
 	}
 	go func() {
-		defer cancel()
 		c.handleEndorsementRequest(endorseCtx, e)
+		c.endEndorsement(e.IdempotencyKey)
+		cancel()
 	}()
 	return nil
 }
 
+// beginEndorsement claims the endorsement request identified by idempotencyKey, returning false if
+// this node is already endorsing that request. Called on the event loop, so only one claim can be in
+// progress at a time.
+func (c *coordinator) beginEndorsement(idempotencyKey string) bool {
+	c.inFlightEndorsementsMutex.Lock()
+	defer c.inFlightEndorsementsMutex.Unlock()
+	if _, inFlight := c.inFlightEndorsements[idempotencyKey]; inFlight {
+		return false
+	}
+	c.inFlightEndorsements[idempotencyKey] = struct{}{}
+	return true
+}
+
+func (c *coordinator) endEndorsement(idempotencyKey string) {
+	c.inFlightEndorsementsMutex.Lock()
+	defer c.inFlightEndorsementsMutex.Unlock()
+	delete(c.inFlightEndorsements, idempotencyKey)
+}
+
+// handleEndorsementRequest performs the domain work for one endorsement request and sends exactly one
+// reply: an endorsement response - which may carry a revert reason - or an endorsement error.
+//
+// Domain errors and errors that may not recur are retried up to the retry threshold. Reverts and non-domain errors
+// that would fail identically on every attempt are reported straight away: e.g. a party locator we cannot parse,
+// or an endorser in the domain's own response that is not a valid identity.
 func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *EndorsementRequestReceivedEvent) {
-	sendErr := func(errMsg string) {
-		log.L(ctx).Errorf("handleEndorsementRequest error for tx %s: %s", e.TransactionId, errMsg)
-		if err := c.transportWriter.SendEndorsementError(ctx, e.FromNode, &engineProto.EndorsementError{
+	var response *engineProto.EndorsementResponse
+	attempts := 0
+	err := c.endorseErrorRetry.Do(ctx, func(attempt int) (bool, error) {
+		attempts = attempt
+		var retryable bool
+		var err error
+		response, retryable, err = c.endorse(ctx, e)
+		if err != nil {
+			log.L(ctx).Errorf("endorsement of tx %s for %s failed (attempt=%d, retryable=%t): %s", e.TransactionId, e.Party, attempt, retryable, err)
+		}
+		return retryable, err
+	})
+	if err != nil {
+		log.L(ctx).Errorf("endorsement of tx %s failed (attempts=%d) - reporting the error to %s: %s", e.TransactionId, attempts, e.FromNode, err)
+		if sendErr := c.transportWriter.SendEndorsementError(ctx, e.FromNode, &engineProto.EndorsementError{
 			TransactionId:          e.TransactionId,
 			IdempotencyKey:         e.IdempotencyKey,
 			ContractAddress:        c.contractAddress.HexString(),
-			ErrorMessage:           errMsg,
+			ErrorMessage:           err.Error(),
 			Party:                  e.Party,
 			AttestationRequestName: e.AttestationRequest.Name,
-		}); err != nil {
-			log.L(ctx).Errorf("handleEndorsementRequest failed to send endorsement error: %s", err)
+		}); sendErr != nil {
+			log.L(ctx).Errorf("handleEndorsementRequest failed to send endorsement error: %s", sendErr)
 		}
+		return
 	}
 
+	c.metrics.IncEndorsedTransactions()
+	if err := c.transportWriter.SendEndorsementResponse(ctx, e.FromNode, response); err != nil {
+		log.L(ctx).Errorf("handleEndorsementRequest failed to send endorsement response: %s", err)
+	}
+}
+
+// endorse makes a single attempt at endorsing, returning the response to send back to the requester
+// on success. The returned flag says whether a failed attempt is worth repeating: false means the
+// error is in the request or in the domain's answer to it, so every further attempt would fail the
+// same way.
+func (c *coordinator) endorse(ctx context.Context, e *EndorsementRequestReceivedEvent) (*engineProto.EndorsementResponse, bool, error) {
 	unqualifiedLookup, err := pldtypes.PrivateIdentityLocator(e.Party).Identity(ctx)
 	if err != nil {
-		sendErr(err.Error())
-		return
+		return nil, false, err
 	}
 	resolvedSigner, err := c.components.KeyManager().ResolveKeyNewDatabaseTX(ctx, unqualifiedLookup, e.AttestationRequest.Algorithm, e.AttestationRequest.VerifierType)
 	if err != nil {
-		sendErr(err.Error())
-		return
+		return nil, true, err
 	}
 	endorsementRequest := e.PrivateEndorsementRequest
 	endorsementRequest.Endorser = &prototk.ResolvedVerifier{
@@ -197,10 +265,8 @@ func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *Endorseme
 
 	endorsementResult, err := c.domainAPI.EndorseTransaction(ctx, dc, c.components.Persistence().NOTX(), endorsementRequest)
 	if err != nil {
-		sendErr(err.Error())
-		return
+		return nil, true, err
 	}
-	e.AttestationRequest.Payload = endorsementResult.Payload
 
 	attResult := &prototk.AttestationResult{
 		Name:            e.AttestationRequest.Name,
@@ -209,6 +275,12 @@ func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *Endorseme
 	}
 
 	revertReason := ""
+
+	// A revert reason when the result is not a revert is an indication of a domain bug- log at WARN level
+	if endorsementResult.Result != prototk.EndorseTransactionResponse_REVERT && endorsementResult.RevertReason != nil {
+		log.L(ctx).Warn(i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerEndorseRevertReasonIgnored),
+			endorsementResult.Result, e.TransactionId, *endorsementResult.RevertReason))
+	}
 
 	switch endorsementResult.Result {
 	case prototk.EndorseTransactionResponse_REVERT:
@@ -219,21 +291,18 @@ func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *Endorseme
 	case prototk.EndorseTransactionResponse_SIGN:
 		unqualifiedLookup, signerNode, err := pldtypes.PrivateIdentityLocator(endorsementResult.Endorser.Lookup).Validate(ctx, c.nodeName, true)
 		if err != nil {
-			sendErr(err.Error())
-			return
+			return nil, false, err
 		}
 		if signerNode == c.nodeName {
 			log.L(ctx).Info("endorsement response signing request includes us - signing it now")
 			keyMgr := c.components.KeyManager()
 			resolvedKey, err := keyMgr.ResolveKeyNewDatabaseTX(ctx, unqualifiedLookup, e.AttestationRequest.Algorithm, e.AttestationRequest.VerifierType)
 			if err != nil {
-				sendErr(err.Error())
-				return
+				return nil, true, err
 			}
-			signaturePayload, err := keyMgr.Sign(ctx, resolvedKey, e.AttestationRequest.PayloadType, e.AttestationRequest.Payload)
+			signaturePayload, err := keyMgr.Sign(ctx, resolvedKey, e.AttestationRequest.PayloadType, endorsementResult.Payload)
 			if err != nil {
-				sendErr(err.Error())
-				return
+				return nil, true, err
 			}
 			attResult.Payload = signaturePayload
 		} else {
@@ -244,7 +313,6 @@ func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *Endorseme
 		attResult.Constraints = append(attResult.Constraints, prototk.AttestationResult_ENDORSER_MUST_SUBMIT)
 	}
 
-	c.metrics.IncEndorsedTransactions()
 	msg := &engineProto.EndorsementResponse{
 		Endorsement:            attResult,
 		TransactionId:          e.TransactionId,
@@ -256,7 +324,5 @@ func (c *coordinator) handleEndorsementRequest(ctx context.Context, e *Endorseme
 	if revertReason != "" {
 		msg.RevertReason = &revertReason
 	}
-	if err = c.transportWriter.SendEndorsementResponse(ctx, e.FromNode, msg); err != nil {
-		log.L(ctx).Errorf("handleEndorsementRequest failed to send endorsement response: %s", err)
-	}
+	return msg, false, nil
 }

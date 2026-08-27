@@ -74,6 +74,8 @@ type coordinatorTransaction struct {
 	signErrorCount                     int
 	endorseToleranceByRequirement      map[string]int
 	endorseFailureCountByRequirement   map[string]int
+	endorseRevertCountByRequirement    map[string]int
+	endorseRevertReasons               []string
 	heartbeatIntervalsSinceStateChange int
 	stateEntryTime                     time.Time
 

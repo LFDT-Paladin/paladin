@@ -602,6 +602,7 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_Endorsed: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
+					Validator: validator_MatchesPendingEndorsementRequest,
 					Actions: []ActionRule{
 						{
 							Action: action_Endorsed,
@@ -626,22 +627,40 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				}},
 			},
-			// Domain returned REVERT: endorser rejected the assembly as invalid. Record the
-			// failed party (stops nudging them) and check whether remaining non-failed parties
-			// can still fulfill the plan. If tolerance exceeded → repool with full request reset;
-			// otherwise stay put — the remaining parties may still provide enough endorsements.
+			// Domain returned REVERT: the endorser rejected the assembly as invalid. A correctly
+			// implemented domain does not assemble a transaction that its own endorsers would
+			// revert, so a revert says the transaction cannot be executed.
+			//
+			// Record the failed party (stops nudging them), then pick the outcome:
+			//
+			//  1. Reverts alone now exceed the tolerance — so finalize it as reverted.
+			//  2. Total failures exceed the tolerance but reverts alone do not — the remaining
+			//     failures were errors or rejections, which may be transient, so repool.
+			//  3. Neither — stay put, the remaining parties may still fulfill the plan.
 			Event_EndorseRevert: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
-					Actions: []ActionRule{{Action: action_RecordEndorseFailure}},
-					Transitions: []Transition{{
-						If: guard_EndorseFailureExceedsTolerance,
-						To: State_Pooled,
-						Actions: []ActionRule{
-							{Action: action_NotifyDependentsOfReset},
-							{Action: action_ResetEndorsementRequests},
+					Validator: validator_MatchesPendingEndorsementRequest,
+					Actions:   []ActionRule{{Action: action_RecordEndorseFailure}},
+					Transitions: []Transition{
+						{
+							If: guard_EndorseRevertExceedsTolerance,
+							To: State_Reverted,
+							Actions: []ActionRule{
+								{Action: action_NotifyOriginatorOfEndorseRevert},
+								{Action: action_NotifyDependentsOfRevertedConfirmation},
+								{Action: action_FinalizeEndorseRevert},
+							},
 						},
-					}},
+						{
+							If: guard_EndorseFailureExceedsTolerance,
+							To: State_Pooled,
+							Actions: []ActionRule{
+								{Action: action_NotifyDependentsOfReset},
+								{Action: action_ResetEndorsementRequests},
+							},
+						},
+					},
 				}},
 			},
 			// Unexpected endorser error. Record the failed party (stops nudging them),
@@ -651,7 +670,8 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_EndorseError: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
-					Actions: []ActionRule{{Action: action_RecordEndorseFailure}},
+					Validator: validator_MatchesPendingEndorsementRequest,
+					Actions:   []ActionRule{{Action: action_RecordEndorseFailure}},
 					Transitions: []Transition{{
 						If: guard_EndorseFailureExceedsTolerance,
 						To: State_Pooled,
@@ -667,7 +687,8 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_EndorseRequestRejected: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
-					Actions: []ActionRule{{Action: action_RecordEndorseFailure}},
+					Validator: validator_MatchesPendingEndorsementRequest,
+					Actions:   []ActionRule{{Action: action_RecordEndorseFailure}},
 					Transitions: []Transition{{
 						If: guard_EndorseFailureExceedsTolerance,
 						To: State_Pooled,

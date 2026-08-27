@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
@@ -34,16 +33,16 @@ func (t *coordinatorTransaction) revertTransactionFailedAssembly(ctx context.Con
 	tryFinalize = func() {
 		t.syncPoints.QueueTransactionFinalize(ctx, &syncpoints.TransactionFinalizeRequest{
 			Domain:          t.pt.Domain,
-			ContractAddress: pldtypes.EthAddress{},
+			ContractAddress: t.pt.Address,
 			Originator:      t.originator,
 			TransactionID:   t.pt.ID,
 			FailureMessage:  revertReason,
 		},
 			func(ctx context.Context) {
-				log.L(ctx).Debugf("finalized deployment transaction: %s", t.pt.ID)
+				log.L(ctx).Debugf("finalized transaction reverted at assembly: %s", t.pt.ID)
 			},
 			func(ctx context.Context, err error) {
-				log.L(ctx).Errorf("error finalizing deployment: %s", err)
+				log.L(ctx).Errorf("error finalizing transaction reverted at assembly %s: %s", t.pt.ID, err)
 				tryFinalize()
 			})
 	}

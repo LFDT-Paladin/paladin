@@ -20,6 +20,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
@@ -1519,6 +1520,57 @@ func TestStateMachineEventLoop_PriorityQueueDrainedBeforeMain(t *testing.T) {
 
 	assert.Equal(t, []string{"Event_Start", "Event_Process", "Event_Reset"}, entity.ProcessOrder)
 	assert.Equal(t, State_Idle, sel.GetCurrentState())
+}
+
+// The loop takes priority events in two places: the drain loop at the top of each iteration, and the
+// priority case of the blocking select it parks in when both queues are empty. This test exercises the
+// second, which needs each event queued only once the loop has actually parked - queueing any earlier
+// and the drain picks it up instead. synctest.Wait blocks until the loop goroutine is durably blocked,
+// which is precisely that moment, so the path is taken deterministically rather than by timing luck.
+func TestStateMachineEventLoop_PriorityEventWakesIdleLoop(t *testing.T) {
+	actionErr := errors.New("priority action failed")
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandlers[TestState, *TestEntity]{
+				Event_Start: {Handlers: []EventHandler[TestState, *TestEntity]{{
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							return actionErr
+						},
+					}},
+				}}},
+			},
+		},
+	}
+
+	synctest.Test(t, func(t *testing.T) {
+		entity := newTestEntity(definitions, "test-entity")
+		sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+			InitialState: State_Idle,
+			Definitions:  definitions,
+			Entity:       entity,
+			Name:         "priority-wakes-idle-loop-test",
+			Metrics:      newTestEventLoopMetrics(t),
+		})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go sel.Start(ctx)
+
+		// An event whose action fails: the loop logs the error and carries on.
+		synctest.Wait()
+		sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+
+		// A sync event: the loop closes its Done channel without running it through the state machine.
+		synctest.Wait()
+		syncEv := NewSyncEvent()
+		sel.QueuePriorityEvent(ctx, syncEv)
+		<-syncEv.Done
+
+		assert.Equal(t, State_Idle, sel.GetCurrentState(), "the failed action must not have moved the state on")
+		cancel()
+		waitForLoopDone(t, sel)
+	})
 }
 
 // TestStateMachineEventLoop_QueuePriorityEvent verifies that QueuePriorityEvent delivers

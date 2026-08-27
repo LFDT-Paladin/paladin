@@ -528,10 +528,12 @@ var (
 	MsgSequencerInvalidEndorserCandidate           = pde("PD012646", "Invalid coordinator endorser candidate identity '%s'")
 	MsgSequencerGrapherAddMinterAlreadyExistsError = pde("PD012647", "Error adding TX %s as minter for state %s, already minted by %s")
 	MsgSequencerStaticCoordinatorNotSet            = pde("PD012648", "Static coordinator mode for contract %s has no configured coordinator node")
-	MsgSequencerStateViewFailed                    = pde("PD012649", "Coordinator state view request %s failed: %s")
-	MsgSequencerStateViewInvalid                   = pde("PD012650", "Invalid state view request %s: %s")
-	MsgSequencerStateViewUnknownAssemble           = pde("PD012651", "No state view open for assemble request %s")
-	MsgSequencerStateViewWrongNode                 = pde("PD012652", "State view for assemble request %s not captured for requesting node %s")
+	MsgSequencerEndorseRevert                      = pde("PD012649", "Domain reverted transaction on endorse: %s")
+	MsgSequencerEndorseRevertReasonIgnored         = pde("PD012650", "Domain returned endorsement result %s with a revert reason for transaction %s: %s")
+	MsgSequencerStateViewFailed                    = pde("PD012651", "Coordinator state view request %s failed: %s")
+	MsgSequencerStateViewInvalid                   = pde("PD012652", "Invalid state view request %s: %s")
+	MsgSequencerStateViewUnknownAssemble           = pde("PD012653", "No state view open for assemble request %s")
+	MsgSequencerStateViewWrongNode                 = pde("PD012654", "State view for assemble request %s not captured for requesting node %s")
 
 	// Entrypoint PD0127XX
 	MsgResolveVerifierRemoteFailed = pde("PD012701", "Failed to resolve verifier on remote node with lookup %s algorithm %s: Error %s")
