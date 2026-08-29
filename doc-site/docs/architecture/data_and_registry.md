@@ -25,7 +25,7 @@ While Paladin supports many underlying technologies to manage the key materials 
 - A logical association to an actual identifiable entity, which might or
   might not be disclosed to others in the network
 
-A single Paladin runtime might manage thousands of these accounts, for different purposes. For example generating a new signing key to submit each traction to a blockchain for anonymous submission, or managing the keys for many different user accounts that all transact via that Paladin node.
+A single Paladin runtime might manage thousands of these accounts, for different purposes. For example generating a new signing key to submit each transaction to a blockchain for anonymous submission, or managing the keys for many different user accounts that all transact via that Paladin node.
 
 ### Runtime routing identities
 
