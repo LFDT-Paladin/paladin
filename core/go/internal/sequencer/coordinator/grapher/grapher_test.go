@@ -19,7 +19,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
@@ -246,18 +245,14 @@ func TestLockMintsOnSpend_MultipleStates_AppendsSpendLocks(t *testing.T) {
 	assert.Equal(t, prototk.SnapshotStateLock_SPEND, locks[0].GetType())
 }
 
-func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
+func TestLockMintsOnCreate_LocksState(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapher(t)
 	txID := uuid.New()
-	createdBy := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("44", 32))
-	upserts := []*components.StateUpsert{
-		{ID: stateID, CreatedBy: &createdBy},
-	}
 	states := []*prototk.EndorsableState{{Id: stateID.String()}}
 
-	g.LockMintsOnCreate(ctx, upserts, states, txID)
+	g.LockMintsOnCreate(ctx, states, txID)
 
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
@@ -268,40 +263,19 @@ func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
 	assert.Equal(t, prototk.SnapshotStateLock_CREATE, data.GetLocks()[0].GetType())
 }
 
-func TestLockMintsOnCreate_NoCreatedBy_NoLocks(t *testing.T) {
+func TestLockMintsOnCreate_LocksAllStates(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapher(t)
 	txID := uuid.New()
-	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("90", 32))
-	upserts := []*components.StateUpsert{{ID: stateID, CreatedBy: nil}}
-	states := []*prototk.EndorsableState{{Id: stateID.String()}}
-
-	g.LockMintsOnCreate(ctx, upserts, states, txID)
-
-	data, err := g.ExportStatesAndLocks(ctx, "test-node")
-	require.NoError(t, err)
-	assert.Empty(t, data.GetLocks())
-}
-
-func TestLockMintsOnCreate_MixedCreatedBy_AppendsOnlyPotential(t *testing.T) {
-	ctx := t.Context()
-	g := testGrapher(t)
-	txID := uuid.New()
-	createdBy := uuid.New()
 	s1 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("91", 32))
 	s2 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("92", 32))
-	upserts := []*components.StateUpsert{
-		{ID: s1, CreatedBy: nil},
-		{ID: s2, CreatedBy: &createdBy},
-	}
 	states := []*prototk.EndorsableState{{Id: s1.String()}, {Id: s2.String()}}
 
-	g.LockMintsOnCreate(ctx, upserts, states, txID)
+	g.LockMintsOnCreate(ctx, states, txID)
 
 	data, err := g.ExportStatesAndLocks(ctx, "test-node")
 	require.NoError(t, err)
-	require.Len(t, data.GetLocks(), 1)
-	assert.Equal(t, s2.String(), data.GetLocks()[0].GetStateId())
+	require.Len(t, data.GetLocks(), 2)
 }
 
 func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
@@ -431,12 +405,11 @@ func TestForgetTransactionAndLocks_ClearsMinterConsumerAndLocks(t *testing.T) {
 	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	consumerID := uuid.New()
-	createdBy := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("77", 32))
 	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("88", 32)).String(), StateDataJson: `{}`}
 
 	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterID))
-	g.LockMintsOnCreate(ctx, []*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}}, []*prototk.EndorsableState{{Id: stateID.String()}}, minterID)
+	g.LockMintsOnCreate(ctx, []*prototk.EndorsableState{{Id: stateID.String()}}, minterID)
 	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), consumerID)
 	g.ForgetTransactionAndLocks(ctx, minterID)
 
@@ -485,14 +458,13 @@ func TestForgetTransaction_OutputStateRemainsForHeartbeatsUntilLockExpires(t *te
 	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	txID := uuid.New()
-	createdBy := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("e1", 32))
 	state := &prototk.EndorsableState{Id: s.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("e2", 32)).String(), StateDataJson: `{}`}
 
 	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, txID))
 	// Seed visibility so ExportStatesAndLocks returns this state for "test-node"
 	g.stateVisibilityTracker.ImportIfAbsent(s.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"test-node"}})
-	g.LockMintsOnCreate(ctx, []*components.StateUpsert{{ID: s, CreatedBy: &createdBy}}, []*prototk.EndorsableState{{Id: s.String()}}, txID)
+	g.LockMintsOnCreate(ctx, []*prototk.EndorsableState{{Id: s.String()}}, txID)
 	g.ForgetTransaction(ctx, txID, 100)
 
 	// OutputState should still be exported for heartbeats after confirmation
@@ -513,12 +485,10 @@ func TestForgetTransaction_StampsConfirmedAtBlockAndClearsTransaction(t *testing
 	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	txID := uuid.New()
-	createdBy := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("12", 32))
-	upserts := []*components.StateUpsert{{ID: s, CreatedBy: &createdBy}}
 	states := []*prototk.EndorsableState{{Id: s.String()}}
 
-	g.LockMintsOnCreate(ctx, upserts, states, txID)
+	g.LockMintsOnCreate(ctx, states, txID)
 	g.ForgetTransaction(ctx, txID, 100)
 
 	// Transaction removed from grapher indexes
@@ -545,12 +515,10 @@ func TestForgetTransaction_CreateAndSpendLocksStampedIndependently(t *testing.T)
 
 	minterTx := uuid.New()
 	consumerTx := uuid.New()
-	createdBy := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("5c", 32))
 
 	// Minter assembles: create lock recorded in createLocksByStateID.
 	g.LockMintsOnCreate(ctx,
-		[]*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}},
 		[]*prototk.EndorsableState{{Id: stateID.String()}},
 		minterTx,
 	)
@@ -598,8 +566,7 @@ func TestForgetTransaction_ClearsInFlightIndexesButKeepsStateData(t *testing.T) 
 	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, txID))
 	// Seed visibility for node1
 	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}})
-	createdBy := uuid.New()
-	g.LockMintsOnCreate(ctx, []*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}}, []*prototk.EndorsableState{{Id: stateID.String()}}, txID)
+	g.LockMintsOnCreate(ctx, []*prototk.EndorsableState{{Id: stateID.String()}}, txID)
 	g.ForgetTransaction(ctx, txID, 50)
 
 	// All transaction tracking removed — txID is no longer known to the grapher
@@ -846,7 +813,6 @@ func TestExportStatesAndLocks_SpendLockSuppressesPrivateStateData(t *testing.T) 
 	g := testGrapherUnlocked(t)
 	minterTx := uuid.New()
 	spenderTx := uuid.New()
-	createdBy := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("a9", 32))
 	schema := pldtypes.MustParseBytes32("0x" + strings.Repeat("b9", 32))
 	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: schema.String(), StateDataJson: `{"v":42}`}
@@ -855,7 +821,6 @@ func TestExportStatesAndLocks_SpendLockSuppressesPrivateStateData(t *testing.T) 
 	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterTx))
 	g.stateVisibilityTracker.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}})
 	g.LockMintsOnCreate(ctx,
-		[]*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}},
 		[]*prototk.EndorsableState{{Id: stateID.String()}},
 		minterTx,
 	)
@@ -925,14 +890,12 @@ func TestCreateLockSurvivesSpendLockRevert(t *testing.T) {
 
 	minterTx := uuid.New()
 	consumerTx := uuid.New()
-	createdBy := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ca", 32))
 	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: pldtypes.MustParseBytes32("0x" + strings.Repeat("cb", 32)).String(), StateDataJson: `{}`}
 
 	// Step 1: minterTx assembles and produces stateID with a create lock.
 	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, minterTx))
 	g.LockMintsOnCreate(ctx,
-		[]*components.StateUpsert{{ID: stateID, CreatedBy: &createdBy}},
 		[]*prototk.EndorsableState{{Id: stateID.String()}},
 		minterTx,
 	)

@@ -21,7 +21,7 @@ ext {
         include "pkg/**/*.go"
         include "domainstarter/**/*.go"
     }
-    targetCoverage = 99.9
+    targetCoverage = 100
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
         'github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk',

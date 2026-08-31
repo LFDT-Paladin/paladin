@@ -327,8 +327,7 @@ func (ptm *pubTxManager) WriteNewTransactions(ctx context.Context, dbTX persiste
 	// All the nonce processing to this point should have ensured we do not have a conflict on nonces.
 	// It is the caller's responsibility to ensure we do not have a conflict on transaction+resubmit_idx.
 	if len(persistedTransactions) > 0 {
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Table("public_txns").
 			Clauses(clause.Returning{Columns: []clause.Column{{Name: "pub_txn_id"}}}).
 			Create(persistedTransactions).
@@ -349,8 +348,7 @@ func (ptm *pubTxManager) WriteNewTransactions(ctx context.Context, dbTX persiste
 			}
 		}
 		if len(publicTxBindings) > 0 {
-			err = dbTX.DB().
-				WithContext(ctx).
+			err = dbTX.DB(ctx).
 				Table("public_txn_bindings").
 				Create(publicTxBindings).
 				Error
@@ -392,8 +390,7 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 	}
 
 	if len(persistedTransactions) > 0 {
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Table("public_txns").
 			Clauses(
 				clause.OnConflict{
@@ -418,8 +415,7 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 				continue
 			}
 			existing := &DBPublicTxn{}
-			err = dbTX.DB().
-				WithContext(ctx).
+			err = dbTX.DB(ctx).
 				Table("public_txns").
 				Where(`"from" = ? AND nonce = ?`, tx.From, tx.Nonce).
 				Take(existing).
@@ -456,8 +452,7 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 	}
 
 	if len(dbBindings) > 0 {
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Table("public_txn_bindings").
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "pub_txn_id"}},
@@ -471,8 +466,7 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 	}
 
 	if len(dbSubmissions) > 0 {
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Table("public_submissions").
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "tx_hash"}},
@@ -489,8 +483,7 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 }
 
 func (ptm *pubTxManager) writeUpdatedTransaction(ctx context.Context, dbTX persistence.DBTX, pubTXID uint64, from pldtypes.EthAddress, newPtx *DBPublicTxn) error {
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Table("public_txns").
 		Where("pub_txn_id = ?", pubTXID).
 		Updates(newPtx).
@@ -565,8 +558,7 @@ func (ptm *pubTxManager) QueryPublicTxForTransactions(ctx context.Context, dbTX 
 }
 
 func (ptm *pubTxManager) queryPublicTxWithBinding(ctx context.Context, dbTX persistence.DBTX, scopeToTxns []uuid.UUID, jq *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error) {
-	q := dbTX.DB().Table("public_txns").
-		WithContext(ctx).
+	q := dbTX.DB(ctx).Table("public_txns").
 		Joins("Completed")
 	if jq != nil {
 		q = filters.BuildGORM(ctx, jq, q, components.PublicTxFilterFields)
@@ -601,8 +593,7 @@ func (ptm *pubTxManager) CheckTransactionCompleted(ctx context.Context, pubTxnID
 	// A non existent transaction results in false
 	ctx = log.WithComponent(ctx, "publictxnmanager")
 	var ptxs []*DBPublicTxn
-	err := ptm.p.DB().
-		WithContext(ctx).
+	err := ptm.p.DB(ctx).
 		Table("public_txns").
 		Where(`"public_txns"."pub_txn_id" = ?`, pubTxnID).
 		Joins("Completed").
@@ -692,8 +683,7 @@ func mapPersistedSubmissionData(pSub *DBPubTxnSubmission) *pldapi.PublicTxSubmis
 
 func (ptm *pubTxManager) getTransactionSubmissions(ctx context.Context, dbTX persistence.DBTX, pubTxnIDs []uint64) ([]*DBPubTxnSubmission, error) {
 	var ptxs []*DBPubTxnSubmission
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Table("public_submissions").
 		Where("pub_txn_id IN (?)", pubTxnIDs).
 		Order("created DESC").
@@ -721,8 +711,7 @@ func (ptm *pubTxManager) ResumeTransaction(ctx context.Context, from pldtypes.Et
 func (ptm *pubTxManager) UpdateTransaction(ctx context.Context, id uuid.UUID, pubTXID uint64, from *pldtypes.EthAddress, tx *pldapi.TransactionInput, publicTxData []byte, txmgrDBUpdate func(dbTX persistence.DBTX) error) error {
 	ctx = log.WithComponent(ctx, "publictxnmanager")
 	ptxs := []*DBPublicTxn{}
-	err := ptm.p.DB().
-		WithContext(ctx).
+	err := ptm.p.DB(ctx).
 		Table("public_txns").
 		Where(`"pub_txn_id" = ?`, pubTXID).
 		Where("dispatcher = ? OR dispatcher = ''", ptm.nodeName).
@@ -869,7 +858,7 @@ func (ptm *pubTxManager) GetPublicTransactionForHash(ctx context.Context, dbTX p
 	ctx = log.WithComponent(ctx, "publictxnmanager")
 	var publicTxnIDs []uint64
 	var txns []*pldapi.PublicTxWithBinding
-	err := dbTX.DB().
+	err := dbTX.DB(ctx).
 		Table("public_submissions").
 		Model(DBPubTxnSubmission{}).
 		Where(`tx_hash = ?`, hash).
@@ -900,7 +889,7 @@ func (ptm *pubTxManager) MatchUpdateConfirmedTransactions(ctx context.Context, d
 		txHashes[i] = itx.Hash
 	}
 	var lookups []*bindingsMatchingSubmission
-	err := dbTX.DB().
+	err := dbTX.DB(ctx).
 		Table("public_txn_bindings").
 		Select(`"transaction"`, "sender", "contract_address", `"tx_type"`, `"Submission"."pub_txn_id"`, `"Submission"."tx_hash"`).
 		Joins("Submission").
@@ -944,7 +933,7 @@ func (ptm *pubTxManager) MatchUpdateConfirmedTransactions(ctx context.Context, d
 	if len(completions) > 0 {
 		// We have some completions to persist - in the same order as the confirmations that came in
 		log.L(ctx).Tracef("MatchUpdateConfirmedTransactions: Writing %d completions to 'public_completions'", len(completions))
-		err := dbTX.DB().
+		err := dbTX.DB(ctx).
 			Table("public_completions").
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "pub_txn_id"}},
@@ -961,7 +950,7 @@ func (ptm *pubTxManager) MatchUpdateConfirmedTransactions(ctx context.Context, d
 		for i, c := range completions {
 			completedIDs[i] = c.PublicTxnID
 		}
-		if err := dbTX.DB().
+		if err := dbTX.DB(ctx).
 			Table("public_txns").
 			Where(`"pub_txn_id" IN (?)`, completedIDs).
 			Update("completed", true).

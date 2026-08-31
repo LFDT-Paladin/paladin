@@ -77,6 +77,7 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
 	).Return(postAssembly.AssembleResponse, nil)
 	o.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: txn})
 	// Delegation happens asynchronously: the transaction first resolves its required verifiers

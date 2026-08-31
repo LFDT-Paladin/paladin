@@ -286,7 +286,7 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 
 			log.L(opCtx).Debugf("Writing dispatch batch %d", len(dispatchSequenceOp.PrivateTransactionDispatches))
 
-			err = dbTX.DB().
+			err = dbTX.DB(ctx).
 				Table("dispatches").
 				Clauses(clause.OnConflict{
 					Columns: []clause.Column{

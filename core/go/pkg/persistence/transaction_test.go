@@ -42,11 +42,11 @@ func TestTransactionOk(t *testing.T) {
 
 	err := p.Transaction(ctx, func(ctx context.Context, tx DBTX) error {
 		require.True(t, tx.FullTransaction())
-		err := tx.DB().Exec("INSERT INPUT a_table (col1) VALUES ('abc');").Error
+		err := tx.DB(ctx).Exec("INSERT INPUT a_table (col1) VALUES ('abc');").Error
 		require.NoError(t, err)
 		tx.AddPreCommit(func(ctx context.Context, preCommitTX DBTX) error {
 			preCommitCalled = true
-			err := preCommitTX.DB().Exec("INSERT INPUT b_table (col1) VALUES ('def');").Error
+			err := preCommitTX.DB(ctx).Exec("INSERT INPUT b_table (col1) VALUES ('def');").Error
 			require.Same(t, tx, preCommitTX)
 			require.NoError(t, err)
 			return nil
@@ -84,7 +84,7 @@ func TestTransactionPreCommitErr(t *testing.T) {
 	mdb.ExpectRollback()
 
 	err := p.Transaction(ctx, func(ctx context.Context, tx DBTX) error {
-		err := tx.DB().Exec("INSERT INPUT a_table (col1) VALUES ('abc');").Error
+		err := tx.DB(ctx).Exec("INSERT INPUT a_table (col1) VALUES ('abc');").Error
 		require.NoError(t, err)
 		tx.AddPreCommit(func(ctx context.Context, preCommitTX DBTX) error {
 			preCommitCalled = true
@@ -195,7 +195,7 @@ func TestTransactionSingletons(t *testing.T) {
 func TestNOTXFailures(t *testing.T) {
 	p, _ := newMockGormPSQLPersistence(t)
 
-	require.NotNil(t, p.NOTX().DB())
+	require.NotNil(t, p.NOTX().DB(context.Background()))
 	require.False(t, p.NOTX().FullTransaction())
 
 	assert.Panics(t, func() {
@@ -219,8 +219,8 @@ func TestNOTXFailures(t *testing.T) {
 func TestNOTXSingleton(t *testing.T) {
 	p, _ := newMockGormPSQLPersistence(t)
 
-	// DB() must return the provider's final gdb
-	require.Same(t, p.(*provider).gdb, p.NOTX().DB())
+	// NOTX() must wrap the provider's final gdb; DB(ctx) returns a ctx-bound handle derived from it
+	require.Same(t, p.(*provider).gdb, p.NOTX().(*noTransaction).gdb)
 
 	// Repeated NOTX() calls must return the same cached instance
 	require.Same(t, p.NOTX(), p.NOTX())

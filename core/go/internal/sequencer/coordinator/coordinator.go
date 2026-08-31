@@ -37,6 +37,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 )
 
 // signingIdentityState groups the coordinator's current signing key with a flag that tracks
@@ -100,6 +101,13 @@ type coordinator struct {
 	// Handover request tracking
 	pendingHandoverRequest *common.IdempotentRequest // idempotent request in flight while in State_Elect
 
+	// Endorsement request tracking: the idempotency keys of the endorsement requests currently being
+	// processed by a background goroutine on this node as an endorser. Guarded by its own mutex rather
+	// than the coordinator's RWMutex above: that lock is held by the event loop for the duration of
+	// event processing, so taking it from an endorsement goroutine would invert the lock ordering.
+	inFlightEndorsements      map[string]struct{}
+	inFlightEndorsementsMutex sync.Mutex
+
 	// Request/state timeout timers
 	cancelRequestTimeout func() // cancels the pending request-nudge timer; armed once on Elect entry
 	cancelStateTimeout   func() // cancels the pending give-up timer
@@ -114,6 +122,7 @@ type coordinator struct {
 	signErrorRetryThreshhold       int
 	requestTimeout                 time.Duration
 	stateTimeout                   time.Duration
+	endorseErrorRetry              *retry.Retry
 	nodeName                       string
 	coordinatorSelectionBlockRange uint64
 	maxInflightTransactions        int
@@ -135,7 +144,7 @@ type coordinator struct {
 	notifyOriginator      func(ctx context.Context, event common.Event) // optional callback to push events to the co-located originator
 
 	/* Dispatch loop */
-	dispatchQueue      chan transaction.CoordinatorTransaction
+	dispatchQueue      chan queuedDispatch
 	dispatchLoopCancel context.CancelFunc // non-nil iff this coordinator owns a running loop
 	dispatchLoopDone   chan struct{}      // per-run done channel; nil = never started / already stopped+waited
 	inFlightTxns       map[uuid.UUID]struct{}
@@ -190,6 +199,7 @@ func NewCoordinator(
 	c.dispatchMaxBatchSize = confutil.IntMin(configuration.DispatchMaxBatchSize, pldconf.SequencerMinimum.DispatchMaxBatchSize, *pldconf.SequencerDefaults.DispatchMaxBatchSize)
 	c.requestTimeout = confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
 	c.stateTimeout = confutil.DurationMin(configuration.StateTimeout, pldconf.SequencerMinimum.StateTimeout, *pldconf.SequencerDefaults.StateTimeout)
+	c.endorseErrorRetry = retry.NewRetryLimited(&configuration.EndorseErrorRetry, &pldconf.SequencerDefaults.EndorseErrorRetry)
 	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
 	c.closingGracePeriod = confutil.IntMin(configuration.ClosingGracePeriod, pldconf.SequencerMinimum.ClosingGracePeriod, *pldconf.SequencerDefaults.ClosingGracePeriod)
 	c.inactiveGracePeriod = confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod)
@@ -214,10 +224,11 @@ func NewCoordinator(
 	c.initializeStateMachineEventLoop(State_Initial, coordinatorEventQueueSize, coordinatorPriorityEventQueueSize)
 
 	c.originatorActivity = make(map[string]int)
+	c.inFlightEndorsements = make(map[string]struct{})
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]struct{}, c.maxDispatchAhead)
 	c.pooledTransactions = make([]transaction.CoordinatorTransaction, 0, c.maxInflightTransactions)
-	c.dispatchQueue = make(chan transaction.CoordinatorTransaction, c.maxInflightTransactions)
+	c.dispatchQueue = make(chan queuedDispatch, c.maxInflightTransactions)
 
 	return c
 }
@@ -311,6 +322,7 @@ func (c *coordinator) setDispatchedInFlight(txID uuid.UUID, inFlight bool) {
 		delete(c.inFlightTxns, txID)
 		c.inFlightMutex.Signal()
 	}
+	c.metrics.SetInflightDispatchedTxns(len(c.inFlightTxns))
 }
 
 func (c *coordinator) getTransactionsInStates(ctx context.Context, states []transaction.State) []transaction.CoordinatorTransaction {

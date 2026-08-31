@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
@@ -34,16 +33,16 @@ func (t *coordinatorTransaction) revertTransactionFailedAssembly(ctx context.Con
 	tryFinalize = func() {
 		t.syncPoints.QueueTransactionFinalize(ctx, &syncpoints.TransactionFinalizeRequest{
 			Domain:          t.pt.Domain,
-			ContractAddress: pldtypes.EthAddress{},
+			ContractAddress: t.pt.Address,
 			Originator:      t.originator,
 			TransactionID:   t.pt.ID,
 			FailureMessage:  revertReason,
 		},
 			func(ctx context.Context) {
-				log.L(ctx).Debugf("finalized deployment transaction: %s", t.pt.ID)
+				log.L(ctx).Debugf("finalized transaction reverted at assembly: %s", t.pt.ID)
 			},
 			func(ctx context.Context, err error) {
-				log.L(ctx).Errorf("error finalizing deployment: %s", err)
+				log.L(ctx).Errorf("error finalizing transaction reverted at assembly %s: %s", t.pt.ID, err)
 				tryFinalize()
 			})
 	}
@@ -51,6 +50,9 @@ func (t *coordinatorTransaction) revertTransactionFailedAssembly(ctx context.Con
 }
 
 func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, assemblyResponse *prototk.TransactionPostAssembly, requestID uuid.UUID) error {
+	applyStart := t.clock.Now()
+	defer func() { t.metrics.ObserveAssembleResponseApply(t.clock.Now().Sub(applyStart)) }()
+
 	t.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssembleResponse:      assemblyResponse,
 		CollectedEndorsements: append([]*prototk.AttestationResult{}, assemblyResponse.GetEndorsements()...),
@@ -67,8 +69,7 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, assembly
 		return nil
 	}
 
-	// This should create state IDs when mapping from output potential states to output states. However, the IDs are lost below.
-	err := t.writeStates(ctx)
+	err := t.engineIntegration.ResolveStatesForTransaction(ctx, t.pt)
 
 	if err != nil {
 		// Internal error. Only option is to revert the transaction
@@ -99,11 +100,7 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, assembly
 	t.stateVisibilityTracker.RecordAssemblyOutput(ctx, pa.OutputStates, pa.AssembleResponse.GetOutputStatesPotential())
 
 	// Add a lock for every output we create.
-	createLocks, err := t.engineIntegration.MapPotentialStates(ctx, pa.AssembleResponse.GetOutputStatesPotential(), t.pt)
-	if err != nil {
-		return err
-	}
-	t.grapher.LockMintsOnCreate(ctx, createLocks, pa.OutputStates, t.pt.ID)
+	t.grapher.LockMintsOnCreate(ctx, pa.OutputStates, t.pt.ID)
 
 	// Add a lock for every read state and spent state to prevent other transactions using them.
 	t.grapher.LockMintsOnReadAndSpend(ctx, pa.AssembleResponse.GetReadStates(), pa.AssembleResponse.GetInputStates(), t.pt.ID)
@@ -182,10 +179,6 @@ func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context
 		}
 	}
 	return nil
-}
-
-func (t *coordinatorTransaction) writeStates(ctx context.Context) error {
-	return t.engineIntegration.WriteStatesForTransaction(ctx, t.pt)
 }
 
 func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {

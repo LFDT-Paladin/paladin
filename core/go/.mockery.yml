@@ -81,3 +81,9 @@ packages:
   github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator:
     config:
       all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine:
+    interfaces:
+      EventLoopMetrics:
+    config:
+      pkgname: statemachinemocks
+      dir: mocks/statemachinemocks

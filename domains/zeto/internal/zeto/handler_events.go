@@ -386,12 +386,19 @@ func (z *Zeto) addOutputToMerkleTree(ctx context.Context, tree core.SparseMerkle
 }
 
 func parseStatesFromEvent(txID pldtypes.Bytes32, states []pldtypes.HexUint256) []*prototk.StateUpdate {
-	refs := make([]*prototk.StateUpdate, len(states))
-	for i, state := range states {
-		refs[i] = &prototk.StateUpdate{
+	refs := make([]*prototk.StateUpdate, 0, len(states))
+	for _, state := range states {
+		if state.NilOrZero() {
+			// The UTXO arrays in the events are padded out to the size the circuit requires, so a zero
+			// entry is padding and not a state. Recording it as spent or confirmed leaves the
+			// transaction permanently waiting on a state that will never exist, which in turn stops its
+			// domain receipt from ever being built.
+			continue
+		}
+		refs = append(refs, &prototk.StateUpdate{
 			Id:            common.HexUint256To32ByteHexString(&state),
 			TransactionId: txID.String(),
-		}
+		})
 	}
 	return refs
 }

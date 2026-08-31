@@ -16,9 +16,14 @@ package transaction
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -30,28 +35,18 @@ type endorsementRequirement struct {
 	party      string
 }
 
-func (t *coordinatorTransaction) applyEndorsement(ctx context.Context, endorsement *prototk.AttestationResult, requestID uuid.UUID) error {
-	log.L(ctx).Debugf("apply endorsement - received endorsement name '%s'", endorsement.Name)
-	pendingRequestsForAttRequest, ok := t.pendingEndorsementRequests[endorsement.Name]
-	if !ok {
-		log.L(ctx).Debugf("ignoring endorsement response for transaction %s from %s because no pending request found for attestation request name %s", t.pt.ID, endorsement.Verifier.Lookup, endorsement.Name)
-		return nil
-	}
-	if pendingRequest, ok := pendingRequestsForAttRequest[endorsement.Verifier.Lookup]; ok {
-		if pendingRequest.IdempotencyKey() == requestID {
-			log.L(ctx).Debugf("endorsement '%s' received for transaction %s from %s", endorsement.Name, t.pt.ID, endorsement.Verifier.Lookup)
-			delete(t.pendingEndorsementRequests[endorsement.Name], endorsement.Verifier.Lookup)
-			t.pt.PostAssembly.CollectedEndorsements = append(t.pt.PostAssembly.CollectedEndorsements, endorsement)
+// applyEndorsement collects an endorsement and clears the request it answers, so the party is not
+// nudged again. It is only reached for an endorsement that validator_MatchesPendingEndorsementRequest
+// has matched to the request still outstanding for that attestation requirement and party, which is
+// also what makes the verifier safe to dereference here.
+func (t *coordinatorTransaction) applyEndorsement(ctx context.Context, endorsement *prototk.AttestationResult) error {
+	log.L(ctx).Debugf("endorsement '%s' received for transaction %s from %s", endorsement.Name, t.pt.ID, endorsement.Verifier.Lookup)
+	delete(t.pendingEndorsementRequests[endorsement.Name], endorsement.Verifier.Lookup)
+	t.pt.PostAssembly.CollectedEndorsements = append(t.pt.PostAssembly.CollectedEndorsements, endorsement)
 
-			// MRW TODO - Hashing the TX for dispatch confirmation requires that there is > 0 signatures. Need to follow up where an endorsed TX populates the signatures. Temporarily put this workaround in.
-			// log.L(ctx).Infof("Applying endorsement. Appending %+v to list of endorsements received for transaction %s from %s", endorsement, t.pt.ID, endorsement.Verifier.Lookup)
-			// t.pt.PostAssembly.Signatures = append(t.pt.PostAssembly.Signatures, endorsement)
-		} else {
-			log.L(ctx).Debugf("ignoring endorsement response for transaction %s from %s because idempotency key %s does not match expected %s ", t.pt.ID, endorsement.Verifier.Lookup, requestID.String(), pendingRequest.IdempotencyKey().String())
-		}
-	} else {
-		log.L(ctx).Debugf("ignoring endorsement response for transaction %s from %s because no pending request found", t.pt.ID, endorsement.Verifier.Lookup)
-	}
+	// MRW TODO - Hashing the TX for dispatch confirmation requires that there is > 0 signatures. Need to follow up where an endorsed TX populates the signatures. Temporarily put this workaround in.
+	// log.L(ctx).Infof("Applying endorsement. Appending %+v to list of endorsements received for transaction %s from %s", endorsement, t.pt.ID, endorsement.Verifier.Lookup)
+	// t.pt.PostAssembly.Signatures = append(t.pt.PostAssembly.Signatures, endorsement)
 
 	// Log complete list of current endorsements
 	for _, endorsement := range t.pt.PostAssembly.CollectedEndorsements {
@@ -200,6 +195,8 @@ func (t *coordinatorTransaction) resetEndorsementRequests(ctx context.Context) {
 	t.clearTimeoutSchedules()
 	t.pendingEndorsementRequests = nil
 	t.endorseFailureCountByRequirement = nil
+	t.endorseRevertCountByRequirement = nil
+	t.endorseRevertReasons = nil
 	t.endorseToleranceByRequirement = nil
 }
 
@@ -234,7 +231,7 @@ func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempot
 
 func action_Endorsed(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*EndorsedEvent)
-	return t.applyEndorsement(ctx, e.Endorsement, e.RequestID)
+	return t.applyEndorsement(ctx, e.Endorsement)
 }
 
 func action_RefreshBlockHeight(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
@@ -272,10 +269,126 @@ func guard_EndorseFailureExceedsTolerance(_ context.Context, txn *coordinatorTra
 	return false
 }
 
+// guard_EndorseRevertExceedsTolerance returns true if the number of endorsement reverts for any
+// single attestation requirement now exceeds its tolerance, meaning the threshold can no longer be
+// reached. A correctly implemented domain does not assemble a transaction that its own endorsers
+// would revert, so the transaction is finalized as reverted rather than repooled.
+// action_RecordEndorseFailure increments the count before this guard runs.
+func guard_EndorseRevertExceedsTolerance(_ context.Context, txn *coordinatorTransaction) bool {
+	for reqName, tolerance := range txn.endorseToleranceByRequirement {
+		if txn.endorseRevertCountByRequirement[reqName] > tolerance {
+			return true
+		}
+	}
+	return false
+}
+
+// endorseRevertFailureMessage renders the accumulated revert reasons into the message recorded on
+// the transaction receipt.
+func (t *coordinatorTransaction) endorseRevertFailureMessage(ctx context.Context) string {
+	return i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerEndorseRevert), strings.Join(t.endorseRevertReasons, "; "))
+}
+
+// action_NotifyOriginatorOfEndorseRevert tells the originator the transaction is reverted so its own
+// state machine terminates rather than waiting for a dispatch that will never come.
+func action_NotifyOriginatorOfEndorseRevert(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, &engineProto.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engineProto.TransactionConfirmed_OUTCOME_REVERTED,
+		FailureMessage:  t.endorseRevertFailureMessage(ctx),
+	})
+}
+
+// action_FinalizeEndorseRevert writes the failure receipt. Retries indefinitely on error, as the
+// other finalization paths do — the transaction is terminal either way and the receipt must land.
+func action_FinalizeEndorseRevert(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	failureMessage := t.endorseRevertFailureMessage(ctx)
+	log.L(ctx).Infof("finalizing transaction %s as reverted on endorsement: %s", t.pt.ID, failureMessage)
+	var tryFinalize func()
+	tryFinalize = func() {
+		t.syncPoints.QueueTransactionFinalize(ctx,
+			&syncpoints.TransactionFinalizeRequest{
+				Domain:          t.pt.Domain,
+				ContractAddress: t.pt.Address,
+				Originator:      t.originator,
+				TransactionID:   t.pt.ID,
+				FailureMessage:  failureMessage,
+			},
+			func(ctx context.Context) {
+				log.L(ctx).Debugf("finalized endorsement revert for transaction %s", t.pt.ID)
+			},
+			func(ctx context.Context, err error) {
+				log.L(ctx).Errorf("error finalizing endorsement revert for transaction %s: %s", t.pt.ID, err)
+				tryFinalize()
+			},
+		)
+	}
+	tryFinalize()
+	return nil
+}
+
+// validator_MatchesPendingEndorsementRequest gates every endorsement outcome - endorsed, reverted,
+// errored and rejected - so that each outstanding request is answered at most once. The pending
+// requests map is the record of what is still outstanding this round, so a response is only acted on
+// when it belongs to a request still waiting for an answer: a missing attestation requirement or
+// party means the round has already been reset or the party has already answered, a nil entry means
+// this party has already been recorded as failed, and a request ID that does not match the
+// outstanding request means the response belongs to an earlier round.
+//
+// Without this, a duplicate or late failure response would increment the failure counters a second
+// time for a party that has only failed once, and could push a requirement past a tolerance whose
+// parties had not actually been exhausted.
+func validator_MatchesPendingEndorsementRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
+	var reqName, party string
+	var requestID uuid.UUID
+	switch e := event.(type) {
+	case *EndorsedEvent:
+		if e.Endorsement == nil || e.Endorsement.Verifier == nil {
+			log.L(ctx).Warnf("ignoring endorsement response for transaction %s because it carries no verifier", txn.pt.ID)
+			return false, nil
+		}
+		reqName, party, requestID = e.Endorsement.Name, e.Endorsement.Verifier.Lookup, e.RequestID
+	case *EndorseErrorEvent:
+		reqName, party, requestID = e.AttestationRequestName, e.Party, e.RequestID
+	case *EndorseRequestRejectedEvent:
+		reqName, party, requestID = e.AttestationRequestName, e.Party, e.RequestID
+	case *EndorseRevertEvent:
+		reqName, party, requestID = e.AttestationRequestName, e.Party, e.RequestID
+	default:
+		return false, nil
+	}
+	pendingRequest, ok := txn.pendingEndorsementRequests[reqName][party]
+	if !ok || pendingRequest == nil {
+		log.L(ctx).Warnf("ignoring %s for transaction %s from %s because no request for '%s' is outstanding for that party", event.TypeString(), txn.pt.ID, party, reqName)
+		return false, nil
+	}
+	if pendingRequest.IdempotencyKey() != requestID {
+		log.L(ctx).Warnf("ignoring %s for transaction %s from %s because request ID %s is not the outstanding request %s for '%s'", event.TypeString(), txn.pt.ID, party, requestID, pendingRequest.IdempotencyKey(), reqName)
+		return false, nil
+	}
+	return true, nil
+}
+
 // action_RecordEndorseFailure records the failing party for the given attestation requirement,
 // removing them from the pending requests map so they are not nudged again this round.
+//
+// Two counters are kept per requirement, because they answer different questions:
+//
+//   - endorseFailureCountByRequirement counts every failure whatever the cause, and answers
+//     "can this attestation plan still be fulfilled this round".
+//   - endorseRevertCountByRequirement counts only endorsement reverts, and answers "did an
+//     endorser judge this transaction invalid". A revert means the endorser evaluated the
+//     transaction and refused it; a correctly implemented domain should never assemble a
+//     transaction that reverts at endorsement.
+//
+// A revert increments both: it is a failure like any other for the threshold arithmetic, and
+// additionally a rejection of the transaction itself. Unexpected errors and rejections increment
+// only the first, since either may be transient and succeed on a retry.
 func action_RecordEndorseFailure(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
-	var reqName, party string
+	var reqName, party, revertReason string
+	isRevert := false
 	switch e := event.(type) {
 	case *EndorseErrorEvent:
 		reqName = e.AttestationRequestName
@@ -294,7 +407,9 @@ func action_RecordEndorseFailure(ctx context.Context, t *coordinatorTransaction,
 	case *EndorseRevertEvent:
 		reqName = e.AttestationRequestName
 		party = e.Party
-		log.L(ctx).Warnf("endorsement reverted by %s (%s): %s", party, reqName, e.RevertReason)
+		isRevert = true
+		revertReason = e.RevertReason
+		log.L(ctx).Warnf("endorsement reverted by %s (%s): %s", party, reqName, revertReason)
 	}
 	if party == "" {
 		log.L(ctx).Warnf("action_RecordEndorseFailure: missing party on event %T", event)
@@ -309,6 +424,15 @@ func action_RecordEndorseFailure(ctx context.Context, t *coordinatorTransaction,
 		t.endorseFailureCountByRequirement = make(map[string]int)
 	}
 	t.endorseFailureCountByRequirement[reqName]++
+	if isRevert {
+		if t.endorseRevertCountByRequirement == nil {
+			t.endorseRevertCountByRequirement = make(map[string]int)
+		}
+		t.endorseRevertCountByRequirement[reqName]++
+		// Accumulated for the finalization message, so the originator's receipt names every
+		// endorser that refused and why, not just the one that tipped it over the tolerance.
+		t.endorseRevertReasons = append(t.endorseRevertReasons, fmt.Sprintf("[%s] %s", party, revertReason))
+	}
 	return nil
 }
 

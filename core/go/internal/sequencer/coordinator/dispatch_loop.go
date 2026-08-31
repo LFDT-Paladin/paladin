@@ -17,6 +17,7 @@ package coordinator
 
 import (
 	"context"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
@@ -25,12 +26,20 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 )
 
+// queuedDispatch carries a transaction onto the dispatch queue along with the time it was enqueued,
+// so the dispatch loop can record a metric for how long it waited before being dequeued.
+type queuedDispatch struct {
+	txn        transaction.CoordinatorTransaction
+	enqueuedAt time.Time
+}
+
 func (c *coordinator) dispatchLoop(ctx context.Context) {
 	log.L(ctx).Debugf("coordinator dispatch loop started for contract %s", c.contractAddress.String())
 
 	for {
 		select {
-		case tx := <-c.dispatchQueue:
+		case qd := <-c.dispatchQueue:
+			c.metrics.ObserveDispatchQueueWait(c.clock.Now().Sub(qd.enqueuedAt))
 			// Wait for dispatch-ahead capacity, then pull a batch (this tx plus any others already queued,
 			// capped to the capacity) and prepare, stage and commit them in a single flush.
 			capacity := c.awaitDispatchAheadCapacity(ctx)
@@ -41,7 +50,7 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			if capacity > c.dispatchMaxBatchSize {
 				capacity = c.dispatchMaxBatchSize
 			}
-			batch := c.pullDispatchBatch(tx, capacity)
+			batch := c.pullDispatchBatch(qd.txn, capacity)
 			c.dispatchBatch(ctx, batch)
 		case <-ctx.Done():
 			log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
@@ -57,6 +66,7 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 func (c *coordinator) awaitDispatchAheadCapacity(ctx context.Context) int {
 	c.inFlightMutex.L.Lock()
 	defer c.inFlightMutex.L.Unlock()
+	waitStart := c.clock.Now()
 	for len(c.inFlightTxns) >= c.maxDispatchAhead {
 		c.inFlightMutex.Wait()
 		select {
@@ -65,6 +75,7 @@ func (c *coordinator) awaitDispatchAheadCapacity(ctx context.Context) int {
 		default:
 		}
 	}
+	c.metrics.ObserveDispatchInflightWait(c.clock.Now().Sub(waitStart))
 	return c.maxDispatchAhead - len(c.inFlightTxns)
 }
 
@@ -76,8 +87,9 @@ func (c *coordinator) pullDispatchBatch(first transaction.CoordinatorTransaction
 	batch[0] = first
 	for len(batch) < capacity {
 		select {
-		case tx := <-c.dispatchQueue:
-			batch = append(batch, tx)
+		case qd := <-c.dispatchQueue:
+			c.metrics.ObserveDispatchQueueWait(c.clock.Now().Sub(qd.enqueuedAt))
+			batch = append(batch, qd.txn)
 		default:
 			return batch
 		}
@@ -135,6 +147,18 @@ func (c *coordinator) dispatchBatch(ctx context.Context, batch []transaction.Coo
 	if dispatchBatch == nil {
 		return
 	}
+
+	// Record the composition of the batch about to be persisted; the low end of the histogram
+	// reveals batches collapsing to a single entry.
+	var public, private, prepared int
+	for _, pd := range dispatchBatch.Dispatches() {
+		public += len(pd.Dispatch.PublicDispatches)
+		private += len(pd.Dispatch.PrivateDispatches)
+		prepared += len(pd.Dispatch.PreparedTransactions)
+	}
+	c.metrics.ObserveDispatchBatchSize("public", public)
+	c.metrics.ObserveDispatchBatchSize("private", private)
+	c.metrics.ObserveDispatchBatchSize("prepared", prepared)
 
 	// Commit the whole batch in a single DB transaction. Persistence happens off the transaction lock so the
 	// DB commit does not block the coordinator event loop behind a tx lock.

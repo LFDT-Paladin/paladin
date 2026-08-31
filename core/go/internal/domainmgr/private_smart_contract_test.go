@@ -748,7 +748,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	ptx.PostAssembly = &components.TransactionPostAssembly{AssembleResponse: assemblyResponse}
 
 	// Write the output states
-	err = psc.WritePotentialStates(td.ctx, td.dsw, td.c.dbTX, ptx)
+	err = psc.ResolvePotentialStates(td.ctx, td.c.dbTX, ptx)
 	require.NoError(t, err)
 
 	// Output state5 was written to the DomainStateWriter (unflushed). It is NOT yet visible
@@ -1022,19 +1022,7 @@ func TestDomainAssembleTransactionLoadReadError(t *testing.T) {
 	assert.Nil(t, assemblyResponse)
 }
 
-func TestDomainWritePotentialStatesBadSchema(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
-	defer done()
-
-	psc, tx := doDomainInitAssembleTransactionOK(t, td)
-	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
-		{SchemaId: "unknown"},
-	}
-	err := psc.WritePotentialStates(td.ctx, td.mdsw, td.c.dbTX, tx)
-	assert.Regexp(t, "PD011613", err)
-}
-
-func TestDomainWritePotentialStatesFail(t *testing.T) {
+func TestDomainResolvePotentialStatesFail(t *testing.T) {
 	schema := componentsmocks.NewSchema(t)
 	schemaID := pldtypes.RandBytes32()
 	schema.On("ID").Return(schemaID)
@@ -1042,34 +1030,18 @@ func TestDomainWritePotentialStatesFail(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockHighestBlock)
 	defer done()
 
-	td.mdsw.On("StageStateUpserts", mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop"))
+	td.mc.stateStore.On("ValidateStatesWithLabels", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("pop"))
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
 	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
 		{SchemaId: schemaID.String()},
 	}
-	err := psc.WritePotentialStates(td.ctx, td.mdsw, td.c.dbTX, tx)
+	err := psc.ResolvePotentialStates(td.ctx, td.c.dbTX, tx)
 	assert.Regexp(t, "pop", err)
 }
 
-func TestDomainWritePotentialStatesBadID(t *testing.T) {
-	schema := componentsmocks.NewSchema(t)
-	schemaID := pldtypes.RandBytes32()
-	schema.On("ID").Return(schemaID)
-	schema.On("Signature").Return("schema1_signature")
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockHighestBlock)
-	defer done()
-	badBytes := "0xnothex"
-
-	psc, tx := doDomainInitAssembleTransactionOK(t, td)
-	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
-		{SchemaId: schemaID.String(), Id: &badBytes},
-	}
-	err := psc.WritePotentialStates(td.ctx, td.mdsw, td.c.dbTX, tx)
-	assert.Regexp(t, "PD020007", err)
-}
-
-func TestDomainWritePotentialStatesDebugLogging(t *testing.T) {
+func TestDomainResolvePotentialStatesDebugLogging(t *testing.T) {
 	log.EnsureInit()
 	originalLevel := log.GetLevel()
 	log.SetLevel("debug")
@@ -1089,14 +1061,50 @@ func TestDomainWritePotentialStatesDebugLogging(t *testing.T) {
 	}
 	tx.PostAssembly.AssembleResponse.InfoStatesPotential = nil
 
-	td.mdsw.On("StageStateUpserts", mock.Anything, mock.Anything, mock.Anything).Return([]*pldapi.State{
-		{StateBase: pldapi.StateBase{ID: stateID, Schema: schemaID}},
-	}, nil)
+	td.mc.stateStore.On("ValidateStatesWithLabels", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*components.StateWithLabels{
+			{State: &pldapi.State{StateBase: pldapi.StateBase{ID: stateID, Schema: schemaID}}},
+		}, nil)
 
-	err := psc.WritePotentialStates(td.ctx, td.mdsw, td.c.dbTX, tx)
+	err := psc.ResolvePotentialStates(td.ctx, td.c.dbTX, tx)
 	require.NoError(t, err)
 	require.Len(t, tx.PostAssembly.OutputStates, 1)
 	assert.Equal(t, pldtypes.HexBytes(stateID).String(), tx.PostAssembly.OutputStates[0].GetId())
+}
+
+func TestDomainResolvePotentialStatesCarriesDomainSuppliedID(t *testing.T) {
+	// A domain may choose the state ID itself, in which case it is carried through to validation
+	// rather than being computed from the state data.
+	schema := componentsmocks.NewSchema(t)
+	schemaID := pldtypes.RandBytes32()
+	schema.On("ID").Return(schemaID)
+	schema.On("Signature").Return("schema1_signature")
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockHighestBlock)
+	defer done()
+
+	psc, tx := doDomainInitAssembleTransactionOK(t, td)
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	suppliedID := stateID.String()
+	tx.PostAssembly.AssembleResponse.OutputStatesPotential = []*prototk.NewState{
+		{Id: &suppliedID, SchemaId: schemaID.String(), StateDataJson: `{}`},
+	}
+	tx.PostAssembly.AssembleResponse.InfoStatesPotential = nil
+
+	var validated []*prototk.EndorsableState
+	td.mc.stateStore.On("ValidateStatesWithLabels", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			validated = args.Get(4).([]*prototk.EndorsableState)
+		}).
+		Return([]*components.StateWithLabels{
+			{State: &pldapi.State{StateBase: pldapi.StateBase{ID: stateID, Schema: schemaID}}},
+		}, nil)
+
+	err := psc.ResolvePotentialStates(td.ctx, td.c.dbTX, tx)
+	require.NoError(t, err)
+	require.Len(t, validated, 1)
+	assert.Equal(t, suppliedID, validated[0].Id)
+	require.Len(t, tx.PostAssembly.OutputStates, 1)
+	assert.Equal(t, suppliedID, tx.PostAssembly.OutputStates[0].GetId())
 }
 
 func TestEndorseTransactionFail(t *testing.T) {
@@ -1305,7 +1313,7 @@ func TestIncompleteStages(t *testing.T) {
 	_, err = psc.AssembleTransaction(td.ctx, td.mdc, td.c.dbTX, ptx.ID, ptx.PreAssembly, localTx, []*prototk.ResolvedVerifier{})
 	assert.Regexp(t, "PD011627", err)
 
-	err = psc.WritePotentialStates(td.ctx, td.mdsw, td.c.dbTX, ptx)
+	err = psc.ResolvePotentialStates(td.ctx, td.c.dbTX, ptx)
 	assert.Regexp(t, "PD011628", err)
 
 	_, err = psc.EndorseTransaction(td.ctx, td.mdc, td.c.dbTX, nil)
@@ -1925,17 +1933,6 @@ func TestInitSmartContractWithPrivacyGroup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, pscValid, loadResult)
 	assert.NotNil(t, psc)
-}
-
-func TestMapPotentialStatesEmpty(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
-	defer done()
-
-	psc := goodPSC(t, td)
-
-	stateUpserts, err := psc.MapPotentialStates(td.ctx, nil, false, nil)
-	require.NoError(t, err)
-	assert.Empty(t, stateUpserts)
 }
 
 func TestIsBaseLedgerRevertRetryableOK(t *testing.T) {

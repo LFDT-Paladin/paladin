@@ -848,7 +848,7 @@ func (z *Zeto) ExecCall(ctx context.Context, req *prototk.ExecCallRequest) (*pro
 }
 
 func (z *Zeto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNoDomainReceipt)
+	return z.buildReceipt(ctx, req)
 }
 
 func (z *Zeto) ConfigurePrivacyGroup(ctx context.Context, req *prototk.ConfigurePrivacyGroupRequest) (*prototk.ConfigurePrivacyGroupResponse, error) {

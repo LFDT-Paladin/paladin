@@ -83,7 +83,7 @@ func (op *pendingStateWrites) exec(ctx context.Context, dbTX persistence.DBTX) e
 	}
 
 	if err == nil && len(stateNullifiers) > 0 {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("state_nullifiers").
 			Clauses(clause.OnConflict{
 				DoNothing: true, // immutable

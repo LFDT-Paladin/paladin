@@ -62,6 +62,7 @@ type SentMessageRecorder struct {
 	delegatedTransactionIDs        []uuid.UUID
 	sentSignResponses              []*engineProto.SignResponse
 	hasSentSignError               bool
+	sentTransactionConfirmed       []*engineProto.TransactionConfirmed
 }
 
 func NewSentMessageRecorder() *SentMessageRecorder {
@@ -100,6 +101,7 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.hasSentSignError = false
 	r.hasSentDelegationRequest = false
 	r.delegatedTransactionIDs = nil
+	r.sentTransactionConfirmed = nil
 	// per-tx maps are NOT reset — they accumulate across the full test
 }
 
@@ -372,7 +374,16 @@ func (r *SentMessageRecorder) SendTransactionSubmitted(ctx context.Context, node
 }
 
 func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, node string, msg *engineProto.TransactionConfirmed) error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.sentTransactionConfirmed = append(r.sentTransactionConfirmed, msg)
 	return nil
+}
+
+func (r *SentMessageRecorder) SentTransactionConfirmed() []*engineProto.TransactionConfirmed {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.sentTransactionConfirmed
 }
 
 func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, node string, msg *engineProto.DelegationRequest) error {

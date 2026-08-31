@@ -18,6 +18,7 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +35,18 @@ import (
 
 // partyKeyVerifier is the resolved verifier string used for party key resolution in tests.
 const partyKeyVerifier = "party-verifier"
+
+// inFlightEndorsementKeys returns the idempotency keys of the endorsements currently in flight,
+// taking the mutex that the endorsement goroutines take when they release their claim.
+func inFlightEndorsementKeys(c *coordinator) []string {
+	c.inFlightEndorsementsMutex.Lock()
+	defer c.inFlightEndorsementsMutex.Unlock()
+	keys := make([]string, 0, len(c.inFlightEndorsements))
+	for key := range c.inFlightEndorsements {
+		keys = append(keys, key)
+	}
+	return keys
+}
 
 // matchEndorsementErrorMsg returns a mock.MatchedBy matcher that inspects the EndorsementError
 // proto struct to verify the transaction ID and idempotency key.
@@ -382,6 +395,40 @@ func Test_handleEndorsementRequest_Revert_NoRevertReason_UsesDefaultMessage(t *t
 	c.handleEndorsementRequest(ctx, event)
 }
 
+func Test_handleEndorsementRequest_NonRevertResultWithRevertReason_LogsWarningAndIgnoresReason(t *testing.T) {
+	// A revert reason on a result that is not a REVERT is a domain bug - it is logged at WARN and
+	// dropped, so the response carries no revert reason.
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		WithMockTransportWriter().
+		Build()
+
+	setupEndorsementMocks(t, mocks)
+	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
+
+	revertMsg := "ignored by the coordinator"
+	endorsementResult := &components.EndorsementResult{
+		Result:       prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
+		RevertReason: &revertMsg,
+		Endorser:     &prototk.ResolvedVerifier{Lookup: "party1@node2"},
+	}
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+
+	var capturedMsg *engineProto.EndorsementResponse
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementResponse(mock.Anything, "node2", mock.Anything).
+		Run(func(_ context.Context, _ string, msg *engineProto.EndorsementResponse) {
+			capturedMsg = msg
+		}).
+		Return(nil)
+
+	event := buildEndorsementEvent("node2")
+	c.handleEndorsementRequest(ctx, event)
+
+	require.NotNil(t, capturedMsg)
+	assert.Nil(t, capturedMsg.RevertReason)
+}
+
 func Test_handleEndorsementRequest_PartyIdentityError_SendsEndorsementError(t *testing.T) {
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
@@ -398,26 +445,56 @@ func Test_handleEndorsementRequest_PartyIdentityError_SendsEndorsementError(t *t
 	c.handleEndorsementRequest(ctx, event)
 }
 
-func Test_handleEndorsementRequest_PartyKeyResolveError_SendsEndorsementError(t *testing.T) {
+// Key resolution goes to the database, so a failure may be transient: it is retried, and the requester
+// only hears about it once every attempt has failed.
+func Test_handleEndorsementRequest_PartyKeyResolveError_RetriesThenSendsEndorsementError(t *testing.T) {
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
 		WithMockTransportWriter().
+		EndorseErrorRetryMaxAttempts(2).
 		Build()
 
 	// Set up KeyManager to fail party key resolution; no StateManager or EndorseTransaction needed.
 	mockKeyManager := componentsmocks.NewKeyManager(t)
-	mockKeyManager.EXPECT().ResolveKeyNewDatabaseTX(mock.Anything, "party1", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("key not found"))
+	mockKeyManager.EXPECT().ResolveKeyNewDatabaseTX(mock.Anything, "party1", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("key not found")).Times(2)
 	mocks.AllComponents.On("KeyManager").Return(mockKeyManager).Maybe()
 
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
-		Return(nil)
+		Return(nil).
+		Once()
 
 	event := buildEndorsementEvent("node2")
 	c.handleEndorsementRequest(ctx, event)
 }
 
-func Test_handleEndorsementRequest_EndorseTransactionError_SendsEndorsementError(t *testing.T) {
+// An error from the domain may be transient, so the endorsement is attempted again before the requester
+// is told: reporting an endorsement error costs the transaction a failure against this attestation
+// requirement, and enough of those force it to be re-assembled.
+func Test_handleEndorsementRequest_EndorseTransactionError_RetriesThenSendsEndorsementError(t *testing.T) {
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		WithMockTransportWriter().
+		EndorseErrorRetryMaxAttempts(3).
+		Build()
+
+	setupEndorsementMocks(t, mocks)
+	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
+
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("domain error")).Times(3)
+
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
+		Return(nil).
+		Once()
+
+	event := buildEndorsementEvent("node2")
+	c.handleEndorsementRequest(ctx, event)
+}
+
+// A domain error that clears on the next attempt is never reported: the requester sees a normal
+// endorsement response and the transaction keeps its place in the round.
+func Test_handleEndorsementRequest_TransientEndorseTransactionError_SucceedsOnRetry(t *testing.T) {
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
 		WithMockTransportWriter().
@@ -426,11 +503,87 @@ func Test_handleEndorsementRequest_EndorseTransactionError_SendsEndorsementError
 	setupEndorsementMocks(t, mocks)
 	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
 
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("domain error"))
+	endorsementResult := &components.EndorsementResult{
+		Result:   prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
+		Endorser: &prototk.ResolvedVerifier{Lookup: "party1@node2"},
+	}
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("domain unavailable")).Once()
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil).Once()
+
+	// The strict transport writer mock has no SendEndorsementError expectation, so the test fails if the
+	// first failure is reported to the requester.
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementResponse(mock.Anything, "node2", matchEndorsementResponseMsg("tx-1", "ik-1", "party1@node2", "att1", nil)).
+		Return(nil).
+		Once()
+
+	event := buildEndorsementEvent("node2")
+	c.handleEndorsementRequest(ctx, event)
+}
+
+// The retry covers the whole attempt, not just the call that failed: a signing failure re-runs the
+// domain endorsement too, since the payload to sign comes from it.
+func Test_handleEndorsementRequest_Sign_TransientSignError_SucceedsOnRetry(t *testing.T) {
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		NodeName("node1").
+		WithMockTransportWriter().
+		Build()
+
+	km := setupEndorsementMocks(t, mocks)
+	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
+
+	endorsementResult := &components.EndorsementResult{
+		Result:   prototk.EndorseTransactionResponse_SIGN,
+		Endorser: &prototk.ResolvedVerifier{Lookup: "signer@node1"},
+		Payload:  []byte("payload-to-sign"),
+	}
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil).Times(2)
+
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{Verifier: "verifier-value"},
+	}
+	km.EXPECT().ResolveKeyNewDatabaseTX(mock.Anything, "signer", mock.Anything, mock.Anything).Return(resolvedKey, nil).Times(2)
+	km.EXPECT().Sign(mock.Anything, resolvedKey, mock.Anything, []byte("payload-to-sign")).Return(nil, fmt.Errorf("signing module unavailable")).Once()
+	km.EXPECT().Sign(mock.Anything, resolvedKey, mock.Anything, []byte("payload-to-sign")).Return([]byte("signature"), nil).Once()
+
+	var capturedAttResult *prototk.AttestationResult
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementResponse(mock.Anything, "node2", mock.Anything).
+		Run(func(_ context.Context, _ string, msg *engineProto.EndorsementResponse) {
+			capturedAttResult = msg.Endorsement
+		}).
+		Return(nil).
+		Once()
+
+	event := buildEndorsementEvent("node2")
+	c.handleEndorsementRequest(ctx, event)
+
+	require.NotNil(t, capturedAttResult)
+	assert.Equal(t, []byte("signature"), capturedAttResult.Payload)
+}
+
+// Once the request's expiry has passed the requester has stopped waiting for a reply, so the retry must
+// abandon the endorsement rather than sleep between attempts.
+func Test_handleEndorsementRequest_ExpiredContext_AbandonsRetryAfterOneAttempt(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		WithMockTransportWriter().
+		EndorseErrorRetryMaxAttempts(3).
+		Build()
+
+	// Key resolution fails with a retryable error, but the expired context stops the retry after the
+	// first attempt: a second call to the strict mock would fail the test.
+	mockKeyManager := componentsmocks.NewKeyManager(t)
+	mockKeyManager.EXPECT().ResolveKeyNewDatabaseTX(mock.Anything, "party1", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("database unavailable")).Once()
+	mocks.AllComponents.On("KeyManager").Return(mockKeyManager).Maybe()
 
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
-		Return(nil)
+		Return(nil).
+		Once()
 
 	event := buildEndorsementEvent("node2")
 	c.handleEndorsementRequest(ctx, event)
@@ -510,11 +663,12 @@ func Test_handleEndorsementRequest_Sign_ThisNode_SignsAndSendsResponse(t *testin
 	assert.Equal(t, []byte("signature"), capturedAttResult.Payload)
 }
 
-func Test_handleEndorsementRequest_Sign_ResolveKeyError_SendsEndorsementError(t *testing.T) {
+func Test_handleEndorsementRequest_Sign_ResolveKeyError_RetriesThenSendsEndorsementError(t *testing.T) {
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
 		NodeName("node1").
 		WithMockTransportWriter().
+		EndorseErrorRetryMaxAttempts(2).
 		Build()
 
 	km := setupEndorsementMocks(t, mocks)
@@ -526,22 +680,24 @@ func Test_handleEndorsementRequest_Sign_ResolveKeyError_SendsEndorsementError(t 
 		Result:   prototk.EndorseTransactionResponse_SIGN,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "signer@node1"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
-	km.EXPECT().ResolveKeyNewDatabaseTX(mock.Anything, "signer", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("key error"))
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil).Times(2)
+	km.EXPECT().ResolveKeyNewDatabaseTX(mock.Anything, "signer", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("key error")).Times(2)
 
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
-		Return(nil)
+		Return(nil).
+		Once()
 
 	event := buildEndorsementEvent("node2")
 	c.handleEndorsementRequest(ctx, event)
 }
 
-func Test_handleEndorsementRequest_Sign_SignError_SendsEndorsementError(t *testing.T) {
+func Test_handleEndorsementRequest_Sign_SignError_RetriesThenSendsEndorsementError(t *testing.T) {
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
 		NodeName("node1").
 		WithMockTransportWriter().
+		EndorseErrorRetryMaxAttempts(2).
 		Build()
 
 	km := setupEndorsementMocks(t, mocks)
@@ -553,17 +709,18 @@ func Test_handleEndorsementRequest_Sign_SignError_SendsEndorsementError(t *testi
 		Result:   prototk.EndorseTransactionResponse_SIGN,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "signer@node1"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil).Times(2)
 
 	resolvedKey := &pldapi.KeyMappingAndVerifier{
 		Verifier: &pldapi.KeyVerifier{Verifier: "verifier-value"},
 	}
-	km.EXPECT().ResolveKeyNewDatabaseTX(mock.Anything, "signer", mock.Anything, mock.Anything).Return(resolvedKey, nil)
-	km.EXPECT().Sign(mock.Anything, resolvedKey, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("sign error"))
+	km.EXPECT().ResolveKeyNewDatabaseTX(mock.Anything, "signer", mock.Anything, mock.Anything).Return(resolvedKey, nil).Times(2)
+	km.EXPECT().Sign(mock.Anything, resolvedKey, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("sign error")).Times(2)
 
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
-		Return(nil)
+		Return(nil).
+		Once()
 
 	event := buildEndorsementEvent("node2")
 	c.handleEndorsementRequest(ctx, event)
@@ -704,7 +861,9 @@ func Test_handleEndorsementRequest_IncEndorsedTransactionsOnSuccess(t *testing.T
 	c.handleEndorsementRequest(ctx, event)
 }
 
-func Test_handleEndorsementRequest_Sign_ValidateEndorserError_SendsEndorsementError(t *testing.T) {
+// The endorser named in the domain's response is part of that response, so a locator we cannot parse
+// will come back identically on every attempt: it is reported without retrying.
+func Test_handleEndorsementRequest_Sign_ValidateEndorserError_SendsEndorsementErrorWithoutRetrying(t *testing.T) {
 	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
 		NodeName("node1").
@@ -722,11 +881,12 @@ func Test_handleEndorsementRequest_Sign_ValidateEndorserError_SendsEndorsementEr
 		Result:   prototk.EndorseTransactionResponse_SIGN,
 		Endorser: &prototk.ResolvedVerifier{Lookup: "@"},
 	}
-	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil)
+	mocks.DomainAPI.EXPECT().EndorseTransaction(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(endorsementResult, nil).Once()
 
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementError(mock.Anything, "node2", matchEndorsementErrorMsg("tx-1", "ik-1")).
-		Return(nil)
+		Return(nil).
+		Once()
 
 	event := buildEndorsementEvent("node2")
 	c.handleEndorsementRequest(ctx, event)
@@ -750,4 +910,113 @@ func Test_action_AddEndorsementRequestSenderToEndorserCandidates_AddsSenderNode(
 
 	assert.ElementsMatch(t, []string{"node1", "node2"}, c.endorserCandidates)
 	assert.Len(t, c.coordinatorPriorityList, 2)
+}
+
+func Test_action_HandleEndorsementRequest_IgnoresDuplicateRequestWhileEndorsementInFlight(t *testing.T) {
+	// A coordinator nudges an outstanding endorsement request by resending it with the same
+	// idempotency key. While the first attempt is still in the domain, the resend must not start a
+	// second endorsement of the same transaction.
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		WithMockTransportWriter().
+		Build()
+
+	setupEndorsementMocks(t, mocks)
+	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
+
+	endorsementResult := &components.EndorsementResult{
+		Result:   prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
+		Endorser: &prototk.ResolvedVerifier{Lookup: "party1@node2"},
+	}
+	var endorseCalls atomic.Int32
+	inDomain := make(chan struct{}, 2)
+	release := make(chan struct{})
+	mocks.DomainAPI.On("EndorseTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ mock.Arguments) {
+			endorseCalls.Add(1)
+			inDomain <- struct{}{}
+			<-release
+		}).
+		Return(endorsementResult, nil)
+
+	var responsesSent atomic.Int32
+	responded := make(chan struct{}, 2)
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ string, _ *engineProto.EndorsementResponse) {
+			responsesSent.Add(1)
+			responded <- struct{}{}
+		}).
+		Return(nil)
+
+	require.NoError(t, action_HandleEndorsementRequest(ctx, c, buildEndorsementEvent("node2")))
+	<-inDomain // the first attempt is now inside the domain call
+
+	// The resend carries the same idempotency key, so it must be dropped without spawning a goroutine.
+	// Checking the in-flight set rather than the call counts keeps this deterministic: the claim is
+	// taken synchronously by the action, whereas a wrongly spawned goroutine would reach the domain
+	// call at some later, unpredictable point.
+	require.NoError(t, action_HandleEndorsementRequest(ctx, c, buildEndorsementEvent("node2")))
+	assert.Equal(t, []string{"ik-1"}, inFlightEndorsementKeys(c))
+
+	close(release)
+	<-responded
+	assert.Equal(t, int32(1), endorseCalls.Load())
+	assert.Equal(t, int32(1), responsesSent.Load())
+}
+
+func Test_action_HandleEndorsementRequest_EndorsesAfreshAfterPreviousRequestCompletes(t *testing.T) {
+	// Deduplication only covers endorsements that are still running: once one has finished, a request
+	// carrying the same idempotency key is endorsed again, so a response lost in transit can still be
+	// recovered by a nudge.
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		WithMockTransportWriter().
+		Build()
+
+	setupEndorsementMocks(t, mocks)
+	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
+
+	endorsementResult := &components.EndorsementResult{
+		Result:   prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
+		Endorser: &prototk.ResolvedVerifier{Lookup: "party1@node2"},
+	}
+	var endorseCalls atomic.Int32
+	mocks.DomainAPI.On("EndorseTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ mock.Arguments) { endorseCalls.Add(1) }).
+		Return(endorsementResult, nil)
+
+	responded := make(chan struct{}, 2)
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementResponse(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ string, _ *engineProto.EndorsementResponse) { responded <- struct{}{} }).
+		Return(nil)
+
+	require.NoError(t, action_HandleEndorsementRequest(ctx, c, buildEndorsementEvent("node2")))
+	<-responded
+	// The claim is released by the goroutine's defer, which runs after the response is sent
+	require.Eventually(t, func() bool { return len(inFlightEndorsementKeys(c)) == 0 }, time.Second, time.Millisecond)
+
+	require.NoError(t, action_HandleEndorsementRequest(ctx, c, buildEndorsementEvent("node2")))
+	<-responded
+	assert.Equal(t, int32(2), endorseCalls.Load())
+}
+
+func Test_action_HandleEndorsementRequest_IgnoresRequestWithNoIdempotencyKey(t *testing.T) {
+	// Every endorsement reply echoes the request's idempotency key so the requester can match it, so a
+	// request without one cannot be answered usefully and must not reach the domain. The strict mocks
+	// fail the test if the domain is called or any reply is sent.
+	ctx := t.Context()
+	c, mocks := NewCoordinatorBuilderForTesting(t, State_Observing).
+		WithMockTransportWriter().
+		Build()
+
+	setupEndorsementMocks(t, mocks)
+	mocks.AllComponents.On("Persistence").Return(mocks.AllComponents.Persistence()).Maybe()
+
+	event := buildEndorsementEvent("node2")
+	event.IdempotencyKey = ""
+	require.NoError(t, action_HandleEndorsementRequest(ctx, c, event))
+
+	assert.Empty(t, inFlightEndorsementKeys(c))
 }

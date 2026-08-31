@@ -106,9 +106,8 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 
 	// Insert the batch of new contracts in this DB transaction (we do this before we call the domain to process the events)
 	if len(contracts) > 0 {
-		err := dbTX.DB().
+		err := dbTX.DB(ctx).
 			Table("private_smart_contracts").
-			WithContext(ctx).
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "address"}},
 				DoNothing: true, // immutable

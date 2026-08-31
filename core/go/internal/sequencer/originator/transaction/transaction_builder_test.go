@@ -161,6 +161,7 @@ func (b *TransactionBuilderForTesting) WithCheckPendingPrivateStateDataError(err
 // WithMockClock swaps the real clock for a mock so tests can assert on scheduled retry timers.
 func (b *TransactionBuilderForTesting) WithMockClock() *TransactionBuilderForTesting {
 	b.mockClock = sequencercommonmocks.NewClock(b.t)
+	b.mockClock.On("Now").Return(time.Now()).Maybe()
 	b.clock = b.mockClock
 	return b
 }
@@ -226,6 +227,7 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 	}
 
 	txn := newTransaction(privateTransaction,
+		nil,
 		"node1",
 		b.fakeEngineIntegration,
 		transportWriter,
@@ -317,6 +319,7 @@ func (m *TransactionDependencyFakes) MockForAssembleRequestOK() *mock.Call {
 		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
+		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
@@ -332,6 +335,7 @@ func (m *TransactionDependencyFakes) MockForAssembleRequestRevert() *mock.Call {
 		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
+		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 		RevertReason:   ptrTo("test revert reason"),
@@ -348,6 +352,7 @@ func (m *TransactionDependencyFakes) MockForAssembleRequestPark() *mock.Call {
 		mock.Anything, //resolvedVerifiers []*prototk.ResolvedVerifier
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
+		mock.Anything,
 	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_PARK,
 		RevertReason:   ptrTo("test revert reason"),
