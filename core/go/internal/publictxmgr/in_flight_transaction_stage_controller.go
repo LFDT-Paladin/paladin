@@ -143,7 +143,9 @@ func (it *inFlightTransactionStageController) MarkTime(eventName string) {
 		it.txTimeline[len(it.txTimeline)-1].tillNextEvent = time.Since(it.txTimeline[len(it.txTimeline)-1].timestamp)
 		if len(it.txTimeline) == it.timeLineLoggingMaxEntries {
 			// the array is full, we need to print the timeline and reset it
-			it.PrintTimeline()
+			if log.IsInfoEnabled() {
+				log.L(it.ctx).Infof("Timeline for %s: %s", it.privateTXID, it.PrintTimeline())
+			}
 			it.txTimeline = make([]PointOfTime, 0, it.timeLineLoggingMaxEntries)
 		}
 		it.txTimeline = append(it.txTimeline, PointOfTime{
@@ -576,7 +578,7 @@ func (it *inFlightTransactionStageController) startNewStage(ctx context.Context,
 	//    from the node but it is flaky behaviour that we have observed and should guard against
 	lastSubmitTime := it.stateManager.GetLastSubmitTime()
 	if lastSubmitTime != nil && time.Since(lastSubmitTime.Time()) > it.resubmitInterval {
-		log.L(ctx).Debugf("Transaction with ID %s entering retrieve gas price as exceeded resubmit interval of %s.", it.stateManager.GetSignerNonce(), it.resubmitInterval.String())
+		log.L(ctx).Debugf("Transaction with ID %s entering retrieve gas price as exceeded resubmit interval of %s.", it.stateManager.GetSignerNonce(), it.resubmitInterval)
 		it.TriggerNewStageRun(ctx, InFlightTxStageRetrieveGasPrice, BaseTxSubStatusStale)
 		return
 	}
