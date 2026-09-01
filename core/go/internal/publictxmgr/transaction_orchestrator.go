@@ -403,7 +403,9 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 			oc.totalCompleted = oc.totalCompleted + 1
 			queueUpdated = true
 			log.L(ctx).Debugf("Orchestrator poll and process, marking %s as complete after: %s", p.stateManager.GetSignerNonce(), time.Since(p.stateManager.GetCreatedTime().Time()))
-			p.PrintTimeline()
+			if p.timeLineLoggingMaxEntries > 0 && log.IsInfoEnabled() {
+				log.L(ctx).Infof("Timeline for %s: %s", p.stateManager.GetSignerNonce(), p.PrintTimeline())
+			}
 		} else {
 			log.L(ctx).Debugf("Orchestrator poll and process, continuing tx %s after: %s", p.stateManager.GetSignerNonce(), time.Since(p.stateManager.GetCreatedTime().Time()))
 			newInFlight = append(newInFlight, p)
