@@ -324,7 +324,7 @@ task goModTidy(type: Exec, dependsOn: [
         ':domains:zeto:protoc',
     ]) {
     group = 'build'
-    description = 'Runs go mod tidy and go mod download across every module in go.work'
+    description = 'Runs go work sync, then go mod tidy and go mod download across every module in go.work'
 
     workingDir projectDir
     executable 'bash'
