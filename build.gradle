@@ -314,6 +314,27 @@ task clean {
     delete "${buildDir}"
 }
 
+// Refreshes every go.mod / go.sum in the workspace. All generated Go must exist first,
+// otherwise `go mod tidy` cannot resolve the packages that import it.
+task goModTidy(type: Exec, dependsOn: [
+        ':toolkit:go:protoc',
+        ':core:go:protoc',
+        ':core:go:makeMocks',
+        ':transports:grpc:protoc',
+        ':domains:zeto:protoc',
+    ]) {
+    group = 'build'
+    description = 'Runs go work sync, then go mod tidy and go mod download across every module in go.work'
+
+    workingDir projectDir
+    executable 'bash'
+    args "${projectDir}/scripts/tidy-go-mods.sh"
+
+    // The outputs are the go.mod/go.sum files, which are inputs to nearly every other task,
+    // so they cannot be declared without creating cycles. Always run when asked.
+    outputs.upToDateWhen { false }
+}
+
 task docker(type: Exec) {
     executable 'docker'
     args 'build'
