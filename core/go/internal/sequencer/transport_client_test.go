@@ -141,6 +141,8 @@ func TestHandlePaladinMsg_Routing(t *testing.T) {
 		{"TransactionConfirmed", transport.MessageType_TransactionConfirmed},
 		{"QueryAvailableStatesRequest", transport.MessageType_QueryAvailableStatesRequest},
 		{"QueryAvailableStatesResponse", transport.MessageType_QueryAvailableStatesResponse},
+		{"GetSpentStateIDsRequest", transport.MessageType_GetSpentStateIDsRequest},
+		{"GetSpentStateIDsResponse", transport.MessageType_GetSpentStateIDsResponse},
 		{"StateViewError", transport.MessageType_StateViewError},
 		{"Unknown", "UnknownMessageType"},
 	}
