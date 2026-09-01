@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".d2", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".d2", ".zoomable-image", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -1329,6 +1329,13 @@
 <a class="md-nav__link" href="#statestoreschemacache">
 <span class="md-ellipsis">
       statestore.schemaCache
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#statestorevalidatedstatecache">
+<span class="md-ellipsis">
+      statestore.validatedStateCache
     </span>
 </a>
 </li>
@@ -2715,6 +2722,13 @@
 <a class="md-nav__link" href="#statestoreschemacache">
 <span class="md-ellipsis">
       statestore.schemaCache
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#statestorevalidatedstatecache">
+<span class="md-ellipsis">
+      statestore.validatedStateCache
     </span>
 </a>
 </li>
@@ -6692,9 +6706,34 @@
 <td><a href="#statestoreschemacache"><code>CacheConfig</code></a></td>
 <td>-</td>
 </tr>
+<tr>
+<td>validatedStateCache</td>
+<td>Validated-state cache configuration</td>
+<td><a href="#statestorevalidatedstatecache"><code>CacheConfig</code></a></td>
+<td>-</td>
+</tr>
 </tbody>
 </table>
 <h2 id="statestoreschemacache">statestore.schemaCache<a class="headerlink" href="#statestoreschemacache" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Description</th>
+<th>Type</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>capacity</td>
+<td>Cache capacity</td>
+<td><code>int</code></td>
+<td><code>1000</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="statestorevalidatedstatecache">statestore.validatedStateCache<a class="headerlink" href="#statestorevalidatedstatecache" title="Permanent link">¶</a></h2>
 <table>
 <thead>
 <tr>
