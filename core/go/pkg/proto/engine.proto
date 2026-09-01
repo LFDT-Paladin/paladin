@@ -153,10 +153,52 @@ message AssembleRequest {
     string transaction_id = 1;
     string assemble_request_id = 2;
     string contract_address = 3;
-    io.kaleido.paladin.toolkit.StateSnapshot state_snapshot = 6;
-    int64 coordinator_block_height = 7;
-    int64 expiry_time_unix_ms = 8;
-    int64 block_height_tolerance = 9;
+    int64 coordinator_block_height = 4;
+    int64 expiry_time_unix_ms = 5;
+    int64 block_height_tolerance = 6;
+}
+
+// QueryAvailableStatesRequest asks the coordinator to evaluate a state query against the snapshot
+// view captured when the assemble request was sent, replying with the matching states
+// including their data. request_id is unique per query and reused across retries of the same query.
+// assemble_request_id identifies the assemble this query is part of, and routes it to the view
+// captured for that assemble.
+message QueryAvailableStatesRequest {
+    string contract_address = 1;
+    string request_id = 2;
+    string schema_id = 3;
+    string query_json = 4;
+    string assemble_request_id = 5;
+}
+
+message QueryAvailableStatesResponse {
+    string contract_address = 1;
+    string request_id = 2;
+    repeated io.kaleido.paladin.toolkit.QueriedState states = 3;
+}
+
+// GetSpentStateIDsRequest asks the coordinator for the IDs of every state the captured view
+// already knows to be consumed ahead-of-chain, applied by the receiver as an exclusion set on its
+// own DB queries. request_id is unique per request and reused across retries. assemble_request_id
+// identifies the assemble this request is part of, and routes it to the view captured for that assemble.
+message GetSpentStateIDsRequest {
+    string contract_address = 1;
+    string request_id = 2;
+    string assemble_request_id = 3;
+}
+
+message GetSpentStateIDsResponse {
+    string contract_address = 1;
+    string request_id = 2;
+    repeated bytes spent_state_ids = 3; // raw state IDs
+}
+
+// StateViewError is the error reply shared by both state view request kinds, correlated by
+// request_id.
+message StateViewError {
+    string contract_address = 1;
+    string request_id = 2;
+    string error_message = 3;
 }
 
 message AssembleResponse {

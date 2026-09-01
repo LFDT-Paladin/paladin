@@ -63,6 +63,13 @@ type SentMessageRecorder struct {
 	sentSignResponses              []*engineProto.SignResponse
 	hasSentSignError               bool
 	sentTransactionConfirmed       []*engineProto.TransactionConfirmed
+
+	// State view request tracking (both sides)
+	sentQueryAvailableStatesRequests  []*engineProto.QueryAvailableStatesRequest
+	sentQueryAvailableStatesResponses []*engineProto.QueryAvailableStatesResponse
+	sentGetSpentStateIDsRequests      []*engineProto.GetSpentStateIDsRequest
+	sentGetSpentStateIDsResponses     []*engineProto.GetSpentStateIDsResponse
+	sentStateViewErrors               []*engineProto.StateViewError
 }
 
 func NewSentMessageRecorder() *SentMessageRecorder {
@@ -101,6 +108,11 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.hasSentSignError = false
 	r.hasSentDelegationRequest = false
 	r.delegatedTransactionIDs = nil
+	r.sentQueryAvailableStatesRequests = nil
+	r.sentQueryAvailableStatesResponses = nil
+	r.sentGetSpentStateIDsRequests = nil
+	r.sentGetSpentStateIDsResponses = nil
+	r.sentStateViewErrors = nil
 	r.sentTransactionConfirmed = nil
 	// per-tx maps are NOT reset — they accumulate across the full test
 }
@@ -305,6 +317,51 @@ func (r *SentMessageRecorder) SentSignResponses() []*engineProto.SignResponse {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	return r.sentSignResponses
+}
+
+func (r *SentMessageRecorder) SendQueryAvailableStatesRequest(ctx context.Context, node string, msg *engineProto.QueryAvailableStatesRequest) error {
+	r.sentQueryAvailableStatesRequests = append(r.sentQueryAvailableStatesRequests, msg)
+	return nil
+}
+
+func (r *SentMessageRecorder) SendQueryAvailableStatesResponse(ctx context.Context, node string, msg *engineProto.QueryAvailableStatesResponse) error {
+	r.sentQueryAvailableStatesResponses = append(r.sentQueryAvailableStatesResponses, msg)
+	return nil
+}
+
+func (r *SentMessageRecorder) SendGetSpentStateIDsRequest(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsRequest) error {
+	r.sentGetSpentStateIDsRequests = append(r.sentGetSpentStateIDsRequests, msg)
+	return nil
+}
+
+func (r *SentMessageRecorder) SendGetSpentStateIDsResponse(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsResponse) error {
+	r.sentGetSpentStateIDsResponses = append(r.sentGetSpentStateIDsResponses, msg)
+	return nil
+}
+
+func (r *SentMessageRecorder) SendStateViewError(ctx context.Context, node string, msg *engineProto.StateViewError) error {
+	r.sentStateViewErrors = append(r.sentStateViewErrors, msg)
+	return nil
+}
+
+func (r *SentMessageRecorder) SentQueryAvailableStatesRequests() []*engineProto.QueryAvailableStatesRequest {
+	return r.sentQueryAvailableStatesRequests
+}
+
+func (r *SentMessageRecorder) SentQueryAvailableStatesResponses() []*engineProto.QueryAvailableStatesResponse {
+	return r.sentQueryAvailableStatesResponses
+}
+
+func (r *SentMessageRecorder) SentGetSpentStateIDsRequests() []*engineProto.GetSpentStateIDsRequest {
+	return r.sentGetSpentStateIDsRequests
+}
+
+func (r *SentMessageRecorder) SentGetSpentStateIDsResponses() []*engineProto.GetSpentStateIDsResponse {
+	return r.sentGetSpentStateIDsResponses
+}
+
+func (r *SentMessageRecorder) SentStateViewErrors() []*engineProto.StateViewError {
+	return r.sentStateViewErrors
 }
 
 func (r *SentMessageRecorder) HasSentSignError() bool {
