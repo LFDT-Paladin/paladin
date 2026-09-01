@@ -72,9 +72,9 @@ func (af *BalanceManagerWithInMemoryTracking) GetAddressBalance(ctx context.Cont
 		af.retrieveAddressBalanceMap[address] = false
 	} else {
 		addressBalance = *cachedAddressBalance
-		log.L(ctx).Tracef("Retrieved balance for address %s from cache: %s", address, addressBalance.String())
+		log.L(ctx).Tracef("Retrieved balance for address %s from cache: %s", address, &addressBalance)
 	}
-	log.L(ctx).Debugf("Retrieved balance for address %s: %s", address, addressBalance.String())
+	log.L(ctx).Debugf("Retrieved balance for address %s: %s", address, &addressBalance)
 
 	return &AddressAccount{
 		Address: address,

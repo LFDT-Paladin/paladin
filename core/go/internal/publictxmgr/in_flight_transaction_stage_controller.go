@@ -576,7 +576,7 @@ func (it *inFlightTransactionStageController) startNewStage(ctx context.Context,
 	//    from the node but it is flaky behaviour that we have observed and should guard against
 	lastSubmitTime := it.stateManager.GetLastSubmitTime()
 	if lastSubmitTime != nil && time.Since(lastSubmitTime.Time()) > it.resubmitInterval {
-		log.L(ctx).Debugf("Transaction with ID %s entering retrieve gas price as exceeded resubmit interval of %s.", it.stateManager.GetSignerNonce(), it.resubmitInterval.String())
+		log.L(ctx).Debugf("Transaction with ID %s entering retrieve gas price as exceeded resubmit interval of %s.", it.stateManager.GetSignerNonce(), it.resubmitInterval)
 		it.TriggerNewStageRun(ctx, InFlightTxStageRetrieveGasPrice, BaseTxSubStatusStale)
 		return
 	}
