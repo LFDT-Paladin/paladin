@@ -237,6 +237,9 @@ task clean(type: Delete) {
     delete 'coverage'
     delete 'internal/zeto/abis'
     delete 'pkg/types/abis'
+    delete fileTree(".") {
+        include "**/*.pb.go"
+    }
     delete zkpOut
     delete toolsOut
 }

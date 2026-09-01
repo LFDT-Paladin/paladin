@@ -167,6 +167,10 @@ task protoc(type: ProtoCompile, dependsOn: [
 }
 
 task makeMocks(type: Exec, dependsOn: [":installMockery", protoc]) {
+   doFirst {
+      delete 'mocks'
+   }
+
    executable "mockery"
 }
 
@@ -192,7 +196,9 @@ task clean(type: Delete, dependsOn: ':testinfra:stopTestInfra') {
     delete 'coverage'
     delete 'mocks'
     delete 'internal/domainmgr/abis'
-    delete 'componenttest/abis'
+    delete 'noderuntests/componenttest/abis'
+    delete 'noderuntests/pkg/domains/abis'
+    delete 'pkg/testbed/abis'
 }
 
 task lint(type: Exec, dependsOn:[
