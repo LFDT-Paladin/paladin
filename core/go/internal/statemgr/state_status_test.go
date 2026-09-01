@@ -335,3 +335,69 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(query.NewQueryBuilder().Equal("color", "pink").Query(), pldapi.StateStatusAvailable)
 
 }
+
+// TestAvailabilityFlagsReconcileOnLateArrival covers the received-state ordering where the
+// confirm/spend records are indexed from the chain before the private data arrives. The
+// WriteStateFinalizations flag UPDATE matches no row at that point; the flags must be reconciled
+// from the record tables when writeStates later inserts the row, so availability matches the
+// record tables regardless of arrival order.
+func TestAvailabilityFlagsReconcileOnLateArrival(t *testing.T) {
+	ctx, ss, m, done := newDBTestStateManager(t)
+	defer done()
+
+	_ = mockDomain(t, m, "domain1", false)
+	mockStateCallback(m)
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, widgetABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+	schemaID := schema.ID()
+
+	contractAddress := pldtypes.RandAddress()
+
+	confirmWidget := genWidget(t, schemaID, `{"size": 1, "color": "red", "price": 10}`)
+	spentWidget := genWidget(t, schemaID, `{"size": 2, "color": "blue", "price": 20}`)
+
+	// Compute the IDs the sending node would, so the records can be written before the rows exist.
+	confirmState, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(confirmWidget.StateDataJson), nil, false)
+	require.NoError(t, err)
+	spentState, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(spentWidget.StateDataJson), nil, false)
+	require.NoError(t, err)
+	confirmID := confirmState.ID
+	spentID := spentState.ID
+
+	// Records land first — no state rows exist yet, so the WriteStateFinalizations UPDATE is a no-op.
+	err = ss.WriteStateFinalizations(ctx, ss.p.NOTX(),
+		[]*pldapi.StateSpendRecord{{DomainName: "domain1", State: spentID, Transaction: uuid.New()}},
+		nil,
+		[]*pldapi.StateConfirmRecord{
+			{DomainName: "domain1", State: confirmID, Transaction: uuid.New()},
+			{DomainName: "domain1", State: spentID, Transaction: uuid.New()},
+		}, nil)
+	require.NoError(t, err)
+
+	findAvailable := func() []*pldapi.State {
+		s, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", schemaID,
+			query.NewQueryBuilder().Query(),
+			&components.StateQueryOptions{StatusQualifier: pldapi.StateStatusAvailable})
+		require.NoError(t, err)
+		return s
+	}
+	require.Empty(t, findAvailable()) // no rows yet, nothing available
+
+	// Private data arrives — setStateAvailableFromSpendConfirmRecords sets the flags from the record tables.
+	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := ss.WriteReceivedStates(ctx, dbTX, "domain1", []*components.StateUpsertOutsideContext{
+			{ContractAddress: contractAddress, SchemaID: schemaID, Data: pldtypes.RawJSON(confirmWidget.StateDataJson)},
+			{ContractAddress: contractAddress, SchemaID: schemaID, Data: pldtypes.RawJSON(spentWidget.StateDataJson)},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	// confirmID: confirmed and not spent -> available. spentID: confirmed but spent -> not available.
+	avail := findAvailable()
+	require.Len(t, avail, 1)
+	assert.Equal(t, confirmID, avail[0].ID)
+}

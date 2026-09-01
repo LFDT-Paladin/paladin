@@ -192,14 +192,19 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 			Error
 	}
 
-	// Update the completion index for any opted-in domain transactions that were
-	// waiting for one of the just-written states
+	// Reconcile availability flags for the just-written states, then update the
+	// completion index. A confirm/spend record may have been written before the state row
+	// existed; setStateAvailableFromSpendConfirmRecords sets the flags now from the
+	// authoritative record tables.
 	if err == nil && len(states) > 0 {
-		arrivedIDs := make([]pldtypes.HexBytes, len(states))
-		for i, s := range states {
-			arrivedIDs[i] = s.ID
+		err = ss.setStateAvailableFromSpendConfirmRecords(ctx, dbTX, states)
+		if err == nil {
+			arrivedIDs := make([]pldtypes.HexBytes, len(states))
+			for i, s := range states {
+				arrivedIDs[i] = s.ID
+			}
+			err = ss.updatePendingPrivateStateData(ctx, dbTX, arrivedIDs)
 		}
-		err = ss.updatePendingPrivateStateData(ctx, dbTX, arrivedIDs)
 	}
 	return err
 }
@@ -329,11 +334,23 @@ func (ss *stateManager) findStates(
 	if options.StatusQualifier == "" {
 		options.StatusQualifier = pldapi.StateStatusAll
 	}
-	whereClause, isPlainDB := whereClauseForQual(dbTX.DB(ctx), options.StatusQualifier, "Spent")
+	// Available is served from the maintained confirmed/spent flags and the states_available
+	// partial index, so it needs neither the Confirmed/Spent joins nor whereClauseForQual. Every
+	// other plain-DB qualifier still expresses status via those joins.
+	var whereClause *gorm.DB
+	needsStatusJoins, isPlainDB := true, true
+	if options.StatusQualifier == pldapi.StateStatusAvailable {
+		whereClause = dbTX.DB(ctx).Where(`"states"."confirmed" AND NOT "states"."spent"`)
+		needsStatusJoins = false
+	} else {
+		whereClause, isPlainDB = whereClauseForQual(dbTX.DB(ctx), options.StatusQualifier, "Spent")
+	}
 	if isPlainDB {
 		return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
-			q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
-				Joins("Spent", dbTX.DB(ctx).Select("transaction"))
+			if needsStatusJoins {
+				q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
+					Joins("Spent", dbTX.DB(ctx).Select("transaction"))
+			}
 
 			if len(options.ExcludedIDs) > 0 {
 				q = q.Not(`"states"."id" IN(?)`, options.ExcludedIDs)
