@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,11 +25,17 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
@@ -665,6 +672,97 @@ func TestCoordinatorTransaction_Assembling_ToPooled_OnAssembleError_IfBelowRetry
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_Pooled, txn.GetCurrentState())
+}
+
+// End-to-end protection: a state visible to the originator when the assemble request is sent must
+// stay visible to per-select assembly queries for the whole in-flight window, even when the
+// coordinator's block height advances past the tolerance window mid-assemble. The deferred forget
+// is applied as soon as the transaction leaves State_Assembling.
+func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFlightWindow(t *testing.T) {
+	ctx := context.Background()
+
+	depTracker := dependencytracker.NewDependencyTracker()
+	visibilityStore := statevisibilitytracker.NewStore()
+	g := grapher.NewGrapher(depTracker, visibilityStore, 5)
+
+	// Seed a confirmed create lock (confirmed at block 100, due to be forgotten at block 105)
+	// with private state data visible to node1
+	seedTxID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("42", 32))
+	state := &prototk.EndorsableState{Id: stateID.String(), StateDataJson: `{}`}
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, seedTxID))
+	visibilityStore.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}, Labels: &prototk.StateLabels{}})
+	g.LockMintsOnCreate(ctx, []*prototk.EndorsableState{state}, seedTxID)
+	g.ForgetTransaction(ctx, seedTxID, 100)
+
+	// A real state view provider backed by the same grapher: entering State_Assembling captures a
+	// view that freezes the candidate snapshot, and per-select queries are answered from it.
+	recorder := testutil.NewSentMessageRecorder()
+	stateManager := componentsmocks.NewStateManager(t)
+	stateManager.EXPECT().FindMatchingInMemoryStates(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ string, _ pldtypes.Bytes32, _ *query.QueryJSON, candidates []*prototk.SnapshotState) ([]*prototk.QueriedState, error) {
+			out := make([]*prototk.QueriedState, len(candidates))
+			for i, c := range candidates {
+				out[i] = &prototk.QueriedState{State: c.GetState()}
+			}
+			return out, nil
+		}).Maybe()
+	provider := stateview.NewProvider("test-domain", "0x", recorder, g, stateManager)
+
+	txnBuilder := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(g).
+		StateViewProvider(provider).
+		DependencyTracker(depTracker).
+		StateVisibility(visibilityStore).
+		WithCurrentBlockHeight(100).
+		AssembleErrorRetryThreshold(3).
+		Originator("alice@node1")
+	txn, _ := txnBuilder.Build()
+
+	err := txn.HandleEvent(ctx, &SelectedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+	})
+	require.NoError(t, err)
+	require.Equal(t, State_Assembling, txn.GetCurrentState())
+	assembleRequestID := txn.assembleRequestID.String()
+	schemaID := pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32)).String()
+
+	runQuery := func() int {
+		recorder.Reset(ctx)
+		provider.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+			ContractAddress: "0x", RequestId: "q", SchemaId: schemaID, QueryJson: `{}`, AssembleRequestId: assembleRequestID,
+		})
+		require.Empty(t, recorder.SentStateViewErrors())
+		resps := recorder.SentQueryAvailableStatesResponses()
+		require.Len(t, resps, 1)
+		return len(resps[0].GetStates())
+	}
+
+	require.Equal(t, 1, runQuery(), "state must be visible to per-select queries at request time")
+
+	// The coordinator advances well past the tolerance window mid-assemble; the block-driven forget
+	// removes the state from the live grapher, but the frozen snapshot keeps serving it.
+	g.ForgetConfirmedLocks(ctx, 200)
+	liveCandidates, _ := g.SnapshotView(ctx, "node1")
+	require.Empty(t, liveCandidates, "the live grapher view forgets the confirmed lock")
+	require.Equal(t, 1, runQuery(), "state must stay visible to per-select queries while the assemble is in flight")
+
+	// Exit State_Assembling; the view is discarded and further queries are rejected.
+	err = txn.HandleEvent(ctx, &AssembleErrorEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+		RequestID:            txn.pendingAssembleRequest.IdempotencyKey(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, State_Pooled, txn.GetCurrentState())
+
+	recorder.Reset(ctx)
+	provider.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress: "0x", RequestId: "q", SchemaId: schemaID, QueryJson: `{}`, AssembleRequestId: assembleRequestID,
+	})
+	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
+	errs := recorder.SentStateViewErrors()
+	require.Len(t, errs, 1, "the view must be discarded once the assemble is no longer in flight")
+	assert.Regexp(t, "PD012653", errs[0].GetErrorMessage())
 }
 
 func TestCoordinatorTransaction_Assembling_ToEvicted_OnAssembleError_IfAboveRetryThreshold(t *testing.T) {

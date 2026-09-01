@@ -18,6 +18,7 @@ package statemgr
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -471,34 +472,128 @@ func (ss *stateManager) findStatesCommon(
 	return schema, states, nil
 }
 
-func (ss *stateManager) parseSchemaAndIDFromEndorsableState(ctx context.Context, dbTX persistence.DBTX, domainName string, es *prototk.EndorsableState) (components.Schema, pldtypes.HexBytes, error) {
-	schemaID, err := pldtypes.ParseBytes32Ctx(ctx, es.GetSchemaId())
-	if err != nil {
-		return nil, nil, err
+// cacheGetValidatedStateWithLabels returns a caller-owned shallow copy of a cache entry, with labels.
+// The shallow copy means that the caller may mutate Created or do a wholesale replacement of labels,
+// without modifying the cache entry.
+//
+// All other fields must still be treated as read only. This is fragile as it relies on an
+// unenforced and difficult to document contract, but taking a deep copy of the state would be expensive,
+// and modifications to any of the remaining fields in the state or partial modifications to its labels are
+// destroy the integrity/self consistency of the state, making it effectively unusable, so the risk of
+// future changes not respecting this contract is low enough to justify the performance benefits of not
+// making a deep copy.
+func (ss *stateManager) cacheGetValidatedStateWithLabels(cacheKey string) (*components.StateWithLabels, bool) {
+	cached, ok := ss.validatedStateCache.Get(cacheKey)
+	if !ok {
+		return nil, false
 	}
-	var stateID pldtypes.HexBytes
+	stateCopy := *cached.State
+	return &components.StateWithLabels{
+		State:       &stateCopy,
+		LabelValues: cached.LabelValues,
+	}, true
+}
+
+// cacheGetValidatedState returns just the validated content (id, schema, normalized data) of
+// a full cache entry. The same unenforced contract about all fields other than Created being
+// immutable applies as for cacheGetValidatedStateWithLabels.
+func (ss *stateManager) cacheGetValidatedState(cacheKey string) (*pldapi.State, bool) {
+	cached, ok := ss.validatedStateCache.Get(cacheKey)
+	if !ok {
+		return nil, false
+	}
+	stateCopy := *cached.State
+	stateCopy.Labels = nil
+	stateCopy.Int64Labels = nil
+	return &stateCopy, true
+}
+
+// validatedCacheParams parses a proto state's id/schema and derives its validatedStateCache key. An
+// empty cacheKey means the state is not addressable in the cache: only content-addressed states whose
+// claimed ID is hash-verified against content in ProcessState may be cached, and customHashFunction
+// states pre-verify their own hash so are never cached.
+func (ss *stateManager) validatedCacheParams(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, es *prototk.EndorsableState) (schemaID pldtypes.Bytes32, stateID pldtypes.HexBytes, cacheKey string, err error) {
+	if schemaID, err = pldtypes.ParseBytes32Ctx(ctx, es.GetSchemaId()); err != nil {
+		return
+	}
 	if idStr := es.GetId(); idStr != "" {
 		if stateID, err = pldtypes.ParseHexBytes(ctx, idStr); err != nil {
-			return nil, nil, err
+			return
+		}
+	}
+	if !customHashFunction && stateID != nil {
+		cacheKey = validatedStateCacheKey(domainName, contractAddress, stateID)
+	}
+	return
+}
+
+// validateStateWithLabels returns the validated, full StateWithLabels form of a proto-native state,
+// reading through validatedStateCache. It is the only path that builds complete StateWithLabel types,
+// so it is the only path that seeds the cache.
+func (ss *stateManager) validateStateWithLabels(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, dbTX persistence.DBTX, es *prototk.EndorsableState) (*components.StateWithLabels, error) {
+	schemaID, stateID, cacheKey, err := ss.validatedCacheParams(ctx, domainName, contractAddress, customHashFunction, es)
+	if err != nil {
+		return nil, err
+	}
+	if cacheKey != "" {
+		if cached, ok := ss.cacheGetValidatedStateWithLabels(cacheKey); ok {
+			return cached, nil
 		}
 	}
 	schema, err := ss.getSchemaByID(ctx, dbTX, domainName, schemaID, true)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return schema, stateID, nil
+	vs, err := schema.ProcessStateWithLabels(ctx, &contractAddress, pldtypes.RawJSON(es.GetStateDataJson()), stateID, customHashFunction)
+	if err != nil {
+		return nil, err
+	}
+	if cacheKey != "" {
+		// ProcessStateWithLabels does not set Created, so the shared cache never holds Created timestamp.
+		// Each caller stamps the created its context needs on the copy it receives.
+		ss.validatedStateCache.Set(cacheKey, vs)
+		stateCopy := *vs.State
+		return &components.StateWithLabels{
+			State:       &stateCopy,
+			LabelValues: vs.LabelValues,
+		}, nil
+	}
+	return vs, nil
+}
+
+func validatedStateCacheKey(domainName string, contractAddress pldtypes.EthAddress, stateID pldtypes.HexBytes) string {
+	// Build "domain:0x<address>:0x<stateID>" into a single buffer, hex-encoding the
+	// address and state ID directly to avoid the intermediate String() allocations.
+	buf := make([]byte, 0, len(domainName)+6+len(contractAddress)*2+len(stateID)*2)
+	buf = append(buf, domainName...)
+	buf = append(buf, ':', '0', 'x')
+	buf = hex.AppendEncode(buf, contractAddress[:])
+	buf = append(buf, ':', '0', 'x')
+	buf = hex.AppendEncode(buf, stateID)
+	return string(buf)
 }
 
 // ValidateStates validates and normalizes state data against the state's schema, and computes the state ID.
 func (ss *stateManager) ValidateStates(ctx context.Context, dbTX persistence.DBTX, domain components.Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*pldapi.State, error) {
+	domainName := domain.Name()
+	customHashFunction := domain.CustomHashFunction()
 	validated := make([]*pldapi.State, len(states))
 	for i, es := range states {
-		schema, stateID, err := ss.parseSchemaAndIDFromEndorsableState(ctx, dbTX, domain.Name(), es)
+		schemaID, stateID, cacheKey, err := ss.validatedCacheParams(ctx, domainName, contractAddress, customHashFunction, es)
 		if err != nil {
 			return nil, err
 		}
-		validated[i], err = schema.ProcessState(ctx, &contractAddress, pldtypes.RawJSON(es.GetStateDataJson()), stateID, domain.CustomHashFunction())
+		if cacheKey != "" {
+			if cached, ok := ss.cacheGetValidatedState(cacheKey); ok {
+				validated[i] = cached
+				continue
+			}
+		}
+		schema, err := ss.getSchemaByID(ctx, dbTX, domainName, schemaID, true)
 		if err != nil {
+			return nil, err
+		}
+		if validated[i], err = schema.ProcessState(ctx, &contractAddress, pldtypes.RawJSON(es.GetStateDataJson()), stateID, customHashFunction); err != nil {
 			return nil, err
 		}
 	}
@@ -509,11 +604,7 @@ func (ss *stateManager) ValidateStates(ctx context.Context, dbTX persistence.DBT
 func (ss *stateManager) ValidateStatesWithLabels(ctx context.Context, dbTX persistence.DBTX, domain components.Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error) {
 	withLabels := make([]*components.StateWithLabels, len(states))
 	for i, es := range states {
-		schema, stateID, err := ss.parseSchemaAndIDFromEndorsableState(ctx, dbTX, domain.Name(), es)
-		if err != nil {
-			return nil, err
-		}
-		vs, err := schema.ProcessStateWithLabels(ctx, &contractAddress, pldtypes.RawJSON(es.GetStateDataJson()), stateID, domain.CustomHashFunction())
+		vs, err := ss.validateStateWithLabels(ctx, domain.Name(), contractAddress, domain.CustomHashFunction(), dbTX, es)
 		if err != nil {
 			return nil, err
 		}

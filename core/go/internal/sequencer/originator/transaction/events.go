@@ -139,7 +139,6 @@ type AssembleRequestReceivedEvent struct {
 	Coordinator            string
 	CoordinatorBlockHeight int64
 	BlockHeightTolerance   int64
-	StateSnapshot          *prototk.StateSnapshot
 	Expiry                 time.Time
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -33,7 +34,7 @@ import (
 
 func TestNewTransaction_NilPrivateTransaction_ReturnsError(t *testing.T) {
 	ctx := context.Background()
-	_, err := NewTransaction(ctx, nil, nil, "node1", nil, nil, nil, nil, func(_ context.Context) {}, func() int64 { return 0 }, common.RealClock(), time.Second)
+	_, err := NewTransaction(ctx, nil, nil, "node1", nil, nil, nil, nil, nil, func(_ context.Context) {}, func() int64 { return 0 }, common.RealClock(), time.Second)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot create transaction without private tx")
 }
@@ -46,7 +47,7 @@ func TestNewTransaction_Success_ReturnsOriginatorTransaction(t *testing.T) {
 	queue := func(context.Context, common.Event) {}
 	m := metrics.InitMetrics(context.Background(), prometheus.NewRegistry())
 
-	ot, err := NewTransaction(ctx, pt, nil, "node1", recorder, queue, engine, m, func(_ context.Context) {}, func() int64 { return 0 }, common.RealClock(), time.Second)
+	ot, err := NewTransaction(ctx, pt, nil, "node1", recorder, stateview.NewReader(pt.Address.HexString(), recorder, time.Second, common.RealClock()), queue, engine, m, func(_ context.Context) {}, func() int64 { return 0 }, common.RealClock(), time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, ot)
 	assert.Equal(t, pt.ID, ot.GetID())
