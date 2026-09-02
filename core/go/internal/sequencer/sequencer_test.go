@@ -1162,7 +1162,7 @@ func TestSequencerManager_resumeIncompleteTransactions_MaxTransactionsOverride(t
 		},
 	).Once()
 	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, nil, true).RunAndReturn(
-		func(_ context.Context, _ *query.QueryJSON, _ persistence.DBTX, _ bool) ([]*components.ResolvedTransaction, error) {
+		func(_ context.Context, _ *query.QueryJSON, _ persistence.DBTX, _ bool) ([]*components.ResolvedTransaction, int64, error) {
 			callCount++
 			if callCount == 1 {
 				return []*components.ResolvedTransaction{
@@ -1173,9 +1173,9 @@ func TestSequencerManager_resumeIncompleteTransactions_MaxTransactionsOverride(t
 							To: pldtypes.RandAddress(),
 						},
 					}},
-				}, nil
+				}, 1, nil
 			}
-			return nil, nil
+			return nil, 0, nil
 		},
 	).Twice()
 	mocks.txManager.EXPECT().BlockedByDependencies(mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Once()
@@ -1197,7 +1197,7 @@ func TestSequencerManager_resumeIncompleteTransactions_Pagination(t *testing.T) 
 		},
 	).Once()
 	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, nil, true).RunAndReturn(
-		func(_ context.Context, _ *query.QueryJSON, _ persistence.DBTX, _ bool) ([]*components.ResolvedTransaction, error) {
+		func(_ context.Context, _ *query.QueryJSON, _ persistence.DBTX, _ bool) ([]*components.ResolvedTransaction, int64, error) {
 			callCount++
 			if callCount == 1 {
 				return []*components.ResolvedTransaction{
@@ -1208,9 +1208,9 @@ func TestSequencerManager_resumeIncompleteTransactions_Pagination(t *testing.T) 
 							To: pldtypes.RandAddress(),
 						},
 					}},
-				}, nil
+				}, 1, nil
 			}
-			return nil, nil
+			return nil, 0, nil
 		},
 	).Twice()
 	mocks.txManager.EXPECT().BlockedByDependencies(mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Once()
@@ -1224,7 +1224,7 @@ func TestSequencerManager_resumeIncompleteTransactions_QueryError(t *testing.T) 
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 
-	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, nil, true).Return(nil, errors.New("query failed")).Once()
+	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, nil, true).Return(nil, 0, errors.New("query failed")).Once()
 
 	sm.resumeIncompleteTransactions(ctx)
 }
@@ -1261,9 +1261,9 @@ func TestSequencerManager_pollForIncompleteTransactions_ContextCancelDuringTicke
 	// Reading the channel twice confirms both the initial resume call and at least one tick.
 	calls := make(chan struct{}, 100)
 	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, jq *query.QueryJSON, dbTX persistence.DBTX, pending bool) ([]*components.ResolvedTransaction, error) {
+		func(ctx context.Context, jq *query.QueryJSON, dbTX persistence.DBTX, pending bool) ([]*components.ResolvedTransaction, int64, error) {
 			calls <- struct{}{}
-			return nil, nil
+			return nil, 0, nil
 		},
 	).Maybe()
 
@@ -1336,7 +1336,7 @@ func TestSequencerManager_resumeIncompleteTransactions_HandleTxResumeError(t *te
 	mocks.persistence.EXPECT().Transaction(mock.Anything, mock.Anything).Return(errors.New("tx wrapper failed")).Once()
 	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, nil, true).Return([]*components.ResolvedTransaction{{
 		Transaction: &pldapi.Transaction{ID: confutil.P(uuid.New()), Created: pldtypes.Timestamp(time.Now().UnixNano()), TransactionBase: pldapi.TransactionBase{To: pldtypes.RandAddress()}},
-	}}, nil).Once()
+	}}, 1, nil).Once()
 	sm.resumeIncompleteTransactions(ctx)
 }
 
@@ -1376,9 +1376,9 @@ func TestSequencerManager_pollForIncompleteTransactions_BlockIndexerRetryTimer(t
 
 	resumed := make(chan struct{})
 	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ *query.QueryJSON, _ persistence.DBTX, _ bool) ([]*components.ResolvedTransaction, error) {
+		RunAndReturn(func(_ context.Context, _ *query.QueryJSON, _ persistence.DBTX, _ bool) ([]*components.ResolvedTransaction, int64, error) {
 			close(resumed)
-			return nil, nil
+			return nil, 0, nil
 		}).Once()
 
 	go sm.pollForIncompleteTransactions(ctx, time.Hour)
@@ -1400,7 +1400,7 @@ func TestSequencerManager_resumeIncompleteTransactions_LimitTrim(t *testing.T) {
 	).Twice()
 	mocks.txManager.EXPECT().BlockedByDependencies(mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Twice()
 	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, nil, true).RunAndReturn(
-		func(_ context.Context, q *query.QueryJSON, _ persistence.DBTX, _ bool) ([]*components.ResolvedTransaction, error) {
+		func(_ context.Context, q *query.QueryJSON, _ persistence.DBTX, _ bool) ([]*components.ResolvedTransaction, int64, error) {
 			queryCount++
 			if queryCount == 1 {
 				return []*components.ResolvedTransaction{
@@ -1414,11 +1414,16 @@ func TestSequencerManager_resumeIncompleteTransactions_LimitTrim(t *testing.T) {
 						Created:         pldtypes.Timestamp(time.Now().UnixNano() + 1),
 						TransactionBase: pldapi.TransactionBase{To: pldtypes.RandAddress()},
 					}},
-				}, nil
+				}, 2, nil
 			}
+			// maxTransactions is 3 and the first page returned 2, so the second page is trimmed.
 			require.NotNil(t, q.Limit)
 			require.Equal(t, 1, *q.Limit)
-			return nil, nil
+			// And it resumes from the sequence the first page ended on.
+			require.Len(t, q.GT, 1)
+			require.Equal(t, "sequence", q.GT[0].Field)
+			require.JSONEq(t, "2", q.GT[0].Value.String())
+			return nil, 0, nil
 		},
 	).Times(2)
 
@@ -1637,4 +1642,65 @@ func TestSequencerManager_CallPrivateSmartContract_GetSmartContractError(t *test
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, nil, *contractAddr).Return(nil, errors.New("not found")).Once()
 	_, err := sm.CallPrivateSmartContract(ctx, call)
 	require.Error(t, err)
+}
+
+// TestSequencerManager_resumeIncompleteTransactions_SequenceCursor proves the scan pages on the
+// database write sequence, carrying the cursor from one page to the next.
+//
+// created is not unique - insertTransactions() stamps a whole batch from a tight loop, so rows
+// routinely share a nanosecond, and a cursor on created steps over every remaining row sharing
+// the boundary timestamp so those transactions are never resumed. The losslessness this buys is
+// only observable against a real database, which TestResumePaginationBySequence covers; here we
+// check the scan asks for the right page.
+func TestSequencerManager_resumeIncompleteTransactions_SequenceCursor(t *testing.T) {
+	ctx := context.Background()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+	sm.config.TransactionResumePageSize = confutil.P(1)
+
+	const firstSeq int64 = 41
+
+	callCount := 0
+	var secondPageQuery *query.QueryJSON
+	mocks.persistence.EXPECT().Transaction(mock.Anything, mock.Anything).RunAndReturn(
+		func(txCtx context.Context, fn func(context.Context, persistence.DBTX) error) error {
+			return fn(txCtx, persistencemocks.NewDBTX(t))
+		},
+	).Once()
+	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, nil, true).RunAndReturn(
+		func(_ context.Context, q *query.QueryJSON, _ persistence.DBTX, _ bool) ([]*components.ResolvedTransaction, int64, error) {
+			callCount++
+			if callCount == 1 {
+				// Sorted on sequence, and starting from the beginning rather than a stale cursor.
+				assert.Equal(t, []string{"sequence"}, q.Sort)
+				assert.Empty(t, q.GT)
+				return []*components.ResolvedTransaction{
+					{Transaction: &pldapi.Transaction{
+						ID:      confutil.P(uuid.New()),
+						Created: pldtypes.Timestamp(time.Now().UnixNano()),
+						TransactionBase: pldapi.TransactionBase{
+							To: pldtypes.RandAddress(),
+						},
+					}},
+				}, firstSeq, nil
+			}
+			secondPageQuery = q
+			return nil, 0, nil
+		},
+	).Twice()
+	mocks.txManager.EXPECT().BlockedByDependencies(mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Once()
+
+	sm.resumeIncompleteTransactions(ctx)
+	require.Equal(t, 2, callCount)
+	require.NotNil(t, secondPageQuery)
+
+	// Sorted on sequence - unique and in write order - so the order cannot differ between pages.
+	assert.Equal(t, []string{"sequence"}, secondPageQuery.Sort)
+
+	// A single-key cursor on the sequence the first page ended at: no row is visited twice and,
+	// critically, none is stepped over. Nothing on created, and no OR branch needed.
+	require.Len(t, secondPageQuery.GT, 1)
+	assert.Equal(t, "sequence", secondPageQuery.GT[0].Field)
+	assert.JSONEq(t, "41", secondPageQuery.GT[0].Value.String())
+	assert.Empty(t, secondPageQuery.Or)
 }

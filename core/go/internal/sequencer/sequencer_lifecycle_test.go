@@ -986,7 +986,7 @@ func TestSequencerManager_Start_Success(t *testing.T) {
 	allComponents.EXPECT().TxManager().Return(txManager).Maybe()
 	allComponents.EXPECT().Persistence().Return(persistence).Maybe()
 	persistence.EXPECT().NOTX().Return(nil).Maybe()
-	txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]*components.ResolvedTransaction{}, nil).Maybe()
+	txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]*components.ResolvedTransaction{}, 0, nil).Maybe()
 
 	// Call Start
 	err = sMgr.Start()

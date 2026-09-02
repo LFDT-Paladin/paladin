@@ -158,7 +158,7 @@ func (sMgr *sequencerManager) resumeIncompleteTransactions(ctx context.Context) 
 	}
 
 	resumedTransactions := 0
-	var lastCreatedTime int64
+	var lastSequence int64
 
 	for maxTransactions > 0 && resumedTransactions < maxTransactions {
 		limit := pageSize
@@ -166,18 +166,23 @@ func (sMgr *sequencerManager) resumeIncompleteTransactions(ctx context.Context) 
 			limit = maxTransactions - resumedTransactions
 		}
 
-		query := query.NewQueryBuilder().
+		// Page on the database's write sequence, not created. created is not unique -
+		// insertTransactions() stamps a whole batch from a tight loop, so rows routinely share a
+		// nanosecond, and a cursor on created steps over every remaining row sharing the boundary
+		// timestamp so those transactions are never resumed. The sequence is unique and follows
+		// write order, so the scan visits every row exactly once and in the order written.
+		qb := query.NewQueryBuilder().
 			Limit(limit).
-			Sort("created")
-		if lastCreatedTime > 0 {
-			log.L(ctx).Debugf("Retrieving the next %d incomplete transactions to resume from timestamp %d", limit, lastCreatedTime)
-			query.GreaterThan("created", lastCreatedTime)
+			Sort("sequence")
+		if lastSequence > 0 {
+			log.L(ctx).Debugf("Retrieving the next %d incomplete transactions to resume from sequence %d", limit, lastSequence)
+			qb.GreaterThan("sequence", lastSequence)
 		} else {
 			log.L(ctx).Debugf("Retrieving the next %d incomplete transactions to resume", limit)
 		}
-		q := query.Query()
 
-		pendingTx, err := sMgr.components.TxManager().QueryTransactionsResolved(ctx, q, sMgr.components.Persistence().NOTX(), true)
+		pendingTx, nextSequence, err := sMgr.components.TxManager().QueryTransactionsResolved(ctx,
+			qb.Query(), sMgr.components.Persistence().NOTX(), true)
 		if err != nil {
 			log.L(ctx).Errorf("Error querying pending transactions to resume incomplete ones: %s", err)
 			break
@@ -194,7 +199,7 @@ func (sMgr *sequencerManager) resumeIncompleteTransactions(ctx context.Context) 
 			}
 		}
 		if len(pendingTx) > 0 {
-			lastCreatedTime = int64(pendingTx[len(pendingTx)-1].Transaction.Created)
+			lastSequence = nextSequence
 		}
 		if len(pendingTx) < pageSize {
 			break

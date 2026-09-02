@@ -657,3 +657,48 @@ func TestIsConstructorSignatureWithNonConstructorEntry(t *testing.T) {
 	}, "()")
 	assert.True(t, result)
 }
+
+func TestQueryTransactionsResolvedFailNoCursor(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectQuery("SELECT.*transactions").WillReturnError(fmt.Errorf("pop"))
+		})
+	defer done()
+
+	txns, lastSequence, err := txm.QueryTransactionsResolved(ctx,
+		query.NewQueryBuilder().Limit(10).Sort("sequence").Query(), txm.p.NOTX(), true)
+	assert.Regexp(t, "pop", err)
+	assert.Nil(t, txns)
+	// The cursor must not advance on a failed page, or the resume scan would skip the rows it
+	// never managed to read.
+	assert.Zero(t, lastSequence)
+}
+
+func TestQueryTransactionsResolvedABIFailNoCursor(t *testing.T) {
+	abiRef := pldtypes.RandBytes32()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			// The two dependency preloads run their own queries between the main select and the
+			// ABI lookup, and their relative order is gorm's business - match out of order rather
+			// than encoding an assumption about it.
+			mc.db.MatchExpectationsInOrder(false)
+			mc.db.ExpectQuery("SELECT.*transactions").WillReturnRows(sqlmock.NewRows(
+				[]string{"id", "abi_ref", "seq"},
+			).AddRow(uuid.New(), abiRef, 1))
+			mc.db.ExpectQuery(`SELECT.*"transaction_deps"`).WillReturnRows(sqlmock.NewRows(
+				[]string{"transaction", "depends_on"}))
+			mc.db.ExpectQuery(`SELECT.*"transaction_chained_deps"`).WillReturnRows(sqlmock.NewRows(
+				[]string{"transaction", "depends_on"}))
+			mc.db.ExpectQuery("SELECT.*abis").WillReturnError(fmt.Errorf("pop"))
+		})
+	defer done()
+
+	txns, lastSequence, err := txm.QueryTransactionsResolved(ctx,
+		query.NewQueryBuilder().Limit(10).Sort("sequence").Query(), txm.p.NOTX(), true)
+	assert.Regexp(t, "pop", err)
+	assert.Nil(t, txns)
+	// The cursor must not advance when the page could not be fully resolved.
+	assert.Zero(t, lastSequence)
+}

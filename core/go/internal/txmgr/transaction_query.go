@@ -40,6 +40,7 @@ var transactionFilters = filters.FieldMap{
 	"idempotencyKey": filters.StringField("idempotency_key"),
 	"submitMode":     filters.StringField("submit_mode"),
 	"created":        filters.TimestampField("created"),
+	"sequence":       filters.Int64Field("seq"),
 	"abiReference":   filters.TimestampField("abi_ref"),
 	"functionName":   filters.StringField("fn_name"),
 	"domain":         filters.StringField(`"transactions"."domain"`),
@@ -190,8 +191,11 @@ func (tm *txManager) QueryTransactionsFull(ctx context.Context, jq *query.QueryJ
 	return tm.QueryTransactionsFullTx(ctx, jq, dbTX, pending)
 }
 
-func (tm *txManager) QueryTransactionsResolved(ctx context.Context, jq *query.QueryJSON, dbTX persistence.DBTX, pending bool) ([]*components.ResolvedTransaction, error) {
+func (tm *txManager) QueryTransactionsResolved(ctx context.Context, jq *query.QueryJSON, dbTX persistence.DBTX, pending bool) ([]*components.ResolvedTransaction, int64, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
+	// Sequence of the final row in the returned order, for callers paginating with a cursor.
+	// MapResult runs once per row in result order, so the last assignment wins.
+	var lastSequence int64
 	qw := &filters.QueryWrapper[persistedTransaction, components.ResolvedTransaction]{
 		P:           tm.p,
 		Table:       "transactions",
@@ -210,14 +214,19 @@ func (tm *txManager) QueryTransactionsResolved(ctx context.Context, jq *query.Qu
 			return q
 		},
 		MapResult: func(pt *persistedTransaction) (*components.ResolvedTransaction, error) {
+			lastSequence = pt.Seq
 			return tm.mapPersistedTXResolved(pt), nil
 		},
 	}
 	ptxs, err := qw.Run(ctx, dbTX)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return tm.resolveABIReferencesAndCache(ctx, dbTX, ptxs)
+	ptxs, err = tm.resolveABIReferencesAndCache(ctx, dbTX, ptxs)
+	if err != nil {
+		return nil, 0, err
+	}
+	return ptxs, lastSequence, nil
 }
 
 func (tm *txManager) QueryTransactionsFullTx(ctx context.Context, jq *query.QueryJSON, dbTX persistence.DBTX, pending bool) ([]*pldapi.TransactionFull, error) {
@@ -394,7 +403,7 @@ func (tm *txManager) getResolvedTransactionByIDWithinTX(ctx context.Context, id 
 	}
 
 	// Do the query - this function also does the caching (so individual TXs get cached from paginated queries)
-	rtxs, err := tm.QueryTransactionsResolved(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), dbTX, false)
+	rtxs, _, err := tm.QueryTransactionsResolved(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), dbTX, false)
 	if len(rtxs) == 0 || err != nil {
 		return nil, err
 	}

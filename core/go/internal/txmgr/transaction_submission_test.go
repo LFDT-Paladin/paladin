@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -1205,7 +1206,7 @@ func TestChainedPrivateTXInsertWithIdempotencyKeys(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check we can get each back
-	idemQueryKeys := make([]any, len(fifteenTxns))
+	idemQueryKeys := make([]any, 0, len(fifteenTxns))
 	for _, expected := range fifteenTxns {
 		tx, err := txm.GetTransactionByID(ctx, *expected.NewTransaction.Transaction.ID)
 		require.NoError(t, err)
@@ -1220,7 +1221,7 @@ func TestChainedPrivateTXInsertWithIdempotencyKeys(t *testing.T) {
 	}
 
 	// Check we can query them in bulk (as we would to poll the DB to perform TX management)
-	rtxs, err := txm.QueryTransactionsResolved(ctx, query.NewQueryBuilder().Limit(15).In("idempotencyKey", idemQueryKeys).Sort("created").Query(), txm.p.NOTX(), true)
+	rtxs, _, err := txm.QueryTransactionsResolved(ctx, query.NewQueryBuilder().Limit(15).In("idempotencyKey", idemQueryKeys).Sort("sequence").Query(), txm.p.NOTX(), true)
 	require.NoError(t, err)
 	require.Len(t, rtxs, 15)
 	for i, rtx := range rtxs {
@@ -1695,3 +1696,150 @@ func TestResolveUpdatedTransactionSuccess(t *testing.T) {
 	assert.Equal(t, "60fe47b1000000000000000000000000000000000000000000000000000000000000002e", hex.EncodeToString(validatedTransaction.PublicTxData))
 }
 
+// TestKeysetPaginationOverTiedCreated proves a (created, id) keyset cursor visits every row
+// exactly once when created is not unique, and that a bare "created >" cursor does not.
+//
+// insertTransactions() stamps created from a tight loop, so a batch routinely contains rows
+// sharing a nanosecond. The sequencer's resume scan pages through pending transactions with this
+// cursor - if a page boundary falls inside a tied group, a bare "created >" skips the rest of that
+// group and those transactions are never resumed. This is only observable against a real DB, since
+// the ordering of tied rows is the database's choice.
+// TestResumePaginationBySequence exercises the query the sequencer's resume scan uses, proving the
+// write sequence gives pending transactions a total order that both preserves the order they were
+// written within a batch and lets the scan page through them without skipping any - neither of
+// which created can do.
+//
+// insertTransactions() stamps created for a whole batch from a tight loop, so rows routinely share
+// a nanosecond. This test sets those collisions explicitly rather than relying on the clock, since
+// whether a tight loop actually produces them depends on the machine's timer granularity.
+func TestResumePaginationBySequence(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, true,
+		mockDomainContractResolve(t, "domain1"),
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+		},
+	)
+	defer done()
+
+	exampleABI := abi.ABI{{Type: abi.Function, Name: "doIt"}}
+	callData, err := exampleABI[0].EncodeCallDataJSON([]byte(`[]`))
+	require.NoError(t, err)
+	contractAddr := pldtypes.MustEthAddress(pldtypes.RandHex(20))
+	parentTxnID, err := txm.sendTransactionNewDBTX(ctx, &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			Type:     pldapi.TransactionTypePrivate.Enum(),
+			Function: exampleABI[0].FunctionSelectorBytes().String(),
+			From:     "sender1",
+			To:       contractAddr,
+			Data:     pldtypes.JSONString(pldtypes.HexBytes(callData)),
+		},
+		ABI: exampleABI,
+	})
+	require.NoError(t, err)
+
+	const total = 15
+	txns := make([]*components.ChainedPrivateTransaction, total)
+	keys := make([]any, 0, total)
+	wantOrder := make([]string, 0, total)
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		for i := range txns {
+			tx := newTestInternalTransaction(fmt.Sprintf("tx_%.3d", i))
+			txns[i], err = txm.PrepareChainedPrivateTransaction(ctx, dbTX, "", *parentTxnID, "domain1", contractAddr, tx, pldapi.SubmitModeAuto)
+			require.NoError(t, err)
+			keys = append(keys, txns[i].NewTransaction.Transaction.IdempotencyKey)
+			wantOrder = append(wantOrder, txns[i].NewTransaction.Transaction.IdempotencyKey)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	// One batch, so the rows are written in wantOrder and get consecutive sequence values.
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.ChainPrivateTransactions(ctx, dbTX, txns)
+	})
+	require.NoError(t, err)
+
+	// Pair the rows up on identical created values so created carries no usable order, leaving the
+	// write sequence untouched.
+	const base int64 = 1700000000000000000
+	for i, chained := range txns {
+		err = txm.p.NOTX().DB(ctx).Exec(
+			`UPDATE transactions SET "created" = ? WHERE "id" = ?`,
+			base+int64(i/2), *chained.NewTransaction.Transaction.ID).Error
+		require.NoError(t, err)
+	}
+
+	// Walk the pages exactly as the resume scan does, through the production query. Page size 1
+	// puts a boundary between every row, so every tied-created pair is exercised.
+	seen := make(map[uuid.UUID]int)
+	gotOrder := make([]string, 0, total)
+	var lastSequence int64
+	for {
+		qb := query.NewQueryBuilder().Limit(1).Sort("sequence")
+		if lastSequence > 0 {
+			qb.GreaterThan("sequence", lastSequence)
+		}
+		page, next, err := txm.QueryTransactionsResolved(ctx, qb.Query(), txm.p.NOTX(), true)
+		require.NoError(t, err)
+		if len(page) == 0 {
+			break
+		}
+		require.Greater(t, next, lastSequence, "the cursor must advance")
+		for _, r := range page {
+			seen[*r.Transaction.ID]++
+			// The resume path rejects a transaction with no resolved function, so the paging query
+			// has to resolve the ABI reference like the non-paged one does.
+			require.NotNil(t, r.Function, "resumed transaction must have its function resolved")
+			require.NotNil(t, r.Function.Definition)
+			if strings.HasPrefix(r.Transaction.IdempotencyKey, "tx_") {
+				gotOrder = append(gotOrder, r.Transaction.IdempotencyKey)
+			}
+		}
+		lastSequence = next
+	}
+
+	// Every pending row visited exactly once. The parent transaction has no receipt either, so
+	// there is one more than the batch we built.
+	require.Len(t, seen, total+1, "the sequence cursor must visit every pending row")
+	for id, count := range seen {
+		require.Equal(t, 1, count, "row %s visited more than once", id)
+	}
+
+	// The batch came back in the order it was written - what created cannot give us because its
+	// values are tied, and what a random tiebreaker such as id could not give us either.
+	require.Equal(t, wantOrder, gotOrder, "sequence must preserve the order rows were written in the batch")
+
+	// Confirm created really is tied, so the comparison below means something.
+	byCreated, _, err := txm.QueryTransactionsResolved(ctx,
+		query.NewQueryBuilder().Limit(total).Sort("created", "idempotencyKey").In("idempotencyKey", keys).Query(),
+		txm.p.NOTX(), false)
+	require.NoError(t, err)
+	require.Len(t, byCreated, total)
+	ties := 0
+	for i := 1; i < len(byCreated); i++ {
+		if byCreated[i].Transaction.Created == byCreated[i-1].Transaction.Created {
+			ties++
+		}
+	}
+	require.Equal(t, 7, ties, "expected the created collisions this test sets up")
+
+	// The same walk on created loses a row per tied pair: one row of each pair is returned and the
+	// strict cursor then steps past its partner. This is what the resume scan used to do.
+	bareSeen := make(map[uuid.UUID]struct{})
+	var lastCreated int64
+	for {
+		qb := query.NewQueryBuilder().Limit(1).Sort("created").In("idempotencyKey", keys)
+		if lastCreated > 0 {
+			qb.GreaterThan("created", lastCreated)
+		}
+		page, _, err := txm.QueryTransactionsResolved(ctx, qb.Query(), txm.p.NOTX(), false)
+		require.NoError(t, err)
+		if len(page) == 0 {
+			break
+		}
+		for _, r := range page {
+			bareSeen[*r.Transaction.ID] = struct{}{}
+		}
+		lastCreated = int64(page[len(page)-1].Transaction.Created)
+	}
+	require.Len(t, bareSeen, total-ties, "a created-only cursor should skip one row per tied pair")
+}

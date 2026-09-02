@@ -43,6 +43,7 @@ import (
 // with this, so we have a separation of concerns on the GORM annotations and data serialization format
 type persistedTransaction struct {
 	ID                     uuid.UUID                             `gorm:"column:id;primaryKey"`
+	Seq                    int64                                 `gorm:"column:seq;<-:false"`
 	IdempotencyKey         *string                               `gorm:"column:idempotency_key"`
 	SubmitMode             pldtypes.Enum[pldapi.SubmitMode]      `gorm:"column:submit_mode"`
 	Type                   pldtypes.Enum[pldapi.TransactionType] `gorm:"column:type"`
