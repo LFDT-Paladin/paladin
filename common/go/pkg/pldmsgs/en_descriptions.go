@@ -672,7 +672,8 @@ var (
 	WSClientConfigWSRequestTimeout       = pdm("WSClientConfig.wsRequestTimeout", "WebSocket request timeout")
 
 	// StateStoreConfig field descriptions
-	StateStoreConfigSchemaCache = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")
+	StateStoreConfigSchemaCache         = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")
+	StateStoreConfigValidatedStateCache = pdm("StateStoreConfig.validatedStateCache", "Validated-state cache configuration")
 
 	// BlockIndexerConfig field descriptions
 	BlockIndexerConfigFromBlock               = pdm("BlockIndexerConfig.fromBlock", "Starting block number for indexing")
