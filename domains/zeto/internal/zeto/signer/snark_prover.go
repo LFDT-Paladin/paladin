@@ -231,27 +231,10 @@ func serializeProofResponse(circuit *zetosignerapi.Circuit, proof *types.ZKProof
 	snark.C = proof.Proof.C
 
 	publicInputs := make(map[string]string)
-	if circuit.Type == zetosignerapi.Transfer {
-		if circuit.UsesEncryption {
-			if !IsBatchCircuit(circuit.Name) {
-				publicInputs["ecdhPublicKey"] = strings.Join(proof.PubSignals[0:2], ",")
-				publicInputs["encryptedValues"] = strings.Join(proof.PubSignals[2:10], ",")
-				publicInputs["encryptionNonce"] = proof.PubSignals[14]
-			} else {
-				publicInputs["ecdhPublicKey"] = strings.Join(proof.PubSignals[0:2], ",")
-				publicInputs["encryptedValues"] = strings.Join(proof.PubSignals[2:42], ",")
-				publicInputs["encryptionNonce"] = proof.PubSignals[62]
-			}
-		} else if circuit.UsesNullifiers {
-			if !IsBatchCircuit(circuit.Name) {
-				publicInputs["nullifiers"] = strings.Join(proof.PubSignals[0:2], ",")
-				publicInputs["root"] = proof.PubSignals[2]
-			} else {
-				publicInputs["nullifiers"] = strings.Join(proof.PubSignals[0:10], ",")
-				publicInputs["root"] = proof.PubSignals[10]
-			}
-		}
-	} else if circuit.Type == zetosignerapi.Withdraw {
+	switch circuit.Type {
+	case zetosignerapi.Transfer, zetosignerapi.TransferLocked:
+		fillTransferPublicInputs(publicInputs, circuit, proof)
+	case zetosignerapi.Withdraw:
 		if circuit.UsesNullifiers {
 			if !IsBatchCircuit(circuit.Name) {
 				publicInputs["nullifiers"] = strings.Join(proof.PubSignals[1:3], ",")
@@ -269,6 +252,30 @@ func serializeProofResponse(circuit *zetosignerapi.Circuit, proof *types.ZKProof
 	}
 
 	return proto.Marshal(&res)
+}
+
+func fillTransferPublicInputs(publicInputs map[string]string, circuit *zetosignerapi.Circuit, proof *types.ZKProof) {
+	if circuit.UsesEncryption {
+		if !IsBatchCircuit(circuit.Name) {
+			publicInputs["ecdhPublicKey"] = strings.Join(proof.PubSignals[0:2], ",")
+			publicInputs["encryptedValues"] = strings.Join(proof.PubSignals[2:10], ",")
+			publicInputs["encryptionNonce"] = proof.PubSignals[14]
+		} else {
+			publicInputs["ecdhPublicKey"] = strings.Join(proof.PubSignals[0:2], ",")
+			publicInputs["encryptedValues"] = strings.Join(proof.PubSignals[2:42], ",")
+			publicInputs["encryptionNonce"] = proof.PubSignals[62]
+		}
+		return
+	}
+	if circuit.UsesNullifiers {
+		if !IsBatchCircuit(circuit.Name) {
+			publicInputs["nullifiers"] = strings.Join(proof.PubSignals[0:2], ",")
+			publicInputs["root"] = proof.PubSignals[2]
+		} else {
+			publicInputs["nullifiers"] = strings.Join(proof.PubSignals[0:10], ",")
+			publicInputs["root"] = proof.PubSignals[10]
+		}
+	}
 }
 
 func calculateWitness(ctx context.Context, circuit *zetosignerapi.Circuit, commonInputs *pb.ProvingRequestCommon, extras interface{}, keyEntry *core.KeyEntry, witnessCalculator witness.Calculator) ([]byte, error) {
@@ -351,7 +358,42 @@ func newWitnessInputs(tokenType pb.TokenType, circuit *zetosignerapi.Circuit, ex
 			return &wtns.NonFungibleWitnessInputs{}, nil
 		}
 	case zetosignerapi.TransferLocked:
-		return &wtns.FungibleWitnessInputs{}, nil
+		if tokenType == pb.TokenType_fungible {
+			if circuit.UsesEncryption {
+				encExtras, ok := extras.(*pb.ProvingRequestExtras_Encryption)
+				if !ok {
+					return nil, fmt.Errorf("unexpected extras type for encryption circuit")
+				}
+				return &wtns.FungibleEncWitnessInputs{Enc: encExtras}, nil
+			} else if circuit.UsesNullifiers {
+				if circuit.UsesKyc {
+					nullifierKycExtras, ok := extras.(*pb.ProvingRequestExtras_NullifiersKyc)
+					if !ok {
+						return nil, fmt.Errorf("unexpected extras type for anon nullifier kyc circuit")
+					}
+					return &wtns.FungibleNullifierKycWitnessInputs{
+						Extras: nullifierKycExtras,
+					}, nil
+				}
+				nullifierExtras, ok := extras.(*pb.ProvingRequestExtras_Nullifiers)
+				if !ok {
+					return nil, fmt.Errorf("unexpected extras type for anon nullifier circuit")
+				}
+				return &wtns.FungibleNullifierWitnessInputs{
+					Extras: nullifierExtras,
+				}, nil
+			} else if circuit.UsesKyc {
+				nullifierKycExtras, ok := extras.(*pb.ProvingRequestExtras_NullifiersKyc)
+				if !ok {
+					return nil, fmt.Errorf("unexpected extras type for anon nullifier kyc transferLocked circuit")
+				}
+				return &wtns.FungibleLockKycWitnessInputs{
+					Extras: nullifierKycExtras,
+				}, nil
+			}
+			return &wtns.FungibleWitnessInputs{}, nil
+		}
+		return &wtns.NonFungibleWitnessInputs{}, nil
 	}
 
 	return nil, fmt.Errorf("unsupported circuit type %s", circuit.Type)

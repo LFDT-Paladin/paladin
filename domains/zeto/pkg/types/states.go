@@ -220,6 +220,10 @@ func GetStateSchemas() ([]string, error) {
 	smtRootJSON, _ := json.Marshal(smt.MerkleTreeRootABI)
 	smtNodeJSON, _ := json.Marshal(smt.MerkleTreeNodeABI)
 	infoJSON, _ := json.Marshal(TransactionDataABI)
+	lockInfoJSON, err := json.Marshal(ZetoLockInfoStateABI)
+	if err != nil {
+		return nil, err
+	}
 
 	return []string{
 		string(coinJSON),
@@ -227,5 +231,6 @@ func GetStateSchemas() ([]string, error) {
 		string(smtRootJSON),
 		string(smtNodeJSON),
 		string(infoJSON),
+		string(lockInfoJSON),
 	}, nil
 }

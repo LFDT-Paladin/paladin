@@ -81,3 +81,12 @@ func TestPrepareInputs(t *testing.T) {
 	_, _, _, err = prepareInputsForTransfer(ctx, callbacks, coinSchema, false, stateQueryContext, "Alice", []*types.FungibleTransferParamEntry{{Amount: pldtypes.Uint64ToUint256(200)}})
 	assert.EqualError(t, err, "PD210035: Need more than maximum number (10) of coins to fulfill the transfer amount total")
 }
+
+func TestClearNullifierSpecs(t *testing.T) {
+	states := []*prototk.NewState{
+		{NullifierSpecs: []*prototk.NullifierSpec{{Party: "alice"}}},
+		nil,
+	}
+	clearNullifierSpecs(states)
+	assert.Nil(t, states[0].NullifierSpecs)
+}

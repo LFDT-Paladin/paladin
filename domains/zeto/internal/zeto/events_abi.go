@@ -17,7 +17,9 @@ package zeto
 
 import (
 	_ "embed"
+	"fmt"
 
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
@@ -25,38 +27,75 @@ import (
 //go:embed abis/IZeto.json
 var zetoABIBytes []byte
 
+//go:embed abis/IZeto_V1.json
+var zetoABIBytesV1 []byte
+
 //go:embed abis/IZetoLockable.json
 var zetoLockableABIBytes []byte
+
+// Zeto v0.5.x lockable events/calls come from ILockableCapability (Gradle copies it as IZetoLockableCapability_V1.json).
+//
+//go:embed abis/IZetoLockableCapability_V1.json
+var zetoLockableABIBytesV1 []byte
 
 //go:embed abis/IZetoKyc.json
 var zetoKycABIBytes []byte
 
-func getAllZetoEventAbis() abi.ABI {
+func mergeZetoCoreEvents(core *solutils.SolidityBuild, lockableJSON []byte) abi.ABI {
 	var events abi.ABI
-	contract := solutils.MustLoadBuild(zetoABIBytes)
-	events = buildEvents(events, contract)
-	contract = solutils.MustLoadBuild(zetoLockableABIBytes)
-	events = buildEvents(events, contract)
+	events = appendEventsFromBuild(events, core)
+	contract := solutils.MustLoadBuild(lockableJSON)
+	events = appendEventsFromBuild(events, contract)
 	contract = solutils.MustLoadBuild(zetoKycABIBytes)
-	events = buildEvents(events, contract)
-	return events
+	events = appendEventsFromBuild(events, contract)
+	return dedupEvents(events)
 }
 
-func buildEvents(events abi.ABI, contract *solutils.SolidityBuild) abi.ABI {
+func zetoCoreABIBytes(v types.ZetoTargetContractABIVersion) []byte {
+	switch v {
+	case types.ZetoTargetContractABI_V0:
+		return zetoABIBytes
+	case types.ZetoTargetContractABI_V1:
+		return zetoABIBytesV1
+	default:
+		panic(fmt.Sprintf("unsupported zeto core ABI version: %d", v))
+	}
+}
+
+// zetoEventABISet returns merged events for one ZetoTargetContractABIVersion (axis 2; IZeto*.json).
+func zetoEventABISet(v types.ZetoTargetContractABIVersion) abi.ABI {
+	core := zetoCoreABIBytes(v)
+	lockable := zetoLockableABIBytes
+	if v == types.ZetoTargetContractABI_V1 {
+		lockable = zetoLockableABIBytesV1
+	}
+	return mergeZetoCoreEvents(solutils.MustLoadBuild(core), lockable)
+}
+
+// getAllZetoEventAbis merges events from all supported generations for ConfigureDomain (Paladin ABI index).
+func getAllZetoEventAbis() abi.ABI {
+	var events abi.ABI
+	for _, v := range types.SupportedZetoTargetContractABIVersions {
+		events = append(events, zetoEventABISet(v)...)
+	}
+	return dedupEvents(events)
+}
+
+func appendEventsFromBuild(events abi.ABI, contract *solutils.SolidityBuild) abi.ABI {
 	for _, entry := range contract.ABI {
 		if entry.Type == abi.Event {
 			events = append(events, entry)
 		}
 	}
-	events = dedup(events)
 	return events
 }
 
-func dedup(events abi.ABI) abi.ABI {
+func dedupEvents(events abi.ABI) abi.ABI {
 	for i := 0; i < len(events); i++ {
 		for j := i + 1; j < len(events); j++ {
 			if events[i].Name == events[j].Name {
 				events = append(events[:j], events[j+1:]...)
+				j--
 			}
 		}
 	}

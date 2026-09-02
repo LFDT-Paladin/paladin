@@ -32,7 +32,7 @@ func TestHexUint256To32ByteHexString(t *testing.T) {
 	x := big.NewInt(7890)
 	hexUint := (*pldtypes.HexUint256)(x)
 	result := HexUint256To32ByteHexString(hexUint)
-	expected := hex.EncodeToString(x.FillBytes(make([]byte, 32)))
+	expected := "0x" + hex.EncodeToString(x.FillBytes(make([]byte, 32)))
 	assert.Equal(t, expected, result)
 }
 
@@ -45,11 +45,46 @@ func TestIntTo32ByteSlice(t *testing.T) {
 	assert.Equal(t, expected, bs)
 }
 
+func TestCoinStateIDFromPersistedString(t *testing.T) {
+	ctx := context.Background()
+	hexID := "0x0d7b11e7bb9f808761aba8e35b8c57839d8c17b2479f7a89b88f5dfa58d0df13"
+	gotHex, err := CoinStateIDFromPersistedString(ctx, hexID)
+	require.NoError(t, err)
+	assert.Equal(t, hexID, gotHex)
+
+	decimalID := "6097512797744793758821124728700260884882015502756931181589044059211954183955"
+	gotDec, err := CoinStateIDFromPersistedString(ctx, decimalID)
+	require.NoError(t, err)
+	assert.Equal(t, hexID, gotDec)
+
+	_, err = CoinStateIDFromPersistedString(ctx, decimalID+"ff")
+	require.Error(t, err)
+
+	upper := "0X0d7b11e7bb9f808761aba8e35b8c57839d8c17b2479f7a89b88f5dfa58d0df13"
+	gotUpper, err := CoinStateIDFromPersistedString(ctx, upper)
+	require.NoError(t, err)
+	assert.Equal(t, hexID, gotUpper)
+
+	_, err = CoinStateIDFromPersistedString(ctx, "")
+	require.Error(t, err)
+
+	_, err = CoinStateIDFromPersistedString(ctx, "0x1234")
+	require.Error(t, err)
+
+	neg := new(big.Int).SetInt64(-1)
+	_, err = CoinStateIDFromPersistedString(ctx, neg.String())
+	require.Error(t, err)
+
+	tooLarge := new(big.Int).Exp(big.NewInt(2), big.NewInt(257), nil)
+	_, err = CoinStateIDFromPersistedString(ctx, tooLarge.String())
+	require.Error(t, err)
+}
+
 // IntTo32ByteHexString
 func TestIntTo32ByteHexString(t *testing.T) {
 	x := big.NewInt(123456)
 	hexStr := IntTo32ByteHexString(x)
-	expected := hex.EncodeToString(x.FillBytes(make([]byte, 32)))
+	expected := "0x" + hex.EncodeToString(x.FillBytes(make([]byte, 32)))
 	assert.Equal(t, expected, hexStr)
 }
 

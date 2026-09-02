@@ -223,6 +223,9 @@ func TestLockPrepare(t *testing.T) {
 	h := lockHandler{
 		baseHandler: baseHandler{
 			name: "test1",
+			stateSchemas: &common.StateSchemas{
+				CoinSchema: &prototk.StateSchema{Id: "coin"},
+			},
 		},
 	}
 	ctx := context.Background()
