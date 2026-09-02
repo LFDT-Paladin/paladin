@@ -1051,6 +1051,23 @@ func TestFindAvailableStatesUnmarshalableQuery(t *testing.T) {
 	assert.Zero(t, view.calls)
 }
 
+// TestFindAvailableStatesDBError proves a failed local DB read fails FindAvailableStates even
+// though the remote view answered successfully, so a working view cannot mask a broken local read.
+func TestFindAvailableStatesDBError(t *testing.T) {
+	ctx, ss, db, _, done := newDBMockStateManager(t)
+	defer done()
+
+	view := &staticView{}
+	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, pldtypes.RandAddress(), view)
+
+	db.ExpectQuery("SELECT.*schemas").WillReturnError(fmt.Errorf("pop"))
+
+	_, _, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), pldtypes.RandBytes32(), query.NewQueryBuilder().Query())
+	assert.Regexp(t, "pop", err)
+	// The view was still queried - the fetch runs concurrently with the DB read, not after it.
+	assert.Equal(t, 1, view.calls)
+}
+
 // TestGetStatesByIDWithRemoteView proves GetStatesByID merges remote-view-served states with
 // DB states: one requested state lives only in the DB, the other only in the remote view, and
 // both come back.
@@ -1115,6 +1132,23 @@ func TestGetStatesByIDFail(t *testing.T) {
 
 	_, _, err := dqc.GetStatesByID(ctx, dqc.ss.p.NOTX(), pldtypes.Bytes32(pldtypes.RandBytes(32)), []string{pldtypes.RandHex(32)})
 	assert.Regexp(t, "pop", err)
+}
+
+// TestGetStatesByIDWithRemoteViewDBError proves a failed local DB read fails GetStatesByID even
+// though the remote view answered successfully.
+func TestGetStatesByIDWithRemoteViewDBError(t *testing.T) {
+	ctx, ss, db, _, done := newDBMockStateManager(t)
+	defer done()
+
+	view := &staticView{}
+	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, pldtypes.RandAddress(), view)
+
+	db.ExpectQuery("SELECT.*schemas").WillReturnError(fmt.Errorf("pop"))
+
+	_, _, err := dqc.GetStatesByID(ctx, ss.p.NOTX(), pldtypes.RandBytes32(), []string{pldtypes.RandHex(32)})
+	assert.Regexp(t, "pop", err)
+	// The view was still queried - the fetch runs concurrently with the DB read, not after it.
+	assert.Equal(t, 1, view.calls)
 }
 
 func TestNewDomainQueryContextWithRemoteView_DelegatesSpentIDsToView(t *testing.T) {
