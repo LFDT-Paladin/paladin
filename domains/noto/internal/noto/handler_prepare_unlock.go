@@ -102,6 +102,11 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		if err != nil {
 			return nil, err
 		}
+		// The cancel outputs are returned to the lock owner if the lock is cancelled, so like any
+		// other unlocked coin they need a nullifier to be spendable
+		if tx.DomainConfig.IsNullifierVariant() {
+			h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
+		}
 	}
 
 	unlockInfo, err := h.buildUnlockInfo(ctx, tx, req.ResolvedVerifiers, req.StateQueryContext, &unlockInfoInput{
@@ -272,7 +277,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 
 	if tx.DomainConfig.IsV0() {
 		var unlockHash ethtypes.HexBytes0xPrefix
-		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, endorsableStateIDs(ctx, lockedInputs, false), endorsableStateIDs(ctx, lockedOutputs, false), endorsableStateIDs(ctx, spendOutputs, false), inParams.Data)
+		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), spendOutputs, false), inParams.Data)
 		if err != nil {
 			return nil, err
 		}
@@ -283,7 +288,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		if err == nil {
 			functionName = "prepareUnlock"
 			paramsJSON, err = json.Marshal(&NotoPrepareUnlock_V0_Params{
-				LockedInputs: endorsableStateIDs(ctx, lockedInputs, false),
+				LockedInputs: h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false),
 				UnlockHash:   unlockHash.String(),
 				Signature:    sender.Payload,
 				Data:         txData,
@@ -291,7 +296,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		}
 	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		functionName = "updateLock"
-		paramsJSON, err = h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
+		paramsJSON, err = h.buildPrepareUnlockParams(ctx, tx, req.StateQueryContext, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
 	} else {
 		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, tx.DomainConfig.Variant)
 	}

@@ -87,16 +87,7 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 		}
 		if useNullifiers {
 			// add nullifier spec to each returned state (they are new states)
-			for _, newState := range outputs.states {
-				newState.NullifierSpecs = []*prototk.NullifierSpec{
-					{
-						Party:        from,
-						Algorithm:    types.AlgoDomainNullifier(h.noto.name),
-						VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
-						PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
-					},
-				}
-			}
+			h.noto.addNullifierSpecs(outputs.states, from, (*pldtypes.EthAddress)(tx.ContractAddress))
 		}
 	}
 
@@ -191,16 +182,16 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 	if tx.DomainConfig.IsV0() {
 		paramsJSON, err = json.Marshal(&NotoTransfer_V0_Params{
 			TxId:      req.Transaction.TransactionId,
-			Inputs:    endorsableStateIDs(ctx, req.InputStates, false),
-			Outputs:   endorsableStateIDs(ctx, req.OutputStates, false),
+			Inputs:    h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.InputStates, false),
+			Outputs:   h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.OutputStates, false),
 			Signature: sender.Payload,
 			Data:      data,
 		})
 	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		paramsJSON, err = json.Marshal(&NotoTransferParams{
 			TxId:    req.Transaction.TransactionId,
-			Inputs:  endorsableStateIDs(ctx, req.InputStates, useNullifier),
-			Outputs: endorsableStateIDs(ctx, req.OutputStates, false),
+			Inputs:  h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.InputStates, useNullifier),
+			Outputs: h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.OutputStates, false),
 			Proof:   proof,
 			Data:    data,
 		})

@@ -1030,17 +1030,62 @@ func TestSign(t *testing.T) {
 	coin := &types.NotoCoin{
 		Amount: pldtypes.MustParseHexUint256("100"),
 		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.RandAddress(),
 	}
 	coinJSON, err := json.Marshal(coin)
 	require.NoError(t, err)
 
 	resp, err := n.Sign(ctx, &prototk.SignRequest{
 		Algorithm:   algorithms.ECDSA_SECP256K1,
-		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
 		Payload:     coinJSON,
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, len(resp.Payload), 32)
+
+	// The same coin in a different contract must nullify differently, or the two records
+	// collide in the local state store, which is keyed per domain rather than per contract
+	otherContractResp, err := n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(pldtypes.MustEthAddress("0x1111111111111111111111111111111111111111")),
+		Payload:     coinJSON,
+	})
+	require.NoError(t, err)
+	assert.NotEqual(t, resp.Payload, otherContractResp.Payload)
+
+	// A nullifier that is not bound to a contract must be refused
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		Payload:     coinJSON,
+	})
+	assert.ErrorContains(t, err, "PD200043")
+
+	lockedCoin := &types.NotoLockedCoin{
+		Amount: coin.Amount,
+		Salt:   coin.Salt,
+		Owner:  coin.Owner,
+		LockID: pldtypes.RandBytes32(),
+	}
+	lockedCoinJSON, err := json.Marshal(lockedCoin)
+	require.NoError(t, err)
+
+	// Locked coins are spent by ID, so they are never nullified. A locked coin presented as
+	// an unlocked coin is rejected, rather than being nullified with its lockId dropped
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
+		Payload:     lockedCoinJSON,
+	})
+	assert.ErrorContains(t, err, "PD200043")
+
+	// A coin without an owner cannot be nullified
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
+		Payload:     []byte(`{"amount": "100", "salt": "0x1b0d6be69d1d5bd7ff9b1b8b7d3b1de4b23e6ba95d8b6c8e4f0eb9c0f6a9f36e"}`),
+	})
+	assert.ErrorContains(t, err, "PD200044")
 }
 
 func TestUnimplementedMethods(t *testing.T) {

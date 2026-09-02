@@ -127,6 +127,11 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	if err != nil {
 		return nil, err
 	}
+	// The cancel outputs are returned to the lock owner if the lock is cancelled, so like any
+	// other unlocked coin they need a nullifier to be spendable
+	if tx.DomainConfig.IsNullifierVariant() {
+		h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
+	}
 
 	// Build and encode the unlock data (separate to the data for this TX)
 	unlockInfo, err := h.buildUnlockInfo(ctx, tx, req.ResolvedVerifiers, req.StateQueryContext, &unlockInfoInput{
@@ -267,7 +272,7 @@ func (h *prepareBurnUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *typ
 	}
 
 	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
-	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
+	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, req.StateQueryContext, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}

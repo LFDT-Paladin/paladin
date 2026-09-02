@@ -142,7 +142,19 @@ contract NotoNullifiers is Noto {
     }
 
     /**
-     * @dev Check the inputs are nullifiers that have not been used, and mark them as used
+     * @dev Check the inputs are nullifiers that have not been used, and mark them as used.
+     *
+     *      Note this cannot verify that a nullifier corresponds to an unspent commitment -
+     *      that is the point of a nullifier, and proving it requires a zero knowledge proof
+     *      of membership, which this variant does not carry. The inputs are therefore only
+     *      as trustworthy as the notary that submitted them.
+     *
+     *      What can be checked cheaply is that an input is not itself a commitment: unlike
+     *      nullifiers, commitments are public in the append-only tree. A caller that spends
+     *      by commitment id instead of by nullifier would otherwise be accepted silently,
+     *      leaving the real nullifier unused and the coin spendable again. A legitimate
+     *      nullifier can never trip this check, as that would require a hash collision
+     *      between a nullifier and a commitment.
      */
     function _processNullifiers(
         bytes32[] memory inputNullifiers
@@ -150,6 +162,9 @@ contract NotoNullifiers is Noto {
         for (uint256 i = 0; i < inputNullifiers.length; ++i) {
             if (_nullifiers[inputNullifiers[i]]) {
                 revert NotoInvalidInput(inputNullifiers[i]);
+            }
+            if (_existsAsUnlocked(uint256(inputNullifiers[i]))) {
+                revert NotoNullifierIsCommitment(inputNullifiers[i]);
             }
             _nullifiers[inputNullifiers[i]] = true;
         }

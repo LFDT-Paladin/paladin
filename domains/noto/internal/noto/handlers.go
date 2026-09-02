@@ -144,6 +144,73 @@ func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransa
 	return nil
 }
 
+// Check that no two coins in the transaction derive the same nullifier.
+//
+// The nullifier derivation covers every field of a coin, so a collision means a duplicate
+// coin - which is already rejected by the base ledger and the state store. This check is
+// belt and braces: it catches any regression in the derivation, and turns what would be a
+// base ledger revert (or worse, an unspendable coin) into a clear endorsement failure.
+//
+// Both inputs and outputs are checked as one set, because an output that collides with an
+// input is nullified by the very transaction that creates it.
+func (n *Noto) validateDistinctNullifiers(ctx context.Context, contract *pldtypes.EthAddress, stateLists ...[]*prototk.EndorsableState) error {
+	nullifiers := make(map[string]string) // nullifier -> first state ID that derived it
+	seenStates := make(map[string]bool)
+	for _, states := range stateLists {
+		for _, state := range states {
+			if seenStates[state.Id] {
+				// The same state appearing twice is checked separately (see parseCoinList)
+				continue
+			}
+			seenStates[state.Id] = true
+
+			nullifier, isCoin, err := n.stateNullifier(ctx, contract, state)
+			if err != nil {
+				return err
+			}
+			if !isCoin {
+				// Identified on-chain by ID, so it has no nullifier
+				continue
+			}
+			if existing, found := nullifiers[nullifier]; found {
+				return i18n.NewError(ctx, msgs.MsgDuplicateNullifierInList, existing, state.Id, nullifier)
+			}
+			nullifiers[nullifier] = state.Id
+		}
+	}
+	return nil
+}
+
+// Check that every new unlocked coin carries the nullifier spec that makes it spendable.
+//
+// Only unlocked coins are nullified: locked coins and lock info states are spent by ID, so they
+// are skipped. Note the state data is deliberately not included in the error - it holds the
+// owner and amount.
+func (n *Noto) validateNullifierSpecs(ctx context.Context, contract *pldtypes.EthAddress, assembled *prototk.AssembledTransaction) error {
+	if assembled == nil || n.coinSchema == nil {
+		return nil
+	}
+	expectedPayloadType := types.NullifierPayloadType(contract)
+	for _, states := range [][]*prototk.NewState{assembled.OutputStates, assembled.InfoStates} {
+		for i, state := range states {
+			if state.SchemaId != n.coinSchema.Id {
+				continue
+			}
+			if len(state.NullifierSpecs) == 0 {
+				return i18n.NewError(ctx, msgs.MsgMissingNullifierSpec, i)
+			}
+			// The spec must name this contract, or the owner's node would derive a nullifier
+			// bound to a different one - which the base ledger here would never recognise
+			for _, spec := range state.NullifierSpecs {
+				if spec.PayloadType != expectedPayloadType {
+					return i18n.NewError(ctx, msgs.MsgNullifierWrongContract, i, expectedPayloadType, spec.PayloadType)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // Check that the sender of a transaction provided a signature on the input details
 func (n *Noto) validateSignature(ctx context.Context, name string, attestations []*prototk.AttestationResult, encodedMessage []byte) error {
 	signature := domain.FindAttestation(name, attestations)
