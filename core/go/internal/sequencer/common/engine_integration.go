@@ -114,9 +114,8 @@ func (e *engineIntegration) Assemble(ctx context.Context, transactionID uuid.UUI
 
 	log.L(ctx).Debugf("Assembling transaction %s. Creating domain context with coordinator view", transactionID)
 
-	// Create a domain context just for this call, wired to the coordinator's ahead-of-chain view.
+	// Create a domain context for this call, wired to the coordinator's ahead-of-chain view.
 	dqc := e.components.StateManager().NewDomainQueryContextWithRemoteView(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address(), view)
-	defer dqc.Close(ctx)
 
 	// Verifiers were resolved before delegation and passed in, so assembly reads them directly with zero
 	// resolution work. The state machine drops assemble requests until State_Delegated, which a transaction

@@ -259,7 +259,6 @@ func TestAssemble_UsesStoredVerifiers(t *testing.T) {
 	mockDqc := componentsmocks.NewDomainQueryContext(t)
 	m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, contractAddr, mock.Anything).
 		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	// No identity resolver expectation: the golden path must not resolve at assembly time.
 
@@ -316,7 +315,6 @@ func TestAssemble_UsesSuppliedLocalTx(t *testing.T) {
 	mockDqc := componentsmocks.NewDomainQueryContext(t)
 	m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, contractAddr, mock.Anything).
 		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -425,7 +423,6 @@ func TestEngineIntegration_Assemble_NilLocalTx(t *testing.T) {
 			mockDqc := componentsmocks.NewDomainQueryContext(t)
 			m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, mock.Anything, mock.Anything).
 				Return(mockDqc).Once()
-			mockDqc.On("Close", mock.Anything).Return().Once()
 
 			_, err := ei.Assemble(ctx, uuid.New(), &prototk.TransactionPreAssembly{}, nil, nil, 100, tc.localTx)
 			require.Regexp(t, "PD012601", err)
@@ -450,7 +447,6 @@ func TestEngineIntegration_Assemble_WrongDomain(t *testing.T) {
 	mockDqc := componentsmocks.NewDomainQueryContext(t)
 	m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, mock.Anything, mock.Anything).
 		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -484,7 +480,6 @@ func TestEngineIntegration_Assemble_AssembleTransactionError(t *testing.T) {
 	mockDqc := componentsmocks.NewDomainQueryContext(t)
 	m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, mock.Anything, mock.Anything).
 		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -521,7 +516,6 @@ func TestEngineIntegration_Assemble_NilPostAssembly(t *testing.T) {
 	mockDqc := componentsmocks.NewDomainQueryContext(t)
 	m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, mock.Anything, mock.Anything).
 		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -556,7 +550,6 @@ func TestEngineIntegration_Assemble_UnsupportedAttestationType(t *testing.T) {
 	mockDqc := componentsmocks.NewDomainQueryContext(t)
 	m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, mock.Anything, mock.Anything).
 		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -638,7 +631,6 @@ func TestEngineIntegration_Assemble_EndorseAttestationType(t *testing.T) {
 	mockDqc := componentsmocks.NewDomainQueryContext(t)
 	m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, mock.Anything, mock.Anything).
 		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -714,7 +706,6 @@ func TestEngineIntegration_Assemble_DebugLogging(t *testing.T) {
 	mockDqc := componentsmocks.NewDomainQueryContext(t)
 	m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, mock.Anything, mock.Anything).
 		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{
@@ -779,7 +770,6 @@ func TestEngineIntegration_Assemble_DoesNotSign(t *testing.T) {
 	mockDqc := componentsmocks.NewDomainQueryContext(t)
 	m.stateManager.On("NewDomainQueryContextWithRemoteView", mock.Anything, m.domain, mock.Anything, mock.Anything).
 		Return(mockDqc).Once()
-	mockDqc.On("Close", mock.Anything).Return().Once()
 
 	localTx := &components.ResolvedTransaction{
 		Transaction: &pldapi.Transaction{

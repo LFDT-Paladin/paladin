@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"maps"
 	"strings"
-	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -32,7 +31,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
-	"gorm.io/gorm"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -61,51 +59,40 @@ func createLogContext(ctx context.Context, domainName string, contractAddress pl
 	return ctx
 }
 
-// Short-lived, registered in the state manager. Always closed by the caller via defer dqc.Close(ctx).
-// May carry a remote view (spend exclusions + on-demand state queries) for FindAvailableStates queries.
+// Short-lived, and holds no resources of its own - it is collected once its consumer drops it.
+// May carry a remote view (spend exclusions + on-demand state queries), which both FindAvailableStates
+// and GetStatesByID merge with the local DB.
 type domainQueryContext struct {
 	ss                 *stateManager
 	domainName         string
 	customHashFunction bool
 	contractAddress    pldtypes.EthAddress
-	stateLock          sync.Mutex
-	id                 uuid.UUID
-	closed             bool
+	id                 uuid.UUID // correlates this context's log lines
 	remoteStateView    components.RemoteStateView
 }
 
-// Very important that callers Close domain query contexts they open.
 func (ss *stateManager) NewDomainQueryContext(ctx context.Context, domain components.Domain, contractAddress pldtypes.EthAddress) components.DomainQueryContext {
 	id := uuid.New()
 	log.L(ctx).Debugf("Domain context %s for domain %s contract %s created", id, domain.Name(), contractAddress)
 
-	ss.domainContextLock.Lock()
-	defer ss.domainContextLock.Unlock()
-
-	dqc := &domainQueryContext{
+	return &domainQueryContext{
 		ss:                 ss,
 		domainName:         domain.Name(),
 		customHashFunction: domain.CustomHashFunction(),
 		contractAddress:    contractAddress,
 		id:                 id,
 	}
-	ss.domainContexts[id] = dqc
-	return dqc
 }
 
-// NewDomainQueryContextWithRemoteView creates a domain query context whose FindAvailableStates
-// queries merge a remote view with the local DB. This view is fixed for the life of the
-// context.
+// NewDomainQueryContextWithRemoteView creates a domain query context whose queries merge a remote view
+// with the local DB. This view is fixed for the life of the context.
 func (ss *stateManager) NewDomainQueryContextWithRemoteView(ctx context.Context, domain components.Domain, contractAddress pldtypes.EthAddress, remoteStateView components.RemoteStateView) components.DomainQueryContext {
 	ctx = createLogContext(ctx, domain.Name(), contractAddress, nil)
 
 	id := uuid.New()
 	log.L(ctx).Debugf("Assembly domain context %s for domain %s contract %s created", id, domain.Name(), contractAddress)
 
-	ss.domainContextLock.Lock()
-	defer ss.domainContextLock.Unlock()
-
-	dqc := &domainQueryContext{
+	return &domainQueryContext{
 		ss:                 ss,
 		domainName:         domain.Name(),
 		customHashFunction: domain.CustomHashFunction(),
@@ -113,8 +100,6 @@ func (ss *stateManager) NewDomainQueryContextWithRemoteView(ctx context.Context,
 		id:                 id,
 		remoteStateView:    remoteStateView,
 	}
-	ss.domainContexts[id] = dqc
-	return dqc
 }
 
 // getSpentStateIDs returns the remote view's spend exclusion set. Returns nil for local-only contexts.
@@ -130,75 +115,9 @@ func (dqc *domainQueryContext) getSpentStateIDs(ctx context.Context) ([]pldtypes
 	return spendStateIDs, nil
 }
 
-// nil if not found
-func (ss *stateManager) GetDomainQueryContext(ctx context.Context, id uuid.UUID) components.DomainQueryContext {
-	ss.domainContextLock.Lock()
-	defer ss.domainContextLock.Unlock()
-
-	ret, found := ss.domainContexts[id]
-	if found {
-		return ret
-	}
-	return nil // means an actual nil value to the interface
-}
-
-// ensureOpen fails if the context has been closed.
-func (dqc *domainQueryContext) ensureOpen(ctx context.Context) error {
-	dqc.stateLock.Lock()
-	defer dqc.stateLock.Unlock()
-	if dqc.closed {
-		return i18n.NewError(ctx, msgs.MsgStateDomainContextClosed)
-	}
-	return nil
-}
-
-// ID returns the UUID that identifies this context in the state manager registry.
-func (dqc *domainQueryContext) ID() uuid.UUID {
-	return dqc.id
-}
-
 // ContractAddress returns the contract address this context was opened for.
 func (dqc *domainQueryContext) ContractAddress() pldtypes.EthAddress {
 	return dqc.contractAddress
-}
-
-// Close deregisters the context from the state manager.
-func (dqc *domainQueryContext) Close(ctx context.Context) {
-	dqc.stateLock.Lock()
-	dqc.closed = true
-	dqc.stateLock.Unlock()
-
-	log.L(ctx).Debugf("Domain query context %s for domain %s contract %s closed", dqc.id, dqc.domainName, dqc.contractAddress)
-
-	dqc.ss.domainContextLock.Lock()
-	defer dqc.ss.domainContextLock.Unlock()
-	delete(dqc.ss.domainContexts, dqc.id)
-}
-
-// labelPreloadModifier returns a query modifier that preloads the persisted label rows, but only
-// when this context has a remote view — the sole case where mergeSortLimit runs against DB
-// states and needs their label values to sort them alongside view-returned states. This is
-// an optimization: RecoverLabels falls back to re-parsing the state data when the rows are absent,
-// so returning nil on the common path (no extra DB round-trips) stays correct.
-//
-// TODO: Under sustained load this preload fires on essentially every query and its cost
-// (two extra SELECTs, on state_labels and state_int64labels) is paid per query. A further
-// optimization is possible: findStatesCommon already INNER-JOINs the label tables for the fields
-// referenced by the query's filter/sort, and the recovered values are consumed only by the
-// in-memory sort in mergeSortLimit (which needs only the sort-key labels). Selecting those
-// already-joined columns into the result would supply the sort values with zero extra round-trips
-// and no re-parse, superseding both this preload and the RecoverLabels fallback — at the cost of a
-// custom projection/scan, since GORM will not map arbitrary selected columns onto pldapi.State.
-func (dqc *domainQueryContext) labelPreloadModifier() func(persistence.DBTX, *gorm.DB) *gorm.DB {
-	// TODO: this isn't the same as the previous creating refs check- it means we're going to
-	// always do this on assembly because we can't see if we're going to need to merge or not.
-	// The optimisation which addresses the TODO is coming imminently
-	if dqc.remoteStateView == nil {
-		return nil
-	}
-	return func(_ persistence.DBTX, q *gorm.DB) *gorm.DB {
-		return q.Preload("Labels").Preload("Int64Labels")
-	}
 }
 
 // fetchRemoteViewStates sends the pre-marshaled query to the remote in-memory view and returns the
@@ -214,15 +133,11 @@ func (dqc *domainQueryContext) fetchRemoteViewStates(ctx context.Context, schema
 	return queried, nil
 }
 
-// startRemoteViewFetch launches the remote view query (when a remote view is attached) concurrently
-// with the caller's local DB read, and returns a wait function that blocks until the fetch completes
-// and returns its results. All failures — including a query that cannot be re-marshaled for the
-// round-trip — are reported through the wait function, so callers have a single error path. With no
-// remote view attached the wait function is an immediate no-op.
+// startRemoteViewFetch launches the remote view query concurrently with the caller's local DB read,
+// and returns a wait function that blocks until the fetch completes and returns its results. All
+// failures — including a query that cannot be re-marshaled for the round-trip — are reported through
+// the wait function, so callers have a single error path. Only called where a remote view is attached.
 func (dqc *domainQueryContext) startRemoteViewFetch(ctx context.Context, schemaID pldtypes.Bytes32, q *query.QueryJSON) func() ([]*prototk.QueriedState, error) {
-	if dqc.remoteStateView == nil {
-		return func() ([]*prototk.QueriedState, error) { return nil, nil }
-	}
 	queryJSON, err := json.Marshal(q)
 	if err != nil {
 		return func() ([]*prototk.QueriedState, error) { return nil, err }
@@ -255,6 +170,7 @@ func (dqc *domainQueryContext) mergeRemoteViewStates(ctx context.Context, dbTX p
 	if err != nil {
 		return nil, err
 	}
+
 	if len(validated) == 0 {
 		return dbStates, nil
 	}
@@ -393,15 +309,38 @@ func (dqc *domainQueryContext) mergeSortLimit(ctx context.Context, schema compon
 	return retList, nil
 }
 
-// FindAvailableStates queries available states, merging the remote view's matches.
+// FindAvailableStates queries available states. With no remote view attached this is a plain read of
+// the available states this node holds; with one, the view's spend exclusions narrow that read and its
+// own matches are merged into the result.
 func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, q *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
 	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, &schemaID)
 	log.L(ctx).Debugf("FindAvailableStates query=%s", q)
 
-	if err := dqc.ensureOpen(ctx); err != nil {
+	var schema components.Schema
+	var states []*pldapi.State
+	var err error
+	if dqc.remoteStateView == nil {
+		schema, states, err = dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
+			pldapi.StateStatusAvailable)
+	} else {
+		schema, states, err = dqc.availableStatesWithRemoteView(ctx, dbTX, schemaID, q)
+	}
+	if err != nil {
 		return nil, nil, err
 	}
 
+	if log.IsTraceEnabled() {
+		for _, s := range states {
+			log.L(ctx).Tracef("returning available state %s", s.ID)
+		}
+	}
+	log.L(ctx).Debugf("FindAvailableStates returning %d states: %s", len(states), logStateSummary(states))
+	return schema, states, nil
+}
+
+// availableStatesWithRemoteView reads available states alongside the attached remote view, running the
+// view query concurrently with the DB read and merging the two results.
+func (dqc *domainQueryContext) availableStatesWithRemoteView(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, q *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
 	spentStateIDs, err := dqc.getSpentStateIDs(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -414,11 +353,8 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 	}
 
 	waitRemote := dqc.startRemoteViewFetch(ctx, schemaID, q)
-	schema, dbStates, dbErr := dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q, &components.StateQueryOptions{
-		StatusQualifier: pldapi.StateStatusAvailable,
-		ExcludedIDs:     spentStateIDs,
-		QueryModifier:   dqc.labelPreloadModifier(),
-	})
+	schema, dbStates, dbErr := dqc.ss.findStatesForRemoteViewMerge(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
+		pldapi.StateStatusAvailable, spentStateIDs)
 	remoteStates, fetchErr := waitRemote()
 	if fetchErr != nil {
 		return nil, nil, fetchErr
@@ -428,36 +364,26 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 	}
 	log.L(ctx).Tracef("FindAvailableStates read %d states from DB", len(dbStates))
 
-	dbStates, err = dqc.mergeRemoteViewStates(ctx, dbTX, schema, dbStates, remoteStates, q)
-	if log.IsTraceEnabled() {
-		for _, s := range dbStates {
-			log.L(ctx).Tracef("returning available state %s", s.ID)
-		}
-	}
-	log.L(ctx).Debugf("FindAvailableStates read+merged %d states: %s", len(dbStates), logStateSummary(dbStates))
-
-	return schema, dbStates, err
-}
-
-// FindAvailableNullifiers queries available nullifier-based states. The remote in-memory view
-// carries no nullifiers, so nullifier queries answer from the DB only — the view's exclusion
-// set still applies.
-func (dqc *domainQueryContext) FindAvailableNullifiers(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, q *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
-	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, &schemaID)
-	log.L(ctx).Debugf("FindAvailableNullifiers query=%s", q)
-
-	if err := dqc.ensureOpen(ctx); err != nil {
+	merged, err := dqc.mergeRemoteViewStates(ctx, dbTX, schema, dbStates, remoteStates, q)
+	if err != nil {
 		return nil, nil, err
 	}
+	return schema, merged, nil
+}
+
+// FindAvailableNullifierBackedStates reads the states whose availability is decided by their nullifier's
+// spend record rather than their own. The remote in-memory view carries no nullifiers, so these queries
+// are answered from the DB alone — the view's spend exclusions still apply.
+func (dqc *domainQueryContext) FindAvailableNullifierBackedStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, q *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
+	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, &schemaID)
+	log.L(ctx).Debugf("FindAvailableNullifierBackedStates query=%s", q)
 
 	spentStateIDs, err := dqc.getSpentStateIDs(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	return dqc.ss.findNullifiers(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q, &components.StateQueryOptions{
-		StatusQualifier: pldapi.StateStatusAvailable,
-		ExcludedIDs:     spentStateIDs,
-	})
+	return dqc.ss.findNullifierBackedStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
+		pldapi.StateStatusAvailable, spentStateIDs)
 }
 
 // GetStatesByID retrieves states by ID regardless of confirmation/spend status,
@@ -470,15 +396,14 @@ func (dqc *domainQueryContext) GetStatesByID(ctx context.Context, dbTX persisten
 	}
 	q := query.NewQueryBuilder().In(".id", idsAny).Sort(".created").Query()
 
-	if err := dqc.ensureOpen(ctx); err != nil {
-		return nil, nil, err
+	if dqc.remoteStateView == nil {
+		return dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
+			pldapi.StateStatusAll)
 	}
 
 	waitRemote := dqc.startRemoteViewFetch(ctx, schemaID, q)
-	schema, dbStates, dbErr := dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q, &components.StateQueryOptions{
-		StatusQualifier: pldapi.StateStatusAll,
-		QueryModifier:   dqc.labelPreloadModifier(),
-	})
+	schema, dbStates, dbErr := dqc.ss.findStatesForRemoteViewMerge(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
+		pldapi.StateStatusAll, nil)
 	remoteStates, fetchErr := waitRemote()
 	if fetchErr != nil {
 		return nil, nil, fetchErr

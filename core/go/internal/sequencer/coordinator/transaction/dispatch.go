@@ -131,7 +131,6 @@ func (t *coordinatorTransaction) prepareAndBuildDispatch(ctx context.Context, pt
 	// states, as the prepare request contains all the states the transaction consumes/spends/creates, hence the decision
 	// to not import a snapshot at the time of writing this comment, but it is something to be aware of.
 	dqc := t.components.StateManager().NewDomainQueryContext(ctx, t.domainAPI.Domain(), t.domainAPI.Address())
-	defer dqc.Close(ctx)
 	prep, err := t.domainAPI.PrepareTransaction(ctx, dqc, t.components.Persistence().NOTX(), pt)
 	if err != nil {
 		log.L(ctx).Errorf("error preparing transaction %s: %s", pt.ID, err)

@@ -1004,7 +1004,6 @@ func TestSequencerManager_CallPrivateSmartContract_Success(t *testing.T) {
 
 	mockDqc := componentsmocks.NewDomainQueryContext(t)
 	mocks.stateManager.EXPECT().NewDomainQueryContext(ctx, mockDomain, *contractAddr).Return(mockDqc).Once()
-	mockDqc.EXPECT().Close(mock.Anything).Once()
 	mocks.domainAPI.EXPECT().ExecCall(mock.Anything, mockDqc, nil, call, mock.Anything).Return(&abi.ComponentValue{}, nil).Once()
 
 	result, err := sm.CallPrivateSmartContract(ctx, call)

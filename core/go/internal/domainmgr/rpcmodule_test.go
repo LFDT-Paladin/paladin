@@ -913,9 +913,6 @@ func TestRPCInvokeRPC_Success(t *testing.T) {
 	}
 
 	mdc := componentsmocks.NewDomainQueryContext(t)
-	mdc.On("Close", mock.Anything).Return()
-	
-	mdc.On("ID").Return(uuid.New()).Maybe()
 	mc.stateStore.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mdc)
 
 	contractAddr := pldtypes.RandAddress()
@@ -1016,9 +1013,6 @@ func TestRPCInvokeRPC_InvokeError(t *testing.T) {
 	}
 
 	mdc := componentsmocks.NewDomainQueryContext(t)
-	mdc.On("Close", mock.Anything).Return()
-	
-	mdc.On("ID").Return(uuid.New()).Maybe()
 	mc.stateStore.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mdc)
 
 	contractAddr := pldtypes.RandAddress()

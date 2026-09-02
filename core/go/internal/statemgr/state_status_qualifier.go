@@ -23,33 +23,20 @@ import (
 	"gorm.io/gorm"
 )
 
-// Only called for one of the static qualifiers - not for a domain context
-func whereClauseForQual(db *gorm.DB /* must be the DB not the query */, q pldapi.StateStatusQualifier, spentColumn string) (*gorm.DB, bool) {
+// whereClauseForQual scopes a query to the states matching a status qualifier, expressed through the
+// Confirmed join and the given spend join. Confirmed is a synonym of available - a state is
+// confirmed for use only while it is also unspent - so both select the same states.
+func whereClauseForQual(db *gorm.DB /* must be the DB not the query */, q pldapi.StateStatusQualifier, spentColumn string) *gorm.DB {
 	switch q {
-	case pldapi.StateStatusAvailable:
+	case pldapi.StateStatusAvailable, pldapi.StateStatusConfirmed:
 		return db.
-				Where(fmt.Sprintf(`"%s"."transaction" IS NULL`, spentColumn)).
-				Where(`"Confirmed"."transaction" IS NOT NULL`),
-			true
-	case pldapi.StateStatusConfirmed:
-		return db.
-				Where(`"Confirmed"."transaction" IS NOT NULL`).
-				Where(fmt.Sprintf(`"%s"."transaction" IS NULL`, spentColumn)),
-			true
+			Where(fmt.Sprintf(`"%s"."transaction" IS NULL`, spentColumn)).
+			Where(`"Confirmed"."transaction" IS NOT NULL`)
 	case pldapi.StateStatusUnconfirmed:
-		return db.
-				Where(`"Confirmed"."transaction" IS NULL`),
-			true
+		return db.Where(`"Confirmed"."transaction" IS NULL`)
 	case pldapi.StateStatusSpent:
-		return db.
-				Where(fmt.Sprintf(`"%s"."transaction" IS NOT NULL`, spentColumn)),
-			true
-	case pldapi.StateStatusAll:
-		return db.Where("TRUE"),
-			true
-	default:
-		// This is a domain context query - so the caller should pass it to the appropriate domain context
-		// rather than just executing the query directly against the DB
-		return nil, false
+		return db.Where(fmt.Sprintf(`"%s"."transaction" IS NOT NULL`, spentColumn))
+	default: // pldapi.StateStatusAll, and an unset qualifier, which also means all
+		return db.Where("TRUE")
 	}
 }
