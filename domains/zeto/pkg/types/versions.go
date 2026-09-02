@@ -20,7 +20,7 @@ import "github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 // Paladin Zeto uses three independent version axes. They can advance separately:
 //
 //  (1) ZetoFungibleABIVersion — Paladin private / JSON ABI used to validate fungible transaction signatures against
-//      what the domain plugin expects (domains/zeto/pkg/types/abis/IZetoFungible.json vs IZetoFungible_V1.json).
+//      what the domain plugin expects (domains/zeto/pkg/types/abis/IZetoFungible_V0.json vs IZetoFungible_V1.json).
 //      This is what DomainInstanceConfig.ZetoVariant stores on-chain for v1 configs (historical field name "zetoVariant").
 //
 //  (2) ZetoTargetContractABIVersion — Target Zeto token core interface generation from upstream zeto-contracts
@@ -32,11 +32,11 @@ import "github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 //      wrapper, both values share one ABI; the axis is retained because it is persisted on chain and because the two
 //      generations pair with different registered token implementations.
 
-// ZetoFungibleABIVersion selects pkg/types/abis/IZetoFungible*.json for fungible handler ABI validation.
+// ZetoFungibleABIVersion selects pkg/types/abis/IZetoFungible_V*.json for fungible handler ABI validation.
 type ZetoFungibleABIVersion = pldtypes.HexUint64
 
 const (
-	// ZetoFungibleV0ABI selects IZetoFungible.json.
+	// ZetoFungibleV0ABI selects IZetoFungible_V0.json.
 	ZetoFungibleV0ABI ZetoFungibleABIVersion = 0
 	// ZetoFungibleV1ABI selects IZetoFungible_V1.json.
 	ZetoFungibleV1ABI ZetoFungibleABIVersion = 1

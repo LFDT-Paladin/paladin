@@ -286,8 +286,8 @@ task copyPkgSolidity(type: Copy) {
 
     into 'pkg/types/abis'
     from fileTree(configurations.contractCompile.asPath) {
-        include 'contracts/domains/interfaces/IZetoFungible.sol/IZetoFungible.json'
-        include 'contracts/domains/interfaces/IZetoFungible_V1.sol/IZetoFungibleV1.json'
+        include 'contracts/domains/interfaces/IZetoFungible_V0.sol/IZetoFungible_V0.json'
+        include 'contracts/domains/interfaces/IZetoFungible_V1.sol/IZetoFungible_V1.json'
         include 'contracts/domains/interfaces/IZetoNonFungible.sol/IZetoNonFungible.json'
     }
 

@@ -23,10 +23,10 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
-//go:embed abis/IZetoFungible.json
+//go:embed abis/IZetoFungible_V0.json
 var zetoFungibleJSON []byte
 
-//go:embed abis/IZetoFungibleV1.json
+//go:embed abis/IZetoFungible_V1.json
 var zetoFungibleV1JSON []byte
 
 //go:embed abis/IZetoNonFungible.json
@@ -39,7 +39,7 @@ var ZetoFungibleABI_V1 = solutils.MustParseBuildABI(zetoFungibleV1JSON)
 
 var ZetoNonFungibleABI = solutils.MustParseBuildABI(zetoNonFungibleJSON)
 
-// ZetoFungibleFunctionForVariant resolves the function entry using ZetoFungibleABIVersion (axis 1; IZetoFungible*.json).
+// ZetoFungibleFunctionForVariant resolves the function entry using ZetoFungibleABIVersion (axis 1; IZetoFungible_V*.json).
 func ZetoFungibleFunctionForVariant(zetoVariant pldtypes.HexUint64, name string) *abi.Entry {
 	build := ZetoFungibleABI
 	if zetoVariant != ZetoFungibleV0ABI {
@@ -127,7 +127,7 @@ type LockParams struct {
 	Delegate *pldtypes.EthAddress `json:"delegate"`
 }
 
-// CreateLockParams is the Paladin domain JSON for IZetoFungibleV1.createLock (see ZetoFungibleABI_V1 / IZetoFungible_V1.sol).
+// CreateLockParams is the Paladin domain JSON for IZetoFungible_V1.createLock (see ZetoFungibleABI_V1 / IZetoFungible_V1.sol).
 //
 // Surface: from, recipients, unlockData, data — used for validation, proving, and off-chain lock info.
 // unlockData is application-specific opaque bytes copied into lock info and on-chain outer data; locked value is the sum of recipients' amounts.

@@ -138,7 +138,7 @@ type DomainInstanceConfig struct {
 	Circuits  *zetosignerapi.Circuits `json:"circuits"`
 	// ConfigSchema is "v0" (legacy ABI-only bytes) or "v1" (prefixed encoding); set when decoding on-chain config.
 	ConfigSchema string `json:"configSchema,omitempty"`
-	// ZetoVariant is ZetoFungibleABIVersion (Paladin IZetoFungible*.json axis); see versions.go.
+	// ZetoVariant is ZetoFungibleABIVersion (Paladin IZetoFungible_V*.json axis); see versions.go.
 	ZetoVariant pldtypes.HexUint64 `json:"zetoVariant,omitempty"`
 	// FactoryVersion is ZetoPaladinFactoryVersion at deploy; see versions.go.
 	FactoryVersion int64 `json:"factoryVersion,omitempty"`
