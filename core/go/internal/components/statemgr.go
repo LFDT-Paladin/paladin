@@ -35,6 +35,15 @@ type StateManager interface {
 	// Create a new domain query context - caller is responsible for closing it.
 	NewDomainQueryContext(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress) DomainQueryContext
 
+	// Create a domain query context that answers queries by merging the local DB view with a
+	// remote in-memory view: view serves its matching unconfirmed states and spent state IDs on demand.
+	// Caller is responsible for closing it.
+	NewDomainQueryContextWithRemoteView(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress, view RemoteStateView) DomainQueryContext
+
+	// FindMatchingInMemoryStates evaluates a domain state query against caller-supplied snapshot
+	// candidates.
+	FindMatchingInMemoryStates(ctx context.Context, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, candidates []*prototk.SnapshotState) ([]*prototk.QueriedState, error)
+
 	// Create a new domain state writer
 	NewDomainStateWriter(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress) DomainStateWriter
 
@@ -83,6 +92,14 @@ type StateManager interface {
 	CheckPendingPrivateStateDataForContract(ctx context.Context, dbTX persistence.DBTX, contract string, block int64) (complete bool, err error)
 }
 
+// RemoteStateView is on-demand read access to a remote view of available and spent states. Implementations
+// block until the response arrives (or ctx expires). Callers are responsible for validating data
+// returned by QueryAvailableStates against the claimed state IDs — the source is not trusted.
+type RemoteStateView interface {
+	QueryAvailableStates(ctx context.Context, schemaID string, queryJSON string) ([]*prototk.QueriedState, error)
+	GetSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, error)
+}
+
 type PendingPrivateStateDataEntry struct {
 	StateID     pldtypes.HexBytes
 	Contract    pldtypes.EthAddress
@@ -114,8 +131,8 @@ type DomainStateWriter interface {
 }
 
 // DomainQueryContext is the state query interface exposed outside of the statestore package. It may
-// optionally import a snapshot representing a domain instance's ahead of chain view, allowing queries
-// to be executed in context of this view.
+// be backed by a remote view, in which case queries are executed against both the remote view and
+// the local persisted state store, with the results merged together.
 //
 // A DomainQueryContext is typically short-lived and must be closed by its consumer when no longer needed
 // to avoid leaking resources.
@@ -123,12 +140,9 @@ type DomainQueryContext interface {
 	// ID returns the UUID that identifies this context in the state manager registry.
 	ID() uuid.UUID
 
-	// ImportSnapshot hydrates this context with a domain instance's ahead of chain view.
-	ImportSnapshot(ctx context.Context, snapshot *prototk.StateSnapshot) error
-
 	// FindAvailableStates is the primary query function, returning only available states.
-	// For snapshot-loaded contexts, results include in-memory creating states and respect locks.
-	// The dbTX is passed to allow connection re-use during read operations.
+	// For contexts created with a remote view, results merge the view's matches and respect
+	// its spend exclusions.
 	FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
 
 	// FindAvailableNullifiers is similar to FindAvailableStates for nullifier-based domains.
@@ -160,6 +174,21 @@ type StateWithLabels struct {
 
 func (s *StateWithLabels) ValueSet() filters.ValueSet {
 	return s.LabelValues
+}
+
+// ProtoLabels converts the resolved label values to their proto wire form.
+func (s *StateWithLabels) ProtoLabels() *prototk.StateLabels {
+	pl := &prototk.StateLabels{
+		Labels:      make([]*prototk.StateLabel, len(s.Labels)),
+		Int64Labels: make([]*prototk.StateInt64Label, len(s.Int64Labels)),
+	}
+	for i, l := range s.Labels {
+		pl.Labels[i] = &prototk.StateLabel{Label: l.Label, Value: l.Value}
+	}
+	for i, l := range s.Int64Labels {
+		pl.Int64Labels[i] = &prototk.StateInt64Label{Label: l.Label, Value: l.Value}
+	}
+	return pl
 }
 
 type NullifierUpsert struct {

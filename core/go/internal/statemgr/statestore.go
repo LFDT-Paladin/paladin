@@ -34,17 +34,18 @@ import (
 )
 
 type stateManager struct {
-	p                 persistence.Persistence
-	bgCtx             context.Context
-	cancelCtx         context.CancelFunc
-	conf              *pldconf.StateStoreConfig
-	domainManager     components.DomainManager
-	txManager         components.TXManager
-	transportManager  components.TransportManager
-	abiSchemaCache    cache.Cache[string, components.Schema]
-	rpcModule         *rpcserver.RPCModule
-	domainContextLock sync.Mutex
-	domainContexts    map[uuid.UUID]*domainQueryContext
+	p                   persistence.Persistence
+	bgCtx               context.Context
+	cancelCtx           context.CancelFunc
+	conf                *pldconf.StateStoreConfig
+	domainManager       components.DomainManager
+	txManager           components.TXManager
+	transportManager    components.TransportManager
+	abiSchemaCache      cache.Cache[string, components.Schema]
+	validatedStateCache cache.Cache[string, *components.StateWithLabels]
+	rpcModule           *rpcserver.RPCModule
+	domainContextLock   sync.Mutex
+	domainContexts      map[uuid.UUID]*domainQueryContext
 }
 
 type logStateSpendRecords []*pldapi.StateSpendRecord
@@ -92,6 +93,8 @@ func NewStateManager(ctx context.Context, conf *pldconf.StateStoreConfig, p pers
 		p:              p,
 		conf:           conf,
 		abiSchemaCache: cache.NewCache[string, components.Schema](&conf.SchemaCache, &pldconf.StateStoreConfigDefaults.SchemaCache),
+		validatedStateCache: cache.NewCache[string, *components.StateWithLabels](
+			&conf.ValidatedStateCache, &pldconf.StateStoreConfigDefaults.ValidatedStateCache),
 		domainContexts: make(map[uuid.UUID]*domainQueryContext),
 	}
 	ss.bgCtx, ss.cancelCtx = context.WithCancel(log.WithComponent(ctx, "statemanager"))
@@ -135,6 +138,17 @@ func (ss *stateManager) Stop() {
 // become fully unavailable.
 func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord, reads []*pldapi.StateReadRecord, confirms []*pldapi.StateConfirmRecord, infoRecords []*pldapi.StateInfoRecord) (err error) {
 	ctx = log.WithComponent(ctx, "statemanager")
+	// The spent/confirmed flags on states are denormalized from these records via setStatesSpent/
+	// setStatesConfirmed. A record can be written before its state row exists (private data not yet
+	// received), in which case the flag UPDATE matches nothing and setStateAvailableFromSpendConfirmRecords sets it
+	// on arrival. availabilityFlagLock serializes this flag maintenance against that arrival-path
+	// reconciliation, so whichever transaction commits second sees the other's rows/records and the
+	// flag ends up set exactly once.
+	if len(spends) > 0 || len(confirms) > 0 {
+		if err = ss.p.TakeNamedLock(ctx, dbTX, availabilityFlagLock); err != nil {
+			return err
+		}
+	}
 	if len(spends) > 0 {
 		log.L(ctx).Debugf("Finalizing spends: %s", logStateSpendRecords(spends))
 		err = dbTX.DB(ctx).
@@ -142,6 +156,9 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(spends).
 			Error
+		if err == nil {
+			err = setStatesSpent(ctx, dbTX, spends)
+		}
 	}
 	if err == nil && len(reads) > 0 {
 		log.L(ctx).Debugf("Finalizing reads: %s", logStateReadRecords(reads))
@@ -158,6 +175,9 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(confirms).
 			Error
+		if err == nil {
+			err = setStatesConfirmed(ctx, dbTX, confirms)
+		}
 	}
 	if err == nil && len(infoRecords) > 0 {
 		log.L(ctx).Debugf("Finalizing info: %s", logStateInfoRecords(infoRecords))
