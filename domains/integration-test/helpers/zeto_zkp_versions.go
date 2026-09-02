@@ -79,7 +79,7 @@ func validateZetoZKArtifactRoot(v string) error {
 // ResolveZetoImplementationAbiPath maps legacy flat helpers/abis/<name>.json paths from older deploy YAML
 // to helpers/abis/zkp/<zkpRoot>/<name>.json when that file exists (upstream artifacts reuse basenames across
 // zeto releases). Paths already under helpers/abis/zkp/<version>/ are returned unchanged. Paladin-compiled
-// factory JSON (e.g. ZetoFactory.json) stays under helpers/abis/ and keeps the original path when no zkp copy exists.
+// factory JSON (e.g. ZetoFactory_V0.json) stays under helpers/abis/ and keeps the original path when no zkp copy exists.
 func ResolveZetoImplementationAbiPath(configPath, zkpRoot string) string {
 	zkpRoot = strings.TrimSpace(zkpRoot)
 	if zkpRoot == "" {

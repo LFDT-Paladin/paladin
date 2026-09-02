@@ -37,7 +37,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// TestFungibleZetoV1Suite mirrors zeto_fungible_test.go for the fungible V1 axis (ZetoFactoryV1, IZetoFungible_V1,
+// TestFungibleZetoV1Suite mirrors zeto_fungible_test.go for the fungible V1 axis (factoryVersion 1, IZetoFungible_V1,
 // createLock instead of legacy lock). Locking runs for every fungible token implementation. The v0.2.2 suite keeps
 // transferLocked/delegateLock coverage on TOKEN_ANON only; V1 pools do not expose those legacy entrypoints on-chain.
 //

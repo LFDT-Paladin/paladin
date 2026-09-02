@@ -469,9 +469,11 @@ func TestParseStatesFromEvent(t *testing.T) {
 		*pldtypes.MustParseHexUint256("0x5678"),
 	})
 	require.Len(t, states, 2)
-	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000001234", states[0].Id)
+	// state IDs are the canonical Paladin hex form: 0x-prefixed and left-padded to 32 bytes, matching what
+	// parseStateUpdatesFromBytes32 produces from pldtypes.Bytes32.String()
+	assert.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000001234", states[0].Id)
 	assert.Equal(t, txID.String(), states[0].TransactionId)
-	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000005678", states[1].Id)
+	assert.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000005678", states[1].Id)
 
 	assert.Empty(t, parseStatesFromEvent(txID, []pldtypes.HexUint256{*pldtypes.MustParseHexUint256("0x0")}))
 	assert.Empty(t, parseStatesFromEvent(txID, nil))

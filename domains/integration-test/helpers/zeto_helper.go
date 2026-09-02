@@ -114,7 +114,7 @@ func DeployZetoFungible(ctx context.Context, t *testing.T, rpc rpcclient.Client,
 	}
 }
 
-// DeployZetoFungibleV1 deploys a fungible V1 pool (ZetoFactoryV1 + on-chain domain config schema v1 + IZetoFungible_V1 handler axis).
+// DeployZetoFungibleV1 deploys a fungible V1 pool (factoryVersion 1 + on-chain domain config schema v1 + IZetoFungible_V1 handler axis).
 // zkpArtifactRoot should be helpers.ZetoZKArtifactRootV051 (e.g. "v0.5.1") so implementation ABIs resolve under helpers/abis/zkp/<root>/.
 func DeployZetoFungibleV1(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, controllerName, tokenName, zkpArtifactRoot string) *ZetoHelperFungible {
 	zkpRoot := strings.TrimSpace(zkpArtifactRoot)

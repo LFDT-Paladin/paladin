@@ -210,8 +210,7 @@ task extractZetoPrimaryZkp {
 task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", extractZetoPrimaryZkp]) {
     inputs.files(configurations.contractCompile)
     from fileTree(configurations.contractCompile.asPath) {
-        include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
-        include 'contracts/domains/zeto/ZetoFactoryV1.sol/ZetoFactoryV1.json'
+        include 'contracts/domains/zeto/ZetoFactory_V0.sol/ZetoFactory_V0.json'
     }
     from fileTree("${zkpVersionRoot}/artifacts/contracts") {
         include 'lib/interfaces/izeto.sol/IZeto.json'
@@ -227,12 +226,11 @@ task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", extractZe
     includeEmptyDirs = false
 }
 
-// Paladin ZetoFactory / ZetoFactoryV1 wrappers (go:embed factoryabis/*); not checked into git.
+// Paladin ZetoFactory_V0 wrapper (go:embed factoryabis/ZetoFactory_V0.json); not checked into git.
 task copyFactoryAbis(type: Copy, dependsOn: [":solidity:compile"]) {
     inputs.files(configurations.contractCompile)
     from fileTree(configurations.contractCompile.asPath) {
-        include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
-        include 'contracts/domains/zeto/ZetoFactoryV1.sol/ZetoFactoryV1.json'
+        include 'contracts/domains/zeto/ZetoFactory_V0.sol/ZetoFactory_V0.json'
     }
     into 'internal/zeto/factoryabis'
     eachFile { path = name }

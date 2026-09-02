@@ -46,7 +46,7 @@ var (
 type DomainFactoryConfig struct {
 	DomainContracts DomainConfigContracts           `json:"domainContracts"`
 	SnarkProver     zetosignerapi.SnarkProverConfig `json:"snarkProver"`
-	// FactoryVersion selects ZetoPaladinFactoryVersion (ZetoFactory.sol vs ZetoFactoryV1.sol); see versions.go.
+	// FactoryVersion selects ZetoPaladinFactoryVersion (zeto-contracts ~v0.2.x vs ~v0.5.x factory generation); see versions.go.
 	FactoryVersion int64 `json:"factoryVersion,omitempty"`
 }
 

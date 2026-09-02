@@ -52,14 +52,16 @@ import (
 
 var _ plugintk.DomainAPI = &Zeto{}
 
-//go:embed factoryabis/ZetoFactory.json
-var zetoFactoryArtifactV0 []byte
+// A single Paladin factory wrapper serves every supported factoryVersion. solidity/contracts/domains/zeto/ZetoFactory_V0.sol
+// is built against zeto-contracts 0.5.1, whose factory is selector- and behaviour-identical to 0.2.2's, so the same ABI
+// encodes valid calls against factories deployed from either generation — including legacy non-upgradeable deployments.
+// factoryVersion itself is still validated and recorded (see types.ZetoPaladinFactoryVersion): it is persisted on chain
+// in DomainInstanceConfig and selects the target token generation, not the wrapper ABI.
+//
+//go:embed factoryabis/ZetoFactory_V0.json
+var zetoFactoryArtifact []byte
 
-//go:embed factoryabis/ZetoFactoryV1.json
-var zetoFactoryArtifactV1 []byte
-
-var zetoFactoryBuildV0 = solutils.MustLoadBuild(zetoFactoryArtifactV0)
-var zetoFactoryBuildV1 = solutils.MustLoadBuild(zetoFactoryArtifactV1)
+var zetoFactoryBuild = solutils.MustLoadBuild(zetoFactoryArtifact)
 
 type zetoEventSigs struct {
 	mint               string
@@ -281,15 +283,13 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 		}
 		effectiveFV = initParams.FactoryVersion
 	}
-	var factoryABI abi.ABI
 	switch effectiveFV {
-	case int64(types.ZetoPaladinFactoryV0):
-		factoryABI = zetoFactoryBuildV0.ABI
-	case int64(types.ZetoPaladinFactoryV1):
-		factoryABI = zetoFactoryBuildV1.ABI
+	case int64(types.ZetoPaladinFactoryV0), int64(types.ZetoPaladinFactoryV1):
+		// both versions are served by the one consolidated ZetoFactory_V0 ABI
 	default:
 		return nil, i18n.NewError(ctx, msgs.MsgUnsupportedZetoFactoryVersion, effectiveFV)
 	}
+	factoryABI := zetoFactoryBuild.ABI
 	deployFn, err := pickZetoFactoryDeploy7Arg(factoryABI)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidatePrepDeployParams, err.Error())

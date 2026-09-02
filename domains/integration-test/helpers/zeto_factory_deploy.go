@@ -25,19 +25,21 @@ import (
 )
 
 const (
-	zetoFactoryV1ABIFile = "ZetoFactoryV1.json"
-	erc1967ProxyABIFile   = "ERC1967Proxy.json"
+	zetoFactoryABIFile  = "ZetoFactory_V0.json"
+	erc1967ProxyABIFile = "ERC1967Proxy.json"
 )
 
-func isZetoFactoryV1Deploy(factory *zetoDomainContract) bool {
-	return strings.EqualFold(filepath.Base(factory.AbiAndBytecode.Path), zetoFactoryV1ABIFile)
+// isZetoFactoryDeploy reports whether this contract is the Paladin ZetoFactory_V0 wrapper, which is UUPS-upgradeable and
+// therefore needs the implementation + ERC1967Proxy pair rather than a bare bytecode deploy.
+func isZetoFactoryDeploy(factory *zetoDomainContract) bool {
+	return strings.EqualFold(filepath.Base(factory.AbiAndBytecode.Path), zetoFactoryABIFile)
 }
 
-// deployZetoFactoryV1WithProxy mirrors upgrades.deployProxy(ZetoFactoryV1, [], { initializer: "initialize" }):
-//  1. deploy ZetoFactoryV1 implementation (inherits ZetoTokenFactoryUpgradeable; constructor disables initializers)
+// deployZetoFactoryWithProxy mirrors upgrades.deployProxy(ZetoFactory_V0, [], { initializer: "initialize" }):
+//  1. deploy ZetoFactory_V0 implementation (inherits ZetoTokenFactoryUpgradeable; constructor disables initializers)
 //  2. deploy ERC1967Proxy(implementation, initialize calldata)
 //  3. return proxy address — the address used for registerImplementation / domain registration
-func deployZetoFactoryV1WithProxy(
+func deployZetoFactoryWithProxy(
 	ctx context.Context,
 	rpc rpcclient.Client,
 	deployer string,
@@ -45,9 +47,9 @@ func deployZetoFactoryV1WithProxy(
 ) (*pldtypes.EthAddress, abi.ABI, error) {
 	implAddr, err := deployBytecode(ctx, rpc, deployer, factoryBuild)
 	if err != nil {
-		return nil, nil, fmt.Errorf("deploy ZetoFactoryV1 implementation: %w", err)
+		return nil, nil, fmt.Errorf("deploy ZetoFactory_V0 implementation: %w", err)
 	}
-	log.L(ctx).Infof("Deployed ZetoFactoryV1 implementation at %s", implAddr)
+	log.L(ctx).Infof("Deployed ZetoFactory_V0 implementation at %s", implAddr)
 
 	initCalldata, err := encodeUpgradeableFactoryInitializeCalldata(factoryBuild.ABI)
 	if err != nil {
@@ -67,9 +69,9 @@ func deployZetoFactoryV1WithProxy(
 	}
 	proxyAddr, err := deployBytecodeWithParams(ctx, rpc, deployer, proxyBuild, pldtypes.RawJSON(proxyParams))
 	if err != nil {
-		return nil, nil, fmt.Errorf("deploy ERC1967Proxy for ZetoFactoryV1: %w", err)
+		return nil, nil, fmt.Errorf("deploy ERC1967Proxy for ZetoFactory_V0: %w", err)
 	}
-	log.L(ctx).Infof("Deployed ZetoFactoryV1 proxy at %s (initialize in proxy constructor)", proxyAddr)
+	log.L(ctx).Infof("Deployed ZetoFactory_V0 proxy at %s (initialize in proxy constructor)", proxyAddr)
 
 	if err := verifyUpgradeableFactoryOwner(ctx, rpc, deployer, proxyAddr, factoryBuild.ABI); err != nil {
 		return nil, nil, err
@@ -117,7 +119,7 @@ func verifyUpgradeableFactoryOwner(ctx context.Context, rpc rpcclient.Client, de
 	if ownerAddr == nil || ownerAddr.String() != deployerEth.String() {
 		return fmt.Errorf("factory proxy owner %s does not match deployer %s (expected upgrades.deployProxy initializer owner)", ownerAddr, deployerEth)
 	}
-	log.L(ctx).Infof("Verified ZetoFactoryV1 proxy owner is deployer %s", deployerEth)
+	log.L(ctx).Infof("Verified ZetoFactory_V0 proxy owner is deployer %s", deployerEth)
 	return nil
 }
 

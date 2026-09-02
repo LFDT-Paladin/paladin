@@ -27,8 +27,10 @@ import "github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 //      (domains/zeto/internal/zeto/abis/IZeto.json vs IZeto_V1.json). Example mapping today: v0 → zeto-contracts ~v0.2.x,
 //      v1 → ~v0.5.x. Used for event ABI merging and other core-token-shaped logic; not necessarily in lockstep with (1).
 //
-//  (3) ZetoPaladinFactoryVersion — Paladin Solidity domain factory wrapper (solidity/contracts/domains/zeto/ZetoFactory.sol
-//      vs ZetoFactoryV1.sol) and thus which underlying ZetoTokenFactory* is invoked. Recorded as DomainInstanceConfig.FactoryVersion.
+//  (3) ZetoPaladinFactoryVersion — the generation of on-chain Zeto factory a pool was deployed against. Recorded as
+//      DomainInstanceConfig.FactoryVersion. Since the consolidation onto a single solidity/contracts/domains/zeto/ZetoFactory_V0.sol
+//      wrapper, both values share one ABI; the axis is retained because it is persisted on chain and because the two
+//      generations pair with different registered token implementations.
 
 // ZetoFungibleABIVersion selects pkg/types/abis/IZetoFungible*.json for fungible handler ABI validation.
 type ZetoFungibleABIVersion = pldtypes.HexUint64
@@ -70,12 +72,14 @@ var SupportedZetoTargetContractABIVersions = []ZetoTargetContractABIVersion{
 	ZetoTargetContractABI_V1,
 }
 
-// ZetoPaladinFactoryVersion selects PrepareDeploy factory ABI / Solidity wrapper (ZetoFactory vs ZetoFactoryV1).
+// ZetoPaladinFactoryVersion records the on-chain Zeto factory generation at PrepareDeploy. Both values are served by the
+// single ZetoFactory_V0.sol wrapper (identical deploy selectors), and both must stay accepted: the value is persisted on chain.
 type ZetoPaladinFactoryVersion int64
 
 const (
-	// ZetoPaladinFactoryV0 is ZetoFactory.sol (factoryVersion 0 on DomainFactoryConfig / DomainInstanceConfig).
+	// ZetoPaladinFactoryV0 is the zeto-contracts ~v0.2.x factory generation (factoryVersion 0 on DomainFactoryConfig /
+	// DomainInstanceConfig), including legacy non-upgradeable factories deployed before the UUPS wrapper existed.
 	ZetoPaladinFactoryV0 ZetoPaladinFactoryVersion = 0
-	// ZetoPaladinFactoryV1 is ZetoFactoryV1.sol (factoryVersion 1).
+	// ZetoPaladinFactoryV1 is the zeto-contracts ~v0.5.x factory generation (factoryVersion 1).
 	ZetoPaladinFactoryV1 ZetoPaladinFactoryVersion = 1
 )

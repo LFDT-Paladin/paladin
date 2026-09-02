@@ -5,6 +5,8 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
+// The reentrancy guard capabilities has been moved from the ReentrancyGuardUpgradeable
+// to the ReentrancyGuard contract in the latest OpenZeppelin Contracts library.
 contract Atom is Initializable, ReentrancyGuard {
     using Address for address;
 

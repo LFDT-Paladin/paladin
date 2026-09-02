@@ -5,7 +5,7 @@ variants:
     contracts:
       factory:
         abiAndBytecode:
-          path: ./helpers/abis/ZetoFactory.json
+          path: ./helpers/abis/ZetoFactory_V0.json
       implementations:
         - name: Groth16Verifier_Deposit
           abiAndBytecode:
@@ -73,7 +73,7 @@ variants:
     contracts:
       factory:
         abiAndBytecode:
-          path: ./helpers/abis/ZetoFactoryV1.json
+          path: ./helpers/abis/ZetoFactory_V0.json
       implementations:
         - name: Groth16Verifier_Deposit
           abiAndBytecode:

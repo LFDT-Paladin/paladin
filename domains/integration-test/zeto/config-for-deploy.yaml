@@ -2,7 +2,7 @@
 contracts:
   factory:
     abiAndBytecode:
-      path: ./helpers/abis/ZetoFactory.json
+      path: ./helpers/abis/ZetoFactory_V0.json
   # the Zeto factory is a CloneFactory, which needs implementation
   # contracts to be set
   implementations:

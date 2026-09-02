@@ -305,7 +305,7 @@ task copyZetoSolidity(type: Copy) {
     }
     from fileTree(configurations.contractCompile.asPath) {
         include 'contracts/registry/IdentityRegistry.sol/IdentityRegistry.json'
-        include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
+        include 'contracts/domains/zeto/ZetoFactory_V0.sol/ZetoFactory_V0.json'
     }
     into 'test/e2e/abis/zeto'
 
