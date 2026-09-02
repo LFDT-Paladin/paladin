@@ -109,7 +109,6 @@ func Test_guard_InactiveGracePeriodExceeded_Exceeded(t *testing.T) {
 	assert.True(t, guard_InactiveGracePeriodExceeded(ctx, c))
 }
 
-
 func Test_action_RejectDelegationRequestBlockHeight_Success(t *testing.T) {
 	ctx := context.Background()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
@@ -137,7 +136,6 @@ func Test_action_RejectDelegationRequestBlockHeight_Success(t *testing.T) {
 	err := action_RejectDelegationRequestBlockHeight(ctx, c, event)
 	require.NoError(t, err)
 }
-
 
 func Test_action_RejectDelegationRequest_Success(t *testing.T) {
 	ctx := context.Background()

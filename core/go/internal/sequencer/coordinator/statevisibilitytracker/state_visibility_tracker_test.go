@@ -16,9 +16,12 @@
 package statevisibilitytracker
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
@@ -36,6 +39,56 @@ func testStateID(hex2 string) pldtypes.HexBytes {
 	return pldtypes.MustParseHexBytes("0x" + strings.Repeat(hex2, 32))
 }
 
+var testSchemaID = pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32))
+
+// endorsableState builds a wire state carrying the shared test schema, as every state produced by
+// the resolve path does.
+func endorsableState(id pldtypes.HexBytes) *prototk.EndorsableState {
+	return &prototk.EndorsableState{Id: id.String(), SchemaId: testSchemaID.String()}
+}
+
+// resolvedState builds the StateWithLabels a DomainStateWriter would produce for a state,
+// carrying the given string and int64 labels.
+func resolvedState(id pldtypes.HexBytes, labels map[string]string, int64Labels map[string]int64) *components.StateWithLabels {
+	state := &pldapi.State{StateBase: pldapi.StateBase{ID: id}}
+	for l, v := range labels {
+		state.Labels = append(state.Labels, &pldapi.StateLabel{State: id, Label: l, Value: v})
+	}
+	for l, v := range int64Labels {
+		state.Int64Labels = append(state.Int64Labels, &pldapi.StateInt64Label{State: id, Label: l, Value: v})
+	}
+	return &components.StateWithLabels{State: state}
+}
+
+// outputSpec is a test-only bundle of the three per-state inputs to RecordAssemblyOutput: the wire
+// state, its distribution list, and its resolved labels. record splits these into the three slices
+// the real call takes.
+type outputSpec struct {
+	state            *prototk.EndorsableState
+	distributionList []string
+	resolved         *components.StateWithLabels
+}
+
+func output(state *prototk.EndorsableState, distributionList []string, resolved *components.StateWithLabels) outputSpec {
+	return outputSpec{state: state, distributionList: distributionList, resolved: resolved}
+}
+
+// record calls RecordAssemblyOutput, building the three index-aligned slices from the specs.
+// A nil resolved state leaves Labels nil (an unlabelled state, no ref).
+func record(ctx context.Context, s *store, specs ...outputSpec) {
+	states := make([]*prototk.EndorsableState, len(specs))
+	labels := make([]*prototk.StateLabels, len(specs))
+	distributionLists := make([][]string, len(specs))
+	for i, sp := range specs {
+		states[i] = sp.state
+		if sp.resolved != nil {
+			labels[i] = sp.resolved.ProtoLabels()
+		}
+		distributionLists[i] = sp.distributionList
+	}
+	s.RecordAssemblyOutput(ctx, states, labels, distributionLists)
+}
+
 // --- RecordAssemblyOutput ---
 
 func TestRecordAssemblyOutput_DerivesNodesFromDistributionList(t *testing.T) {
@@ -44,10 +97,10 @@ func TestRecordAssemblyOutput_DerivesNodesFromDistributionList(t *testing.T) {
 	stateID := testStateID("aa")
 	schema := pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32))
 
-	states := []*prototk.EndorsableState{{Id: stateID.String(), SchemaId: schema.String(), StateDataJson: `{}`}}
-	potentials := []*prototk.NewState{{DistributionList: []string{"alice@node1", "bob@node2"}}}
-
-	s.RecordAssemblyOutput(ctx, states, potentials)
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: schema.String(), StateDataJson: `{}`}
+	record(ctx, s,
+		output(state, []string{"alice@node1", "bob@node2"}, nil),
+	)
 
 	out, ok := s.statesByID[stateID.String()]
 	require.True(t, ok)
@@ -59,10 +112,9 @@ func TestRecordAssemblyOutput_BadLocator_StateStoredButInvisible(t *testing.T) {
 	s := newTestStore()
 	stateID := testStateID("ab")
 
-	states := []*prototk.EndorsableState{{Id: stateID.String()}}
-	potentials := []*prototk.NewState{{DistributionList: []string{"not-a-valid-locator"}}}
-
-	s.RecordAssemblyOutput(ctx, states, potentials)
+	record(ctx, s,
+		output(endorsableState(stateID), []string{"not-a-valid-locator"}, nil),
+	)
 
 	// State is stored (no data loss) but AllowedNodes is empty — default-deny means nobody sees it.
 	out, ok := s.statesByID[stateID.String()]
@@ -76,10 +128,9 @@ func TestRecordAssemblyOutput_EmptyDistributionList_StateStoredButInvisible(t *t
 	s := newTestStore()
 	stateID := testStateID("ac")
 
-	states := []*prototk.EndorsableState{{Id: stateID.String()}}
-	potentials := []*prototk.NewState{{DistributionList: nil}}
-
-	s.RecordAssemblyOutput(ctx, states, potentials)
+	record(ctx, s,
+		output(endorsableState(stateID), nil, nil),
+	)
 
 	out, ok := s.statesByID[stateID.String()]
 	require.True(t, ok)
@@ -87,31 +138,92 @@ func TestRecordAssemblyOutput_EmptyDistributionList_StateStoredButInvisible(t *t
 	assert.Empty(t, s.GetForNode("any-node"))
 }
 
-func TestRecordAssemblyOutput_MoreStatesThanPotentials_ExtraStateInvisible(t *testing.T) {
+func TestRecordAssemblyOutput_StoresLabelsAndAdvertises(t *testing.T) {
 	ctx := t.Context()
 	s := newTestStore()
-	s1 := testStateID("ad")
-	s2 := testStateID("ae")
+	stateID := testStateID("aa")
 
-	states := []*prototk.EndorsableState{{Id: s1.String()}, {Id: s2.String()}}
-	potentials := []*prototk.NewState{{DistributionList: []string{"alice@node1"}}} // only one potential
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: testSchemaID.String(), StateDataJson: `{}`}
+	record(ctx, s,
+		output(state, []string{"alice@node1"}, resolvedState(stateID, map[string]string{"owner": "0xfeed"}, map[string]int64{"amount": 42})),
+	)
 
-	s.RecordAssemblyOutput(ctx, states, potentials)
-
-	// s1 has a corresponding potential → AllowedNodes populated
-	out1, ok := s.statesByID[s1.String()]
+	out, ok := s.statesByID[stateID.String()]
 	require.True(t, ok)
-	assert.Equal(t, []string{"node1"}, out1.AllowedNodes)
+	require.NotNil(t, out.GetLabels())
+	require.Len(t, out.GetLabels().GetLabels(), 1)
+	assert.Equal(t, "owner", out.GetLabels().GetLabels()[0].GetLabel())
+	assert.Equal(t, "0xfeed", out.GetLabels().GetLabels()[0].GetValue())
+	require.Len(t, out.GetLabels().GetInt64Labels(), 1)
+	assert.Equal(t, "amount", out.GetLabels().GetInt64Labels()[0].GetLabel())
+	assert.Equal(t, int64(42), out.GetLabels().GetInt64Labels()[0].GetValue())
 
-	// s2 has no corresponding potential → stored with nil AllowedNodes (default-deny, invisible to all)
-	out2, ok := s.statesByID[s2.String()]
-	require.True(t, ok, "state must be stored even without a corresponding potential")
-	assert.Empty(t, out2.AllowedNodes, "state without a potential must have empty AllowedNodes (default-deny)")
+	// A labelled state is advertised to its allowed node; projection into its query form is statemgr's job.
+	require.Len(t, s.GetForNode("node1"), 1, "a labelled state must be advertised")
+}
 
-	// node1 sees only s1 (has AllowedNodes=["node1"]); s2 is invisible (nil AllowedNodes)
-	node1States := s.GetForNode("node1")
-	require.Len(t, node1States, 1)
-	assert.Equal(t, s1.String(), node1States[0].GetState().GetId())
+func TestRecordAssemblyOutput_StampsCreatedOnSnapshot(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore()
+	stateID := testStateID("aa")
+
+	state := &prototk.EndorsableState{Id: stateID.String(), SchemaId: testSchemaID.String(), StateDataJson: `{}`}
+	record(ctx, s,
+		output(state, []string{"alice@node1"}, resolvedState(stateID, map[string]string{"owner": "0xfeed"}, nil)),
+	)
+
+	out, ok := s.statesByID[stateID.String()]
+	require.True(t, ok)
+	assert.NotZero(t, out.GetCreated(), "store must stamp a coordinator-local created on the snapshot")
+}
+
+func TestRecordAssemblyOutput_MultipleOutputs_EachLabelledIndependently(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore()
+	s1 := testStateID("a1")
+	s2 := testStateID("a2")
+
+	record(ctx, s,
+		output(endorsableState(s1), []string{"alice@node1"}, resolvedState(s1, map[string]string{"which": "one"}, nil)),
+		output(endorsableState(s2), []string{"alice@node1"}, resolvedState(s2, map[string]string{"which": "two"}, nil)),
+	)
+
+	assert.Equal(t, "one", s.statesByID[s1.String()].GetLabels().GetLabels()[0].GetValue())
+	assert.Equal(t, "two", s.statesByID[s2.String()].GetLabels().GetLabels()[0].GetValue())
+}
+
+func TestRecordAssemblyOutput_NoResolvedState_NotAdvertised(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore()
+	stateID := testStateID("a4")
+
+	record(ctx, s,
+		output(endorsableState(stateID), []string{"alice@node1"}, nil),
+	)
+
+	// A state recorded without labels is internally inconsistent (assembly always resolves labels),
+	// so it is stored but never advertised.
+	out := s.statesByID[stateID.String()]
+	assert.Nil(t, out.GetLabels())
+	assert.Empty(t, s.GetForNode("node1"), "a label-less state must never be advertised")
+}
+
+func TestRecordAssemblyOutput_EmptyLabelSet_Advertised(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore()
+	stateID := testStateID("a5")
+
+	// A schema with no labelled fields resolves to a state with zero labels — distinct from
+	// labels being unknown (nil), the state must still be advertised (queryable by its base labels).
+	record(ctx, s,
+		output(endorsableState(stateID), []string{"alice@node1"}, resolvedState(stateID, nil, nil)),
+	)
+
+	out := s.statesByID[stateID.String()]
+	require.NotNil(t, out.GetLabels())
+	assert.Empty(t, out.GetLabels().GetLabels())
+	assert.Empty(t, out.GetLabels().GetInt64Labels())
+	assert.Len(t, s.GetForNode("node1"), 1)
 }
 
 // --- GetForNode — enforcement of the default-deny posture ---
@@ -121,9 +233,8 @@ func TestGetForNode_OnlyAllowedNodeSeesState(t *testing.T) {
 	s := newTestStore()
 	stateID := testStateID("af")
 
-	s.RecordAssemblyOutput(ctx,
-		[]*prototk.EndorsableState{{Id: stateID.String()}},
-		[]*prototk.NewState{{DistributionList: []string{"alice@node1"}}},
+	record(ctx, s,
+		output(endorsableState(stateID), []string{"alice@node1"}, resolvedState(stateID, map[string]string{"owner": "0xfeed"}, nil)),
 	)
 
 	assert.Len(t, s.GetForNode("node1"), 1, "node1 is in AllowedNodes and must receive the state")
@@ -159,13 +270,11 @@ func TestGetForNode_MultipleStates_FiltersCorrectly(t *testing.T) {
 	s2 := testStateID("b3")
 	s3 := testStateID("b4")
 
-	s.RecordAssemblyOutput(ctx,
-		[]*prototk.EndorsableState{{Id: s1.String()}},
-		[]*prototk.NewState{{DistributionList: []string{"alice@node1"}}},
+	record(ctx, s,
+		output(endorsableState(s1), []string{"alice@node1"}, resolvedState(s1, map[string]string{"owner": "0xfeed"}, nil)),
 	)
-	s.RecordAssemblyOutput(ctx,
-		[]*prototk.EndorsableState{{Id: s2.String()}},
-		[]*prototk.NewState{{DistributionList: []string{"bob@node2"}}},
+	record(ctx, s,
+		output(endorsableState(s2), []string{"bob@node2"}, resolvedState(s2, map[string]string{"owner": "0xbead"}, nil)),
 	)
 	// s3: nil AllowedNodes via direct insert
 	s.statesByID[s3.String()] = &prototk.SnapshotState{State: &prototk.EndorsableState{Id: s3.String()}}
@@ -177,6 +286,57 @@ func TestGetForNode_MultipleStates_FiltersCorrectly(t *testing.T) {
 	node2States := s.GetForNode("node2")
 	require.Len(t, node2States, 1)
 	assert.Equal(t, s2.String(), node2States[0].GetState().GetId())
+}
+
+func TestGetForNode_FiltersByNodeAndLabelPresence(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore()
+	labelled := testStateID("b5")
+	unlabelled := testStateID("b6")
+	otherNode := testStateID("b7")
+
+	record(ctx, s,
+		output(endorsableState(labelled), []string{"alice@node1"}, resolvedState(labelled, map[string]string{"owner": "0xfeed"}, nil)),
+		output(endorsableState(unlabelled), []string{"alice@node1"}, nil),
+	)
+	record(ctx, s,
+		output(endorsableState(otherNode), []string{"bob@node2"}, resolvedState(otherNode, map[string]string{"owner": "0xbead"}, nil)),
+	)
+
+	states := s.GetForNode("node1")
+	require.Len(t, states, 1, "only labelled states visible to node1 must be advertised")
+	assert.Equal(t, labelled.String(), states[0].GetState().GetId())
+
+	assert.Empty(t, s.GetForNode("node3"), "nodes with no visibility get nothing")
+}
+
+// --- RangeForNode — same node/label filter as GetForNode, without the intermediate slice ---
+
+func TestRangeForNode_FiltersByNodeAndLabelPresence(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore()
+	labelled := testStateID("b8")
+	unlabelled := testStateID("b9")
+	otherNode := testStateID("ba")
+
+	record(ctx, s,
+		output(endorsableState(labelled), []string{"alice@node1"}, resolvedState(labelled, map[string]string{"owner": "0xfeed"}, nil)),
+		output(endorsableState(unlabelled), []string{"alice@node1"}, nil),
+	)
+	record(ctx, s,
+		output(endorsableState(otherNode), []string{"bob@node2"}, resolvedState(otherNode, map[string]string{"owner": "0xbead"}, nil)),
+	)
+
+	var seen []*prototk.SnapshotState
+	s.RangeForNode("node1", func(state *prototk.SnapshotState) {
+		seen = append(seen, state)
+	})
+	require.Len(t, seen, 1, "only labelled states visible to node1 must be ranged over")
+	assert.Equal(t, labelled.String(), seen[0].GetState().GetId())
+
+	s.RangeForNode("node3", func(state *prototk.SnapshotState) {
+		t.Errorf("nodes with no visibility must get no callbacks, got state %s", state.GetState().GetId())
+	})
 }
 
 // --- ImportIfAbsent — coordinator handover safety ---
@@ -192,6 +352,35 @@ func TestImportIfAbsent_StoresWhenAbsent(t *testing.T) {
 	imported := s.ImportIfAbsent(stateID.String(), state)
 	assert.True(t, imported)
 	assert.Contains(t, s.statesByID, stateID.String())
+}
+
+func TestImportIfAbsent_WithLabels_Advertised(t *testing.T) {
+	s := newTestStore()
+	stateID := testStateID("b8")
+	state := &prototk.SnapshotState{
+		State:        endorsableState(stateID),
+		AllowedNodes: []string{"node1"},
+		Labels:       &prototk.StateLabels{Labels: []*prototk.StateLabel{{Label: "owner", Value: "0xfeed"}}},
+	}
+
+	require.True(t, s.ImportIfAbsent(stateID.String(), state))
+	states := s.GetForNode("node1")
+	require.Len(t, states, 1)
+	assert.Equal(t, stateID.String(), states[0].GetState().GetId())
+}
+
+func TestImportIfAbsent_WithoutLabels_NotAdvertised(t *testing.T) {
+	s := newTestStore()
+	stateID := testStateID("b9")
+	state := &prototk.SnapshotState{
+		State:        endorsableState(stateID),
+		AllowedNodes: []string{"node1"},
+	}
+
+	// A label-less state is stored (handover fidelity) but never advertised.
+	require.True(t, s.ImportIfAbsent(stateID.String(), state))
+	assert.Contains(t, s.statesByID, stateID.String())
+	assert.Empty(t, s.GetForNode("node1"))
 }
 
 func TestImportIfAbsent_ExistingEntryTakesPrecedence(t *testing.T) {
@@ -211,7 +400,7 @@ func TestImportIfAbsent_ExistingEntryTakesPrecedence(t *testing.T) {
 	})
 
 	assert.False(t, imported, "ImportIfAbsent must not overwrite an existing entry")
-	assert.Equal(t, original, s.statesByID[stateID.String()], "existing entry must be unchanged")
+	assert.Same(t, original, s.statesByID[stateID.String()], "existing entry must be unchanged")
 	assert.Equal(t, []string{"node1"}, s.statesByID[stateID.String()].AllowedNodes, "AllowedNodes must not change")
 }
 
@@ -222,9 +411,8 @@ func TestDelete_StateNoLongerVisible(t *testing.T) {
 	s := newTestStore()
 	stateID := testStateID("b9")
 
-	s.RecordAssemblyOutput(ctx,
-		[]*prototk.EndorsableState{{Id: stateID.String()}},
-		[]*prototk.NewState{{DistributionList: []string{"alice@node1"}}},
+	record(ctx, s,
+		output(endorsableState(stateID), []string{"alice@node1"}, resolvedState(stateID, map[string]string{"owner": "0xfeed"}, nil)),
 	)
 	require.Len(t, s.GetForNode("node1"), 1)
 

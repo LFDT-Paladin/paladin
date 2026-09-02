@@ -34,14 +34,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// snapLock is a test-only convenience for describing a state lock before conversion to its proto
-// wire form in ImportSnapshot.
-type snapLock struct {
-	State       pldtypes.HexBytes
-	Transaction uuid.UUID
-	Type        prototk.SnapshotStateLock_StateLockType
-}
-
 const widgetABI = `{
 	"type": "tuple",
 	"internalType": "struct Widget",
@@ -118,6 +110,18 @@ func newTestDomainContext(t *testing.T, ctx context.Context, ss *stateManager, n
 	return contractAddress, dqc.(*domainQueryContext)
 }
 
+// newTestAssemblyContext opens an assembly domain context wired to a remote view onto the view
+// owner's in-memory states; the view's spent state IDs are fetched lazily as the spend exclusion
+// set on the first query. The caller supplies the contract address (needed to build the view
+// beforehand) and owns Close.
+func newTestAssemblyContext(t *testing.T, ctx context.Context, ss *stateManager, name string, customHashFunction bool, contractAddress *pldtypes.EthAddress, view components.RemoteStateView) *domainQueryContext {
+	md := componentsmocks.NewDomain(t)
+	md.On("Name").Return(name)
+	md.On("CustomHashFunction").Return(customHashFunction)
+	dqc := ss.NewDomainQueryContextWithRemoteView(ctx, md, *contractAddress, view)
+	return dqc.(*domainQueryContext)
+}
+
 // testStateResolver validates states against the writer's domain and contract, standing in for the
 // coordinator's call to StateManager.ValidateStatesWithLabels ahead of StageWrites.
 type testStateResolver func(states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error)
@@ -152,6 +156,7 @@ func TestStateLockingQuery(t *testing.T) {
 	schemaID := schema.ID()
 
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	seqQual := pldapi.StateStatusQualifier(dqc.ID().String())
 
 	widgets := makeWidgets(t, ctx, ss, "domain1", contractAddress, schemaID, []string{
 		`{"size": 11111, "color": "red",  "price": 100}`,
@@ -178,28 +183,26 @@ func TestStateLockingQuery(t *testing.T) {
 		}
 	}
 
-	// importSnapshot is a helper that calls ImportSnapshot with the given states and locks.
-	importSnapshot := func(states []*prototk.EndorsableState, locks []*snapLock) {
-		protoStates := make([]*prototk.SnapshotState, len(states))
-		for i, u := range states {
-			protoStates[i] = &prototk.SnapshotState{State: u}
+	// setTestRemoteView closes the current context and opens a fresh one whose remote view serves
+	// the given ahead-of-chain candidates and spent-state exclusion set, updating dqc and its
+	// seqQual (a view is fixed for a context's life). Which states the coordinator serves as
+	// candidates vs. exclusions is its business, not under test here — each call just states the
+	// response the view gives.
+	setTestRemoteView := func(candidateStates []*prototk.EndorsableState, spentStateIDs ...pldtypes.HexBytes) {
+		var candidates []*prototk.SnapshotState
+		for _, u := range candidateStates {
+			id, err := pldtypes.ParseHexBytes(ctx, u.Id)
+			require.NoError(t, err)
+			sw, err := schema.ProcessStateWithLabels(ctx, contractAddress, pldtypes.RawJSON(u.StateDataJson), id, false)
+			require.NoError(t, err)
+			candidates = append(candidates, snapshotStateOf(sw, 0))
 		}
-		protoLocks := make([]*prototk.SnapshotStateLock, len(locks))
-		for i, l := range locks {
-			txStr := l.Transaction.String()
-			protoLocks[i] = &prototk.SnapshotStateLock{
-				StateId:     l.State.String(),
-				Transaction: &txStr,
-				Type:        l.Type,
-			}
-		}
-		require.NoError(t, dqc.ImportSnapshot(ctx, &prototk.StateSnapshot{
-			States: protoStates,
-			Locks:  protoLocks,
-		}))
+		dqc.Close(ctx)
+		dqc = newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress,
+			&testRemoteView{ss: ss, domainName: "domain1", candidates: candidates, spentStateIDs: spentStateIDs})
+		seqQual = pldapi.StateStatusQualifier(dqc.ID().String())
 	}
 
-	seqQual := pldapi.StateStatusQualifier(dqc.ID().String())
 	all := query.NewQueryBuilder().Query()
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4)
@@ -241,11 +244,10 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusSpent, 0)           // added 0
 	checkQuery(all, seqQual, 1, 2, 4)                     // unchanged
 
-	// Write widget[5] to DB (unconfirmed) via WritePreVerifiedStates, then import it into
-	// the DomainQueryContext snapshot so the seqQual query can see the creating state.
+	// Write widget[5] to DB (unconfirmed) via WritePreVerifiedStates, then serve it via a fresh
+	// DomainQueryContext remote view so the seqQual query can see the creating state.
 	// This mirrors what the coordinator does: the DSW flushes the state to DB, then the
-	// assembler's DQC receives a snapshot via ImportSnapshot.
-	txID1 := uuid.New()
+	// assembler opens an assembly context wired to the coordinator's remote state view.
 	widget5State := genWidget(t, schemaID, `{"size": 66666, "color": "blue", "price": 600}`)
 	var widget5States []*pldapi.State
 	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
@@ -256,29 +258,20 @@ func TestStateLockingQuery(t *testing.T) {
 	})
 	require.NoError(t, err)
 	widgets = append(widgets, widget5States[0])
-	widget5State.Id = widgets[5].ID.String() // ID is computed by WritePreVerifiedStates; set here so importSnapshot doesn't see a zero "0x" ID
+	widget5State.Id = widgets[5].ID.String() // ID is computed by WritePreVerifiedStates; set here so setTestRemoteView doesn't see a zero "0x" ID
 
-	importSnapshot(
-		[]*prototk.EndorsableState{widget5State},
-		[]*snapLock{{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE}},
-	)
+	setTestRemoteView([]*prototk.EndorsableState{widget5State})
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // added 5
 	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3, 5)     // added 5
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
-	checkQuery(all, seqQual, 1, 2, 4, 5)                     // added 5 (via snapshot)
+	checkQuery(all, seqQual, 1, 2, 4, 5)                     // added 5 (via the remote view)
 
-	// Add a spend lock for widget[5]: re-import the full snapshot with both create and spend locks.
-	txID2 := uuid.New()
-	importSnapshot(
-		[]*prototk.EndorsableState{widget5State},
-		[]*snapLock{
-			{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE},
-			{State: widgets[5].ID, Transaction: txID2, Type: prototk.SnapshotStateLock_SPEND},
-		},
-	)
+	// The coordinator spend-locks widget[5]: its view stops serving it as a candidate and its ID
+	// joins the spent exclusion set.
+	setTestRemoteView(nil, widgets[5].ID)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4)    // unchanged
@@ -287,11 +280,9 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
 	checkQuery(all, seqQual, 1, 2, 4)                        // removed 5
 
-	// Cancel the spend lock by re-importing without it (ImportSnapshot replaces the whole snapshot).
-	importSnapshot(
-		[]*prototk.EndorsableState{widget5State},
-		[]*snapLock{{State: widgets[5].ID, Transaction: txID1, Type: prototk.SnapshotStateLock_CREATE}},
-	)
+	// The spend lock is released: the new view serves widget[5] as a candidate again, with no
+	// exclusions.
+	setTestRemoteView([]*prototk.EndorsableState{widget5State})
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4)    // unchanged
@@ -311,8 +302,8 @@ func TestStateLockingQuery(t *testing.T) {
 		}, []*pldapi.StateInfoRecord{})
 	require.NoError(t, err)
 
-	// Close the old DQC and open a fresh one with an empty snapshot.
-	// Widget[5] is now confirmed in DB so it is visible via DB-available queries without a snapshot.
+	// Close the old DQC and open a fresh one with no remote view.
+	// Widget[5] is now confirmed in DB so it is visible via DB-available queries without a remote view.
 	dqc.Close(ctx)
 	md2 := componentsmocks.NewDomain(t)
 	md2.On("Name").Return("domain1")
@@ -328,23 +319,85 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
 	checkQuery(all, seqQual, 1, 2, 4, 5)                     // unchanged (5 now confirmed in DB)
 
-	// Import widget[3] into the snapshot: it's unconfirmed in DB (never confirmed above) but
-	// the seqQual can see it once the coordinator sends its snapshot.
-	txID13 := uuid.New()
-	importSnapshot(
-		[]*prototk.EndorsableState{{SchemaId: schemaID.String(), StateDataJson: string(widgets[3].Data), Id: widgets[3].ID.String()}},
-		[]*snapLock{{State: widgets[3].ID, Transaction: txID13, Type: prototk.SnapshotStateLock_CREATE}},
-	)
+	// Serve widget[3] via a new remote view: it's unconfirmed in DB (never confirmed above) but
+	// the seqQual can see it once the coordinator's view serves it as a candidate.
+	setTestRemoteView([]*prototk.EndorsableState{{SchemaId: schemaID.String(), StateDataJson: string(widgets[3].Data), Id: widgets[3].ID.String()}})
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)        // unchanged
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
-	checkQuery(all, seqQual, 1, 2, 3, 4, 5)                  // added 3 (via snapshot)
+	checkQuery(all, seqQual, 1, 2, 3, 4, 5)                  // added 3 (via the remote view)
 
 	// check a sub-select
 	checkQuery(query.NewQueryBuilder().Equal("color", "pink").Query(), seqQual, 3)
 	checkQuery(query.NewQueryBuilder().Equal("color", "pink").Query(), pldapi.StateStatusAvailable)
 
+}
+
+// TestAvailabilityFlagsReconcileOnLateArrival covers the received-state ordering where the
+// confirm/spend records are indexed from the chain before the private data arrives. The
+// WriteStateFinalizations flag UPDATE matches no row at that point; the flags must be reconciled
+// from the record tables when writeStates later inserts the row, so availability matches the
+// record tables regardless of arrival order.
+func TestAvailabilityFlagsReconcileOnLateArrival(t *testing.T) {
+	ctx, ss, m, done := newDBTestStateManager(t)
+	defer done()
+
+	_ = mockDomain(t, m, "domain1", false)
+	mockStateCallback(m)
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, widgetABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+	schemaID := schema.ID()
+
+	contractAddress := pldtypes.RandAddress()
+
+	confirmWidget := genWidget(t, schemaID, `{"size": 1, "color": "red", "price": 10}`)
+	spentWidget := genWidget(t, schemaID, `{"size": 2, "color": "blue", "price": 20}`)
+
+	// Compute the IDs the sending node would, so the records can be written before the rows exist.
+	confirmState, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(confirmWidget.StateDataJson), nil, false)
+	require.NoError(t, err)
+	spentState, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(spentWidget.StateDataJson), nil, false)
+	require.NoError(t, err)
+	confirmID := confirmState.ID
+	spentID := spentState.ID
+
+	// Records land first — no state rows exist yet, so the WriteStateFinalizations UPDATE is a no-op.
+	err = ss.WriteStateFinalizations(ctx, ss.p.NOTX(),
+		[]*pldapi.StateSpendRecord{{DomainName: "domain1", State: spentID, Transaction: uuid.New()}},
+		nil,
+		[]*pldapi.StateConfirmRecord{
+			{DomainName: "domain1", State: confirmID, Transaction: uuid.New()},
+			{DomainName: "domain1", State: spentID, Transaction: uuid.New()},
+		}, nil)
+	require.NoError(t, err)
+
+	findAvailable := func() []*pldapi.State {
+		s, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", schemaID,
+			query.NewQueryBuilder().Query(),
+			&components.StateQueryOptions{StatusQualifier: pldapi.StateStatusAvailable})
+		require.NoError(t, err)
+		return s
+	}
+	require.Empty(t, findAvailable()) // no rows yet, nothing available
+
+	// Private data arrives — setStateAvailableFromSpendConfirmRecords sets the flags from the record tables.
+	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := ss.WriteReceivedStates(ctx, dbTX, "domain1", []*components.StateUpsertOutsideContext{
+			{ContractAddress: contractAddress, SchemaID: schemaID, Data: pldtypes.RawJSON(confirmWidget.StateDataJson)},
+			{ContractAddress: contractAddress, SchemaID: schemaID, Data: pldtypes.RawJSON(spentWidget.StateDataJson)},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	// confirmID: confirmed and not spent -> available. spentID: confirmed but spent -> not available.
+	avail := findAvailable()
+	require.Len(t, avail, 1)
+	assert.Equal(t, confirmID, avail[0].ID)
 }
