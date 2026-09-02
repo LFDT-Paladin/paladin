@@ -100,6 +100,17 @@ var AllOrchestratorStates = []string{
 type orchestrator struct {
 	*pubTxManager
 
+	// ctx/ctxCancel are scoped to this orchestrator instance (a child of pubTxManager.ctx), and shadow the
+	// embedded pubTxManager's ctx for all oc.ctx reads in this file. Stop() cancels ctxCancel so that any
+	// in-flight stage action (sign/submit/gas-price/persist) already running in a goroutine started via
+	// executeAsync observes cancellation, and asyncWG lets orchestratorLoop block until such goroutines have
+	// actually finished before the orchestrator is removed from the pool. Without this, a new orchestrator
+	// created for the same signing address (once this one is removed) can run concurrently with a zombie
+	// goroutine from this one, both driving signing/submission for the same nonce.
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+	asyncWG   sync.WaitGroup
+
 	// in-flight transaction config
 	resubmitInterval        time.Duration
 	stageRetryTimeout       time.Duration
@@ -159,9 +170,12 @@ func NewOrchestrator(
 	conf *pldconf.PublicTxManagerConfig,
 ) *orchestrator {
 	ctx := ptm.ctx
+	ocCtx, ocCtxCancel := context.WithCancel(ctx)
 
 	newOrchestrator := &orchestrator{
 		pubTxManager:                ptm,
+		ctx:                         ocCtx,
+		ctxCancel:                   ocCtxCancel,
 		orchestratorBirthTime:       time.Now(),
 		orchestratorPollingInterval: confutil.DurationMin(conf.Orchestrator.Interval, veryShortMinimum, *pldconf.PublicTxManagerDefaults.Orchestrator.Interval),
 		maxInFlightTxs:              confutil.IntMin(conf.Orchestrator.MaxInFlight, 1, *pldconf.PublicTxManagerDefaults.Orchestrator.MaxInFlight),
@@ -221,6 +235,14 @@ func (oc *orchestrator) orchestratorLoop() {
 
 	if err := oc.initNextNonceFromDBRetry(ctx); err != nil {
 		log.L(ctx).Warnf("Context cancelled while obtaining highest nonce for %s: %s", oc.signingAddress, err)
+		// initNextNonceFromDBRetry uses an indefinite retry, so it only returns an error when a context was
+		// cancelled - either ours (Stop() was called before we even got here) or our parent's (manager
+		// shutdown). Either way we must still reach OrchestratorStateStopped, the same as the main loop's
+		// stopProcess/ctx.Done() exits below, so the engine loop's fairness/eviction bookkeeping and any
+		// caller waiting on our state (e.g. via poll()) see us as stopped rather than stuck in our prior state.
+		oc.asyncWG.Wait()
+		oc.setState(OrchestratorStateStopped)
+		oc.MarkInFlightOrchestratorsStale() // trigger engine loop for removal
 		return
 	}
 
@@ -232,10 +254,20 @@ func (oc *orchestrator) orchestratorLoop() {
 		case <-oc.InFlightTxsStale:
 		case <-ticker.C:
 		case <-ctx.Done():
+			// Stop() cancels oc.ctx and signals stopProcess together, so this case and the stopProcess case
+			// below race - select can wake on either one first. Both must therefore do the same cleanup:
+			// wait for any stage actions already launched via executeAsync (sign/submit/gas-price/persist)
+			// to finish, then reach OrchestratorStateStopped, before we let the engine loop remove us from
+			// the pool - otherwise a new orchestrator for this signing address could start while a zombie
+			// goroutine from this one is still signing/submitting, racing a resubmission for the same nonce.
 			log.L(ctx).Infof("Orchestrator loop exit due to canceled context, it processed %d transaction during its lifetime.", oc.totalCompleted)
+			oc.asyncWG.Wait()
+			oc.setState(OrchestratorStateStopped)
+			oc.MarkInFlightOrchestratorsStale() // trigger engine loop for removal
 			return
 		case <-oc.stopProcess:
 			log.L(ctx).Infof("Orchestrator loop process stopped, it processed %d transaction during its lifetime.", oc.totalCompleted)
+			oc.asyncWG.Wait()
 			oc.setState(OrchestratorStateStopped)
 			oc.MarkInFlightOrchestratorsStale() // trigger engine loop for removal
 			return
@@ -617,6 +649,11 @@ func (oc *orchestrator) Start(ctx context.Context) (done <-chan struct{}, err er
 
 // Stop the InFlight transaction process.
 func (oc *orchestrator) Stop() {
+	// Cancel our scoped context first, so any stage action already running in a goroutine started via
+	// executeAsync (for any of our in-flight transactions) observes cancellation as soon as possible -
+	// this bounds how long orchestratorLoop's asyncWG.Wait() blocks after processing the stop signal below.
+	// Safe to call multiple times (e.g. idle/stale timeout followed by a later explicit stop).
+	oc.ctxCancel()
 	// try to send an item in `stopProcess` channel, which has a buffer of 1
 	// if it already has an item in the channel, this function does nothing
 	select {
