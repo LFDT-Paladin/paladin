@@ -82,8 +82,8 @@ type SequencerManager interface {
 
 	// Synchronous functions to build state distributions and nullifiers
 	BuildStateDistributions(ctx context.Context, tx *PrivateTransaction) (*StateDistributionSet, error)
-	BuildNullifier(ctx context.Context, kr KeyResolver, s *StateDistributionWithData) (*NullifierUpsert, error)
-	BuildNullifiers(ctx context.Context, distributions []*StateDistributionWithData) (nullifiers []*NullifierUpsert, err error)
+	BuildNullifier(ctx context.Context, kr KeyResolver, s *StateDistributionWithData) (*pldapi.StateNullifier, error)
+	BuildNullifiers(ctx context.Context, distributions []*StateDistributionWithData) (nullifiers []*pldapi.StateNullifier, err error)
 
 	// Synchronous function to return the data needed for rpc_debugTransactionStatus
 	GetTxStatus(ctx context.Context, domainAddress string, txID uuid.UUID) (status PrivateTxStatus, err error)

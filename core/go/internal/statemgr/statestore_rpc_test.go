@@ -24,7 +24,6 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
@@ -135,10 +134,11 @@ func TestRPC(t *testing.T) {
 
 	// Write some nullifiers and query them back
 	nullifier1 := pldtypes.HexBytes(pldtypes.RandHex(32))
-	err = ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*components.NullifierUpsert{
+	err = ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*pldapi.StateNullifier{
 		{
-			ID:    nullifier1,
-			State: state.ID,
+			DomainName: "domain1",
+			ID:         nullifier1,
+			State:      state.ID,
 		},
 	})
 	require.NoError(t, err)

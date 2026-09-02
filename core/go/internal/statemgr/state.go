@@ -98,29 +98,20 @@ func (ss *stateManager) WriteReceivedStates(ctx context.Context, dbTX persistenc
 	return ss.processInsertStates(ctx, dbTX, d, states)
 }
 
-func (ss *stateManager) WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, upserts []*components.NullifierUpsert) (err error) {
+func (ss *stateManager) WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*pldapi.StateNullifier) (err error) {
 	ctx = log.WithComponent(ctx, "statemanager")
-	d, err := ss.domainManager.GetDomainByName(ctx, domainName)
+	_, err = ss.domainManager.GetDomainByName(ctx, domainName)
 	if err != nil {
 		return err
 	}
 
-	stateNullifiers := make([]*pldapi.StateNullifier, len(upserts))
-	for i, n := range upserts {
-		stateNullifiers[i] = &pldapi.StateNullifier{
-			DomainName: d.Name(),
-			ID:         n.ID,
-			State:      n.State,
-		}
-	}
-
-	if len(stateNullifiers) > 0 {
+	if len(nullifiers) > 0 {
 		err = dbTX.DB(ctx).
 			Table("state_nullifiers").
 			Clauses(clause.OnConflict{
 				DoNothing: true, // immutable
 			}).
-			Create(stateNullifiers).
+			Create(nullifiers).
 			Error
 	}
 
@@ -150,6 +141,35 @@ func (ss *stateManager) processInsertStates(ctx context.Context, dbTX persistenc
 
 	dbTX.AddPostCommit(ss.txManager.NotifyStatesDBChanged)
 	return processedStates, nil
+}
+
+// WriteStateBatch writes fully-built states and their pre-built nullifier records within the caller's
+// DB transaction. Nullifiers must be validated against and linked to their creating states by the caller.
+func (ss *stateManager) WriteStateBatch(ctx context.Context, dbTX persistence.DBTX, statesWithLabels []*components.StateWithLabels, nullifiers ...*pldapi.StateNullifier) (err error) {
+	states := make([]*pldapi.State, len(statesWithLabels))
+	for i, s := range statesWithLabels {
+		states[i] = s.State
+	}
+	log.L(ctx).Debugf("Writing state batch states=%d nullifiers=%d", len(states), len(nullifiers))
+	if log.IsTraceEnabled() {
+		for _, s := range states {
+			log.L(ctx).Tracef("Writing state for contract %s, data=%s, domain=%s, created=%s", s.ContractAddress, s.Data, s.DomainName, s.Created)
+		}
+	}
+
+	if len(states) > 0 {
+		err = ss.writeStates(ctx, dbTX, states)
+	}
+	if err == nil && len(nullifiers) > 0 {
+		err = dbTX.DB(ctx).
+			Table("state_nullifiers").
+			Clauses(clause.OnConflict{
+				DoNothing: true, // immutable
+			}).
+			Create(nullifiers).
+			Error
+	}
+	return err
 }
 
 func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, states []*pldapi.State) (err error) {

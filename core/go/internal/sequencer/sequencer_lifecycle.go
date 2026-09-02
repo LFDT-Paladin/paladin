@@ -64,11 +64,10 @@ func (seq *sequencer) shutdown(ctx context.Context) {
 // An instance of a sequencer (one instance per domain contract)
 type sequencer struct {
 	// The 3 main components of the sequencer
-	originator        originator.Originator
-	transportWriter   transport.TransportWriter
-	coordinator       coordinator.Coordinator
-	cancelCtx         context.CancelFunc
-	domainStateWriter components.DomainStateWriter
+	originator      originator.Originator
+	transportWriter transport.TransportWriter
+	coordinator     coordinator.Coordinator
+	cancelCtx       context.CancelFunc
 
 	// Sequencer attributes
 	contractAddress string
@@ -157,9 +156,6 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 				return nil, err
 			}
 
-			// Create a domain state writer for the sequencer. This is owned for the lifetime of the sequencer.
-			dsw := sMgr.components.StateManager().NewDomainStateWriter(sMgr.ctx, domainAPI.Domain(), contractAddr)
-
 			seqCtx, cancelCtx := context.WithCancel(log.WithComponent(sMgr.ctx, "sequencer"))
 			seqCtx = log.WithLogField(seqCtx, "domain", domainAPI.Domain().Name())
 			seqCtx = log.WithLogField(seqCtx, "contract", contractAddr.String())
@@ -169,10 +165,9 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 
 			engineIntegration := common.NewEngineIntegration(seqCtx, sMgr.components, sMgr.nodeName, domainAPI, sMgr.metrics)
 			sequencer := &sequencer{
-				contractAddress:   contractAddr.String(),
-				transportWriter:   transportWriter,
-				cancelCtx:         cancelCtx,
-				domainStateWriter: dsw,
+				contractAddress: contractAddr.String(),
+				transportWriter: transportWriter,
+				cancelCtx:       cancelCtx,
 			}
 
 			selectionConfig, err := common.ResolveCoordinatorSelectionConfig(seqCtx, sMgr.nodeName, &contractAddr, domainAPI.ContractConfig())
@@ -196,9 +191,7 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 			seqCoordinator := coordinator.NewCoordinator(
 				&contractAddr,
 				domainAPI,
-				dsw,
 				sMgr.components,
-				nil,
 				nil,
 				transportWriter,
 				common.RealClock(),

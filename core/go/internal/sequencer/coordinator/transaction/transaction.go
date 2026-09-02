@@ -31,13 +31,13 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
 type CoordinatorTransaction interface {
 	HandleEvent(ctx context.Context, event common.Event) error
-	PendingDispatch(ctx context.Context) *syncpoints.PendingDispatch
 	GetID() uuid.UUID
 	GetCurrentState() State
 	GetSnapshot(ctx context.Context) (*engineProto.SnapshotPooledTransaction, *engineProto.SnapshotDispatchedTransaction, *engineProto.SnapshotConfirmedTransaction, *engineProto.SnapshotRevertedTransaction)
@@ -85,9 +85,8 @@ type coordinatorTransaction struct {
 	cancelStateTimeoutSchedule   func()                                          // Timeout for state completion before repooling
 	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingPreDispatchRequest    *common.IdempotentRequest
-
-	pendingDispatch                 *syncpoints.TransactionDispatch
-	pendingRemoteStateDistributions []*components.StateDistribution
+	inFlightPrepareID            uuid.UUID // fresh UUID per prepare goroutine spawn; results carrying any other ID are dropped
+	cancelPrepare                func()    // cancels the in-flight prepare goroutine's retry loop
 
 	//Configuration
 	blockHeightTolerance           uint64
@@ -97,6 +96,7 @@ type coordinatorTransaction struct {
 	baseLedgerRevertRetryThreshold int
 	assembleErrorRetryThreshhold   int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
 	signErrorRetryThreshhold       int // this is for rare errors where the originator failed to sign its assembled attestations
+	prepareRetry                   *retry.Retry
 
 	// Dependencies
 	clock                             common.Clock
@@ -111,9 +111,9 @@ type coordinatorTransaction struct {
 	syncPoints                        syncpoints.SyncPoints
 	components                        components.AllComponents
 	domainAPI                         components.DomainSmartContract
-	dsw                               components.DomainStateWriter
-	queueEventForCoordinator          func(context.Context, common.Event)
-	setDispatchedInFlight             func(txID uuid.UUID, inFlight bool) // called synchronously as the transaction enters/leaves State_Dispatched having dispatched a public transaction
+	queueEventForCoordinator          func(ctx context.Context, event common.Event)                              // queues an event raised by this transaction onto the coordinator's internal event queue
+	enqueueForDispatch                func(context.Context, CoordinatorTransaction, *syncpoints.PendingDispatch) // called when a successful prepare is applied, to place this transaction and its built dispatch onto the coordinator's dispatch queue
+	setDispatchedInFlight             func(txID uuid.UUID, inFlight bool)                                        // called synchronously as the transaction enters/leaves State_Dispatched having dispatched a public transaction
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error
 	getCoordinatorTransactionState    func(context.Context, uuid.UUID) (State, bool)
 	notifyEndorserCandidates          func(context.Context, ...string) // called once when endorsement requests are first sent; passes endorser node names to the coordinator for pool updates
@@ -129,6 +129,7 @@ func NewTransaction(ctx context.Context,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
+	enqueueForDispatch func(context.Context, CoordinatorTransaction, *syncpoints.PendingDispatch),
 	setDispatchedInFlight func(txID uuid.UUID, inFlight bool),
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
@@ -140,13 +141,13 @@ func NewTransaction(ctx context.Context,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
 	domainAPI components.DomainSmartContract,
-	dsw components.DomainStateWriter,
 	requestTimeout,
 	stateTimeout time.Duration,
 	finalizingGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
 	signErrorRetryThreshhold int,
+	prepareRetry *retry.Retry,
 	grapher grapher.Grapher,
 	stateViewProvider stateview.Provider,
 	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
@@ -163,6 +164,7 @@ func NewTransaction(ctx context.Context,
 		transportWriter,
 		clock,
 		queueEventForCoordinator,
+		enqueueForDispatch,
 		setDispatchedInFlight,
 		coordinatorTransactionHandleEvent,
 		getCoordinatorTransactionState,
@@ -174,13 +176,13 @@ func NewTransaction(ctx context.Context,
 		syncPoints,
 		allComponents,
 		domainAPI,
-		dsw,
 		requestTimeout,
 		stateTimeout,
 		finalizingGracePeriod,
 		baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold,
 		signErrorRetryThreshhold,
+		prepareRetry,
 		grapher,
 		stateViewProvider,
 		stateVisibilityTracker,
@@ -199,6 +201,7 @@ func newTransaction(
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
+	enqueueForDispatch func(context.Context, CoordinatorTransaction, *syncpoints.PendingDispatch),
 	setDispatchedInFlight func(txID uuid.UUID, inFlight bool),
 	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
@@ -210,13 +213,13 @@ func newTransaction(
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
 	domainAPI components.DomainSmartContract,
-	dsw components.DomainStateWriter,
 	requestTimeout,
 	stateTimeout time.Duration,
 	finalizingGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
 	signErrorRetryThreshhold int,
+	prepareRetry *retry.Retry,
 	grapher grapher.Grapher,
 	stateViewProvider stateview.Provider,
 	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore,
@@ -233,6 +236,7 @@ func newTransaction(
 		transportWriter:                   transportWriter,
 		clock:                             clock,
 		queueEventForCoordinator:          queueEventForCoordinator,
+		enqueueForDispatch:                enqueueForDispatch,
 		setDispatchedInFlight:             setDispatchedInFlight,
 		coordinatorTransactionHandleEvent: coordinatorTransactionHandleEvent,
 		getCoordinatorTransactionState:    getCoordinatorTransactionState,
@@ -244,7 +248,6 @@ func newTransaction(
 		syncPoints:                        syncPoints,
 		components:                        allComponents,
 		domainAPI:                         domainAPI,
-		dsw:                               dsw,
 		domainSigningIdentity:             domainAPI.Domain().FixedSigningIdentity(),
 		getCoordinatorSigningIdentity:     getCoordinatorSigningIdentity,
 		submitterSelection:                domainAPI.ContractConfig().GetSubmitterSelection(),
@@ -254,6 +257,7 @@ func newTransaction(
 		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
 		signErrorRetryThreshhold:          signErrorRetryThreshhold,
+		prepareRetry:                      prepareRetry,
 		grapher:                           grapher,
 		stateViewProvider:                 stateViewProvider,
 		stateVisibilityTracker:            stateVisibilityTracker,

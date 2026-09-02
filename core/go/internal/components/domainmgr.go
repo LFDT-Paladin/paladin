@@ -90,7 +90,7 @@ type DomainSmartContract interface {
 	AssembleTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, txID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, localTx *ResolvedTransaction, resolvedVerifiers []*prototk.ResolvedVerifier) (*prototk.TransactionPostAssembly, error)
 	ResolvePotentialStates(ctx context.Context, readTX persistence.DBTX, tx *PrivateTransaction) error
 	EndorseTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, req *PrivateTransactionEndorseRequest) (*EndorsementResult, error)
-	PrepareTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, tx *PrivateTransaction) error
+	PrepareTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, tx *PrivateTransaction) (*PrepareTransactionResult, error)
 
 	InitCall(ctx context.Context, tx *ResolvedTransaction) ([]*prototk.ResolveVerifierRequest, error)
 	ExecCall(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, tx *ResolvedTransaction, verifiers []*prototk.ResolvedVerifier) (*abi.ComponentValue, error)
@@ -103,6 +103,13 @@ type DomainSmartContract interface {
 
 type DomainPrivacyGroupConfig struct {
 	DefaultSchemaABI *abi.Parameter
+}
+
+type PrepareTransactionResult struct {
+	Signer                     string
+	PreparedPublicTransaction  *pldapi.TransactionInput
+	PreparedPrivateTransaction *pldapi.TransactionInput
+	PreparedMetadata           pldtypes.RawJSON
 }
 
 type EndorsementResult struct {

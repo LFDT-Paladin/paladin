@@ -42,7 +42,7 @@ type SyncPoints interface {
 	// across two transactions. The write happens on the flush writer worker (runBatch -> writeDispatchOperations).
 	PersistDispatchBatch(ctx context.Context, batch *DispatchBatch) error
 
-	// Deploy is a special case of dispatch, where there are no private states, so no domain state writer is required
+	// Deploy is a special case of dispatch, where there are no private states to write
 	PersistDeployTransactionDispatch(ctx context.Context, transactionID uuid.UUID, dispatch *TransactionDispatch) error
 
 	// QueueTransactionFinalize integrates with TxManager to mark a transaction as finalized.
@@ -69,14 +69,16 @@ type syncPoints struct {
 	txMgr        components.TXManager
 	pubTxMgr     components.PublicTxManager
 	transportMgr components.TransportManager
+	stateMgr     components.StateManager
 }
 
-func NewSyncPoints(ctx context.Context, conf *pldconf.FlushWriterConfig, p persistence.Persistence, txMgr components.TXManager, pubTxMgr components.PublicTxManager, transportMgr components.TransportManager) SyncPoints {
+func NewSyncPoints(ctx context.Context, conf *pldconf.FlushWriterConfig, p persistence.Persistence, txMgr components.TXManager, pubTxMgr components.PublicTxManager, transportMgr components.TransportManager, stateMgr components.StateManager) SyncPoints {
 	s := &syncPoints{
 		bgCtx:        ctx,
 		txMgr:        txMgr,
 		pubTxMgr:     pubTxMgr,
 		transportMgr: transportMgr,
+		stateMgr:     stateMgr,
 	}
 	s.writer = flushwriter.NewWriter(ctx, s.runBatch, p, conf, &pldconf.SequencerDefaults.Writer)
 	return s

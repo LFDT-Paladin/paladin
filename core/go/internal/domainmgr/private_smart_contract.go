@@ -397,10 +397,10 @@ func (dc *domainContract) EndorseTransaction(ctx context.Context, dqc components
 	}, nil
 }
 
-func (dc *domainContract) PrepareTransaction(ctx context.Context, dqc components.DomainQueryContext, readTX persistence.DBTX, tx *components.PrivateTransaction) error {
+func (dc *domainContract) PrepareTransaction(ctx context.Context, dqc components.DomainQueryContext, readTX persistence.DBTX, tx *components.PrivateTransaction) (*components.PrepareTransactionResult, error) {
 	if tx.PreAssembly == nil || tx.PreAssembly.TransactionSpecification == nil ||
 		tx.PostAssembly == nil || tx.Signer == "" {
-		return i18n.NewError(ctx, msgs.MsgDomainTXIncompletePrepareTransaction)
+		return nil, i18n.NewError(ctx, msgs.MsgDomainTXIncompletePrepareTransaction)
 	}
 
 	preAssembly := tx.PreAssembly
@@ -423,37 +423,38 @@ func (dc *domainContract) PrepareTransaction(ctx context.Context, dqc components
 		DomainData:        postAssembly.AssembleResponse.DomainData,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var functionABI abi.Entry
 	if err := json.Unmarshal(([]byte)(res.Transaction.FunctionAbiJson), &functionABI); err != nil {
-		return i18n.WrapError(ctx, err, msgs.MsgDomainPrivateAbiJsonInvalid)
+		return nil, i18n.WrapError(ctx, err, msgs.MsgDomainPrivateAbiJsonInvalid)
 	}
 
 	contractAddress := &dc.info.Address
 	if res.Transaction.ContractAddress != nil {
 		contractAddress, err = pldtypes.ParseEthAddress(*res.Transaction.ContractAddress)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
+	prep := &components.PrepareTransactionResult{Signer: tx.Signer}
 	if res.Transaction.RequiredSigner != nil && len(*res.Transaction.RequiredSigner) > 0 {
-		tx.Signer = *res.Transaction.RequiredSigner
+		prep.Signer = *res.Transaction.RequiredSigner
 	}
 
 	if res.Transaction.Type == prototk.PreparedTransaction_PRIVATE {
 		psc, err := dc.dm.GetSmartContractByAddress(ctx, readTX, *contractAddress)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{
+		prep.PreparedPrivateTransaction = &pldapi.TransactionInput{
 			TransactionBase: pldapi.TransactionBase{
 				IdempotencyKey: fmt.Sprintf("%s_%s", tx.ID, functionABI.Name),
 				Type:           pldapi.TransactionTypePrivate.Enum(),
 				Function:       functionABI.String(),
-				From:           tx.Signer,
+				From:           prep.Signer,
 				To:             contractAddress,
 				Data:           pldtypes.RawJSON(res.Transaction.ParamsJson),
 				Domain:         psc.Domain().Name(),
@@ -461,11 +462,11 @@ func (dc *domainContract) PrepareTransaction(ctx context.Context, dqc components
 			ABI: abi.ABI{&functionABI},
 		}
 	} else {
-		tx.PreparedPublicTransaction = &pldapi.TransactionInput{
+		prep.PreparedPublicTransaction = &pldapi.TransactionInput{
 			TransactionBase: pldapi.TransactionBase{
 				Type:            pldapi.TransactionTypePublic.Enum(),
 				Function:        functionABI.String(),
-				From:            tx.Signer,
+				From:            prep.Signer,
 				To:              contractAddress,
 				Data:            pldtypes.RawJSON(res.Transaction.ParamsJson),
 				PublicTxOptions: publicTxOptionsFromProto(tx.PreAssembly.PublicTxOptions),
@@ -475,14 +476,14 @@ func (dc *domainContract) PrepareTransaction(ctx context.Context, dqc components
 		// We cannot fall back to eth_estimateGas, as we queue up multiple transactions for dispatch that chain together.
 		// As such our transactions are not always executable in isolation, and would revert (due to consuming non-existent UTXO states)
 		// if we attempted to do gas estimation or call.
-		if tx.PreparedPublicTransaction.Gas == nil {
-			tx.PreparedPublicTransaction.Gas = &dc.d.defaultGasLimit
+		if prep.PreparedPublicTransaction.Gas == nil {
+			prep.PreparedPublicTransaction.Gas = &dc.d.defaultGasLimit
 		}
 	}
 	if res.Metadata != nil {
-		tx.PreparedMetadata = pldtypes.RawJSON(*res.Metadata)
+		prep.PreparedMetadata = pldtypes.RawJSON(*res.Metadata)
 	}
-	return nil
+	return prep, nil
 }
 
 func (dc *domainContract) InitCall(ctx context.Context, callTx *components.ResolvedTransaction) ([]*prototk.ResolveVerifierRequest, error) {

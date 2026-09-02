@@ -289,6 +289,7 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.transportWriter,
 		c.clock,
 		c.queueEventInternal,
+		c.enqueueForDispatch,
 		c.setDispatchedInFlight,
 		c.coordinatorTransactionHandleEvent,
 		c.getCoordinatorTransactionState,
@@ -300,13 +301,13 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.syncPoints,
 		c.components,
 		c.domainAPI,
-		c.dsw,
 		c.requestTimeout,
 		c.stateTimeout,
 		c.closingGracePeriod,
 		c.baseLedgerRevertRetryThreshold,
 		c.assembleErrorRetryThreshhold,
 		c.signErrorRetryThreshhold,
+		c.prepareRetry,
 		c.grapher,
 		c.stateViewProvider,
 		c.stateVisibilityTracker,
@@ -553,18 +554,6 @@ func action_PoolTransaction(ctx context.Context, c *coordinator, event common.Ev
 	txn := c.transactionsByID[e.TransactionID]
 	if txn != nil {
 		c.addTransactionToBackOfPool(txn)
-	}
-	return nil
-}
-
-func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, event common.Event) error {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	txn := c.transactionsByID[e.TransactionID]
-	if txn != nil {
-		select {
-		case c.dispatchQueue <- queuedDispatch{txn: txn, enqueuedAt: c.clock.Now()}:
-		case <-ctx.Done():
-		}
 	}
 	return nil
 }
