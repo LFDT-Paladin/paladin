@@ -48,19 +48,17 @@ public enum TransactionType {
   /**
    * Resolves a transaction type from its JSON token, case-insensitively.
    *
-   * @param s the JSON token to resolve
+   * @param typeString the JSON token to resolve
    * @return the matching transaction type
-   * @throws IllegalArgumentException if {@code s} is null or not a known transaction type
+   * @throws IllegalArgumentException if {@code typeString} is null or not a known transaction type
    */
   @JsonCreator
-  public static TransactionType fromJson(final String s) {
-    if (s != null) {
-      for (TransactionType t : values()) {
-        if (t.jsonValue.equalsIgnoreCase(s)) {
-          return t;
-        }
+  public static TransactionType fromJson(final String typeString) {
+    for (TransactionType type : values()) {
+      if (type.jsonValue.equalsIgnoreCase(typeString)) {
+        return type;
       }
     }
-    throw new IllegalArgumentException("unknown transaction type: \"" + s + "\"");
+    throw new IllegalArgumentException("unknown transaction type: \"" + typeString + "\"");
   }
 }

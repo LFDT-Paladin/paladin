@@ -58,10 +58,11 @@ subprojects {
         violationRules {
             rule {
                 limit {
-                    // Baseline from the core module's tests at the time of introduction
-                    // (instruction coverage 78.1%), floored to the nearest whole percent.
+                    // Ratcheted floor: set just under the lowest module's current instruction
+                    // coverage (core, 94.7%) so that new under-tested code fails the build.
+                    // Raise this whenever the modules clear the next whole percent.
                     counter = 'INSTRUCTION'
-                    minimum = 0.78
+                    minimum = 0.94
                 }
             }
         }

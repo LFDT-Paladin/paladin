@@ -16,9 +16,12 @@ package org.lfdt.paladin.sdk.core.abi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class AbiParameterTest {
@@ -75,5 +78,64 @@ class AbiParameterTest {
     final AbiParameter p = MAPPER.readValue("{\"type\":\"bool\"}", AbiParameter.class);
     assertEquals("", p.name());
     assertEquals("bool", p.type());
+  }
+
+  @Test
+  void equalityCoversEveryField() {
+    final AbiParameter param =
+        AbiParameter.builder("from", "address")
+            .internalType("address")
+            .indexed(true)
+            .component(AbiParameter.of("inner", "bool"))
+            .build();
+
+    assertEquals(param, param);
+    assertEquals(param, copyOf(param).build());
+    assertEquals(param.hashCode(), copyOf(param).build().hashCode());
+
+    assertNotEquals(param, copyOf(param).indexed(false).build());
+    assertNotEquals(param, copyOf(param).internalType("contract Foo").build());
+    assertNotEquals(param, copyOf(param).component(AbiParameter.of("extra", "bool")).build());
+    assertNotEquals(param, AbiParameter.of("to", "address"));
+    assertNotEquals(param, AbiParameter.of("from", "uint256"));
+    assertNotEquals(param, null);
+    assertNotEquals(param, "from");
+  }
+
+  /** A builder pre-populated to match {@code param}, so a single field can be varied from it. */
+  private static AbiParameter.Builder copyOf(final AbiParameter param) {
+    return AbiParameter.builder(param.name(), param.type())
+        .internalType(param.internalType())
+        .indexed(param.indexed())
+        .components(param.components());
+  }
+
+  @Test
+  void builderAddsComponentsInBulk() {
+    final AbiParameter tuple =
+        AbiParameter.builder("order", "tuple")
+            .components(
+                List.of(
+                    AbiParameter.of("recipient", "address"), AbiParameter.of("amount", "uint256")))
+            .build();
+    assertEquals(2, tuple.components().size());
+    assertEquals("amount", tuple.components().get(1).name());
+  }
+
+  @Test
+  void toStringSummarizesNameTypeAndIndexed() {
+    assertEquals(
+        "AbiParameter{name=amount, type=uint256}", AbiParameter.of("amount", "uint256").toString());
+    assertEquals(
+        "AbiParameter{name=from, type=address, indexed}",
+        AbiParameter.builder("from", "address").indexed(true).build().toString());
+  }
+
+  @Test
+  void nullTypeDefaultsToEmptyString() throws Exception {
+    final AbiParameter p = MAPPER.readValue("{\"name\":\"amount\"}", AbiParameter.class);
+    assertEquals("amount", p.name());
+    assertEquals("", p.type());
+    assertNull(p.internalType());
   }
 }
