@@ -55,19 +55,17 @@ public enum EntryType {
   /**
    * Resolves an entry type from its JSON token, case-insensitively.
    *
-   * @param s the JSON token to resolve
+   * @param typeString the JSON token to resolve
    * @return the matching entry type
-   * @throws IllegalArgumentException if {@code s} is null or not a known entry type
+   * @throws IllegalArgumentException if {@code typeString} is null or not a known entry type
    */
   @JsonCreator
-  public static EntryType fromJson(final String s) {
-    if (s != null) {
-      for (EntryType t : values()) {
-        if (t.jsonValue.equalsIgnoreCase(s)) {
-          return t;
-        }
+  public static EntryType fromJson(final String typeString) {
+    for (EntryType type : values()) {
+      if (type.jsonValue.equalsIgnoreCase(typeString)) {
+        return type;
       }
     }
-    throw new IllegalArgumentException("unknown ABI entry type: \"" + s + "\"");
+    throw new IllegalArgumentException("unknown ABI entry type: \"" + typeString + "\"");
   }
 }

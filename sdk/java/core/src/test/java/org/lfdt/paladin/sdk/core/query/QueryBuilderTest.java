@@ -15,6 +15,8 @@
 package org.lfdt.paladin.sdk.core.query;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -129,5 +131,39 @@ class QueryBuilderTest {
     assertEquals(2, query.eq().size());
     assertEquals("a", query.eq().get(0).field());
     assertEquals("b", query.eq().get(1).field());
+  }
+
+  @Test
+  void notLikeEmitsANegatedLikeOperand() throws Exception {
+    final QueryJSON query = QueryJSON.builder().notLike("name", "%draft%").build();
+    assertEquals(
+        tree("{\"like\":[{\"field\":\"name\",\"value\":\"%draft%\",\"not\":true}]}"),
+        tree(query.toJson()));
+  }
+
+  @Test
+  void caseSensitiveModifierClearsAnEarlierCaseInsensitive() throws Exception {
+    // The last case modifier wins, so CASE_SENSITIVE resets a preceding CASE_INSENSITIVE.
+    final QueryJSON query =
+        QueryJSON.builder()
+            .equal("field1", "v", QueryModifier.CASE_INSENSITIVE, QueryModifier.CASE_SENSITIVE)
+            .build();
+    assertFalse(query.eq().get(0).caseInsensitive());
+    assertEquals(tree("{\"eq\":[{\"field\":\"field1\",\"value\":\"v\"}]}"), tree(query.toJson()));
+  }
+
+  @Test
+  void nullValueListProducesAnEmptyOperand() {
+    final QueryJSON query = QueryJSON.builder().in("status", null).build();
+    assertTrue(query.in().get(0).values().isEmpty());
+  }
+
+  @Test
+  void rejectsAValueThatCannotBeSerialized() {
+    final IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> QueryJSON.builder().equal("field1", new Object()));
+    assertTrue(e.getMessage().startsWith("query value is not JSON-serializable"));
   }
 }

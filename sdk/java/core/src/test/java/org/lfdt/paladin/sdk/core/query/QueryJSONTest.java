@@ -16,6 +16,7 @@ package org.lfdt.paladin.sdk.core.query;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -81,5 +82,47 @@ class QueryJSONTest {
     final QueryJSON parsed = MAPPER.readValue(MAPPER.writeValueAsString(query), QueryJSON.class);
     assertEquals(9007199254740993L, parsed.eq().get(0).value().asLong());
     assertEquals(query, parsed);
+  }
+
+  @Test
+  void equalityDistinguishesEveryOperandList() {
+    final QueryJSON empty = QueryJSON.builder().build();
+
+    assertEquals(empty, empty);
+    assertEquals(empty, QueryJSON.builder().build());
+    assertEquals(empty.hashCode(), QueryJSON.builder().build().hashCode());
+    assertNotEquals(empty, null);
+    assertNotEquals(empty, "{}");
+
+    assertNotEquals(empty, QueryJSON.builder().limit(1).build());
+    assertNotEquals(empty, QueryJSON.builder().sort("created").build());
+    assertNotEquals(empty, QueryJSON.builder().or(QueryJSON.builder().limit(1)).build());
+    assertNotEquals(empty, QueryJSON.builder().equal("f", "v").build());
+    assertNotEquals(empty, QueryJSON.builder().notEqual("f", "v").build());
+    assertNotEquals(empty, QueryJSON.builder().like("f", "v").build());
+    assertNotEquals(empty, QueryJSON.builder().lessThan("f", 1).build());
+    assertNotEquals(empty, QueryJSON.builder().lessThanOrEqual("f", 1).build());
+    assertNotEquals(empty, QueryJSON.builder().greaterThan("f", 1).build());
+    assertNotEquals(empty, QueryJSON.builder().greaterThanOrEqual("f", 1).build());
+    assertNotEquals(empty, QueryJSON.builder().in("f", List.of("v")).build());
+    assertNotEquals(empty, QueryJSON.builder().notIn("f", List.of("v")).build());
+    assertNotEquals(empty, QueryJSON.builder().isNull("f").build());
+  }
+
+  @Test
+  void hashCodeMatchesForEquivalentQueries() {
+    final QueryJSON one = QueryJSON.builder().limit(5).equal("f", "v").isNull("g").build();
+    final QueryJSON two = QueryJSON.builder().limit(5).equal("f", "v").isNull("g").build();
+    assertEquals(one, two);
+    assertEquals(one.hashCode(), two.hashCode());
+  }
+
+  @Test
+  void toJsonAndToStringEmitTheSerializedQuery() {
+    final QueryJSON query = QueryJSON.builder().limit(1).equal("type", "private").build();
+    final String json = query.toJson();
+    assertEquals("{\"limit\":1,\"eq\":[{\"field\":\"type\",\"value\":\"private\"}]}", json);
+    assertEquals(json, query.toString());
+    assertEquals("{}", QueryJSON.builder().build().toJson());
   }
 }
