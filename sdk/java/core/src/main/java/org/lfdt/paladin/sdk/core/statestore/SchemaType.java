@@ -44,19 +44,17 @@ public enum SchemaType {
   /**
    * Resolves a schema type from its JSON token, case-insensitively.
    *
-   * @param s the JSON token to resolve
+   * @param typeString the JSON token to resolve
    * @return the matching schema type
-   * @throws IllegalArgumentException if {@code s} is null or not a known schema type
+   * @throws IllegalArgumentException if {@code typeString} is null or not a known schema type
    */
   @JsonCreator
-  public static SchemaType fromJson(final String s) {
-    if (s != null) {
-      for (SchemaType t : values()) {
-        if (t.jsonValue.equalsIgnoreCase(s)) {
-          return t;
-        }
+  public static SchemaType fromJson(final String typeString) {
+    for (SchemaType type : values()) {
+      if (type.jsonValue.equalsIgnoreCase(typeString)) {
+        return type;
       }
     }
-    throw new IllegalArgumentException("unknown schema type: " + s);
+    throw new IllegalArgumentException("unknown schema type: \"" + typeString + "\"");
   }
 }

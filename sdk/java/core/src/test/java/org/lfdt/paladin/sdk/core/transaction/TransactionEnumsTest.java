@@ -37,8 +37,18 @@ class TransactionEnumsTest {
   }
 
   @Test
+  void transactionTypeMapsEveryToken() {
+    for (final TransactionType type : TransactionType.values()) {
+      assertEquals(type, TransactionType.fromJson(type.jsonValue()));
+      assertEquals(type, TransactionType.fromJson(type.jsonValue().toUpperCase()));
+    }
+  }
+
+  @Test
   void transactionTypeRejectsUnknownToken() {
     assertThrows(Exception.class, () -> MAPPER.readValue("\"hybrid\"", TransactionType.class));
+    assertThrows(IllegalArgumentException.class, () -> TransactionType.fromJson("hybrid"));
+    assertThrows(IllegalArgumentException.class, () -> TransactionType.fromJson(null));
   }
 
   @Test
@@ -56,7 +66,17 @@ class TransactionEnumsTest {
   }
 
   @Test
+  void submitModeMapsEveryToken() {
+    for (final SubmitMode mode : SubmitMode.values()) {
+      assertEquals(mode, SubmitMode.fromJson(mode.jsonValue()));
+      assertEquals(mode, SubmitMode.fromJson(mode.jsonValue().toUpperCase()));
+    }
+  }
+
+  @Test
   void submitModeRejectsUnknownToken() {
     assertThrows(Exception.class, () -> MAPPER.readValue("\"manual\"", SubmitMode.class));
+    assertThrows(IllegalArgumentException.class, () -> SubmitMode.fromJson("manual"));
+    assertThrows(IllegalArgumentException.class, () -> SubmitMode.fromJson(null));
   }
 }

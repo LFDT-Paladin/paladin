@@ -49,19 +49,17 @@ public enum StateLockType {
   /**
    * Resolves a lock type from its JSON token, case-insensitively.
    *
-   * @param s the JSON token to resolve
+   * @param typeString the JSON token to resolve
    * @return the matching lock type
-   * @throws IllegalArgumentException if {@code s} is null or not a known lock type
+   * @throws IllegalArgumentException if {@code typeString} is null or not a known lock type
    */
   @JsonCreator
-  public static StateLockType fromJson(final String s) {
-    if (s != null) {
-      for (StateLockType t : values()) {
-        if (t.jsonValue.equalsIgnoreCase(s)) {
-          return t;
-        }
+  public static StateLockType fromJson(final String typeString) {
+    for (StateLockType type : values()) {
+      if (type.jsonValue.equalsIgnoreCase(typeString)) {
+        return type;
       }
     }
-    throw new IllegalArgumentException("unknown state lock type: " + s);
+    throw new IllegalArgumentException("unknown state lock type: \"" + typeString + "\"");
   }
 }

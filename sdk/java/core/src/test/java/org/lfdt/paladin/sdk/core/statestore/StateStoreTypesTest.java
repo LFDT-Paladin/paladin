@@ -41,7 +41,10 @@ class StateStoreTypesTest {
   void schemaTypeRoundTripsAndRejectsUnknown() throws Exception {
     assertEquals(SchemaType.ABI, MAPPER.readValue("\"abi\"", SchemaType.class));
     assertEquals("abi", SchemaType.ABI.jsonValue());
-    assertEquals(SchemaType.ABI, SchemaType.fromJson("ABI"));
+    for (final SchemaType type : SchemaType.values()) {
+      assertEquals(type, SchemaType.fromJson(type.jsonValue()));
+      assertEquals(type, SchemaType.fromJson(type.jsonValue().toUpperCase()));
+    }
     assertThrows(IllegalArgumentException.class, () -> SchemaType.fromJson("bogus"));
     assertThrows(IllegalArgumentException.class, () -> SchemaType.fromJson(null));
   }
@@ -52,7 +55,10 @@ class StateStoreTypesTest {
       assertEquals(t, MAPPER.readValue(MAPPER.writeValueAsString(t), StateLockType.class));
     }
     assertEquals("spend", StateLockType.SPEND.jsonValue());
-    assertEquals(StateLockType.CREATE, StateLockType.fromJson("CREATE"));
+    for (final StateLockType type : StateLockType.values()) {
+      assertEquals(type, StateLockType.fromJson(type.jsonValue()));
+      assertEquals(type, StateLockType.fromJson(type.jsonValue().toUpperCase()));
+    }
     assertThrows(IllegalArgumentException.class, () -> StateLockType.fromJson("bogus"));
     assertThrows(IllegalArgumentException.class, () -> StateLockType.fromJson(null));
   }
