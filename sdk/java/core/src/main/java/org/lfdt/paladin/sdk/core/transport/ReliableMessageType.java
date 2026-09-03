@@ -57,19 +57,17 @@ public enum ReliableMessageType {
   /**
    * Resolves a message type from its JSON token, case-insensitively.
    *
-   * @param s the JSON token to resolve
+   * @param typeString the JSON token to resolve
    * @return the matching message type
-   * @throws IllegalArgumentException if {@code s} is null or not a known message type
+   * @throws IllegalArgumentException if {@code typeString} is null or not a known message type
    */
   @JsonCreator
-  public static ReliableMessageType fromJson(final String s) {
-    if (s != null) {
-      for (ReliableMessageType t : values()) {
-        if (t.jsonValue.equalsIgnoreCase(s)) {
-          return t;
-        }
+  public static ReliableMessageType fromJson(final String typeString) {
+    for (ReliableMessageType type : values()) {
+      if (type.jsonValue.equalsIgnoreCase(typeString)) {
+        return type;
       }
     }
-    throw new IllegalArgumentException("unknown reliable message type: " + s);
+    throw new IllegalArgumentException("unknown reliable message type: " + typeString);
   }
 }

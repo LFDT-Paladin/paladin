@@ -47,19 +47,17 @@ public enum EthTransactionResult {
   /**
    * Resolves a result from its JSON token, case-insensitively.
    *
-   * @param s the JSON token to resolve
+   * @param resultString the JSON token to resolve
    * @return the matching result
-   * @throws IllegalArgumentException if {@code s} is null or not a known result
+   * @throws IllegalArgumentException if {@code resultString} is null or not a known result
    */
   @JsonCreator
-  public static EthTransactionResult fromJson(final String s) {
-    if (s != null) {
-      for (EthTransactionResult r : values()) {
-        if (r.jsonValue.equalsIgnoreCase(s)) {
-          return r;
-        }
+  public static EthTransactionResult fromJson(final String resultString) {
+    for (EthTransactionResult result : values()) {
+      if (result.jsonValue.equalsIgnoreCase(resultString)) {
+        return result;
       }
     }
-    throw new IllegalArgumentException("unknown transaction result: " + s);
+    throw new IllegalArgumentException("unknown transaction result: " + resultString);
   }
 }

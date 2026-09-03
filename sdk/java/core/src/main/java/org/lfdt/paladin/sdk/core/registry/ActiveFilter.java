@@ -49,19 +49,17 @@ public enum ActiveFilter {
   /**
    * Resolves a filter from its JSON token, case-insensitively.
    *
-   * @param s the JSON token to resolve
+   * @param filterString the JSON token to resolve
    * @return the matching filter
-   * @throws IllegalArgumentException if {@code s} is null or not a known filter
+   * @throws IllegalArgumentException if {@code filterString} is null or not a known filter
    */
   @JsonCreator
-  public static ActiveFilter fromJson(final String s) {
-    if (s != null) {
-      for (ActiveFilter f : values()) {
-        if (f.jsonValue.equalsIgnoreCase(s)) {
-          return f;
-        }
+  public static ActiveFilter fromJson(final String filterString) {
+    for (ActiveFilter filter : values()) {
+      if (filter.jsonValue.equalsIgnoreCase(filterString)) {
+        return filter;
       }
     }
-    throw new IllegalArgumentException("unknown active filter: " + s);
+    throw new IllegalArgumentException("unknown active filter: " + filterString);
   }
 }

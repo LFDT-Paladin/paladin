@@ -52,19 +52,19 @@ public enum StateMutability {
   /**
    * Resolves a state mutability from its JSON token, case-insensitively.
    *
-   * @param s the JSON token to resolve
+   * @param mutabilityString the JSON token to resolve
    * @return the matching state mutability
-   * @throws IllegalArgumentException if {@code s} is null or not a known state mutability
+   * @throws IllegalArgumentException if {@code mutabilityString} is null or not a known state
+   *     mutability
    */
   @JsonCreator
-  public static StateMutability fromJson(final String s) {
-    if (s != null) {
-      for (StateMutability m : values()) {
-        if (m.jsonValue.equalsIgnoreCase(s)) {
-          return m;
-        }
+  public static StateMutability fromJson(final String mutabilityString) {
+    for (StateMutability mutability : values()) {
+      if (mutability.jsonValue.equalsIgnoreCase(mutabilityString)) {
+        return mutability;
       }
     }
-    throw new IllegalArgumentException("unknown ABI state mutability: \"" + s + "\"");
+    throw new IllegalArgumentException(
+        "unknown ABI state mutability: \"" + mutabilityString + "\"");
   }
 }

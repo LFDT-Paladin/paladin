@@ -52,19 +52,17 @@ public enum SubmitMode {
   /**
    * Resolves a submit mode from its JSON token, case-insensitively.
    *
-   * @param s the JSON token to resolve
+   * @param modeString the JSON token to resolve
    * @return the matching submit mode
-   * @throws IllegalArgumentException if {@code s} is null or not a known submit mode
+   * @throws IllegalArgumentException if {@code modeString} is null or not a known submit mode
    */
   @JsonCreator
-  public static SubmitMode fromJson(final String s) {
-    if (s != null) {
-      for (SubmitMode m : values()) {
-        if (m.jsonValue.equalsIgnoreCase(s)) {
-          return m;
-        }
+  public static SubmitMode fromJson(final String modeString) {
+    for (SubmitMode mode : values()) {
+      if (mode.jsonValue.equalsIgnoreCase(modeString)) {
+        return mode;
       }
     }
-    throw new IllegalArgumentException("unknown submit mode: \"" + s + "\"");
+    throw new IllegalArgumentException("unknown submit mode: \"" + modeString + "\"");
   }
 }
