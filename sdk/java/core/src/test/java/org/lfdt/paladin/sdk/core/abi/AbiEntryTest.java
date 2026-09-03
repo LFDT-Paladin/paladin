@@ -16,10 +16,12 @@ package org.lfdt.paladin.sdk.core.abi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class AbiEntryTest {
@@ -108,5 +110,82 @@ class AbiEntryTest {
     assertTrue(e.inputs().isEmpty());
     assertTrue(e.outputs().isEmpty());
     assertFalse(e.payable());
+  }
+
+  @Test
+  void equalityCoversEveryField() {
+    final AbiEntry entry =
+        AbiEntry.function("transfer")
+            .stateMutability(StateMutability.NONPAYABLE)
+            .payable(true)
+            .constant(true)
+            .anonymous(true)
+            .input(AbiParameter.of("amount", "uint256"))
+            .output(AbiParameter.of("", "bool"))
+            .build();
+
+    assertEquals(entry, entry);
+    assertEquals(entry, copyOf(entry).build());
+    assertEquals(entry.hashCode(), copyOf(entry).build().hashCode());
+
+    assertNotEquals(entry, copyOf(entry).payable(false).build());
+    assertNotEquals(entry, copyOf(entry).constant(false).build());
+    assertNotEquals(entry, copyOf(entry).anonymous(false).build());
+    assertNotEquals(entry, copyOf(entry).stateMutability(StateMutability.VIEW).build());
+    assertNotEquals(entry, AbiEntry.event("transfer").build());
+    assertNotEquals(entry, AbiEntry.function("approve").build());
+    assertNotEquals(entry, copyOf(entry).input(AbiParameter.of("extra", "bool")).build());
+    assertNotEquals(entry, copyOf(entry).output(AbiParameter.of("extra", "bool")).build());
+    assertNotEquals(entry, null);
+    assertNotEquals(entry, "transfer");
+  }
+
+  /** A builder pre-populated to match {@code entry}, so a single field can be varied from it. */
+  private static AbiEntry.Builder copyOf(final AbiEntry entry) {
+    return AbiEntry.builder(entry.type())
+        .name(entry.name())
+        .stateMutability(entry.stateMutability())
+        .payable(entry.payable())
+        .constant(entry.constant())
+        .anonymous(entry.anonymous())
+        .inputs(entry.inputs())
+        .outputs(entry.outputs());
+  }
+
+  @Test
+  void builderAddsParameterListsInBulk() {
+    final AbiEntry entry =
+        AbiEntry.function("mint")
+            .inputs(List.of(AbiParameter.of("to", "address"), AbiParameter.of("amount", "uint256")))
+            .outputs(List.of(AbiParameter.of("", "bool")))
+            .build();
+    assertEquals(2, entry.inputs().size());
+    assertEquals("amount", entry.inputs().get(1).name());
+    assertEquals(1, entry.outputs().size());
+  }
+
+  @Test
+  void serializesLegacyPayableAndConstantFlagsWhenSet() throws Exception {
+    final AbiEntry entry = AbiEntry.function("legacy").payable(true).constant(true).build();
+    final String json = MAPPER.writeValueAsString(entry);
+    assertTrue(json.contains("\"payable\":true"));
+    assertTrue(json.contains("\"constant\":true"));
+    assertEquals(entry, MAPPER.readValue(json, AbiEntry.class));
+  }
+
+  @Test
+  void toStringSummarizesTypeNameAndArity() {
+    final AbiEntry entry =
+        AbiEntry.function("transfer").input(AbiParameter.of("amount", "uint256")).build();
+    assertEquals("AbiEntry{type=FUNCTION, name=transfer, inputs=1, outputs=0}", entry.toString());
+  }
+
+  @Test
+  void constructorEntryHasNoName() throws Exception {
+    final AbiEntry entry =
+        AbiEntry.constructor().input(AbiParameter.of("owner", "address")).build();
+    assertEquals(EntryType.CONSTRUCTOR, entry.type());
+    assertEquals("", entry.name());
+    assertEquals(entry, MAPPER.readValue(MAPPER.writeValueAsString(entry), AbiEntry.class));
   }
 }
