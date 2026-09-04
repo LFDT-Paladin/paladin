@@ -77,7 +77,7 @@ Constructing a tokenization use case has historically meant choosing between thr
     - Regulated securities such as Bonds and Funds almost always fall into this category, where existing legal frameworks for the governance of ownership records mean that some set of legal entities must be involved in any transfer, and must have full details of that transfer.
 3. Private smart contracts
     - The power of a smart contract, EVM or otherwise, is that every party involved knows the same logic is being executed against the same data, in the same order. Previous projects, including ones with significant adoption in the enterprise EVM community such as [Tessera](https://github.com/Consensys/tessera), have aimed to provide this same benefit within **privacy groups** sharing a common ledger.
-    - Because data inside a privacy group can only be proved to those within the privacy group, this has primarily been adopted for time-bound processing, or processing that is known to be very constrained to a specific set of parties. General use tokens do not fit "inside" a privacy group, because by their nature the tokens needs to be tradable and exchangeable across these privacy groups (or they are not really tokens).
+    - Because data inside a privacy group can only be proved to those within the privacy group, this has primarily been adopted for time-bound processing, or processing that is known to be very constrained to a specific set of parties. General use tokens do not fit "inside" a privacy group, because by their nature the tokens need to be tradable and exchangeable across these privacy groups (or they are not really tokens).
 
 ### The missing link - programmability
 
