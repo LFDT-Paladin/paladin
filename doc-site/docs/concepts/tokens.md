@@ -69,7 +69,7 @@ Paladin not only uses EVM as the base ledger it runs against (it is compatible w
 Constructing a tokenization use case has historically meant choosing between three very different approaches to maintaining privacy:
 
 1. Zero-knowledge proof (ZKP) based tokens
-    - These obey the purest principals of decentralization, where mathematics enforces the rules of the token. No individual party is required to be involved in any processing, and by the nature of that no party can prevent a valid transaction from executing.
+    - These obey the purest principles of decentralization, where mathematics enforces the rules of the token. No individual party is required to be involved in any processing, and by the nature of that no party can prevent a valid transaction from executing.
     - Cash tokens, including Central Bank Digital Currencies (CBDCs), are driving enterprise adoption of this form of token due to the simple mathematical nature of the tokens. Control points are often still required such as KYC/AML checks on the governance of parties authorized to trade, and activities that affect overall supply.
     - The overhead of the cryptography is comparatively high with this set of technologies, so there is rapid evolution in the toolkits and approaches to reduce the overhead and increase efficiency.
 2. Issuer-backed tokens / Private Oracles / Notarized tokens
@@ -83,7 +83,7 @@ Constructing a tokenization use case has historically meant choosing between thr
 
 Rather than picking any one of these approaches in isolation, Paladin embraces **all of these approaches** and the ability to program across them.
 
-This is based on the principal that the success of the EVM community, and existing ERC token standards, is the ability for use case to be programmed against them that are beyond the original design of the token itself.
+This is based on the principle that the success of the EVM community, and existing ERC token standards, is the ability for use case to be programmed against them that are beyond the original design of the token itself.
 
 ## Paladin tokens
 
