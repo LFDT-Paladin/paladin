@@ -728,7 +728,10 @@ class TxBuilderTest {
           assertTrue(
               elapsed.toMillis() >= 60,
               "must wait out the full timeout, waited " + elapsed.toMillis() + "ms");
-          assertTrue(server.requestCount() > 2, "should have polled repeatedly");
+          // One send plus at least one poll. How many polls fit inside the timeout depends on
+          // the machine, so repeated polling is asserted by
+          // waitForReceiptPollsUntilTheReceiptArrives instead.
+          assertTrue(server.requestCount() >= 2, "should have polled at least once");
         });
   }
 
