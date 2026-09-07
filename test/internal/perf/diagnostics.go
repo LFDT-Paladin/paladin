@@ -36,14 +36,13 @@ import (
 	"github.com/LFDT-Paladin/paladin/test/internal/testsuite"
 )
 
-// sequencerStageSnapshot holds cumulative histogram data for one sequencer stage label.
-// SumMs is the cumulative sum of time spent in this stage across all observed transactions
-// (in milliseconds, matching the histogram bucket unit). Diff consecutive snapshots to get
-// interval rates.
-type sequencerStageSnapshot struct {
-	Stage       string  `json:"stage"`
+// transactionStateSnapshot holds cumulative histogram data for one transaction state label.
+// SumSeconds is the cumulative sum of time spent in this state across all observed transactions,
+// in seconds to match the histogram bucket unit. Diff consecutive snapshots to get interval rates.
+type transactionStateSnapshot struct {
+	State       string  `json:"state"`
 	SampleCount uint64  `json:"sampleCount"`
-	SumMs       float64 `json:"sumMs"`
+	SumSeconds  float64 `json:"sumSeconds"`
 }
 
 // nodeDiagnosticSnapshot holds all collected metrics for one node at one point in time.
@@ -57,9 +56,9 @@ type nodeDiagnosticSnapshot struct {
 	ProcessOpenFDs float64 `json:"processOpenFds"`
 
 	// Sequencer metrics from Prometheus /metrics
-	ActiveSequencers         float64                  `json:"activeSequencers"`
-	CoordinatingTransactions float64                  `json:"coordinatingTransactions"`
-	SequencerStages          []sequencerStageSnapshot `json:"sequencerStages,omitempty"`
+	ActiveSequencers         float64                    `json:"activeSequencers"`
+	CoordinatingTransactions float64                    `json:"coordinatingTransactions"`
+	TransactionStates        []transactionStateSnapshot `json:"transactionStates,omitempty"`
 
 	// Highest sequence number seen in the reliable message log for this node.
 	// Diff consecutive snapshots to measure transport message creation rate and
@@ -163,7 +162,7 @@ func collectNodeMetrics(ctx context.Context, node *testsuite.Node) *nodeDiagnost
 			snap.ProcessOpenFDs = gaugeValue(mf, "process_open_fds")
 			snap.ActiveSequencers = gaugeValue(mf, "distributed_sequencer_active_sequencers")
 			snap.CoordinatingTransactions = gaugeValue(mf, "distributed_sequencer_coordinating_txns")
-			snap.SequencerStages = histogramByLabel(mf, "distributed_sequencer_sequencer_stage", "stage")
+			snap.TransactionStates = histogramByLabel(mf, "distributed_sequencer_state_duration_seconds", "state")
 		}
 	}
 
@@ -321,13 +320,13 @@ func gaugeValue(mf map[string]*dto.MetricFamily, name string) float64 {
 }
 
 // histogramByLabel extracts cumulative histogram data from a metric family that uses
-// a single label to distinguish series (e.g. stage="Coord_Assembling").
-func histogramByLabel(mf map[string]*dto.MetricFamily, name, labelName string) []sequencerStageSnapshot {
+// a single label to distinguish series (e.g. state="Coord_Assembling").
+func histogramByLabel(mf map[string]*dto.MetricFamily, name, labelName string) []transactionStateSnapshot {
 	family, ok := mf[name]
 	if !ok {
 		return nil
 	}
-	stages := make([]sequencerStageSnapshot, 0, len(family.GetMetric()))
+	states := make([]transactionStateSnapshot, 0, len(family.GetMetric()))
 	for _, m := range family.GetMetric() {
 		h := m.GetHistogram()
 		if h == nil {
@@ -340,11 +339,11 @@ func histogramByLabel(mf map[string]*dto.MetricFamily, name, labelName string) [
 				break
 			}
 		}
-		stages = append(stages, sequencerStageSnapshot{
-			Stage:       labelVal,
+		states = append(states, transactionStateSnapshot{
+			State:       labelVal,
 			SampleCount: h.GetSampleCount(),
-			SumMs:       h.GetSampleSum(),
+			SumSeconds:  h.GetSampleSum(),
 		})
 	}
-	return stages
+	return states
 }

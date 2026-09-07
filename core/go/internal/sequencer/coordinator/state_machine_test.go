@@ -585,6 +585,7 @@ func TestCoordinator_WhenElect_ActiveCoordinatorClosing_TransitionsDirectlyToAct
 
 	// Construct a confirmed lock + its output state so we can verify the grapher absorbed them.
 	stateID := pldtypes.HexBytes{0x01, 0x02, 0x03, 0x04}
+	schemaID := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	confirmedAtBlock := uint64(99)
 
 	event := &common.HeartbeatReceivedEvent{
@@ -592,7 +593,7 @@ func TestCoordinator_WhenElect_ActiveCoordinatorClosing_TransitionsDirectlyToAct
 		CoordinatorSnapshot: &common.CoordinatorSnapshot{
 			CoordinatorState: common.CoordinatorState_Closing,
 			StateSnapshot: &prototk.StateSnapshot{
-				States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: stateID.String()}, AllowedNodes: []string{"node1"}}},
+				States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: stateID.String(), SchemaId: schemaID.String()}, AllowedNodes: []string{"node1"}, Labels: &prototk.StateLabels{}}},
 				Locks:  []*prototk.SnapshotStateLock{{StateId: stateID.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAtBlock}},
 			},
 		},
@@ -609,6 +610,9 @@ func TestCoordinator_WhenElect_ActiveCoordinatorClosing_TransitionsDirectlyToAct
 	require.NoError(t, err)
 	assert.Len(t, exported.GetStates(), 1, "imported output state must be visible to node1")
 	assert.Len(t, exported.GetLocks(), 1, "imported confirmed lock must be present in grapher")
+	// The labelled state is offered to ahead-of-chain queries.
+	candidates, _ := c.grapher.SnapshotView(ctx, "node1")
+	assert.Len(t, candidates, 1, "a labelled imported state must be queryable ahead-of-chain")
 }
 
 func TestCoordinator_WhenElect_StaysElect_OnHeartbeatFromCurrentCoordinator_WhenStillActive(t *testing.T) {
@@ -1036,6 +1040,8 @@ func TestCoordinator_WhenPreparedReceivesClosingHeartbeat_TransitionsToActiveAnd
 	stateID := pldtypes.HexBytes{0x01, 0x02, 0x03, 0x04}
 	confirmedAtBlock := uint64(99)
 
+	// The snapshot state carries no labels: it can never be advertised as a ref and is therefore
+	// dropped rather than imported unusable. Its lock is retained.
 	event := &common.HeartbeatReceivedEvent{
 		FromNode: "node2",
 		CoordinatorSnapshot: &common.CoordinatorSnapshot{
@@ -1050,11 +1056,14 @@ func TestCoordinator_WhenPreparedReceivesClosingHeartbeat_TransitionsToActiveAnd
 	assert.Equal(t, State_Active, c.GetCurrentState())
 	assert.NotEmpty(t, c.signingIdentity.value, "OnTransitionTo Active must set signing identity")
 	assert.Equal(t, "node1", c.currentActiveCoordinator, "OnTransitionTo Active must set currentActiveCoordinator to self")
-	// action_ImportStatesAndLocks ran: the grapher must now hold the imported state and lock.
+	// action_ImportStatesAndLocks ran: the un-labelled state was dropped, but its lock is retained.
 	exported, err := c.grapher.ExportStatesAndLocks(ctx, "node1")
 	require.NoError(t, err)
-	assert.Len(t, exported.GetStates(), 1, "imported output state must be visible to node1")
-	assert.Len(t, exported.GetLocks(), 1, "imported confirmed lock must be present in grapher")
+	assert.Empty(t, exported.GetStates(), "an un-labelled state must be dropped, not imported unusable")
+	assert.Len(t, exported.GetLocks(), 1, "imported confirmed lock must be retained even when its state is dropped")
+	// The dropped state is therefore not offered to ahead-of-chain queries either.
+	droppedCandidates, _ := c.grapher.SnapshotView(ctx, "node1")
+	assert.Empty(t, droppedCandidates, "a dropped state must not be queryable")
 }
 
 func TestCoordinator_WhenPreparedReceivesClosingHeartbeat_ConfirmedTransactionsInSnapshot_CleanedUp(t *testing.T) {

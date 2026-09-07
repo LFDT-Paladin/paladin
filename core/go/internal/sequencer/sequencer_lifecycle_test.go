@@ -110,12 +110,21 @@ func newSequencerLifecycleTestMocksWithPersistence(t *testing.T, sqlPersistence 
 		m.persistence.EXPECT().NOTX().Return(nil).Maybe()
 	}
 
+	// Event loop metrics are emitted by every running state machine - not something
+	// the lifecycle tests assert on.
+	m.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	m.metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	m.metrics.EXPECT().ObserveEventQueueWait(mock.Anything, mock.Anything, mock.Anything).Maybe()
+
 	return m
 }
 
 func (m *sequencerLifecycleTestMocks) setupDefaultExpectations(ctx context.Context, contractAddr *pldtypes.EthAddress) {
 	m.transportManager.EXPECT().LocalNodeName().Return("test-node").Maybe()
 	m.metrics.EXPECT().SetActiveCoordinators(mock.Anything).Maybe()
+	m.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	m.metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	m.metrics.EXPECT().ObserveEventQueueWait(mock.Anything, mock.Anything, mock.Anything).Maybe()
 }
 
 type mockContractConfig struct{}
@@ -1636,6 +1645,9 @@ func TestSequencerManager_LoadSequencer_WithProvidedDomainAPI(t *testing.T) {
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, nil, *contractAddr).Return(mockDomainSmartContract, nil).Once()
 	mocks.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 	mocks.metrics.EXPECT().SetActiveSequencers(0).Once()
+	mocks.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	mocks.metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	mocks.metrics.EXPECT().ObserveEventQueueWait(mock.Anything, mock.Anything, mock.Anything).Maybe()
 
 	result, err := sm.LoadSequencer(ctx, nil, *contractAddr, mockDomainSmartContract, nil)
 	require.NoError(t, err)
@@ -1716,6 +1728,9 @@ func TestSequencerManager_LoadSequencer_ReachesTargetLimit(t *testing.T) {
 	mocks1.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr3).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 	mocks1.transportManager.EXPECT().LocalNodeName().Return("test-node").Maybe()
 	mocks1.metrics.EXPECT().SetActiveSequencers(1).Once()
+	mocks1.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	mocks1.metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	mocks1.metrics.EXPECT().ObserveEventQueueWait(mock.Anything, mock.Anything, mock.Anything).Maybe()
 
 	result, err := sm.LoadSequencer(ctx, nil, *contractAddr3, nil, nil)
 	require.NoError(t, err)

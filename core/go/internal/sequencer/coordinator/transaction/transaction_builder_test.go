@@ -31,11 +31,13 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatorstateviewmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
@@ -75,6 +77,7 @@ type TransactionBuilderForTesting struct {
 	useMockTransportWriter             bool
 	useMockClock                       bool
 	grapher                            grapher.Grapher
+	stateViewProvider                  stateview.Provider
 	stateVisibilityTracker             statevisibilitytracker.StateVisibilityStore
 	dependencyTracker                  dependencytracker.DependencyTracker
 	txn                                *coordinatorTransaction
@@ -221,6 +224,11 @@ func (b *TransactionBuilderForTesting) Reverts(revertReason string) *Transaction
 
 func (b *TransactionBuilderForTesting) Grapher(grapher grapher.Grapher) *TransactionBuilderForTesting {
 	b.grapher = grapher
+	return b
+}
+
+func (b *TransactionBuilderForTesting) StateViewProvider(stateViewProvider stateview.Provider) *TransactionBuilderForTesting {
+	b.stateViewProvider = stateViewProvider
 	return b
 }
 
@@ -481,6 +489,7 @@ type transactionDependencyMocks struct {
 	PublicTxManager     *componentsmocks.PublicTxManager
 	TXManager           *componentsmocks.TXManager
 	SequenceManager     *componentsmocks.SequencerManager
+	StateViewProvider   *coordinatorstateviewmocks.Provider
 	DB                  sqlmock.Sqlmock
 }
 
@@ -555,6 +564,17 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		clock = common.RealClock()
 	}
 
+	// Default the stateview provider to a permissive mock: view open/close fire on every
+	// entry/exit of State_Assembling, and most tests do not assert on them. Tests that do can inject
+	// a strict mock via StateViewProvider(...).
+	stateViewProvider := b.stateViewProvider
+	if stateViewProvider == nil {
+		mocks.StateViewProvider = coordinatorstateviewmocks.NewProvider(b.t)
+		mocks.StateViewProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mocks.StateViewProvider.EXPECT().DeleteSnapshot(mock.Anything, mock.Anything).Return().Maybe()
+		stateViewProvider = mocks.StateViewProvider
+	}
+
 	txn := newTransaction(
 		ctx,
 		b.originator,
@@ -584,6 +604,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.assembleErrorRetryThreshhold,
 		b.signErrorRetryThreshhold,
 		b.grapher,
+		stateViewProvider,
 		b.stateVisibilityTracker,
 		b.dependencyTracker,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),

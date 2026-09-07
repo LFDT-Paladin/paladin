@@ -110,7 +110,6 @@ func Test_calculateCoordinatorPriorities_SenderMode_NoOp(t *testing.T) {
 	assert.Empty(t, c.coordinatorPriorityList, "SENDER mode must not compute a priority list")
 }
 
-
 func Test_refreshBlockHeight_SetsEffectiveBlockHeight(t *testing.T) {
 	ctx := context.Background()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).

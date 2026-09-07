@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 )
 
@@ -1236,6 +1237,7 @@ func (c *coordinator) initializeStateMachineEventLoop(initialState State, eventQ
 		Name:                   fmt.Sprintf("coordinator-%s", c.contractAddress.String()[0:8]),
 		TransitionCallback:     c.onStateTransition,
 		PreProcess:             c.preProcessEvent,
+		Metrics:                metrics.NewEventLoopMetrics(c.metrics, "coordinator"),
 	})
 }
 

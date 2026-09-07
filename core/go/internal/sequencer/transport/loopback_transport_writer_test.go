@@ -38,11 +38,11 @@ func TestNewLoopbackTransportWriter(t *testing.T) {
 
 	require.NotNil(t, writer)
 	assert.NotNil(t, writer.LoopbackQueue())
-	
+
 	// Verify the queue is initialized with buffer size 1
 	queue := writer.LoopbackQueue()
 	assert.NotNil(t, queue)
-	
+
 	// Verify handler is set by calling Send
 	ctx := context.Background()
 	send := &components.FireAndForgetMessageSend{
@@ -50,7 +50,7 @@ func TestNewLoopbackTransportWriter(t *testing.T) {
 		MessageType: "test-message",
 		Payload:     []byte("test-payload"),
 	}
-	
+
 	err := writer.Send(ctx, send)
 	require.NoError(t, err)
 	assert.True(t, handlerCalled)
@@ -185,7 +185,7 @@ func TestLoopbackTransportWriter_Send_ContextPropagation(t *testing.T) {
 	}
 
 	writer := NewLoopbackTransportWriter(handler)
-	
+
 	ctx := context.WithValue(context.Background(), "test-key", "test-value")
 	send := &components.FireAndForgetMessageSend{
 		Node:        "test-node",
@@ -269,4 +269,3 @@ func TestLoopbackTransportWriter_Send_MultipleCalls(t *testing.T) {
 	assert.Equal(t, "node-1", receivedMessages[0].FromNode)
 	assert.Equal(t, "node-2", receivedMessages[1].FromNode)
 }
-

@@ -52,6 +52,11 @@ type TransportWriter interface {
 	SendAssembleRejection(ctx context.Context, node string, msg *engineProto.AssembleRejection) error
 	SendSignResponse(ctx context.Context, node string, msg *engineProto.SignResponse) error
 	SendSignError(ctx context.Context, node string, msg *engineProto.SignError) error
+	SendQueryAvailableStatesRequest(ctx context.Context, node string, msg *engineProto.QueryAvailableStatesRequest) error
+	SendQueryAvailableStatesResponse(ctx context.Context, node string, msg *engineProto.QueryAvailableStatesResponse) error
+	SendGetSpentStateIDsRequest(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsRequest) error
+	SendGetSpentStateIDsResponse(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsResponse) error
+	SendStateViewError(ctx context.Context, node string, msg *engineProto.StateViewError) error
 	SendNonceAssigned(ctx context.Context, node string, msg *engineProto.NonceAssigned) error
 	SendTransactionSubmitted(ctx context.Context, node string, msg *engineProto.TransactionSubmitted) error
 	SendTransactionConfirmed(ctx context.Context, node string, msg *engineProto.TransactionConfirmed) error
@@ -166,6 +171,26 @@ func (tw *transportWriter) SendSignResponse(ctx context.Context, node string, ms
 
 func (tw *transportWriter) SendSignError(ctx context.Context, node string, msg *engineProto.SignError) error {
 	return tw.marshalAndSend(ctx, node, MessageType_SignError, msg)
+}
+
+func (tw *transportWriter) SendQueryAvailableStatesRequest(ctx context.Context, node string, msg *engineProto.QueryAvailableStatesRequest) error {
+	return tw.marshalAndSend(ctx, node, MessageType_QueryAvailableStatesRequest, msg)
+}
+
+func (tw *transportWriter) SendQueryAvailableStatesResponse(ctx context.Context, node string, msg *engineProto.QueryAvailableStatesResponse) error {
+	return tw.marshalAndSend(ctx, node, MessageType_QueryAvailableStatesResponse, msg)
+}
+
+func (tw *transportWriter) SendGetSpentStateIDsRequest(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsRequest) error {
+	return tw.marshalAndSend(ctx, node, MessageType_GetSpentStateIDsRequest, msg)
+}
+
+func (tw *transportWriter) SendGetSpentStateIDsResponse(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsResponse) error {
+	return tw.marshalAndSend(ctx, node, MessageType_GetSpentStateIDsResponse, msg)
+}
+
+func (tw *transportWriter) SendStateViewError(ctx context.Context, node string, msg *engineProto.StateViewError) error {
+	return tw.marshalAndSend(ctx, node, MessageType_StateViewError, msg)
 }
 
 func (tw *transportWriter) SendNonceAssigned(ctx context.Context, node string, msg *engineProto.NonceAssigned) error {

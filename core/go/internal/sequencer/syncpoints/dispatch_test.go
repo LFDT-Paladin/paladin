@@ -425,6 +425,12 @@ func TestPersistDispatchBatch_MultipleCommitInSingleFlush(t *testing.T) {
 		})
 	}
 
+	batched := make([]uuid.UUID, 0, n)
+	for _, pd := range batch.Dispatches() {
+		batched = append(batched, pd.TransactionID)
+	}
+	assert.Equal(t, txIDs, batched, "Dispatches must report the batch in Append order")
+
 	require.NoError(t, sp.PersistDispatchBatch(ctx, batch))
 	require.NoError(t, mp.Mock.ExpectationsWereMet())
 	assert.Equal(t, txIDs, writeOrder, "public transactions must be written in Append order")

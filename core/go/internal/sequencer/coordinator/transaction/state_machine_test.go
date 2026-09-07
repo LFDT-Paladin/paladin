@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,10 +25,17 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
@@ -666,6 +674,97 @@ func TestCoordinatorTransaction_Assembling_ToPooled_OnAssembleError_IfBelowRetry
 	assert.Equal(t, State_Pooled, txn.GetCurrentState())
 }
 
+// End-to-end protection: a state visible to the originator when the assemble request is sent must
+// stay visible to per-select assembly queries for the whole in-flight window, even when the
+// coordinator's block height advances past the tolerance window mid-assemble. The deferred forget
+// is applied as soon as the transaction leaves State_Assembling.
+func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFlightWindow(t *testing.T) {
+	ctx := context.Background()
+
+	depTracker := dependencytracker.NewDependencyTracker()
+	visibilityStore := statevisibilitytracker.NewStore()
+	g := grapher.NewGrapher(depTracker, visibilityStore, 5)
+
+	// Seed a confirmed create lock (confirmed at block 100, due to be forgotten at block 105)
+	// with private state data visible to node1
+	seedTxID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("42", 32))
+	state := &prototk.EndorsableState{Id: stateID.String(), StateDataJson: `{}`}
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, seedTxID))
+	visibilityStore.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}, Labels: &prototk.StateLabels{}})
+	g.LockMintsOnCreate(ctx, []*prototk.EndorsableState{state}, seedTxID)
+	g.ForgetTransaction(ctx, seedTxID, 100)
+
+	// A real state view provider backed by the same grapher: entering State_Assembling captures a
+	// view that freezes the candidate snapshot, and per-select queries are answered from it.
+	recorder := testutil.NewSentMessageRecorder()
+	stateManager := componentsmocks.NewStateManager(t)
+	stateManager.EXPECT().FindMatchingInMemoryStates(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ string, _ pldtypes.Bytes32, _ *query.QueryJSON, candidates []*prototk.SnapshotState) ([]*prototk.QueriedState, error) {
+			out := make([]*prototk.QueriedState, len(candidates))
+			for i, c := range candidates {
+				out[i] = &prototk.QueriedState{State: c.GetState()}
+			}
+			return out, nil
+		}).Maybe()
+	provider := stateview.NewProvider("test-domain", "0x", recorder, g, stateManager)
+
+	txnBuilder := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(g).
+		StateViewProvider(provider).
+		DependencyTracker(depTracker).
+		StateVisibility(visibilityStore).
+		WithCurrentBlockHeight(100).
+		AssembleErrorRetryThreshold(3).
+		Originator("alice@node1")
+	txn, _ := txnBuilder.Build()
+
+	err := txn.HandleEvent(ctx, &SelectedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+	})
+	require.NoError(t, err)
+	require.Equal(t, State_Assembling, txn.GetCurrentState())
+	assembleRequestID := txn.assembleRequestID.String()
+	schemaID := pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32)).String()
+
+	runQuery := func() int {
+		recorder.Reset(ctx)
+		provider.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+			ContractAddress: "0x", RequestId: "q", SchemaId: schemaID, QueryJson: `{}`, AssembleRequestId: assembleRequestID,
+		})
+		require.Empty(t, recorder.SentStateViewErrors())
+		resps := recorder.SentQueryAvailableStatesResponses()
+		require.Len(t, resps, 1)
+		return len(resps[0].GetStates())
+	}
+
+	require.Equal(t, 1, runQuery(), "state must be visible to per-select queries at request time")
+
+	// The coordinator advances well past the tolerance window mid-assemble; the block-driven forget
+	// removes the state from the live grapher, but the frozen snapshot keeps serving it.
+	g.ForgetConfirmedLocks(ctx, 200)
+	liveCandidates, _ := g.SnapshotView(ctx, "node1")
+	require.Empty(t, liveCandidates, "the live grapher view forgets the confirmed lock")
+	require.Equal(t, 1, runQuery(), "state must stay visible to per-select queries while the assemble is in flight")
+
+	// Exit State_Assembling; the view is discarded and further queries are rejected.
+	err = txn.HandleEvent(ctx, &AssembleErrorEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+		RequestID:            txn.pendingAssembleRequest.IdempotencyKey(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, State_Pooled, txn.GetCurrentState())
+
+	recorder.Reset(ctx)
+	provider.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress: "0x", RequestId: "q", SchemaId: schemaID, QueryJson: `{}`, AssembleRequestId: assembleRequestID,
+	})
+	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
+	errs := recorder.SentStateViewErrors()
+	require.Len(t, errs, 1, "the view must be discarded once the assemble is no longer in flight")
+	assert.Regexp(t, "PD012653", errs[0].GetErrorMessage())
+}
+
 func TestCoordinatorTransaction_Assembling_ToEvicted_OnAssembleError_IfAboveRetryThreshold(t *testing.T) {
 	ctx := context.Background()
 	// assembleErrorCount(4) > threshold(3) → cannot retry → Evicted
@@ -843,8 +942,10 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToBlocked_OnEndorsed_IfAtt
 	assert.Equal(t, State_Blocked, txn2.GetCurrentState(), "current state is %s", txn2.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRevert_ToleranceExceeded(t *testing.T) {
-	// Single-party requirement → tolerance=0. Any revert exceeds tolerance → repool.
+func TestCoordinatorTransaction_Endorsement_Gathering_ToReverted_OnEndorseRevert_ToleranceExceeded(t *testing.T) {
+	// Single-party requirement → tolerance=0. One revert puts the threshold out of reach, and a
+	// correctly implemented domain would not have assembled a transaction its endorser refuses,
+	// so the transaction is finalized as reverted rather than repooled.
 	ctx := context.Background()
 	mockGrapher := graphermocks.NewGrapher(t)
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -852,12 +953,139 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRevert_T
 		AddPendingEndorsementRequest().
 		EndorseTolerance(0)
 
-	txn, _ := builder.Build()
+	txn, mocks := builder.Build()
 	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, txn.GetID())
+
+	var finalized *syncpoints.TransactionFinalizeRequest
+	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Run(func(_ context.Context, req *syncpoints.TransactionFinalizeRequest, _ func(context.Context), _ func(context.Context, error)) {
+		finalized = req
+	}).Return()
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorseRevertEvent())
 	require.NoError(t, err)
+	assert.Equal(t, State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+
+	// The receipt must name the endorser that refused and carry its reason.
+	require.NotNil(t, finalized, "transaction must be finalized, not left for retry")
+	assert.Equal(t, txn.pt.ID, finalized.TransactionID)
+	assert.Contains(t, finalized.FailureMessage, "PD012649")
+	assert.Contains(t, finalized.FailureMessage, "some reason for revert")
+
+	// The originator must be told, or its own state machine waits for a dispatch that never comes.
+	sent := mocks.SentMessageRecorder.SentTransactionConfirmed()
+	require.Len(t, sent, 1)
+	assert.Equal(t, engineProto.TransactionConfirmed_OUTCOME_REVERTED, sent[0].Outcome)
+	assert.Equal(t, txn.pt.ID.String(), sent[0].TransactionId)
+	assert.Contains(t, sent[0].FailureMessage, "some reason for revert")
+}
+
+func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRevert_MixedFailuresExceedTolerance(t *testing.T) {
+	// 2-of-3 plan → tolerance=1. One party already errored; now a second party reverts. Combined
+	// failures (2) exceed the tolerance but reverts alone (1) do not, so the outcome is a repool
+	// rather than a finalize: the error may have been transient, and the reverts on their own leave
+	// the threshold reachable.
+	ctx := context.Background()
+	mockGrapher := graphermocks.NewGrapher(t)
+	party1 := "party1@node1"
+	party2 := "party2@node2"
+	party3 := "party3@node3"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(mockGrapher).
+		NumberOfRequiredEndorsers(0). // suppress the standard per-endorser plan
+		Build()
+	txn.endorseToleranceByRequirement = map[string]int{"endorse-multisig": 1}
+
+	threshold := int32(2)
+	txn.pt.PostAssembly.AssembleResponse.AttestationPlan = []*prototk.AttestationRequest{
+		{
+			Name:            "endorse-multisig",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			Threshold:       &threshold,
+			Parties:         []string{party1, party2, party3},
+		},
+	}
+	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
+		"endorse-multisig": {
+			party1: nil, // nil sentinel: already errored, within tolerance=1
+			party2: common.NewIdempotentRequest(ctx, common.RealClock(), time.Second, func(_ context.Context, _ uuid.UUID) error { return nil }),
+		},
+	}
+	// party1's earlier failure was an error, so it counts towards failures but not reverts.
+	txn.endorseFailureCountByRequirement = map[string]int{"endorse-multisig": 1}
+
+	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, txn.GetID())
+
+	event := &EndorseRevertEvent{
+		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		Party:                  party2,
+		RevertReason:           "some reason for revert",
+		AttestationRequestName: "endorse-multisig",
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party2].IdempotencyKey(),
+	}
+	err := txn.HandleEvent(ctx, event)
+	require.NoError(t, err)
 	assert.Equal(t, State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestCoordinatorTransaction_Endorsement_Gathering_ToReverted_OnEndorseRevert_RevertsAloneExceedTolerance(t *testing.T) {
+	// Same 2-of-3 plan, but both failures are reverts. Reverts alone (2) exceed the tolerance,
+	// so this finalizes where the mixed case above repools.
+	ctx := context.Background()
+	mockGrapher := graphermocks.NewGrapher(t)
+	party1 := "party1@node1"
+	party2 := "party2@node2"
+	party3 := "party3@node3"
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(mockGrapher).
+		NumberOfRequiredEndorsers(0).
+		Build()
+	txn.endorseToleranceByRequirement = map[string]int{"endorse-multisig": 1}
+
+	threshold := int32(2)
+	txn.pt.PostAssembly.AssembleResponse.AttestationPlan = []*prototk.AttestationRequest{
+		{
+			Name:            "endorse-multisig",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			Threshold:       &threshold,
+			Parties:         []string{party1, party2, party3},
+		},
+	}
+	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
+		"endorse-multisig": {
+			party1: nil, // nil sentinel: already reverted, within tolerance=1
+			party2: common.NewIdempotentRequest(ctx, common.RealClock(), time.Second, func(_ context.Context, _ uuid.UUID) error { return nil }),
+		},
+	}
+	txn.endorseFailureCountByRequirement = map[string]int{"endorse-multisig": 1}
+	txn.endorseRevertCountByRequirement = map[string]int{"endorse-multisig": 1}
+	txn.endorseRevertReasons = []string{"[" + party1 + "] first reason"}
+
+	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, txn.GetID())
+
+	var finalized *syncpoints.TransactionFinalizeRequest
+	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Run(func(_ context.Context, req *syncpoints.TransactionFinalizeRequest, _ func(context.Context), _ func(context.Context, error)) {
+		finalized = req
+	}).Return()
+
+	event := &EndorseRevertEvent{
+		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		Party:                  party2,
+		RevertReason:           "second reason",
+		AttestationRequestName: "endorse-multisig",
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party2].IdempotencyKey(),
+	}
+	err := txn.HandleEvent(ctx, event)
+	require.NoError(t, err)
+	assert.Equal(t, State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+
+	// Both refusals are reported, not just the one that tipped it over the tolerance.
+	require.NotNil(t, finalized)
+	assert.Contains(t, finalized.FailureMessage, "first reason")
+	assert.Contains(t, finalized.FailureMessage, "second reason")
 }
 
 func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseRevert_WithinTolerance(t *testing.T) {
@@ -888,6 +1116,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseReve
 		Party:                  party1,
 		AttestationRequestName: "endorse-multisig",
 		RevertReason:           "assembly state is stale",
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey(),
 	}
 	err := txn.HandleEvent(ctx, event)
 	require.NoError(t, err)
@@ -948,6 +1177,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseErro
 		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
 		Party:                  party1,
 		AttestationRequestName: "endorse-multisig",
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey(),
 	}
 
 	err := txn.HandleEvent(ctx, event)
@@ -998,6 +1228,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseError_To
 		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
 		Party:                  party2,
 		AttestationRequestName: "endorse-multisig",
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party2].IdempotencyKey(),
 	}
 	err := txn.HandleEvent(ctx, event)
 	require.NoError(t, err)
@@ -1055,6 +1286,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseRequ
 		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
 		Party:                  party1,
 		AttestationRequestName: "endorse-multisig",
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey(),
 		RejectionReason:        engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
 		CoordinatorBlockHeight: 100,
 		EndorserBlockHeight:    200,
@@ -1070,6 +1302,133 @@ func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseRequ
 	assert.Nil(t, req)
 	assert.NotNil(t, txn.pendingEndorsementRequests["endorse-multisig"][party2])
 	assert.NotNil(t, txn.pendingEndorsementRequests["endorse-multisig"][party3])
+}
+
+func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnDuplicateEndorseError_ForSameParty(t *testing.T) {
+	// A party that has already failed is marked with the nil sentinel, so a second response for the
+	// same request is dropped rather than counted again. A 2-of-3 requirement gives tolerance=1: if
+	// the duplicate were counted, failures would reach 2 and the transaction would be repooled even
+	// though only one of the three parties has actually failed.
+	ctx := context.Background()
+	party1 := "party1@node1"
+	party2 := "party2@node2"
+	party3 := "party3@node3"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		NumberOfRequiredEndorsers(0). // suppress the standard per-endorser plan
+		Build()
+	txn.endorseToleranceByRequirement = map[string]int{"endorse-multisig": 1}
+
+	threshold := int32(2)
+	txn.pt.PostAssembly.AssembleResponse.AttestationPlan = []*prototk.AttestationRequest{
+		{
+			Name:            "endorse-multisig",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			Threshold:       &threshold,
+			Parties:         []string{party1, party2, party3},
+		},
+	}
+	newReq := func() *common.IdempotentRequest {
+		return common.NewIdempotentRequest(ctx, common.RealClock(), time.Second, func(_ context.Context, _ uuid.UUID) error { return nil })
+	}
+	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
+		"endorse-multisig": {
+			party1: newReq(),
+			party2: newReq(),
+			party3: newReq(),
+		},
+	}
+
+	event := &EndorseErrorEvent{
+		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		Party:                  party1,
+		AttestationRequestName: "endorse-multisig",
+		RequestID:              txn.pendingEndorsementRequests["endorse-multisig"][party1].IdempotencyKey(),
+	}
+	require.NoError(t, txn.HandleEvent(ctx, event))
+	require.NoError(t, txn.HandleEvent(ctx, event))
+
+	assert.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	assert.Equal(t, 1, txn.endorseFailureCountByRequirement["endorse-multisig"])
+	assert.Nil(t, txn.pendingEndorsementRequests["endorse-multisig"][party1])
+	assert.NotNil(t, txn.pendingEndorsementRequests["endorse-multisig"][party2])
+	assert.NotNil(t, txn.pendingEndorsementRequests["endorse-multisig"][party3])
+}
+
+func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorseRevert_ForStaleRequest(t *testing.T) {
+	// A revert carrying a request ID that does not match the outstanding request belongs to an
+	// earlier round of endorsement requests. Single-party requirement → tolerance=0, so counting it
+	// would finalize the transaction as reverted; instead it is dropped and the outstanding request
+	// is left to be answered. No finalize is expected: the SyncPoints mock would fail the test.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		AddPendingEndorsementRequest().
+		EndorseTolerance(0)
+	txn, _ := builder.Build()
+
+	staleEvent := builder.BuildEndorseRevertEvent()
+	staleEvent.RequestID = uuid.New()
+	require.NoError(t, txn.HandleEvent(ctx, staleEvent))
+
+	assert.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	assert.Equal(t, 0, txn.endorseFailureCountByRequirement["endorse-0"])
+	assert.Equal(t, 0, txn.endorseRevertCountByRequirement["endorse-0"])
+	assert.NotNil(t, txn.pendingEndorsementRequests["endorse-0"]["endorser-0@node-0"])
+}
+
+func TestCoordinatorTransaction_Endorsement_Gathering_StaysInState_OnEndorsement_ForPartyAlreadyRecordedAsFailed(t *testing.T) {
+	// An endorsement can arrive after the same party's request has already been recorded as failed —
+	// the endorser can fail after the domain has endorsed (a signing or send failure), and an error
+	// response can overtake the endorsement it was reported alongside. The party is left in the
+	// pending map as a nil sentinel, so the endorsement must be dropped rather than collected against
+	// a request that is no longer outstanding.
+	ctx := context.Background()
+	party1 := "party1@node1"
+	party2 := "party2@node2"
+	party3 := "party3@node3"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		NumberOfRequiredEndorsers(0). // suppress the standard per-endorser plan
+		Build()
+	txn.endorseToleranceByRequirement = map[string]int{"endorse-multisig": 1}
+
+	threshold2 := int32(2)
+	txn.pt.PostAssembly.AssembleResponse.AttestationPlan = []*prototk.AttestationRequest{
+		{
+			Name:            "endorse-multisig",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			Threshold:       &threshold2,
+			Parties:         []string{party1, party2, party3},
+		},
+	}
+	pendingRequest := common.NewIdempotentRequest(ctx, common.RealClock(), time.Second, func(_ context.Context, _ uuid.UUID) error { return nil })
+	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
+		"endorse-multisig": {party1: pendingRequest},
+	}
+	requestID := pendingRequest.IdempotencyKey()
+
+	// A 2-of-3 requirement gives tolerance=1, so one failure leaves the transaction in state
+	require.NoError(t, txn.HandleEvent(ctx, &EndorseErrorEvent{
+		BaseCoordinatorEvent:   BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		Party:                  party1,
+		AttestationRequestName: "endorse-multisig",
+		RequestID:              requestID,
+	}))
+	require.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState())
+	require.Nil(t, txn.pendingEndorsementRequests["endorse-multisig"][party1])
+
+	// party1's endorsement then turns up for the request that was recorded as failed
+	err := txn.HandleEvent(ctx, &EndorsedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            requestID,
+		Endorsement: &prototk.AttestationResult{
+			Name:            "endorse-multisig",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			Verifier:        &prototk.ResolvedVerifier{Lookup: party1},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	assert.Empty(t, txn.pt.PostAssembly.CollectedEndorsements)
+	assert.Equal(t, 1, txn.endorseFailureCountByRequirement["endorse-multisig"], "the party is still counted as failed once")
 }
 
 func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTimeout_IfPendingRequests(t *testing.T) {

@@ -22,6 +22,7 @@ import (
 
 	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMockDomainCallbacks_FindAvailableStates(t *testing.T) {
@@ -182,4 +183,96 @@ func TestMockDomainCallbacks_Unimplemented(t *testing.T) {
 	result6, err := callbacks.GetStatesByID(context.Background(), &pb.GetStatesByIDRequest{})
 	assert.NoError(t, err)
 	assert.Nil(t, result6)
+}
+
+func TestMockDomainCallbacks_ValidateStates(t *testing.T) {
+	tests := []struct {
+		name          string
+		mockFunc      func(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error)
+		expectedError error
+	}{
+		{
+			name: "successful response",
+			mockFunc: func(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error) {
+				return &pb.ValidateStatesResponse{}, nil
+			},
+		},
+		{
+			name: "error response",
+			mockFunc: func(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error) {
+				return nil, errors.New("validation error")
+			},
+			expectedError: errors.New("validation error"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callbacks := &MockDomainCallbacks{
+				MockValidateStates: tt.mockFunc,
+			}
+
+			result, err := callbacks.ValidateStates(context.Background(), &pb.ValidateStatesRequest{
+				StateQueryContext: "test-context",
+			})
+
+			if tt.expectedError != nil {
+				assert.Error(t, err)
+				assert.Equal(t, tt.expectedError.Error(), err.Error())
+				assert.Nil(t, result)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, result)
+			}
+		})
+	}
+}
+
+func TestMockDomainCallbacks_ReverseKeyLookup(t *testing.T) {
+	tests := []struct {
+		name             string
+		mockFunc         func(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error)
+		expectedVerifier string
+		expectedError    error
+	}{
+		{
+			name: "successful response",
+			mockFunc: func(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error) {
+				return &pb.ReverseKeyLookupResponse{
+					Results: []*pb.ReverseKeyLookupResult{{Verifier: "0xaabb", Found: true}},
+				}, nil
+			},
+			expectedVerifier: "0xaabb",
+		},
+		{
+			name: "error response",
+			mockFunc: func(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error) {
+				return nil, errors.New("key not found")
+			},
+			expectedError: errors.New("key not found"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callbacks := &MockDomainCallbacks{
+				MockReverseKeyLookup: tt.mockFunc,
+			}
+
+			result, err := callbacks.ReverseKeyLookup(context.Background(), &pb.ReverseKeyLookupRequest{
+				Lookups: []*pb.ReverseKeyLookup{{Algorithm: "ecdsa:secp256k1", VerifierType: "eth_address", Verifier: "0xaabb"}},
+			})
+
+			if tt.expectedError != nil {
+				assert.Error(t, err)
+				assert.Equal(t, tt.expectedError.Error(), err.Error())
+				assert.Nil(t, result)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, result)
+				require.Len(t, result.Results, 1)
+				assert.Equal(t, tt.expectedVerifier, result.Results[0].Verifier)
+			}
+		})
+	}
 }

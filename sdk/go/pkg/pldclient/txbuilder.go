@@ -86,6 +86,10 @@ type TxBuilder interface {
 	Domain(domain string) TxBuilder // for private transaction constructors the domain must be specified. It is optional for private transactions as it will be inferred from the to address
 	GetDomain() string
 
+	PrivacyGroup(group *pldapi.PrivacyGroup) TxBuilder // targets the transaction at a privacy group, setting the domain from the group - Send()/Call() route via pgroup_sendTransaction/pgroup_call
+	PrivacyGroupID(id pldtypes.HexBytes) TxBuilder     // as PrivacyGroup, for when only the group ID is known - set the domain separately with Domain()
+	GetPrivacyGroupID() pldtypes.HexBytes
+
 	Inputs(inputs any) TxBuilder // can be string and pldtypes.RawJSON are interpreted as JSON, abi.ComponentValue trees can be used, and any other type will be serialized to JSON then parsed against the ABI inputs. Errors processing this input against the ABI function definition are deferred
 	GetInputs() any
 
@@ -129,11 +133,12 @@ type SendableTransaction interface {
 type SentTransaction interface {
 	Chainable
 
-	ID() *uuid.UUID                                  // nil if there was an error
-	Wait(timeout time.Duration) TransactionResult    // chainable
-	Error() error                                    // get any deferred error
-	GetTransaction() (*pldapi.Transaction, error)    // calls ptx_getTransaction
-	GetReceipt() (*pldapi.TransactionReceipt, error) // calls ptx_getTransactionReceipt
+	ID() *uuid.UUID                                          // nil if there was an error
+	Wait(timeout time.Duration) TransactionResult            // chainable
+	Error() error                                            // get any deferred error
+	GetTransaction() (*pldapi.Transaction, error)            // calls ptx_getTransaction
+	GetReceipt() (*pldapi.TransactionReceipt, error)         // calls ptx_getTransactionReceipt
+	GetReceiptFull() (*pldapi.TransactionReceiptFull, error) // calls ptx_getTransactionReceiptFull
 }
 
 type TransactionResult interface {
@@ -175,6 +180,7 @@ type txBuilder struct {
 	chainable
 	functions map[string]*abi.Entry
 	tx        *pldapi.TransactionCall
+	group     pldtypes.HexBytes
 	inputs    any
 	outputs   any
 }
@@ -182,6 +188,8 @@ type txBuilder struct {
 type sendableTransaction struct {
 	chainable
 	tx      *pldapi.TransactionCall
+	group   pldtypes.HexBytes
+	fn      *abi.Entry
 	outputs any
 }
 
@@ -245,6 +253,7 @@ func (t *txBuilder) Clone() TxBuilder {
 	return &txBuilder{
 		chainable: t.chainable,
 		tx:        &txCopy,
+		group:     t.group,
 		functions: t.functions,
 		inputs:    t.inputs,
 		outputs:   t.outputs,
@@ -405,6 +414,19 @@ func (t *txBuilder) DataFormat(format pldtypes.JSONFormatOptions) TxBuilder {
 	return t
 }
 
+func (t *txBuilder) PrivacyGroup(group *pldapi.PrivacyGroup) TxBuilder {
+	return t.Domain(group.Domain).PrivacyGroupID(group.ID)
+}
+
+func (t *txBuilder) PrivacyGroupID(id pldtypes.HexBytes) TxBuilder {
+	t.group = id
+	return t
+}
+
+func (t *txBuilder) GetPrivacyGroupID() pldtypes.HexBytes {
+	return t.group
+}
+
 func (t *txBuilder) Private() TxBuilder {
 	t.tx.Type = pldapi.TransactionTypePrivate.Enum()
 	return t
@@ -452,13 +474,29 @@ func (t *txBuilder) WrapCall(tx *pldapi.TransactionCall) TxBuilder {
 func (t *txBuilder) BuildTX() SendableTransaction {
 	st := &sendableTransaction{
 		chainable: t.chainable,
+		group:     t.group,
 		outputs:   t.outputs,
 	}
 	var err error
 	st.tx, err = t.copyTX()
+	if err == nil && t.group != nil {
+		st.fn, err = t.resolveGroupFunction()
+	}
 	// Check it's valid before we attempt to send (won't override any earlier error)
 	st.deferError(err)
 	return st
+}
+
+// The pgroup APIs take the full ABI entry for the function/constructor, rather than a
+// function name resolved server-side against a stored ABI
+func (t *txBuilder) resolveGroupFunction() (*abi.Entry, error) {
+	if t.tx.ABI == nil {
+		if t.tx.Function != "" {
+			return nil, i18n.NewError(t.ctx, pldmsgs.MsgPaladinClientNoABISupplied)
+		}
+		return nil, nil // pre-encoded input (or bytecode-only deploy) passes through without a function definition
+	}
+	return t.ResolveDefinition()
 }
 
 func (t *txBuilder) copyTX() (*pldapi.TransactionCall, error) {
@@ -617,7 +655,15 @@ func (st sendableTransaction) Send() SentTransaction {
 	}
 	var err error
 	var existingTX *pldapi.Transaction
-	sent.txID, err = st.c.PTX().SendTransaction(st.ctx, &st.tx.TransactionInput)
+	if st.group != nil {
+		var groupTXID uuid.UUID
+		groupTXID, err = st.c.PrivacyGroups().SendTransaction(st.ctx, st.buildGroupTX())
+		if err == nil {
+			sent.txID = &groupTXID
+		}
+	} else {
+		sent.txID, err = st.c.PTX().SendTransaction(st.ctx, &st.tx.TransactionInput)
+	}
 	if err != nil && st.tx.IdempotencyKey != "" && isIdempotencyKeyClash(err) {
 		log.L(st.ctx).Infof("Idempotency key clash for %s - checking for existing transaction: %s", st.tx.IdempotencyKey, err)
 		existingTX, err = st.c.PTX().GetTransactionByIdempotencyKey(st.ctx, st.tx.IdempotencyKey)
@@ -630,9 +676,44 @@ func (st sendableTransaction) Send() SentTransaction {
 	return sent
 }
 
+func (st sendableTransaction) buildGroupTX() *pldapi.PrivacyGroupEVMTXInput {
+	return &pldapi.PrivacyGroupEVMTXInput{
+		IdempotencyKey: st.tx.IdempotencyKey,
+		Domain:         st.tx.Domain,
+		Group:          st.group,
+		PrivacyGroupEVMTX: pldapi.PrivacyGroupEVMTX{
+			From:     st.tx.From,
+			To:       st.tx.To,
+			Input:    st.tx.Data,
+			Function: st.fn,
+			Bytecode: st.tx.Bytecode,
+		},
+		PublicTxOptions: st.tx.PublicTxOptions,
+	}
+}
+
+func (st sendableTransaction) buildGroupCall() *pldapi.PrivacyGroupEVMCall {
+	return &pldapi.PrivacyGroupEVMCall{
+		Domain: st.tx.Domain,
+		Group:  st.group,
+		PrivacyGroupEVMTX: pldapi.PrivacyGroupEVMTX{
+			From:     st.tx.From,
+			To:       st.tx.To,
+			Input:    st.tx.Data,
+			Function: st.fn,
+			Bytecode: st.tx.Bytecode,
+		},
+		PublicCallOptions: st.tx.PublicCallOptions,
+		DataFormat:        st.tx.DataFormat,
+	}
+}
+
 func (st sendableTransaction) Prepare() PreparingTransaction {
 	preparing := &preparingTransaction{
 		chainable: st.chainable,
+	}
+	if st.group != nil {
+		preparing.deferError(i18n.NewError(st.ctx, pldmsgs.MsgPaladinClientPGroupNoPrepare))
 	}
 	if st.tx.From == "" {
 		preparing.deferError(i18n.NewError(st.ctx, pldmsgs.MsgPaladinClientMissingFrom))
@@ -659,7 +740,13 @@ func (st sendableTransaction) Call() error {
 	if st.deferredErr != nil {
 		return st.deferredErr
 	}
-	data, err := st.c.PTX().Call(st.ctx, st.tx)
+	var data pldtypes.RawJSON
+	var err error
+	if st.group != nil {
+		data, err = st.c.PrivacyGroups().Call(st.ctx, st.buildGroupCall())
+	} else {
+		data, err = st.c.PTX().Call(st.ctx, st.tx)
+	}
 	if err == nil {
 		err = json.Unmarshal(data, st.outputs)
 	}
@@ -679,6 +766,13 @@ func (sent *sentTransaction) GetReceipt() (*pldapi.TransactionReceipt, error) {
 		return nil, sent.deferredErr
 	}
 	return sent.c.PTX().GetTransactionReceipt(sent.ctx, *sent.txID)
+}
+
+func (sent *sentTransaction) GetReceiptFull() (*pldapi.TransactionReceiptFull, error) {
+	if sent.deferredErr != nil {
+		return nil, sent.deferredErr
+	}
+	return sent.c.PTX().GetTransactionReceiptFull(sent.ctx, *sent.txID)
 }
 
 func (sent *sentTransaction) GetTransaction() (*pldapi.Transaction, error) {
@@ -813,6 +907,9 @@ func (ptr *preparedTransactionResult) PreparedTransaction() *pldapi.PreparedTran
 }
 
 func (t *txBuilder) validateForSend() error {
+	if t.group != nil {
+		return t.validateForGroupSend()
+	}
 	if t.tx.Type == "" {
 		return i18n.NewError(t.ctx, pldmsgs.MsgPaladinClientMissingType)
 	}
@@ -827,6 +924,29 @@ func (t *txBuilder) validateForSend() error {
 			return i18n.NewError(t.ctx, pldmsgs.MsgPaladinClientBytecodeWithPriv)
 		} else if t.tx.Type.V() == pldapi.TransactionTypePublic && len(t.tx.Bytecode) == 0 {
 			return i18n.NewError(t.ctx, pldmsgs.MsgPaladinClientBytecodeMissing)
+		}
+	} else {
+		if t.tx.To == nil {
+			return i18n.NewError(t.ctx, pldmsgs.MsgPaladinClientMissingTo, t.tx.Function)
+		}
+	}
+	return nil
+}
+
+func (t *txBuilder) validateForGroupSend() error {
+	// the type is implicitly private when a group is set - only an explicit Public() conflicts
+	if t.tx.Type.V() == pldapi.TransactionTypePublic {
+		return i18n.NewError(t.ctx, pldmsgs.MsgPaladinClientPGroupMustBePrivate)
+	}
+	if t.tx.Domain == "" {
+		return i18n.NewError(t.ctx, pldmsgs.MsgPaladinClientNoDomain)
+	}
+	if t.tx.Function == "" {
+		if t.tx.To != nil {
+			return i18n.NewError(t.ctx, pldmsgs.MsgPaladinClientNoFunction)
+		}
+		if len(t.tx.Bytecode) == 0 {
+			return i18n.NewError(t.ctx, pldmsgs.MsgPaladinClientPGroupNoBytecode)
 		}
 	} else {
 		if t.tx.To == nil {

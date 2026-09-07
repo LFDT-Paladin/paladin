@@ -18,11 +18,13 @@ package common
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -40,7 +42,9 @@ type EngineIntegration interface {
 	// and validates the attestation plan. It does NOT sign: the returned PostAssembly has empty Signatures.
 	// Signing is performed separately (and off the coordinator's serialized assembly path) via SignAttestation,
 	// so this call carries only the states+verifiers the coordinator needs to release its assembly slot.
-	Assemble(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, stateSnapshot *prototk.StateSnapshot, blockHeight int64, localTx *components.ResolvedTransaction) (*prototk.TransactionPostAssembly, error)
+	// Each FindAvailableStates callback the domain makes is answered by querying the coordinator's ahead-of-chain
+	// view (results validated before use) merged with the local DB.
+	Assemble(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, view components.RemoteStateView, blockHeight int64, localTx *components.ResolvedTransaction) (*prototk.TransactionPostAssembly, error)
 	// SignAttestation signs a single SIGN attestation request for the given party using the local key manager.
 	// It returns (nil, nil) when the party is not local to this node — remote SIGN parties are not signed here,
 	// because only the originating node produces signatures under the push model.
@@ -50,11 +54,12 @@ type EngineIntegration interface {
 	ResolveVerifiers(ctx context.Context, requiredVerifiers []*prototk.ResolveVerifierRequest) ([]*prototk.ResolvedVerifier, error)
 }
 
-func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract) EngineIntegration {
+func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract, metrics metrics.DistributedSequencerMetrics) EngineIntegration {
 	return &engineIntegration{
 		components:          allComponents,
 		domainSmartContract: domainSmartContract,
 		nodeName:            nodeName,
+		metrics:             metrics,
 	}
 
 }
@@ -63,6 +68,7 @@ type engineIntegration struct {
 	components          components.AllComponents
 	domainSmartContract components.DomainSmartContract
 	nodeName            string
+	metrics             metrics.DistributedSequencerMetrics
 }
 
 func (e *engineIntegration) ResolveStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
@@ -75,9 +81,8 @@ func (e *engineIntegration) ResolveStatesForTransaction(ctx context.Context, txn
 			// Any error from ResolvePotentialStates is likely to be caused by an invalid init or assemble of the transaction
 			// which is most likely a programming error in the domain or the domain manager or the sequencer
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, err)
-		} else {
-			log.L(ctx).Debugf("Potential states resolved for domain=%s", e.domainSmartContract.Domain().Name())
 		}
+		log.L(ctx).Debugf("Potential states resolved for domain=%s", e.domainSmartContract.Domain().Name())
 	}
 
 	return nil
@@ -102,21 +107,16 @@ func (e *engineIntegration) CheckPendingPrivateStateData(ctx context.Context, bl
 	)
 }
 
-// assemble a transaction that we are not coordinating, using the provided state locks
+// assemble a transaction that we are not coordinating, using the provided coordinator view
 // all errors are assumed to be transient and the request should be retried
 // if the domain as deemed the request as invalid then it will communicate the `revert` directive via the AssembleTransactionResponse_REVERT result without any error
-func (e *engineIntegration) Assemble(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, stateSnapshot *prototk.StateSnapshot, blockHeight int64, localTx *components.ResolvedTransaction) (*prototk.TransactionPostAssembly, error) {
+func (e *engineIntegration) Assemble(ctx context.Context, transactionID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, view components.RemoteStateView, blockHeight int64, localTx *components.ResolvedTransaction) (*prototk.TransactionPostAssembly, error) {
 
-	log.L(ctx).Debugf("Assembling transaction %s. Creating domain context with coordinator state snapshot", transactionID)
+	log.L(ctx).Debugf("Assembling transaction %s. Creating domain context with coordinator view", transactionID)
 
-	// Create a domain context just for this call that the snapshot can be loaded into.
-	dqc := e.components.StateManager().NewDomainQueryContext(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address())
+	// Create a domain context just for this call, wired to the coordinator's ahead-of-chain view.
+	dqc := e.components.StateManager().NewDomainQueryContextWithRemoteView(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address(), view)
 	defer dqc.Close(ctx)
-
-	err := dqc.ImportSnapshot(ctx, stateSnapshot)
-	if err != nil {
-		return nil, err
-	}
 
 	// Verifiers were resolved before delegation and passed in, so assembly reads them directly with zero
 	// resolution work. The state machine drops assemble requests until State_Delegated, which a transaction
@@ -188,7 +188,9 @@ func (e *engineIntegration) assemble(ctx context.Context, transactionID uuid.UUI
 	 * Assemble
 	 */
 	log.L(ctx).Debugf("Assembling transaction %s", transactionID)
+	assembleStart := time.Now()
 	assemblyResponse, err := e.domainSmartContract.AssembleTransaction(ctx, domainQueryContext, e.components.Persistence().NOTX(), transactionID, preAssembly, localTx, resolvedVerifiers)
+	e.metrics.ObserveDomainCall(e.domainSmartContract.Domain().Name(), "assemble", time.Since(assembleStart))
 	if err != nil {
 		log.L(ctx).Errorf("error assembling transaction: %s", err)
 		return nil, err

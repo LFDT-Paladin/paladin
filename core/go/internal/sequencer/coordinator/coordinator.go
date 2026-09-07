@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
@@ -37,6 +38,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 )
 
 // signingIdentityState groups the coordinator's current signing key with a flag that tracks
@@ -62,6 +64,11 @@ type Coordinator interface {
 
 	// Query the state of the coordinator
 	GetCurrentState() State
+
+	// StateViewProvider returns the provider that state view requests from assembling originators
+	// are routed to, directly from the transport handler (off the event loop).
+	// It is safe to call from any goroutine — the provider is immutable after construction and internally thread-safe.
+	StateViewProvider() stateview.Provider
 
 	// WaitForDone blocks until the coordinator has stopped after context cancellation.
 	WaitForDone(ctx context.Context)
@@ -92,6 +99,7 @@ type coordinator struct {
 	dependencyTracker                  dependencytracker.DependencyTracker
 	grapher                            grapher.Grapher
 	stateVisibilityTracker             statevisibilitytracker.StateVisibilityStore
+	stateViewProvider                  stateview.Provider
 	endorserCandidates                 []string       // ENDORSER mode only: candidate nodes for coordinator priority list and heartbeat fan-out
 	originatorActivity                 map[string]int // STATIC/SENDER only: heartbeat-intervals since last delegation activity per originator node
 	coordinatorPriorityList            []string       // priority-ordered list; index 0 is current active coordinator
@@ -99,6 +107,13 @@ type coordinator struct {
 
 	// Handover request tracking
 	pendingHandoverRequest *common.IdempotentRequest // idempotent request in flight while in State_Elect
+
+	// Endorsement request tracking: the idempotency keys of the endorsement requests currently being
+	// processed by a background goroutine on this node as an endorser. Guarded by its own mutex rather
+	// than the coordinator's RWMutex above: that lock is held by the event loop for the duration of
+	// event processing, so taking it from an endorsement goroutine would invert the lock ordering.
+	inFlightEndorsements      map[string]struct{}
+	inFlightEndorsementsMutex sync.Mutex
 
 	// Request/state timeout timers
 	cancelRequestTimeout func() // cancels the pending request-nudge timer; armed once on Elect entry
@@ -114,6 +129,7 @@ type coordinator struct {
 	signErrorRetryThreshhold       int
 	requestTimeout                 time.Duration
 	stateTimeout                   time.Duration
+	endorseErrorRetry              *retry.Retry
 	nodeName                       string
 	coordinatorSelectionBlockRange uint64
 	maxInflightTransactions        int
@@ -135,7 +151,7 @@ type coordinator struct {
 	notifyOriginator      func(ctx context.Context, event common.Event) // optional callback to push events to the co-located originator
 
 	/* Dispatch loop */
-	dispatchQueue      chan transaction.CoordinatorTransaction
+	dispatchQueue      chan queuedDispatch
 	dispatchLoopCancel context.CancelFunc // non-nil iff this coordinator owns a running loop
 	dispatchLoopDone   chan struct{}      // per-run done channel; nil = never started / already stopped+waited
 	inFlightTxns       map[uuid.UUID]struct{}
@@ -161,6 +177,8 @@ func NewCoordinator(
 ) *coordinator {
 	dependencyTracker := dependencytracker.NewDependencyTracker()
 	stateVisibilityTracker := statevisibilitytracker.NewStore()
+	grapher := grapher.NewGrapher(dependencyTracker, stateVisibilityTracker, confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance))
+	stateViewProvider := stateview.NewProvider(domainAPI.Domain().Name(), contractAddress.HexString(), transportWriter, grapher, allComponents.StateManager())
 	c := &coordinator{
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]transaction.CoordinatorTransaction),
@@ -173,7 +191,8 @@ func NewCoordinator(
 		contractAddress:                    contractAddress,
 		dependencyTracker:                  dependencyTracker,
 		stateVisibilityTracker:             stateVisibilityTracker,
-		grapher:                            grapher.NewGrapher(dependencyTracker, stateVisibilityTracker, confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)),
+		stateViewProvider:                  stateViewProvider,
+		grapher:                            grapher,
 		clock:                              clock,
 		engineIntegration:                  engineIntegration,
 		syncPoints:                         syncPoints,
@@ -190,6 +209,7 @@ func NewCoordinator(
 	c.dispatchMaxBatchSize = confutil.IntMin(configuration.DispatchMaxBatchSize, pldconf.SequencerMinimum.DispatchMaxBatchSize, *pldconf.SequencerDefaults.DispatchMaxBatchSize)
 	c.requestTimeout = confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
 	c.stateTimeout = confutil.DurationMin(configuration.StateTimeout, pldconf.SequencerMinimum.StateTimeout, *pldconf.SequencerDefaults.StateTimeout)
+	c.endorseErrorRetry = retry.NewRetryLimited(&configuration.EndorseErrorRetry, &pldconf.SequencerDefaults.EndorseErrorRetry)
 	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
 	c.closingGracePeriod = confutil.IntMin(configuration.ClosingGracePeriod, pldconf.SequencerMinimum.ClosingGracePeriod, *pldconf.SequencerDefaults.ClosingGracePeriod)
 	c.inactiveGracePeriod = confutil.IntMin(configuration.InactiveGracePeriod, pldconf.SequencerMinimum.InactiveGracePeriod, *pldconf.SequencerDefaults.InactiveGracePeriod)
@@ -214,10 +234,11 @@ func NewCoordinator(
 	c.initializeStateMachineEventLoop(State_Initial, coordinatorEventQueueSize, coordinatorPriorityEventQueueSize)
 
 	c.originatorActivity = make(map[string]int)
+	c.inFlightEndorsements = make(map[string]struct{})
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]struct{}, c.maxDispatchAhead)
 	c.pooledTransactions = make([]transaction.CoordinatorTransaction, 0, c.maxInflightTransactions)
-	c.dispatchQueue = make(chan transaction.CoordinatorTransaction, c.maxInflightTransactions)
+	c.dispatchQueue = make(chan queuedDispatch, c.maxInflightTransactions)
 
 	return c
 }
@@ -257,6 +278,10 @@ func (c *coordinator) Start(ctx context.Context) {
 // The state machine has its own mutex for protecting the current state variable.
 func (c *coordinator) GetCurrentState() State {
 	return c.stateMachineEventLoop.GetCurrentState()
+}
+
+func (c *coordinator) StateViewProvider() stateview.Provider {
+	return c.stateViewProvider
 }
 
 func (c *coordinator) WaitForDone(ctx context.Context) {
@@ -311,6 +336,7 @@ func (c *coordinator) setDispatchedInFlight(txID uuid.UUID, inFlight bool) {
 		delete(c.inFlightTxns, txID)
 		c.inFlightMutex.Signal()
 	}
+	c.metrics.SetInflightDispatchedTxns(len(c.inFlightTxns))
 }
 
 func (c *coordinator) getTransactionsInStates(ctx context.Context, states []transaction.State) []transaction.CoordinatorTransaction {

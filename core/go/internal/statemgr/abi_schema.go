@@ -377,7 +377,6 @@ func (as *abiSchema) buildState(ctx context.Context, contractAddress *pldtypes.E
 	return &pldapi.State{
 		StateBase: pldapi.StateBase{
 			ID:              id,
-			Created:         pldtypes.TimestampNow(),
 			DomainName:      as.DomainName,
 			Schema:          as.Schema.ID,
 			ContractAddress: contractAddress,
@@ -413,7 +412,7 @@ func (as *abiSchema) ProcessStateWithLabels(ctx context.Context, contractAddress
 	if err != nil {
 		return nil, err
 	}
-	// The labels can only be stamped with the identity of the state once its ID is resolved
+	// The labels can only be stamped with the identity of the state once its ID is resolved.
 	for i := range psd.labels {
 		psd.labels[i].DomainName = as.DomainName
 		psd.labels[i].State = state.ID
@@ -422,11 +421,13 @@ func (as *abiSchema) ProcessStateWithLabels(ctx context.Context, contractAddress
 		psd.int64Labels[i].DomainName = as.DomainName
 		psd.int64Labels[i].State = state.ID
 	}
+	psd.labelValues[".id"] = state.ID.HexString()
+
 	state.Labels = psd.labels
 	state.Int64Labels = psd.int64Labels
 	return &components.StateWithLabels{
 		State:       state,
-		LabelValues: addStateBaseLabels(psd.labelValues, state.ID, state.Created),
+		LabelValues: psd.labelValues,
 	}, nil
 }
 

@@ -34,7 +34,7 @@ func action_AssembleRequestReceived(ctx context.Context, t *originatorTransactio
 	t.currentDelegate = e.Coordinator
 	t.latestAssembleRequest = &assembleRequestFromCoordinator{
 		coordinatorsBlockHeight: e.CoordinatorBlockHeight,
-		stateSnapshot:           e.StateSnapshot,
+		coordinator:             e.Coordinator,
 		requestID:               e.RequestID,
 		expiry:                  e.Expiry,
 	}
@@ -121,7 +121,12 @@ func action_Assemble(ctx context.Context, txn *originatorTransaction, _ common.E
 }
 
 func (txn *originatorTransaction) handleAssemble(ctx context.Context, txID uuid.UUID, req assembleRequestFromCoordinator, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, localTx *components.ResolvedTransaction) {
-	assembleResponse, err := txn.engineIntegration.Assemble(ctx, txID, preAssembly, resolvedVerifiers, req.stateSnapshot, req.coordinatorsBlockHeight, localTx)
+	// The domain query context answers each FindAvailableStates callback the domain makes by querying
+	// the coordinator's ahead-of-chain view through this remote view (bound to the node the request came from) and
+	// merging the matches with its own DB results.
+	view := txn.stateViewReader.ForCoordinator(req.coordinator, req.requestID.String())
+
+	assembleResponse, err := txn.engineIntegration.Assemble(ctx, txID, preAssembly, resolvedVerifiers, view, req.coordinatorsBlockHeight, localTx)
 	if err != nil {
 		if ctx.Err() != nil {
 			log.L(ctx).Debugf("abandoning assembly for transaction %s: request expired", txID)

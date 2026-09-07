@@ -672,7 +672,8 @@ var (
 	WSClientConfigWSRequestTimeout       = pdm("WSClientConfig.wsRequestTimeout", "WebSocket request timeout")
 
 	// StateStoreConfig field descriptions
-	StateStoreConfigSchemaCache = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")
+	StateStoreConfigSchemaCache         = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")
+	StateStoreConfigValidatedStateCache = pdm("StateStoreConfig.validatedStateCache", "Validated-state cache configuration")
 
 	// BlockIndexerConfig field descriptions
 	BlockIndexerConfigFromBlock               = pdm("BlockIndexerConfig.fromBlock", "Starting block number for indexing")
@@ -738,6 +739,7 @@ var (
 	SequencerConfigCoordinatorEventQueueSize         = pdm("SequencerConfig.coordinatorEventQueueSize", "Queue size for coordinator state machine events")
 	SequencerConfigCoordinatorPriorityEventQueueSize = pdm("SequencerConfig.coordinatorPriorityEventQueueSize", "Queue size for coordinator priority events")
 	SequencerConfigDispatchMaxBatchSize              = pdm("SequencerConfig.dispatchMaxBatchSize", "Maximum number of transactions prepared and committed in a single dispatch batch")
+	SequencerConfigEndorseErrorRetry                 = pdm("SequencerConfig.endorseErrorRetry", "Retry configuration for endorsements performed by this node")
 	SequencerConfigOriginatorEventQueueSize          = pdm("SequencerConfig.originatorEventQueueSize", "Queue size for originator state machine events")
 	SequencerConfigOriginatorPriorityEventQueueSize  = pdm("SequencerConfig.originatorPriorityEventQueueSize", "Queue size for originator priority events")
 	SequencerConfigClosingGracePeriod                = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")

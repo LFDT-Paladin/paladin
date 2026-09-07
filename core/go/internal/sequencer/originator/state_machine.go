@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/google/uuid"
@@ -340,6 +341,7 @@ func (o *originator) initializeStateMachineEventLoop(initialState State, eventQu
 		PriorityEventQueueSize: priorityEventQueueSize,
 		Name:                   fmt.Sprintf("originator-%s", o.contractAddress.String()[0:8]),
 		PreProcess:             o.preProcessEvent,
+		Metrics:                metrics.NewEventLoopMetrics(o.metrics, "originator"),
 	})
 }
 

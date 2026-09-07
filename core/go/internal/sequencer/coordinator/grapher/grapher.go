@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
@@ -32,7 +33,8 @@ import (
 // 1. It allows transactions to link to each other in a bi-directional dependency graph, based entirely on post-assembly outputs. This ensures
 //    base-ledger state changes are correctly ordered, crucial to transaction success.
 // 2. It records ahead-of-chain state changes, such as inputs being locked, to allow successful ahead-of-chain assembly for new transactions.
-// 3. It provides an interface to export the current ahead-of-chain state changes to give to originators to base new assembly requests on.
+// 3. It provides interfaces onto the current ahead-of-chain state changes: query evaluation for assembling originators
+//    (SnapshotView) and export for coordinator handover (ExportStatesAndLocks).
 
 // An instance of the grapher is owned by the coordinator for a given sequencer. Transactions can query the grapher in thread-safe manner to
 // understand their relationships to other transactions. For example:
@@ -47,7 +49,7 @@ import (
 //   - Transaction-owned (Transaction != nil): managed by the transaction state machine via ForgetTransactionAndLocks and ForgetTransaction.
 //   - No-transaction locks (Transaction == nil, ConfirmedAtBlock set): created when ForgetTransaction clears the
 //     transaction reference, or imported directly via ImportStatesAndLocks on coordinator handover.
-//     Cleaned up by ForgetLocks when currentBlockHeight >= ConfirmedAtBlock + blockHeightTolerance.
+//     Cleaned up by ForgetConfirmedLocks when currentBlockHeight >= ConfirmedAtBlock + blockHeightTolerance.
 type Grapher interface {
 	// AddMinter records that a set of states has been minted by the specified transaction.
 	// Private state visibility (AllowedNodes) is managed separately by the statevisibilitytracker package.
@@ -57,16 +59,19 @@ type Grapher interface {
 	// AllowedNodes are included. All locks are returned unfiltered — lock data (state IDs, types,
 	// block numbers) is on-chain metadata and does not need privacy protection.
 	ExportStatesAndLocks(ctx context.Context, node string) (*prototk.StateSnapshot, error)
+	// SnapshotView returns a snapshot the two halves of the state view served to an assembling node:
+	// the states available to the node and the IDs of every spend-locked state.
+	SnapshotView(ctx context.Context, node string) (candidates []*prototk.SnapshotState, spentStateIDs []pldtypes.HexBytes)
 	// ForgetTransactionAndLocks fully removes a transaction and all its locks. Used for failure/reset paths (revert, repool, eviction).
 	// No-op if the transaction is not known (e.g. already confirmed).
 	ForgetTransactionAndLocks(ctx context.Context, transactionID uuid.UUID)
 	// ForgetTransaction removes the transaction from the grapher's dependency tracking and minter index,
 	// and stamps confirmedAtBlock on its locks, clearing the transaction reference.
 	ForgetTransaction(ctx context.Context, transactionID uuid.UUID, confirmedAtBlock uint64)
-	// ForgetLocks removes locks with no transaction whose block height tolerance window has passed,
+	// ForgetConfirmedLocks removes locks with no transaction whose block height tolerance window has passed,
 	// meaning the persisted state records should have caught up and the lock is no longer needed.
 	// Should be called on every NewBlock event.
-	ForgetLocks(ctx context.Context, currentBlockHeight uint64)
+	ForgetConfirmedLocks(ctx context.Context, currentBlockHeight uint64)
 	// ImportStatesAndLocks imports states and locks from a previous coordinator on handover.
 	// OutputStates carry private state data filtered for this node; locks are imported to maintain
 	// the ahead-of-chain view. Existing entries are never overwritten — the current coordinator's
@@ -87,7 +92,7 @@ type grapher struct {
 	dependencyChain          dependencytracker.DependencyChain
 	transactionByID          map[uuid.UUID]*grapherTX
 	transactionByOutputState map[string]*grapherTX
-	outputStatesByMinter     map[uuid.UUID][]string     // reverse lookup by transactions ID for building dependency chains and transaction-driven cleanup
+	outputStatesByMinter     map[uuid.UUID][]string                     // reverse lookup by transactions ID for building dependency chains and transaction-driven cleanup
 	createLocksByStateID     map[string]*prototk.SnapshotStateLock      // create locks keyed by state ID (at most one per state, from its minter)
 	spendLocksByStateID      map[string]*prototk.SnapshotStateLock      // spend locks keyed by state ID (at most one per state)
 	readLocksByStateID       map[string]*prototk.SnapshotStateLock      // read locks keyed by state ID (at most one per state)
@@ -156,7 +161,7 @@ func (g *grapher) ForgetTransactionAndLocks(ctx context.Context, transactionID u
 
 	g.dependencyChain.Delete(ctx, transactionID)
 	g.forgetTxMints(transactionID)
-	g.forgetLocks(transactionID)
+	g.forgetTxLocks(transactionID)
 	delete(g.transactionByID, transactionID)
 }
 
@@ -164,7 +169,7 @@ func (g *grapher) ForgetTransactionAndLocks(ctx context.Context, transactionID u
 // transactionByOutputState, outputStatesByMinter, transactionByID), stamps confirmedAtBlock on
 // its locks, and clears the transaction reference on those locks.
 // The statevisibilitytracker store is NOT cleared — private state data persists until the lock expires in
-// ForgetLocks, so coordinator handover heartbeats include it within the block tolerance window.
+// ForgetConfirmedLocks, so coordinator handover heartbeats include it within the block tolerance window.
 // No-op if the transaction is not known.
 func (g *grapher) ForgetTransaction(ctx context.Context, transactionID uuid.UUID, confirmedAtBlock uint64) {
 	g.mu.Lock()
@@ -195,20 +200,25 @@ func (g *grapher) ForgetTransaction(ctx context.Context, transactionID uuid.UUID
 	log.L(ctx).Debugf("ForgetTransaction: confirmed %d locks for tx %s at block %d", len(txLocks), transactionID, confirmedAtBlock)
 }
 
-// ForgetLocks removes locks with no transaction whose block height tolerance window has passed,
+// ForgetConfirmedLocks removes locks with no transaction whose block height tolerance window has passed,
 // meaning the persisted state should have caught up and the lock is no longer needed.
 // Removing a create lock cascades to delete the corresponding private state data from the
 // statevisibilitytracker store — the create lock is the source of truth for how long private
 // state data is held.
 // Should be called on every NewBlock event.
-func (g *grapher) ForgetLocks(ctx context.Context, currentBlockHeight uint64) {
+func (g *grapher) ForgetConfirmedLocks(ctx context.Context, currentBlockHeight uint64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	g.forgetConfirmedLocks(ctx, currentBlockHeight)
+}
+
+// Caller must hold g.mu write lock.
+func (g *grapher) forgetConfirmedLocks(ctx context.Context, currentBlockHeight uint64) {
 	for stateID, lock := range g.createLocksByStateID {
 		if lock.Transaction == nil && lock.ConfirmedAtBlock != nil {
 			if currentBlockHeight >= *lock.ConfirmedAtBlock+g.blockHeightTolerance {
-				log.L(ctx).Debugf("ForgetLocks: removing create lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
+				log.L(ctx).Debugf("forgetConfirmedLocks: removing create lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
 					stateID, *lock.ConfirmedAtBlock, g.blockHeightTolerance, currentBlockHeight)
 				delete(g.createLocksByStateID, stateID)
 				g.stateVisibilityTracker.Delete(stateID)
@@ -218,7 +228,7 @@ func (g *grapher) ForgetLocks(ctx context.Context, currentBlockHeight uint64) {
 	for stateID, lock := range g.spendLocksByStateID {
 		if lock.Transaction == nil && lock.ConfirmedAtBlock != nil {
 			if currentBlockHeight >= *lock.ConfirmedAtBlock+g.blockHeightTolerance {
-				log.L(ctx).Debugf("ForgetLocks: removing spend lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
+				log.L(ctx).Debugf("forgetConfirmedLocks: removing spend lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
 					stateID, *lock.ConfirmedAtBlock, g.blockHeightTolerance, currentBlockHeight)
 				delete(g.spendLocksByStateID, stateID)
 			}
@@ -227,7 +237,7 @@ func (g *grapher) ForgetLocks(ctx context.Context, currentBlockHeight uint64) {
 	for stateID, lock := range g.readLocksByStateID {
 		if lock.Transaction == nil && lock.ConfirmedAtBlock != nil {
 			if currentBlockHeight >= *lock.ConfirmedAtBlock+g.blockHeightTolerance {
-				log.L(ctx).Debugf("ForgetLocks: removing read lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
+				log.L(ctx).Debugf("forgetConfirmedLocks: removing read lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
 					stateID, *lock.ConfirmedAtBlock, g.blockHeightTolerance, currentBlockHeight)
 				delete(g.readLocksByStateID, stateID)
 			}
@@ -307,11 +317,11 @@ func (g *grapher) forgetTxMints(transactionID uuid.UUID) {
 	}
 }
 
-// forgetLocks removes all locks owned by a transaction from all lock indexes.
+// forgetTxLocks removes all locks owned by a transaction from all lock indexes.
 // Removing a create lock cascades to delete the corresponding private state data
 // from the statevisibilitytracker store — the create lock governs the state's lifetime in the grapher.
 // Caller must hold g.mu write lock.
-func (g *grapher) forgetLocks(transactionID uuid.UUID) {
+func (g *grapher) forgetTxLocks(transactionID uuid.UUID) {
 	for _, lock := range g.locksByTransaction[transactionID] {
 		stateID := lock.GetStateId()
 		switch lock.GetType() {
@@ -423,4 +433,39 @@ func (g *grapher) ExportStatesAndLocks(ctx context.Context, node string) (*proto
 	}
 	log.L(ctx).Debugf("ExportStatesAndLocks: %d output states (filtered from %d), %d locks (node=%q)", len(result.States), len(allStates), len(result.Locks), node)
 	return result, nil
+}
+
+func (g *grapher) SnapshotView(ctx context.Context, node string) ([]*prototk.SnapshotState, []pldtypes.HexBytes) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	// Exclude states that have a spend lock — those are already consumed ahead-of-chain by another
+	// transaction, so the assembler cannot select them. Restrict to only CREATE-locked states — any
+	// SPENT-locked states are not selectable.
+	var candidates []*prototk.SnapshotState
+	g.stateVisibilityTracker.RangeForNode(node, func(state *prototk.SnapshotState) {
+		stateID := state.GetState().GetId()
+		if _, hasCreateLock := g.createLocksByStateID[stateID]; !hasCreateLock {
+			return
+		}
+		if _, hasSpendLock := g.spendLocksByStateID[stateID]; hasSpendLock {
+			return
+		}
+		candidates = append(candidates, state)
+	})
+
+	spentStateIDs := make([]pldtypes.HexBytes, 0, len(g.spendLocksByStateID))
+	for stateID := range g.spendLocksByStateID {
+		id, err := pldtypes.ParseHexBytes(ctx, stateID)
+		if err != nil {
+			// Lock keys are produced from locally-resolved state IDs, so this cannot happen in
+			// practice; skipping keeps the set a valid superset of the consumed states.
+			log.L(ctx).Warnf("SnapshotView: skipping unparseable state id %q: %s", stateID, err)
+			continue
+		}
+		spentStateIDs = append(spentStateIDs, id)
+	}
+
+	log.L(ctx).Debugf("SnapshotView: %d candidate states, %d spent state IDs (node=%q)", len(candidates), len(spentStateIDs), node)
+	return candidates, spentStateIDs
 }
