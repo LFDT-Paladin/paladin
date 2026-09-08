@@ -610,7 +610,10 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, err
 	}
-	localNodeName, _ := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	localNodeName, err := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	if err != nil {
+		return nil, err
+	}
 	notaryQualified, err := pldtypes.PrivateIdentityLocator(params.Notary).FullyQualified(ctx, localNodeName.Name)
 	if err != nil {
 		return nil, err
@@ -724,7 +727,10 @@ func (n *Noto) InitContract(ctx context.Context, req *prototk.InitContractReques
 		return &prototk.InitContractResponse{Valid: false}, nil
 	}
 
-	localNodeName, _ := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	localNodeName, err := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	if err != nil {
+		return nil, err
+	}
 	_, notaryNodeName, err := pldtypes.PrivateIdentityLocator(decodedData.NotaryLookup).Validate(ctx, localNodeName.Name, true)
 	if err != nil {
 		return nil, err
