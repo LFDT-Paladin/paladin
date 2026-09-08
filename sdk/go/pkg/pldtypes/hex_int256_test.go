@@ -17,8 +17,8 @@
 package pldtypes
 
 import (
-	"context"
 	"encoding/json"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,12 +60,38 @@ func TestHexInt256(t *testing.T) {
 	v = MustParseHexInt256("0x8000000000000000")
 	assert.Equal(t, uint64(0x8000000000000000), v.Int().Uint64())
 
+	// The type is a sign character plus 32 bytes of two's complement, so it spans
+	// -2^255 to 2^255-1 and both ends round-trip through the DB
+	v = MustParseHexInt256("57896044618658097711785492504343953926634992332820282019728792003956564819967")
+	dbv, err = v.Value()
+	require.NoError(t, err)
+	err = v.Scan(dbv)
+	require.NoError(t, err)
+	assert.Equal(t, "57896044618658097711785492504343953926634992332820282019728792003956564819967", v.Int().Text(10))
+
+	v = MustParseHexInt256("-57896044618658097711785492504343953926634992332820282019728792003956564819968")
+	dbv, err = v.Value()
+	require.NoError(t, err)
+	err = v.Scan(dbv)
+	require.NoError(t, err)
+	assert.Equal(t, "-57896044618658097711785492504343953926634992332820282019728792003956564819968", v.Int().Text(10))
+
 	assert.Panics(t, func() {
 		_ = MustParseHexInt256("wrong")
 	})
 
-	_, err = ParseHexInt256(context.Background(), "wrong")
+	assert.Panics(t, func() {
+		_ = MustParseHexInt256("57896044618658097711785492504343953926634992332820282019728792003956564819968")
+	})
+
+	_, err = ParseHexInt256(t.Context(), "wrong")
 	require.Regexp(t, "PD020009", err)
+
+	// A value either side of that span cannot be represented
+	_, err = ParseHexInt256(t.Context(), "57896044618658097711785492504343953926634992332820282019728792003956564819968")
+	assert.Regexp(t, "PD020029", err)
+	_, err = ParseHexInt256(t.Context(), "-57896044618658097711785492504343953926634992332820282019728792003956564819969")
+	assert.Regexp(t, "PD020029", err)
 
 	type testStruct struct {
 		F1 *HexInt256 `json:"f1"`
@@ -106,6 +132,13 @@ func TestHexInt256(t *testing.T) {
 
 	err = v.Scan("wrong000000000000000000000000000000000000000000007fffffffffffffff")
 	assert.Regexp(t, "PD020012", err)
+
+	// A value can also be handed to the type by conversion, bypassing the constructors,
+	// and one it cannot represent is rejected rather than serialized with its sign flipped
+	past := (*HexInt256)(new(big.Int).Lsh(big.NewInt(1), 255))
+	_, err = past.Value()
+	assert.Regexp(t, "PD020029", err)
+	assert.Equal(t, "57896044618658097711785492504343953926634992332820282019728792003956564819968", past.Int().Text(10))
 
 	assert.True(t, ((*HexInt256)(nil)).NilOrZero())
 
