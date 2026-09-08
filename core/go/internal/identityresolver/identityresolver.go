@@ -21,19 +21,22 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	pbIdentityResolver "github.com/LFDT-Paladin/paladin/core/pkg/proto/identityresolver"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	pbIdentityResolver "github.com/kaleido-io/paladin/core/pkg/proto/identityresolver"
-	"github.com/kaleido-io/paladin/toolkit/pkg/cache"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"google.golang.org/protobuf/proto"
 )
+
+// protoMarshal is a variable so it can be overridden in tests to exercise error paths.
+var protoMarshal = proto.Marshal
 
 type identityResolver struct {
 	bgCtx                 context.Context
@@ -52,7 +55,7 @@ type inflightRequest struct {
 
 func NewIdentityResolver(ctx context.Context, conf *pldconf.IdentityResolverConfig) components.IdentityResolver {
 	return &identityResolver{
-		bgCtx:                 ctx,
+		bgCtx:                 log.WithComponent(ctx, log.Component("identityresolver")),
 		inflightRequests:      make(map[string]*inflightRequest),
 		inflightRequestsMutex: &sync.Mutex{},
 		verifierCache:         cache.NewCache[string, string](&conf.VerifierCache, &pldconf.IdentityResolverDefaults.VerifierCache),
@@ -84,6 +87,7 @@ func (ir *identityResolver) Stop() {
 }
 
 func (ir *identityResolver) ResolveVerifier(ctx context.Context, lookup string, algorithm string, verifierType string) (string, error) {
+	ctx = log.WithComponent(ctx, log.Component("identityresolver"))
 	replyChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 	ir.ResolveVerifierAsync(ctx, lookup, algorithm, verifierType, func(ctx context.Context, verifier string) {
@@ -102,10 +106,11 @@ func (ir *identityResolver) ResolveVerifier(ctx context.Context, lookup string, 
 }
 
 func (ir *identityResolver) ResolveVerifierAsync(ctx context.Context, lookup string, algorithm string, verifierType string, resolved func(ctx context.Context, verifier string), failed func(ctx context.Context, err error)) {
+	ctx = log.WithComponent(ctx, log.Component("identityresolver"))
 	// if the verifier lookup is a local key, we can resolve it here
 	// if it is a remote key, we need to delegate to the remote node
 
-	identifier, node, err := tktypes.PrivateIdentityLocator(lookup).Validate(ctx, ir.nodeName, true)
+	identifier, node, err := pldtypes.PrivateIdentityLocator(lookup).Validate(ctx, ir.nodeName, true)
 	if err != nil {
 		log.L(ctx).Errorf("Invalid resolve verifier request: %s (algorithm=%s, verifierType=%s): %s", lookup, algorithm, verifierType, err)
 		failed(ctx, err)
@@ -158,7 +163,7 @@ func (ir *identityResolver) ResolveVerifierAsync(ctx context.Context, lookup str
 			Algorithm:    algorithm,
 			VerifierType: verifierType,
 		}
-		resolveVerifierRequestBytes, err := proto.Marshal(resolveVerifierRequest)
+		resolveVerifierRequestBytes, err := protoMarshal(resolveVerifierRequest)
 		if err != nil {
 			log.L(ctx).Errorf("Failed to marshal ResolveVerifierRequest for lookup %s: %s", lookup, err)
 			failed(ctx, err)
@@ -167,19 +172,20 @@ func (ir *identityResolver) ResolveVerifierAsync(ctx context.Context, lookup str
 
 		requestID := uuid.New()
 
-		remoteNodeId, err := tktypes.PrivateIdentityLocator(lookup).Node(ctx, false)
-		if err != nil {
-			failed(ctx, err)
-			return
-		}
-
 		err = ir.transportManager.Send(ctx, &components.FireAndForgetMessageSend{
 			MessageID:   &requestID,
 			MessageType: "ResolveVerifierRequest",
 			Component:   prototk.PaladinMsg_IDENTITY_RESOLVER,
-			Node:        remoteNodeId,
+			Node:        node,
 			Payload:     resolveVerifierRequestBytes,
+		}, &components.TransportSendOptions{
+			ErrorHandler: func(ctx context.Context, err error) {
+				log.L(ctx).Errorf("Failed to send resolve verifier request to %s: %s", node, err)
+				ir.handleResolveVerifierError(ctx, resolveVerifierRequestBytes, requestID.String())
+			},
 		})
+
+		// Handle plugin-layer errors (e.g. we couldn't communicate with the transport plugin)
 		if err != nil {
 			failed(ctx, err)
 			return
@@ -267,7 +273,7 @@ func (ir *identityResolver) handleResolveVerifierRequest(ctx context.Context, me
 	// contractAddress and transactionID in the request message are simply used to populate the response
 	// so that the requesting node can correlate the response with the transaction that needs it
 	var resolvedKey *pldapi.KeyMappingAndVerifier
-	unqualifiedLookup, err := tktypes.PrivateIdentityLocator(resolveVerifierRequest.Lookup).Identity(ctx)
+	unqualifiedLookup, err := pldtypes.PrivateIdentityLocator(resolveVerifierRequest.Lookup).Identity(ctx)
 	if err == nil {
 		resolvedKey, err = ir.keyManager.ResolveKeyNewDatabaseTX(ctx, unqualifiedLookup, resolveVerifierRequest.Algorithm, resolveVerifierRequest.VerifierType)
 	}
@@ -278,7 +284,7 @@ func (ir *identityResolver) handleResolveVerifierRequest(ctx context.Context, me
 			Verifier:     resolvedKey.Verifier.Verifier,
 			VerifierType: resolveVerifierRequest.VerifierType,
 		}
-		resolveVerifierResponseBytes, err := proto.Marshal(resolveVerifierResponse)
+		resolveVerifierResponseBytes, err := protoMarshal(resolveVerifierResponse)
 		if err == nil {
 			err = ir.transportManager.Send(ctx, &components.FireAndForgetMessageSend{
 				MessageType:   "ResolveVerifierResponse",
@@ -306,7 +312,7 @@ func (ir *identityResolver) handleResolveVerifierRequest(ctx context.Context, me
 			Algorithm:    resolveVerifierRequest.Algorithm,
 			ErrorMessage: err.Error(),
 		}
-		resolveVerifierErrorBytes, err := proto.Marshal(resolveVerifierError)
+		resolveVerifierErrorBytes, err := protoMarshal(resolveVerifierError)
 		if err == nil {
 			err = ir.transportManager.Send(ctx, &components.FireAndForgetMessageSend{
 				MessageType:   "ResolveVerifierError",

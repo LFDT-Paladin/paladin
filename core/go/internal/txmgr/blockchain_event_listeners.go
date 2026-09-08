@@ -1,0 +1,403 @@
+/*
+ * Copyright © 2025 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package txmgr
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/google/uuid"
+)
+
+var ES_TYPE = blockindexer.EventStreamTypePTXBlockchainEventListener.Enum()
+
+type registeredBlockchainEventReceiver struct {
+	id uuid.UUID
+	el *blockchainEventListener
+	components.BlockchainEventReceiver
+}
+
+// A blockchain event listener is a wrapper which externalises a blockchain internal event stream.
+// All persistence belongs to the internal event stream.
+// This layer manages
+//   - mapping between "ptx_<verb>BlockchainEventListener" RPC calls and internal event stream
+//     lifecycle functions
+//   - dispatching event batches to registered receivers
+
+type blockchainEventListener struct {
+	tm *txManager
+
+	eventStream blockindexer.EventStream
+
+	receiverLock     sync.Mutex
+	receivers        []*registeredBlockchainEventReceiver
+	pendingReceivers []*registeredBlockchainEventReceiver
+	newReceivers     chan bool
+	receiverCounter  int
+}
+
+func (tm *txManager) blockchainEventsInit() {
+	tm.blockchainEventListeners = make(map[string]*blockchainEventListener)
+	tm.blockchainEventListenersLoadPageSize = 100 /* not currently tunable */
+}
+
+func (tm *txManager) LoadBlockchainEventListeners() error {
+	var lastPageEnd *string
+	ctx := tm.bgCtx
+
+	for {
+		q := query.NewQueryBuilder().
+			Limit(tm.blockchainEventListenersLoadPageSize).
+			Sort("name")
+		if lastPageEnd != nil {
+			q = q.GreaterThan("name", *lastPageEnd)
+		}
+		page, err := tm.blockIndexer.QueryEventStreamDefinitions(ctx, tm.p.NOTX(), ES_TYPE, q.Query())
+		if err != nil {
+			return err
+		}
+		for _, listener := range page {
+			if _, err := tm.loadBlockchainEventListener(ctx, listener, tm.p.NOTX()); err != nil {
+				return err
+			}
+		}
+
+		if len(page) < tm.blockchainEventListenersLoadPageSize {
+			log.L(ctx).Infof("loaded %d event listeners", len(tm.blockchainEventListeners))
+			return nil
+		}
+
+		lastPageEnd = &page[len(page)-1].Name
+	}
+}
+
+func (tm *txManager) loadBlockchainEventListener(ctx context.Context, es *blockindexer.EventStreamDefinition, dbTX persistence.DBTX) (*blockchainEventListener, error) {
+	tm.blockchainEventListenerLock.Lock()
+	defer tm.blockchainEventListenerLock.Unlock()
+
+	if tm.blockchainEventListeners[es.Name] != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerDupLoad, es.Name)
+	}
+	el := &blockchainEventListener{
+		tm:           tm,
+		newReceivers: make(chan bool, 1),
+	}
+
+	var err error
+	el.eventStream, err = tm.blockIndexer.AddEventStream(ctx, dbTX, &blockindexer.InternalEventStream{
+		Type:        blockindexer.IESTypeEventStreamNOTX,
+		Definition:  es,
+		HandlerNOTX: el.handleEventBatch,
+	})
+	if err != nil {
+		return nil, err
+	}
+	tm.blockchainEventListeners[es.Name] = el
+	return el, nil
+}
+
+func (tm *txManager) stopBlockchainEventListeners() {
+	tm.blockchainEventListenerLock.Lock()
+	defer tm.blockchainEventListenerLock.Unlock()
+
+	for _, el := range tm.blockchainEventListeners {
+		if err := tm.blockIndexer.StopEventStream(tm.bgCtx, el.eventStream.ID()); err != nil {
+			log.L(tm.bgCtx).Errorf("Error stopping event listener '%s': %s", el.eventStream.Definition().Name, err)
+		}
+	}
+}
+
+func (tm *txManager) CreateBlockchainEventListener(ctx context.Context, spec *pldapi.BlockchainEventListener) error {
+	log.L(ctx).Infof("Creating blockchain event listener '%s'", spec.Name)
+
+	existing := tm.blockchainEventListeners[spec.Name]
+	if existing != nil {
+		return i18n.NewError(ctx, msgs.MsgTxMgrDuplicateBlockchainEventListenerName, spec.Name)
+	}
+
+	err := tm.validateBlockchainEventListenerSpec(ctx, spec)
+	if err == nil {
+		_, err = tm.loadBlockchainEventListener(ctx, tm.mapEventStream(spec), tm.p.NOTX())
+	}
+	return err
+
+}
+
+func (tm *txManager) QueryBlockchainEventListeners(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.BlockchainEventListener, error) {
+	eventStreams, err := tm.blockIndexer.QueryEventStreamDefinitions(ctx, dbTX, ES_TYPE, jq)
+	if err != nil {
+		return nil, err
+	}
+	eventListeners := make([]*pldapi.BlockchainEventListener, len(eventStreams))
+	for i, es := range eventStreams {
+		eventListeners[i] = tm.mapBlockchainEventListener(es)
+	}
+	return eventListeners, nil
+}
+
+func (tm *txManager) GetBlockchainEventListener(ctx context.Context, name string) *pldapi.BlockchainEventListener {
+	tm.blockchainEventListenerLock.Lock()
+	defer tm.blockchainEventListenerLock.Unlock()
+
+	l := tm.blockchainEventListeners[name]
+	if l != nil {
+		return tm.mapBlockchainEventListener(l.eventStream.Definition())
+	}
+	return nil
+}
+
+func (tm *txManager) StartBlockchainEventListener(ctx context.Context, name string) error {
+	tm.blockchainEventListenerLock.Lock()
+	defer tm.blockchainEventListenerLock.Unlock()
+	el := tm.blockchainEventListeners[name]
+	if el == nil {
+		return i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerNotLoaded, name)
+	}
+	return tm.blockIndexer.StartEventStream(ctx, el.eventStream.ID())
+}
+
+func (tm *txManager) StopBlockchainEventListener(ctx context.Context, name string) error {
+	tm.blockchainEventListenerLock.Lock()
+	defer tm.blockchainEventListenerLock.Unlock()
+	el := tm.blockchainEventListeners[name]
+	if el == nil {
+		return i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerNotLoaded, name)
+	}
+	return tm.blockIndexer.StopEventStream(ctx, el.eventStream.ID())
+}
+
+func (tm *txManager) DeleteBlockchainEventListener(ctx context.Context, name string) error {
+	tm.blockchainEventListenerLock.Lock()
+	defer tm.blockchainEventListenerLock.Unlock()
+	el := tm.blockchainEventListeners[name]
+	if el == nil {
+		return i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerNotLoaded, name)
+	}
+	err := tm.blockIndexer.RemoveEventStream(ctx, el.eventStream.ID())
+	if err == nil {
+		delete(tm.blockchainEventListeners, name)
+	}
+	return err
+}
+
+func (tm *txManager) GetBlockchainEventListenerStatus(ctx context.Context, name string) (*pldapi.BlockchainEventListenerStatus, error) {
+	tm.blockchainEventListenerLock.Lock()
+	defer tm.blockchainEventListenerLock.Unlock()
+	el := tm.blockchainEventListeners[name]
+	if el == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerNotLoaded, name)
+	}
+
+	status, err := tm.blockIndexer.GetEventStreamStatus(ctx, el.eventStream.ID())
+	if err != nil {
+		return nil, err
+	}
+	return &pldapi.BlockchainEventListenerStatus{
+		Catchup: status.Catchup,
+		Checkpoint: pldapi.BlockchainEventListenerCheckpoint{
+			BlockNumber: status.CheckpointBlock,
+		},
+	}, nil
+}
+
+func (tm *txManager) validateBlockchainEventListenerSpec(ctx context.Context, spec *pldapi.BlockchainEventListener) error {
+	if err := pldtypes.ValidateSafeCharsStartEndAlphaNum(ctx, spec.Name, pldtypes.DefaultNameMaxLen, "name"); err != nil {
+		return err
+	}
+
+	if len(spec.Sources) == 0 {
+		return i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerNoSources, spec.Name)
+	}
+
+	noABI := false
+	for _, source := range spec.Sources {
+		if source.ABI == nil {
+			noABI = true
+		}
+	}
+	if noABI {
+		return i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerNoABIs, spec.Name)
+	}
+
+	if spec.Options.BatchTimeout != nil && *spec.Options.BatchTimeout != "" {
+		if _, err := time.ParseDuration(*spec.Options.BatchTimeout); err != nil {
+			return i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerInvalidTimeout, *spec.Options.BatchTimeout, err.Error())
+		}
+	}
+	return nil
+}
+
+func (tm *txManager) mapEventStream(el *pldapi.BlockchainEventListener) *blockindexer.EventStreamDefinition {
+	es := &blockindexer.EventStreamDefinition{
+		Name:    el.Name,
+		Type:    ES_TYPE,
+		Started: el.Started,
+		Config: blockindexer.EventStreamConfig{
+			BatchSize:    el.Options.BatchSize,
+			BatchTimeout: el.Options.BatchTimeout,
+			FromBlock:    el.Options.FromBlock,
+		},
+	}
+
+	for _, source := range el.Sources {
+		es.Sources = append(es.Sources, blockindexer.EventStreamSource{
+			ABI:     source.ABI,
+			Address: source.Address,
+		})
+	}
+
+	return es
+}
+
+func (tm *txManager) mapBlockchainEventListener(es *blockindexer.EventStreamDefinition) *pldapi.BlockchainEventListener {
+	el := &pldapi.BlockchainEventListener{
+		Name:    es.Name,
+		Started: es.Started,
+		Created: es.Created,
+		Options: pldapi.BlockchainEventListenerOptions{
+			BatchSize:    es.Config.BatchSize,
+			BatchTimeout: es.Config.BatchTimeout,
+			FromBlock:    es.Config.FromBlock,
+		},
+	}
+	for _, source := range es.Sources {
+		el.Sources = append(el.Sources, pldapi.BlockchainEventListenerSource{
+			ABI:     source.ABI,
+			Address: source.Address,
+		})
+	}
+
+	return el
+}
+
+func (tm *txManager) AddBlockchainEventReceiver(ctx context.Context, name string, r components.BlockchainEventReceiver) (components.ReceiverCloser, error) {
+	tm.blockchainEventListenerLock.Lock()
+	defer tm.blockchainEventListenerLock.Unlock()
+
+	l := tm.blockchainEventListeners[name]
+	if l == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgTxMgrBlockchainEventListenerNotLoaded, name)
+	}
+
+	return l.addReceiver(r), nil
+}
+
+func (rr *registeredBlockchainEventReceiver) Close() {
+	rr.el.removeReceiver(rr.id)
+}
+
+func (rr *registeredBlockchainEventReceiver) SetActive() {
+	rr.el.setActive(rr)
+}
+
+func (el *blockchainEventListener) addReceiver(r components.BlockchainEventReceiver) *registeredBlockchainEventReceiver {
+	el.receiverLock.Lock()
+	defer el.receiverLock.Unlock()
+
+	registered := &registeredBlockchainEventReceiver{
+		id:                      uuid.New(),
+		el:                      el,
+		BlockchainEventReceiver: r,
+	}
+	el.pendingReceivers = append(el.pendingReceivers, registered)
+	log.L(el.tm.bgCtx).Debugf("event listener '%s': receiver added id=%s pending=%d active=%d", el.eventStream.Definition().Name, registered.id, len(el.pendingReceivers), len(el.receivers))
+
+	return registered
+}
+
+func (el *blockchainEventListener) setActive(receiver *registeredBlockchainEventReceiver) {
+	el.receiverLock.Lock()
+	defer el.receiverLock.Unlock()
+
+	for _, existing := range el.receivers {
+		if existing.id == receiver.id {
+			return // already active
+		}
+	}
+	el.receivers = append(el.receivers, receiver)
+	el.pendingReceivers = el.removeReceiverFromList(el.pendingReceivers, receiver.id)
+	log.L(el.tm.bgCtx).Debugf("event listener '%s': receiver activated id=%s pending=%d active=%d", el.eventStream.Definition().Name, receiver.id, len(el.pendingReceivers), len(el.receivers))
+
+	select {
+	case el.newReceivers <- true:
+	default:
+	}
+}
+
+func (el *blockchainEventListener) removeReceiver(rid uuid.UUID) {
+	el.receiverLock.Lock()
+	defer el.receiverLock.Unlock()
+
+	el.receivers = el.removeReceiverFromList(el.receivers, rid)
+	el.pendingReceivers = el.removeReceiverFromList(el.pendingReceivers, rid)
+	log.L(el.tm.bgCtx).Debugf("event listener '%s': receiver removed id=%s pending=%d active=%d", el.eventStream.Definition().Name, rid, len(el.pendingReceivers), len(el.receivers))
+}
+
+func (el *blockchainEventListener) removeReceiverFromList(receivers []*registeredBlockchainEventReceiver, rid uuid.UUID) []*registeredBlockchainEventReceiver {
+	if len(receivers) == 0 {
+		return receivers
+	}
+	newReceivers := make([]*registeredBlockchainEventReceiver, 0, len(receivers))
+	for _, existing := range receivers {
+		if existing.id != rid {
+			newReceivers = append(newReceivers, existing)
+		}
+	}
+	return newReceivers
+}
+
+func (el *blockchainEventListener) nextReceiver(ctx context.Context) (r components.BlockchainEventReceiver, err error) {
+	for {
+		el.receiverLock.Lock()
+		if len(el.receivers) > 0 {
+			r = el.receivers[el.receiverCounter%len(el.receivers)]
+		}
+		el.receiverLock.Unlock()
+
+		if r != nil {
+			el.receiverCounter++
+			return r, nil
+		}
+
+		select {
+		case <-el.newReceivers:
+		case <-ctx.Done():
+			return nil, i18n.NewError(ctx, msgs.MsgContextCanceled)
+		}
+	}
+}
+
+func (el *blockchainEventListener) handleEventBatch(ctx context.Context, batch *blockindexer.EventDeliveryBatch) error {
+	ctx = log.WithLogField(ctx, "blockchain-event-listener", el.eventStream.Definition().Name)
+	r, err := el.nextReceiver(ctx)
+	if err != nil {
+		return err
+	}
+	log.L(ctx).Infof("Delivering blockchain event batch %s (receipts=%d)", batch.BatchID, len(batch.Events))
+	err = r.DeliverBlockchainEventBatch(ctx, batch.BatchID, batch.Events)
+	log.L(ctx).Infof("Delivered blockchain event batch %s (err=%v)", batch.BatchID, err)
+	return err
+}

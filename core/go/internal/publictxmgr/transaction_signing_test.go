@@ -19,14 +19,14 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/core/mocks/componentmocks"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signpayloads"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -36,7 +36,7 @@ func TestInFlightTxSignFail(t *testing.T) {
 	defer done()
 	it, _ := newInflightTransaction(o, 1)
 
-	fromAddr := *tktypes.RandAddress()
+	fromAddr := *pldtypes.RandAddress()
 
 	m.ethClient.On("ChainID").Return(int64(1122334455))
 	keyMapping := &pldapi.KeyMappingAndVerifier{
@@ -50,7 +50,7 @@ func TestInFlightTxSignFail(t *testing.T) {
 		},
 	}
 
-	mockKeyManager := m.keyManager.(*componentmocks.KeyManager)
+	mockKeyManager := m.keyManager.(*componentsmocks.KeyManager)
 	mockKeyManager.On("ReverseKeyLookup", mock.Anything, mock.Anything, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, fromAddr.String()).
 		Return(keyMapping, nil)
 	mockKeyManager.On("Sign", mock.Anything, keyMapping, signpayloads.OPAQUE_TO_RSV, mock.Anything).

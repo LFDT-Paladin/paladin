@@ -1,0 +1,32 @@
+{{- if (eq .Values.mode "devnet") }}
+
+{{- $basePort := .Values.besu.baseNodePort }}
+{{- $prefix := .Values.besu.nodeNamePrefix }}
+
+{{- $besuCount := include "paladin-operator.besuNodeCount" . | int }}
+
+{{- range $i, $ := until $besuCount }}
+{{- $name := printf "%s%d" $prefix (add $i 1) }}
+apiVersion: core.paladin.io/v1alpha1
+kind: Besu
+metadata:
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+  name: {{ $name }}
+spec:
+  genesis: testnet
+  service:
+    type: NodePort
+    ports:
+      - name: rpc-http
+        port: 8545
+        nodePort: {{ add $basePort (mul $i 100) }}
+      - name: rpc-ws
+        port: 8546
+        nodePort: {{ add $basePort (add (mul $i 100) 1) }}
+      - name: graphql-http
+        port: 8547
+        nodePort: {{ add $basePort (add (mul $i 100) 2) }}
+---
+{{- end }}
+{{- end }}

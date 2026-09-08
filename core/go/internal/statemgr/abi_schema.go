@@ -24,16 +24,17 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/eip712"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/filters"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 type abiSchema struct {
@@ -63,7 +64,7 @@ func newABISchema(ctx context.Context, domainName string, def *abi.Parameter) (*
 		as.Schema.Signature, err = as.FullSignature(ctx)
 	}
 	if err == nil {
-		as.Schema.ID = tktypes.Bytes32Keccak([]byte(as.Schema.Signature))
+		as.Schema.ID = pldtypes.Bytes32Keccak([]byte(as.Schema.Signature))
 	}
 	if err != nil {
 		return nil, err
@@ -90,7 +91,7 @@ func (as *abiSchema) Type() pldapi.SchemaType {
 	return pldapi.SchemaTypeABI
 }
 
-func (as *abiSchema) ID() tktypes.Bytes32 {
+func (as *abiSchema) ID() pldtypes.Bytes32 {
 	return as.Schema.ID
 }
 
@@ -214,7 +215,7 @@ func (as *abiSchema) mapValueToLabel(ctx context.Context, fieldName string, labe
 			return nil, nil, i18n.NewError(ctx, msgs.MsgStateLabelFieldUnexpectedValue, fieldName, f.Value, new(big.Int))
 		}
 		// Otherwise we fall back to encoding as a fixed-width hex string - with a leading sign character
-		filterString := tktypes.Int256To65CharDBSafeSortableString(bigIntVal)
+		filterString := pldtypes.Int256To65CharDBSafeSortableString(bigIntVal)
 		return &pldapi.StateLabel{Label: fieldName, Value: filterString}, nil, nil
 	case labelTypeUint256:
 		bigIntVal, ok := f.Value.(*big.Int)
@@ -286,7 +287,8 @@ type parsedStateData struct {
 	labelValues filters.PassthroughValueSet
 }
 
-func (as *abiSchema) parseStateData(ctx context.Context, data tktypes.RawJSON) (*parsedStateData, error) {
+// parseStateData unmarshals the state data and parses it into the type tree of this schema.
+func (as *abiSchema) parseStateData(ctx context.Context, data pldtypes.RawJSON) (*parsedStateData, error) {
 	var psd parsedStateData
 	err := json.Unmarshal([]byte(data), &psd.jsonTree)
 	if err != nil {
@@ -296,7 +298,12 @@ func (as *abiSchema) parseStateData(ctx context.Context, data tktypes.RawJSON) (
 	if err != nil {
 		return nil, err
 	}
+	return &psd, nil
+}
 
+// buildLabels extracts from the parsed data the label values to store in the DB for comparison
+// appropriate to the type, erroring if any label field of the schema is absent from the data.
+func (as *abiSchema) buildLabels(ctx context.Context, psd *parsedStateData) error {
 	psd.labelValues = make(filters.PassthroughValueSet)
 	for _, fieldName := range as.Labels {
 		matched := false
@@ -304,7 +311,7 @@ func (as *abiSchema) parseStateData(ctx context.Context, data tktypes.RawJSON) (
 			if f.Component.KeyName() == fieldName {
 				textLabel, int64Label, err := as.buildLabel(ctx, fieldName, f)
 				if err != nil {
-					return nil, err
+					return err
 				}
 				if textLabel != nil {
 					psd.labels = append(psd.labels, textLabel)
@@ -318,25 +325,20 @@ func (as *abiSchema) parseStateData(ctx context.Context, data tktypes.RawJSON) (
 			}
 		}
 		if !matched {
-			return nil, i18n.NewError(ctx, msgs.MsgStateLabelFieldMissing, fieldName)
+			return i18n.NewError(ctx, msgs.MsgStateLabelFieldMissing, fieldName)
 		}
 	}
-	return &psd, nil
+	return nil
 }
 
-// Take the state, parse the value into the type tree of this schema, and from that
-// build the label values to store in the DB for comparison appropriate to the type.
-func (as *abiSchema) ProcessState(ctx context.Context, contractAddress *tktypes.EthAddress, data tktypes.RawJSON, id tktypes.HexBytes, customHashFunction bool) (*components.StateWithLabels, error) {
-
+// buildState turns parsed state data into a pldapi.State type by re-serializing the parsed data to the
+// schema's standard ABI JSON form and resolving the state ID
+func (as *abiSchema) buildState(ctx context.Context, contractAddress *pldtypes.EthAddress, psd *parsedStateData, id pldtypes.HexBytes, customHashFunction bool) (*pldapi.State, error) {
 	// We need to re-serialize the data according to the ABI to:
 	// - Ensure it's valid
 	// - Remove anything that is not part of the schema
 	// - Standardize formatting of all the data elements so domains do not need to worry
-	var jsonData []byte
-	psd, err := as.parseStateData(ctx, data)
-	if err == nil {
-		jsonData, err = tktypes.StandardABISerializer().SerializeJSONCtx(ctx, psd.cv)
-	}
+	jsonData, err := pldtypes.StandardABISerializer().SerializeJSONCtx(ctx, psd.cv)
 	if err != nil {
 		return nil, err
 	}
@@ -366,42 +368,95 @@ func (as *abiSchema) ProcessState(ctx context.Context, contractAddress *tktypes.
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgStateInvalidCalculatingHash)
 		}
-		if id != nil && !id.Equals(tktypes.HexBytes(hash)) {
+		if id != nil && !id.Equals(pldtypes.HexBytes(hash)) {
 			return nil, i18n.NewError(ctx, msgs.MsgStateHashMismatch, id, hash)
 		}
-		id = tktypes.HexBytes(hash)
+		id = pldtypes.HexBytes(hash)
 	}
 
-	for i := range psd.labels {
-		psd.labels[i].DomainName = as.Schema.DomainName
-		psd.labels[i].State = id
-	}
-	for i := range psd.int64Labels {
-		psd.int64Labels[i].DomainName = as.Schema.DomainName
-		psd.int64Labels[i].State = id
-	}
-
-	now := tktypes.TimestampNow()
-	return &components.StateWithLabels{
-		State: &pldapi.State{
-			StateBase: pldapi.StateBase{
-				ID:              id,
-				Created:         now,
-				DomainName:      as.DomainName,
-				Schema:          as.Schema.ID,
-				ContractAddress: contractAddress,
-				Data:            jsonData,
-			},
-			Labels:      psd.labels,
-			Int64Labels: psd.int64Labels,
+	return &pldapi.State{
+		StateBase: pldapi.StateBase{
+			ID:              id,
+			DomainName:      as.DomainName,
+			Schema:          as.Schema.ID,
+			ContractAddress: contractAddress,
+			Data:            jsonData,
 		},
-		LabelValues: addStateBaseLabels(psd.labelValues, id, now),
 	}, nil
 }
 
+// ProcessState parses and normalizes the state data against this schema and resolves the state ID.
+// Use ProcessStateWithLabels instead when the state's label values are needed - for persistence, or
+// for in-memory filtering before it is written.
+func (as *abiSchema) ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHashFunction bool) (*pldapi.State, error) {
+	ctx = log.WithComponent(ctx, "schema")
+	psd, err := as.parseStateData(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+	return as.buildState(ctx, contractAddress, psd, id, customHashFunction)
+}
+
+// ProcessStateWithLabels is ProcessState, additionally building the state's label values from the
+// same parse of the state data.
+func (as *abiSchema) ProcessStateWithLabels(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHashFunction bool) (*components.StateWithLabels, error) {
+	ctx = log.WithComponent(ctx, "schema")
+	psd, err := as.parseStateData(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+	if err := as.buildLabels(ctx, psd); err != nil {
+		return nil, err
+	}
+	state, err := as.buildState(ctx, contractAddress, psd, id, customHashFunction)
+	if err != nil {
+		return nil, err
+	}
+	// The labels can only be stamped with the identity of the state once its ID is resolved.
+	for i := range psd.labels {
+		psd.labels[i].DomainName = as.DomainName
+		psd.labels[i].State = state.ID
+	}
+	for i := range psd.int64Labels {
+		psd.int64Labels[i].DomainName = as.DomainName
+		psd.int64Labels[i].State = state.ID
+	}
+	psd.labelValues[".id"] = state.ID.HexString()
+
+	state.Labels = psd.labels
+	state.Int64Labels = psd.int64Labels
+	return &components.StateWithLabels{
+		State:       state,
+		LabelValues: psd.labelValues,
+	}, nil
+}
+
+// RecoverLabels rebuilds the label value set for an already-persisted state. When the state's label
+// rows have been preloaded it uses them directly, avoiding an ABI/JSON re-parse of the state data
+// (the values are identical to those the ABI parse would produce). The schema declares its full
+// label set in as.Labels, and each declared field persists exactly one row across s.Labels /
+// s.Int64Labels, so the rows are complete iff their combined count equals len(as.Labels). When they
+// are absent (not preloaded) it falls back to re-parsing the state data.
 func (as *abiSchema) RecoverLabels(ctx context.Context, s *pldapi.State) (*components.StateWithLabels, error) {
+	if len(s.Labels)+len(s.Int64Labels) == len(as.Labels) {
+		labelValues := make(filters.PassthroughValueSet, len(s.Labels)+len(s.Int64Labels))
+		for _, l := range s.Labels {
+			labelValues[l.Label] = l.Value
+		}
+		for _, l := range s.Int64Labels {
+			labelValues[l.Label] = l.Value
+		}
+		return &components.StateWithLabels{
+			State:       s,
+			LabelValues: addStateBaseLabels(labelValues, s.ID, s.Created),
+		}, nil
+	}
+
 	psd, err := as.parseStateData(ctx, s.Data)
 	if err != nil {
+		return nil, err
+	}
+	if err := as.buildLabels(ctx, psd); err != nil {
 		return nil, err
 	}
 	return &components.StateWithLabels{

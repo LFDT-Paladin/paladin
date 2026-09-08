@@ -15,7 +15,7 @@
 
 package signerapi
 
-import "github.com/kaleido-io/paladin/config/pkg/pldconf"
+import "github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 
 type ConfigNoExt pldconf.SignerConfig
 

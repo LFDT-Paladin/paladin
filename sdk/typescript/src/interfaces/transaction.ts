@@ -1,5 +1,4 @@
 import { BigNumberish, ethers } from "ethers";
-import { NotoUnlockPublicParams } from "../domains/noto";
 import { IStateBase } from "./states";
 
 export interface IBlock {
@@ -18,10 +17,14 @@ export interface PublicTxOptions {
   value?: BigNumberish;
   maxPriorityFeePerGas?: BigNumberish;
   maxFeePerGas?: BigNumberish;
-  gasPrice?: BigNumberish;
+}
+
+export interface PublicCallOptions {
+  block?: BigNumberish | string;
 }
 
 export interface ITransactionBase {
+  idempotencyKey?: string;
   type: TransactionType;
   domain?: string;
   function?: string;
@@ -32,10 +35,13 @@ export interface ITransactionBase {
   };
 }
 
+export type SubmitMode = "auto" | "external" | "call" | "prepare";
+
 export interface ITransaction extends ITransactionBase {
   id: string;
   created: string;
   abiReference: string;
+  submitMode?: SubmitMode;
 }
 
 export interface IPreparedTransaction {
@@ -58,9 +64,12 @@ export interface ITransactionInput extends ITransactionBase {
   abiReference?: string;
   abi?: ethers.InterfaceAbi;
   bytecode?: string;
+  dependsOn?: string[];
 }
 
-export interface ITransactionCall extends ITransactionInput {}
+export interface ITransactionCall extends ITransactionInput, PublicCallOptions {
+  dataFormat?: string;
+}
 
 export interface ITransactionReceipt {
   blockNumber: number;
@@ -72,7 +81,8 @@ export interface ITransactionReceipt {
   domain?: string;
   contractAddress?: string;
   states?: ITransactionStates;
-  domainReceipt?: IPenteDomainReceipt | INotoDomainReceipt;
+  domainReceipt?: IPenteDomainReceipt | INotoDomainReceipt | IZetoDomainReceipt;
+  domainReceiptError?: string
   failureMessage?: string;
 }
 
@@ -91,6 +101,44 @@ export interface IPenteLog {
   data: string;
 }
 
+// V1 lock info state data
+export interface INotoLockInfoV1 {
+  salt: string;
+  lockId: string;
+  owner: string;
+  spender: string;
+  replaces: string;
+  spendTxId: string;
+  spendOutputs: string[];
+  spendData: string;
+  cancelOutputs: string[];
+  cancelData: string;
+}
+
+// V1 spendLock params in receipt
+export interface INotoSpendLockParams {
+  lockId: string;
+  spendArgs: string;
+  data: string;
+}
+
+// V1 cancelLock params in receipt
+export interface INotoCancelLockParams {
+  lockId: string;
+  cancelArgs: string;
+  data: string;
+}
+
+// Legacy unlock params in receipt
+export interface INotoLegacyUnlockParams {
+  txId: string;
+  lockedInputs: string[];
+  lockedOutputs: string[];
+  outputs: string[];
+  signature: string;
+  data: string;
+}
+
 export interface INotoDomainReceipt {
   states: {
     inputs?: IReceiptState<INotoCoin>[];
@@ -102,23 +150,33 @@ export interface INotoDomainReceipt {
     lockedOutputs?: IReceiptState<INotoLockedCoin>[];
     readLockedInputs?: IReceiptState<INotoLockedCoin>[];
     preparedLockedOutputs?: IReceiptState<INotoLockedCoin>[];
+    updatedLockInfo?: IReceiptState<INotoLockInfoV1>[];
   };
   transfers?: {
     from?: string;
     to?: string;
     amount: string;
   }[];
-  lockInfo?: {
-    lockId: string;
-    delegate?: string;
-    unlockParams?: NotoUnlockPublicParams;
-    unlockCall?: string;
-  };
+  lockInfo?: INotoReceiptLockInfo;
   data?: string;
+  sender?: string;
+}
+
+export interface INotoReceiptLockInfo {
+  lockId: string;
+  delegate?: string;
+  spendTxId?: string;
+  unlockFunction?: string;
+  unlockParams?: INotoSpendLockParams | INotoLegacyUnlockParams;
+  unlockCall?: string;
+  cancelFunction?: string;
+  cancelParams?: INotoCancelLockParams;
+  cancelCall?: string;
 }
 
 export interface IReceiptState<T> {
   id: string;
+  schema: string;
   data: T;
 }
 
@@ -135,6 +193,49 @@ export interface INotoLockedCoin {
   amount: string;
 }
 
+export interface IZetoDomainReceipt {
+  states: {
+    // Zeto holds locked and unlocked coins in one schema, distinguished by their "locked" flag, but
+    // reports them separately here. Non-fungible tokens have no locked form.
+    inputs?: IReceiptState<IZetoCoin | IZetoNFToken>[];
+    outputs?: IReceiptState<IZetoCoin | IZetoNFToken>[];
+    lockedInputs?: IReceiptState<IZetoCoin>[];
+    lockedOutputs?: IReceiptState<IZetoCoin>[];
+  };
+  // No top-level data: none of Zeto's methods take a top-level data parameter. Data is supplied per
+  // transfer entry, so it is reported on the individual transfers.
+  transfers?: IZetoReceiptTransfer[];
+}
+
+// One transfer is reported per transfer entry rather than per recipient, so a recipient named by
+// several entries appears several times, each carrying its own data.
+//
+// Owners are Baby Jubjub public keys rather than Ethereum addresses. An absent "from" is a mint and
+// an absent "to" is a burn, which includes withdrawing back to the ERC-20 balance.
+export interface IZetoReceiptTransfer {
+  from?: string;
+  to?: string;
+  amount?: string; // fungible tokens only
+  tokenId?: string; // non-fungible tokens only
+  // The data supplied on the transfer entry that produced this transfer. Absent for outputs with no
+  // entry behind them, such as those of methods that take no data at all.
+  data?: string;
+}
+
+export interface IZetoCoin {
+  salt: string;
+  owner: string;
+  amount: string;
+  locked: boolean;
+}
+
+export interface IZetoNFToken {
+  salt: string;
+  uri: string;
+  owner: string;
+  tokenID: string;
+}
+
 export interface ITransactionStates {
   none?: boolean;
   spent?: IStateBase[];
@@ -149,27 +250,11 @@ export interface ITransactionStates {
   };
 }
 
-export enum TransactionType {
-  Private = "private",
-  Public = "public",
-}
-
-export interface IDecodedEvent {
+export interface IABIDecodedData {
   signature: string;
   definition: ethers.JsonFragment;
   data: any;
   summary: string; // errors only
-}
-
-export interface IEventWithData {
-  blockNumber: number;
-  transactionIndex: number;
-  logIndex: number;
-  transactionHash: string;
-  signature: string;
-  soliditySignature: string;
-  address: string;
-  data: any;
 }
 
 export interface IStoredABI {
@@ -186,6 +271,6 @@ export interface ITransactionReceiptListener {
   };
   options?: {
     domainReceipts?: boolean;
-    incompleteStateReceiptBehavior?: "block_contract" | "process";
+    incompleteStateReceiptBehavior?: "block_contract" | "process" | "complete_only";
   };
 }

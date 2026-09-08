@@ -5,6 +5,12 @@ db:
     dsn: ':memory:'
     autoMigrate: true
     migrationsDir: '../../core/go/db/migrations/sqlite'
+  # type: postgres
+  # postgres:
+  #   dsn: 'postgres://postgres:my-secret@localhost:5432/postgres?sslmode=disable'
+  #   autoMigrate: true
+  #   migrationsDir: '../../core/go/db/migrations/postgres'
+  #   debugQueries: false
 rpcServer:
   http:
     port: 0
@@ -22,21 +28,24 @@ blockchain:
     url: ws://localhost:8546
     initialConnectAttempts: 25
     shutdownTimeout: 0s
+# Disable DB polling to resume transactions
+sequencerManager:
+  transactionResumePollInterval: -1s
 log:
   level: debug
   output: file
   file:
     filename: build/testbed.domain-integration-test.log
 wallets:
-- name: wallet1
-  keySelector: .*
-  signer:
-    keyDerivation:
-      type: "bip32"
-    keyStore:
-      type: "static"
-      static:
-        keys:
-          seed:
-            encoding: none
-            inline: REPLACED BY GENERATED KEY IN TEST
+  - name: wallet1
+    keySelector: .*
+    signer:
+      keyDerivation:
+        type: 'bip32'
+      keyStore:
+        type: 'static'
+        static:
+          keys:
+            seed:
+              encoding: none
+              inline: REPLACED BY GENERATED KEY IN TEST

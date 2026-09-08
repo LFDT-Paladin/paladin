@@ -18,33 +18,36 @@ package componentmgr
 import (
 	"context"
 	"net/http"
+	"runtime"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/domainmgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/groupmgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/identityresolver"
+	"github.com/LFDT-Paladin/paladin/core/internal/keymanager"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/plugins"
+	"github.com/LFDT-Paladin/paladin/core/internal/publictxmgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/registrymgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/rpcauthmgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer"
+	"github.com/LFDT-Paladin/paladin/core/internal/statemgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/transportmgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/txmgr"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/httpserver"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/metricsserver"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/domainmgr"
-	"github.com/kaleido-io/paladin/core/internal/groupmgr"
-	"github.com/kaleido-io/paladin/core/internal/identityresolver"
-	"github.com/kaleido-io/paladin/core/internal/keymanager"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/internal/plugins"
-	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr"
-	"github.com/kaleido-io/paladin/core/internal/publictxmgr"
-	"github.com/kaleido-io/paladin/core/internal/registrymgr"
-	"github.com/kaleido-io/paladin/core/internal/statemgr"
-	"github.com/kaleido-io/paladin/core/internal/transportmgr"
-	"github.com/kaleido-io/paladin/core/internal/txmgr"
-	"github.com/kaleido-io/paladin/core/pkg/blockindexer"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-
-	"github.com/kaleido-io/paladin/core/pkg/ethclient"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/httpserver"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/retry"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
 )
 
 type ComponentManager interface {
@@ -69,18 +72,22 @@ type componentManager struct {
 	persistence      persistence.Persistence
 	blockIndexer     blockindexer.BlockIndexer
 	rpcServer        rpcserver.RPCServer
+	metricsServer    metricsserver.MetricsServer
+	metricsManager   metrics.Metrics
 
 	// managers
-	stateManager     components.StateManager
-	domainManager    components.DomainManager
-	transportManager components.TransportManager
-	registryManager  components.RegistryManager
-	pluginManager    components.PluginManager
-	publicTxManager  components.PublicTxManager
-	privateTxManager components.PrivateTxManager
-	txManager        components.TXManager
-	identityResolver components.IdentityResolver
-	groupManager     components.GroupManager
+	stateManager             components.StateManager
+	domainManager            components.DomainManager
+	transportManager         components.TransportManager
+	loopbackTransportManager components.TransportManager
+	registryManager          components.RegistryManager
+	pluginManager            components.PluginManager
+	publicTxManager          components.PublicTxManager
+	sequencerManager         components.SequencerManager
+	txManager                components.TXManager
+	identityResolver         components.IdentityResolver
+	groupManager             components.GroupManager
+	rpcAuthManager           components.RPCAuthManager
 	// managers that are not a core part of the engine, but allow Paladin to operate in an extended mode - the testbed is an example.
 	// these cannot be queried by other components (no AdditionalManagers() function on AllComponents)
 	additionalManagers []components.AdditionalManager
@@ -128,6 +135,10 @@ func (cm *componentManager) javaDump(res http.ResponseWriter, req *http.Request)
 }
 
 func (cm *componentManager) startDebugServer() (httpserver.Server, error) {
+	// Enable block and mutex profiling so /debug/pprof/block and /debug/pprof/mutex return data.
+	// Both default to 0 (disabled); a positive rate records every event (1) or samples 1/N.
+	runtime.SetBlockProfileRate(confutil.Int(cm.conf.DebugServer.BlockProfileRate, *pldconf.DebugServerDefaults.BlockProfileRate))
+	runtime.SetMutexProfileFraction(confutil.Int(cm.conf.DebugServer.MutexProfileFraction, *pldconf.DebugServerDefaults.MutexProfileFraction))
 	cm.conf.DebugServer.Port = confutil.P(confutil.Int(cm.conf.DebugServer.Port, 0)) // if enabled with no port, we allocate one
 	server, err := httpserver.NewDebugServer(cm.bgCtx, &cm.conf.DebugServer.HTTPServerConfig)
 	if err == nil {
@@ -138,6 +149,8 @@ func (cm *componentManager) startDebugServer() (httpserver.Server, error) {
 }
 
 func (cm *componentManager) Init() (err error) {
+	log.L(cm.bgCtx).Info("Initializing component manager")
+
 	// start the debug server as early as possible
 	if confutil.Bool(cm.conf.DebugServer.Enabled, *pldconf.DebugServerDefaults.Enabled) {
 		cm.debugServer, err = cm.startDebugServer()
@@ -161,10 +174,20 @@ func (cm *componentManager) Init() (err error) {
 		cm.rpcServer, err = rpcserver.NewRPCServer(cm.bgCtx, &cm.conf.RPCServer)
 		err = cm.wrapIfErr(err, msgs.MsgComponentRPCServerInitError)
 	}
+	if err == nil {
+		cm.metricsManager = metrics.NewMetricsManager(cm.bgCtx)
+		err = cm.wrapIfErr(err, msgs.MsgComponentMetricsManagerInitError)
+	}
+	if err == nil {
+		if confutil.Bool(cm.conf.MetricsServer.Enabled, *pldconf.MetricsServerDefaults.Enabled) {
+			cm.metricsServer, err = metricsserver.NewMetricsServer(cm.bgCtx, cm.metricsManager.Registry(), &cm.conf.MetricsServer)
+			err = cm.wrapIfErr(err, msgs.MsgComponentMetricsServerInitError)
+		}
+	}
 
 	// pre-init managers
 	if err == nil {
-		cm.keyManager = keymanager.NewKeyManager(cm.bgCtx, &cm.conf.KeyManagerConfig)
+		cm.keyManager = keymanager.NewKeyManager(cm.bgCtx, &cm.conf.KeyManagerInlineConfig)
 		cm.initResults["key_manager"], err = cm.keyManager.PreInit(cm)
 		err = cm.wrapIfErr(err, msgs.MsgComponentKeyManagerInitError)
 	}
@@ -174,25 +197,30 @@ func (cm *componentManager) Init() (err error) {
 		err = cm.wrapIfErr(err, msgs.MsgComponentStateManagerInitError)
 	}
 	if err == nil {
-		cm.domainManager = domainmgr.NewDomainManager(cm.bgCtx, &cm.conf.DomainManagerConfig)
+		cm.domainManager = domainmgr.NewDomainManager(cm.bgCtx, &cm.conf.DomainManagerInlineConfig)
 		cm.initResults["domain_manager"], err = cm.domainManager.PreInit(cm)
 		err = cm.wrapIfErr(err, msgs.MsgComponentDomainInitError)
 	}
 
 	if err == nil {
-		cm.transportManager = transportmgr.NewTransportManager(cm.bgCtx, &cm.conf.TransportManagerConfig)
+		cm.transportManager = transportmgr.NewTransportManager(cm.bgCtx, &cm.conf.TransportManagerInlineConfig)
 		cm.initResults["transports_manager"], err = cm.transportManager.PreInit(cm)
 		err = cm.wrapIfErr(err, msgs.MsgComponentTransportInitError)
 	}
 
 	if err == nil {
-		cm.registryManager = registrymgr.NewRegistryManager(cm.bgCtx, &cm.conf.RegistryManagerConfig)
+		cm.registryManager = registrymgr.NewRegistryManager(cm.bgCtx, &cm.conf.RegistryManagerInlineConfig)
 		cm.initResults["registry_manager"], err = cm.registryManager.PreInit(cm)
 		err = cm.wrapIfErr(err, msgs.MsgComponentRegistryInitError)
 	}
 
 	if err == nil {
-		cm.pluginManager = plugins.NewPluginManager(cm.bgCtx, cm.grpcTarget, cm.instanceUUID, &cm.conf.PluginManagerConfig)
+		cm.rpcAuthManager = rpcauthmgr.NewRPCAuthManager(cm.bgCtx, cm.conf.RPCAuthorizers)
+		cm.initResults["rpc_auth_manager"], err = cm.rpcAuthManager.PreInit(cm)
+		err = cm.wrapIfErr(err, msgs.MsgComponentRPCAuthManagerInitError)
+	}
+	if err == nil {
+		cm.pluginManager = plugins.NewPluginManager(cm.bgCtx, cm.grpcTarget, cm.instanceUUID, &cm.conf.PluginManagerInlineConfig)
 		cm.initResults["plugin_manager"], err = cm.pluginManager.PreInit(cm)
 		err = cm.wrapIfErr(err, msgs.MsgComponentPluginInitError)
 	}
@@ -204,9 +232,9 @@ func (cm *componentManager) Init() (err error) {
 	}
 
 	if err == nil {
-		cm.privateTxManager = privatetxnmgr.NewPrivateTransactionMgr(cm.bgCtx, &cm.conf.PrivateTxManager)
-		cm.initResults["private_tx_manager"], err = cm.privateTxManager.PreInit(cm)
-		err = cm.wrapIfErr(err, msgs.MsgComponentPrivateTxManagerInitError)
+		cm.sequencerManager = sequencer.NewDistributedSequencerManager(cm.bgCtx, &cm.conf.SequencerManager)
+		cm.initResults["distributed_sequencer_manager"], err = cm.sequencerManager.PreInit(cm)
+		err = cm.wrapIfErr(err, msgs.MsgComponentDistributedSequencerManagerInitError)
 	}
 
 	if err == nil {
@@ -262,6 +290,11 @@ func (cm *componentManager) Init() (err error) {
 	}
 
 	if err == nil {
+		err = cm.rpcAuthManager.PostInit(cm)
+		err = cm.wrapIfErr(err, msgs.MsgComponentRPCAuthManagerInitError)
+	}
+
+	if err == nil {
 		err = cm.pluginManager.PostInit(cm)
 		err = cm.wrapIfErr(err, msgs.MsgComponentPluginInitError)
 	}
@@ -272,8 +305,8 @@ func (cm *componentManager) Init() (err error) {
 	}
 
 	if err == nil {
-		err = cm.privateTxManager.PostInit(cm)
-		err = cm.wrapIfErr(err, msgs.MsgComponentPrivateTxManagerInitError)
+		err = cm.sequencerManager.PostInit(cm)
+		err = cm.wrapIfErr(err, msgs.MsgComponentDistributedSequencerManagerInitError)
 	}
 
 	if err == nil {
@@ -315,6 +348,9 @@ func (cm *componentManager) startBlockIndexer() (err error) {
 		_, err = cm.blockIndexer.GetBlockListenerHeight(cm.bgCtx)
 		err = cm.wrapIfErr(err, msgs.MsgComponentBlockIndexerStartError)
 	}
+	if err == nil {
+		err = cm.txManager.LoadBlockchainEventListeners()
+	}
 	return err
 }
 
@@ -322,6 +358,10 @@ func (cm *componentManager) startEthClient() error {
 	return cm.ethClientStartupRetry.Do(cm.bgCtx, func(attempt int) (retryable bool, err error) {
 		return true, cm.ethClientFactory.Start()
 	})
+}
+
+func (cm *componentManager) stopEthClient() {
+	cm.ethClientFactory.Stop()
 }
 
 func (cm *componentManager) StartManagers() (err error) {
@@ -332,6 +372,22 @@ func (cm *componentManager) StartManagers() (err error) {
 	err = cm.addIfStarted("eth_client", cm.ethClientFactory, err, msgs.MsgComponentEthClientStartError)
 
 	// start the managers
+	if err == nil {
+		err = cm.rpcAuthManager.Start()
+		err = cm.addIfStarted("rpc_auth_manager", cm.rpcAuthManager, err, msgs.MsgComponentRPCAuthManagerStartError)
+	}
+
+	if err == nil {
+		err = cm.pluginManager.Start()
+		err = cm.addIfStarted("plugin_manager", cm.pluginManager, err, msgs.MsgComponentPluginStartError)
+	}
+
+	// Wait for signing module plugins to all start before starting the key manager
+	if err == nil {
+		err = cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_SIGNING_MODULE)
+		err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
+	}
+
 	if err == nil {
 		err = cm.keyManager.Start()
 		err = cm.addIfStarted("key_manager", cm.keyManager, err, msgs.MsgComponentKeyManagerStartError)
@@ -358,18 +414,8 @@ func (cm *componentManager) StartManagers() (err error) {
 	}
 
 	if err == nil {
-		err = cm.pluginManager.Start()
-		err = cm.addIfStarted("plugin_manager", cm.pluginManager, err, msgs.MsgComponentPluginStartError)
-	}
-
-	if err == nil {
 		err = cm.publicTxManager.Start()
 		err = cm.addIfStarted("public_tx_manager", cm.publicTxManager, err, msgs.MsgComponentPublicTxManagerStartError)
-	}
-
-	if err == nil {
-		err = cm.privateTxManager.Start()
-		err = cm.addIfStarted("private_tx_manager", cm.privateTxManager, err, msgs.MsgComponentPrivateTxManagerStartError)
 	}
 
 	if err == nil {
@@ -393,20 +439,74 @@ func (cm *componentManager) StartManagers() (err error) {
 }
 
 func (cm *componentManager) CompleteStart() error {
-	// Wait for the plugins to all start
-	err := cm.pluginManager.WaitForInit(cm.bgCtx)
+	// Wait for the domain plugins to all start
+	err := cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_DOMAIN)
 	err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
+
+	// Wait for RPC auth plugins if configured
+	if len(cm.conf.RPCAuthorizers) > 0 {
+		err = cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_RPC_AUTH)
+		err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
+	}
+
+	// Wait for transport plugins to complete ConfigureTransport before starting sequencer
+	if err == nil {
+		err = cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_TRANSPORT)
+		err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
+	}
 
 	// then start the block indexer
 	if err == nil {
 		err = cm.startBlockIndexer()
 	}
 
+	// We need the domains to have initialised before we can use them in the sequencer
+	if err == nil {
+		err = cm.sequencerManager.Start()
+		err = cm.addIfStarted("sequencer_manager", cm.sequencerManager, err, msgs.MsgComponentDistributedSequencerStartError)
+	}
+
 	// start the RPC server last
 	if err == nil {
 		cm.registerRPCModules()
-		err = cm.rpcServer.Start()
-		err = cm.addIfStarted("rpc_server", cm.rpcServer, err, msgs.MsgComponentRPCServerStartError)
+
+		// Validate that all configured RPC authorizers are included in the authorizers array
+		if len(cm.conf.RPCAuthorizers) > 0 {
+			authorizersMap := make(map[string]bool, len(cm.conf.RPCServer.Authorizers))
+			for _, authName := range cm.conf.RPCServer.Authorizers {
+				authorizersMap[authName] = true
+			}
+			for authName := range cm.conf.RPCAuthorizers {
+				if !authorizersMap[authName] {
+					err = i18n.NewError(cm.bgCtx, msgs.MsgRPCAuthorizerMissing, authName)
+					break
+				}
+			}
+		}
+
+		// Set RPC authorizers if configured
+		if err == nil && len(cm.conf.RPCServer.Authorizers) > 0 {
+			// Only set authorizers if explicitly configured in RPCServer config
+			auths := make([]rpcserver.Authorizer, 0, len(cm.conf.RPCServer.Authorizers))
+			for _, authPluginName := range cm.conf.RPCServer.Authorizers {
+				rpcAuthorizer := cm.rpcAuthManager.GetRPCAuthorizer(authPluginName)
+				if rpcAuthorizer == nil {
+					err = i18n.NewError(cm.bgCtx, msgs.MsgRPCAuthorizerNotFound, authPluginName)
+					break
+				}
+				// RPCAuthorizer interface already matches rpcserver.Authorizer
+				auths = append(auths, rpcAuthorizer)
+			}
+			if err == nil {
+				cm.rpcServer.SetAuthorizers(auths)
+			}
+		}
+
+		// Only start RPC server if no errors occurred during authorizer setup
+		if err == nil {
+			err = cm.rpcServer.Start()
+			err = cm.addIfStarted("rpc_server", cm.rpcServer, err, msgs.MsgComponentRPCServerStartError)
+		}
 	}
 	if err == nil {
 		httpEndpoint := "disabled"
@@ -418,6 +518,11 @@ func (cm *componentManager) CompleteStart() error {
 			httpEndpoint = cm.rpcServer.WSAddr().String()
 		}
 		log.L(cm.bgCtx).Infof("RPC endpoints http=%s ws=%s", httpEndpoint, wsEndpoint)
+	}
+
+	if cm.metricsServer != nil {
+		err = cm.metricsServer.Start()
+		err = cm.addIfStarted("metrics_server", cm.metricsServer, err, msgs.MsgComponentMetricsServerStartError)
 	}
 
 	log.L(cm.bgCtx).Infof("Startup complete")
@@ -487,6 +592,11 @@ func (cm *componentManager) Stop() {
 		c.Close()
 		log.L(cm.bgCtx).Debugf("Stopped %s", name)
 	}
+
+	log.L(cm.bgCtx).Infof("Stopping eth client")
+	cm.stopEthClient()
+	log.L(cm.bgCtx).Debugf("Stopped eth client")
+
 	log.L(cm.bgCtx).Debug("Stopped")
 }
 
@@ -522,6 +632,10 @@ func (cm *componentManager) TransportManager() components.TransportManager {
 	return cm.transportManager
 }
 
+func (cm *componentManager) LoopbackTransportManager() components.TransportManager {
+	return cm.loopbackTransportManager
+}
+
 func (cm *componentManager) RegistryManager() components.RegistryManager {
 	return cm.registryManager
 }
@@ -534,8 +648,8 @@ func (cm *componentManager) PublicTxManager() components.PublicTxManager {
 	return cm.publicTxManager
 }
 
-func (cm *componentManager) PrivateTxManager() components.PrivateTxManager {
-	return cm.privateTxManager
+func (cm *componentManager) SequencerManager() components.SequencerManager {
+	return cm.sequencerManager
 }
 
 func (cm *componentManager) TxManager() components.TXManager {
@@ -548,4 +662,12 @@ func (cm *componentManager) GroupManager() components.GroupManager {
 
 func (cm *componentManager) IdentityResolver() components.IdentityResolver {
 	return cm.identityResolver
+}
+
+func (cm *componentManager) MetricsManager() metrics.Metrics {
+	return cm.metricsManager
+}
+
+func (cm *componentManager) RPCAuthManager() components.RPCAuthManager {
+	return cm.rpcAuthManager
 }

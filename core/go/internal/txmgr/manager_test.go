@@ -20,29 +20,35 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/mocks/componentmocks"
-	"github.com/kaleido-io/paladin/core/mocks/ethclientmocks"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/ethclientmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/stretchr/testify/require"
 )
 
 type mockComponents struct {
-	c                *componentmocks.AllComponents
+	t                *testing.T
+	c                *componentsmocks.AllComponents
 	db               sqlmock.Sqlmock
 	ethClientFactory *ethclientmocks.EthClientFactory
-	domainManager    *componentmocks.DomainManager
-	blockIndexer     *componentmocks.BlockIndexer
-	keyManager       *componentmocks.KeyManager
-	publicTxMgr      *componentmocks.PublicTxManager
-	privateTxMgr     *componentmocks.PrivateTxManager
-	stateMgr         *componentmocks.StateManager
-	identityResolver *componentmocks.IdentityResolver
-	transportManager *componentmocks.TransportManager
+	domainManager    *componentsmocks.DomainManager
+	blockIndexer     *blockindexermocks.BlockIndexer
+	keyManager       *componentsmocks.KeyManager
+	publicTxMgr      *componentsmocks.PublicTxManager
+	sequencerMgr     *componentsmocks.SequencerManager
+	stateMgr         *componentsmocks.StateManager
+	identityResolver *componentsmocks.IdentityResolver
+	transportManager *componentsmocks.TransportManager
 }
 
 func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pldconf.TxManagerConfig, mc *mockComponents)) (context.Context, *txManager, func()) {
@@ -56,33 +62,35 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 		},
 	}
 	mc := &mockComponents{
-		c:                componentmocks.NewAllComponents(t),
-		blockIndexer:     componentmocks.NewBlockIndexer(t),
+		t:                t,
+		c:                componentsmocks.NewAllComponents(t),
+		blockIndexer:     blockindexermocks.NewBlockIndexer(t),
 		ethClientFactory: ethclientmocks.NewEthClientFactory(t),
-		keyManager:       componentmocks.NewKeyManager(t),
-		domainManager:    componentmocks.NewDomainManager(t),
-		publicTxMgr:      componentmocks.NewPublicTxManager(t),
-		privateTxMgr:     componentmocks.NewPrivateTxManager(t),
-		stateMgr:         componentmocks.NewStateManager(t),
-		identityResolver: componentmocks.NewIdentityResolver(t),
-		transportManager: componentmocks.NewTransportManager(t),
+		keyManager:       componentsmocks.NewKeyManager(t),
+		domainManager:    componentsmocks.NewDomainManager(t),
+		publicTxMgr:      componentsmocks.NewPublicTxManager(t),
+		sequencerMgr:     componentsmocks.NewSequencerManager(t),
+		stateMgr:         componentsmocks.NewStateManager(t),
+		identityResolver: componentsmocks.NewIdentityResolver(t),
+		transportManager: componentsmocks.NewTransportManager(t),
 	}
 
 	txm := NewTXManager(ctx, conf).(*txManager)
+	mm := metrics.NewMetricsManager(ctx)
 
-	componentMocks := mc.c
-	componentMocks.On("TxManager").Return(txm).Maybe()
-	componentMocks.On("BlockIndexer").Return(mc.blockIndexer).Maybe()
-	componentMocks.On("DomainManager").Return(mc.domainManager).Maybe()
-	componentMocks.On("KeyManager").Return(mc.keyManager).Maybe()
-	componentMocks.On("PublicTxManager").Return(mc.publicTxMgr).Maybe()
-	componentMocks.On("PrivateTxManager").Return(mc.privateTxMgr).Maybe()
-	componentMocks.On("StateManager").Return(mc.stateMgr).Maybe()
-	componentMocks.On("IdentityResolver").Return(mc.identityResolver).Maybe()
-	componentMocks.On("EthClientFactory").Return(mc.ethClientFactory).Maybe()
-	componentMocks.On("TransportManager").Return(mc.transportManager).Maybe()
+	componentsmocks := mc.c
+	componentsmocks.On("TxManager").Return(txm).Maybe()
+	componentsmocks.On("BlockIndexer").Return(mc.blockIndexer).Maybe()
+	componentsmocks.On("DomainManager").Return(mc.domainManager).Maybe()
+	componentsmocks.On("KeyManager").Return(mc.keyManager).Maybe()
+	componentsmocks.On("PublicTxManager").Return(mc.publicTxMgr).Maybe()
+	componentsmocks.On("SequencerManager").Return(mc.sequencerMgr).Maybe()
+	componentsmocks.On("StateManager").Return(mc.stateMgr).Maybe()
+	componentsmocks.On("IdentityResolver").Return(mc.identityResolver).Maybe()
+	componentsmocks.On("EthClientFactory").Return(mc.ethClientFactory).Maybe()
+	componentsmocks.On("TransportManager").Return(mc.transportManager).Maybe()
+	componentsmocks.On("MetricsManager").Return(mm).Maybe()
 	mc.transportManager.On("LocalNodeName").Return("node1").Maybe()
-
 	var p persistence.Persistence
 	var err error
 	var pDone func()
@@ -98,25 +106,28 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 			require.NoError(t, mp.Mock.ExpectationsWereMet())
 		}
 	}
-	componentMocks.On("Persistence").Return(p)
+	componentsmocks.On("Persistence").Return(p)
 
 	for _, fn := range init {
 		fn(conf, mc)
 	}
+	mc.publicTxMgr.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(make(map[uuid.UUID][]*pldapi.PublicTx), nil).Maybe()
 
-	ic, err := txm.PreInit(componentMocks)
+	ic, err := txm.PreInit(componentsmocks)
 	require.NoError(t, err)
 	assert.Equal(t, txm.rpcModule, ic.RPCModules[0])
 
-	err = txm.PostInit(componentMocks)
+	err = txm.PostInit(componentsmocks)
 	require.NoError(t, err)
 
 	err = txm.Start()
 	require.NoError(t, err)
 
 	return ctx, txm, func() {
-		pDone()
-		txm.Stop()
+		if !t.Failed() {
+			pDone()
+			txm.Stop()
+		}
 	}
 
 }

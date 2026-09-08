@@ -20,16 +20,16 @@ import (
 	"encoding/json"
 	"sync/atomic"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/retry"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -76,6 +76,7 @@ func (t *transport) init() {
 		_, err := t.api.ConfigureTransport(t.ctx, &prototk.ConfigureTransportRequest{
 			Name:       t.name,
 			ConfigJson: string(confJSON),
+			LogLevel:   log.GetLevel(),
 		})
 		return true, err
 	})
@@ -177,7 +178,7 @@ func (t *transport) ReceiveMessage(ctx context.Context, req *prototk.ReceiveMess
 
 	p.updateReceivedStats(msg)
 
-	log.L(ctx).Debugf("transport %s message received from %s id=%s (cid=%s)", t.name, p.Name, rMsg.MessageID, tktypes.StrOrEmpty(msg.CorrelationId))
+	log.L(ctx).Debugf("transport %s message received from %s id=%s (cid=%s)", t.name, p.Name, rMsg.MessageID, pldtypes.StrOrEmpty(msg.CorrelationId))
 	if log.IsTraceEnabled() {
 		log.L(ctx).Tracef("transport %s message received: %s", t.name, protoToJSON(msg))
 	}
@@ -198,7 +199,7 @@ func (t *transport) deliverMessage(ctx context.Context, p *peer, component proto
 			msg: msg,
 		})
 	case prototk.PaladinMsg_TRANSACTION_ENGINE:
-		t.tm.privateTxManager.HandlePaladinMsg(ctx, msg)
+		t.tm.sequencerManager.HandlePaladinMsg(ctx, msg)
 	case prototk.PaladinMsg_IDENTITY_RESOLVER:
 		t.tm.identityResolver.HandlePaladinMsg(ctx, msg)
 	default:
@@ -241,6 +242,12 @@ func (t *transport) getLocalDetails(ctx context.Context) (string, error) {
 }
 
 func (t *transport) close() {
+	// log.L(t.ctx).Infof("Stopping transport %s", t.name)
+	// go func() {
+	// 	t.api.StopTransport(t.ctx, &prototk.StopTransportRequest{})
+	// }()
+	// // Allow 2 seconds for message to be received, then cancel the context
+	// log.L(t.ctx).Infof("Closing the context for transport %s", t.name)
 	t.cancelCtx()
 	<-t.initDone
 }

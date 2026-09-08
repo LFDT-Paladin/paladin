@@ -16,42 +16,81 @@
 package types
 
 import (
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/domain"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
 
 type DomainConfig struct {
-	FactoryAddress string `json:"factoryAddress"`
+	FactoryVersion int64 `json:"factoryVersion"`
 }
 
-var NotoConfigID_V0 = tktypes.MustParseHexBytes("0x00010000")
+var NotoConfigID_V0 = pldtypes.MustParseHexBytes("0x00010000")
+var NotoConfigID_V1 = pldtypes.MustParseHexBytes("0x00020000")
 
 // This is the config we expect to receive from the contract registration event
-type NotoConfig_V0 struct {
-	NotaryAddress tktypes.EthAddress `json:"notaryAddress"`
-	Variant       tktypes.HexUint64  `json:"variant"`
-	Data          tktypes.HexBytes   `json:"data"`
+type NotoConfig_V1 struct {
+	Name          string              `json:"name,omitempty"`
+	Symbol        string              `json:"symbol,omitempty"`
+	Decimals      pldtypes.HexUint64  `json:"decimals,omitempty"`
+	NotaryAddress pldtypes.EthAddress `json:"notary"`
+	Variant       pldtypes.HexUint64  `json:"variant"`
+	Data          pldtypes.HexBytes   `json:"data"`
 }
+
+var NotoConfigABI_V0 = &abi.ParameterArray{
+	{Name: "notary", Type: "address"},
+	{Name: "variant", Type: "bytes32"},
+	{Name: "data", Type: "bytes"},
+}
+
+var NotoConfigABI_V1 = &abi.ParameterArray{
+	{Name: "name", Type: "string"},
+	{Name: "symbol", Type: "string"},
+	{Name: "decimals", Type: "uint8"},
+	{Name: "notary", Type: "address"},
+	{Name: "variant", Type: "bytes32"},
+	{Name: "data", Type: "bytes"},
+}
+
+var NotoTransactionDataID_V0 = pldtypes.MustParseHexBytes("0x00010000")
+var NotoTransactionDataID_V1 = pldtypes.MustParseHexBytes("0x00020000")
 
 // This is the structure we expect to unpack from the config data
 type NotoConfigData_V0 struct {
-	NotaryLookup   string              `json:"notaryLookup"`
-	NotaryMode     tktypes.HexUint64   `json:"notaryMode"`
-	PrivateAddress *tktypes.EthAddress `json:"privateAddress"`
-	PrivateGroup   *PentePrivateGroup  `json:"privateGroup"`
-	RestrictMint   bool                `json:"restrictMint"`
-	AllowBurn      bool                `json:"allowBurn"`
-	AllowLock      bool                `json:"allowLock"`
+	NotaryLookup   string               `json:"notaryLookup"`
+	NotaryMode     pldtypes.HexUint64   `json:"notaryMode"`
+	PrivateAddress *pldtypes.EthAddress `json:"privateAddress"`
+	PrivateGroup   *PentePrivateGroup   `json:"privateGroup"`
+	RestrictMint   bool                 `json:"restrictMint"`
+	AllowBurn      bool                 `json:"allowBurn"`
+	AllowLock      bool                 `json:"allowLock"`
+}
+
+// Note that while the V0 NotoTransactionData is used by Noto V0 and the V1 NotoTransactionData
+// is used by Noto V1, NotoTransactionData is versioned independently of Noto itself.
+// It is not a requirement that a future version of Noto comes with a new version of NotoTransactionData.
+// E.g. Noto V2 may continue to use the V1 NotoTransactionData.
+
+type NotoTransactionData_V0 struct {
+	TransactionID pldtypes.Bytes32   `json:"transactionId"` // in V0 the data was the primary place for the transaction ID, but there was some duplication with parameters. Moved to parameter consistently in V1.
+	InfoStates    []pldtypes.Bytes32 `json:"infoStates"`
+}
+
+type NotoTransactionData_V1 struct {
+	InfoStates []pldtypes.Bytes32 `json:"infoStates"`
 }
 
 // This is the structure we parse the config into in InitConfig and gets passed back to us on every call
 type NotoParsedConfig struct {
-	NotaryLookup string                   `json:"notaryLookup"`
-	NotaryMode   tktypes.Enum[NotaryMode] `json:"notaryMode"`
-	Variant      tktypes.HexUint64        `json:"variant"`
-	IsNotary     bool                     `json:"isNotary"`
-	Options      NotoOptions              `json:"options"`
+	Name         string                    `json:"name"`
+	Symbol       string                    `json:"symbol"`
+	Decimals     pldtypes.HexUint64        `json:"decimals"`
+	NotaryLookup string                    `json:"notaryLookup"`
+	NotaryMode   pldtypes.Enum[NotaryMode] `json:"notaryMode"`
+	Variant      pldtypes.HexUint64        `json:"variant"`
+	IsNotary     bool                      `json:"isNotary"`
+	Options      NotoOptions               `json:"options"`
 }
 
 type NotoOptions struct {
@@ -66,28 +105,15 @@ type NotoBasicOptions struct {
 }
 
 type NotoHooksOptions struct {
-	PublicAddress     *tktypes.EthAddress `json:"publicAddress"`               // Public address of the Pente privacy group
-	PrivateGroup      *PentePrivateGroup  `json:"privateGroup,omitempty"`      // Details on the Pente privacy group
-	PrivateAddress    *tktypes.EthAddress `json:"privateAddress,omitempty"`    // Private address of the hook contract deployed within the privacy group
-	DevUsePublicHooks bool                `json:"devUsePublicHooks,omitempty"` // Use a public hooks contract - insecure, for dev purposes only! (privateGroup/privateAddress are ignored)
+	PublicAddress     *pldtypes.EthAddress `json:"publicAddress"`               // Public address of the Pente privacy group
+	PrivateGroup      *PentePrivateGroup   `json:"privateGroup,omitempty"`      // Details on the Pente privacy group
+	PrivateAddress    *pldtypes.EthAddress `json:"privateAddress,omitempty"`    // Private address of the hook contract deployed within the privacy group
+	DevUsePublicHooks bool                 `json:"devUsePublicHooks,omitempty"` // Use a public hooks contract - insecure, for dev purposes only! (privateGroup/privateAddress are ignored)
 }
 
 type PentePrivateGroup struct {
-	Salt    tktypes.Bytes32 `json:"salt"`
-	Members []string        `json:"members"`
-}
-
-var NotoConfigABI_V0 = &abi.ParameterArray{
-	{Name: "notaryAddress", Type: "address"},
-	{Name: "variant", Type: "bytes32"},
-	{Name: "data", Type: "bytes"},
-}
-
-var NotoTransactionDataID_V0 = tktypes.MustParseHexBytes("0x00010000")
-
-type NotoTransactionData_V0 struct {
-	TransactionID tktypes.Bytes32   `json:"transactionId"`
-	InfoStates    []tktypes.Bytes32 `json:"infoStates"`
+	Salt    pldtypes.Bytes32 `json:"salt"`
+	Members []string         `json:"members"`
 }
 
 var NotoTransactionDataABI_V0 = &abi.ParameterArray{
@@ -95,12 +121,55 @@ var NotoTransactionDataABI_V0 = &abi.ParameterArray{
 	{Name: "infoStates", Type: "bytes32[]"},
 }
 
+var NotoTransactionDataABI_V1 = &abi.ParameterArray{
+	{Name: "infoStates", Type: "bytes32[]"},
+}
+
 type DomainHandler = domain.DomainHandler[NotoParsedConfig]
+type DomainCallHandler = domain.DomainCallHandler[NotoParsedConfig]
 type ParsedTransaction = domain.ParsedTransaction[NotoParsedConfig]
 
 const (
-	NotaryModeIntBasic tktypes.HexUint64 = 0x0000
-	NotaryModeIntHooks tktypes.HexUint64 = 0x0001
+	NotaryModeIntBasic pldtypes.HexUint64 = 0x0000
+	NotaryModeIntHooks pldtypes.HexUint64 = 0x0001
 )
 
-var NotoVariantDefault tktypes.HexUint64 = 0x0000
+// for the variant field in the NotoConfig, we adopt a two-byte convention:
+// - the lower 8 bits are for the variant number (V0, V1, V2 etc.)
+// - the upper 8 bits are for the variant type (standard, nullifiers etc.)
+//   - the variant type is 0 for the standard Noto.sol variant
+//   - the variant type is 1 for the nullifiers variant
+const (
+	// legacy
+	NotoVariantV0 pldtypes.HexUint64 = 0x0000
+	// INoto_V1-shaped parameters (nested LockParams)
+	NotoVariantV1 pldtypes.HexUint64 = 0x0001
+	// NotoVariantV2 is for the standard Noto.sol (ILockableCapability ABI).
+	NotoVariantV2 pldtypes.HexUint64 = 0x0002
+
+	// NotoVariantV2Nullifiers is for the NotoNullifiers.sol (nullifier inputs + commitment tree).
+	NotoVariantV2Nullifiers pldtypes.HexUint64 = 0x0102
+)
+
+// Backward-compatible aliases used across handlers and tests
+var (
+	NotoVariantNullifier = NotoVariantV2Nullifiers
+	NotoVariantDefault   = NotoVariantV2
+	NotoVariantLegacy    = NotoVariantV0
+)
+
+func (c *NotoParsedConfig) IsV2() bool {
+	return c.Variant == NotoVariantV2 || c.Variant == NotoVariantV2Nullifiers
+}
+
+func (c *NotoParsedConfig) IsNullifierVariant() bool {
+	return c.Variant == NotoVariantV2Nullifiers
+}
+
+func (c *NotoParsedConfig) IsV1() bool {
+	return c.Variant == NotoVariantV1
+}
+
+func (c *NotoParsedConfig) IsV0() bool {
+	return c.Variant == NotoVariantV0
+}

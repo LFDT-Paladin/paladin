@@ -17,107 +17,131 @@ package publictxmgr
 
 import (
 	"context"
-	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
 
 type managedTx struct {
-	// persisted parts of the transaction, and the list of flushed DB submissions
+	// persisted parts of the transaction
 	ptx *DBPublicTxn
 
-	// We can have exactly one submission waiting to be flushed to the DB
-	unflushedSubmission *DBPubTxnSubmission
-
 	// In-memory state that we update as we process the transaction in an active orchestrator
-	// TODO: Validate that all of these fields are actively used
-	InFlightStatus  InFlightStatus             // moves to pending/confirmed to cause the inflight to exit
-	GasPricing      *pldapi.PublicTxGasPricing // the most recently used gas pricing information
-	TransactionHash *tktypes.Bytes32           // the most recently submitted transaction hash (not guaranteed to be the one mined)
-	FirstSubmit     *tktypes.Timestamp         // the time this runtime instance first did a submit JSON/RPC call (for success or failure)
-	LastSubmit      *tktypes.Timestamp         // the last time runtime instance first did a submit JSON/RPC call (for success or failure)
-	ErrorMessage    *string                    // ???
+	InFlightStatus        InFlightStatus            // moves to pending/confirmed to cause the inflight to exit
+	CurrentGasPrice       pldapi.PublicTxGasPricing // the gas price to use on the next transaction submission
+	LastSubmittedGasPrice pldapi.PublicTxGasPricing // the gas price used on the last transaction submission
+	Underpriced           bool                      // true if the last submitted gas price got an underpriced error
+	TransactionHash       *pldtypes.Bytes32         // the most recently submitted transaction hash (not guaranteed to be the one mined)
+	FirstSubmit           *pldtypes.Timestamp       // the time this runtime instance first did a submit JSON/RPC call (for success or failure)
+	LastSubmit            *pldtypes.Timestamp       // the last time runtime instance first did a submit JSON/RPC call (for success or failure)
 }
 
 type inMemoryTxState struct {
-	mtx *managedTx
+	// reference back to the inFlightTransactionStageController
+	*inFlightTransactionStageController
+
+	managedTxMux sync.Mutex
+	mtx          *managedTx
+
+	// "<from>:<nonce>" string, computed once at construction; the nonce is always allocated before an in-flight tx is constructed
+	signerNonce string
 }
 
-func NewInMemoryTxStateManager(ctx context.Context, ptx *DBPublicTxn) InMemoryTxStateManager {
-	imtxs := &inMemoryTxState{
-		mtx: &managedTx{ptx: ptx, InFlightStatus: InFlightStatusPending},
-	}
+func gasPricingSet(gasPricing pldapi.PublicTxGasPricing) bool {
+	return gasPricing.MaxFeePerGas != nil && gasPricing.MaxPriorityFeePerGas != nil
+}
 
-	if ptx.FixedGasPricing != nil && ptx.FixedGasPricing.String() != "{}" {
-		// If the transaction has fixed gas pricing, recover this from the persisted transaction so that
-		// the gas price does not get recalculated later on
-		gasPricing := recoverGasPriceOptions(ptx.FixedGasPricing)
-		imtxs.mtx.GasPricing = &gasPricing
+func NewInMemoryTxStateManager(ctx context.Context, ptx *DBPublicTxn, ift *inFlightTransactionStageController) InMemoryTxStateManager {
+	imtxs := &inMemoryTxState{
+		inFlightTransactionStageController: ift,
+		mtx: &managedTx{
+			ptx:            ptx,
+			InFlightStatus: InFlightStatusPending,
+		},
 	}
 
 	// Initialize the ephemeral state from the most recent persisted submission if one exists
+	// This might occur if a Paladin node is restarted after a transaction has been submitted
+	// or if an orchestrator is swapped out under heavy load
+	// Note that the submissions list is not kept up to date in the in-memory state
 	if len(ptx.Submissions) > 0 {
 		lastSub := ptx.Submissions[0]
 		imtxs.mtx.TransactionHash = &lastSub.TransactionHash
 		imtxs.mtx.LastSubmit = &lastSub.Created
 		firstSub := ptx.Submissions[len(ptx.Submissions)-1]
 		imtxs.mtx.FirstSubmit = &firstSub.Created
-		if imtxs.mtx.GasPricing == nil {
-			lastGasPricing := recoverGasPriceOptions(lastSub.GasPricing)
-			imtxs.mtx.GasPricing = &lastGasPricing
-		}
+		imtxs.mtx.LastSubmittedGasPrice = recoverGasPriceOptions(lastSub.GasPricing)
 	}
+
+	// A nonce is always allocated before an in-flight transaction is constructed
+	imtxs.signerNonce = ptx.From.String() + ":" + strconv.FormatUint(*ptx.Nonce, 10)
+
 	return imtxs
 }
 
+func (imtxs *inMemoryTxState) UpdateTransaction(ctx context.Context, newPtx *DBPublicTxn) {
+	imtxs.managedTxMux.Lock()
+	defer imtxs.managedTxMux.Unlock()
+
+	ptx := imtxs.mtx.ptx
+	ptx.To = newPtx.To
+	ptx.Data = newPtx.Data
+	ptx.Gas = newPtx.Gas
+	ptx.FixedGasPricing = newPtx.FixedGasPricing
+	ptx.Value = newPtx.Value
+}
+
 func (imtxs *inMemoryTxState) ApplyInMemoryUpdates(ctx context.Context, txUpdates *BaseTXUpdates) {
+	imtxs.managedTxMux.Lock()
+	defer imtxs.managedTxMux.Unlock()
+
 	mtx := imtxs.mtx
-	if txUpdates.ErrorMessage != nil {
-		mtx.ErrorMessage = txUpdates.ErrorMessage
+
+	newValues := txUpdates.NewValues
+	resetValues := txUpdates.ResetValues
+
+	if newValues.FirstSubmit != nil {
+		mtx.FirstSubmit = newValues.FirstSubmit
 	}
 
-	if txUpdates.FirstSubmit != nil {
-		mtx.FirstSubmit = txUpdates.FirstSubmit
+	if newValues.GasPricing != nil {
+		mtx.CurrentGasPrice = *newValues.GasPricing
 	}
 
-	if txUpdates.GasPricing != nil {
-		mtx.GasPricing = txUpdates.GasPricing
+	if newValues.Underpriced != nil {
+		mtx.Underpriced = *newValues.Underpriced
 	}
 
-	if txUpdates.NewSubmission != nil {
-		imtxs.mtx.unflushedSubmission = txUpdates.NewSubmission
-	}
-	if txUpdates.FlushedSubmission != nil {
-		// We're being notified some of the unflushed submissions have been flushed to persistence
-		// We clear the flushing list and merge in these new ones
-		dup := false
-		for _, existing := range mtx.ptx.Submissions {
-			if existing.TransactionHash == txUpdates.FlushedSubmission.TransactionHash {
-				dup = true
-				break
-			}
-		}
-		if !dup {
-			// newest first in this list as when we read from the DB (although it doesn't matter for our processing,
-			// because we keep separate in memory copies of all the things we change while we're running our orchestrator)
-			mtx.ptx.Submissions = append([]*DBPubTxnSubmission{txUpdates.FlushedSubmission}, mtx.ptx.Submissions...)
-		}
+	if newValues.NewSubmission != nil {
+		mtx.LastSubmittedGasPrice = recoverGasPriceOptions(newValues.NewSubmission.GasPricing)
 	}
 
-	if txUpdates.LastSubmit != nil {
-		mtx.LastSubmit = txUpdates.LastSubmit
+	if newValues.LastSubmit != nil {
+		mtx.LastSubmit = newValues.LastSubmit
 	}
 
-	if txUpdates.InFlightStatus != nil {
-		mtx.InFlightStatus = *txUpdates.InFlightStatus
+	if newValues.InFlightStatus != nil {
+		mtx.InFlightStatus = *newValues.InFlightStatus
 	}
 
-	if txUpdates.TransactionHash != nil {
-		mtx.TransactionHash = txUpdates.TransactionHash
+	if newValues.TransactionHash != nil {
+		mtx.TransactionHash = newValues.TransactionHash
+	}
+
+	if resetValues.GasPricing {
+		mtx.CurrentGasPrice = pldapi.PublicTxGasPricing{}
+	}
+
+	if resetValues.TransactionHash {
+		mtx.TransactionHash = nil
+	}
+
+	if resetValues.Underpriced {
+		mtx.Underpriced = false
 	}
 }
 
@@ -125,19 +149,37 @@ func (imtxs *inMemoryTxState) GetPubTxnID() uint64 {
 	return imtxs.mtx.ptx.PublicTxnID
 }
 
-func (imtxs *inMemoryTxState) GetSignerNonce() string {
-	nonceStr := "unassigned"
-	if imtxs.mtx.ptx.Nonce != nil {
-		nonceStr = strconv.FormatUint(*imtxs.mtx.ptx.Nonce, 10)
+func (imtxs *inMemoryTxState) GetTransactionType() *pldapi.TransactionType {
+	if imtxs.mtx.ptx.Binding != nil {
+		transactionType := pldapi.TransactionType(imtxs.mtx.ptx.Binding.TransactionType)
+		return &transactionType
 	}
-	return fmt.Sprintf("%s:%s", imtxs.mtx.ptx.From, nonceStr)
+	return nil
 }
 
-func (imtxs *inMemoryTxState) GetCreatedTime() *tktypes.Timestamp {
+func (imtxs *inMemoryTxState) GetPrivateTXOriginator() string {
+	if imtxs.mtx.ptx.Binding != nil {
+		return imtxs.mtx.ptx.Binding.Sender
+	}
+	return ""
+}
+
+func (imtxs *inMemoryTxState) GetContractAddress() string {
+	if imtxs.mtx.ptx.Binding != nil {
+		return imtxs.mtx.ptx.Binding.ContractAddress
+	}
+	return ""
+}
+
+func (imtxs *inMemoryTxState) GetSignerNonce() string {
+	return imtxs.signerNonce
+}
+
+func (imtxs *inMemoryTxState) GetCreatedTime() *pldtypes.Timestamp {
 	return &imtxs.mtx.ptx.Created
 }
 
-func (imtxs *inMemoryTxState) GetTransactionHash() *tktypes.Bytes32 {
+func (imtxs *inMemoryTxState) GetTransactionHash() *pldtypes.Bytes32 {
 	return imtxs.mtx.TransactionHash
 }
 
@@ -145,15 +187,19 @@ func (imtxs *inMemoryTxState) GetNonce() uint64 {
 	return *imtxs.mtx.ptx.Nonce
 }
 
-func (imtxs *inMemoryTxState) GetFrom() tktypes.EthAddress {
+func (imtxs *inMemoryTxState) GetFrom() pldtypes.EthAddress {
 	return imtxs.mtx.ptx.From
 }
 
-func (imtxs *inMemoryTxState) GetTo() *tktypes.EthAddress {
+func (imtxs *inMemoryTxState) GetTo() *pldtypes.EthAddress {
 	return imtxs.mtx.ptx.To
 }
 
-func (imtxs *inMemoryTxState) GetValue() *tktypes.HexUint256 {
+func (imtxs *inMemoryTxState) GetData() pldtypes.HexBytes {
+	return imtxs.mtx.ptx.Data
+}
+
+func (imtxs *inMemoryTxState) GetValue() *pldtypes.HexUint256 {
 	return imtxs.mtx.ptx.Value
 }
 
@@ -166,28 +212,43 @@ func (imtxs *inMemoryTxState) BuildEthTX() *ethsigner.Transaction {
 		ptx.To,
 		ptx.Data,
 		&pldapi.PublicTxOptions{
-			Gas:                (*tktypes.HexUint64)(&ptx.Gas), // fixed in persisted TX
+			Gas:                (*pldtypes.HexUint64)(&ptx.Gas), // fixed in persisted TX
 			Value:              ptx.Value,
-			PublicTxGasPricing: *imtxs.mtx.GasPricing, // variable and calculated in memory
+			PublicTxGasPricing: imtxs.mtx.CurrentGasPrice, // variable and calculated in memory
 		},
 	)
 }
 
-func (imtxs *inMemoryTxState) GetFirstSubmit() *tktypes.Timestamp {
+func (imtxs *inMemoryTxState) GetFirstSubmit() *pldtypes.Timestamp {
 	return imtxs.mtx.FirstSubmit
 }
 
 func (imtxs *inMemoryTxState) GetGasPriceObject() *pldapi.PublicTxGasPricing {
-	// no gas price set yet, return nil, down stream logic relies on `nil` to know a transaction has never been assigned any gas price.
-	return imtxs.mtx.GasPricing
+	if gasPricingSet(imtxs.mtx.CurrentGasPrice) {
+		return &imtxs.mtx.CurrentGasPrice
+	}
+	// no gas price set yet, return nil, down stream logic relies on `nil` to know a transaction isn't currently assigned a gas price.
+	return nil
 }
 
-func (imtxs *inMemoryTxState) GetLastSubmitTime() *tktypes.Timestamp {
+func (imtxs *inMemoryTxState) GetTransactionFixedGasPrice() *pldapi.PublicTxGasPricing {
+	fixedPrice := recoverGasPriceOptions(imtxs.mtx.ptx.FixedGasPricing)
+	if gasPricingSet(fixedPrice) {
+		return &fixedPrice
+	}
+	return nil
+}
+
+func (imtxs *inMemoryTxState) GetLastSubmittedGasPrice() *pldapi.PublicTxGasPricing {
+	return &imtxs.mtx.LastSubmittedGasPrice
+}
+
+func (imtxs *inMemoryTxState) GetUnderpriced() bool {
+	return imtxs.mtx.Underpriced
+}
+
+func (imtxs *inMemoryTxState) GetLastSubmitTime() *pldtypes.Timestamp {
 	return imtxs.mtx.LastSubmit
-}
-
-func (imtxs *inMemoryTxState) GetUnflushedSubmission() *DBPubTxnSubmission {
-	return imtxs.mtx.unflushedSubmission
 }
 
 func (imtxs *inMemoryTxState) GetGasLimit() uint64 {

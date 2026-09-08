@@ -1,78 +1,127 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-contract Atom is Initializable {
-    uint256 private _operationCount;
-    Operation[] private _operations;
-    bool public cancelled;
+contract Atom is Initializable, ReentrancyGuardUpgradeable {
+    using Address for address;
+
+    enum Status {
+        Pending,
+        Executed,
+        Cancelled
+    }
 
     struct Operation {
         address contractAddress;
         bytes callData;
     }
 
+    struct OperationResult {
+        bool success;
+        bytes returnData;
+    }
+
+    Status public status;
+
+    uint256 private _operationCount;
+    Operation[] private _operations;
+
+    event AtomStatusChanged(Status status);
+
+    error AtomNotPending();
+
+    error ExecutionResult(OperationResult[] result);
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(Operation[] memory operations) public initializer {
+    /**
+     * Initialize the Atom with a list of operations.
+     */
+    function initialize(Operation[] memory operations) external initializer {
+        __ReentrancyGuard_init();
+        status = Status.Pending;
         _operationCount = operations.length;
         for (uint256 i = 0; i < _operationCount; i++) {
             _operations.push(operations[i]);
         }
+        emit AtomStatusChanged(status);
     }
 
-    function execute() public {
-        require(!cancelled, "Atom has been cancelled");
+    /**
+     * Execute the operations in the Atom.
+     * Reverts if the Atom has been executed or cancelled, or if any operation fails.
+     */
+    function execute() external nonReentrant {
+        if (status != Status.Pending) {
+            revert AtomNotPending();
+        }
+        status = Status.Executed;
+
         for (uint256 i = 0; i < _operationCount; i++) {
-            _executeOperation(_operations[i]);
+            Operation storage op = _operations[i];
+            op.contractAddress.functionCall(op.callData);
         }
+        emit AtomStatusChanged(status);
     }
 
-    function cancel() public {
-        require(!cancelled, "Atom has already been cancelled");
-        cancelled = true;
-    }
-
-    function _executeOperation(Operation storage op) internal {
-        (bool success, bytes memory result) = op.contractAddress.call(
-            op.callData
-        );
-        if (!success) {
-            assembly {
-                // Forward the revert reason
-                let size := mload(result)
-                let ptr := add(result, 32)
-                revert(ptr, size)
-            }
+    /**
+     * Simulate the execution of the operations in the Atom.
+     * This function always reverts with the encoded results of the operations
+     * (even if all operations succeed). It should only be used with eth_call,
+     * as a transaction with this method will always revert.
+     */
+    function simulate()
+        external
+        nonReentrant
+        returns (OperationResult[] memory results)
+    {
+        if (status != Status.Pending) {
+            revert AtomNotPending();
         }
+
+        results = new OperationResult[](_operationCount);
+        for (uint256 i = 0; i < _operationCount; i++) {
+            Operation storage op = _operations[i];
+            (results[i].success, results[i].returnData) = op
+                .contractAddress
+                .call(op.callData);
+        }
+        revert ExecutionResult(results);
     }
 
-    function getOperationCount() public view returns (uint256) {
+    /**
+     * Cancel the Atom, preventing its execution.
+     * Can only be done if the Atom is still pending.
+     */
+    function cancel() external {
+        if (status != Status.Pending) {
+            revert AtomNotPending();
+        }
+        status = Status.Cancelled;
+        emit AtomStatusChanged(status);
+    }
+
+    function getOperationCount() external view returns (uint256) {
         return _operationCount;
     }
 
-    function getOperation(uint256 n) public view returns (Operation memory) {
+    function getOperation(
+        uint256 n
+    ) external view returns (Operation memory operation) {
         return _operations[n];
     }
-}
 
-contract AtomFactory {
-    address public immutable logic;
-
-    event AtomDeployed(address addr);
-
-    constructor() {
-        logic = address(new Atom());
-    }
-
-    function create(Atom.Operation[] calldata operations) public {
-        address instance = Clones.clone(logic);
-        Atom(instance).initialize(operations);
-        emit AtomDeployed(instance);
+    function getOperations()
+        external
+        view
+        returns (Operation[] memory operations)
+    {
+        return _operations;
     }
 }

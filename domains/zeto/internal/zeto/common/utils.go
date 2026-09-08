@@ -19,64 +19,78 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/big"
-	"slices"
 
-	corepb "github.com/kaleido-io/paladin/domains/zeto/pkg/proto"
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/iden3/go-iden3-crypto/babyjub"
-	"github.com/kaleido-io/paladin/domains/zeto/internal/msgs"
-	"github.com/kaleido-io/paladin/domains/zeto/pkg/constants"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
+
+type StateSchemas struct {
+	CoinSchema           *prototk.StateSchema
+	NftSchema            *prototk.StateSchema
+	DataSchema           *prototk.StateSchema
+	MerkleTreeRootSchema *prototk.StateSchema
+	MerkleTreeNodeSchema *prototk.StateSchema
+}
+
+type MerkleTreeSpec struct {
+	smt.MerkleTreeSpec
+	// Precomputed empty proof for this tree type, used to fill
+	// in proof entries when there are empty inputs, because Zeto
+	// tokens require fixed sized inputs
+	EmptyProof *corepb.MerkleProof
+}
+
+func NewMerkleTreeSpec(ctx context.Context, name string, treeType smt.MerkleTreeType, callbacks plugintk.DomainCallbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId string, stateQueryContext string) (*MerkleTreeSpec, error) {
+	var levels int
+	switch treeType {
+	case smt.StatesTree:
+		levels = zetosmt.SMT_HEIGHT_UTXO
+	case smt.LockedStatesTree:
+		levels = zetosmt.SMT_HEIGHT_UTXO
+	case smt.KycStatesTree:
+		levels = zetosmt.SMT_HEIGHT_KYC
+	default:
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownSmtType, treeType)
+	}
+	hasher := common.GetHasher()
+	emptyProof := &zetosmt.Empty_Proof_Utxos
+	if treeType == smt.KycStatesTree {
+		emptyProof = &zetosmt.Empty_Proof_kyc
+	}
+	useEIP712 := false
+	mtSpec, err := smt.NewMerkleTreeSpec(ctx, name, treeType, levels, hasher, useEIP712, callbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, stateQueryContext)
+	if err != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorNewSmtSpec, name, err)
+	}
+	spec := &MerkleTreeSpec{
+		MerkleTreeSpec: *mtSpec,
+		EmptyProof:     emptyProof,
+	}
+	return spec, nil
+}
 
 const modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"
 
-func IsNullifiersCircuit(circuitId string) bool {
-	return IsFungibleNullifiersCircuit(circuitId) || IsNonFungibleNullifiersCircuit(circuitId)
-}
-
-func IsFungibleNullifiersCircuit(circuitId string) bool {
-	nullifierCircuits := []string{
-		constants.CIRCUIT_ANON_NULLIFIER,
-		constants.CIRCUIT_ANON_NULLIFIER_BATCH,
-		constants.CIRCUIT_WITHDRAW_NULLIFIER,
-		constants.CIRCUIT_WITHDRAW_NULLIFIER_BATCH,
-	}
-	return slices.Contains(nullifierCircuits, circuitId)
-}
-
-func IsNonFungibleNullifiersCircuit(circuitId string) bool {
-	return constants.CIRCUIT_NF_ANON_NULLIFIER == circuitId
-}
-
-func IsEncryptionCircuit(circuitId string) bool {
-	encryptionCircuits := []string{
-		constants.CIRCUIT_ANON_ENC,
-		constants.CIRCUIT_ANON_ENC_BATCH,
-	}
-	for _, c := range encryptionCircuits {
-		if circuitId == c {
-			return true
-		}
-	}
-	return false
-}
-
-func IsBatchCircuit(sizeOfEndorsableStates int) bool {
-	return sizeOfEndorsableStates > 2
-}
-
-func IsNonFungibleCircuit(circuitId string) bool {
-	return circuitId == constants.CIRCUIT_NF_ANON || circuitId == constants.CIRCUIT_NF_ANON_NULLIFIER
-}
-
 func IsNullifiersToken(tokenName string) bool {
-	return tokenName == constants.TOKEN_ANON_NULLIFIER || tokenName == constants.TOKEN_NF_ANON_NULLIFIER
+	return tokenName == constants.TOKEN_ANON_NULLIFIER || tokenName == constants.TOKEN_NF_ANON_NULLIFIER || tokenName == constants.TOKEN_ANON_NULLIFIER_KYC
+}
+
+func IsKycToken(tokenName string) bool {
+	return tokenName == constants.TOKEN_ANON_NULLIFIER_KYC
 }
 
 func IsNonFungibleToken(tokenName string) bool {
@@ -97,7 +111,7 @@ func GetInputSize(sizeOfEndorsableStates int) int {
 	return 10
 }
 
-func HexUint256To32ByteHexString(v *tktypes.HexUint256) string {
+func HexUint256To32ByteHexString(v *pldtypes.HexUint256) string {
 	paddedBytes := IntTo32ByteSlice(v.Int())
 	return hex.EncodeToString(paddedBytes)
 }
@@ -118,15 +132,39 @@ func LoadBabyJubKey(payload []byte) (*babyjub.PublicKey, error) {
 	}
 	return keyCompressed.Decompress()
 }
-func EncodeTransactionData(ctx context.Context, transaction *prototk.TransactionSpecification, transactionData ethtypes.HexBytes0xPrefix) (tktypes.HexBytes, error) {
-	txID, err := tktypes.ParseHexBytes(ctx, transaction.TransactionId)
+
+func EncodeTransactionData(ctx context.Context, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
+	var err error
+	stateIDs := make([]pldtypes.Bytes32, len(infoStates))
+	for i, state := range infoStates {
+		stateIDs[i], err = pldtypes.ParseBytes32Ctx(ctx, state.Id)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	transactionID, err := pldtypes.ParseBytes32Ctx(ctx, transaction.TransactionId)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorParseTxId, err)
 	}
+	dataValues := &types.ZetoTransactionData_V0{
+		TransactionID: transactionID,
+		InfoStates:    stateIDs,
+	}
+
+	var dataJSON []byte
+	var dataABI []byte
 	var data []byte
-	data = append(data, transactionData...)
-	data = append(data, txID...)
-	return data, nil
+	dataJSON, err = json.Marshal(dataValues)
+	if err == nil {
+		dataABI, err = types.ZetoTransactionDataABI_V0.EncodeABIDataJSONCtx(ctx, dataJSON)
+		if err == nil {
+			data = append(data, types.ZetoTransactionDataID_V0...)
+			data = append(data, dataABI...)
+		}
+	}
+
+	return data, err
 }
 
 func EncodeProof(proof *corepb.SnarkProof) map[string]interface{} {

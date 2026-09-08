@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -17,9 +17,9 @@
 package blockindexer
 
 import (
-	"github.com/kaleido-io/paladin/core/internal/filters"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 var IndexedBlockFilters filters.FieldSet = filters.FieldMap{
@@ -32,7 +32,7 @@ var IndexedTransactionFilters filters.FieldSet = filters.FieldMap{
 	"blockNumber":      filters.Int64Field("block_number"),
 	"transactionIndex": filters.Int64Field("transaction_index"),
 	"from":             filters.HexBytesField(`"from"`),
-	"to":               filters.HexBytesField("to"),
+	"to":               filters.HexBytesField(`"to"`),
 	"nonce":            filters.Int64Field("nonce"),
 	"contractAddress":  filters.HexBytesField("contract_address"),
 	"result":           filters.StringField("result"),
@@ -41,13 +41,21 @@ var IndexedTransactionFilters filters.FieldSet = filters.FieldMap{
 var IndexedEventFilters filters.FieldSet = filters.FieldMap{
 	"blockNumber":      filters.Int64Field("block_number"),
 	"transactionIndex": filters.Int64Field("transaction_index"),
+	"transactionHash":  filters.HexBytesField("transaction_hash"),
 	"logIndex":         filters.Int64Field("log_index"),
 	"signature":        filters.HexBytesField("signature"),
+}
+
+var EventStreamFilters filters.FieldSet = filters.FieldMap{
+	"name":    filters.StringField("name"),
+	"created": filters.TimestampField("created"),
+	"started": filters.BooleanField("started"),
+	"type":    filters.StringField("type"),
 }
 
 // Contains additional data that the block indexer does not persist, but allows other code to process
 // and persist during PreCommitHandlers and PostCommitHandlers (no JSON serialization for these)
 type IndexedTransactionNotify struct {
 	pldapi.IndexedTransaction
-	RevertReason tktypes.HexBytes
+	RevertReason pldtypes.HexBytes
 }

@@ -21,13 +21,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signerapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 )
 
 type DomainManagerToDomain interface {
@@ -41,7 +41,7 @@ type DomainManager interface {
 	ConfiguredDomains() map[string]*pldconf.PluginConfig
 	DomainRegistered(name string, toDomain DomainManagerToDomain) (fromDomain plugintk.DomainCallbacks, err error)
 	GetDomainByName(ctx context.Context, name string) (Domain, error)
-	GetSmartContractByAddress(ctx context.Context, dbTX persistence.DBTX, addr tktypes.EthAddress) (DomainSmartContract, error)
+	GetSmartContractByAddress(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress) (DomainSmartContract, error)
 	ExecDeployAndWait(ctx context.Context, txID uuid.UUID, call func() error) (dc DomainSmartContract, err error)
 	ExecAndWaitTransaction(ctx context.Context, txID uuid.UUID, call func() error) error
 	GetSigner() signerapi.InMemorySigner
@@ -51,43 +51,54 @@ type DomainManager interface {
 type Domain interface {
 	Initialized() bool
 	Name() string
-	RegistryAddress() *tktypes.EthAddress
+	RegistryAddress() *pldtypes.EthAddress
 	Configuration() *prototk.DomainConfig
 	CustomHashFunction() bool
+	FullStateAvailablityRequired() bool
+	FixedSigningIdentity() string
+	// GetBlockHeight returns the highest block number that has been fully confirmed as
+	// processed by this domain's event stream. Equivalent to the domain's event stream
+	// CheckpointBlock(); returns -1 if no blocks have been processed yet.
+	GetBlockHeight() int64
 
 	// Specific to domains that support privacy groups (domain should return error if it does not).
 	// Validates the input properties, and turns it into the full genesis configuration for a group
 	ConfigurePrivacyGroup(ctx context.Context, inputConfiguration map[string]string) (configuration map[string]string, err error)
-	InitPrivacyGroup(ctx context.Context, id tktypes.HexBytes, genesis *pldapi.PrivacyGroupGenesisState) (tx *pldapi.TransactionInput, err error)
+	InitPrivacyGroup(ctx context.Context, id pldtypes.HexBytes, genesis *pldapi.PrivacyGroupGenesisState) (tx *pldapi.TransactionInput, err error)
 
 	InitDeploy(ctx context.Context, tx *PrivateContractDeploy) error
 	PrepareDeploy(ctx context.Context, tx *PrivateContractDeploy) error
 
 	// The state manager calls this when states are received for a domain that has a custom hash function.
 	// Any nil IDs should be filled in, and any mis-matched IDs should result in an error
-	ValidateStateHashes(ctx context.Context, states []*FullState) ([]tktypes.HexBytes, error)
+	ValidateStateHashes(ctx context.Context, states []*prototk.EndorsableState) ([]pldtypes.HexBytes, error)
 
-	GetDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (tktypes.RawJSON, error)
-	BuildDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (tktypes.RawJSON, error)
+	GetDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (pldtypes.RawJSON, error)
+	BuildDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (pldtypes.RawJSON, error)
+
+	// Check if the transaction states are complete (all expected states are available)
+	CheckStateCompletion(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (nextMissingStateID pldtypes.HexBytes, err error)
 }
 
 // External interface for other components to call against a private smart contract
 type DomainSmartContract interface {
 	Domain() Domain
-	Address() tktypes.EthAddress
+	Address() pldtypes.EthAddress
 	ContractConfig() *prototk.ContractConfig
 
 	InitTransaction(ctx context.Context, ptx *PrivateTransaction, localTx *ResolvedTransaction) error
-	AssembleTransaction(dCtx DomainContext, readTX persistence.DBTX, ptx *PrivateTransaction, localTx *ResolvedTransaction) error
-	WritePotentialStates(dCtx DomainContext, readTX persistence.DBTX, tx *PrivateTransaction) error
-	LockStates(dCtx DomainContext, readTX persistence.DBTX, tx *PrivateTransaction) error
-	EndorseTransaction(dCtx DomainContext, readTX persistence.DBTX, req *PrivateTransactionEndorseRequest) (*EndorsementResult, error)
-	PrepareTransaction(dCtx DomainContext, readTX persistence.DBTX, tx *PrivateTransaction) error
+	AssembleTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, txID uuid.UUID, preAssembly *prototk.TransactionPreAssembly, localTx *ResolvedTransaction, resolvedVerifiers []*prototk.ResolvedVerifier) (*prototk.TransactionPostAssembly, error)
+	ResolvePotentialStates(ctx context.Context, readTX persistence.DBTX, tx *PrivateTransaction) error
+	EndorseTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, req *PrivateTransactionEndorseRequest) (*EndorsementResult, error)
+	PrepareTransaction(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, tx *PrivateTransaction) error
 
 	InitCall(ctx context.Context, tx *ResolvedTransaction) ([]*prototk.ResolveVerifierRequest, error)
-	ExecCall(dCtx DomainContext, readTX persistence.DBTX, tx *ResolvedTransaction, verifiers []*prototk.ResolvedVerifier) (*abi.ComponentValue, error)
+	ExecCall(ctx context.Context, dqc DomainQueryContext, readTX persistence.DBTX, tx *ResolvedTransaction, verifiers []*prototk.ResolvedVerifier) (*abi.ComponentValue, error)
 
 	WrapPrivacyGroupEVMTX(context.Context, *pldapi.PrivacyGroup, *pldapi.PrivacyGroupEVMTX) (*pldapi.TransactionInput, error)
+	InvokeRPC(ctx context.Context, dqc DomainQueryContext, dbTX persistence.DBTX, rpcCall pldapi.DomainInvokeRPC) (pldtypes.RawJSON, error)
+
+	IsBaseLedgerRevertRetryable(ctx context.Context, revertData []byte) (retryable bool, decodedReason string, err error)
 }
 
 type DomainPrivacyGroupConfig struct {

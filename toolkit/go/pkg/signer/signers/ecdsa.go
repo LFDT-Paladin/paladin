@@ -20,13 +20,13 @@ import (
 	"encoding/hex"
 	"strings"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signpayloads"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tkmsgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
 )
 
 type ecdsaSigner struct{}
@@ -38,7 +38,7 @@ func (s *ecdsaSigner) Sign(ctx context.Context, algorithm, payloadType string, p
 	case algorithms.Curve_SECP256K1:
 		return s.Sign_secp256k1(ctx, algorithm, payloadType, privateKey, payload)
 	default:
-		return nil, i18n.NewError(ctx, tkmsgs.MsgSigningUnsupportedECDSACurve, curve)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgSigningUnsupportedECDSACurve, curve)
 	}
 }
 
@@ -49,7 +49,7 @@ func (s *ecdsaSigner) GetVerifier(ctx context.Context, algorithm, verifierType s
 	case algorithms.Curve_SECP256K1:
 		return s.GetVerifier_secp256k1(ctx, algorithm, verifierType, privateKey)
 	default:
-		return "", i18n.NewError(ctx, tkmsgs.MsgSigningUnsupportedECDSACurve, curve)
+		return "", i18n.NewError(ctx, pldmsgs.MsgSigningUnsupportedECDSACurve, curve)
 	}
 }
 
@@ -59,7 +59,7 @@ func (s *ecdsaSigner) Sign_secp256k1(ctx context.Context, algorithm, payloadType
 	case signpayloads.OPAQUE_TO_RSV:
 		var sig *secp256k1.SignatureData
 		if len(payload) == 0 {
-			err = i18n.NewError(ctx, tkmsgs.MsgSigningEmptyPayload)
+			err = i18n.NewError(ctx, pldmsgs.MsgSigningEmptyPayload)
 		}
 		if err == nil {
 			sig, err = kp.SignDirect(payload)
@@ -67,9 +67,12 @@ func (s *ecdsaSigner) Sign_secp256k1(ctx context.Context, algorithm, payloadType
 		if err != nil {
 			return nil, err
 		}
-		return sig.CompactRSV(), nil
+		signature := sig.CompactRSV()
+		// firefly-signer has V with legacy 27/28 values but Paladin expects the latest EIP-1559 values 0/1
+		signature[len(signature)-1] -= 27
+		return signature, nil
 	default:
-		return nil, i18n.NewError(ctx, tkmsgs.MsgSigningUnsupportedPayloadCombination, payloadType, algorithm)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgSigningUnsupportedPayloadCombination, payloadType, algorithm)
 	}
 }
 
@@ -85,7 +88,7 @@ func (s *ecdsaSigner) GetVerifier_secp256k1(ctx context.Context, algorithm, veri
 	case verifiers.HEX_ECDSA_PUBKEY_UNCOMPRESSED:
 		return hex.EncodeToString(kp.PublicKeyBytes()), nil
 	default:
-		return "", i18n.NewError(ctx, tkmsgs.MsgSigningUnsupportedVerifierCombination, verifierType, algorithm)
+		return "", i18n.NewError(ctx, pldmsgs.MsgSigningUnsupportedVerifierCombination, verifierType, algorithm)
 	}
 }
 
@@ -95,6 +98,6 @@ func (s *ecdsaSigner) GetMinimumKeyLen(ctx context.Context, algorithm string) (i
 	case algorithms.Curve_SECP256K1:
 		return 32, nil
 	default:
-		return -1, i18n.NewError(ctx, tkmsgs.MsgSigningUnsupportedECDSACurve, curve)
+		return -1, i18n.NewError(ctx, pldmsgs.MsgSigningUnsupportedECDSACurve, curve)
 	}
 }

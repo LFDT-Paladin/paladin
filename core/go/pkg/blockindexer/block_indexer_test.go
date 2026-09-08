@@ -1,4 +1,4 @@
-// Copyright 2019 Kaleido
+// Copyright 2026 Kaleido
 
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,19 +26,19 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/mocks/rpcclientmocks"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/mocks/rpcclientmocks"
 
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/core/pkg/persistence/mockpersistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -149,7 +150,63 @@ func newMockBlockIndexer(t *testing.T, config *pldconf.BlockIndexerConfig) (cont
 
 }
 
+func testBlockWithManyTXAndEvents(t *testing.T, txL int, eventL int, knownAddress ...ethtypes.Address0xHex) ([]*BlockInfoJSONRPC, map[string][]*TXReceiptJSONRPC) {
+	block, receipts := testBlockArray(t, 1)
+	for receiptIndex := 0; receiptIndex < txL; receiptIndex++ {
+		// Generate unique hashes for each transaction
+		txHash := ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32))
+		tx := &PartialTransactionInfo{
+			Hash:  txHash,
+			From:  ethtypes.MustNewAddress(pldtypes.RandHex(20)),
+			Nonce: ethtypes.HexUint64(receiptIndex),
+		}
+		block[0].Transactions = append(block[0].Transactions, tx)
+
+		// Create receipt with events
+		receipt := &TXReceiptJSONRPC{
+			TransactionHash: txHash,
+			From:            tx.From,
+			BlockNumber:     block[0].Number,
+			BlockHash:       block[0].Hash,
+			Status:          ethtypes.NewHexInteger64(1),
+			Logs:            make([]*LogJSONRPC, 0, eventL),
+		}
+
+		// Add events to receipt
+		for eventIndex := 3; eventIndex < eventL-3; eventIndex++ {
+			emitAddr := ethtypes.MustNewAddress(pldtypes.RandHex(20))
+			if len(knownAddress) > 0 {
+				emitAddr = &knownAddress[0]
+			}
+
+			log := &LogJSONRPC{
+				Address:          emitAddr,
+				BlockNumber:      block[0].Number,
+				LogIndex:         ethtypes.HexUint64(eventIndex),
+				TransactionIndex: ethtypes.HexUint64(receiptIndex),
+				TransactionHash:  txHash,
+				Topics:           []ethtypes.HexBytes0xPrefix{topicA},
+			}
+			receipt.Logs = append(receipt.Logs, log)
+		}
+
+		receipts[block[0].Hash.String()] = append(receipts[block[0].Hash.String()], receipt)
+	}
+
+	return block, receipts
+}
+
 func testBlockArray(t *testing.T, l int, knownAddress ...ethtypes.Address0xHex) ([]*BlockInfoJSONRPC, map[string][]*TXReceiptJSONRPC) {
+	return testBlockArrayWithTXType(t, l, "0x2", knownAddress...) // Valid EIP1559 TX type
+}
+
+func testBlockArrayWithTXType(t *testing.T, l int, transactionType string, knownAddress ...ethtypes.Address0xHex) ([]*BlockInfoJSONRPC, map[string][]*TXReceiptJSONRPC) {
+
+	var txType *big.Int
+	if transactionType != "" {
+		txType, _ = new(big.Int).SetString(strings.TrimPrefix(transactionType, "0x"), 16) // Set whatever TX type has been provided by the test
+	}
+
 	blocks := make([]*BlockInfoJSONRPC, l)
 	receipts := make(map[string][]*TXReceiptJSONRPC, l)
 	for i := 0; i < l; i++ {
@@ -157,22 +214,26 @@ func testBlockArray(t *testing.T, l int, knownAddress ...ethtypes.Address0xHex) 
 		if knownAddress != nil {
 			emitAddr1 = &knownAddress[0]
 		} else {
-			emitAddr1 = ethtypes.MustNewAddress(tktypes.RandHex(20))
+			emitAddr1 = ethtypes.MustNewAddress(pldtypes.RandHex(20))
 		}
 		if i == 0 {
 			contractAddress = emitAddr1
 		} else {
 			to = emitAddr1
 		}
-		txHash := ethtypes.MustNewHexBytes0xPrefix(tktypes.RandHex(32))
+		txHash := ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32))
 		tx := &PartialTransactionInfo{
 			Hash:  txHash,
-			From:  ethtypes.MustNewAddress(tktypes.RandHex(20)),
+			From:  ethtypes.MustNewAddress(pldtypes.RandHex(20)),
 			Nonce: ethtypes.HexUint64(i),
+		}
+		// Some tests don't set TX type to emulate pre-EIP2718 transactions
+		if txType != nil {
+			tx.Type = (*ethtypes.HexInteger)(txType)
 		}
 		blocks[i] = &BlockInfoJSONRPC{
 			Number:       ethtypes.HexUint64(i),
-			Hash:         ethtypes.MustNewHexBytes0xPrefix(tktypes.RandHex(32)),
+			Hash:         ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32)),
 			Transactions: []*PartialTransactionInfo{tx},
 		}
 		eventBData, err := testABI[1].Inputs.EncodeABIDataValues(map[string]interface{}{
@@ -192,20 +253,22 @@ func testBlockArray(t *testing.T, l int, knownAddress ...ethtypes.Address0xHex) 
 				TransactionHash: txHash,
 				From:            tx.From,
 				To:              to,
+				Type:            (*ethtypes.HexInteger)(txType),
 				ContractAddress: contractAddress,
 				BlockNumber:     blocks[i].Number,
 				BlockHash:       blocks[i].Hash,
 				Status:          ethtypes.NewHexInteger64(1),
 				Logs: []*LogJSONRPC{
-					{Address: emitAddr1, BlockNumber: blocks[i].Number, LogIndex: 0, TransactionHash: txHash, Topics: []ethtypes.HexBytes0xPrefix{topicA, ethtypes.MustNewHexBytes0xPrefix(tktypes.RandHex(32))}},
-					{Address: emitAddr1, BlockNumber: blocks[i].Number, LogIndex: 1, TransactionHash: txHash, Topics: []ethtypes.HexBytes0xPrefix{topicB, ethtypes.MustNewHexBytes0xPrefix(tktypes.RandHex(32))}, Data: eventBData},
+					{Address: emitAddr1, BlockNumber: blocks[i].Number, LogIndex: 0, TransactionHash: txHash, Topics: []ethtypes.HexBytes0xPrefix{topicA, ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32))}},
+					{Address: emitAddr1, BlockNumber: blocks[i].Number, LogIndex: 1, TransactionHash: txHash, Topics: []ethtypes.HexBytes0xPrefix{topicB, ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32))}, Data: eventBData},
 					// the last event is set to a different address, to test the filtering in matchLog()
-					{Address: ethtypes.MustNewAddress(tktypes.RandHex(20)), BlockNumber: blocks[i].Number, LogIndex: 2, TransactionHash: txHash, Topics: []ethtypes.HexBytes0xPrefix{topicC, ethtypes.MustNewHexBytes0xPrefix(tktypes.RandHex(32))}, Data: eventCData},
+					{Address: ethtypes.MustNewAddress(pldtypes.RandHex(20)), BlockNumber: blocks[i].Number, LogIndex: 2, TransactionHash: txHash, Topics: []ethtypes.HexBytes0xPrefix{topicC, ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32))}, Data: eventCData},
 				},
 			},
 		}
+
 		if i == 0 {
-			blocks[i].ParentHash = ethtypes.MustNewHexBytes0xPrefix(tktypes.RandHex(32))
+			blocks[i].ParentHash = ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32))
 		} else {
 			blocks[i].ParentHash = blocks[i-1].Hash
 		}
@@ -220,11 +283,13 @@ func mockBlocksRPCCalls(mRPC *rpcclientmocks.WSClient, blocks []*BlockInfoJSONRP
 }
 
 func mockBlocksRPCCallsDynamic(mRPC *rpcclientmocks.WSClient, dynamic func(args mock.Arguments) ([]*BlockInfoJSONRPC, map[string][]*TXReceiptJSONRPC)) {
-	byBlock := mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockByNumber", mock.Anything, true).Maybe()
+	byBlock := mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockByNumber", mock.MatchedBy(func(params []interface{}) bool {
+		return params[1].(bool)
+	})).Maybe()
 	byBlock.Run(func(args mock.Arguments) {
 		blocks, _ := dynamic(args)
 		blockReturn := args[1].(**BlockInfoJSONRPC)
-		blockNumber := int(args[3].(ethtypes.HexUint64))
+		blockNumber := int((args[3].([]interface{})[0].(ethtypes.HexUint64)))
 		if blockNumber >= len(blocks) {
 			byBlock.Return(rpcclient.WrapRPCError(rpcclient.RPCCodeInternalError, fmt.Errorf("not found")))
 		} else {
@@ -237,7 +302,7 @@ func mockBlocksRPCCallsDynamic(mRPC *rpcclientmocks.WSClient, dynamic func(args 
 	blockReceipts.Run(func(args mock.Arguments) {
 		_, receipts := dynamic(args)
 		blockReturn := args[1].(*[]*TXReceiptJSONRPC)
-		blockHash := args[3].(ethtypes.HexBytes0xPrefix)
+		blockHash := args[3].([]interface{})[0].(ethtypes.HexBytes0xPrefix)
 		*blockReturn = receipts[blockHash.String()]
 		if *blockReturn == nil {
 			blockReceipts.Return(rpcclient.WrapRPCError(rpcclient.RPCCodeInternalError, fmt.Errorf("not found")))
@@ -250,7 +315,7 @@ func mockBlocksRPCCallsDynamic(mRPC *rpcclientmocks.WSClient, dynamic func(args 
 	txReceipt.Run(func(args mock.Arguments) {
 		_, receipts := dynamic(args)
 		blockReturn := args[1].(**TXReceiptJSONRPC)
-		txHash := args[3].(ethtypes.HexBytes0xPrefix)
+		txHash := args[3].([]interface{})[0].(ethtypes.HexBytes0xPrefix)
 		for _, receipts := range receipts {
 			for _, r := range receipts {
 				if txHash.String() == r.TransactionHash.String() {
@@ -308,6 +373,13 @@ func checkIndexedBlockEqual(t *testing.T, expected *BlockInfoJSONRPC, indexed *p
 func addBlockPostCommit(bi *blockIndexer, postCommit func([]*pldapi.IndexedBlock)) {
 	bi.preCommitHandlers = append(bi.preCommitHandlers, func(ctx context.Context, dbTX persistence.DBTX, blocks []*pldapi.IndexedBlock, transactions []*IndexedTransactionNotify) error {
 		dbTX.AddPostCommit(func(txCtx context.Context) { postCommit(blocks) })
+		return nil
+	})
+}
+
+func addBlockPostCommitTx(bi *blockIndexer, postCommit func([]*IndexedTransactionNotify)) {
+	bi.preCommitHandlers = append(bi.preCommitHandlers, func(ctx context.Context, dbTX persistence.DBTX, blocks []*pldapi.IndexedBlock, transactions []*IndexedTransactionNotify) error {
+		dbTX.AddPostCommit(func(txCtx context.Context) { postCommit(transactions) })
 		return nil
 	})
 }
@@ -388,13 +460,13 @@ func TestBlockIndexerCatchUpToHeadFromZeroWithConfirmations(t *testing.T) {
 		require.Equal(t, blocks[i].Hash.String(), qBlocks[0].Hash.String())
 
 		// Get the transaction
-		txHash := tktypes.Bytes32(receipts[blocks[i].Hash.String()][0].TransactionHash)
+		txHash := pldtypes.Bytes32(receipts[blocks[i].Hash.String()][0].TransactionHash)
 		indexedTX, err := bi.GetIndexedTransactionByHash(ctx, txHash)
 		require.NoError(t, err)
 		assert.Equal(t, receipts[blocks[i].Hash.String()][0].TransactionHash.String(), indexedTX.Hash.String())
 
 		// Query the transaction
-		txs, err := bi.QueryIndexedTransactions(ctx, query.NewQueryBuilder().Equal("hash", txHash).Limit(1).Query())
+		txs, err := bi.QueryIndexedTransactions(ctx, query.NewQueryBuilder().Equal("hash", txHash).Limit(1).Query(), false)
 		require.NoError(t, err)
 		require.Len(t, txs, 1)
 		require.Equal(t, txHash, txs[0].Hash)
@@ -406,7 +478,7 @@ func TestBlockIndexerCatchUpToHeadFromZeroWithConfirmations(t *testing.T) {
 
 		// Get the events
 		tx0 := receipts[blocks[i].Hash.String()][0]
-		txEvents, err := bi.GetTransactionEventsByHash(ctx, tktypes.Bytes32(tx0.TransactionHash))
+		txEvents, err := bi.GetTransactionEventsByHash(ctx, pldtypes.Bytes32(tx0.TransactionHash))
 		require.NoError(t, err)
 		assert.Len(t, txEvents, 3)
 		assert.Equal(t, topicA.String(), txEvents[0].Signature.String())
@@ -415,14 +487,14 @@ func TestBlockIndexerCatchUpToHeadFromZeroWithConfirmations(t *testing.T) {
 		if i == 0 {
 			assert.Nil(t, tx0.To)
 			assert.NotNil(t, tx0.ContractAddress)
-			assert.NotEqual(t, tktypes.EthAddress{}, *tx0.ContractAddress)
+			assert.NotEqual(t, pldtypes.EthAddress{}, *tx0.ContractAddress)
 		} else {
 			assert.Nil(t, tx0.ContractAddress)
 			assert.NotNil(t, tx0.To)
-			assert.NotEqual(t, tktypes.EthAddress{}, *tx0.To)
+			assert.NotEqual(t, pldtypes.EthAddress{}, *tx0.To)
 		}
 		assert.NotNil(t, tx0.From)
-		assert.NotEqual(t, tktypes.EthAddress{}, *tx0.From)
+		assert.NotEqual(t, pldtypes.EthAddress{}, *tx0.From)
 
 		// Query the events
 		events, err := bi.QueryIndexedEvents(ctx, query.NewQueryBuilder().
@@ -432,7 +504,7 @@ func TestBlockIndexerCatchUpToHeadFromZeroWithConfirmations(t *testing.T) {
 		require.Equal(t, blocks[i].Number.Uint64(), uint64(events[0].BlockNumber))
 
 		// Decode events
-		decodedEvents, err := bi.DecodeTransactionEvents(ctx, tktypes.Bytes32(tx0.TransactionHash), testABI, "")
+		decodedEvents, err := bi.DecodeTransactionEvents(ctx, pldtypes.Bytes32(tx0.TransactionHash), testABI, "")
 		assert.NoError(t, err)
 		assert.Len(t, decodedEvents, 3)
 		assert.Equal(t, "event EventA()", decodedEvents[0].SoliditySignature)
@@ -516,13 +588,13 @@ func TestBlockIndexerListenFromCurrentBlock(t *testing.T) {
 		checkIndexedBlockEqual(t, blocks[i], notifiedBlocks[0])
 	}
 
-	var ch tktypes.HexUint64
+	var ch pldtypes.HexUint64
 	for ch < 9 {
 		time.Sleep(10 * time.Millisecond)
 		ch, err = bi.GetConfirmedBlockHeight(ctx)
 		require.NoError(t, err)
 	}
-	assert.Equal(t, tktypes.HexUint64(9), ch)
+	assert.Equal(t, pldtypes.HexUint64(9), ch)
 }
 
 func TestBlockIndexerCancelledBeforeCurrentBlock(t *testing.T) {
@@ -581,9 +653,9 @@ func TestBlockIndexerListenFromCurrentUsingCheckpointBlock(t *testing.T) {
 	blocks, receipts := testBlockArray(t, 15)
 	mockBlocksRPCCalls(mRPC, blocks, receipts)
 
-	bi.persistence.DB().Table("indexed_blocks").Create(&pldapi.IndexedBlock{
+	bi.persistence.DB(context.Background()).Table("indexed_blocks").Create(&pldapi.IndexedBlock{
 		Number: 12345,
-		Hash:   tktypes.MustParseBytes32(tktypes.RandHex(32)),
+		Hash:   pldtypes.MustParseBytes32(pldtypes.RandHex(32)),
 	})
 
 	bi.startOrReset() // do not start block listener
@@ -679,7 +751,7 @@ func testBlockIndexerHandleReorgInConfirmationWindow(t *testing.T, blockLenBefor
 	mockBlocksRPCCallsDynamic(mRPC, func(args mock.Arguments) ([]*BlockInfoJSONRPC, map[string][]*TXReceiptJSONRPC) {
 		blockNumber := -1
 		if args[2].(string) == "eth_getBlockByNumber" {
-			blockNumber = int(args[3].(ethtypes.HexUint64))
+			blockNumber = int(args[3].([]interface{})[0].(ethtypes.HexUint64))
 		}
 		if isAfterReorg.Load() {
 			return blocksAfterReorg, receipts
@@ -731,17 +803,22 @@ func TestBlockIndexerHandleRandomConflictingBlockNotification(t *testing.T) {
 
 	randBlock := &BlockInfoJSONRPC{
 		Number:     3,
-		Hash:       ethtypes.MustNewHexBytes0xPrefix(tktypes.RandHex(32)),
-		ParentHash: ethtypes.MustNewHexBytes0xPrefix(tktypes.RandHex(32)),
+		Hash:       ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32)),
+		ParentHash: ethtypes.MustNewHexBytes0xPrefix(pldtypes.RandHex(32)),
 	}
 
 	sentRandom := false
+	randBlockHandled := make(chan struct{}) // <- New sync point
+
 	mockBlocksRPCCallsDynamic(mRPC, func(args mock.Arguments) ([]*BlockInfoJSONRPC, map[string][]*TXReceiptJSONRPC) {
-		if !sentRandom && args[3].(ethtypes.HexUint64) == 4 {
+		if !sentRandom && args[3].([]interface{})[0].(ethtypes.HexUint64) == 4 {
 			sentRandom = true
-			bi.blockListener.notifyBlock(randBlock)
-			// Give notification handler likelihood to run before we continue the by-number getting
-			time.Sleep(1 * time.Millisecond)
+
+			// Use goroutine to avoid blocking and signal completion
+			go func() {
+				bi.blockListener.notifyBlock(randBlock)
+				close(randBlockHandled)
+			}()
 		}
 		return blocks, receipts
 	})
@@ -750,6 +827,11 @@ func TestBlockIndexerHandleRandomConflictingBlockNotification(t *testing.T) {
 	addBlockPostCommit(bi, func(blocks []*pldapi.IndexedBlock) { utBatchNotify <- blocks })
 
 	bi.startOrReset() // do not start block listener
+
+	// Wait for the random block to be handled if it was sent
+	if sentRandom {
+		<-randBlockHandled
+	}
 
 	for i := 0; i < len(blocks)-bi.requiredConfirmations; i++ {
 		notifiedBlocks := <-utBatchNotify
@@ -764,11 +846,32 @@ func TestBlockIndexerResetsAfterHashLookupFail(t *testing.T) {
 
 	blocks, receipts := testBlockArray(t, 5)
 
+	// Set up event stream
+	// Add event stream directly to block indexer (don't use bi.Start as it starts block listener)
+	eventStream, err := bi.AddEventStream(context.Background(), bi.persistence.NOTX(), &InternalEventStream{
+		HandlerDBTX: func(ctx context.Context, dbTX persistence.DBTX, batch *EventDeliveryBatch) error {
+			return nil
+		},
+		Definition: &EventStreamDefinition{
+			Name: "unit_test",
+			Sources: []EventStreamSource{{
+				ABI: abi.ABI{
+					testABI[1], // Listen to one event type
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+
+	// Verify event stream is added but not started yet
+	es := bi.eventStreams[eventStream.Definition().ID]
+	require.NotNil(t, es)
+
 	sentFail := false
 	mockBlocksRPCCallsDynamic(mRPC, func(args mock.Arguments) ([]*BlockInfoJSONRPC, map[string][]*TXReceiptJSONRPC) {
 		if !sentFail &&
 			args[2].(string) == "eth_getBlockReceipts" &&
-			args[3].(ethtypes.HexBytes0xPrefix).Equals(blocks[2].Hash) {
+			args[3].([]interface{})[0].(ethtypes.HexBytes0xPrefix).Equals(blocks[2].Hash) {
 			sentFail = true
 			// Send back a not found, to send us round the reset loop
 			return []*BlockInfoJSONRPC{}, map[string][]*TXReceiptJSONRPC{}
@@ -788,6 +891,75 @@ func TestBlockIndexerResetsAfterHashLookupFail(t *testing.T) {
 	}
 
 	assert.True(t, sentFail)
+
+	// Check that the event stream goroutines are now running
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		es := bi.eventStreams[eventStream.Definition().ID]
+		assert.NotNil(c, es.detectorDone, "Event stream detector should be started after reset")
+		assert.NotNil(c, es.dispatcherDone, "Event stream dispatcher should be started after reset")
+	}, testTimeout(t), 100*time.Millisecond, "Event streams should be started after reset")
+}
+
+func TestBlockIndexerResetsAfterReceiptIntegrityFail(t *testing.T) {
+	_, bi, mRPC, blDone := newTestBlockIndexer(t)
+	defer blDone()
+
+	blocks, receipts := testBlockArray(t, 5)
+
+	// Set up event stream
+	eventStream, err := bi.AddEventStream(context.Background(), bi.persistence.NOTX(), &InternalEventStream{
+		HandlerDBTX: func(ctx context.Context, dbTX persistence.DBTX, batch *EventDeliveryBatch) error {
+			return nil
+		},
+		Definition: &EventStreamDefinition{
+			Name: "unit_test",
+			Sources: []EventStreamSource{{
+				ABI: abi.ABI{
+					testABI[1], // Listen to one event type
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+
+	es := bi.eventStreams[eventStream.Definition().ID]
+	require.NotNil(t, es)
+
+	sentFail := false
+	mockBlocksRPCCallsDynamic(mRPC, func(args mock.Arguments) ([]*BlockInfoJSONRPC, map[string][]*TXReceiptJSONRPC) {
+		if !sentFail &&
+			args[2].(string) == "eth_getBlockReceipts" &&
+			args[3].([]interface{})[0].(ethtypes.HexBytes0xPrefix).Equals(blocks[2].Hash) {
+			sentFail = true
+			badReceipts := make(map[string][]*TXReceiptJSONRPC, len(receipts))
+			for hash, blockReceipts := range receipts {
+				badReceipts[hash] = blockReceipts
+			}
+			// Return fewer receipts than transactions for one block to trigger integrity reset.
+			badReceipts[blocks[2].Hash.String()] = []*TXReceiptJSONRPC{}
+			return blocks, badReceipts
+		}
+		return blocks, receipts
+	})
+
+	utBatchNotify := make(chan []*pldapi.IndexedBlock)
+	addBlockPostCommit(bi, func(blocks []*pldapi.IndexedBlock) { utBatchNotify <- blocks })
+
+	bi.startOrReset() // do not start block listener
+
+	for i := 0; i < len(blocks); i++ {
+		notifiedBlocks := <-utBatchNotify
+		assert.Len(t, notifiedBlocks, 1) // We should get one block per batch
+		checkIndexedBlockEqual(t, blocks[i], notifiedBlocks[0])
+	}
+
+	assert.True(t, sentFail)
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		es := bi.eventStreams[eventStream.Definition().ID]
+		assert.NotNil(c, es.detectorDone, "Event stream detector should be started after reset")
+		assert.NotNil(c, es.dispatcherDone, "Event stream dispatcher should be started after reset")
+	}, testTimeout(t), 100*time.Millisecond, "Event streams should be started after reset")
 }
 
 func TestBlockIndexerDispatcherFallsBehindHead(t *testing.T) {
@@ -905,13 +1077,13 @@ func TestGetIndexedTransactionByHashErrors(t *testing.T) {
 
 	p.Mock.ExpectQuery("SELECT.*indexed_transactions").WillReturnRows(sqlmock.NewRows([]string{}))
 
-	res, err := bi.GetIndexedTransactionByHash(ctx, tktypes.RandBytes32())
+	res, err := bi.GetIndexedTransactionByHash(ctx, pldtypes.RandBytes32())
 	require.NoError(t, err)
 	assert.Nil(t, res)
 
 	p.Mock.ExpectQuery("SELECT.*indexed_transactions").WillReturnError(fmt.Errorf("pop"))
 
-	_, err = bi.GetIndexedTransactionByHash(ctx, tktypes.RandBytes32())
+	_, err = bi.GetIndexedTransactionByHash(ctx, pldtypes.RandBytes32())
 	assert.Regexp(t, "pop", err)
 
 }
@@ -923,7 +1095,7 @@ func TestBlockIndexerWaitForTransactionSuccess(t *testing.T) {
 	blocks, receipts := testBlockArray(t, 5)
 	mockBlocksRPCCalls(mRPC, blocks, receipts)
 
-	txHash := tktypes.Bytes32(receipts[blocks[2].Hash.String()][0].TransactionHash)
+	txHash := pldtypes.Bytes32(receipts[blocks[2].Hash.String()][0].TransactionHash)
 	gotTX := make(chan struct{})
 	go func() {
 		defer close(gotTX)
@@ -971,7 +1143,7 @@ func TestBlockIndexerWaitForTransactionRevert(t *testing.T) {
 		`0000000000000000000000000000000000000000000000000000000000000020` +
 		`000000000000000000000000000000000000000000000000000000000000001a` +
 		`4e6f7420656e6f7567682045746865722070726f76696465642e000000000000`)
-	txHash := tktypes.Bytes32(receipt.TransactionHash)
+	txHash := pldtypes.Bytes32(receipt.TransactionHash)
 	gotTX := make(chan struct{})
 	go func() {
 		defer close(gotTX)
@@ -1015,7 +1187,7 @@ func TestWaitForTransactionErrorCases(t *testing.T) {
 
 	p.Mock.ExpectQuery("SELECT.*indexed_transactions").WillReturnError(fmt.Errorf("pop"))
 
-	_, err := bi.WaitForTransactionSuccess(ctx, tktypes.RandBytes32(), nil)
+	_, err := bi.WaitForTransactionSuccess(ctx, pldtypes.RandBytes32(), nil)
 	assert.Regexp(t, "pop", err)
 
 }
@@ -1027,7 +1199,7 @@ func TestDecodeTransactionEventsFail(t *testing.T) {
 
 	p.Mock.ExpectQuery("SELECT.*indexed_events").WillReturnError(fmt.Errorf("pop"))
 
-	_, err := bi.DecodeTransactionEvents(ctx, tktypes.RandBytes32(), testABI, "")
+	_, err := bi.DecodeTransactionEvents(ctx, pldtypes.RandBytes32(), testABI, "")
 	assert.Regexp(t, "pop", err)
 
 }
@@ -1041,7 +1213,7 @@ func TestWaitForTransactionSuccessGetReceiptFail(t *testing.T) {
 		rpcclient.WrapRPCError(rpcclient.RPCCodeInternalError, fmt.Errorf("pop")),
 	)
 
-	err := bi.getReceiptRevertError(ctx, tktypes.RandBytes32(), nil)
+	err := bi.getReceiptRevertError(ctx, pldtypes.RandBytes32(), nil)
 	assert.Regexp(t, "pop", err)
 
 }
@@ -1057,7 +1229,7 @@ func TestWaitForTransactionSuccessGetReceiptFallback(t *testing.T) {
 		},
 	).Return(nil)
 
-	err := bi.getReceiptRevertError(ctx, tktypes.RandBytes32(), nil)
+	err := bi.getReceiptRevertError(ctx, pldtypes.RandBytes32(), nil)
 	assert.Regexp(t, "PD011309", err)
 
 }
@@ -1069,7 +1241,7 @@ func TestGetIndexedTransactionByNonceFail(t *testing.T) {
 
 	mdb.Mock.ExpectQuery("SELECT.*indexed_transactions").WillReturnError(fmt.Errorf("pop"))
 
-	_, err := bi.GetIndexedTransactionByNonce(ctx, tktypes.EthAddress(tktypes.RandBytes(20)), 12345)
+	_, err := bi.GetIndexedTransactionByNonce(ctx, pldtypes.EthAddress(pldtypes.RandBytes(20)), 12345)
 	assert.Regexp(t, "pop", err)
 
 }
@@ -1087,7 +1259,7 @@ func TestHydrateBlockErrorCase(t *testing.T) {
 	batch := &blockWriterBatch{
 		wg: sync.WaitGroup{},
 		blocks: []*BlockInfoJSONRPC{
-			{Hash: tktypes.RandBytes(32)},
+			{Hash: pldtypes.RandBytes(32)},
 		},
 		summaries:      []string{"block_0"},
 		receipts:       [][]*TXReceiptJSONRPC{nil},
@@ -1113,7 +1285,7 @@ func TestHydrateBlockBesuNullCase(t *testing.T) {
 	batch := &blockWriterBatch{
 		wg: sync.WaitGroup{},
 		blocks: []*BlockInfoJSONRPC{
-			{Hash: tktypes.RandBytes(32)},
+			{Hash: pldtypes.RandBytes(32)},
 		},
 		summaries:      []string{"block_0"},
 		receipts:       [][]*TXReceiptJSONRPC{nil},
@@ -1126,6 +1298,281 @@ func TestHydrateBlockBesuNullCase(t *testing.T) {
 	assert.Regexp(t, "PD011310", batch.receiptResults[0])
 	batch.wg.Wait()
 
+}
+
+func TestHydrateBlockReceiptCountMismatch(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(123),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	validReceipt := &TXReceiptJSONRPC{
+		BlockHash:       block.Hash,
+		BlockNumber:     block.Number,
+		TransactionHash: block.Transactions[0].Hash,
+		Status:          ethtypes.NewHexInteger64(1),
+		Type:            ethtypes.NewHexInteger64(0x2),
+	}
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{validReceipt}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011313", batch.receiptResults[0])
+	batch.wg.Wait()
+}
+
+func TestHydrateBlockReceiptTxHashMismatchReturnsMissing(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(124),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	unknownHash := pldtypes.RandBytes(32)
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: unknownHash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+			}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011316", batch.receiptResults[0])
+	batch.wg.Wait()
+}
+
+func TestHydrateBlockReceiptDuplicateCausesMissing(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(126),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+			}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011316", batch.receiptResults[0])
+	batch.wg.Wait()
+}
+
+func TestHydrateBlockReceiptBlockMismatch(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(125),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{
+				{
+					BlockHash:       pldtypes.RandBytes(32),
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+			}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011314", batch.receiptResults[0])
+	batch.wg.Wait()
+}
+
+func TestHydrateBlockReceiptNilEntry(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(128),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{nil}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011315", batch.receiptResults[0])
+	batch.wg.Wait()
+}
+
+func TestHydrateBlockReceiptMissingTxHash(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(127),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+			}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011316", batch.receiptResults[0])
+	batch.wg.Wait()
 }
 
 func TestHydrateBlockNoTransactions(t *testing.T) {
@@ -1148,17 +1595,398 @@ func TestQueryNoLimit(t *testing.T) {
 	_, err := bi.QueryIndexedBlocks(ctx, query.NewQueryBuilder().Query())
 	assert.Regexp(t, "PD011311", err)
 
-	_, err = bi.QueryIndexedTransactions(ctx, query.NewQueryBuilder().Query())
+	_, err = bi.QueryIndexedTransactions(ctx, query.NewQueryBuilder().Query(), false)
 	assert.Regexp(t, "PD011311", err)
 
 	_, err = bi.QueryIndexedEvents(ctx, query.NewQueryBuilder().Query())
 	assert.Regexp(t, "PD011311", err)
 }
 
-func TestAddEventStreamBadName(t *testing.T) {
-	ctx, bi, _, mp, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
-	defer done()
+func TestQueryIndexedTransactionsHasPaladinReceipt(t *testing.T) {
+	ctx, bi, mRPC, blDone := newTestBlockIndexer(t)
+	defer blDone()
 
-	_, err := bi.AddEventStream(ctx, mp.P.NOTX(), &InternalEventStream{})
-	assert.Regexp(t, "PD020005", err)
+	blocks, receipts := testBlockArray(t, 1)
+	mockBlocksRPCCalls(mRPC, blocks, receipts)
+
+	utBatchNotify := make(chan []*pldapi.IndexedBlock)
+	addBlockPostCommit(bi, func(blocks []*pldapi.IndexedBlock) { utBatchNotify <- blocks })
+
+	bi.startOrReset()
+	<-utBatchNotify
+
+	txHash := pldtypes.Bytes32(receipts[blocks[0].Hash.String()][0].TransactionHash)
+
+	txs, err := bi.QueryIndexedTransactions(ctx, query.NewQueryBuilder().Equal("hash", txHash).Limit(1).Query(), true)
+	require.NoError(t, err)
+	require.Empty(t, txs)
+
+	txs, err = bi.QueryIndexedTransactions(ctx, query.NewQueryBuilder().Equal("hash", txHash).Limit(1).Query(), false)
+	require.NoError(t, err)
+	require.Len(t, txs, 1)
+	require.Equal(t, txHash, txs[0].Hash)
+
+	err = bi.persistence.DB(ctx).Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, tx_hash) VALUES (?, ?, ?, ?, ?)`,
+		uuid.New(),
+		"",
+		pldtypes.TimestampNow(),
+		true,
+		txHash.HexString(),
+	).Error
+	require.NoError(t, err)
+
+	txs, err = bi.QueryIndexedTransactions(ctx, query.NewQueryBuilder().Equal("hash", txHash).Limit(1).Query(), true)
+	require.NoError(t, err)
+	require.Len(t, txs, 1)
+	require.Equal(t, txHash, txs[0].Hash)
+}
+
+func TestGetFromBlock(t *testing.T) {
+	ctx, bi, _, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+	// decode error
+	_, err := bi.getFromBlock(ctx, json.RawMessage(`one`), pldconf.BlockIndexerDefaults.FromBlock)
+	require.Error(t, err)
+
+	// invalid type error
+	_, err = bi.getFromBlock(ctx, json.RawMessage(`{}`), pldconf.BlockIndexerDefaults.FromBlock)
+	require.Error(t, err)
+
+	// int parse error
+	_, err = bi.getFromBlock(ctx, json.RawMessage(`"one"`), pldconf.BlockIndexerDefaults.FromBlock)
+	require.Error(t, err)
+
+	// success - latest
+	v, err := bi.getFromBlock(ctx, json.RawMessage(`"latest"`), pldconf.BlockIndexerDefaults.FromBlock)
+	require.NoError(t, err)
+	assert.Nil(t, v)
+
+	// success - number
+	v, err = bi.getFromBlock(ctx, json.RawMessage(`"25"`), pldconf.BlockIndexerDefaults.FromBlock)
+	require.NoError(t, err)
+	assert.Equal(t, ethtypes.HexUint64(25), *v)
+
+	// success - use default
+	v, err = bi.getFromBlock(ctx, nil, pldconf.BlockIndexerDefaults.FromBlock)
+	require.NoError(t, err)
+	assert.Equal(t, ethtypes.HexUint64(0), *v)
+}
+
+func TestValidTransactionTypesArePersisted(t *testing.T) {
+	_, bi, mRPC, blDone := newTestBlockIndexer(t)
+	defer blDone()
+
+	// Configure ignored (typically L2) transaction types, but our test transaction types won't be in that list
+	bi.ignoredTransactionTypes = []int64{34, 46, 57}
+
+	blocks, receipts := testBlockArrayWithTXType(t, 15, "0xbe") // A custom but not-invalid TX type
+
+	mockBlocksRPCCalls(mRPC, blocks, receipts)
+
+	// 1 TX per block, 10 blocks (5->14)
+	expectedTransactions := 10
+	// Persisted transactions. All of the test transactions should be persisted because
+	// we've set their TX type to something that doesn't match any entries in the (configurable) ignore list.
+	persistedTransactions := 0
+
+	bi.fromBlock = nil
+	bi.nextBlock = nil
+	bi.requiredConfirmations = 0
+
+	// simulate the highest block being known. We're going from 5->14
+	bi.blockListener.highestBlock = 5
+	close(bi.blockListener.initialBlockHeightObtained)
+
+	utBatchNotify := make(chan []*pldapi.IndexedBlock)
+	addBlockPostCommit(bi, func(blocks []*pldapi.IndexedBlock) { utBatchNotify <- blocks })
+
+	txNotify := make(chan []*IndexedTransactionNotify)
+	addBlockPostCommitTx(bi, func(transactions []*IndexedTransactionNotify) {
+		txNotify <- transactions
+	})
+
+	// do not start block listener
+	bi.startOrReset()
+
+	// Notify starting at block 5
+	for i := 5; i < len(blocks); i++ {
+		bi.blockListener.notifyBlock(blocks[i])
+	}
+
+	for i := 5; i < len(blocks)-bi.requiredConfirmations; i++ {
+		notifiedBlocks := <-utBatchNotify
+		persistedTransactions += len(<-txNotify)
+		assert.Len(t, notifiedBlocks, 1) // We should get one block per batch
+		checkIndexedBlockEqual(t, blocks[i], notifiedBlocks[0])
+	}
+
+	assert.Equal(t, expectedTransactions, persistedTransactions)
+}
+
+func TestValidTransactionsWithoutTypeArePersisted(t *testing.T) {
+	_, bi, mRPC, blDone := newTestBlockIndexer(t)
+	defer blDone()
+
+	// Configure ignored (typically L2) transaction types. This test won't provide a TX type
+	// so all transactions should be included/persisted
+	bi.ignoredTransactionTypes = []int64{34, 46, 57}
+
+	blocks, receipts := testBlockArrayWithTXType(t, 15, "") // Don't set a TX type on the sample transactions (i.e. pre-EIP2718)
+
+	mockBlocksRPCCalls(mRPC, blocks, receipts)
+
+	// 1 TX per block, 10 blocks (5->14)
+	expectedTransactions := 10
+	// Persisted transactions. All of the test transactions should be persisted because
+	// they simulate pre-EIP2718 transactions which don't set TX type, and we can't ignore
+	// transactions by type if they don't have one
+	persistedTransactions := 0
+
+	bi.fromBlock = nil
+	bi.nextBlock = nil
+	bi.requiredConfirmations = 0
+
+	// simulate the highest block being known. We're going from 5->14
+	bi.blockListener.highestBlock = 5
+	close(bi.blockListener.initialBlockHeightObtained)
+
+	utBatchNotify := make(chan []*pldapi.IndexedBlock)
+	addBlockPostCommit(bi, func(blocks []*pldapi.IndexedBlock) { utBatchNotify <- blocks })
+
+	txNotify := make(chan []*IndexedTransactionNotify)
+	addBlockPostCommitTx(bi, func(transactions []*IndexedTransactionNotify) {
+		txNotify <- transactions
+	})
+
+	// do not start block listener
+	bi.startOrReset()
+
+	// Notify starting at block 5
+	for i := 5; i < len(blocks); i++ {
+		bi.blockListener.notifyBlock(blocks[i])
+	}
+
+	for i := 5; i < len(blocks)-bi.requiredConfirmations; i++ {
+		notifiedBlocks := <-utBatchNotify
+		persistedTransactions += len(<-txNotify)
+		assert.Len(t, notifiedBlocks, 1) // We should get one block per batch
+		checkIndexedBlockEqual(t, blocks[i], notifiedBlocks[0])
+	}
+
+	assert.Equal(t, expectedTransactions, persistedTransactions)
+}
+
+func TestDefaultInvalidTransactionTypesAreIgnored(t *testing.T) {
+	_, bi, mRPC, blDone := newTestBlockIndexerConf(t, &pldconf.BlockIndexerConfig{
+		CommitBatchSize: confutil.P(1), // makes testing simpler
+		FromBlock:       json.RawMessage(`0`),
+		// IgnoredTransactionTypes: confutil.P([]int64{0x7e}), <<-- Paladin defaults to this list. Purposefully commented here to check default behaviour
+	})
+	defer blDone()
+
+	blocks, receipts := testBlockArrayWithTXType(t, 15, "0x7e")
+
+	mockBlocksRPCCalls(mRPC, blocks, receipts)
+
+	// 1 TX per block, 10 blocks (5->14), but each TX is invalid and hence shuld be ignored
+	expectedTransactions := 0
+	// Persisted transactions. None of the test transactions should be persisted because
+	// we've set their TX type to match an entry in the (configurable) ignore list.
+	persistedTransactions := 0
+
+	bi.fromBlock = nil
+	bi.nextBlock = nil
+	bi.requiredConfirmations = 0
+
+	// simulate the highest block being known. We're going from 5->14
+	bi.blockListener.highestBlock = 5
+	close(bi.blockListener.initialBlockHeightObtained)
+
+	utBatchNotify := make(chan []*pldapi.IndexedBlock)
+	addBlockPostCommit(bi, func(blocks []*pldapi.IndexedBlock) { utBatchNotify <- blocks })
+
+	txNotify := make(chan []*IndexedTransactionNotify)
+	addBlockPostCommitTx(bi, func(transactions []*IndexedTransactionNotify) {
+		txNotify <- transactions
+	})
+
+	// do not start block listener
+	bi.startOrReset()
+
+	// Notify starting at block 5
+	for i := 5; i < len(blocks); i++ {
+		bi.blockListener.notifyBlock(blocks[i])
+	}
+
+	for i := 5; i < len(blocks)-bi.requiredConfirmations; i++ {
+		notifiedBlocks := <-utBatchNotify
+		persistedTransactions += len(<-txNotify)
+		assert.Len(t, notifiedBlocks, 1) // We should get one block per batch
+		checkIndexedBlockEqual(t, blocks[i], notifiedBlocks[0])
+	}
+
+	assert.Equal(t, expectedTransactions, persistedTransactions)
+}
+
+func TestCustomInvalidTransactionTypesAreIgnored(t *testing.T) {
+	_, bi, mRPC, blDone := newTestBlockIndexerConf(t, &pldconf.BlockIndexerConfig{
+		CommitBatchSize:         confutil.P(1), // makes testing simpler
+		FromBlock:               json.RawMessage(`0`),
+		IgnoredTransactionTypes: []int64{0x12, 0x23, 0x34}, // Custom list of invalid TX types
+	})
+	defer blDone()
+
+	blocks, receipts := testBlockArrayWithTXType(t, 15, "0x7e")
+
+	mockBlocksRPCCalls(mRPC, blocks, receipts)
+
+	// 1 TX per block, 10 blocks (5->14), but each TX is invalid and hence shuld be ignored
+	expectedTransactions := 10
+	// Persisted transactions. None of the test transactions should be persisted because
+	// we've set their TX type to match an entry in the (configurable) ignore list.
+
+	persistedTransactions := 0
+
+	bi.fromBlock = nil
+	bi.nextBlock = nil
+	bi.requiredConfirmations = 0
+
+	// simulate the highest block being known. We're going from 5->14
+	bi.blockListener.highestBlock = 5
+	close(bi.blockListener.initialBlockHeightObtained)
+
+	utBatchNotify := make(chan []*pldapi.IndexedBlock)
+	addBlockPostCommit(bi, func(blocks []*pldapi.IndexedBlock) { utBatchNotify <- blocks })
+
+	txNotify := make(chan []*IndexedTransactionNotify)
+	addBlockPostCommitTx(bi, func(transactions []*IndexedTransactionNotify) {
+		txNotify <- transactions
+	})
+
+	// do not start block listener
+	bi.startOrReset()
+
+	// Notify starting at block 5
+	for i := 5; i < len(blocks); i++ {
+		bi.blockListener.notifyBlock(blocks[i])
+	}
+
+	for i := 5; i < len(blocks)-bi.requiredConfirmations; i++ {
+		notifiedBlocks := <-utBatchNotify
+		persistedTransactions += len(<-txNotify)
+		assert.Len(t, notifiedBlocks, 1) // We should get one block per batch
+		checkIndexedBlockEqual(t, blocks[i], notifiedBlocks[0])
+	}
+
+	assert.Equal(t, expectedTransactions, persistedTransactions)
+}
+
+// This is to test that we can store more than 65k events in a single DB TX
+func TestBlockIndexerManyEventsWaitForTransactionSuccess(t *testing.T) {
+	ctx, bi, mRPC, blDone := newTestBlockIndexer(t)
+	defer blDone()
+
+	// For SQLite the limit is 999, setting something lower
+	bi.insertDBBatchSize = 500
+
+	// 20000 events in a single tx
+	blocks, receipts := testBlockWithManyTXAndEvents(t, 1, 20000)
+	mockBlocksRPCCalls(mRPC, blocks, receipts)
+
+	txHash := pldtypes.Bytes32(receipts[blocks[0].Hash.String()][1].TransactionHash)
+	gotTX := make(chan struct{})
+	go func() {
+		defer close(gotTX)
+		tx, err := bi.WaitForTransactionSuccess(ctx, txHash, nil)
+		require.NoError(t, err)
+		assert.Equal(t, ethtypes.HexUint64(tx.BlockNumber), blocks[0].Number)
+		assert.Equal(t, txHash, tx.Hash)
+	}()
+
+	// Wait for initial query to fail
+	for bi.txWaiters.InFlightCount() == 0 {
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	utBatchNotify := make(chan []*pldapi.IndexedBlock)
+	addBlockPostCommit(bi, func(blocks []*pldapi.IndexedBlock) { utBatchNotify <- blocks })
+
+	bi.startOrReset() // do not start block listener
+
+	for i := 0; i < len(blocks); i++ {
+		notifiedBlocks := <-utBatchNotify
+		assert.Len(t, notifiedBlocks, 1) // We should get one block per batch
+		checkIndexedBlockEqual(t, blocks[i], notifiedBlocks[0])
+	}
+
+	<-gotTX
+
+	tx, err := bi.WaitForTransactionAnyResult(ctx, txHash)
+	require.NoError(t, err)
+	assert.Equal(t, pldapi.TXResult_SUCCESS, tx.Result.V())
+	assert.Equal(t, ethtypes.HexUint64(tx.BlockNumber), blocks[0].Number)
+	assert.Equal(t, txHash, tx.Hash)
+}
+
+func TestBlockIndexerManyTXsWaitForTransactionSuccess(t *testing.T) {
+	ctx, bi, mRPC, blDone := newTestBlockIndexer(t)
+	defer blDone()
+
+	// For SQLite the limit is 999, setting something lower
+	bi.insertDBBatchSize = 500
+
+	// 20000 transactions in a block
+	blocks, receipts := testBlockWithManyTXAndEvents(t, 20000, 0)
+	mockBlocksRPCCalls(mRPC, blocks, receipts)
+
+	txHash := pldtypes.Bytes32(receipts[blocks[0].Hash.String()][1].TransactionHash)
+	gotTX := make(chan struct{})
+	go func() {
+		defer close(gotTX)
+		tx, err := bi.WaitForTransactionSuccess(ctx, txHash, nil)
+		require.NoError(t, err)
+		assert.Equal(t, ethtypes.HexUint64(tx.BlockNumber), blocks[0].Number)
+		assert.Equal(t, txHash, tx.Hash)
+	}()
+
+	// Wait for initial query to fail
+	for bi.txWaiters.InFlightCount() == 0 {
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	utBatchNotify := make(chan []*pldapi.IndexedBlock)
+	addBlockPostCommit(bi, func(blocks []*pldapi.IndexedBlock) { utBatchNotify <- blocks })
+
+	bi.startOrReset() // do not start block listener
+
+	for i := 0; i < len(blocks); i++ {
+		notifiedBlocks := <-utBatchNotify
+		assert.Len(t, notifiedBlocks, 1) // We should get one block per batch
+		checkIndexedBlockEqual(t, blocks[i], notifiedBlocks[0])
+	}
+
+	<-gotTX
+
+	tx, err := bi.WaitForTransactionAnyResult(ctx, txHash)
+	require.NoError(t, err)
+	assert.Equal(t, pldapi.TXResult_SUCCESS, tx.Result.V())
+	assert.Equal(t, ethtypes.HexUint64(tx.BlockNumber), blocks[0].Number)
+	assert.Equal(t, txHash, tx.Hash)
+}
+
+func TestGetLatestConfirmedBlockMetadata(t *testing.T) {
+	ctx, bi, _, blDone := newTestBlockIndexer(t)
+	defer blDone()
+
+	// Error case: no blocks indexed yet (Number == -1)
+	_, err := bi.GetLatestConfirmedBlockMetadata(ctx)
+	assert.Regexp(t, "PD011308", err)
+
+	// Success case: store a confirmed block and retrieve it
+	expected := &ConfirmedBlockMetadata{Number: 42, Timestamp: 1234567890}
+	bi.highestConfirmedBlock.Store(expected)
+
+	block, err := bi.GetLatestConfirmedBlockMetadata(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, expected, block)
 }

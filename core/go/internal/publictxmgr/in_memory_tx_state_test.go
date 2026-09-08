@@ -17,44 +17,29 @@ package publictxmgr
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 )
-
-// import (
-// 	"context"
-// 	"encoding/json"
-// 	"testing"
-
-// 	"github.com/google/uuid"
-// 	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
-// 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-// 	"github.com/kaleido-io/paladin/core/pkg/blockindexer"
-// 	"github.com/kaleido-io/paladin/config/pkg/confutil"
-// 	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-// 	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
-
-// 	"github.com/stretchr/testify/assert"
-// )
 
 const testTransactionData string = "0x7369676e6564206d657373616765"
 
 func NewTestInMemoryTxState(t *testing.T) InMemoryTxStateManager {
-	oldTime := tktypes.TimestampNow()
-	oldFrom := tktypes.MustEthAddress("0x4e598f6e918321dd47c86e7a077b4ab0e7414846")
-	oldTxHash := tktypes.RandBytes32()
-	oldTo := tktypes.MustEthAddress("0x6cee73cf4d5b0ac66ce2d1c0617bec4bedd09f39")
-	oldNonce := tktypes.HexUint64(1)
-	oldGasLimit := tktypes.HexUint64(2000)
-	oldValue := tktypes.Uint64ToUint256(200)
-	oldGasPrice := tktypes.Uint64ToUint256(10)
+	oldTime := pldtypes.TimestampNow()
+	oldFrom := pldtypes.MustEthAddress("0x4e598f6e918321dd47c86e7a077b4ab0e7414846")
+	oldTxHash := pldtypes.RandBytes32()
+	oldTo := pldtypes.MustEthAddress("0x6cee73cf4d5b0ac66ce2d1c0617bec4bedd09f39")
+	oldNonce := pldtypes.HexUint64(1)
+	oldGasLimit := pldtypes.HexUint64(2000)
+	oldValue := pldtypes.Uint64ToUint256(200)
+	oldGasPrice := pldtypes.Uint64ToUint256(10)
 	oldErrorMessage := "old message"
-	oldTransactionData := tktypes.MustParseHexBytes(testTransactionData)
+	oldTransactionData := pldtypes.MustParseHexBytes(testTransactionData)
 	testManagedTx := &DBPublicTxn{
 		Created: oldTime,
 		From:    *oldFrom,
@@ -65,31 +50,43 @@ func NewTestInMemoryTxState(t *testing.T) InMemoryTxStateManager {
 		Data:    oldTransactionData,
 	}
 
-	imtxs := NewInMemoryTxStateManager(context.Background(), testManagedTx)
+	imtxs := NewInMemoryTxStateManager(context.Background(), testManagedTx, nil)
 	imtxs.ApplyInMemoryUpdates(context.Background(), &BaseTXUpdates{
-		NewSubmission: &DBPubTxnSubmission{TransactionHash: oldTxHash},
-		GasPricing: &pldapi.PublicTxGasPricing{
-			GasPrice: oldGasPrice,
+		NewValues: BaseTXUpdateNewValues{
+			NewSubmission: &DBPubTxnSubmission{TransactionHash: oldTxHash},
+			GasPricing: &pldapi.PublicTxGasPricing{
+				MaxFeePerGas:         oldGasPrice,
+				MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1),
+			},
+			FirstSubmit:  &oldTime,
+			LastSubmit:   &oldTime,
+			ErrorMessage: &oldErrorMessage,
 		},
-		FirstSubmit:  &oldTime,
-		LastSubmit:   &oldTime,
-		ErrorMessage: &oldErrorMessage,
 	})
 	return imtxs
 
 }
 
+func TestGetSignerNonce(t *testing.T) {
+	from := pldtypes.MustEthAddress("0x4e598f6e918321dd47c86e7a077b4ab0e7414846")
+
+	nonce := uint64(42)
+	imtxs := NewInMemoryTxStateManager(context.Background(), &DBPublicTxn{From: *from, Nonce: &nonce}, nil).(*inMemoryTxState)
+	assert.Equal(t, from.String()+":42", imtxs.GetSignerNonce())
+	assert.Equal(t, fmt.Sprintf("%s:%d", from, nonce), imtxs.GetSignerNonce())
+}
+
 func TestSettersAndGetters(t *testing.T) {
-	oldTime := tktypes.TimestampNow()
-	oldFrom := tktypes.MustEthAddress("0xb3d9cf8e163bbc840195a97e81f8a34e295b8f39")
-	oldTxHash := tktypes.Bytes32Keccak([]byte("0x00000"))
-	oldTo := tktypes.MustEthAddress("0x1f9090aae28b8a3dceadf281b0f12828e676c326")
-	oldNonce := tktypes.HexUint64(1)
-	oldGasLimit := tktypes.HexUint64(2000)
-	oldValue := tktypes.Uint64ToUint256(200)
-	oldGasPrice := tktypes.Uint64ToUint256(10)
+	oldTime := pldtypes.TimestampNow()
+	oldFrom := pldtypes.MustEthAddress("0xb3d9cf8e163bbc840195a97e81f8a34e295b8f39")
+	oldTxHash := pldtypes.Bytes32Keccak([]byte("0x00000"))
+	oldTo := pldtypes.MustEthAddress("0x1f9090aae28b8a3dceadf281b0f12828e676c326")
+	oldNonce := pldtypes.HexUint64(1)
+	oldGasLimit := pldtypes.HexUint64(2000)
+	oldValue := pldtypes.Uint64ToUint256(200)
+	oldGasPrice := pldtypes.Uint64ToUint256(10)
 	oldErrorMessage := "old message"
-	oldTransactionData := tktypes.MustParseHexBytes(testTransactionData)
+	oldTransactionData := pldtypes.MustParseHexBytes(testTransactionData)
 
 	testManagedTx := &DBPublicTxn{
 		Created: oldTime,
@@ -98,19 +95,18 @@ func TestSettersAndGetters(t *testing.T) {
 		Nonce:   (*uint64)(&oldNonce),
 		Gas:     uint64(oldGasLimit),
 		Value:   oldValue,
-		Data:    tktypes.HexBytes(oldTransactionData),
+		Data:    pldtypes.HexBytes(oldTransactionData),
 	}
 
-	imts := NewInMemoryTxStateManager(context.Background(), testManagedTx)
+	imts := NewInMemoryTxStateManager(context.Background(), testManagedTx, nil)
 	imts.ApplyInMemoryUpdates(context.Background(), &BaseTXUpdates{
-		GasPricing:      &pldapi.PublicTxGasPricing{GasPrice: oldGasPrice},
-		TransactionHash: &oldTxHash,
-		FlushedSubmission: &DBPubTxnSubmission{
-			TransactionHash: oldTxHash,
+		NewValues: BaseTXUpdateNewValues{
+			GasPricing:      &pldapi.PublicTxGasPricing{MaxFeePerGas: oldGasPrice, MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1)},
+			TransactionHash: &oldTxHash,
+			FirstSubmit:     &oldTime,
+			LastSubmit:      &oldTime,
+			ErrorMessage:    &oldErrorMessage,
 		},
-		FirstSubmit:  &oldTime,
-		LastSubmit:   &oldTime,
-		ErrorMessage: &oldErrorMessage,
 	})
 
 	inMemoryTx := imts.(*inMemoryTxState)
@@ -122,72 +118,66 @@ func TestSettersAndGetters(t *testing.T) {
 	assert.Equal(t, oldNonce.Uint64(), imts.GetNonce())
 	assert.Equal(t, *oldFrom, imts.GetFrom())
 	assert.Equal(t, InFlightStatusPending, imts.GetInFlightStatus())
-	assert.Equal(t, oldGasPrice.Int(), imts.GetGasPriceObject().GasPrice.Int())
+	assert.Equal(t, oldGasPrice.Int(), imts.GetGasPriceObject().MaxFeePerGas.Int())
 	assert.Equal(t, oldTime, *imts.GetFirstSubmit())
 	assert.Equal(t, oldGasLimit.Uint64(), imts.GetGasLimit())
 	assert.False(t, imts.IsReadyToExit())
 
-	// dup flush
-	imts.ApplyInMemoryUpdates(context.Background(), &BaseTXUpdates{
-		FlushedSubmission: &DBPubTxnSubmission{
-			TransactionHash: oldTxHash,
-		},
-	})
-	assert.Equal(t, []*DBPubTxnSubmission{
-		{TransactionHash: oldTxHash},
-	}, inMemoryTx.mtx.ptx.Submissions)
-
 	// mark the transaction complete
 	confirmReceived := InFlightStatusConfirmReceived
-	newTime := confutil.P(tktypes.TimestampNow())
-	newTxHash := tktypes.Bytes32Keccak([]byte("0x000031"))
-	newGasPrice := tktypes.Uint64ToUint256(111)
+	newTime := confutil.P(pldtypes.TimestampNow())
+	newTxHash := pldtypes.Bytes32Keccak([]byte("0x000031"))
 	newErrorMessage := "new message"
+	newGasPricing := &pldapi.PublicTxGasPricing{
+		MaxFeePerGas:         pldtypes.Uint64ToUint256(123),
+		MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(2),
+	}
+	newGasPricingJSON, _ := json.Marshal(newGasPricing)
 
 	imts.ApplyInMemoryUpdates(context.Background(), &BaseTXUpdates{
-		InFlightStatus:  &confirmReceived,
-		GasPricing:      &pldapi.PublicTxGasPricing{GasPrice: newGasPrice},
-		TransactionHash: &newTxHash,
-		NewSubmission: &DBPubTxnSubmission{
-			TransactionHash: newTxHash,
+		NewValues: BaseTXUpdateNewValues{
+			InFlightStatus:  &confirmReceived,
+			GasPricing:      newGasPricing,
+			TransactionHash: &newTxHash,
+			NewSubmission: &DBPubTxnSubmission{
+				GasPricing: newGasPricingJSON,
+			},
+			FirstSubmit:  newTime,
+			LastSubmit:   newTime,
+			ErrorMessage: &newErrorMessage,
+			Underpriced:  confutil.P(true),
 		},
-		FirstSubmit:  newTime,
-		LastSubmit:   newTime,
-		ErrorMessage: &newErrorMessage,
 	})
 
 	assert.Equal(t, InFlightStatusConfirmReceived, imts.GetInFlightStatus())
 	assert.Equal(t, oldTime, *imts.GetCreatedTime())
 	assert.Equal(t, newTime, imts.GetLastSubmitTime())
 	assert.Equal(t, newTxHash, *imts.GetTransactionHash())
-	assert.Equal(t, newGasPrice.Int(), imts.GetGasPriceObject().GasPrice.Int())
-	assert.Nil(t, imts.GetGasPriceObject().MaxFeePerGas)
-	assert.Nil(t, imts.GetGasPriceObject().MaxPriorityFeePerGas)
+	assert.Equal(t, newGasPricing.MaxFeePerGas.Int(), imts.GetGasPriceObject().MaxFeePerGas.Int())
+	assert.Equal(t, newGasPricing.MaxPriorityFeePerGas.Int(), imts.GetGasPriceObject().MaxPriorityFeePerGas.Int())
+	assert.Equal(t, newGasPricing.MaxFeePerGas.Int(), imts.GetLastSubmittedGasPrice().MaxFeePerGas.Int())
+	assert.Equal(t, newGasPricing.MaxPriorityFeePerGas.Int(), imts.GetLastSubmittedGasPrice().MaxPriorityFeePerGas.Int())
 	assert.Equal(t, newTime, imts.GetFirstSubmit())
-	assert.Equal(t, &DBPubTxnSubmission{
-		TransactionHash: newTxHash,
-	}, imts.GetUnflushedSubmission())
+	assert.True(t, imts.GetUnderpriced())
 	assert.True(t, imts.IsReadyToExit())
 
 	// check immutable fields
 	assert.Equal(t, oldNonce.Uint64(), imts.GetNonce())
 	assert.Equal(t, *oldFrom, imts.GetFrom())
+	assert.Equal(t, *oldTo, *imts.GetTo())
+	assert.Equal(t, *oldValue, *imts.GetValue())
 	assert.Equal(t, oldValue, inMemoryTx.mtx.ptx.Value)
 	assert.Equal(t, oldTransactionData, inMemoryTx.mtx.ptx.Data)
 
-	maxPriorityFeePerGas := tktypes.Uint64ToUint256(2)
-	maxFeePerGas := tktypes.Uint64ToUint256(123)
-
-	// test switch gas price format
+	//check reset values
 	imts.ApplyInMemoryUpdates(context.Background(), &BaseTXUpdates{
-		GasPricing: &pldapi.PublicTxGasPricing{
-			MaxPriorityFeePerGas: maxPriorityFeePerGas,
-			MaxFeePerGas:         maxFeePerGas,
+		ResetValues: BaseTXUpdateResetValues{
+			GasPricing:      true,
+			TransactionHash: true,
+			Underpriced:     true,
 		},
 	})
-
-	assert.Nil(t, imts.GetGasPriceObject().GasPrice)
-	assert.Equal(t, maxFeePerGas.Int(), imts.GetGasPriceObject().MaxFeePerGas.Int())
-	assert.Equal(t, maxPriorityFeePerGas.Int(), imts.GetGasPriceObject().MaxPriorityFeePerGas.Int())
-
+	assert.Nil(t, imts.GetGasPriceObject())
+	assert.Nil(t, imts.GetTransactionHash())
+	assert.False(t, imts.GetUnderpriced())
 }

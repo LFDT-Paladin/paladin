@@ -22,15 +22,15 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/mocks/componentmocks"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -66,14 +66,14 @@ func setupAckOrNackCheck(t *testing.T, tp *testPlugin, msgID uuid.UUID, expected
 func TestReceiveMessageStateWithNullifierSendAckRealDB(t *testing.T) {
 	ctx, _, tp, done := newTestTransport(t, true,
 		mockGoodTransport,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.stateManager.On("WriteReceivedStates", mock.Anything, mock.Anything, "domain1", mock.Anything).
 				Return(nil, nil).Once()
-			nullifier := &components.NullifierUpsert{ID: tktypes.RandBytes(32)}
+			nullifier := &components.NullifierUpsert{ID: pldtypes.RandBytes(32)}
 			mc.stateManager.On("WriteNullifiersForReceivedStates", mock.Anything, mock.Anything, "domain1", []*components.NullifierUpsert{nullifier}).
 				Return(nil).Once()
-			mkr := componentmocks.NewKeyResolver(t)
-			mc.privateTxManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nullifier, nil)
+			mkr := componentsmocks.NewKeyResolver(t)
+			mc.sequencerManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nullifier, nil)
 			mc.keyManager.On("KeyResolverForDBTX", mock.Anything).Return(mkr).Once()
 		},
 	)
@@ -85,12 +85,12 @@ func TestReceiveMessageStateWithNullifierSendAckRealDB(t *testing.T) {
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_RELIABLE_MESSAGE_HANDLER,
 		MessageType:   RMHMessageTypeStateDistribution,
-		Payload: tktypes.JSONString(&components.StateDistributionWithData{
+		Payload: pldtypes.JSONString(&components.StateDistributionWithData{
 			StateDistribution: components.StateDistribution{
 				Domain:                "domain1",
-				ContractAddress:       tktypes.RandAddress().String(),
-				SchemaID:              tktypes.RandHex(32),
-				StateID:               tktypes.RandHex(32),
+				ContractAddress:       pldtypes.RandAddress().String(),
+				SchemaID:              pldtypes.RandHex(32),
+				StateID:               pldtypes.RandHex(32),
 				NullifierAlgorithm:    confutil.P("algo1"),
 				NullifierVerifierType: confutil.P("vtype1"),
 				NullifierPayloadType:  confutil.P("ptype1"),
@@ -118,7 +118,7 @@ func testReceivedReliableMsg(msgType string, payloadObj any) *components.Receive
 		MessageID:     uuid.New(),
 		CorrelationID: confutil.P(uuid.New()),
 		MessageType:   msgType,
-		Payload:       tktypes.JSONString(payloadObj),
+		Payload:       pldtypes.JSONString(payloadObj),
 	}
 }
 
@@ -126,7 +126,7 @@ func TestHandleStateDistroBadState(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 			mc.stateManager.On("WriteReceivedStates", mock.Anything, mock.Anything, "domain1", mock.Anything).
@@ -140,9 +140,9 @@ func TestHandleStateDistroBadState(t *testing.T) {
 		&components.StateDistributionWithData{
 			StateDistribution: components.StateDistribution{
 				Domain:          "domain1",
-				ContractAddress: tktypes.RandAddress().String(),
-				SchemaID:        tktypes.RandHex(32),
-				StateID:         tktypes.RandHex(32),
+				ContractAddress: pldtypes.RandAddress().String(),
+				SchemaID:        pldtypes.RandHex(32),
+				StateID:         pldtypes.RandHex(32),
 			},
 			StateData: []byte(`{"some":"data"}`),
 		})
@@ -168,7 +168,7 @@ func TestHandleStateDistroMixedBatchBadAndGoodStates(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 			mc.stateManager.On("WriteReceivedStates", mock.Anything, mock.Anything, "domain1", mock.Anything).
@@ -184,9 +184,9 @@ func TestHandleStateDistroMixedBatchBadAndGoodStates(t *testing.T) {
 		&components.StateDistributionWithData{
 			StateDistribution: components.StateDistribution{
 				Domain:          "domain1",
-				ContractAddress: tktypes.RandAddress().String(),
-				SchemaID:        tktypes.RandHex(32),
-				StateID:         tktypes.RandHex(32),
+				ContractAddress: pldtypes.RandAddress().String(),
+				SchemaID:        pldtypes.RandHex(32),
+				StateID:         pldtypes.RandHex(32),
 			},
 			StateData: []byte(`{"some":"data"}`),
 		})
@@ -212,11 +212,11 @@ func TestHandleStateDistroBadNullifier(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
-			mkr := componentmocks.NewKeyResolver(t)
-			mc.privateTxManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nil, fmt.Errorf("bad nullifier"))
+			mkr := componentsmocks.NewKeyResolver(t)
+			mc.sequencerManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nil, fmt.Errorf("bad nullifier"))
 			mc.keyManager.On("KeyResolverForDBTX", mock.Anything).Return(mkr).Once()
 		},
 	)
@@ -227,9 +227,9 @@ func TestHandleStateDistroBadNullifier(t *testing.T) {
 		&components.StateDistributionWithData{
 			StateDistribution: components.StateDistribution{
 				Domain:                "domain1",
-				ContractAddress:       tktypes.RandAddress().String(),
-				SchemaID:              tktypes.RandHex(32),
-				StateID:               tktypes.RandHex(32),
+				ContractAddress:       pldtypes.RandAddress().String(),
+				SchemaID:              pldtypes.RandHex(32),
+				StateID:               pldtypes.RandHex(32),
 				NullifierAlgorithm:    confutil.P("algo1"),
 				NullifierVerifierType: confutil.P("vtype1"),
 				NullifierPayloadType:  confutil.P("ptype1"),
@@ -258,7 +258,7 @@ func TestHandleStateDistroBadMsg(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 		},
@@ -270,9 +270,9 @@ func TestHandleStateDistroBadMsg(t *testing.T) {
 		&components.StateDistributionWithData{
 			StateDistribution: components.StateDistribution{
 				Domain:          "domain1",
-				ContractAddress: tktypes.RandAddress().String(),
+				ContractAddress: pldtypes.RandAddress().String(),
 				SchemaID:        "wrongness",
-				StateID:         tktypes.RandHex(32),
+				StateID:         pldtypes.RandHex(32),
 			},
 			StateData: []byte(`{"some":"data"}`),
 		})
@@ -298,7 +298,7 @@ func TestHandleStateDistroUnknownMsgType(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 		},
@@ -325,7 +325,7 @@ func TestHandleStateDistroUnknownMsgType(t *testing.T) {
 }
 
 func TestHandleAckFailReadMsg(t *testing.T) {
-	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 		mc.db.Mock.ExpectBegin()
 		mc.db.Mock.ExpectQuery("SELECT.*reliable_msgs").WillReturnError(fmt.Errorf("pop"))
 	})
@@ -350,7 +350,7 @@ func TestHandleAckFailReadMsg(t *testing.T) {
 func TestHandleNackFailWriteAck(t *testing.T) {
 	msgID := uuid.New()
 
-	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 		mc.db.Mock.ExpectBegin()
 		mc.db.Mock.ExpectQuery("SELECT.*reliable_msgs").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(msgID.String()))
 		mc.db.Mock.ExpectExec("INSERT.*reliable_msg_acks").WillReturnError(fmt.Errorf("pop"))
@@ -376,7 +376,7 @@ func TestHandleNackFailWriteAck(t *testing.T) {
 
 func TestHandleBadAckNoCorrelId(t *testing.T) {
 
-	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 		mc.db.Mock.ExpectBegin()
 		mc.db.Mock.ExpectCommit()
 	})
@@ -400,7 +400,7 @@ func TestHandleBadAckNoCorrelId(t *testing.T) {
 
 func TestHandleReceiptFail(t *testing.T) {
 	ctx, tm, _, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.txManager.On("FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything).
 				Return(fmt.Errorf("pop"))
@@ -432,7 +432,7 @@ func TestHandleReceiptFail(t *testing.T) {
 func TestHandleReceiptOk(t *testing.T) {
 	ctx, tm, _, done := newTestTransport(t, false,
 		mockGoodTransport,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 			mc.txManager.On("FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything).
@@ -463,7 +463,7 @@ func TestHandleReceiptOk(t *testing.T) {
 
 func TestHandlePreparedTxFail(t *testing.T) {
 	ctx, tm, _, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.txManager.On("WritePreparedTransactions", mock.Anything, mock.Anything, mock.Anything).
 				Return(fmt.Errorf("pop"))
@@ -494,15 +494,15 @@ func TestHandlePreparedTxFail(t *testing.T) {
 
 func TestHandleNullifierFail(t *testing.T) {
 	ctx, tm, _, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.stateManager.On("WriteReceivedStates", mock.Anything, mock.Anything, "domain1", mock.Anything).
 				Return(nil, nil).Once()
-			nullifier := &components.NullifierUpsert{ID: tktypes.RandBytes(32)}
+			nullifier := &components.NullifierUpsert{ID: pldtypes.RandBytes(32)}
 			mc.stateManager.On("WriteNullifiersForReceivedStates", mock.Anything, mock.Anything, "domain1", []*components.NullifierUpsert{nullifier}).
 				Return(fmt.Errorf("pop")).Once()
-			mkr := componentmocks.NewKeyResolver(t)
-			mc.privateTxManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nullifier, nil)
+			mkr := componentsmocks.NewKeyResolver(t)
+			mc.sequencerManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nullifier, nil)
 			mc.keyManager.On("KeyResolverForDBTX", mock.Anything).Return(mkr).Once()
 		},
 	)
@@ -513,9 +513,9 @@ func TestHandleNullifierFail(t *testing.T) {
 		&components.StateDistributionWithData{
 			StateDistribution: components.StateDistribution{
 				Domain:                "domain1",
-				ContractAddress:       tktypes.RandAddress().String(),
-				SchemaID:              tktypes.RandHex(32),
-				StateID:               tktypes.RandHex(32),
+				ContractAddress:       pldtypes.RandAddress().String(),
+				SchemaID:              pldtypes.RandHex(32),
+				StateID:               pldtypes.RandHex(32),
 				NullifierAlgorithm:    confutil.P("algo1"),
 				NullifierVerifierType: confutil.P("vtype1"),
 				NullifierPayloadType:  confutil.P("ptype1"),
@@ -540,7 +540,7 @@ func TestHandleReceiptBadData(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 		},
@@ -571,7 +571,7 @@ func TestHandlePreparedTxBadData(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 		},
@@ -601,7 +601,7 @@ func TestHandlePreparedOk(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 			mc.txManager.On("WritePreparedTransactions", mock.Anything, mock.Anything, mock.Anything).
@@ -634,13 +634,13 @@ func TestHandlePreparedOk(t *testing.T) {
 }
 
 func TestHandlePrivacyGroupOK(t *testing.T) {
-	var stateID tktypes.HexBytes = tktypes.RandBytes(32)
-	schemaID := tktypes.RandBytes32()
-	schema := componentmocks.NewSchema(t)
+	var stateID pldtypes.HexBytes = pldtypes.RandBytes(32)
+	schemaID := pldtypes.RandBytes32()
+	schema := componentsmocks.NewSchema(t)
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.stateManager.On("EnsureABISchemas", mock.Anything, mock.Anything, "domain1", mock.Anything).Return([]components.Schema{
 				schema,
 			}, nil).Once()
@@ -664,7 +664,7 @@ func TestHandlePrivacyGroupOK(t *testing.T) {
 			GenesisState: components.StateDistributionWithData{
 				StateDistribution: components.StateDistribution{
 					Domain:          "domain1",
-					ContractAddress: tktypes.RandAddress().String(),
+					ContractAddress: pldtypes.RandAddress().String(),
 					SchemaID:        schemaID.String(),
 					StateID:         stateID.String(),
 				},
@@ -690,13 +690,13 @@ func TestHandlePrivacyGroupOK(t *testing.T) {
 }
 
 func TestHandlePrivacyGroupBadState(t *testing.T) {
-	var stateID tktypes.HexBytes = tktypes.RandBytes(32)
-	schemaID := tktypes.RandBytes32()
-	schema := componentmocks.NewSchema(t)
+	var stateID pldtypes.HexBytes = pldtypes.RandBytes(32)
+	schemaID := pldtypes.RandBytes32()
+	schema := componentsmocks.NewSchema(t)
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.stateManager.On("EnsureABISchemas", mock.Anything, mock.Anything, "domain1", mock.Anything).Return([]components.Schema{
 				schema,
 			}, nil).Once()
@@ -716,7 +716,7 @@ func TestHandlePrivacyGroupBadState(t *testing.T) {
 			GenesisState: components.StateDistributionWithData{
 				StateDistribution: components.StateDistribution{
 					Domain:          "domain1",
-					ContractAddress: tktypes.RandAddress().String(),
+					ContractAddress: pldtypes.RandAddress().String(),
 					SchemaID:        schemaID.String(),
 					StateID:         stateID.String(),
 				},
@@ -742,12 +742,12 @@ func TestHandlePrivacyGroupBadState(t *testing.T) {
 }
 
 func TestHandlePrivacyGroupGroupFail(t *testing.T) {
-	var stateID tktypes.HexBytes = tktypes.RandBytes(32)
-	schemaID := tktypes.RandBytes32()
-	schema := componentmocks.NewSchema(t)
+	var stateID pldtypes.HexBytes = pldtypes.RandBytes(32)
+	schemaID := pldtypes.RandBytes32()
+	schema := componentsmocks.NewSchema(t)
 	ctx, tm, _, done := newTestTransport(t, false,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.stateManager.On("EnsureABISchemas", mock.Anything, mock.Anything, "domain1", mock.Anything).Return([]components.Schema{
 				schema,
 			}, nil).Once()
@@ -772,7 +772,7 @@ func TestHandlePrivacyGroupGroupFail(t *testing.T) {
 			GenesisState: components.StateDistributionWithData{
 				StateDistribution: components.StateDistribution{
 					Domain:          "domain1",
-					ContractAddress: tktypes.RandAddress().String(),
+					ContractAddress: pldtypes.RandAddress().String(),
 					SchemaID:        schemaID.String(),
 					StateID:         stateID.String(),
 				},
@@ -796,7 +796,7 @@ func TestHandlePrivacyGroupGroupFail(t *testing.T) {
 func TestHandlePrivacyGroupBuiltInABIFail(t *testing.T) {
 	ctx, tm, _, done := newTestTransport(t, false,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.stateManager.On("EnsureABISchemas", mock.Anything, mock.Anything, "domain1", mock.Anything).Return(nil, fmt.Errorf("pop"))
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
@@ -810,9 +810,9 @@ func TestHandlePrivacyGroupBuiltInABIFail(t *testing.T) {
 			GenesisState: components.StateDistributionWithData{
 				StateDistribution: components.StateDistribution{
 					Domain:          "domain1",
-					ContractAddress: tktypes.RandAddress().String(),
-					SchemaID:        tktypes.RandHex(32),
-					StateID:         tktypes.RandHex(32),
+					ContractAddress: pldtypes.RandAddress().String(),
+					SchemaID:        pldtypes.RandHex(32),
+					StateID:         pldtypes.RandHex(32),
 				},
 				StateData: []byte(`{"some":"data"}`),
 			},
@@ -836,7 +836,7 @@ func TestHandlePrivacyGroupInvalid(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 		},
@@ -866,7 +866,7 @@ func TestHandlePrivacyGroupInvalid(t *testing.T) {
 	ackNackCheck()
 }
 
-func mockReceiveMessagesOK(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+func mockReceiveMessagesOK(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 	mrm := mc.groupManager.On("ReceiveMessages", mock.Anything, mock.Anything, mock.Anything)
 	mrm.Run(func(args mock.Arguments) {
 		pms := args[2].([]*pldapi.PrivacyGroupMessage)
@@ -884,14 +884,14 @@ func testReceivedMesage() *components.ReceivedMessage {
 		MessageID:     msgID,
 		CorrelationID: confutil.P(uuid.New()),
 		MessageType:   RMHMessageTypePrivacyGroupMessage,
-		Payload: tktypes.JSONString(&pldapi.PrivacyGroupMessage{
-			Sent: tktypes.TimestampNow(),
+		Payload: pldtypes.JSONString(&pldapi.PrivacyGroupMessage{
+			Sent: pldtypes.TimestampNow(),
 			ID:   msgID,
 			PrivacyGroupMessageInput: pldapi.PrivacyGroupMessageInput{
 				Domain: "domain1",
-				Group:  tktypes.RandBytes(32),
+				Group:  pldtypes.RandBytes(32),
 				Topic:  "topic.1",
-				Data:   tktypes.JSONString("some data"),
+				Data:   pldtypes.JSONString("some data"),
 			},
 		}),
 	}
@@ -902,7 +902,7 @@ func TestHandlePrivacyGroupMessageOK(t *testing.T) {
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
 		mockReceiveMessagesOK,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 		},
@@ -931,7 +931,7 @@ func TestHandlePrivacyGroupMessageReject(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mrm := mc.groupManager.On("ReceiveMessages", mock.Anything, mock.Anything, mock.Anything)
 			mrm.Run(func(args mock.Arguments) {
 				pms := args[2].([]*pldapi.PrivacyGroupMessage)
@@ -969,7 +969,7 @@ func TestHandlePrivacyGroupMessageReject(t *testing.T) {
 func TestHandlePrivacyGroupMessageFail(t *testing.T) {
 	ctx, tm, _, done := newTestTransport(t, false,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.groupManager.On("ReceiveMessages", mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop"))
 			mc.db.Mock.ExpectBegin()
 		},
@@ -995,7 +995,7 @@ func TestHandlePrivacyGroupMessageBad(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 		},
@@ -1025,7 +1025,7 @@ func TestHandlePrivacyGroupMessageBad(t *testing.T) {
 func TestBuildPrivacyGroupDistributionMsgBadMsg(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 		},
@@ -1041,7 +1041,7 @@ func TestBuildPrivacyGroupDistributionMsgBadMsg(t *testing.T) {
 func TestBuildPrivacyGroupDistributionMsgGetStatesError(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false, false).
 				Return(nil, fmt.Errorf("pop")).Once()
 
@@ -1055,14 +1055,14 @@ func TestBuildPrivacyGroupDistributionMsgGetStatesError(t *testing.T) {
 	_, _, err := tm.buildPrivacyGroupDistributionMsg(ctx, tm.persistence.NOTX(), &pldapi.ReliableMessage{
 		ID:          distroID,
 		MessageType: pldapi.RMTPrivacyGroup.Enum(),
-		Metadata: tktypes.JSONString(&components.PrivacyGroupDistribution{
+		Metadata: pldtypes.JSONString(&components.PrivacyGroupDistribution{
 			GenesisTransaction: uuid.New(),
 			GenesisState: components.StateDistributionWithData{
 				StateDistribution: components.StateDistribution{
 					Domain:          "domain1",
-					ContractAddress: tktypes.RandAddress().String(),
-					SchemaID:        tktypes.RandHex(32),
-					StateID:         tktypes.RandHex(32),
+					ContractAddress: pldtypes.RandAddress().String(),
+					SchemaID:        pldtypes.RandHex(32),
+					StateID:         pldtypes.RandHex(32),
 				},
 			},
 		}),
@@ -1074,7 +1074,7 @@ func TestBuildPrivacyGroupDistributionMsgGetStatesError(t *testing.T) {
 func TestBuildPrivacyGroupDistributionMsgGetStatesNotFound(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false, false).
 				Return(nil, nil).Once()
 
@@ -1088,14 +1088,14 @@ func TestBuildPrivacyGroupDistributionMsgGetStatesNotFound(t *testing.T) {
 	_, parseErr, err := tm.buildPrivacyGroupDistributionMsg(ctx, tm.persistence.NOTX(), &pldapi.ReliableMessage{
 		ID:          distroID,
 		MessageType: pldapi.RMTPrivacyGroup.Enum(),
-		Metadata: tktypes.JSONString(&components.PrivacyGroupDistribution{
+		Metadata: pldtypes.JSONString(&components.PrivacyGroupDistribution{
 			GenesisTransaction: uuid.New(),
 			GenesisState: components.StateDistributionWithData{
 				StateDistribution: components.StateDistribution{
 					Domain:          "domain1",
-					ContractAddress: tktypes.RandAddress().String(),
-					SchemaID:        tktypes.RandHex(32),
-					StateID:         tktypes.RandHex(32),
+					ContractAddress: pldtypes.RandAddress().String(),
+					SchemaID:        pldtypes.RandHex(32),
+					StateID:         pldtypes.RandHex(32),
 				},
 			},
 		}),
@@ -1108,7 +1108,7 @@ func TestBuildPrivacyGroupDistributionMsgGetStatesNotFound(t *testing.T) {
 func TestParsePrivacyGroupMessageDistributionFail(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 		},
@@ -1129,7 +1129,7 @@ func TestParsePrivacyGroupMessageDistributionFail(t *testing.T) {
 func TestParsePrivacyGroupMessageGetMessageError(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.groupManager.On("GetMessageByID", mock.Anything, mock.Anything, mock.Anything, false).Return(nil, fmt.Errorf("pop"))
 
 			mc.db.Mock.ExpectBegin()
@@ -1142,9 +1142,9 @@ func TestParsePrivacyGroupMessageGetMessageError(t *testing.T) {
 	_, _, err := tm.buildPrivacyGroupMessageMsg(ctx, tm.persistence.NOTX(), &pldapi.ReliableMessage{
 		ID:          distroID,
 		MessageType: pldapi.RMTPrivacyGroup.Enum(),
-		Metadata: tktypes.JSONString(&components.PrivacyGroupMessageDistribution{
+		Metadata: pldtypes.JSONString(&components.PrivacyGroupMessageDistribution{
 			Domain: "domain1",
-			Group:  tktypes.RandBytes(32),
+			Group:  pldtypes.RandBytes(32),
 			ID:     uuid.New(),
 		}),
 	})
@@ -1155,7 +1155,7 @@ func TestParsePrivacyGroupMessageGetMessageError(t *testing.T) {
 func TestParsePrivacyGroupMessageGetMessageNotFound(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.groupManager.On("GetMessageByID", mock.Anything, mock.Anything, mock.Anything, false).Return(nil, nil)
 
 			mc.db.Mock.ExpectBegin()
@@ -1168,13 +1168,294 @@ func TestParsePrivacyGroupMessageGetMessageNotFound(t *testing.T) {
 	_, parseErr, err := tm.buildPrivacyGroupMessageMsg(ctx, tm.persistence.NOTX(), &pldapi.ReliableMessage{
 		ID:          distroID,
 		MessageType: pldapi.RMTPrivacyGroup.Enum(),
-		Metadata: tktypes.JSONString(&components.PrivacyGroupMessageDistribution{
+		Metadata: pldtypes.JSONString(&components.PrivacyGroupMessageDistribution{
 			Domain: "domain1",
-			Group:  tktypes.RandBytes(32),
+			Group:  pldtypes.RandBytes(32),
 			ID:     uuid.New(),
 		}),
 	})
 	require.NoError(t, err)
 	require.Regexp(t, "PD012021", parseErr)
 
+}
+
+func TestBuildReceiptDistributionMsgBadMsg(t *testing.T) {
+
+	ctx, tm, _, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	_, parseErr, err := tm.buildReceiptDistributionMsg(ctx, tm.persistence.NOTX(), &pldapi.ReliableMessage{})
+	require.NoError(t, err)
+	require.Regexp(t, "PD012016", parseErr)
+
+}
+
+func TestHandlePublicTransactionSubmissionOk(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		mockGoodTransport,
+		mockEmptyReliableMsgs,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+			mc.publicTxManager.On("WriteReceivedPublicTransactionSubmissions", mock.Anything, mock.Anything, mock.Anything).
+				Return(nil)
+		},
+	)
+	defer done()
+
+	publicTxSubmission := &pldapi.PublicTxWithBinding{
+		PublicTx: &pldapi.PublicTx{
+			From:       *pldtypes.RandAddress(),
+			Nonce:      confutil.P(pldtypes.HexUint64(1)),
+			Created:    pldtypes.TimestampNow(),
+			Dispatcher: "test-dispatcher",
+		},
+		PublicTxBinding: pldapi.PublicTxBinding{
+			Transaction:     uuid.New(),
+			TransactionType: pldapi.TransactionTypePublic.Enum(),
+		},
+	}
+
+	msg := testReceivedReliableMsg(RMHMessageTypePublicTransactionSubmission, publicTxSubmission)
+	ackNackCheck := setupAckOrNackCheck(t, tp, msg.MessageID, "")
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	ackNackCheck()
+}
+
+func TestHandlePublicTransactionSubmissionBadData(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		mockGoodTransport,
+		mockEmptyReliableMsgs,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	msg := testReceivedReliableMsg(RMHMessageTypePublicTransactionSubmission, nil)
+	msg.Payload = []byte(`!{ bad data`)
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	ackNackCheck := setupAckOrNackCheck(t, tp, msg.MessageID, "invalid character")
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	ackNackCheck()
+}
+
+func TestHandlePublicTransactionSubmissionFail(t *testing.T) {
+	ctx, tm, _, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.publicTxManager.On("WriteReceivedPublicTransactionSubmissions", mock.Anything, mock.Anything, mock.Anything).
+				Return(fmt.Errorf("pop"))
+		},
+	)
+	defer done()
+
+	publicTxSubmission := &pldapi.PublicTxWithBinding{
+		PublicTx: &pldapi.PublicTx{
+			From:       *pldtypes.RandAddress(),
+			Nonce:      confutil.P(pldtypes.HexUint64(1)),
+			Created:    pldtypes.TimestampNow(),
+			Dispatcher: "test-dispatcher",
+		},
+		PublicTxBinding: pldapi.PublicTxBinding{
+			Transaction:     uuid.New(),
+			TransactionType: pldapi.TransactionTypePublic.Enum(),
+		},
+	}
+
+	msg := testReceivedReliableMsg(RMHMessageTypePublicTransactionSubmission, publicTxSubmission)
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err = tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.Regexp(t, "pop", err)
+}
+
+func TestBuildPublicTransactionSubmissionMsgBadMsg(t *testing.T) {
+
+	ctx, tm, _, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	_, parseErr, err := tm.buildPublicTransactionSubmissionMsg(ctx, tm.persistence.NOTX(), &pldapi.ReliableMessage{})
+	require.NoError(t, err)
+	require.Regexp(t, "PD012016", parseErr)
+
+}
+
+func TestBuildSequencingProgressActivityMsgBadMsg(t *testing.T) {
+
+	ctx, tm, _, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	_, parseErr, err := tm.buildSequencingProgressActivityMsg(ctx, tm.persistence.NOTX(), &pldapi.ReliableMessage{})
+	require.NoError(t, err)
+	require.Regexp(t, "PD012016", parseErr)
+
+}
+
+func TestHandleSequencingActivityOk(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		mockGoodTransport,
+		mockEmptyReliableMsgs,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectQuery(`INSERT INTO "sequencer_activities"`).
+				WithArgs(
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+				).
+				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	sequencingActivity := &components.SequencingActivity{
+		TransactionID:  uuid.New(),
+		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
+		SequencingNode: "node2",
+		Timestamp:      pldtypes.TimestampNow(),
+	}
+
+	msg := testReceivedReliableMsg(RMHMessageTypeSequencingActivity, sequencingActivity)
+	ackNackCheck := setupAckOrNackCheck(t, tp, msg.MessageID, "")
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	ackNackCheck()
+}
+
+func TestHandleSequencingActivityBadData(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		mockGoodTransport,
+		mockEmptyReliableMsgs,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	msg := testReceivedReliableMsg(RMHMessageTypeSequencingActivity, nil)
+	msg.Payload = []byte(`!{ bad data`)
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	ackNackCheck := setupAckOrNackCheck(t, tp, msg.MessageID, "invalid character")
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	ackNackCheck()
+}
+
+func TestHandleSequencingActivityFail(t *testing.T) {
+	ctx, tm, _, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectQuery(`INSERT INTO "sequencer_activities"`).
+				WithArgs(
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+				).
+				WillReturnError(fmt.Errorf("pop"))
+			mc.db.Mock.ExpectRollback()
+		},
+	)
+	defer done()
+
+	sequencingActivity := &components.SequencingActivity{
+		TransactionID:  uuid.New(),
+		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
+		SequencingNode: "node2",
+		Timestamp:      pldtypes.TimestampNow(),
+	}
+
+	msg := testReceivedReliableMsg(RMHMessageTypeSequencingActivity, sequencingActivity)
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err = tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.Regexp(t, "pop", err)
+}
+
+func TestParseMessageSequencingProgressBadData(t *testing.T) {
+	ctx := context.Background()
+	msgID := uuid.New()
+	invalidData := []byte(`!{ bad data`)
+
+	_, err := parseMessageSequencingProgress(ctx, msgID, invalidData)
+	require.Error(t, err)
+	require.Regexp(t, "PD012016", err)
 }

@@ -22,21 +22,25 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/mocks/componentmocks"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signpayloads"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -145,15 +149,15 @@ const fakeDownstreamPrivateABI = `{
 }`
 
 type fakeState struct {
-	Salt   tktypes.Bytes32      `json:"salt"`
-	Owner  tktypes.EthAddress   `json:"owner"`
+	Salt   pldtypes.Bytes32     `json:"salt"`
+	Owner  pldtypes.EthAddress  `json:"owner"`
 	Amount *ethtypes.HexInteger `json:"amount"`
 }
 
 type fakeExecute struct {
-	Inputs  []tktypes.HexBytes `json:"inputs"`
-	Outputs []tktypes.HexBytes `json:"outputs"`
-	Data    tktypes.HexBytes   `json:"data"`
+	Inputs  []pldtypes.HexBytes `json:"inputs"`
+	Outputs []pldtypes.HexBytes `json:"outputs"`
+	Data    pldtypes.HexBytes   `json:"data"`
 }
 
 type testPlugin struct {
@@ -165,12 +169,14 @@ type testPlugin struct {
 
 type testDomainContext struct {
 	ctx             context.Context
-	mdc             *componentmocks.DomainContext
+	mc              *mockComponents
+	mdc             *componentsmocks.DomainQueryContext
 	dm              *domainManager
 	d               *domain
 	tp              *testPlugin
 	c               *inFlightDomainRequest
-	contractAddress tktypes.EthAddress
+	dsw             components.DomainStateWriter
+	contractAddress pldtypes.EthAddress
 }
 
 func (tp *testPlugin) Initialized() {
@@ -187,11 +193,11 @@ func newTestPlugin(domainFuncs *plugintk.DomainAPIFunctions) *testPlugin {
 
 func newTestDomain(t *testing.T, realDB bool, domainConfig *prototk.DomainConfig, extraSetup ...func(mc *mockComponents)) (*testDomainContext, func()) {
 
-	ctx, dm, mc, dmDone := newTestDomainManager(t, realDB, &pldconf.DomainManagerConfig{
+	ctx, dm, mc, dmDone := newTestDomainManager(t, realDB, &pldconf.DomainManagerInlineConfig{
 		Domains: map[string]*pldconf.DomainConfig{
 			"test1": {
 				Config:          map[string]any{"some": "conf"},
-				RegistryAddress: tktypes.RandHex(20),
+				RegistryAddress: pldtypes.RandHex(20),
 				DefaultGasLimit: confutil.P(uint64(100000)),
 				Init:            pldconf.DomainInitConfig{},
 			},
@@ -218,40 +224,51 @@ func newTestDomain(t *testing.T, realDB bool, domainConfig *prototk.DomainConfig
 	registerTestDomain(t, dm, tp)
 
 	var c *inFlightDomainRequest
-	var mdc *componentmocks.DomainContext
-	addr := *tktypes.RandAddress()
+	var mdc *componentsmocks.DomainQueryContext
+	var dsw components.DomainStateWriter
+	addr := *pldtypes.RandAddress()
 	if realDB {
-		dCtx := dm.stateStore.NewDomainContext(ctx, tp.d, addr)
-		c = tp.d.newInFlightDomainRequest(dm.persistence.NOTX(), dCtx, true /* readonly unless modified by test */)
+		dqc := dm.stateStore.NewDomainQueryContext(ctx, tp.d, addr)
+		dsw = dm.stateStore.NewDomainStateWriter(ctx, tp.d, addr)
+		c = tp.d.newInFlightDomainRequest(dm.persistence.NOTX(), dqc, true /* readonly unless modified by test */)
 	} else {
-		mdc = componentmocks.NewDomainContext(t)
-		mdc.On("Ctx").Return(ctx).Maybe()
-		mdc.On("Info").Return(components.DomainContextInfo{ID: uuid.New()}).Maybe()
-		mdc.On("Close").Return()
+		mdc = componentsmocks.NewDomainQueryContext(t)
+		mdc.On("ID").Return(uuid.New()).Maybe()
+		mdc.On("Close", mock.Anything).Return()
 		c = tp.d.newInFlightDomainRequest(dm.persistence.NOTX(), mdc, true /* readonly unless modified by test */)
-		mc.stateStore.On("NewDomainContext", mock.Anything, tp.d, mock.Anything, mock.Anything).Return(mdc).Maybe()
+		mc.stateStore.On("NewDomainQueryContext", mock.Anything, tp.d, mock.Anything, mock.Anything).Return(mdc).Maybe()
 	}
 
 	return &testDomainContext{
 			ctx:             ctx,
+			mc:              mc,
 			dm:              dm,
 			d:               tp.d,
 			tp:              tp,
 			c:               c,
+			dsw:             dsw,
 			mdc:             mdc,
 			contractAddress: addr,
 		}, func() {
 			c.close()
-			c.dCtx.Close()
+			c.dqc.Close(ctx)
 			if mdc != nil {
-				mdc.Close()
+				mdc.Close(ctx)
 			}
 			dmDone()
 		}
 }
 
 func registerTestDomain(t *testing.T, dm *domainManager, tp *testPlugin) {
-	d, err := dm.registerDomain("test1", tp)
+	// Extract domain name from the domain manager's config (assumes single domain)
+	var domainName string
+	for name := range dm.conf.Domains {
+		domainName = name
+		break
+	}
+	require.NotEmpty(t, domainName, "Domain manager must have at least one domain configured")
+
+	d, err := dm.registerDomain(domainName, tp)
 	require.NoError(t, err)
 
 	// For unit tests, we want any errors to pop out - rather than the actual runtime behavior of infinite retry
@@ -260,7 +277,7 @@ func registerTestDomain(t *testing.T, dm *domainManager, tp *testPlugin) {
 	// Kick off the init (as would happen in DomainRegistered callback otherwise)
 	go d.init()
 
-	da, err := dm.getDomainByName(context.Background(), "test1")
+	da, err := dm.getDomainByName(context.Background(), domainName)
 	require.NoError(t, err)
 	tp.d = da
 	<-tp.d.initDone
@@ -294,12 +311,13 @@ func TestDomainInitStates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, td.d, byAddr)
 	assert.True(t, td.d.Initialized())
+	assert.Empty(t, td.d.FixedSigningIdentity())
 
 }
 
 func mockUpsertABIOk(mc *mockComponents) {
 	mc.txManager.On("UpsertABI", mock.Anything, mock.Anything, mock.Anything).Return(&pldapi.StoredABI{
-		Hash: tktypes.RandBytes32(),
+		Hash: pldtypes.RandBytes32(),
 	}, nil)
 }
 
@@ -430,11 +448,11 @@ func TestDomainInitFactorySchemaStoreFail(t *testing.T) {
 
 func TestDomainConfigureFail(t *testing.T) {
 
-	ctx, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerConfig{
+	ctx, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
 		Domains: map[string]*pldconf.DomainConfig{
 			"test1": {
 				Config:          map[string]any{"some": "config"},
-				RegistryAddress: tktypes.RandHex(20),
+				RegistryAddress: pldtypes.RandHex(20),
 			},
 		},
 	})
@@ -510,8 +528,8 @@ func TestDomainFindAvailableStatesFail(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
 	defer done()
 
-	schemaID := tktypes.RandBytes32()
-	td.mdc.On("FindAvailableStates", mock.Anything, schemaID, mock.Anything).Return(nil, nil, fmt.Errorf("pop"))
+	schemaID := pldtypes.RandBytes32()
+	td.mdc.On("FindAvailableStates", mock.Anything, mock.Anything, schemaID, mock.Anything).Return(nil, nil, fmt.Errorf("pop"))
 
 	assert.Nil(t, td.d.initError.Load())
 	_, err := td.d.FindAvailableStates(td.ctx, &prototk.FindAvailableStatesRequest{
@@ -524,19 +542,32 @@ func TestDomainFindAvailableStatesFail(t *testing.T) {
 
 func storeTestState(t *testing.T, td *testDomainContext, txID uuid.UUID, amount *ethtypes.HexInteger) *fakeState {
 	state := &fakeState{
-		Salt:   tktypes.RandBytes32(),
-		Owner:  tktypes.EthAddress(tktypes.RandBytes(20)),
+		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.EthAddress(pldtypes.RandBytes(20)),
 		Amount: amount,
 	}
 	stateJSON, err := json.Marshal(state)
 	require.NoError(t, err)
 
-	// Call the real statestore
-	_, err = td.c.dCtx.UpsertStates(td.c.dbTX, &components.StateUpsert{
-		Schema:    tktypes.MustParseBytes32(td.tp.stateSchemas[0].Id),
-		Data:      stateJSON,
-		CreatedBy: &txID,
+	// Validate against the real statestore, stage into the DomainStateWriter, flush, then confirm
+	// so the state appears as "available" when queried by the domain context during assembly.
+	schemaID := pldtypes.MustParseBytes32(td.tp.stateSchemas[0].Id)
+	states, err := td.dm.stateStore.ValidateStatesWithLabels(td.ctx, td.c.dbTX, td.d, td.contractAddress, &prototk.EndorsableState{
+		SchemaId:      schemaID.String(),
+		StateDataJson: string(stateJSON),
 	})
+	require.NoError(t, err)
+	require.Len(t, states, 1)
+	require.NoError(t, td.dsw.StageWrites(td.ctx, states))
+	err = td.dm.persistence.Transaction(td.ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return td.dsw.Flush(ctx, dbTX)
+	})
+	require.NoError(t, err)
+	err = td.dm.stateStore.WriteStateFinalizations(td.ctx, td.dm.persistence.NOTX(),
+		[]*pldapi.StateSpendRecord{}, []*pldapi.StateReadRecord{},
+		[]*pldapi.StateConfirmRecord{
+			{DomainName: td.d.name, State: states[0].ID, Transaction: txID},
+		}, []*pldapi.StateInfoRecord{})
 	require.NoError(t, err)
 	return state
 }
@@ -568,7 +599,7 @@ func TestDomainFindAvailableStatesOK(t *testing.T) {
 		SchemaId:          td.tp.stateSchemas[0].Id,
 		QueryJson: `{
 		  "eq": [
-		    { "field": "owner", "value": "` + tktypes.EthAddress(tktypes.RandBytes(20)).String() + `" }
+		    { "field": "owner", "value": "` + pldtypes.EthAddress(pldtypes.RandBytes(20)).String() + `" }
 		  ]
 		}`,
 	})
@@ -619,7 +650,7 @@ func TestDomainInitDeployOK(t *testing.T) {
 	domain := td.d
 	tx := &components.PrivateContractDeploy{
 		ID: txID,
-		Inputs: tktypes.RawJSON(`{
+		Inputs: pldtypes.RawJSON(`{
 		  "notary": "notary1",
 		  "name": "token1",
 		  "symbol": "TKN1"
@@ -659,7 +690,7 @@ func TestDomainInitDeployError(t *testing.T) {
 	domain := td.d
 	tx := &components.PrivateContractDeploy{
 		ID: txID,
-		Inputs: tktypes.RawJSON(`{
+		Inputs: pldtypes.RawJSON(`{
 		  "notary": "notary1",
 		  "name": "token1",
 		  "symbol": "TKN1"
@@ -674,14 +705,14 @@ func goodTXForDeploy() *components.PrivateContractDeploy {
 	txID := uuid.New()
 	return &components.PrivateContractDeploy{
 		ID:                       uuid.New(),
-		Inputs:                   tktypes.RawJSON(`{}`),
-		TransactionSpecification: &prototk.DeployTransactionSpecification{TransactionId: tktypes.Bytes32UUIDFirst16(txID).String()},
+		Inputs:                   pldtypes.RawJSON(`{}`),
+		TransactionSpecification: &prototk.DeployTransactionSpecification{TransactionId: pldtypes.Bytes32UUIDFirst16(txID).String()},
 		Verifiers: []*prototk.ResolvedVerifier{
 			{
 				Algorithm:    algorithms.ECDSA_SECP256K1,
 				VerifierType: verifiers.ETH_ADDRESS,
 				Lookup:       "notary",
-				Verifier:     tktypes.EthAddress(tktypes.RandBytes(20)).String(),
+				Verifier:     pldtypes.EthAddress(pldtypes.RandBytes(20)).String(),
 			},
 		},
 	}
@@ -1016,6 +1047,12 @@ func TestDecodeABIDataFailCases(t *testing.T) {
 		Data:         []byte(``),
 	})
 	assert.Regexp(t, "PD011645", err)
+	_, err = d.DecodeData(ctx, &prototk.DecodeDataRequest{
+		EncodingType: prototk.EncodingType_ETH_TRANSACTION_SIGNED,
+		Definition:   "eip1559",
+		Data:         []byte{}, // Empty data to trigger decode error
+	})
+	assert.Regexp(t, "PD011646", err)
 }
 
 func TestRecoverSignerFailCases(t *testing.T) {
@@ -1083,8 +1120,8 @@ func TestGetStatesFailCases(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "PD011641")
 
-	schemaID := tktypes.Bytes32(tktypes.RandBytes(32))
-	td.mdc.On("GetStatesByID", mock.Anything, schemaID, []string{"id1"}).Return(nil, nil, fmt.Errorf("pop"))
+	schemaID := pldtypes.Bytes32(pldtypes.RandBytes(32))
+	td.mdc.On("GetStatesByID", mock.Anything, mock.Anything, schemaID, []string{"id1"}).Return(nil, nil, fmt.Errorf("pop"))
 
 	_, err = td.d.GetStatesByID(td.ctx, &prototk.GetStatesByIDRequest{
 		StateQueryContext: td.c.id,
@@ -1094,22 +1131,13 @@ func TestGetStatesFailCases(t *testing.T) {
 	require.EqualError(t, err, "pop")
 }
 
-func TestMapStateLockType(t *testing.T) {
-	for _, pldType := range pldapi.StateLockType("").Options() {
-		assert.NotNil(t, mapStateLockType(pldapi.StateLockType(pldType)))
-	}
-	assert.Panics(t, func() {
-		_ = mapStateLockType(pldapi.StateLockType("wrong"))
-	})
-}
-
 func TestDomainValidateStateHashesOK(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
-	stateID1 := tktypes.HexBytes(tktypes.RandBytes(32))
-	stateID2 := tktypes.HexBytes(tktypes.RandBytes(32))
+	stateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	stateID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
 	td.tp.Functions.ValidateStateHashes = func(ctx context.Context, vshr *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {
 		assert.Equal(t, stateID1.String(), vshr.States[0].Id)
@@ -1120,16 +1148,16 @@ func TestDomainValidateStateHashesOK(t *testing.T) {
 	}
 
 	// no-op
-	validatedIDs, err := td.d.ValidateStateHashes(td.ctx, []*components.FullState{})
+	validatedIDs, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{})
 	require.NoError(t, err)
-	assert.Equal(t, []tktypes.HexBytes{}, validatedIDs)
+	assert.Equal(t, []pldtypes.HexBytes{}, validatedIDs)
 
 	// Success
-	validatedIDs, err = td.d.ValidateStateHashes(td.ctx, []*components.FullState{
-		{ID: stateID1}, {ID: nil /* mocking domain calculation */},
+	validatedIDs, err = td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{
+		{Id: stateID1.String()}, {Id: "" /* mocking domain calculation */},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []tktypes.HexBytes{stateID1, stateID2}, validatedIDs)
+	assert.Equal(t, []pldtypes.HexBytes{stateID1, stateID2}, validatedIDs)
 }
 
 func TestDomainValidateStateHashesFail(t *testing.T) {
@@ -1137,13 +1165,13 @@ func TestDomainValidateStateHashesFail(t *testing.T) {
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
-	stateID1 := tktypes.HexBytes(tktypes.RandBytes(32))
+	stateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
 	td.tp.Functions.ValidateStateHashes = func(ctx context.Context, vshr *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	_, err := td.d.ValidateStateHashes(td.ctx, []*components.FullState{{ID: stateID1}})
+	_, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{{Id: stateID1.String()}})
 	require.Regexp(t, "PD011651.*pop", err)
 }
 
@@ -1152,7 +1180,7 @@ func TestDomainValidateStateHashesWrongLen(t *testing.T) {
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
-	stateID1 := tktypes.HexBytes(tktypes.RandBytes(32))
+	stateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
 	td.tp.Functions.ValidateStateHashes = func(ctx context.Context, vshr *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {
 		return &prototk.ValidateStateHashesResponse{
@@ -1160,7 +1188,7 @@ func TestDomainValidateStateHashesWrongLen(t *testing.T) {
 		}, nil
 	}
 
-	_, err := td.d.ValidateStateHashes(td.ctx, []*components.FullState{{ID: stateID1}})
+	_, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{{Id: stateID1.String()}})
 	require.Regexp(t, "PD011652", err)
 }
 
@@ -1169,8 +1197,8 @@ func TestDomainValidateStateHashesMisMatch(t *testing.T) {
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
-	stateID1 := tktypes.HexBytes(tktypes.RandBytes(32))
-	stateID2 := tktypes.HexBytes(tktypes.RandBytes(32))
+	stateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	stateID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
 	td.tp.Functions.ValidateStateHashes = func(ctx context.Context, vshr *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {
 		return &prototk.ValidateStateHashesResponse{
@@ -1178,7 +1206,7 @@ func TestDomainValidateStateHashesMisMatch(t *testing.T) {
 		}, nil
 	}
 
-	_, err := td.d.ValidateStateHashes(td.ctx, []*components.FullState{{ID: stateID1}, {ID: stateID2}})
+	_, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{{Id: stateID1.String()}, {Id: stateID2.String()}})
 	require.Regexp(t, "PD011652", err)
 }
 
@@ -1187,7 +1215,7 @@ func TestDomainValidateStateHashesBadHex(t *testing.T) {
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
-	stateID1 := tktypes.HexBytes(tktypes.RandBytes(32))
+	stateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
 	td.tp.Functions.ValidateStateHashes = func(ctx context.Context, vshr *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {
 		return &prototk.ValidateStateHashesResponse{
@@ -1195,17 +1223,34 @@ func TestDomainValidateStateHashesBadHex(t *testing.T) {
 		}, nil
 	}
 
-	_, err := td.d.ValidateStateHashes(td.ctx, []*components.FullState{{ID: stateID1}})
+	_, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{{Id: stateID1.String()}})
+	require.Regexp(t, "PD011652", err)
+}
+
+func TestDomainValidateStateHashesBadSuppliedHex(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	returnedID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	td.tp.Functions.ValidateStateHashes = func(ctx context.Context, vshr *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {
+		return &prototk.ValidateStateHashesResponse{
+			StateIds: []string{returnedID.String()},
+		}, nil
+	}
+
+	_, err := td.d.ValidateStateHashes(td.ctx, []*prototk.EndorsableState{{Id: "not-valid-hex"}})
 	require.Regexp(t, "PD011652", err)
 }
 
 func TestGetDomainReceiptAllAvailable(t *testing.T) {
 	txID := uuid.New()
 
-	stateID1 := tktypes.HexBytes(tktypes.RandBytes(32))
-	stateID2 := tktypes.HexBytes(tktypes.RandBytes(32))
-	stateID3 := tktypes.HexBytes(tktypes.RandBytes(32))
-	stateID4 := tktypes.HexBytes(tktypes.RandBytes(32))
+	stateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	stateID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	stateID3 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	stateID4 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
 		mc.stateStore.On("GetTransactionStates", mock.Anything, mock.Anything, txID).
@@ -1220,7 +1265,7 @@ func TestGetDomainReceiptAllAvailable(t *testing.T) {
 	assert.Nil(t, td.d.initError.Load())
 
 	td.tp.Functions.BuildReceipt = func(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error) {
-		require.True(t, req.Complete)
+		require.False(t, req.UnavailableStates)
 		require.Len(t, req.InputStates, 1)
 		require.Equal(t, stateID1.String(), req.InputStates[0].Id)
 		require.Len(t, req.ReadStates, 1)
@@ -1244,15 +1289,15 @@ func TestGetDomainReceiptAllAvailable(t *testing.T) {
 func TestGetDomainReceiptIncomplete(t *testing.T) {
 	txID := uuid.New()
 
-	stateID1 := tktypes.HexBytes(tktypes.RandBytes(32))
-	stateID2 := tktypes.HexBytes(tktypes.RandBytes(32))
+	stateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	stateID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
 		mc.stateStore.On("GetTransactionStates", mock.Anything, mock.Anything, txID).
 			Return(&pldapi.TransactionStates{
 				Spent: []*pldapi.StateBase{{ID: stateID1}},
 				Unavailable: &pldapi.UnavailableStates{
-					Confirmed: []tktypes.HexBytes{stateID2},
+					Confirmed: []pldtypes.HexBytes{stateID2},
 				},
 			}, nil)
 	})
@@ -1260,7 +1305,7 @@ func TestGetDomainReceiptIncomplete(t *testing.T) {
 	assert.Nil(t, td.d.initError.Load())
 
 	td.tp.Functions.BuildReceipt = func(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error) {
-		require.False(t, req.Complete)
+		require.True(t, req.UnavailableStates)
 		require.Len(t, req.InputStates, 1)
 
 		return &prototk.BuildReceiptResponse{
@@ -1277,7 +1322,7 @@ func TestGetDomainReceiptIncomplete(t *testing.T) {
 func TestGetDomainReceiptFail(t *testing.T) {
 	txID := uuid.New()
 
-	stateID1 := tktypes.HexBytes(tktypes.RandBytes(32))
+	stateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
 		mc.stateStore.On("GetTransactionStates", mock.Anything, mock.Anything, txID).
@@ -1386,10 +1431,10 @@ func TestDomainInitPrivacyGroupOk(t *testing.T) {
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
-	pgID := tktypes.RandBytes(32)
+	pgID := pldtypes.RandBytes(32)
 	pgGenesis := &pldapi.PrivacyGroupGenesisState{
 		Name:        "pg1",
-		GenesisSalt: tktypes.RandBytes32(),
+		GenesisSalt: pldtypes.RandBytes32(),
 		Members:     []string{"me@node1", "you@node2"},
 		Properties: pldapi.KeyValueStringProperties{
 			{Key: "prop1", Value: "value1"},
@@ -1400,7 +1445,7 @@ func TestDomainInitPrivacyGroupOk(t *testing.T) {
 	}
 
 	functionABI := &abi.Entry{Type: abi.Function, Name: "initPrivacyGroup"}
-	addr := tktypes.RandAddress()
+	addr := pldtypes.RandAddress()
 	td.tp.Functions.InitPrivacyGroup = func(ctx context.Context, ipgr *prototk.InitPrivacyGroupRequest) (*prototk.InitPrivacyGroupResponse, error) {
 		require.Equal(t, "pg1", ipgr.PrivacyGroup.Name)
 		require.Equal(t, pgGenesis.GenesisSalt.String(), ipgr.PrivacyGroup.GenesisSalt)
@@ -1413,7 +1458,7 @@ func TestDomainInitPrivacyGroupOk(t *testing.T) {
 				ContractAddress: confutil.P(addr.String()),          // less likely than deploy
 				RequiredSigner:  confutil.P("some.signer"),          // less likely than rndom assignment
 				ParamsJson:      `{"tx": "input"}`,
-				FunctionAbiJson: tktypes.JSONString(functionABI).Pretty(),
+				FunctionAbiJson: pldtypes.JSONString(functionABI).Pretty(),
 			},
 		}, nil
 	}
@@ -1426,7 +1471,7 @@ func TestDomainInitPrivacyGroupOk(t *testing.T) {
 			From:   "some.signer",
 			To:     addr,
 			Type:   pldapi.TransactionTypePublic.Enum(),
-			Data:   tktypes.RawJSON(`{"tx": "input"}`),
+			Data:   pldtypes.RawJSON(`{"tx": "input"}`),
 			Domain: "test1",
 		},
 		ABI: abi.ABI{functionABI},
@@ -1443,7 +1488,7 @@ func TestDomainInitPrivacyGroupError(t *testing.T) {
 	}
 
 	domain := td.d
-	_, err := domain.InitPrivacyGroup(td.ctx, tktypes.RandBytes(32), &pldapi.PrivacyGroupGenesisState{})
+	_, err := domain.InitPrivacyGroup(td.ctx, pldtypes.RandBytes(32), &pldapi.PrivacyGroupGenesisState{})
 	assert.Regexp(t, "pop", err)
 
 }
@@ -1460,7 +1505,7 @@ func TestDomainInitPrivacyGroupBadResFunctionABI(t *testing.T) {
 	}
 
 	domain := td.d
-	_, err := domain.InitPrivacyGroup(td.ctx, tktypes.RandBytes(32), &pldapi.PrivacyGroupGenesisState{})
+	_, err := domain.InitPrivacyGroup(td.ctx, pldtypes.RandBytes(32), &pldapi.PrivacyGroupGenesisState{})
 	assert.Regexp(t, "PD011607", err)
 
 }
@@ -1473,14 +1518,373 @@ func TestDomainInitPrivacyGroupBadResFromAddr(t *testing.T) {
 	td.tp.Functions.InitPrivacyGroup = func(ctx context.Context, ipgr *prototk.InitPrivacyGroupRequest) (*prototk.InitPrivacyGroupResponse, error) {
 		return &prototk.InitPrivacyGroupResponse{
 			Transaction: &prototk.PreparedTransaction{
-				FunctionAbiJson: tktypes.JSONString(&abi.Entry{Type: abi.Function, Name: "initPrivacyGroup"}).Pretty(),
+				FunctionAbiJson: pldtypes.JSONString(&abi.Entry{Type: abi.Function, Name: "initPrivacyGroup"}).Pretty(),
 				ContractAddress: confutil.P("wrong"),
 			},
 		}, nil
 	}
 
 	domain := td.d
-	_, err := domain.InitPrivacyGroup(td.ctx, tktypes.RandBytes(32), &pldapi.PrivacyGroupGenesisState{})
+	_, err := domain.InitPrivacyGroup(td.ctx, pldtypes.RandBytes(32), &pldapi.PrivacyGroupGenesisState{})
 	assert.Regexp(t, "bad address", err)
 
+}
+
+func TestCheckStateCompletionOk(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	schemaID := pldtypes.RandBytes32()
+	txID := uuid.New()
+	statesInput := &pldapi.TransactionStates{
+		Info: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Read: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Spent: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Confirmed: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Unavailable: &pldapi.UnavailableStates{
+			Info: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+			Read: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+			Spent: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+			Confirmed: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+		},
+	}
+
+	td.tp.Functions.CheckStateCompletion = func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+		require.Equal(t, &prototk.CheckStateCompletionRequest{
+			TransactionId: pldtypes.Bytes32UUIDFirst16(txID).String(),
+			InfoStates: []*prototk.EndorsableState{
+				{Id: statesInput.Info[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Info[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			ReadStates: []*prototk.EndorsableState{
+				{Id: statesInput.Read[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Read[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			InputStates: []*prototk.EndorsableState{
+				{Id: statesInput.Spent[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Spent[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			OutputStates: []*prototk.EndorsableState{
+				{Id: statesInput.Confirmed[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Confirmed[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			UnavailableStates: &prototk.UnavailableStates{
+				FirstUnavailableId: confutil.P(statesInput.Unavailable.Info[0].String()),
+				InfoStateIds: []string{
+					statesInput.Unavailable.Info[0].String(),
+					statesInput.Unavailable.Info[1].String(),
+				},
+				ReadStateIds: []string{
+					statesInput.Unavailable.Read[0].String(),
+					statesInput.Unavailable.Read[1].String(),
+				},
+				InputStateIds: []string{
+					statesInput.Unavailable.Spent[0].String(),
+					statesInput.Unavailable.Spent[1].String(),
+				},
+				OutputStateIds: []string{
+					statesInput.Unavailable.Confirmed[0].String(),
+					statesInput.Unavailable.Confirmed[1].String(),
+				},
+			},
+		}, cscr)
+		return &prototk.CheckStateCompletionResponse{
+			NextMissingStateId: cscr.UnavailableStates.FirstUnavailableId,
+		}, nil
+	}
+
+	domain := td.d
+	nextMissingStateID, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, txID, statesInput)
+	require.NoError(t, err)
+	require.Equal(t, statesInput.Unavailable.Info[0].String(), nextMissingStateID.String())
+}
+
+func TestCheckStateCompletionBadIDReturned(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	td.tp.Functions.CheckStateCompletion = func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+		return &prototk.CheckStateCompletionResponse{
+			NextMissingStateId: confutil.P("wrong"),
+		}, nil
+	}
+
+	domain := td.d
+	infoStateID := pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String())
+	_, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, uuid.New(), &pldapi.TransactionStates{
+		Info: []*pldapi.StateBase{
+			{ID: infoStateID},
+		},
+	})
+	require.Regexp(t, "PD020007", err)
+}
+
+func TestReverseKeyLookupMixedResult(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
+		mc.keyManager.On("ReverseKeyLookup", mock.Anything, mock.Anything, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS,
+			"0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+		).Return(nil, i18n.NewError(context.Background(), msgs.MsgKeyManagerVerifierLookupNotFound))
+		mc.keyManager.On("ReverseKeyLookup", mock.Anything, mock.Anything, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS,
+			"0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+		).Return(&pldapi.KeyMappingAndVerifier{
+			Verifier: &pldapi.KeyVerifier{
+				Algorithm: algorithms.ECDSA_SECP256K1,
+				Type:      verifiers.ETH_ADDRESS,
+				Verifier:  "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+			},
+			KeyMappingWithPath: &pldapi.KeyMappingWithPath{
+				KeyMapping: &pldapi.KeyMapping{
+					Identifier: "key.one",
+				},
+			},
+		}, nil)
+	})
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	res, err := td.d.ReverseKeyLookup(td.ctx, &prototk.ReverseKeyLookupRequest{
+		Lookups: []*prototk.ReverseKeyLookup{
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+			},
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Results, 2)
+	require.Equal(t, &prototk.ReverseKeyLookupResult{
+		Verifier: "0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+		Found:    false,
+	}, res.Results[0])
+	require.Equal(t, &prototk.ReverseKeyLookupResult{
+		Verifier:      "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+		Found:         true,
+		KeyIdentifier: confutil.P("key.one"),
+	}, res.Results[1])
+}
+
+func TestReverseKeyLookupFail(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
+		mc.keyManager.On("ReverseKeyLookup", mock.Anything, mock.Anything, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS,
+			"0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+		).Return(nil, fmt.Errorf("pop"))
+	})
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	_, err := td.d.ReverseKeyLookup(td.ctx, &prototk.ReverseKeyLookupRequest{
+		Lookups: []*prototk.ReverseKeyLookup{
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+			},
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+			},
+		},
+	})
+	require.Regexp(t, "pop", err)
+}
+
+func TestValidateStates(t *testing.T) {
+	td, done := newTestDomain(t, true /* use real state store for this one */, goodDomainConf())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	// Good state
+	state := &fakeState{
+		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.EthAddress(pldtypes.RandBytes(20)),
+		Amount: ethtypes.NewHexIntegerU64(100000000),
+	}
+	stateJSON, err := json.Marshal(state)
+	require.NoError(t, err)
+	res, err := td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{StateDataJson: string(stateJSON), SchemaId: td.tp.stateSchemas[0].Id},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.States, 1)
+
+	// Good state with the ID supplied on the way in
+	suppliedID := res.States[0].Id
+	res, err = td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{Id: &suppliedID, StateDataJson: string(stateJSON), SchemaId: td.tp.stateSchemas[0].Id},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.States, 1)
+	require.Equal(t, suppliedID, res.States[0].Id)
+
+	// Bad state
+	_, err = td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{StateDataJson: string(`{}`), SchemaId: td.tp.stateSchemas[0].Id},
+		},
+	})
+	require.Regexp(t, "FF22040", err)
+}
+
+func TestValidateStatesBadContext(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	// Bad state
+	_, err := td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: "wrong",
+		States: []*prototk.NewState{
+			{StateDataJson: string(`{}`), SchemaId: "schema1"},
+		},
+	})
+	require.Regexp(t, "PD011649.*wrong", err)
+}
+
+func TestValidateStatesBadSchmea(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	// Bad state
+	_, err := td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{StateDataJson: string(`{}`), SchemaId: "schema1"},
+		},
+	})
+	require.Regexp(t, "PD011613.*schema1", err)
+}
+
+func TestDomainFixedSigningIdentity(t *testing.T) {
+	// Test with FixedSigningIdentity set
+	_, dm, mc, dmDone := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"test1": {
+				Config:               map[string]any{"some": "conf"},
+				RegistryAddress:      pldtypes.RandHex(20),
+				DefaultGasLimit:      confutil.P(uint64(100000)),
+				FixedSigningIdentity: "test-signer@node1",
+				Init:                 pldconf.DomainInitConfig{},
+			},
+		},
+	})
+	defer dmDone()
+
+	mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
+	tp := newTestPlugin(nil)
+	tp.Functions = &plugintk.DomainAPIFunctions{
+		ConfigureDomain: func(ctx context.Context, cdr *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
+			assert.Equal(t, "test-signer@node1", cdr.FixedSigningIdentity)
+			return &prototk.ConfigureDomainResponse{
+				DomainConfig: goodDomainConf(),
+			}, nil
+		},
+		InitDomain: func(ctx context.Context, idr *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
+			return &prototk.InitDomainResponse{}, nil
+		},
+	}
+
+	registerTestDomain(t, dm, tp)
+	assert.Equal(t, "test-signer@node1", tp.d.FixedSigningIdentity())
+
+	// Test with empty FixedSigningIdentity
+	_, dm2, mc2, dmDone2 := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"test2": {
+				Config:          map[string]any{"some": "conf"},
+				RegistryAddress: pldtypes.RandHex(20),
+				DefaultGasLimit: confutil.P(uint64(100000)),
+				Init:            pldconf.DomainInitConfig{},
+			},
+		},
+	})
+	defer dmDone2()
+
+	mc2.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
+	tp2 := newTestPlugin(nil)
+	tp2.Functions = &plugintk.DomainAPIFunctions{
+		ConfigureDomain: func(ctx context.Context, cdr *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
+			assert.Equal(t, "", cdr.FixedSigningIdentity)
+			return &prototk.ConfigureDomainResponse{
+				DomainConfig: goodDomainConf(),
+			}, nil
+		},
+		InitDomain: func(ctx context.Context, idr *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
+			return &prototk.InitDomainResponse{}, nil
+		},
+	}
+
+	registerTestDomain(t, dm2, tp2)
+	assert.Equal(t, "", tp2.d.FixedSigningIdentity())
+}
+
+func TestDomainGetBlockHeight(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	mockES := blockindexermocks.NewEventStream(t)
+	mockES.EXPECT().CheckpointBlock().Return(int64(42)).Once()
+	td.d.eventStream = mockES
+	assert.Equal(t, int64(42), td.d.GetBlockHeight())
+}
+
+func TestEnqueueCompletionsContextDone(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+
+	d := td.d
+
+	// Cancel the domain's context and wait for the completion loop goroutine to exit,
+	// so there is no race when we fill the queue below.
+	d.cancelCtx()
+	d.completionWG.Wait()
+
+	// Fill the completion queue to capacity so any subsequent send would block
+	for i := 0; i < 100; i++ {
+		d.completionQueue <- []*components.TxCompletion{}
+	}
+
+	// This should take the ctx.Done() path and log a warning instead of blocking
+	d.enqueueCompletions([]*components.TxCompletion{{}})
 }

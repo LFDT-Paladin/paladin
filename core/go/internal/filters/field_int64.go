@@ -21,10 +21,10 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
 
 type Int64Field string
@@ -37,7 +37,7 @@ func (sf Int64Field) SupportsLIKE() bool {
 	return false
 }
 
-func (sf Int64Field) SQLValue(ctx context.Context, jsonValue tktypes.RawJSON) (driver.Value, error) {
+func (sf Int64Field) SQLValue(ctx context.Context, jsonValue pldtypes.RawJSON) (driver.Value, error) {
 	if jsonValue.IsNil() {
 		return nil, nil
 	}

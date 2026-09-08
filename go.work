@@ -1,15 +1,21 @@
-go 1.22.5
+go 1.25.0
+
+toolchain go1.25.11
 
 use (
+	./common/go
 	./config
 	./core/go
 	./domains/integration-test
 	./domains/noto
 	./domains/zeto
 	./operator
-	./perf
 	./registries/evm
 	./registries/static
+	./rpcauth/basicauth
+	./sdk/go
+	./signingmodules/example
+	./test
 	./testinfra
 	./toolkit/go
 	./transports/grpc

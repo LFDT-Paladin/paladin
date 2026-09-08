@@ -19,10 +19,11 @@ package keymanager
 import (
 	"context"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 func (km *keyManager) RPCModule() *rpcserver.RPCModule {
@@ -37,6 +38,9 @@ func (km *keyManager) initRPC() {
 		Add("keymgr_reverseKeyLookup", km.rpcReverseKeyLookup()).
 		Add("keymgr_queryKeys", km.rpcQueryKeys())
 
+	if !km.conf.DisableSignRPC {
+		km.rpcModule.Add("keymgr_sign", km.rpcSign())
+	}
 }
 
 func (km *keyManager) rpcWallets() rpcserver.RPCHandler {
@@ -52,6 +56,7 @@ func (km *keyManager) rpcResolveKey() rpcserver.RPCHandler {
 		algorithm string,
 		verifierType string,
 	) (*pldapi.KeyMappingAndVerifier, error) {
+		ctx = log.WithComponent(ctx, "keymanager")
 		return km.ResolveKeyNewDatabaseTX(ctx, identifier, algorithm, verifierType)
 	})
 }
@@ -59,7 +64,8 @@ func (km *keyManager) rpcResolveKey() rpcserver.RPCHandler {
 func (km *keyManager) rpcResolveEthAddress() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod1(func(ctx context.Context,
 		identifier string,
-	) (*tktypes.EthAddress, error) {
+	) (*pldtypes.EthAddress, error) {
+		ctx = log.WithComponent(ctx, "keymanager")
 		return km.ResolveEthAddressNewDatabaseTX(ctx, identifier)
 	})
 }
@@ -70,6 +76,7 @@ func (km *keyManager) rpcReverseKeyLookup() rpcserver.RPCHandler {
 		verifierType string,
 		verifier string,
 	) (*pldapi.KeyMappingAndVerifier, error) {
+		ctx = log.WithComponent(ctx, "keymanager")
 		return km.ReverseKeyLookup(ctx, km.p.NOTX(), algorithm, verifierType, verifier)
 	})
 }
@@ -78,6 +85,38 @@ func (km *keyManager) rpcQueryKeys() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod1(func(ctx context.Context,
 		jq query.QueryJSON,
 	) ([]*pldapi.KeyQueryEntry, error) {
-		return km.QueryKeys(ctx, km.p.DB(), &jq)
+		ctx = log.WithComponent(ctx, "keymanager")
+		return km.QueryKeys(ctx, km.p.NOTX(), &jq)
+	})
+}
+
+// rpcSign signs arbitrary data using the specified algorithm and verifier type.
+//
+// Example:
+//   - algorithm: algorithms.ECDSA_SECP256K1
+//   - verifierType: verifiers.ETH_ADDRESS
+//   - payloadType: signpayloads.OPAQUE_TO_RSV
+//
+// Default handling:
+//   - The payload is hashed with keccak256 internally by the signing module before signing
+//   - Returns a 65-byte RSV signature (R=32bytes, S=32bytes, V=1byte with 0/1 recovery ID)
+func (km *keyManager) rpcSign() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod5(func(ctx context.Context,
+		identifier string,
+		algorithm string,
+		verifierType string,
+		payloadType string,
+		payload pldtypes.HexBytes,
+	) (pldtypes.HexBytes, error) {
+		ctx = log.WithComponent(ctx, "keymanager")
+		resolvedKey, err := km.ResolveKeyNewDatabaseTX(ctx, identifier, algorithm, verifierType)
+		if err != nil {
+			return nil, err
+		}
+		signature, err := km.Sign(ctx, resolvedKey, payloadType, payload)
+		if err != nil {
+			return nil, err
+		}
+		return signature, nil
 	})
 }

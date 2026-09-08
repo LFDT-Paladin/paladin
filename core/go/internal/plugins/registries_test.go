@@ -20,15 +20,16 @@ import (
 	"os"
 	"runtime/debug"
 	"testing"
+	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/mocks/componentmocks"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -53,12 +54,12 @@ func registryHeaderAccessor(msg *prototk.RegistryMessage) *prototk.Header {
 	return msg.Header
 }
 
-func (tp *testRegistryManager) mock(t *testing.T) *componentmocks.RegistryManager {
-	mdm := componentmocks.NewRegistryManager(t)
+func (tp *testRegistryManager) mock(t *testing.T) *componentsmocks.RegistryManager {
+	mdm := componentsmocks.NewRegistryManager(t)
 	pluginMap := make(map[string]*pldconf.PluginConfig)
 	for name := range tp.registries {
 		pluginMap[name] = &pldconf.PluginConfig{
-			Type:    string(tktypes.LibraryTypeCShared),
+			Type:    string(pldtypes.LibraryTypeCShared),
 			Library: "/tmp/not/applicable",
 		}
 	}
@@ -143,7 +144,12 @@ func TestRegistryRequestsOK(t *testing.T) {
 	})
 	defer done()
 
-	registryAPI := <-waitForAPI
+	var registryAPI components.RegistryManagerToRegistry
+	select {
+	case registryAPI = <-waitForAPI:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for registry API - expected registration was not received")
+	}
 
 	_, err := registryAPI.ConfigureRegistry(ctx, &prototk.ConfigureRegistryRequest{})
 	require.NoError(t, err)
@@ -157,9 +163,15 @@ func TestRegistryRequestsOK(t *testing.T) {
 	// This is the point the registry manager would call us to say the registry is initialized
 	// (once it's happy it's updated its internal state)
 	registryAPI.Initialized()
-	require.NoError(t, pc.WaitForInit(ctx))
+	require.NoError(t, pc.WaitForInit(ctx, prototk.PluginInfo_DOMAIN))
 
-	callbacks := <-waitForCallbacks
+	// Add timeout for callbacks
+	var callbacks plugintk.RegistryCallbacks
+	select {
+	case callbacks = <-waitForCallbacks:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for callbacks - expected callbacks were not received")
+	}
 
 	utr, err := callbacks.UpsertRegistryRecords(ctx, &prototk.UpsertRegistryRecordsRequest{
 		Entries: []*prototk.RegistryEntry{{Name: "node1"}},
@@ -179,15 +191,6 @@ func TestRegistryRegisterFail(t *testing.T) {
 				t:              t,
 				connectFactory: registryConnectFactory,
 				headerAccessor: registryHeaderAccessor,
-				preRegister: func(registryID string) *prototk.RegistryMessage {
-					return &prototk.RegistryMessage{
-						Header: &prototk.Header{
-							MessageType: prototk.Header_REGISTER,
-							PluginId:    registryID,
-							MessageId:   uuid.NewString(),
-						},
-					}
-				},
 				expectClose: func(err error) {
 					waitForError <- err
 				},
@@ -203,7 +206,12 @@ func TestRegistryRegisterFail(t *testing.T) {
 	})
 	defer done()
 
-	assert.Regexp(t, "pop", <-waitForError)
+	select {
+	case err := <-waitForError:
+		assert.Regexp(t, "pop", err)
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for registration callback")
+	}
 }
 
 func TestFromRegistryRequestBadReq(t *testing.T) {
@@ -244,6 +252,9 @@ func TestFromRegistryRequestBadReq(t *testing.T) {
 	})
 	defer done()
 
-	<-waitForResponse
-
+	select {
+	case <-waitForResponse:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for waitForResponse callback")
+	}
 }

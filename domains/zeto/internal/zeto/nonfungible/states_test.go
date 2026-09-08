@@ -7,13 +7,13 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/iden3/go-iden3-crypto/babyjub"
-	"github.com/kaleido-io/paladin/domains/zeto/pkg/types"
-	"github.com/kaleido-io/paladin/domains/zeto/pkg/zetosigner"
-	"github.com/kaleido-io/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	pb "github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,6 +59,14 @@ func (dc *testDomainCallbacks) SendTransaction(ctx context.Context, tx *pb.SendT
 	return nil, nil
 }
 
+func (dc *testDomainCallbacks) ReverseKeyLookup(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error) {
+	return nil, nil
+}
+
+func (dc *testDomainCallbacks) ValidateStates(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error) {
+	return nil, nil
+}
+
 func TestProcessTokens(t *testing.T) {
 	ctx := context.Background()
 
@@ -81,7 +89,7 @@ func TestProcessTokens(t *testing.T) {
 			name: "valid token",
 			tokens: []*types.ZetoNFToken{
 				types.NewZetoNFToken(
-					(*tktypes.HexUint256)(big.NewInt(456)),
+					(*pldtypes.HexUint256)(big.NewInt(456)),
 					"https://example.com",
 					mockPubKey(),
 					big.NewInt(123),
@@ -97,7 +105,7 @@ func TestProcessTokens(t *testing.T) {
 			name: "hash error",
 			tokens: []*types.ZetoNFToken{
 				types.NewZetoNFToken(
-					(*tktypes.HexUint256)(big.NewInt(456)),
+					(*pldtypes.HexUint256)(big.NewInt(456)),
 					"",
 					mockPubKey(),
 					big.NewInt(123),
@@ -158,7 +166,7 @@ func TestPrepareOutputsForTransfer(t *testing.T) {
 				{
 					To:      "recipient1",
 					URI:     "https://example.com",
-					TokenID: (*tktypes.HexUint256)(big.NewInt(456)), // provided tokenID; non-zero
+					TokenID: (*pldtypes.HexUint256)(big.NewInt(456)), // provided tokenID; non-zero
 				},
 			},
 			resolvedVerifiers: []*pb.ResolvedVerifier{
@@ -184,7 +192,7 @@ func TestPrepareOutputsForTransfer(t *testing.T) {
 				{
 					To:      "nonexistent",
 					URI:     "https://example.com",
-					TokenID: (*tktypes.HexUint256)(big.NewInt(456)),
+					TokenID: (*pldtypes.HexUint256)(big.NewInt(456)),
 				},
 			},
 			// Provide a resolved verifier list that does not include the lookup "nonexistent".
@@ -208,7 +216,7 @@ func TestPrepareOutputsForTransfer(t *testing.T) {
 				{
 					To:      "recipient1",
 					URI:     "https://example.com",
-					TokenID: (*tktypes.HexUint256)(big.NewInt(456)),
+					TokenID: (*pldtypes.HexUint256)(big.NewInt(456)),
 				},
 			},
 			resolvedVerifiers: []*pb.ResolvedVerifier{
@@ -301,7 +309,7 @@ func TestMakeNewState(t *testing.T) {
 	stateSchema := &pb.StateSchema{Id: "schema1"}
 	algoName := "test"
 	ownerStr := "owner1"
-	validToken := types.NewZetoNFToken((*tktypes.HexUint256)(big.NewInt(456)), "https://example.com", mockPubKey(), big.NewInt(123))
+	validToken := types.NewZetoNFToken((*pldtypes.HexUint256)(big.NewInt(456)), "https://example.com", mockPubKey(), big.NewInt(123))
 
 	// Compute expected hash string by calling the common helper.
 	expectedHashStr := "11e84f5f703728d1f231655c59597678524e3a14ce684d07a0b653bd51ccd650"
@@ -340,7 +348,7 @@ func TestMakeNewState(t *testing.T) {
 		{
 			name:          "failure: invalid token",
 			useNullifiers: false,
-			token:         types.NewZetoNFToken((*tktypes.HexUint256)(big.NewInt(456)), "", mockPubKey(), big.NewInt(123)),
+			token:         types.NewZetoNFToken((*pldtypes.HexUint256)(big.NewInt(456)), "", mockPubKey(), big.NewInt(123)),
 			expectErr:     true,
 		},
 	}
@@ -406,14 +414,12 @@ func TestFindAvailableStates(t *testing.T) {
 					SchemaId:  "schema1",
 					CreatedAt: 123,
 					DataJson:  `{"foo": "bar"}`,
-					Locks:     nil,
 				},
 				{
 					Id:        "state2",
 					SchemaId:  "schema1",
 					CreatedAt: 456,
 					DataJson:  `{"baz": "qux"}`,
-					Locks:     nil,
 				},
 			},
 			wantErr: false,
@@ -423,14 +429,12 @@ func TestFindAvailableStates(t *testing.T) {
 					SchemaId:  "schema1",
 					CreatedAt: 123,
 					DataJson:  `{"foo": "bar"}`,
-					Locks:     nil,
 				},
 				{
 					Id:        "state2",
 					SchemaId:  "schema1",
 					CreatedAt: 456,
 					DataJson:  `{"baz": "qux"}`,
-					Locks:     nil,
 				},
 			},
 		},
@@ -474,10 +478,10 @@ func TestZetoNFToken_UnmarshalJSON(t *testing.T) {
 			jsonData:    `{"salt": "123", "uri": "https://example.com", "owner": "0xabcdef", "tokenID": "456"}`,
 			expectError: false,
 			expected: &types.ZetoNFToken{
-				Salt:    (*tktypes.HexUint256)(big.NewInt(123)),
+				Salt:    (*pldtypes.HexUint256)(big.NewInt(123)),
 				URI:     "https://example.com",
-				Owner:   tktypes.MustParseHexBytes("0xabcdef"),
-				TokenID: (*tktypes.HexUint256)(big.NewInt(456)),
+				Owner:   pldtypes.MustParseHexBytes("0xabcdef"),
+				TokenID: (*pldtypes.HexUint256)(big.NewInt(456)),
 			},
 		},
 		{
@@ -490,7 +494,7 @@ func TestZetoNFToken_UnmarshalJSON(t *testing.T) {
 			jsonData:    `{"salt": "123", "uri": "https://example.com"}`,
 			expectError: false,
 			expected: &types.ZetoNFToken{
-				Salt:    (*tktypes.HexUint256)(big.NewInt(123)),
+				Salt:    (*pldtypes.HexUint256)(big.NewInt(123)),
 				URI:     "https://example.com",
 				Owner:   nil,
 				TokenID: nil,

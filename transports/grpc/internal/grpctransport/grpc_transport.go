@@ -18,6 +18,7 @@ package grpctransport
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -25,18 +26,19 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tlsconf"
-	"github.com/kaleido-io/paladin/transports/grpc/internal/msgs"
-	"github.com/kaleido-io/paladin/transports/grpc/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/tlsconf"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/transports/grpc/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/transports/grpc/pkg/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type Server interface {
@@ -47,20 +49,24 @@ type Server interface {
 type grpcTransport struct {
 	proto.UnimplementedPaladinGRPCTransportServer
 
-	bgCtx     context.Context
-	callbacks plugintk.TransportCallbacks
+	bgCtx       context.Context
+	bgCtxCancel context.CancelFunc
+	callbacks   plugintk.TransportCallbacks
 
-	name             string
-	listener         net.Listener
-	grpcServer       *grpc.Server
-	serverDone       chan struct{}
-	peerVerifier     *tlsVerifier
-	externalHostname string
-	localCertificate *tls.Certificate
+	name               string
+	listener           net.Listener
+	grpcServer         *grpc.Server
+	serverDone         chan struct{}
+	peerVerifier       *tlsVerifier
+	externalHostname   string
+	localCertificate   *tls.Certificate
+	localCACertificate *x509.Certificate
 
 	conf                Config
 	connLock            sync.RWMutex
 	outboundConnections map[string]*outboundConn
+
+	gracefulShutdownTimeout time.Duration
 }
 
 func NewPlugin(ctx context.Context) plugintk.PluginBase {
@@ -68,14 +74,17 @@ func NewPlugin(ctx context.Context) plugintk.PluginBase {
 }
 
 func NewGRPCTransport(callbacks plugintk.TransportCallbacks) plugintk.TransportAPI {
+	bgCtx, bgCtxCancel := context.WithCancel(context.Background())
 	return &grpcTransport{
-		bgCtx:               context.Background(),
+		bgCtx:               log.WithComponent(bgCtx, "grpctransport"),
+		bgCtxCancel:         bgCtxCancel,
 		callbacks:           callbacks,
 		outboundConnections: make(map[string]*outboundConn),
 	}
 }
 
 func (t *grpcTransport) ConfigureTransport(ctx context.Context, req *prototk.ConfigureTransportRequest) (*prototk.ConfigureTransportResponse, error) {
+	ctx = log.WithComponent(ctx, "grpctransport")
 	// Hold the connlock while setting our state (as we'll read it when creating new conns)
 	t.connLock.Lock()
 	defer t.connLock.Unlock()
@@ -112,12 +121,14 @@ func (t *grpcTransport) ConfigureTransport(ctx context.Context, req *prototk.Con
 	}
 	baseTLSConfig := tlsDetail.TLSConfig
 	t.localCertificate = tlsDetail.Certificate
+	t.localCACertificate = tlsDetail.CACertificate
 
 	directCertVerification := confutil.Bool(t.conf.DirectCertVerification, *ConfigDefaults.DirectCertVerification)
 	baseTLSConfig.ClientAuth = tls.RequireAndVerifyClientCert
 	if directCertVerification {
 		// Check the tls default settings haven't been set with conflicting config
-		if t.conf.TLS.CAFile != "" || t.conf.TLS.CA != "" || t.conf.TLS.InsecureSkipHostVerify || len(t.conf.TLS.RequiredDNAttributes) > 0 {
+		// Note: We allow CAFile and CA to be set for publishing purposes, but they won't be used for verification
+		if t.conf.TLS.InsecureSkipHostVerify || len(t.conf.TLS.RequiredDNAttributes) > 0 {
 			return nil, i18n.NewError(ctx, msgs.MsgConfIncompatibleWithDirectCertVerify)
 		}
 		// Set InsecureSkipVerify and RequireAnyClientCert to skip the default
@@ -139,23 +150,28 @@ func (t *grpcTransport) ConfigureTransport(ctx context.Context, req *prototk.Con
 		},
 		baseTLSConfig: baseTLSConfig,
 	}
+
+	t.gracefulShutdownTimeout = confutil.DurationMin(t.conf.GracefulShutdownTimeout, 0, *ConfigDefaults.GracefulShutdownTimeout)
+
 	t.grpcServer = grpc.NewServer(grpc.Creds(t.peerVerifier))
 	proto.RegisterPaladinGRPCTransportServer(t.grpcServer, t)
 
 	// Kick off the gRPC listener
 	if t.serverDone == nil {
 		t.serverDone = make(chan struct{})
-		go t.serve()
+		go t.serve(t.grpcServer, t.listener, t.serverDone)
 	}
 
 	return &prototk.ConfigureTransportResponse{}, nil
 }
 
-func (t *grpcTransport) serve() {
-	defer close(t.serverDone)
+// The server, listener and done channel are passed in rather than read from the struct, as
+// shutdownTransport clears those fields and may run before this goroutine is scheduled.
+func (t *grpcTransport) serve(grpcServer *grpc.Server, listener net.Listener, serverDone chan struct{}) {
+	defer close(serverDone)
 
-	log.L(t.bgCtx).Infof("gRPC server for plugin %s starting on %s", t.name, t.listener.Addr())
-	err := t.grpcServer.Serve(t.listener)
+	log.L(t.bgCtx).Infof("gRPC server for plugin %s starting on %s", t.name, listener.Addr())
+	err := grpcServer.Serve(listener)
 	log.L(t.bgCtx).Infof("gRPC server for plugin %s stopped (err=%v)", t.name, err)
 }
 
@@ -200,7 +216,8 @@ func (t *grpcTransport) ConnectSendStream(stream grpc.ClientStreamingServer[prot
 			},
 		})
 		if err != nil {
-			log.L(ctx).Errorf("Receive failed (err=%s): %s", err, tktypes.ProtoToJSON(msg))
+			msgBytes, _ := protojson.Marshal(msg)
+			log.L(ctx).Errorf("Receive failed (err=%s): %s", err, msgBytes)
 			return err
 		}
 
@@ -225,8 +242,13 @@ func (t *grpcTransport) getTransportDetails(ctx context.Context, node string) (t
 }
 
 func (t *grpcTransport) ActivatePeer(ctx context.Context, req *prototk.ActivatePeerRequest) (*prototk.ActivatePeerResponse, error) {
+	ctx = log.WithComponent(ctx, "grpctransport")
 	t.connLock.Lock()
 	defer t.connLock.Unlock()
+
+	if t.peerVerifier == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgTransportNotConfigured)
+	}
 
 	existing := t.outboundConnections[req.NodeName]
 	if existing != nil {
@@ -246,6 +268,7 @@ func (t *grpcTransport) ActivatePeer(ctx context.Context, req *prototk.ActivateP
 }
 
 func (t *grpcTransport) DeactivatePeer(ctx context.Context, req *prototk.DeactivatePeerRequest) (*prototk.DeactivatePeerResponse, error) {
+	ctx = log.WithComponent(ctx, "grpctransport")
 	t.connLock.Lock()
 	defer t.connLock.Unlock()
 
@@ -268,13 +291,14 @@ func (t *grpcTransport) getConnection(nodeName string) *outboundConn {
 }
 
 func (t *grpcTransport) SendMessage(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+	ctx = log.WithComponent(ctx, "grpctransport")
 	msg := req.Message
 	oc := t.getConnection(req.Node)
 	if oc == nil {
 		// This is an error in the Paladin layer
 		return nil, i18n.NewError(ctx, msgs.MsgNodeNotActive, req.Node)
 	}
-	log.L(ctx).Infof("GRPC sending message id=%s cid=%v component=%s messageType=%s to peer %s",
+	log.L(ctx).Infof("GRPC sending message id=%s cid=%v component=%d messageType=%s to peer %s",
 		msg.MessageId, msg.CorrelationId, msg.Component, msg.MessageType, req.Node)
 	err := oc.send(&proto.Message{
 		MessageId:     msg.MessageId,
@@ -290,9 +314,20 @@ func (t *grpcTransport) SendMessage(ctx context.Context, req *prototk.SendMessag
 }
 
 func (t *grpcTransport) GetLocalDetails(ctx context.Context, req *prototk.GetLocalDetailsRequest) (*prototk.GetLocalDetailsResponse, error) {
+	// ctx = log.WithComponent(ctx, "grpctransport")
 
-	certList := t.localCertificate.Certificate
 	issuersText := new(strings.Builder)
+
+	// First, add the CA certificate if available
+	if t.localCACertificate != nil {
+		_ = pem.Encode(issuersText, &pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: t.localCACertificate.Raw,
+		})
+	}
+
+	// Then, add the node's certificate chain
+	certList := t.localCertificate.Certificate
 	for _, cert := range certList {
 		_ = pem.Encode(issuersText, &pem.Block{
 			Type:  "CERTIFICATE",
@@ -310,4 +345,58 @@ func (t *grpcTransport) GetLocalDetails(ctx context.Context, req *prototk.GetLoc
 		TransportDetails: string(jsonDetails),
 	}, nil
 
+}
+
+func (t *grpcTransport) StopTransport(ctx context.Context, req *prototk.StopTransportRequest) (*prototk.StopTransportResponse, error) {
+	log.L(t.bgCtx).Infof("Stopping gRPC server for plugin %s", t.name)
+
+	t.shutdownTransport()
+
+	return &prototk.StopTransportResponse{}, nil
+}
+
+func (t *grpcTransport) shutdownTransport() {
+	// Cancel bgCtx before GracefulStop so any TLS handshake goroutines blocked in
+	// VerifyConnection → getTransportDetails → RequestFromPlugin → inflight.Wait()
+	// are unblocked immediately, allowing GracefulStop to drain cleanly.
+	t.bgCtxCancel()
+
+	t.connLock.Lock()
+	grpcServer := t.grpcServer
+	serverDone := t.serverDone
+	listener := t.listener
+	outboundConnections := t.outboundConnections
+	t.grpcServer = nil
+	t.listener = nil
+	t.outboundConnections = make(map[string]*outboundConn)
+	t.connLock.Unlock()
+
+	for _, connection := range outboundConnections {
+		connection.close(t.bgCtx)
+	}
+
+	if grpcServer != nil {
+		gracefullyStopped := make(chan struct{})
+		go func() {
+			defer close(gracefullyStopped)
+			grpcServer.GracefulStop()
+		}()
+		t.waitStopOrForce(grpcServer, gracefullyStopped)
+	}
+
+	if listener != nil {
+		_ = listener.Close()
+	}
+
+	if serverDone != nil {
+		<-serverDone
+	}
+}
+
+func (t *grpcTransport) waitStopOrForce(grpcServer *grpc.Server, gracefullyStopped chan struct{}) {
+	select {
+	case <-gracefullyStopped:
+	case <-time.After(t.gracefulShutdownTimeout):
+		grpcServer.Stop()
+	}
 }

@@ -22,8 +22,8 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -36,7 +36,7 @@ func TestGetABIByHashError(t *testing.T) {
 		})
 	defer done()
 
-	_, err := txm.getABIByHash(ctx, txm.p.NOTX(), tktypes.RandBytes32())
+	_, err := txm.getABIByHash(ctx, txm.p.NOTX(), pldtypes.RandBytes32())
 	assert.Regexp(t, "pop", err)
 
 }
@@ -54,7 +54,7 @@ func TestGetABIByHashBadData(t *testing.T) {
 		})
 	defer done()
 
-	_, err := txm.getABIByHash(ctx, txm.p.NOTX(), tktypes.RandBytes32())
+	_, err := txm.getABIByHash(ctx, txm.p.NOTX(), pldtypes.RandBytes32())
 	assert.Regexp(t, "PD012217", err)
 
 }
@@ -72,7 +72,7 @@ func TestGetABIByCache(t *testing.T) {
 		})
 	defer done()
 
-	hash := tktypes.RandBytes32()
+	hash := pldtypes.RandBytes32()
 
 	// 2nd time cached (only one DB mock)
 	for i := 0; i < 2; i++ {

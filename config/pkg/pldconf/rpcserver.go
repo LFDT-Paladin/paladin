@@ -17,16 +17,8 @@
 package pldconf
 
 import (
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 )
-
-const DefaultHTTPPort = 8645
-const DefaultWebSocketPort = 8646
-
-var WSDefaults = RPCServerConfigWS{
-	ReadBufferSize:  confutil.P("64KB"),
-	WriteBufferSize: confutil.P("64KB"),
-}
 
 type RPCServerConfigHTTP struct {
 	Disabled         bool                 `json:"disabled,omitempty"`
@@ -42,6 +34,19 @@ type RPCServerConfigWS struct {
 }
 
 type RPCServerConfig struct {
-	HTTP RPCServerConfigHTTP `json:"http,omitempty"`
-	WS   RPCServerConfigWS   `json:"ws,omitempty"`
+	HTTP              RPCServerConfigHTTP `json:"http,omitempty"`
+	WS                RPCServerConfigWS   `json:"ws,omitempty"`
+	Authorizers       []string            `json:"authorizers,omitempty"`       // Ordered array of authorizer plugin names to use
+	LegacyReturnCodes bool                `json:"legacyReturnCodes,omitempty"` // Return HTTP 500 for all JSON/RPC errors (legacy pre-v1 behaviour to give us the option of reverting the new default if it breaks user applications)
+}
+
+var RPCServerConfigDefaults = RPCServerConfig{
+	HTTP: RPCServerConfigHTTP{
+		HTTPServerConfig: HTTPDefaults,
+	},
+	WS: RPCServerConfigWS{
+		ReadBufferSize:   confutil.P("64KB"),
+		WriteBufferSize:  confutil.P("64KB"),
+		HTTPServerConfig: HTTPDefaults,
+	},
 }

@@ -23,16 +23,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/wsclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-common/pkg/wsclient"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -41,17 +41,17 @@ var nextReq atomic.Uint64
 
 func rpcTestRequest(method string, params ...any) (uint64, []byte) {
 	reqID := nextReq.Add(1)
-	jsonParams := make([]tktypes.RawJSON, len(params))
+	jsonParams := make([]pldtypes.RawJSON, len(params))
 	for i, p := range params {
-		jsonParams[i] = tktypes.JSONString(p)
+		jsonParams[i] = pldtypes.JSONString(p)
 	}
 	req := &rpcclient.RPCRequest{
 		JSONRpc: "2.0",
-		ID:      tktypes.RawJSON(fmt.Sprintf("%d", reqID)),
+		ID:      pldtypes.RawJSON(fmt.Sprintf("%d", reqID)),
 		Method:  method,
 		Params:  jsonParams,
 	}
-	return reqID, []byte(tktypes.JSONString((req)).Pretty())
+	return reqID, []byte(pldtypes.JSONString((req)).Pretty())
 }
 
 func newTestGroupManagerWithWebSocketRPC(t *testing.T, init ...func(mc *mockComponents, conf *pldconf.GroupManagerConfig)) (context.Context, string, *groupManager, *mockComponents, func()) {
@@ -87,8 +87,8 @@ func TestRPCEventListenerE2E(t *testing.T) {
 	mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").
 		Return([]*components.RegistryNodeTransportEntry{ /* contents not checked */ }, nil)
 
-	mc.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.MatchedBy(func(rm *pldapi.ReliableMessage) bool {
-		return rm.MessageType.V() == pldapi.RMTPrivacyGroupMessage
+	mc.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.MatchedBy(func(rm []*pldapi.ReliableMessage) bool {
+		return rm[0].MessageType.V() == pldapi.RMTPrivacyGroupMessage
 	})).Return(nil)
 
 	groupIDs := createTestGroups(t, ctx, mc, gm,
@@ -99,12 +99,7 @@ func TestRPCEventListenerE2E(t *testing.T) {
 	)
 	groupID := groupIDs[0]
 
-	wscConf, err := rpcclient.ParseWSConfig(ctx, &pldconf.WSClientConfig{
-		HTTPClientConfig: pldconf.HTTPClientConfig{URL: url},
-	})
-	require.NoError(t, err)
-
-	err = gm.CreateMessageListener(ctx, &pldapi.PrivacyGroupMessageListener{
+	err := gm.CreateMessageListener(ctx, &pldapi.PrivacyGroupMessageListener{
 		Name: "listener1",
 		Options: pldapi.PrivacyGroupMessageListenerOptions{
 			ExcludeLocal: false,
@@ -112,7 +107,9 @@ func TestRPCEventListenerE2E(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	wsc, err := wsclient.New(ctx, wscConf, nil, nil)
+	wsc, err := wsclient.New(ctx, &pldconf.WSClientConfig{
+		HTTPClientConfig: pldconf.HTTPClientConfig{URL: url},
+	}, nil, nil)
 	require.NoError(t, err)
 	err = wsc.Connect()
 	require.NoError(t, err)
@@ -122,69 +119,108 @@ func TestRPCEventListenerE2E(t *testing.T) {
 	err = wsc.Send(ctx, req)
 	require.NoError(t, err)
 
+	// channels for coordination
 	subIDChan := make(chan string)
 	unSubChan := make(chan bool)
 	messages := make(chan *pldapi.PrivacyGroupMessage)
+	ackReady := make(chan struct{})          // will be closed once we have subID
+	subscriptionReady := make(chan struct{}) // signal when subscription is fully set up
+
 	var unSubReqID atomic.Uint64
 	var subID atomic.Pointer[string]
 
 	go func() {
-		for payload := range wsc.Receive() {
-			var rpcPayload *rpcclient.RPCResponse
-			err := json.Unmarshal(payload, &rpcPayload)
-			require.NoError(t, err)
-
-			if rpcPayload.Error != nil {
-				require.NoError(t, rpcPayload.Error)
-			}
-
-			if !rpcPayload.ID.IsNil() {
-				var rpcID uint64
-				err := json.Unmarshal(rpcPayload.ID.Bytes(), &rpcID)
-				require.NoError(t, err)
-
-				switch rpcID {
-				case subReqID: // Subscribe reply
-					subIDChan <- rpcPayload.Result.StringValue()
-				case unSubReqID.Load(): // Unsubscribe reply
-					unSubChan <- true
-				}
-			}
-
-			if rpcPayload.Method == "pgroup_subscription" {
-				var batchPayload pldapi.JSONRPCSubscriptionNotification[pldapi.PrivacyGroupMessageBatch]
-				err := json.Unmarshal(rpcPayload.Params.Bytes(), &batchPayload)
-				require.NoError(t, err)
-
-				for _, r := range batchPayload.Result.Messages {
-					messages <- r
+		defer close(messages)
+		for {
+			select {
+			case payload, ok := <-wsc.Receive():
+				if !ok {
+					return
 				}
 
-				for subID.Load() == nil { // wait for subID to be set
-					time.Sleep(10 * time.Millisecond)
-				}
-				_, req := rpcTestRequest("pgroup_ack", *subID.Load())
-				err = wsc.Send(ctx, req)
+				var rpcPayload *rpcclient.RPCResponse
+				err := json.Unmarshal(payload, &rpcPayload)
 				require.NoError(t, err)
-			}
 
+				if rpcPayload.Error != nil {
+					require.NoError(t, rpcPayload.Error)
+				}
+
+				if !rpcPayload.ID.IsNil() {
+					var rpcID uint64
+					err := json.Unmarshal(rpcPayload.ID.Bytes(), &rpcID)
+					require.NoError(t, err)
+
+					switch rpcID {
+					case subReqID: // Subscribe reply
+						subIDStr := rpcPayload.Result.StringValue()
+						subID.Store(&subIDStr)
+						subIDChan <- subIDStr
+						// Signal that subscription is fully ready
+						close(subscriptionReady)
+					case unSubReqID.Load(): // Unsubscribe reply
+						unSubChan <- true
+						return
+					}
+				}
+
+				if rpcPayload.Method == "pgroup_subscription" {
+					var batchPayload pldapi.JSONRPCSubscriptionNotification[pldapi.PrivacyGroupMessageBatch]
+					err := json.Unmarshal(rpcPayload.Params.Bytes(), &batchPayload)
+					require.NoError(t, err)
+
+					for _, r := range batchPayload.Result.Messages {
+						select {
+						case messages <- r:
+						case <-ctx.Done():
+							return
+						}
+					}
+					// wait until main test has stored subID and closed ackReady
+					<-ackReady
+					if storedSubID := subID.Load(); storedSubID != nil {
+						_, req := rpcTestRequest("pgroup_ack", *storedSubID)
+						require.NoError(t, wsc.Send(ctx, req))
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
+	// Wait for subscription with timeout
+	var subIDStr string
+	select {
+	case subIDStr = <-subIDChan:
+		_, err = uuid.Parse(subIDStr)
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Subscription timeout")
+	}
+
+	// Wait for subscription to be fully ready before sending messages
+	select {
+	case <-subscriptionReady:
+		// Subscription is ready
+	case <-time.After(5 * time.Second):
+		t.Fatal("Subscription ready timeout")
+	}
+
 	testMsgs := make([]*pldapi.PrivacyGroupMessageInput, 6)
 	testMsgIDs := make([]uuid.UUID, len(testMsgs))
-	for i := 0; i < len(testMsgs); i++ {
+	for i := range testMsgs {
 		testMsgs[i] = &pldapi.PrivacyGroupMessageInput{
 			Domain: "domain1",
 			Group:  groupID,
-			Data:   tktypes.JSONString("some data"),
+			Data:   pldtypes.JSONString(fmt.Sprintf("message %d", i)),
 			Topic:  "my/topic",
 		}
 	}
 
 	// Send first 3
 	err = gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			msgID, err := gm.SendMessage(ctx, dbTX, testMsgs[i])
 			require.NoError(t, err)
 			testMsgIDs[i] = *msgID
@@ -193,16 +229,24 @@ func TestRPCEventListenerE2E(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	subIDStr := <-subIDChan
-	_, err = uuid.Parse(subIDStr)
-	require.NoError(t, err)
-	subID.Store(&subIDStr)
+	close(ackReady)
 
-	for i := 0; i < 3; i++ {
-		require.Equal(t, testMsgIDs[i], (<-messages).ID)
+	// Wait for first 3 messages to be processed
+	receivedMsgs := 0
+	timeout := time.After(10 * time.Second)
+	for receivedMsgs < 3 {
+		select {
+		case msg := <-messages:
+			if msg != nil {
+				require.Contains(t, testMsgIDs, msg.ID)
+				receivedMsgs++
+			}
+		case <-timeout:
+			t.Fatalf("Timeout waiting for messages, received %d of 3", receivedMsgs)
+		}
 	}
 
-	// Send rest
+	// Send remaining 3 messages
 	err = gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		for i := 3; i < len(testMsgs); i++ {
 			msgID, err := gm.SendMessage(ctx, dbTX, testMsgs[i])
@@ -213,16 +257,32 @@ func TestRPCEventListenerE2E(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	for i := 3; i < len(testMsgs); i++ {
-		require.Equal(t, testMsgIDs[i], (<-messages).ID)
+	// Wait for next all messages
+	timeout = time.After(10 * time.Second)
+	for receivedMsgs < len(testMsgs) {
+		select {
+		case msg := <-messages:
+			if msg != nil {
+				require.Contains(t, testMsgIDs, msg.ID)
+				receivedMsgs++
+			}
+		case <-timeout:
+			t.Fatalf("Timeout waiting for messages, received %d of %d", receivedMsgs, len(testMsgs))
+		}
 	}
 
+	// Unsubscribe
 	reqID, req := rpcTestRequest("pgroup_unsubscribe", subIDStr)
 	unSubReqID.Store(reqID)
 	err = wsc.Send(ctx, req)
 	require.NoError(t, err)
-	<-unSubChan
 
+	select {
+	case <-unSubChan:
+		// Success
+	case <-time.After(5 * time.Second):
+		t.Fatal("Unsubscribe timeout")
+	}
 }
 
 func TestRPCEventListenerE2ENack(t *testing.T) {
@@ -232,8 +292,8 @@ func TestRPCEventListenerE2ENack(t *testing.T) {
 	mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").
 		Return([]*components.RegistryNodeTransportEntry{ /* contents not checked */ }, nil)
 
-	mc.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.MatchedBy(func(rm *pldapi.ReliableMessage) bool {
-		return rm.MessageType.V() == pldapi.RMTPrivacyGroupMessage
+	mc.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.MatchedBy(func(rm []*pldapi.ReliableMessage) bool {
+		return rm[0].MessageType.V() == pldapi.RMTPrivacyGroupMessage
 	})).Return(nil)
 
 	groupIDs := createTestGroups(t, ctx, mc, gm,
@@ -244,12 +304,7 @@ func TestRPCEventListenerE2ENack(t *testing.T) {
 	)
 	groupID := groupIDs[0]
 
-	wscConf, err := rpcclient.ParseWSConfig(ctx, &pldconf.WSClientConfig{
-		HTTPClientConfig: pldconf.HTTPClientConfig{URL: url},
-	})
-	require.NoError(t, err)
-
-	err = gm.CreateMessageListener(ctx, &pldapi.PrivacyGroupMessageListener{
+	err := gm.CreateMessageListener(ctx, &pldapi.PrivacyGroupMessageListener{
 		Name: "listener1",
 		Options: pldapi.PrivacyGroupMessageListenerOptions{
 			ExcludeLocal: false,
@@ -257,7 +312,9 @@ func TestRPCEventListenerE2ENack(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	wsc, err := wsclient.New(ctx, wscConf, nil, nil)
+	wsc, err := wsclient.New(ctx, &pldconf.WSClientConfig{
+		HTTPClientConfig: pldconf.HTTPClientConfig{URL: url},
+	}, nil, nil)
 	require.NoError(t, err)
 	err = wsc.Connect()
 	require.NoError(t, err)
@@ -267,102 +324,148 @@ func TestRPCEventListenerE2ENack(t *testing.T) {
 	err = wsc.Send(ctx, req)
 	require.NoError(t, err)
 
+	// Channels for coordination
 	subIDChan := make(chan string)
 	unSubChan := make(chan bool)
+	subscriptionReady := make(chan struct{}) // Signal when subscription is fully set up
 	sentNack := false
 	messages := make(chan *pldapi.PrivacyGroupMessage)
 	var unSubReqID atomic.Uint64
 	var subID atomic.Pointer[string]
 
+	// Reader goroutine: handles subscribe‐reply, subscription notifications,
+	// sends exactly one NACK then one ACK, and forwards redelivered message.
 	go func() {
-		for payload := range wsc.Receive() {
-			var rpcPayload *rpcclient.RPCResponse
-			err := json.Unmarshal(payload, &rpcPayload)
-			require.NoError(t, err)
+		defer close(messages)
+		for {
+			select {
+			case payload, ok := <-wsc.Receive():
+				if !ok {
+					return
+				}
 
-			if rpcPayload.Error != nil {
-				require.NoError(t, rpcPayload.Error)
-			}
-
-			if !rpcPayload.ID.IsNil() {
-				var rpcID uint64
-				err := json.Unmarshal(rpcPayload.ID.Bytes(), &rpcID)
+				var rpcPayload *rpcclient.RPCResponse
+				err := json.Unmarshal(payload, &rpcPayload)
 				require.NoError(t, err)
 
-				switch rpcID {
-				case subReqID: // Subscribe reply
-					subIDChan <- rpcPayload.Result.StringValue()
-					for subID.Load() == nil { // wait for subID to be set
-						time.Sleep(10 * time.Millisecond)
-					}
-				case unSubReqID.Load(): // Unsubscribe reply
-					unSubChan <- true
+				if rpcPayload.Error != nil {
+					require.NoError(t, rpcPayload.Error)
 				}
-			}
 
-			if rpcPayload.Method == "pgroup_subscription" {
-				var batchPayload pldapi.JSONRPCSubscriptionNotification[pldapi.PrivacyGroupMessageBatch]
-				err := json.Unmarshal(rpcPayload.Params.Bytes(), &batchPayload)
-				require.NoError(t, err)
-
-				if !sentNack {
-					// send nack first
-					_, req := rpcTestRequest("pgroup_nack", *subID.Load())
-					err = wsc.Send(ctx, req)
-					require.NoError(t, err)
-					sentNack = true
-				} else {
-					// then ack
-					for _, r := range batchPayload.Result.Messages {
-						messages <- r
-					}
-					_, req := rpcTestRequest("pgroup_ack", *subID.Load())
-					err = wsc.Send(ctx, req)
+				if !rpcPayload.ID.IsNil() {
+					var rpcID uint64
+					err := json.Unmarshal(rpcPayload.ID.Bytes(), &rpcID)
 					require.NoError(t, err)
 
+					switch rpcID {
+					case subReqID: // Subscribe reply
+						subIDStr := rpcPayload.Result.StringValue()
+						_, err = uuid.Parse(subIDStr)
+						require.NoError(t, err)
+						subID.Store(&subIDStr)
+						subIDChan <- subIDStr
+						// Signal that subscription is fully ready
+						close(subscriptionReady)
+					case unSubReqID.Load(): // Unsubscribe reply
+						unSubChan <- true
+					}
 				}
-			}
 
+				if rpcPayload.Method == "pgroup_subscription" {
+					var batchPayload pldapi.JSONRPCSubscriptionNotification[pldapi.PrivacyGroupMessageBatch]
+					err := json.Unmarshal(rpcPayload.Params.Bytes(), &batchPayload)
+					require.NoError(t, err)
+
+					if !sentNack {
+						// send nack first
+						if storedSubID := subID.Load(); storedSubID != nil {
+							_, req := rpcTestRequest("pgroup_nack", *storedSubID)
+							require.NoError(t, wsc.Send(ctx, req))
+							sentNack = true
+						}
+					} else {
+						// then ack and forward messages
+						for _, r := range batchPayload.Result.Messages {
+							select {
+							case messages <- r:
+							case <-ctx.Done():
+								return
+							}
+						}
+						if storedSubID := subID.Load(); storedSubID != nil {
+							_, req := rpcTestRequest("pgroup_ack", *storedSubID)
+							require.NoError(t, wsc.Send(ctx, req))
+						}
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
+	// Wait for subscription reply to ensure everything is set up
+	var sid string
+	select {
+	case sid = <-subIDChan:
+		require.NotEmpty(t, sid)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Subscription timeout")
+	}
+
+	// Wait for subscription to be fully ready before sending message
+	select {
+	case <-subscriptionReady:
+		// Subscription is ready
+	case <-time.After(5 * time.Second):
+		t.Fatal("Subscription ready timeout")
+	}
+
+	// Now send the message after subscription is confirmed and ready
+	var sentMsgID uuid.UUID
 	err = gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		_, err := gm.SendMessage(ctx, dbTX, &pldapi.PrivacyGroupMessageInput{
+		id, err := gm.SendMessage(ctx, dbTX, &pldapi.PrivacyGroupMessageInput{
 			Domain: "domain1",
 			Group:  groupID,
-			Data:   tktypes.JSONString("some data"),
+			Data:   pldtypes.JSONString("some data"),
 			Topic:  "my/topic",
 		})
+		if err == nil {
+			sentMsgID = *id
+		}
 		return err
 	})
 	require.NoError(t, err)
 
-	subIDStr := <-subIDChan
-	_, err = uuid.Parse(subIDStr)
-	require.NoError(t, err)
-	subID.Store(&subIDStr)
+	// The reader goroutine will first NACK and then, upon redelivery, push into `messages`
+	select {
+	case redelivered := <-messages:
+		require.Equal(t, sentMsgID, redelivered.ID)
+	case <-time.After(15 * time.Second):
+		t.Fatal("Did not receive redelivered message")
+	}
 
-	// We get it on redelivery
-	<-messages
-
-	reqID, req := rpcTestRequest("pgroup_unsubscribe", subIDStr)
+	// Finally unsubscribe
+	reqID, req := rpcTestRequest("pgroup_unsubscribe", sid)
 	unSubReqID.Store(reqID)
 	err = wsc.Send(ctx, req)
 	require.NoError(t, err)
-	<-unSubChan
 
+	select {
+	case <-unSubChan:
+		// Success
+	case <-time.After(5 * time.Second):
+		t.Fatalf("Unsubscribe timeout - connection may have been closed")
+	}
 }
 
 func TestRPCSubscribeNoType(t *testing.T) {
 	ctx, url, _, _, done := newTestGroupManagerWithWebSocketRPC(t)
 	defer done()
 
-	wscConf, err := rpcclient.ParseWSConfig(ctx, &pldconf.WSClientConfig{
+	wsc, err := wsclient.New(ctx, &pldconf.WSClientConfig{
 		HTTPClientConfig: pldconf.HTTPClientConfig{URL: url},
-	})
-	require.NoError(t, err)
-
-	wsc, err := wsclient.New(ctx, wscConf, nil, nil)
+	}, nil, nil)
 	require.NoError(t, err)
 	err = wsc.Connect()
 	require.NoError(t, err)
@@ -385,12 +488,9 @@ func TestRPCSubscribeNoListener(t *testing.T) {
 	ctx, url, _, _, done := newTestGroupManagerWithWebSocketRPC(t)
 	defer done()
 
-	wscConf, err := rpcclient.ParseWSConfig(ctx, &pldconf.WSClientConfig{
+	wsc, err := wsclient.New(ctx, &pldconf.WSClientConfig{
 		HTTPClientConfig: pldconf.HTTPClientConfig{URL: url},
-	})
-	require.NoError(t, err)
-
-	wsc, err := wsclient.New(ctx, wscConf, nil, nil)
+	}, nil, nil)
 	require.NoError(t, err)
 	err = wsc.Connect()
 	require.NoError(t, err)
@@ -413,12 +513,9 @@ func TestRPCSubscribeBadListener(t *testing.T) {
 	ctx, url, _, _, done := newTestGroupManagerWithWebSocketRPC(t)
 	defer done()
 
-	wscConf, err := rpcclient.ParseWSConfig(ctx, &pldconf.WSClientConfig{
+	wsc, err := wsclient.New(ctx, &pldconf.WSClientConfig{
 		HTTPClientConfig: pldconf.HTTPClientConfig{URL: url},
-	})
-	require.NoError(t, err)
-
-	wsc, err := wsclient.New(ctx, wscConf, nil, nil)
+	}, nil, nil)
 	require.NoError(t, err)
 	err = wsc.Connect()
 	require.NoError(t, err)
@@ -441,12 +538,9 @@ func TestUnsubscribeNoSubscriptionID(t *testing.T) {
 	ctx, url, _, _, done := newTestGroupManagerWithWebSocketRPC(t)
 	defer done()
 
-	wscConf, err := rpcclient.ParseWSConfig(ctx, &pldconf.WSClientConfig{
+	wsc, err := wsclient.New(ctx, &pldconf.WSClientConfig{
 		HTTPClientConfig: pldconf.HTTPClientConfig{URL: url},
-	})
-	require.NoError(t, err)
-
-	wsc, err := wsclient.New(ctx, wscConf, nil, nil)
+	}, nil, nil)
 	require.NoError(t, err)
 	err = wsc.Connect()
 	require.NoError(t, err)
@@ -471,7 +565,7 @@ func TestHandleLifecycleUnknown(t *testing.T) {
 
 	res := gm.rpcEventStreams.HandleLifecycle(ctx, &rpcclient.RPCRequest{
 		Method: "wrong",
-		Params: []tktypes.RawJSON{tktypes.RawJSON(`"any"`)},
+		Params: []pldtypes.RawJSON{pldtypes.RawJSON(`"any"`)},
 	})
 	require.Regexp(t, "PD012517", res.Error.Error())
 
@@ -482,6 +576,23 @@ type mockRPCAsyncControl struct{}
 func (ac *mockRPCAsyncControl) ID() string                     { return "sub1" }
 func (ac *mockRPCAsyncControl) Closed()                        {}
 func (ac *mockRPCAsyncControl) Send(method string, params any) {}
+
+func TestStopWithActiveSubscriptions(t *testing.T) {
+	_, _, gm, _, done := newTestGroupManagerWithWebSocketRPC(t)
+	defer done()
+
+	ctrl := &mockRPCAsyncControl{}
+	es := gm.rpcEventStreams
+	es.receiptSubs["sub1"] = &receiptListenerSubscription{
+		es:        es,
+		ctrl:      ctrl,
+		acksNacks: make(chan *rpcAckNack),
+		closed:    make(chan struct{}),
+	}
+
+	es.stop()
+	require.Empty(t, es.receiptSubs)
+}
 
 func TestHandleLifecycleNoBlockNack(t *testing.T) {
 	ctx, _, gm, _, done := newTestGroupManagerWithWebSocketRPC(t)
@@ -498,9 +609,9 @@ func TestHandleLifecycleNoBlockNack(t *testing.T) {
 
 	res := es.HandleLifecycle(ctx, &rpcclient.RPCRequest{
 		JSONRpc: "2.0",
-		ID:      tktypes.RawJSON("12345"),
+		ID:      pldtypes.RawJSON("12345"),
 		Method:  "pgroup_nack",
-		Params:  []tktypes.RawJSON{tktypes.RawJSON(`"sub1"`)},
+		Params:  []pldtypes.RawJSON{pldtypes.RawJSON(`"sub1"`)},
 	})
 	require.Nil(t, res)
 

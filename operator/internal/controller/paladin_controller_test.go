@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright 2025.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,23 +19,30 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	corev1alpha1 "github.com/kaleido-io/paladin/operator/api/v1alpha1"
-	"github.com/kaleido-io/paladin/operator/pkg/config"
+	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
+	"github.com/LFDT-Paladin/paladin/operator/pkg/config"
 )
 
 var _ = Describe("Paladin Controller", func() {
@@ -71,9 +78,10 @@ var _ = Describe("Paladin Controller", func() {
 						BesuNode: "node1",
 						SecretBackedSigners: []corev1alpha1.SecretBackedSigner{
 							{
-								Name:   "signer-1",
-								Secret: "node1.keys",
-								Type:   "autoHDWallet",
+								Name:           "signer-1",
+								Secret:         "node1.keys",
+								Type:           "autoHDWallet",
+								DerivationType: "bip32",
 							},
 						},
 						Transports: []corev1alpha1.TransportConfig{
@@ -115,6 +123,16 @@ var _ = Describe("Paladin Controller", func() {
 								},
 							},
 						},
+						SigningModules: []corev1alpha1.SigningModuleConfig{
+							{
+								Name: "sm",
+								Plugin: corev1alpha1.PluginConfig{
+									Type:    "c-shared",
+									Library: "/app/signingmodules/libsm.so",
+								},
+								ConfigJSON: `{"url": "http://smendpoint"}`,
+							},
+						},
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -142,9 +160,10 @@ var _ = Describe("Paladin Controller", func() {
 				},
 			}
 			controllerReconciler := &PaladinReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-				config: cfg,
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				RPCClientManager: NewRPCCache(),
+				config:           cfg,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -222,6 +241,55 @@ func TestGeneratePaladinAuthConfig(t *testing.T) {
 							Auth: &corev1alpha1.Auth{
 								Type:   corev1alpha1.AuthTypeSecret,
 								Secret: &corev1alpha1.AuthSecret{Name: "test-secret"},
+							},
+						},
+					},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "default",
+				},
+				Data: map[string][]byte{
+					"username": []byte("testuser"),
+					"password": []byte("testpass"),
+				},
+			},
+			wantErr: false,
+			expected: &pldconf.PaladinConfig{
+				Blockchain: pldconf.EthClientConfig{
+					HTTP: pldconf.HTTPClientConfig{
+						Auth: pldconf.HTTPBasicAuthConfig{
+							Username: "testuser",
+							Password: "testpass",
+						},
+					},
+					WS: pldconf.WSClientConfig{
+						HTTPClientConfig: pldconf.HTTPClientConfig{
+							Auth: pldconf.HTTPBasicAuthConfig{
+								Username: "testuser",
+								Password: "testpass",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "Valid AuthConfig with secretRef (deprecated)",
+			node: &corev1alpha1.Paladin{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-node",
+					Namespace: "default",
+				},
+				Spec: corev1alpha1.PaladinSpec{
+					BaseLedgerEndpoint: &corev1alpha1.BaseLedgerEndpoint{
+						Type: corev1alpha1.EndpointTypeNetwork,
+						Endpoint: &corev1alpha1.NetworkLedgerEndpoint{
+							Auth: &corev1alpha1.Auth{
+								Type:      corev1alpha1.AuthTypeSecret,
+								SecretRef: &corev1alpha1.AuthSecret{Name: "test-secret"},
 							},
 						},
 					},
@@ -360,4 +428,383 @@ func TestGeneratePaladinAuthConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func setupTestReconciler(objs ...client.Object) (*PaladinReconciler, client.Client, error) {
+	scheme := runtime.NewScheme()
+	err := corev1.AddToScheme(scheme)
+	if err != nil {
+		return nil, nil, err
+	}
+	err = appsv1.AddToScheme(scheme)
+	if err != nil {
+		return nil, nil, err
+	}
+	err = policyv1.AddToScheme(scheme)
+	if err != nil {
+		return nil, nil, err
+	}
+	err = corev1alpha1.AddToScheme(scheme)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(objs...).
+		WithStatusSubresource(&corev1alpha1.Paladin{}). // Enable status subresource
+		Build()
+
+	cfg := &config.Config{
+		Paladin: config.Template{
+			Image:           "paladin:latest",
+			ImagePullPolicy: corev1.PullIfNotPresent,
+			Envs:            map[string]string{},
+			Labels:          map[string]string{},
+		},
+		Postgres: config.Template{
+			Image:           "postgres:latest",
+			ImagePullPolicy: corev1.PullIfNotPresent,
+			Envs:            map[string]string{},
+			Labels:          map[string]string{},
+		},
+	}
+
+	reconciler := &PaladinReconciler{
+		Client:           client,
+		Scheme:           scheme,
+		config:           cfg,
+		RPCClientManager: NewRPCCache(),
+		Changes:          NewInFlight(1 * time.Second),
+	}
+
+	return reconciler, client, nil
+}
+func TestPaladinReconcile_NewResource(t *testing.T) {
+	// Set up logger for testing
+	log.SetLogger(zap.New(zap.UseDevMode(true)))
+
+	// Create a Paladin resource with TypeMeta correctly set
+	paladin := &corev1alpha1.Paladin{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "core.paladin.io/v1alpha1",
+			Kind:       "Paladin",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+		Spec: corev1alpha1.PaladinSpec{
+			Database: corev1alpha1.Database{ // Ensure correct spec type
+				Mode: corev1alpha1.DBMode_EmbeddedSQLite,
+			},
+		},
+	}
+
+	// Set up the test reconciler with the Paladin resource
+	reconciler, client, err := setupTestReconciler(paladin)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      paladin.Name,
+			Namespace: paladin.Namespace,
+		},
+	}
+
+	// Invoke Reconcile first time
+	result, err := reconciler.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// Fetch the updated Paladin resource
+	updatedPaladin := &corev1alpha1.Paladin{}
+	err = client.Get(ctx, req.NamespacedName, updatedPaladin)
+	require.NoError(t, err)
+
+	// Check that the status phase is set to Pending
+	assert.Equal(t, corev1alpha1.StatusPhaseReady, updatedPaladin.Status.Phase)
+
+	// Simulate StatefulSet becoming ready
+	statefulSet := &appsv1.StatefulSet{}
+	err = client.Get(ctx, types.NamespacedName{
+		Name:      generatePaladinName(paladin.Name),
+		Namespace: paladin.Namespace,
+	}, statefulSet)
+	require.NoError(t, err)
+
+	// Manually update the StatefulSet's status to indicate readiness
+	if statefulSet.Spec.Replicas != nil {
+		replicas := *statefulSet.Spec.Replicas
+		statefulSet.Status.Replicas = replicas
+		statefulSet.Status.ReadyReplicas = replicas
+	} else {
+		// Default to 1 replica if not set
+		statefulSet.Status.Replicas = 1
+		statefulSet.Status.ReadyReplicas = 1
+	}
+	err = client.Status().Update(ctx, statefulSet)
+	require.NoError(t, err)
+
+	// Invoke Reconcile second time to update status to Ready
+	result, err = reconciler.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// Fetch the updated Paladin resource again
+	err = client.Get(ctx, req.NamespacedName, updatedPaladin)
+	require.NoError(t, err)
+
+	// Check that the status phase is set to Ready
+	assert.Equal(t, corev1alpha1.StatusPhaseReady, updatedPaladin.Status.Phase)
+
+	// delete the resource
+	err = client.Delete(ctx, updatedPaladin)
+	require.NoError(t, err)
+
+	_, err = reconciler.Reconcile(ctx, req)
+	require.NoError(t, err)
+
+	// Check that the resource is deleted
+	err = client.Get(ctx, req.NamespacedName, updatedPaladin)
+	require.Error(t, err)
+	assert.True(t, errors.IsNotFound(err), "Expected resource to be not found")
+}
+
+func TestPaladinCreateService(t *testing.T) {
+	paladin := &corev1alpha1.Paladin{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+		Spec: corev1alpha1.PaladinSpec{},
+	}
+
+	reconciler, client, err := setupTestReconciler(paladin)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	name := generatePaladinName(paladin.Name)
+
+	svc, err := reconciler.createService(ctx, paladin, name)
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+
+	// Fetch the service from the fake client
+	fetchedSvc := &corev1.Service{}
+	err = client.Get(ctx, types.NamespacedName{Name: name, Namespace: paladin.Namespace}, fetchedSvc)
+	require.NoError(t, err)
+
+	// Verify the service properties
+	assert.Equal(t, name, fetchedSvc.Name)
+	assert.Equal(t, paladin.Namespace, fetchedSvc.Namespace)
+	assert.Equal(t, corev1.ServiceTypeClusterIP, fetchedSvc.Spec.Type)
+	assert.Len(t, fetchedSvc.Spec.Ports, 2)
+}
+
+func TestPaladinCreateConfigMap(t *testing.T) {
+	paladin := &corev1alpha1.Paladin{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+		Spec: corev1alpha1.PaladinSpec{
+			Database: corev1alpha1.Database{
+				Mode: corev1alpha1.DBMode_EmbeddedSQLite,
+			},
+		},
+	}
+
+	reconciler, client, err := setupTestReconciler(paladin)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	name := generatePaladinName(paladin.Name)
+
+	configSum, tlsSecrets, cm, err := reconciler.createConfigMap(ctx, paladin, name)
+	require.NoError(t, err)
+	require.NotNil(t, cm)
+	assert.NotEmpty(t, configSum)
+	assert.Empty(t, tlsSecrets)
+
+	// Fetch the ConfigMap from the fake client
+	fetchedCM := &corev1.ConfigMap{}
+	err = client.Get(ctx, types.NamespacedName{Name: name, Namespace: paladin.Namespace}, fetchedCM)
+	require.NoError(t, err)
+
+	// Verify the ConfigMap data
+	assert.Contains(t, fetchedCM.Data, "pldconf.paladin.yaml")
+}
+
+func TestPaladinCreateStatefulSet(t *testing.T) {
+	paladin := &corev1alpha1.Paladin{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+		Spec: corev1alpha1.PaladinSpec{
+			Database: corev1alpha1.Database{
+				Mode: corev1alpha1.DBMode_EmbeddedSQLite,
+			},
+		},
+	}
+
+	reconciler, client, err := setupTestReconciler(paladin)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	name := generatePaladinName(paladin.Name)
+	configSum := "test-config-sum"
+
+	ss, err := reconciler.createStatefulSet(ctx, paladin, name, nil, configSum)
+	require.NoError(t, err)
+	require.NotNil(t, ss)
+
+	// Fetch the StatefulSet from the fake client
+	fetchedSS := &appsv1.StatefulSet{}
+	err = client.Get(ctx, types.NamespacedName{Name: name, Namespace: paladin.Namespace}, fetchedSS)
+	require.NoError(t, err)
+
+	// Verify the StatefulSet properties
+	assert.Equal(t, name, fetchedSS.Name)
+	assert.Equal(t, paladin.Namespace, fetchedSS.Namespace)
+	assert.Len(t, fetchedSS.Spec.Template.Spec.Containers, 1)
+	assert.Equal(t, "paladin", fetchedSS.Spec.Template.Spec.Containers[0].Name)
+}
+
+func TestPaladinCreateStatefulSetWithLogPersistence(t *testing.T) {
+	logPath := "/app/logs/paladin.log"
+	paladin := &corev1alpha1.Paladin{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+		Spec: corev1alpha1.PaladinSpec{
+			Database: corev1alpha1.Database{
+				Mode: corev1alpha1.DBMode_EmbeddedSQLite,
+			},
+			LogPersistence: &corev1alpha1.LogPersistence{
+				Enabled: true,
+				Path:    logPath,
+			},
+		},
+	}
+
+	reconciler, client, err := setupTestReconciler(paladin)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	name := generatePaladinName(paladin.Name)
+	configSum := "test-config-sum"
+
+	ss, err := reconciler.createStatefulSet(ctx, paladin, name, nil, configSum)
+	require.NoError(t, err)
+	require.NotNil(t, ss)
+
+	fetchedSS := &appsv1.StatefulSet{}
+	err = client.Get(ctx, types.NamespacedName{Name: name, Namespace: paladin.Namespace}, fetchedSS)
+	require.NoError(t, err)
+
+	volumeFound := false
+	for _, volume := range fetchedSS.Spec.Template.Spec.Volumes {
+		if volume.Name == "logs" {
+			volumeFound = true
+			require.NotNil(t, volume.PersistentVolumeClaim)
+			assert.Equal(t, "paladin-test-node-logs", volume.PersistentVolumeClaim.ClaimName)
+		}
+	}
+	assert.True(t, volumeFound, "expected logs volume to be present")
+
+	mountFound := false
+	for _, mount := range fetchedSS.Spec.Template.Spec.Containers[0].VolumeMounts {
+		if mount.Name == "logs" {
+			mountFound = true
+			assert.Equal(t, "/app/logs", mount.MountPath)
+		}
+	}
+	assert.True(t, mountFound, "expected logs volume mount to be present")
+
+	pvc := &corev1.PersistentVolumeClaim{}
+	err = client.Get(ctx, types.NamespacedName{Name: "paladin-test-node-logs", Namespace: paladin.Namespace}, pvc)
+	require.NoError(t, err)
+}
+
+func TestGeneratePaladinConfig(t *testing.T) {
+	paladin := &corev1alpha1.Paladin{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+		Spec: corev1alpha1.PaladinSpec{
+			Database: corev1alpha1.Database{
+				Mode: corev1alpha1.DBMode_EmbeddedSQLite,
+			},
+		},
+	}
+
+	reconciler, _, err := setupTestReconciler()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	name := generatePaladinName(paladin.Name)
+
+	configYAML, tlsSecrets, err := reconciler.generatePaladinConfig(ctx, paladin, name)
+	require.NoError(t, err)
+	require.NotEmpty(t, configYAML)
+	assert.Empty(t, tlsSecrets)
+
+	// Verify that the generated config contains expected values
+	assert.Contains(t, configYAML, `nodeName: test-node`)
+}
+
+func TestGeneratePaladinConfigWithLogPersistence(t *testing.T) {
+	paladin := &corev1alpha1.Paladin{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+		Spec: corev1alpha1.PaladinSpec{
+			Database: corev1alpha1.Database{
+				Mode: corev1alpha1.DBMode_EmbeddedSQLite,
+			},
+			LogPersistence: &corev1alpha1.LogPersistence{
+				Enabled: true,
+				Path:    "/app/logs/paladin.log",
+			},
+		},
+	}
+
+	reconciler, _, err := setupTestReconciler()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	name := generatePaladinName(paladin.Name)
+
+	configYAML, _, err := reconciler.generatePaladinConfig(ctx, paladin, name)
+	require.NoError(t, err)
+	assert.Contains(t, configYAML, "output: file")
+	assert.Contains(t, configYAML, "filename: /app/logs/paladin.log")
+}
+func TestGetPaladinURLEndpoint(t *testing.T) {
+	paladin := &corev1alpha1.Paladin{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+	}
+
+	_, client, err := setupTestReconciler(paladin)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	url, err := getPaladinURLEndpoint(ctx, client, paladin.Name, paladin.Namespace)
+	require.NoError(t, err)
+	assert.Equal(t, "http://paladin-test-node.default.svc.cluster.local:8548", url)
+}
+
+func TestGeneratePaladinName(t *testing.T) {
+	name := generatePaladinName("test-node")
+	assert.Equal(t, "paladin-test-node", name)
 }

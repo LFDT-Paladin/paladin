@@ -22,11 +22,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/core/pkg/testbed"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/solutils"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +38,7 @@ type NotoTrackerHelper struct {
 	t       *testing.T
 	tb      testbed.Testbed
 	pld     pldclient.PaladinClient
-	Address *tktypes.EthAddress
+	Address *pldtypes.EthAddress
 	ABI     abi.ABI
 }
 

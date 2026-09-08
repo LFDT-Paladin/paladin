@@ -119,7 +119,9 @@
              @JsonProperty
              List<StateEncoded> readStates,
              @JsonProperty
-             JsonNode domainData
+             List<StateEncoded> infoStates,
+             @JsonProperty
+             JsonNode domainReceipt
      ) {
      }
  

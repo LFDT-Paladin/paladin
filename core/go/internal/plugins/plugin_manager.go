@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2025 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -17,28 +17,30 @@ package plugins
 import (
 	"context"
 	"fmt"
+	iofs "io/fs"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"google.golang.org/grpc"
 )
 
-func MapLibraryTypeToProto(t tktypes.Enum[tktypes.LibraryType]) (prototk.PluginLoad_LibType, error) {
-	return tktypes.MapEnum(t, map[tktypes.LibraryType]prototk.PluginLoad_LibType{
-		tktypes.LibraryTypeCShared: prototk.PluginLoad_C_SHARED,
-		tktypes.LibraryTypeJar:     prototk.PluginLoad_JAR,
+func MapLibraryTypeToProto(t pldtypes.Enum[pldtypes.LibraryType]) (prototk.PluginLoad_LibType, error) {
+	return pldtypes.MapEnum(t, map[pldtypes.LibraryType]prototk.PluginLoad_LibType{
+		pldtypes.LibraryTypeCShared: prototk.PluginLoad_C_SHARED,
+		pldtypes.LibraryTypeJar:     prototk.PluginLoad_JAR,
 	})
 }
 
@@ -48,6 +50,7 @@ type pluginManager struct {
 	mux      sync.Mutex
 	listener net.Listener
 	server   *grpc.Server
+	fs       pluginManagerFileSystem
 
 	loaderID        uuid.UUID
 	grpcTarget      string
@@ -64,6 +67,12 @@ type pluginManager struct {
 	registryManager components.RegistryManager
 	registryPlugins map[uuid.UUID]*plugin[prototk.RegistryMessage]
 
+	signingModuleManager components.KeyManager
+	signingModulePlugins map[uuid.UUID]*plugin[prototk.SigningModuleMessage]
+
+	rpcAuthManager components.RPCAuthManager
+	authPlugins    map[uuid.UUID]*plugin[prototk.RPCAuthMessage]
+
 	notifyPluginsUpdated chan bool
 	notifySystemCommand  chan prototk.PluginLoad_SysCommand
 	pluginLoaderDone     chan struct{}
@@ -71,21 +80,40 @@ type pluginManager struct {
 	serverDone           chan error
 }
 
+// Wrapper around os.Lstat and os.Remove to allow for testing error cases
+type pluginManagerFileSystem interface {
+	Lstat(name string) (iofs.FileInfo, error)
+	Remove(name string) error
+}
+
+type osPluginManagerFileSystem struct{}
+
+func (osPluginManagerFileSystem) Lstat(name string) (iofs.FileInfo, error) {
+	return os.Lstat(name)
+}
+
+func (osPluginManagerFileSystem) Remove(name string) error {
+	return os.Remove(name)
+}
+
 func NewPluginManager(bgCtx context.Context,
 	grpcTarget string, // default is a UDS path, can use tcp:127.0.0.1:12345 strings too (or tcp4:/tcp6:)
 	loaderID uuid.UUID,
-	conf *pldconf.PluginManagerConfig) components.PluginManager {
+	conf *pldconf.PluginManagerInlineConfig) components.PluginManager {
 
 	pc := &pluginManager{
-		bgCtx: bgCtx,
+		bgCtx: log.WithComponent(bgCtx, log.Component("pluginmanager")),
+		fs:    osPluginManagerFileSystem{},
 
 		grpcTarget:      grpcTarget,
 		loaderID:        loaderID,
-		shutdownTimeout: confutil.DurationMin(conf.GRPC.ShutdownTimeout, 0, *pldconf.DefaultGRPCConfig.ShutdownTimeout),
+		shutdownTimeout: confutil.DurationMin(conf.GRPC.ShutdownTimeout, 0, *pldconf.PluginManagerInlineConfigDefaults.GRPC.ShutdownTimeout),
 
-		domainPlugins:    make(map[uuid.UUID]*plugin[prototk.DomainMessage]),
-		transportPlugins: make(map[uuid.UUID]*plugin[prototk.TransportMessage]),
-		registryPlugins:  make(map[uuid.UUID]*plugin[prototk.RegistryMessage]),
+		domainPlugins:        make(map[uuid.UUID]*plugin[prototk.DomainMessage]),
+		transportPlugins:     make(map[uuid.UUID]*plugin[prototk.TransportMessage]),
+		registryPlugins:      make(map[uuid.UUID]*plugin[prototk.RegistryMessage]),
+		signingModulePlugins: make(map[uuid.UUID]*plugin[prototk.SigningModuleMessage]),
+		authPlugins:          make(map[uuid.UUID]*plugin[prototk.RPCAuthMessage]),
 
 		serverDone:           make(chan error),
 		notifyPluginsUpdated: make(chan bool, 1),
@@ -138,6 +166,8 @@ func (pm *pluginManager) PostInit(c components.AllComponents) error {
 	pm.domainManager = c.DomainManager()
 	pm.transportManager = c.TransportManager()
 	pm.registryManager = c.RegistryManager()
+	pm.signingModuleManager = c.KeyManager()
+	pm.rpcAuthManager = c.RPCAuthManager()
 
 	if err := pm.ReloadPluginList(); err != nil {
 		return err
@@ -152,6 +182,18 @@ func (pm *pluginManager) PostInit(c components.AllComponents) error {
 func (pm *pluginManager) Start() (err error) {
 	ctx := pm.bgCtx
 	log.L(ctx).Infof("server starting on %s:%s", pm.network, pm.address)
+
+	if stat, statErr := pm.fs.Lstat(pm.address); statErr == nil {
+		if !stat.IsDir() {
+			if err := pm.fs.Remove(pm.address); err != nil && !os.IsNotExist(err) {
+				log.L(ctx).Error("failed to remove stale listener path: ", err)
+				return err
+			}
+		}
+	} else if !os.IsNotExist(statErr) {
+		log.L(ctx).Error("failed to inspect listener path: ", statErr)
+		return statErr
+	}
 	pm.listener, err = net.Listen(pm.network, pm.address)
 	if err != nil {
 		log.L(ctx).Error("failed to listen: ", err)
@@ -208,6 +250,11 @@ func (pm *pluginManager) LoaderID() uuid.UUID {
 }
 
 func (pm *pluginManager) ReloadPluginList() (err error) {
+	for name, smp := range pm.signingModuleManager.ConfiguredSigningModules() {
+		if err == nil {
+			err = initPlugin(pm.bgCtx, pm, pm.signingModulePlugins, name, prototk.PluginInfo_SIGNING_MODULE, smp)
+		}
+	}
 	for name, dp := range pm.domainManager.ConfiguredDomains() {
 		if err == nil {
 			err = initPlugin(pm.bgCtx, pm, pm.domainPlugins, name, prototk.PluginInfo_DOMAIN, dp)
@@ -223,6 +270,12 @@ func (pm *pluginManager) ReloadPluginList() (err error) {
 			err = initPlugin(pm.bgCtx, pm, pm.registryPlugins, name, prototk.PluginInfo_REGISTRY, tp)
 		}
 	}
+	for name, ap := range pm.rpcAuthManager.ConfiguredRPCAuthorizers() {
+		if err == nil {
+			err = initPlugin(pm.bgCtx, pm, pm.authPlugins, name, prototk.PluginInfo_RPC_AUTH, ap)
+		}
+	}
+
 	if err != nil {
 		return err
 	}
@@ -234,13 +287,42 @@ func (pm *pluginManager) ReloadPluginList() (err error) {
 	return nil
 }
 
-func (pm *pluginManager) WaitForInit(ctx context.Context) error {
+func (pm *pluginManager) WaitForInit(ctx context.Context, pluginType prototk.PluginInfo_PluginType) error {
+	ctx = log.WithComponent(ctx, log.Component("pluginmanager"))
 	for {
-		unloadedDomainPlugins, _ := unloadedPlugins(pm, pm.domainPlugins, prototk.PluginInfo_DOMAIN, false)
-		unloadedCount := len(unloadedDomainPlugins)
-		if unloadedCount == 0 {
-			return nil
+		switch pluginType {
+		case prototk.PluginInfo_DOMAIN:
+			unloadedPlugins, _ := unloadedPlugins(pm, pm.domainPlugins, pluginType, false)
+			unloadedCount := len(unloadedPlugins)
+			if unloadedCount == 0 {
+				return nil
+			}
+		case prototk.PluginInfo_REGISTRY:
+			unloadedPlugins, _ := unloadedPlugins(pm, pm.registryPlugins, pluginType, false)
+			unloadedCount := len(unloadedPlugins)
+			if unloadedCount == 0 {
+				return nil
+			}
+		case prototk.PluginInfo_SIGNING_MODULE:
+			unloadedPlugins, _ := unloadedPlugins(pm, pm.signingModulePlugins, pluginType, false)
+			unloadedCount := len(unloadedPlugins)
+			if unloadedCount == 0 {
+				return nil
+			}
+		case prototk.PluginInfo_TRANSPORT:
+			unloadedPlugins, _ := unloadedPlugins(pm, pm.transportPlugins, pluginType, false)
+			unloadedCount := len(unloadedPlugins)
+			if unloadedCount == 0 {
+				return nil
+			}
+		case prototk.PluginInfo_RPC_AUTH:
+			unloadedPlugins, _ := unloadedPlugins(pm, pm.authPlugins, pluginType, false)
+			unloadedCount := len(unloadedPlugins)
+			if unloadedCount == 0 {
+				return nil
+			}
 		}
+
 		select {
 		case loadErrOrNil := <-pm.loadingProgressed:
 			if loadErrOrNil != nil {
@@ -254,7 +336,7 @@ func (pm *pluginManager) WaitForInit(ctx context.Context) error {
 }
 
 func (pm *pluginManager) newReqContext() context.Context {
-	return log.WithLogField(pm.bgCtx, "plugin_reqid", tktypes.ShortID())
+	return log.WithLogField(pm.bgCtx, "plugin_reqid", pldtypes.ShortID())
 }
 
 func (pm *pluginManager) InitLoader(req *prototk.PluginLoaderInit, stream prototk.PluginController_InitLoaderServer) error {
@@ -295,7 +377,7 @@ func initPlugin[CB any](ctx context.Context, pm *pluginManager, pluginMap map[uu
 	pm.mux.Lock()
 	defer pm.mux.Unlock()
 	plugin := &plugin[CB]{pc: pm, id: uuid.New(), name: name}
-	if err := tktypes.ValidateSafeCharsStartEndAlphaNum(ctx, name, tktypes.DefaultNameMaxLen, "name"); err != nil {
+	if err := pldtypes.ValidateSafeCharsStartEndAlphaNum(ctx, name, pldtypes.DefaultNameMaxLen, "name"); err != nil {
 		return err
 	}
 	plugin.def = &prototk.PluginLoad{
@@ -307,7 +389,7 @@ func initPlugin[CB any](ctx context.Context, pm *pluginManager, pluginMap map[uu
 		LibLocation: conf.Library,
 		Class:       conf.Class,
 	}
-	pluginType, err := tktypes.LibraryType(conf.Type).Enum().Validate()
+	pluginType, err := pldtypes.LibraryType(conf.Type).Enum().Validate()
 	if err == nil {
 		plugin.def.LibType, err = MapLibraryTypeToProto(pluginType.Enum())
 		pluginMap[plugin.id] = plugin
@@ -370,6 +452,12 @@ func (pm *pluginManager) sendPluginsToLoader(stream prototk.PluginController_Ini
 	for {
 		// We send a load request for each plugin that isn't new - which should result in that plugin being loaded
 		// and resulting in a ConnectDomain bi-directional stream being set up.
+		_, notInitializingSigningModules := unloadedPlugins(pm, pm.signingModulePlugins, prototk.PluginInfo_SIGNING_MODULE, true)
+		for _, plugin := range notInitializingSigningModules {
+			if err == nil {
+				err = stream.Send(plugin.def)
+			}
+		}
 		_, notInitializingDomains := unloadedPlugins(pm, pm.domainPlugins, prototk.PluginInfo_DOMAIN, true)
 		for _, plugin := range notInitializingDomains {
 			if err == nil {
@@ -384,6 +472,12 @@ func (pm *pluginManager) sendPluginsToLoader(stream prototk.PluginController_Ini
 		}
 		_, notInitializingRegistries := unloadedPlugins(pm, pm.registryPlugins, prototk.PluginInfo_REGISTRY, true)
 		for _, plugin := range notInitializingRegistries {
+			if err == nil {
+				err = stream.Send(plugin.def)
+			}
+		}
+		_, notInitializingAuth := unloadedPlugins(pm, pm.authPlugins, prototk.PluginInfo_RPC_AUTH, true)
+		for _, plugin := range notInitializingAuth {
 			if err == nil {
 				err = stream.Send(plugin.def)
 			}

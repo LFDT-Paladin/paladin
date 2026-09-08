@@ -22,16 +22,16 @@ import (
 	"hash/fnv"
 	"time"
 
-	"github.com/kaleido-io/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 )
 
 type Writeable[R any] interface {
@@ -119,7 +119,7 @@ func NewWriter[T Writeable[R], R any](
 	batchTimeout := confutil.DurationMin(conf.BatchTimeout, 0, *defaults.BatchTimeout)
 	w := &writer[T, R]{
 		p:            p,
-		writerId:     tktypes.ShortID(), // so logs distinguish these writers from any others
+		writerId:     pldtypes.ShortID(), // so logs distinguish these writers from any others
 		handler:      handler,
 		workerCount:  workerCount,
 		batchTimeout: batchTimeout,
@@ -164,7 +164,7 @@ func (op *op[T, R]) Flushed() <-chan Result[R] {
 
 func (w *writer[T, R]) queue(ctx context.Context, value T, flush bool) *op[T, R] {
 	op := &op[T, R]{
-		id:       tktypes.ShortID(),
+		id:       pldtypes.ShortID(),
 		writeKey: value.WriteKey(),
 		value:    value,
 		flush:    flush,
@@ -181,7 +181,7 @@ func (w *writer[T, R]) queue(ctx context.Context, value T, flush bool) *op[T, R]
 	h := fnv.New32a() // simple non-cryptographic hash algo
 	_, _ = h.Write([]byte(op.writeKey))
 	routine := h.Sum32() % uint32(w.workerCount)
-	log.L(ctx).Debugf("Queuing write operation %s to writer_%s_%.4d", w.writerId, op.id, routine)
+	log.L(ctx).Debugf("Queuing write operation %s to writer_%s_%.4d", op.id, w.writerId, routine)
 	select {
 	case w.workQueues[routine] <- op: // it's queued
 	case <-ctx.Done(): // timeout of caller context
@@ -197,7 +197,16 @@ func (w *writer[T, R]) queue(ctx context.Context, value T, flush bool) *op[T, R]
 }
 
 func (w *writer[T, R]) worker(i int) {
-	defer close(w.workersDone[i])
+	defer func() {
+		if w.workersDone[i] != nil {
+			// Close the channel if it isn't closed already
+			select {
+			case <-w.workersDone[i]:
+			default:
+				close(w.workersDone[i])
+			}
+		}
+	}()
 	workerID := fmt.Sprintf("writer_%s_%.4d", w.writerId, i)
 	ctx := log.WithLogField(w.bgCtx, "job", workerID)
 	l := log.L(ctx)
@@ -246,7 +255,9 @@ func (w *writer[T, R]) worker(i int) {
 		}
 
 		if b != nil && (timedOutOrFlush || (len(b.ops) >= w.batchMaxSize)) {
-			b.timeoutCancel()
+			if b.timeoutContext != nil {
+				b.timeoutCancel()
+			}
 			l.Debugf("Running batch %s (len=%d,timeout=%t,age=%dms)", b.id, len(b.ops), timedOutOrFlush, time.Since(b.opened).Milliseconds())
 			w.runBatch(ctx, b)
 			b = nil

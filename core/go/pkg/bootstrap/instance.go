@@ -19,19 +19,21 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 	"syscall"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/componentmgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/config"
+	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/componentmgr"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/pkg/testbed"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 )
 
 var componentManagerFactory = componentmgr.NewComponentManager
@@ -92,7 +94,7 @@ func (i *instance) run() RC {
 	}
 
 	var conf pldconf.PaladinConfig
-	if err = pldconf.ReadAndParseYAMLFile(i.ctx, i.configFile, &conf); err != nil {
+	if err = config.ReadAndParseYAMLFile(i.ctx, i.configFile, &conf); err != nil {
 		log.L(i.ctx).Error(err.Error())
 		return RC_FAIL
 	}
@@ -100,6 +102,11 @@ func (i *instance) run() RC {
 	var additionalManagers []components.AdditionalManager
 	switch i.runMode {
 	case "testbed":
+		// Limit the Go scheduler to one logical processor in testbed mode.
+		// The c-shared runtime cannot unload between tests, so idle OS threads
+		// accumulate across Run()/Stop() cycles. GOMAXPROCS(1) caps the thread
+		// pool to ~1, preventing starvation of the host JVM.
+		runtime.GOMAXPROCS(1)
 		additionalManagers = append(additionalManagers, testbed.NewTestBed())
 	case "engine":
 	default:

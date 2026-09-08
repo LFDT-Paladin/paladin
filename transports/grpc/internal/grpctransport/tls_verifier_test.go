@@ -27,14 +27,15 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,6 +86,14 @@ func buildTestCertificate(t *testing.T, subject pkix.Name, ca *x509.Certificate,
 }
 
 func newTestGRPCTransport(t *testing.T, nodeCert, nodeKey string, conf *Config) (*grpcTransport, *PublishedTransportDetails, *testCallbacks, func()) {
+	return newTestGRPCTransportPreServe(t, nodeCert, nodeKey, conf, nil)
+}
+
+// preServe, if supplied, runs after ConfigureTransport has built the server but before it starts
+// accepting connections. Any test that needs to adjust the TLS config must do it here - once the
+// server is serving, peerValidator clones baseTLSConfig on every handshake (including the dial
+// below that waits for the socket), so a later write would be a data race.
+func newTestGRPCTransportPreServe(t *testing.T, nodeCert, nodeKey string, conf *Config, preServe func(*grpcTransport)) (*grpcTransport, *PublishedTransportDetails, *testCallbacks, func()) {
 	// Grab a localhost port to use and put that in config
 	portGrabber, err := net.Listen("tcp", "127.0.0.1:0")
 	assert.NoError(t, err)
@@ -105,12 +114,21 @@ func newTestGRPCTransport(t *testing.T, nodeCert, nodeKey string, conf *Config) 
 	//  construct the plugin
 	callbacks := &testCallbacks{}
 	transport := NewGRPCTransport(callbacks).(*grpcTransport)
+	if preServe != nil {
+		// ConfigureTransport only starts the serve goroutine when serverDone is nil, so pre-setting
+		// it holds the server back until we have run preServe and started serve() ourselves.
+		transport.serverDone = make(chan struct{})
+	}
 	res, err := transport.ConfigureTransport(transport.bgCtx, &prototk.ConfigureTransportRequest{
 		Name:       "grpc",
 		ConfigJson: string(jsonConf),
 	})
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
+	if preServe != nil {
+		preServe(transport)
+		go transport.serve(transport.grpcServer, transport.listener, transport.serverDone)
+	}
 
 	// Build the transport details for this plugin
 	transportDetails := &PublishedTransportDetails{
@@ -119,25 +137,22 @@ func newTestGRPCTransport(t *testing.T, nodeCert, nodeKey string, conf *Config) 
 	}
 
 	// Wait until the socket is up
-	startTime := time.Now()
-	for {
-		c, err := net.Dial("tcp", transport.listener.Addr().String())
-		if err == nil {
-			c.Close()
-			break
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		conn, err := net.Dial("tcp", transport.listener.Addr().String())
+		if err != nil {
+			return
 		}
-		if time.Since(startTime) > 2*time.Second {
-			require.Failf(t, "server took too long to start: %s", err.Error())
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		_ = conn.Close()
+		assert.True(c, true) // explicitly pass
+	}, 2*time.Second, 10*time.Millisecond, "server took too long to start")
 
 	return transport, transportDetails, callbacks, func() {
 		panicked := recover()
 		if panicked != nil {
 			panic(panicked)
 		}
-		transport.grpcServer.Stop()
+		_, err := transport.StopTransport(context.Background(), &prototk.StopTransportRequest{})
+		require.NoError(t, err)
 		<-transport.serverDone
 	}
 }
@@ -145,7 +160,7 @@ func newTestGRPCTransport(t *testing.T, nodeCert, nodeKey string, conf *Config) 
 func mockRegistry(cb *testCallbacks, ptds map[string]*PublishedTransportDetails) {
 	reg := make(map[string]string)
 	for node, ptd := range ptds {
-		reg[node] = tktypes.JSONString(ptd).String()
+		reg[node] = pldtypes.JSONString(ptd).String()
 	}
 	cb.getTransportDetails = func(ctx context.Context, gtdr *prototk.GetTransportDetailsRequest) (*prototk.GetTransportDetailsResponse, error) {
 		res := reg[gtdr.Node]
@@ -190,7 +205,7 @@ func testActivatePeer(t *testing.T, sender *grpcTransport, remoteNodeName string
 
 	res, err := sender.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         remoteNodeName,
-		TransportDetails: tktypes.JSONString(transportDetails).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails).Pretty(),
 	})
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
@@ -373,7 +388,7 @@ func TestGRPCTransport_CAServerWrongCA(t *testing.T) {
 
 	_, err = plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Error(t, err)
 
@@ -410,7 +425,7 @@ func TestGRPCTransport_CAClientWrongCA(t *testing.T) {
 
 	_, err = plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Error(t, err)
 
@@ -438,7 +453,7 @@ func TestGRPCTransport_DirectCertVerification_WrongIssuerServer(t *testing.T) {
 
 	_, err := plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Regexp(t, "PD030007", err)
 
@@ -466,7 +481,7 @@ func TestGRPCTransport_DirectCertVerification_WrongIssuerClient(t *testing.T) {
 
 	_, err := plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Error(t, err)
 
@@ -491,7 +506,7 @@ func TestGRPCTransport_DirectCertVerification_BadIssuersServer(t *testing.T) {
 
 	_, err := plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Regexp(t, "PD030012", err)
 
@@ -517,7 +532,7 @@ func TestGRPCTransport_SubjectRegexpMismatch(t *testing.T) {
 
 	_, err := plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Regexp(t, "PD030008", err)
 
@@ -541,7 +556,7 @@ func TestGRPCTransport_ClientWrongNode(t *testing.T) {
 
 	_, err := plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node3",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Regexp(t, "PD030011", err)
 
@@ -569,7 +584,7 @@ func TestGRPCTransport_BadTransportDetails(t *testing.T) {
 
 	_, err := plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Regexp(t, "PD030006", err)
 
@@ -595,7 +610,7 @@ func TestGRPCTransport_BadTransportIssuerPEM(t *testing.T) {
 
 	_, err := plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Regexp(t, "PD030012", err)
 
@@ -619,7 +634,7 @@ func TestGRPCTransport_NodeUnknownToServer(t *testing.T) {
 
 	_, err := plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Error(t, err)
 
@@ -643,7 +658,7 @@ func TestGRPCTransport_NodeUnknownToClient(t *testing.T) {
 
 	_, err := plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Regexp(t, "not found", err)
 
@@ -657,10 +672,12 @@ func TestGRPCTransport_ServerRejectNoCerts(t *testing.T) {
 	defer done1()
 
 	node2Cert, node2Key := buildTestCertificate(t, pkix.Name{CommonName: "node2"}, nil, nil)
-	plugin2, transportDetails2, callbacks2, done2 := newTestGRPCTransport(t, node2Cert, node2Key, &Config{})
+	// For test we ask for one, but don't have one to give. This must be set before the server
+	// starts serving, as baseTLSConfig is read on every handshake from then on.
+	_, transportDetails2, callbacks2, done2 := newTestGRPCTransportPreServe(t, node2Cert, node2Key, &Config{}, func(transport *grpcTransport) {
+		transport.peerVerifier.baseTLSConfig.ClientAuth = tls.RequestClientCert
+	})
 	defer done2()
-	// For test we ask for one, but don't have one to give
-	plugin2.peerVerifier.baseTLSConfig.ClientAuth = tls.RequestClientCert
 
 	ptds := map[string]*PublishedTransportDetails{"node1": transportDetails1, "node2": transportDetails2}
 	mockRegistry(callbacks1, ptds)
@@ -668,7 +685,7 @@ func TestGRPCTransport_ServerRejectNoCerts(t *testing.T) {
 
 	_, err := plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
 		NodeName:         "node2",
-		TransportDetails: tktypes.JSONString(transportDetails2).Pretty(),
+		TransportDetails: pldtypes.JSONString(transportDetails2).Pretty(),
 	})
 	assert.Error(t, err)
 
@@ -677,4 +694,172 @@ func TestGRPCTransport_ServerRejectNoCerts(t *testing.T) {
 func TestTLSVerifierRejectsOverrideServerName(t *testing.T) {
 	err := (&tlsVerifier{}).OverrideServerName("whatever")
 	assert.Error(t, err)
+}
+
+func TestGRPCTransport_GetLocalDetails_IncludesCAAndNodeCertificates(t *testing.T) {
+	// This test verifies that GetLocalDetails now includes both CA and node certificates
+	ctx := context.Background()
+
+	// Create a CA certificate
+	caCert, caKeyPEM := buildTestCertificate(t, pkix.Name{CommonName: "test-ca"}, nil, nil)
+	caCerts, err := getCertListFromPEM(ctx, []byte(caCert))
+	require.NoError(t, err)
+	caKey := getRSAKeyFromPEM(t, caKeyPEM)
+
+	// Create a node certificate signed by the CA
+	nodeCert, nodeKeyPEM := buildTestCertificate(t, pkix.Name{CommonName: "test-node"}, caCerts[0], caKey)
+
+	// Create a temporary CA file
+	caFile, err := os.CreateTemp("", "test-ca-*.crt")
+	require.NoError(t, err)
+	defer os.Remove(caFile.Name())
+	_, err = caFile.WriteString(caCert)
+	require.NoError(t, err)
+	caFile.Close()
+
+	// Create a temporary node certificate file
+	certFile, err := os.CreateTemp("", "test-node-*.crt")
+	require.NoError(t, err)
+	defer os.Remove(certFile.Name())
+	_, err = certFile.WriteString(nodeCert)
+	require.NoError(t, err)
+	certFile.Close()
+
+	// Create a temporary node key file
+	keyFile, err := os.CreateTemp("", "test-node-*.key")
+	require.NoError(t, err)
+	defer os.Remove(keyFile.Name())
+	_, err = keyFile.WriteString(nodeKeyPEM)
+	require.NoError(t, err)
+	keyFile.Close()
+
+	// Create gRPC transport with CA file and node certificate files
+	plugin, _, _, done := newTestGRPCTransport(t, nodeCert, nodeKeyPEM, &Config{
+		TLS: pldconf.TLSConfig{
+			CAFile:   caFile.Name(),
+			CertFile: certFile.Name(),
+			KeyFile:  keyFile.Name(),
+		},
+		DirectCertVerification: confutil.P(true),
+	})
+	defer done()
+
+	// Call GetLocalDetails
+	resp, err := plugin.GetLocalDetails(ctx, &prototk.GetLocalDetailsRequest{})
+	require.NoError(t, err)
+
+	// Parse the response
+	var transportDetails PublishedTransportDetails
+	err = json.Unmarshal([]byte(resp.TransportDetails), &transportDetails)
+	require.NoError(t, err)
+
+	// Verify that the Issuers field contains both CA and node certificates
+	issuerCerts, err := getCertListFromPEM(ctx, []byte(transportDetails.Issuers))
+	require.NoError(t, err)
+
+	// Should have at least 2 certificates: CA + node certificate
+	require.GreaterOrEqual(t, len(issuerCerts), 2, "Should contain both CA and node certificates")
+
+	// The first certificate should be the CA
+	require.Equal(t, "CN=test-ca", issuerCerts[0].Subject.String(), "First certificate should be the CA")
+
+	// The last certificate should be the node certificate
+	lastCert := issuerCerts[len(issuerCerts)-1]
+	require.Equal(t, "CN=test-node", lastCert.Subject.String(), "Last certificate should be the node certificate")
+}
+
+func TestGRPCTransport_GetLocalDetails_WorksWithCAConfig(t *testing.T) {
+	// This test verifies that GetLocalDetails works when CA is provided via config (not file)
+	ctx := context.Background()
+
+	// Create a CA certificate
+	caCert, caKeyPEM := buildTestCertificate(t, pkix.Name{CommonName: "test-ca-config"}, nil, nil)
+	caCerts, err := getCertListFromPEM(ctx, []byte(caCert))
+	require.NoError(t, err)
+	caKey := getRSAKeyFromPEM(t, caKeyPEM)
+
+	// Create a node certificate signed by the CA
+	nodeCert, nodeKeyPEM := buildTestCertificate(t, pkix.Name{CommonName: "test-node-config"}, caCerts[0], caKey)
+
+	// Create gRPC transport with CA config and node certificate config
+	plugin, _, _, done := newTestGRPCTransport(t, nodeCert, nodeKeyPEM, &Config{
+		TLS: pldconf.TLSConfig{
+			CA:   caCert,
+			Cert: nodeCert,
+			Key:  nodeKeyPEM,
+		},
+		DirectCertVerification: confutil.P(true),
+	})
+	defer done()
+
+	// Call GetLocalDetails
+	resp, err := plugin.GetLocalDetails(ctx, &prototk.GetLocalDetailsRequest{})
+	require.NoError(t, err)
+
+	// Parse the response
+	var transportDetails PublishedTransportDetails
+	err = json.Unmarshal([]byte(resp.TransportDetails), &transportDetails)
+	require.NoError(t, err)
+
+	// Verify that the Issuers field contains both CA and node certificates
+	issuerCerts, err := getCertListFromPEM(ctx, []byte(transportDetails.Issuers))
+	require.NoError(t, err)
+
+	// Should have at least 2 certificates: CA + node certificate
+	require.GreaterOrEqual(t, len(issuerCerts), 2, "Should contain both CA and node certificates")
+
+	// The first certificate should be the CA
+	require.Equal(t, "CN=test-ca-config", issuerCerts[0].Subject.String(), "First certificate should be the CA")
+
+	// The last certificate should be the node certificate
+	lastCert := issuerCerts[len(issuerCerts)-1]
+	require.Equal(t, "CN=test-node-config", lastCert.Subject.String(), "Last certificate should be the node certificate")
+}
+
+func TestGRPCTransport_GetLocalDetails_WorksWithoutCA(t *testing.T) {
+	// This test verifies that GetLocalDetails still works when no CA is provided (backward compatibility)
+	ctx := context.Background()
+
+	// Create a self-signed node certificate (no CA)
+	nodeCert, nodeKeyPEM := buildTestCertificate(t, pkix.Name{CommonName: "test-node-self-signed"}, nil, nil)
+
+	// Create gRPC transport without CA
+	plugin, _, _, done := newTestGRPCTransport(t, nodeCert, nodeKeyPEM, &Config{
+		TLS: pldconf.TLSConfig{
+			Cert: nodeCert,
+			Key:  nodeKeyPEM,
+		},
+		DirectCertVerification: confutil.P(true),
+	})
+	defer done()
+
+	// Call GetLocalDetails
+	resp, err := plugin.GetLocalDetails(ctx, &prototk.GetLocalDetailsRequest{})
+	require.NoError(t, err)
+
+	// Parse the response
+	var transportDetails PublishedTransportDetails
+	err = json.Unmarshal([]byte(resp.TransportDetails), &transportDetails)
+	require.NoError(t, err)
+
+	// Verify that the Issuers field contains at least the node certificate
+	issuerCerts, err := getCertListFromPEM(ctx, []byte(transportDetails.Issuers))
+	require.NoError(t, err)
+
+	// Should have at least 1 certificate: the node certificate
+	require.GreaterOrEqual(t, len(issuerCerts), 1, "Should contain at least the node certificate")
+
+	// The certificate should be the node certificate
+	require.Equal(t, "CN=test-node-self-signed", issuerCerts[0].Subject.String(), "Should contain the node certificate")
+}
+
+func TestStopTransportTimeout(t *testing.T) {
+
+	node1Cert, node1Key := buildTestCertificate(t, pkix.Name{CommonName: "node1"}, nil, nil)
+	plugin, _, _, done := newTestGRPCTransport(t, node1Cert, node1Key, &Config{})
+	defer done()
+
+	plugin.gracefulShutdownTimeout = 1 * time.Microsecond
+	plugin.waitStopOrForce(plugin.grpcServer, make(chan struct{}))
+
 }

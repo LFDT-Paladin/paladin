@@ -18,13 +18,13 @@ package components
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/core/internal/filters"
-	"github.com/kaleido-io/paladin/core/pkg/blockindexer"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
 
 var PublicTxFilterFields filters.FieldSet = filters.FieldMap{
@@ -44,8 +44,10 @@ type PublicTxSubmission struct {
 }
 
 type PaladinTXReference struct {
-	TransactionID   uuid.UUID
-	TransactionType tktypes.Enum[pldapi.TransactionType]
+	TransactionID              uuid.UUID
+	TransactionType            pldtypes.Enum[pldapi.TransactionType]
+	TransactionSender          string
+	TransactionContractAddress string
 }
 
 type PublicTxMatch struct {
@@ -59,15 +61,19 @@ type PublicTxManager interface {
 	// Synchronous functions that are executed on the callers thread
 	QueryPublicTxForTransactions(ctx context.Context, dbTX persistence.DBTX, boundToTxns []uuid.UUID, jq *query.QueryJSON) (map[uuid.UUID][]*pldapi.PublicTx, error)
 	QueryPublicTxWithBindings(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error)
-	GetPublicTransactionForHash(ctx context.Context, dbTX persistence.DBTX, hash tktypes.Bytes32) (*pldapi.PublicTxWithBinding, error)
+	GetPublicTransactionForHash(ctx context.Context, dbTX persistence.DBTX, hash pldtypes.Bytes32) (*pldapi.PublicTxWithBinding, error)
 
 	// Perform (potentially expensive) transaction level validation, such as gas estimation. Call before starting a DB transaction
 	ValidateTransaction(ctx context.Context, dbTX persistence.DBTX, transaction *PublicTxSubmission) error
 	// Write a set of validated transactions to the public TX mgr database, notifying the relevant orchestrator(s) to wake, assign nonces, and start the submission process
 	WriteNewTransactions(ctx context.Context, dbTX persistence.DBTX, transactions []*PublicTxSubmission) ([]*pldapi.PublicTx, error)
+	// Write a set of received public transaction submissions to the public TX mgr database. These are informational submissions, not for us to act on
+	WriteReceivedPublicTransactionSubmissions(ctx context.Context, dbTX persistence.DBTX, submissions []*pldapi.PublicTxWithBinding) error
 	// Convenience function that does ValidateTransaction+WriteNewTransactions for a single Tx
 	SingleTransactionSubmit(ctx context.Context, transaction *PublicTxSubmission) (*pldapi.PublicTx, error)
 
 	MatchUpdateConfirmedTransactions(ctx context.Context, dbTX persistence.DBTX, itxs []*blockindexer.IndexedTransactionNotify) ([]*PublicTxMatch, error)
 	NotifyConfirmPersisted(ctx context.Context, confirms []*PublicTxMatch)
+
+	UpdateTransaction(ctx context.Context, id uuid.UUID, pubTXID uint64, from *pldtypes.EthAddress, tx *pldapi.TransactionInput, publicTxData []byte, txmgrDBUpdate func(dbTX persistence.DBTX) error) error
 }

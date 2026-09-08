@@ -20,33 +20,13 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/iden3/go-iden3-crypto/babyjub"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 	"github.com/iden3/go-rapidsnark/types"
 	"github.com/iden3/go-rapidsnark/witness/v2"
-	"github.com/kaleido-io/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signerapi"
 
 	"github.com/stretchr/testify/require"
 )
-
-type TestUser struct {
-	PrivateKey       *babyjub.PrivateKey
-	PublicKey        *babyjub.PublicKey
-	PrivateKeyBigInt *big.Int
-}
-
-func NewTestKeypair() *TestUser {
-	babyJubjubPrivKey := babyjub.NewRandPrivKey()
-	babyJubjubPubKey := babyJubjubPrivKey.Public()
-	// convert the private key to big.Int for use inside circuits
-	privKeyBigInt := babyjub.SkToBigInt(&babyJubjubPrivKey)
-
-	return &TestUser{
-		PrivateKey:       &babyJubjubPrivKey,
-		PublicKey:        babyJubjubPubKey,
-		PrivateKeyBigInt: privKeyBigInt,
-	}
-}
 
 type testWitnessCalculator struct{}
 

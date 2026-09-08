@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright 2025.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,6 +29,9 @@ type PaladinSpec struct {
 	// Database section k8s native functions for setting up the database
 	// with auto-generation/auto-edit of the DB related config sections
 	Database Database `json:"database,omitempty"`
+
+	// LogPersistence configures optional persistent file logging.
+	LogPersistence *LogPersistence `json:"logPersistence,omitempty"`
 
 	// Adds signing modules that load their key materials from a k8s secret
 	SecretBackedSigners []SecretBackedSigner `json:"secretBackedSigners,omitempty"`
@@ -60,8 +63,16 @@ type PaladinSpec struct {
 	// A list of registries to merge into the configuration, and rebuild the config of paladin when this list changes
 	Registries []RegistryReference `json:"registries"`
 
+	// A list of pluggable signing modules to merge into the configuration, and rebuild the config of paladin when this list changes
+	SigningModules []SigningModuleConfig `json:"signingModules,omitempty"`
+
 	// Transports are configured individually on each node, as they reference security details specific to that node
 	Transports []TransportConfig `json:"transports"`
+
+	// RPC authorization configuration using the basicauth reference implementation.
+	// The secret must contain a key named 'credentials.htpasswd' with the credentials file content.
+	// +optional
+	RPCAuth *RPCAuthConfig `json:"rpcAuth,omitempty"`
 }
 type BaseLedgerEndpointType string
 
@@ -101,6 +112,14 @@ type LabelReference struct {
 	// Label selectors provide a flexible many-to-many mapping between nodes and domains in a namespace.
 	// The domain CRs you reference must be labelled to match. For example you could use a label like "paladin.io/domain-name" to select by name.
 	LabelSelector metav1.LabelSelector `json:"labelSelector"`
+}
+
+type SigningModuleConfig struct {
+	Name string `json:"name"`
+	// Plugin configuration for loading the signing module
+	Plugin PluginConfig `json:"plugin"`
+	// JSON configuration specific to the individual signing module.
+	ConfigJSON string `json:"configJSON"`
 }
 
 type TransportConfig struct {
@@ -165,7 +184,29 @@ type Database struct {
 	PVCTemplate    corev1.PersistentVolumeClaimSpec `json:"pvcTemplate,omitempty"`
 }
 
+// LogPersistence configures persistent file logging for a Paladin node.
+type LogPersistence struct {
+	// Enables persistent log file output to a mounted PVC.
+	Enabled bool `json:"enabled,omitempty"`
+	// Path to the log file inside the container.
+	Path string `json:"path,omitempty"`
+	// PVC template used to create the logs persistent volume claim.
+	PVCTemplate corev1.PersistentVolumeClaimSpec `json:"pvcTemplate,omitempty"`
+	// Optional file rotation overrides.
+	File LogFileConfig `json:"file,omitempty"`
+}
+
+// LogFileConfig contains optional file rotation settings.
+type LogFileConfig struct {
+	MaxSize    *string `json:"maxSize,omitempty"`
+	MaxBackups *int    `json:"maxBackups,omitempty"`
+	MaxAge     *string `json:"maxAge,omitempty"`
+	Compress   *bool   `json:"compress,omitempty"`
+}
+
 const SignerType_AutoHDWallet = "autoHDWallet"
+
+const DerivationType_BIP32 = "bip32"
 
 type SecretBackedSigner struct {
 	Secret string `json:"secret"`
@@ -181,6 +222,14 @@ type SecretBackedSigner struct {
 	// rules first on key matching and more generic rules (like the default of ".*") last.
 	// +kubebuilder:default=.*
 	KeySelector string `json:"keySelector"`
+	// To instruct the key selector to behave in a non-matching mode whereby wallet selection applies when the
+	// key identifier DOES NOT match against the given regular expression for the key selector.
+	// +kubebuilder:default=false
+	KeySelectorMustNotMatch bool `json:"keySelectorMustNotMatch"`
+	// +kubebuilder:validation:Enum=bip32;direct
+	// +kubebuilder:default=bip32
+	// The Paladin signer can use single BIP39 seed mnemonic to derive keys, or use direct key mapping.
+	DerivationType string `json:"derivationType"`
 }
 
 type AuthType string
@@ -198,7 +247,10 @@ type Auth struct {
 	Type AuthType `json:"type"`
 
 	// Secret is used to provide the name of the secret to use for authentication
-	Secret *AuthSecret `json:"secretRef,omitempty"`
+	Secret *AuthSecret `json:"secret,omitempty"`
+
+	// SecretRef is used to provide the name of the secret to use for authentication (deprecated, use secret)
+	SecretRef *AuthSecret `json:"secretRef,omitempty"`
 
 	// Auth details are provided inline (not recommended)
 	Inline *AuthInline `json:"inline,omitempty"`
@@ -211,6 +263,14 @@ type AuthSecret struct {
 type AuthInline struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+// RPCAuthConfig defines the configuration for RPC authorization using the basicauth plugin.
+// Only the basicauth reference implementation is supported.
+type RPCAuthConfig struct {
+	// SecretName is the name of the Kubernetes secret containing the 'credentials.htpasswd' key
+	// with the htpasswd formatted credentials file content.
+	SecretName string `json:"secretName"`
 }
 
 // StatusReason is an enumeration of possible failure causes.  Each StatusReason

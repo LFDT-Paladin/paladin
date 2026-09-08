@@ -1,0 +1,60 @@
+module github.com/LFDT-Paladin/key-manager/signingmodules/example
+
+go 1.25.0
+
+toolchain go1.25.11
+
+require (
+	github.com/LFDT-Paladin/paladin/common/go v0.0.0-00010101000000-000000000000
+	github.com/LFDT-Paladin/paladin/config v0.0.0-00010101000000-000000000000
+	github.com/LFDT-Paladin/paladin/toolkit v0.0.0-00010101000000-000000000000
+	github.com/stretchr/testify v1.11.1
+	golang.org/x/text v0.40.0
+)
+
+require (
+	github.com/Code-Hex/go-generics-cache v1.5.1 // indirect
+	github.com/LFDT-Paladin/paladin/sdk/go v0.0.0-20250828150332-fbc1c1bc663b // indirect
+	github.com/aidarkhanov/nanoid v1.0.8 // indirect
+	github.com/btcsuite/btcd v0.24.2 // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.3.2 // indirect
+	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
+	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
+	github.com/docker/go-units v0.5.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/hyperledger/firefly-common v1.5.9 // indirect
+	github.com/hyperledger/firefly-signer v1.1.22 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
+	github.com/sirupsen/logrus v1.9.4 // indirect
+	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
+	github.com/x-cray/logrus-prefixed-formatter v0.5.2 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
+	go.uber.org/zap v1.28.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
+	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/term v0.44.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
+	google.golang.org/grpc v1.82.1 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+	sigs.k8s.io/yaml v1.6.0 // indirect
+)
+
+replace github.com/LFDT-Paladin/paladin/common/go => ../../common/go
+
+replace github.com/LFDT-Paladin/paladin/config => ../../config
+
+replace github.com/LFDT-Paladin/paladin/sdk/go => ../../sdk/go
+
+replace github.com/LFDT-Paladin/paladin/toolkit => ../../toolkit/go

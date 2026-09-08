@@ -16,18 +16,18 @@
 package zetosigner
 
 import (
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	"github.com/iden3/go-iden3-crypto/babyjub"
-	"github.com/kaleido-io/paladin/domains/zeto/internal/zeto/signer"
 )
 
 func EncodeBabyJubJubPublicKey(pubKey *babyjub.PublicKey) string {
-	return signer.EncodeBabyJubJubPublicKey(pubKey)
+	return common.EncodeBabyJubJubPublicKey(pubKey)
 }
 
 func DecodeBabyJubJubPublicKey(pubKeyHex string) (*babyjub.PublicKey, error) {
-	return signer.DecodeBabyJubJubPublicKey(pubKeyHex)
+	return common.DecodeBabyJubJubPublicKey(pubKeyHex)
 }
 
 func NewBabyJubJubPrivateKey(privateKey []byte) (*babyjub.PrivateKey, error) {
-	return signer.NewBabyJubJubPrivateKey(privateKey)
+	return common.NewBabyJubJubPrivateKey(privateKey)
 }

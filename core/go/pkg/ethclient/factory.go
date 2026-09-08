@@ -19,11 +19,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/hyperledger/firefly-common/pkg/wsclient"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 )
 
 // Allows separate components to maintain separate connections/connection-pools to the
@@ -59,7 +58,7 @@ type ethClientFactory struct {
 
 	sharedWSClient *ethClient
 
-	wsConf *wsclient.WSConfig
+	wsConf *pldconf.WSClientConfig
 
 	chainID int64
 }
@@ -107,10 +106,12 @@ func newEthClientFactory(bgCtx context.Context, keymgr KeyManager, conf *pldconf
 			conf.WS.URL = "ws" + noHTTPPrefix
 		}
 	}
-	ecf.wsConf, err = rpcclient.ParseWSConfig(bgCtx, &conf.WS)
+	err = rpcclient.ValidateWSClientConfig(bgCtx, &conf.WS)
 	if err != nil {
 		return nil, err
 	}
+	ecf.wsConf = &conf.WS
+
 	return ecf, nil
 }
 
@@ -156,8 +157,12 @@ func (ecf *ethClientFactory) SharedWS() EthClient {
 }
 
 func (ecf *ethClientFactory) Stop() {
-	ecf.httpClient.Close()
-	ecf.sharedWSClient.Close()
+	if ecf.httpClient != nil {
+		ecf.httpClient.Close()
+	}
+	if ecf.sharedWSClient != nil {
+		ecf.sharedWSClient.Close()
+	}
 }
 
 func (ecf *ethClientFactory) ChainID() int64 {

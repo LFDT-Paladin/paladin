@@ -22,9 +22,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 type BooleanField string
@@ -37,7 +37,7 @@ func (sf BooleanField) SupportsLIKE() bool {
 	return false
 }
 
-func (sf BooleanField) SQLValue(ctx context.Context, jsonValue tktypes.RawJSON) (driver.Value, error) {
+func (sf BooleanField) SQLValue(ctx context.Context, jsonValue pldtypes.RawJSON) (driver.Value, error) {
 	if jsonValue.IsNil() {
 		return nil, nil
 	}

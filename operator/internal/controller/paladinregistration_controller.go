@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -31,11 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	corev1alpha1 "github.com/kaleido-io/paladin/operator/api/v1alpha1"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
 
 var registryABI = abi.ABI{
@@ -64,7 +63,8 @@ var registryABI = abi.ABI{
 // PaladinRegistrationReconciler reconciles a PaladinRegistration object
 type PaladinRegistrationReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme           *runtime.Scheme
+	RPCClientManager *rpcClientManager
 }
 
 // allows generic functions by giving a mapping between the types and interfaces for the CR
@@ -96,13 +96,13 @@ func (r *PaladinRegistrationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	} else if registryAddr == nil {
 		log.Info("waiting for registry address", "registry", reg.Name)
-		log.Info(fmt.Sprintf("'%s' A steps wait", req.Name))
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil // we're waiting
 	}
 	publishCount := 0
 
 	// First reconcile until we've submitting the registration tx
 	regTx := newTransactionReconcile(r.Client,
+		r.RPCClientManager,
 		"reg."+reg.Name,
 		reg.Spec.RegistryAdminNode /* for the root entry */, reg.Namespace,
 		&reg.Status.RegistrationTx,
@@ -113,15 +113,15 @@ func (r *PaladinRegistrationReconciler) Reconcile(ctx context.Context, req ctrl.
 	if err != nil {
 		// There's nothing to notify us when the world changes other than polling, so we keep re-trying
 		return ctrl.Result{}, err
-	} else if regTx.statusChanged {
+	} else if regTx.isStatusChanged() {
 		if reg.Status.PublishTxs == nil {
 			reg.Status.PublishTxs = map[string]corev1alpha1.TransactionSubmission{}
 		}
 		return r.updateStatusAndRequeue(ctx, &reg, publishCount)
-	} else if regTx.failed {
+	} else if regTx.isFailed() {
 		return ctrl.Result{}, nil // don't go any further
-	} else if !regTx.succeeded {
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil // we're waiting
+	} else if !regTx.isSucceeded() {
+		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil // we're waiting
 	}
 	publishCount++
 
@@ -132,6 +132,7 @@ func (r *PaladinRegistrationReconciler) Reconcile(ctx context.Context, req ctrl.
 	for _, transportName := range reg.Spec.Transports {
 		transportPublishStatus := reg.Status.PublishTxs[transportName]
 		regTx := newTransactionReconcile(r.Client,
+			r.RPCClientManager,
 			"reg."+reg.Name+"."+transportName,
 			reg.Spec.Node /* the node owns their transports */, reg.Namespace,
 			&transportPublishStatus,
@@ -142,32 +143,25 @@ func (r *PaladinRegistrationReconciler) Reconcile(ctx context.Context, req ctrl.
 		)
 		err := regTx.reconcile(ctx)
 		if err != nil {
-			if strings.Contains(err.Error(), "context deadline exceeded") {
-				// r.restartSS(ctx, &reg)
-				log.Info(fmt.Sprintf("'%s' E steps ERROR CONTEXT", req.Name))
-			} else {
-				log.Info(fmt.Sprintf("'%s' E steps ERROR", req.Name))
-			}
-			// log.Info(err, "Failed to reconcile transport transaction", "transport", transportName)
 			requeueAfter = 100 * time.Millisecond // retry
 			continue
-		} else if regTx.statusChanged {
+		} else if regTx.isStatusChanged() {
 			reg.Status.PublishTxs[transportName] = transportPublishStatus
 			if transportPublishStatus.TransactionStatus == corev1alpha1.TransactionStatusSuccess {
 				log.Info("Transaction succeeded", "transport", transportName)
 				publishCount++
 			}
 			changed = true
-		} else if regTx.failed {
+		} else if regTx.isFailed() {
 			// what if one transaction failed and the other succeeded?
 			// continue to try the other transactions
 			log.Error(fmt.Errorf("transaction failed"), "transport", transportName)
 			// if transaction failed do not requeue
 			continue
-		} else if !regTx.succeeded {
+		} else if !regTx.isSucceeded() {
 			// wait before requeueing
 			requeueAfter = 5 * time.Second
-		} else if regTx.succeeded {
+		} else if regTx.isSucceeded() {
 			log.Info("Transaction succeeded", "transport", transportName)
 		}
 	}
@@ -237,7 +231,7 @@ func (r *PaladinRegistrationReconciler) updateStatusAndRequeue(ctx context.Conte
 	return ctrl.Result{RequeueAfter: 50 * time.Millisecond}, nil // Run again immediately to submit
 }
 
-func (r *PaladinRegistrationReconciler) getRegistryAddress(ctx context.Context, reg *corev1alpha1.PaladinRegistration) (*tktypes.EthAddress, error) {
+func (r *PaladinRegistrationReconciler) getRegistryAddress(ctx context.Context, reg *corev1alpha1.PaladinRegistration) (*pldtypes.EthAddress, error) {
 
 	// Get the registry CR for the address
 	var registry corev1alpha1.PaladinRegistry
@@ -252,14 +246,14 @@ func (r *PaladinRegistrationReconciler) getRegistryAddress(ctx context.Context, 
 		return nil, nil
 	}
 
-	return tktypes.ParseEthAddress(registry.Status.ContractAddress)
+	return pldtypes.ParseEthAddress(registry.Status.ContractAddress)
 
 }
 
-func (r *PaladinRegistrationReconciler) buildRegistrationTX(ctx context.Context, reg *corev1alpha1.PaladinRegistration, registryAddr *tktypes.EthAddress) (bool, *pldapi.TransactionInput, error) {
+func (r *PaladinRegistrationReconciler) buildRegistrationTX(ctx context.Context, reg *corev1alpha1.PaladinRegistration, registryAddr *pldtypes.EthAddress) (bool, *pldapi.TransactionInput, error) {
 
 	// We ask the node its name, so we know what to register it as
-	targetNodeRPC, err := getPaladinRPC(ctx, r.Client, reg.Spec.Node, reg.Namespace, "10s")
+	targetNodeRPC, err := getPaladinRPC(ctx, r.Client, r.RPCClientManager, reg.Spec.Node, reg.Namespace, "10s")
 	if err != nil || targetNodeRPC == nil {
 		return false, nil, err // not ready, or error
 	}
@@ -275,7 +269,7 @@ func (r *PaladinRegistrationReconciler) buildRegistrationTX(ctx context.Context,
 	}
 
 	registration := map[string]any{
-		"parentIdentityHash": tktypes.Bytes32{}, // zero for root
+		"parentIdentityHash": pldtypes.Bytes32{}, // zero for root
 		"name":               nodeName,
 		"owner":              addr,
 	}
@@ -286,7 +280,7 @@ func (r *PaladinRegistrationReconciler) buildRegistrationTX(ctx context.Context,
 			To:       registryAddr,
 			Function: registryABI.Functions()["registerIdentity"].String(),
 			From:     reg.Spec.RegistryAdminKey, // registry admin registers the root entry for the node
-			Data:     tktypes.JSONString(registration),
+			Data:     pldtypes.JSONString(registration),
 		},
 		ABI: registryABI,
 	}
@@ -294,10 +288,10 @@ func (r *PaladinRegistrationReconciler) buildRegistrationTX(ctx context.Context,
 	return true, tx, nil
 }
 
-func (r *PaladinRegistrationReconciler) buildTransportTX(ctx context.Context, reg *corev1alpha1.PaladinRegistration, registryAddr *tktypes.EthAddress, transportName string) (bool, *pldapi.TransactionInput, error) {
+func (r *PaladinRegistrationReconciler) buildTransportTX(ctx context.Context, reg *corev1alpha1.PaladinRegistration, registryAddr *pldtypes.EthAddress, transportName string) (bool, *pldapi.TransactionInput, error) {
 
 	// Get the details from the node
-	regNodeRPC, err := getPaladinRPC(ctx, r.Client, reg.Spec.Node, reg.Namespace, "30s")
+	regNodeRPC, err := getPaladinRPC(ctx, r.Client, r.RPCClientManager, reg.Spec.Node, reg.Namespace, "30s")
 	if err != nil || regNodeRPC == nil {
 		return false, nil, err // not ready, or error
 	}
@@ -343,7 +337,7 @@ func (r *PaladinRegistrationReconciler) buildTransportTX(ctx context.Context, re
 			To:       registryAddr,
 			Function: registryABI.Functions()["setIdentityProperty"].String(),
 			From:     reg.Spec.NodeKey, // node registers the transports
-			Data:     tktypes.JSONString(property),
+			Data:     pldtypes.JSONString(property),
 		},
 		ABI: registryABI,
 	}

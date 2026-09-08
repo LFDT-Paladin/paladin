@@ -20,45 +20,47 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/mocks/componentmocks"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/core/pkg/persistence/mockpersistence"
-	"github.com/sirupsen/logrus"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type mockComponents struct {
-	c                *componentmocks.AllComponents
+	c                *componentsmocks.AllComponents
 	db               *mockpersistence.SQLMockProvider
 	p                persistence.Persistence
-	registryManager  *componentmocks.RegistryManager
-	stateManager     *componentmocks.StateManager
-	domainManager    *componentmocks.DomainManager
-	keyManager       *componentmocks.KeyManager
-	txManager        *componentmocks.TXManager
-	privateTxManager *componentmocks.PrivateTxManager
-	identityResolver *componentmocks.IdentityResolver
-	groupManager     *componentmocks.GroupManager
+	registryManager  *componentsmocks.RegistryManager
+	stateManager     *componentsmocks.StateManager
+	domainManager    *componentsmocks.DomainManager
+	keyManager       *componentsmocks.KeyManager
+	txManager        *componentsmocks.TXManager
+	sequencerManager *componentsmocks.SequencerManager
+	identityResolver *componentsmocks.IdentityResolver
+	groupManager     *componentsmocks.GroupManager
+	publicTxManager  *componentsmocks.PublicTxManager
 }
 
 func newMockComponents(t *testing.T, realDB bool) *mockComponents {
-	mc := &mockComponents{c: componentmocks.NewAllComponents(t)}
-	mc.registryManager = componentmocks.NewRegistryManager(t)
-	mc.stateManager = componentmocks.NewStateManager(t)
-	mc.domainManager = componentmocks.NewDomainManager(t)
-	mc.keyManager = componentmocks.NewKeyManager(t)
-	mc.txManager = componentmocks.NewTXManager(t)
-	mc.privateTxManager = componentmocks.NewPrivateTxManager(t)
-	mc.identityResolver = componentmocks.NewIdentityResolver(t)
-	mc.groupManager = componentmocks.NewGroupManager(t)
+	mc := &mockComponents{c: componentsmocks.NewAllComponents(t)}
+	mc.registryManager = componentsmocks.NewRegistryManager(t)
+	mc.stateManager = componentsmocks.NewStateManager(t)
+	mc.domainManager = componentsmocks.NewDomainManager(t)
+	mc.keyManager = componentsmocks.NewKeyManager(t)
+	mc.txManager = componentsmocks.NewTXManager(t)
+	mc.sequencerManager = componentsmocks.NewSequencerManager(t)
+	mc.identityResolver = componentsmocks.NewIdentityResolver(t)
+	mc.groupManager = componentsmocks.NewGroupManager(t)
+	mc.publicTxManager = componentsmocks.NewPublicTxManager(t)
 	if realDB {
 		p, cleanup, err := persistence.NewUnitTestPersistence(context.Background(), "transportmgr")
 		require.NoError(t, err)
@@ -76,16 +78,17 @@ func newMockComponents(t *testing.T, realDB bool) *mockComponents {
 	mc.c.On("DomainManager").Return(mc.domainManager).Maybe()
 	mc.c.On("KeyManager").Return(mc.keyManager).Maybe()
 	mc.c.On("TxManager").Return(mc.txManager).Maybe()
-	mc.c.On("PrivateTxManager").Return(mc.privateTxManager).Maybe()
+	mc.c.On("SequencerManager").Return(mc.sequencerManager).Maybe()
 	mc.c.On("IdentityResolver").Return(mc.identityResolver).Maybe()
 	mc.c.On("GroupManager").Return(mc.groupManager).Maybe()
+	mc.c.On("PublicTxManager").Return(mc.publicTxManager).Maybe()
 	return mc
 }
 
-func newTestTransportManager(t *testing.T, realDB bool, conf *pldconf.TransportManagerConfig, extraSetup ...func(mc *mockComponents, conf *pldconf.TransportManagerConfig)) (context.Context, *transportManager, *mockComponents, func()) {
+func newTestTransportManager(t *testing.T, realDB bool, conf *pldconf.TransportManagerInlineConfig, extraSetup ...func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig)) (context.Context, *transportManager, *mockComponents, func()) {
 	ctx, cancelCtx := context.WithCancel(context.Background())
-	oldLevel := logrus.GetLevel()
-	logrus.SetLevel(logrus.TraceLevel)
+	oldLevel := log.GetLevel()
+	log.SetLevel("trace")
 
 	mc := newMockComponents(t, realDB)
 	for _, fn := range extraSetup {
@@ -108,7 +111,7 @@ func newTestTransportManager(t *testing.T, realDB bool, conf *pldconf.TransportM
 
 	return ctx, tm.(*transportManager), mc, func() {
 		if !t.Failed() {
-			logrus.SetLevel(oldLevel)
+			log.SetLevel(oldLevel)
 			cancelCtx()
 			tm.Stop()
 		}
@@ -116,18 +119,18 @@ func newTestTransportManager(t *testing.T, realDB bool, conf *pldconf.TransportM
 }
 
 func TestMissingName(t *testing.T) {
-	tm := NewTransportManager(context.Background(), &pldconf.TransportManagerConfig{})
+	tm := NewTransportManager(context.Background(), &pldconf.TransportManagerInlineConfig{})
 	_, err := tm.PreInit(newMockComponents(t, false).c)
 	assert.Regexp(t, "PD012002", err)
 }
 
 func TestConfiguredTransports(t *testing.T) {
-	_, dm, _, done := newTestTransportManager(t, false, &pldconf.TransportManagerConfig{
+	_, dm, _, done := newTestTransportManager(t, false, &pldconf.TransportManagerInlineConfig{
 		NodeName: "node1",
 		Transports: map[string]*pldconf.TransportConfig{
 			"test1": {
 				Plugin: pldconf.PluginConfig{
-					Type:    string(tktypes.LibraryTypeCShared),
+					Type:    string(pldtypes.LibraryTypeCShared),
 					Library: "some/where",
 				},
 			},
@@ -137,14 +140,14 @@ func TestConfiguredTransports(t *testing.T) {
 
 	assert.Equal(t, map[string]*pldconf.PluginConfig{
 		"test1": {
-			Type:    string(tktypes.LibraryTypeCShared),
+			Type:    string(pldtypes.LibraryTypeCShared),
 			Library: "some/where",
 		},
 	}, dm.ConfiguredTransports())
 }
 
 func TestTransportRegisteredNotFound(t *testing.T) {
-	_, dm, _, done := newTestTransportManager(t, false, &pldconf.TransportManagerConfig{
+	_, dm, _, done := newTestTransportManager(t, false, &pldconf.TransportManagerInlineConfig{
 		NodeName:   "node1",
 		Transports: map[string]*pldconf.TransportConfig{},
 	})
@@ -155,7 +158,7 @@ func TestTransportRegisteredNotFound(t *testing.T) {
 }
 
 func TestConfigureTransportFail(t *testing.T) {
-	_, tm, _, done := newTestTransportManager(t, false, &pldconf.TransportManagerConfig{
+	_, tm, _, done := newTestTransportManager(t, false, &pldconf.TransportManagerInlineConfig{
 		NodeName: "node1",
 		Transports: map[string]*pldconf.TransportConfig{
 			"test1": {
@@ -177,7 +180,7 @@ func TestConfigureTransportFail(t *testing.T) {
 }
 
 func TestGetLocalTransportDetailsNotFound(t *testing.T) {
-	tm := NewTransportManager(context.Background(), &pldconf.TransportManagerConfig{}).(*transportManager)
+	tm := NewTransportManager(context.Background(), &pldconf.TransportManagerInlineConfig{}).(*transportManager)
 
 	_, err := tm.getLocalTransportDetails(context.Background(), "nope")
 	assert.Regexp(t, "PD012001", err)

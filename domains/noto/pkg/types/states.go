@@ -16,15 +16,16 @@
 package types
 
 import (
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
 
 type NotoDomainReceipt struct {
-	States    ReceiptStates      `json:"states"`
-	Transfers []*ReceiptTransfer `json:"transfers,omitempty"`
-	LockInfo  *ReceiptLockInfo   `json:"lockInfo,omitempty"`
-	Data      tktypes.HexBytes   `json:"data,omitempty"`
+	States    ReceiptStates        `json:"states"`
+	Transfers []*ReceiptTransfer   `json:"transfers,omitempty"`
+	LockInfo  *ReceiptLockInfo     `json:"lockInfo,omitempty"`
+	Data      pldtypes.HexBytes    `json:"data,omitempty"`
+	Sender    *pldtypes.EthAddress `json:"sender,omitempty"`
 }
 
 type ReceiptStates struct {
@@ -36,37 +37,44 @@ type ReceiptStates struct {
 	ReadLockedInputs      []*ReceiptState `json:"readLockedInputs,omitempty"`
 	PreparedOutputs       []*ReceiptState `json:"preparedOutputs,omitempty"`
 	PreparedLockedOutputs []*ReceiptState `json:"preparedLockedOutputs,omitempty"`
+	UpdatedLockInfo       []*ReceiptState `json:"updatedLockInfo,omitempty"`
 }
 
 type ReceiptLockInfo struct {
-	LockID       tktypes.Bytes32     `json:"lockId"`
-	Delegate     *tktypes.EthAddress `json:"delegate,omitempty"`     // only set for delegateLock
-	UnlockParams *UnlockPublicParams `json:"unlockParams,omitempty"` // only set for prepareUnlock
-	UnlockCall   tktypes.HexBytes    `json:"unlockCall,omitempty"`   // only set for prepareUnlock
+	LockID         pldtypes.Bytes32     `json:"lockId"`
+	Delegate       *pldtypes.EthAddress `json:"delegate,omitempty"`       // only set for delegateLock
+	SpendTxId      *pldtypes.Bytes32    `json:"spendTxId,omitempty"`      // only set for prepareUnlock
+	UnlockFunction string               `json:"unlockFunction,omitempty"` // only set for prepareUnlock
+	UnlockParams   map[string]any       `json:"unlockParams,omitempty"`   // only set for prepareUnlock
+	UnlockCall     pldtypes.HexBytes    `json:"unlockCall,omitempty"`     // only set for prepareUnlock
+	CancelFunction string               `json:"cancelFunction,omitempty"` // only set for prepareUnlock
+	CancelParams   map[string]any       `json:"cancelParams,omitempty"`   // only set for prepareUnlock
+	CancelCall     pldtypes.HexBytes    `json:"cancelCall,omitempty"`     // only set for prepareUnlock
 }
 
 type ReceiptState struct {
-	ID   tktypes.HexBytes `json:"id"`
-	Data tktypes.RawJSON  `json:"data"`
+	ID     pldtypes.HexBytes `json:"id"`
+	Schema pldtypes.Bytes32  `json:"schema"`
+	Data   pldtypes.RawJSON  `json:"data"`
 }
 
 type ReceiptTransfer struct {
-	From   *tktypes.EthAddress `json:"from,omitempty"`
-	To     *tktypes.EthAddress `json:"to,omitempty"`
-	Amount *tktypes.HexUint256 `json:"amount"`
+	From   *pldtypes.EthAddress `json:"from,omitempty"`
+	To     *pldtypes.EthAddress `json:"to,omitempty"`
+	Amount *pldtypes.HexUint256 `json:"amount"`
 }
 
 type NotoCoinState struct {
-	ID              tktypes.Bytes32    `json:"id"`
-	Created         tktypes.Timestamp  `json:"created"`
-	ContractAddress tktypes.EthAddress `json:"contractAddress"`
-	Data            NotoCoin           `json:"data"`
+	ID              pldtypes.Bytes32    `json:"id"`
+	Created         pldtypes.Timestamp  `json:"created"`
+	ContractAddress pldtypes.EthAddress `json:"contractAddress"`
+	Data            NotoCoin            `json:"data"`
 }
 
 type NotoCoin struct {
-	Salt   tktypes.Bytes32     `json:"salt"`
-	Owner  *tktypes.EthAddress `json:"owner"`
-	Amount *tktypes.HexUint256 `json:"amount"`
+	Salt   pldtypes.Bytes32     `json:"salt"`
+	Owner  *pldtypes.EthAddress `json:"owner"`
+	Amount *pldtypes.HexUint256 `json:"amount"`
 }
 
 var NotoCoinABI = &abi.Parameter{
@@ -81,17 +89,17 @@ var NotoCoinABI = &abi.Parameter{
 }
 
 type NotoLockedCoinState struct {
-	ID              tktypes.Bytes32    `json:"id"`
-	Created         tktypes.Timestamp  `json:"created"`
-	ContractAddress tktypes.EthAddress `json:"contractAddress"`
-	Data            NotoLockedCoin     `json:"data"`
+	ID              pldtypes.Bytes32    `json:"id"`
+	Created         pldtypes.Timestamp  `json:"created"`
+	ContractAddress pldtypes.EthAddress `json:"contractAddress"`
+	Data            NotoLockedCoin      `json:"data"`
 }
 
 type NotoLockedCoin struct {
-	Salt   tktypes.Bytes32     `json:"salt"`
-	LockID tktypes.Bytes32     `json:"lockId"`
-	Owner  *tktypes.EthAddress `json:"owner"`
-	Amount *tktypes.HexUint256 `json:"amount"`
+	Salt   pldtypes.Bytes32     `json:"salt"`
+	LockID pldtypes.Bytes32     `json:"lockId"`
+	Owner  *pldtypes.EthAddress `json:"owner"`
+	Amount *pldtypes.HexUint256 `json:"amount"`
 }
 
 var NotoLockedCoinABI = &abi.Parameter{
@@ -106,14 +114,49 @@ var NotoLockedCoinABI = &abi.Parameter{
 	},
 }
 
-type NotoLockInfo struct {
-	Salt     tktypes.Bytes32     `json:"salt"`
-	LockID   tktypes.Bytes32     `json:"lockId"`
-	Owner    *tktypes.EthAddress `json:"owner"`
-	Delegate *tktypes.EthAddress `json:"delegate"`
+type NotoManifestState struct {
+	ID              pldtypes.Bytes32    `json:"id"`
+	Created         pldtypes.Timestamp  `json:"created"`
+	ContractAddress pldtypes.EthAddress `json:"contractAddress"`
+	Data            NotoManifest        `json:"data"`
 }
 
-var NotoLockInfoABI = &abi.Parameter{
+type NotoManifest struct {
+	Salt   pldtypes.Bytes32          `json:"salt"`
+	States []*NotoManifestStateEntry `json:"states"`
+}
+
+type NotoManifestStateEntry struct {
+	ID           pldtypes.Bytes32       `json:"state"`
+	Participants []*pldtypes.EthAddress `json:"participants"`
+}
+
+var NotoManifestABI = &abi.Parameter{
+	Name:         "NotoManifest",
+	Type:         "tuple",
+	InternalType: "struct NotoManifest",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{
+			Name:         "states",
+			Type:         "tuple[]",
+			InternalType: "struct NotoManifestStateEntry[]",
+			Components: abi.ParameterArray{
+				{Name: "state", Type: "bytes32"},
+				{Name: "participants", Type: "string[]"},
+			},
+		},
+	},
+}
+
+type NotoLockInfo_V0 struct {
+	Salt     pldtypes.Bytes32     `json:"salt"`
+	LockID   pldtypes.Bytes32     `json:"lockId"`
+	Owner    *pldtypes.EthAddress `json:"owner"`
+	Delegate *pldtypes.EthAddress `json:"delegate"`
+}
+
+var NotoLockInfoABI_V0 = &abi.Parameter{
 	Name:         "NotoLockInfo",
 	Type:         "tuple",
 	InternalType: "struct NotoLockInfo",
@@ -125,17 +168,77 @@ var NotoLockInfoABI = &abi.Parameter{
 	},
 }
 
-type TransactionData struct {
-	Salt string           `json:"salt"`
-	Data tktypes.HexBytes `json:"data"`
+type NotoLockInfo_V1 struct {
+	Salt          pldtypes.Bytes32     `json:"salt"`
+	LockID        pldtypes.Bytes32     `json:"lockId"`
+	Owner         *pldtypes.EthAddress `json:"owner"`
+	Spender       *pldtypes.EthAddress `json:"spender"`
+	Replaces      pldtypes.Bytes32     `json:"replaces"`
+	SpendTxId     pldtypes.Bytes32     `json:"spendTxId"`
+	SpendOutputs  []pldtypes.Bytes32   `json:"spendOutputs"`
+	SpendData     pldtypes.HexBytes    `json:"spendData"`
+	CancelOutputs []pldtypes.Bytes32   `json:"cancelOutputs"`
+	CancelData    pldtypes.HexBytes    `json:"cancelData"`
 }
 
-var TransactionDataABI = &abi.Parameter{
+// LockDetail_V1 is full representation of a lock, any prepared operation, and the current delegation
+var NotoLockInfoABI_V1 = &abi.Parameter{
+	Name:         "NotoLockInfo_V1",
+	Type:         "tuple",
+	InternalType: "struct NotoLockInfo_V1",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{Name: "lockId", Type: "bytes32", Indexed: true},
+		{Name: "owner", Type: "address", Indexed: true},
+		{Name: "spender", Type: "address", Indexed: true},
+		{Name: "replaces", Type: "bytes32"},
+		{Name: "spendTxId", Type: "bytes32"},
+		{Name: "spendOutputs", Type: "bytes32[]"},
+		{Name: "spendData", Type: "bytes"},
+		{Name: "cancelOutputs", Type: "bytes32[]"},
+		{Name: "cancelData", Type: "bytes"},
+	},
+}
+
+type TransactionData struct {
+	Salt    pldtypes.Bytes32     `json:"salt"`
+	Data    pldtypes.HexBytes    `json:"data"`
+	Variant pldtypes.HexUint64   `json:"variant"`        // Noto contract variant
+	From    *pldtypes.EthAddress `json:"from,omitempty"` // Resolved Ethereum address of the transaction requester
+}
+
+// TransactionDataABI_V0 is the original schema
+var TransactionDataABI_V0 = &abi.Parameter{
 	Name:         "TransactionData",
 	Type:         "tuple",
 	InternalType: "struct TransactionData",
 	Components: abi.ParameterArray{
 		{Name: "salt", Type: "bytes32"},
 		{Name: "data", Type: "bytes"},
+	},
+}
+
+// TransactionDataABI_V1 is the new schema with Noto variant field
+var TransactionDataABI_V1 = &abi.Parameter{
+	Name:         "TransactionData_V1",
+	Type:         "tuple",
+	InternalType: "struct TransactionData_V1",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{Name: "data", Type: "bytes"},
+		{Name: "variant", Type: "uint64"},
+	},
+}
+
+// TransactionDataABI_V2 is the new schema with Noto variant and from fields
+var TransactionDataABI_V2 = &abi.Parameter{
+	Name:         "TransactionData_V2",
+	Type:         "tuple",
+	InternalType: "struct TransactionData_V2",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{Name: "data", Type: "bytes"},
+		{Name: "variant", Type: "uint64"},
+		{Name: "from", Type: "address"},
 	},
 }

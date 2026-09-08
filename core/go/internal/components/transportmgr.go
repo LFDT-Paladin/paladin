@@ -20,12 +20,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 type FireAndForgetMessageSend struct {
@@ -48,6 +48,10 @@ type ReceivedMessage struct {
 type TransportManagerToTransport interface {
 	plugintk.TransportAPI
 	Initialized()
+}
+
+type TransportSendOptions struct {
+	ErrorHandler func(ctx context.Context, err error)
 }
 
 // TransportClient is the interface for a component that can receive messages from the transport manager
@@ -98,7 +102,7 @@ type TransportManager interface {
 	// situation to recover from (although not critical path).
 	//
 	// at-most-once delivery semantics
-	Send(ctx context.Context, send *FireAndForgetMessageSend) error
+	Send(ctx context.Context, send *FireAndForgetMessageSend, options ...*TransportSendOptions) error
 
 	// Sends a message with at-least-once delivery semantics
 	//

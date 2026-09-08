@@ -1,9 +1,9 @@
 # Dependency versions (some used by builder and runtime)
 ARG JAVA_VERSION=21.0.4+7
-ARG NODE_VERSION=20.17.0
+ARG NODE_VERSION=20.19.0
 ARG PROTO_VERSION=28.2
-ARG GO_VERSION=1.22.7
-ARG GO_MIGRATE_VERSION=4.18.1
+ARG GO_VERSION=1.25.11
+ARG GO_MIGRATE_VERSION=4.18.3
 ARG GRADLE_VERSION=8.5
 ARG WASMER_VERSION=4.3.7
 
@@ -57,7 +57,7 @@ RUN NODE_ARCH=$( if [ "$TARGETARCH" = "arm64" ]; then echo -n "arm64"; else echo
 # Install Protoc
 RUN PROTO_ARCH=$( if [ "$TARGETARCH" = "arm64" ]; then echo -n "aarch_64"; else echo -n "x86_64"; fi ) && \
     curl -sLo protoc-$PROTO_VERSION-${TARGETOS}-${PROTO_ARCH}.zip \
-      https://github.com/protocolbuffers/protobuf/releases/download/v$PROTO_VERSION/protoc-$PROTO_VERSION-${TARGETOS}-${PROTO_ARCH}.zip && \
+    https://github.com/protocolbuffers/protobuf/releases/download/v$PROTO_VERSION/protoc-$PROTO_VERSION-${TARGETOS}-${PROTO_ARCH}.zip && \
     unzip protoc-$PROTO_VERSION-${TARGETOS}-${PROTO_ARCH}.zip -d /usr/local/protoc && \
     rm protoc-$PROTO_VERSION-${TARGETOS}-${PROTO_ARCH}.zip
 
@@ -99,6 +99,8 @@ RUN gradle --no-daemon --parallel :buildSrc:jar
 # Copy in a set of thing before the first gradle command that are less likely to change
 COPY solidity solidity
 COPY config config
+COPY common/go common/go
+COPY sdk/go sdk/go
 COPY toolkit/proto toolkit/proto
 COPY toolkit toolkit
 COPY go.work.sum ./
@@ -129,12 +131,15 @@ COPY domains/noto domains/noto
 COPY domains/integration-test domains/integration-test
 COPY registries/static registries/static
 COPY registries/evm registries/evm
+COPY rpcauth/basicauth rpcauth/basicauth
+COPY signingmodules/example signingmodules/example
 COPY transports/grpc transports/grpc
 COPY ui/client ui/client
-# No build of these three, but we need to go.mod to make the go.work valid
+COPY ui/e2e ui/e2e
+# No build of these four, but we need to go.mod to make the go.work valid
 COPY testinfra/go.mod testinfra/go.mod
 COPY operator/go.mod operator/go.mod
-COPY perf/go.mod perf/go.mod
+COPY test/go.mod test/go.mod
 RUN gradle --no-daemon --parallel assemble
 
 # Stage 3: Pull together runtime
@@ -151,14 +156,12 @@ ARG GO_MIGRATE_VERSION
 RUN apt-get update && apt-get install -y \
     libgomp1 \
     curl \
+    postgresql-client \
     && apt-get clean
 
 # Set environment variables
 ENV LANG=C.UTF-8
 ENV LD_LIBRARY_PATH=/app/libs:/usr/local/wasmer/lib
-
-# Set the working directory
-WORKDIR /app
 
 # Install JRE
 RUN JAVA_ARCH=$( if [ "$TARGETARCH" = "arm64" ]; then echo -n "aarch64"; else echo -n "x64"; fi ) && \
@@ -169,7 +172,8 @@ RUN JAVA_ARCH=$( if [ "$TARGETARCH" = "arm64" ]; then echo -n "aarch64"; else ec
 # Install DB migration tool
 RUN GO_MIRGATE_ARCH=$( if [ "$TARGETARCH" = "arm64" ]; then echo -n "arm64"; else echo -n "amd64"; fi ) && \
     curl -sLo - https://github.com/golang-migrate/migrate/releases/download/v$GO_MIGRATE_VERSION/migrate.${TARGETOS}-${GO_MIRGATE_ARCH}.tar.gz | \
-    tar -C /usr/local/bin -xzf - migrate
+    tar -C /usr/local/bin -xzf - migrate && \
+    chmod 755 /usr/local/bin/migrate
 
 # Copy Wasmer shared libraries to the runtime container
 COPY --from=full-builder /usr/local/wasmer/lib/libwasmer.so /usr/local/wasmer/lib/libwasmer.so
@@ -177,11 +181,18 @@ COPY --from=full-builder /usr/local/wasmer/lib/libwasmer.so /usr/local/wasmer/li
 # Copy the build artifacts from the builder stage
 COPY --from=full-builder /app/build /app
 
+RUN mkdir /app/jna && chmod -R g+rwx /app/jna && chown -R 1001:1001 /app/jna
+
+USER 1001:1001
+# Set the working directory
+WORKDIR /app
+
 # Copy the db migration files
 COPY --from=full-builder /app/core/go/db /app/db
 
 # Add tools we installed to the path
-ENV PATH=$PATH:/usr/local/java/bin
+ENV PATH=$PATH:/usr/local/java/bin:/app/jna
+ENV LD_LIBRARY_PATH=/app/jna:$LD_LIBRARY_PATH
 
 # Define the entry point for running the application
 ENTRYPOINT [                         \
@@ -190,7 +201,8 @@ ENTRYPOINT [                         \
     "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED", \
     "--add-opens", "java.base/java.nio=ALL-UNNAMED", \
     "-Dio.netty.tryReflectionSetAccessible=true", \
-    "-Djna.library.path=/app/libs",  \
+    "-Djava.io.tmpdir=/app/jna", \
+    "-Djna.library.path=/app/jna",  \
     "-jar",                          \
     "/app/libs/paladin.jar"          \
-]
+    ]

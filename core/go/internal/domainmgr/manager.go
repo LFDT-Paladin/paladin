@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2025 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -22,22 +22,27 @@ import (
 
 	_ "embed"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/pkg/blockindexer"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
 
-	"github.com/kaleido-io/paladin/core/pkg/ethclient"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/cache"
-	"github.com/kaleido-io/paladin/toolkit/pkg/inflight"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signerapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/inflight"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 	"gorm.io/gorm"
 )
 
@@ -46,12 +51,20 @@ var iPaladinContractRegistryBuildJSON []byte
 
 var iPaladinContractRegistryABI = mustParseEmbeddedBuildABI(iPaladinContractRegistryBuildJSON)
 
+//nolint:unused // Used in tests
 var eventSig_PaladinRegisterSmartContract_V0 = mustParseEventSignatureHash(iPaladinContractRegistryABI, "PaladinRegisterSmartContract_V0")
 var eventSolSig_PaladinRegisterSmartContract_V0 = mustParseEventSoliditySignature(iPaladinContractRegistryABI, "PaladinRegisterSmartContract_V0")
 
 // var eventSig_PaladinPrivateTransaction_V0 = mustParseEventSignature(iPaladinContractABI, "PaladinPrivateTransaction_V0")
 
-func NewDomainManager(bgCtx context.Context, conf *pldconf.DomainManagerConfig) components.DomainManager {
+var smartContractFilters = filters.FieldMap{
+	"domainAddress": filters.HexBytesField("domain_address"),
+	"address":       filters.HexBytesField("address"),
+	"created":       filters.TimestampField("created"),
+}
+
+func NewDomainManager(bgCtx context.Context, conf *pldconf.DomainManagerInlineConfig) components.DomainManager {
+	bgCtx = log.WithComponent(bgCtx, "domainmanager")
 	allDomains := []string{}
 	for name := range conf.Domains {
 		allDomains = append(allDomains, name)
@@ -61,9 +74,9 @@ func NewDomainManager(bgCtx context.Context, conf *pldconf.DomainManagerConfig) 
 		bgCtx:            bgCtx,
 		conf:             conf,
 		domainsByName:    make(map[string]*domain),
-		domainsByAddress: make(map[tktypes.EthAddress]*domain),
+		domainsByAddress: make(map[pldtypes.EthAddress]*domain),
 		privateTxWaiter:  inflight.NewInflightManager[uuid.UUID, *components.ReceiptInput](uuid.Parse),
-		contractCache:    cache.NewCache[tktypes.EthAddress, *domainContract](&conf.DomainManager.ContractCache, pldconf.ContractCacheDefaults),
+		contractCache:    cache.NewCache[pldtypes.EthAddress, *domainContract](&conf.DomainManager.ContractCache, &pldconf.PaladinConfigDefaults.DomainManager.ContractCache),
 	}
 }
 
@@ -71,58 +84,68 @@ type domainManager struct {
 	bgCtx context.Context
 	mux   sync.Mutex
 
-	conf             *pldconf.DomainManagerConfig
+	conf             *pldconf.DomainManagerInlineConfig
 	persistence      persistence.Persistence
 	stateStore       components.StateManager
-	privateTxManager components.PrivateTxManager
+	sequencerManager components.SequencerManager
 	txManager        components.TXManager
 	transportMgr     components.TransportManager
 	blockIndexer     blockindexer.BlockIndexer
 	keyManager       components.KeyManager
 	ethClientFactory ethclient.EthClientFactory
 	domainSigner     *domainSigner
+	rpcModule        *rpcserver.RPCModule
+	publicTxManager  components.PublicTxManager
+	groupManager     components.GroupManager
 
 	domainsByName    map[string]*domain
-	domainsByAddress map[tktypes.EthAddress]*domain
+	domainsByAddress map[pldtypes.EthAddress]*domain
 
 	privateTxWaiter *inflight.InflightManager[uuid.UUID, *components.ReceiptInput]
-	contractCache   cache.Cache[tktypes.EthAddress, *domainContract]
+	contractCache   cache.Cache[pldtypes.EthAddress, *domainContract]
 }
 
 type event_PaladinRegisterSmartContract_V0 struct {
-	TXId     tktypes.Bytes32    `json:"txId"`
-	Domain   tktypes.EthAddress `json:"domain"`
-	Instance tktypes.EthAddress `json:"instance"`
-	Config   tktypes.HexBytes   `json:"config"`
+	TXId     pldtypes.Bytes32    `json:"txId"`
+	Domain   pldtypes.EthAddress `json:"domain"`
+	Instance pldtypes.EthAddress `json:"instance"`
+	Config   pldtypes.HexBytes   `json:"config"`
 }
 
-func (dm *domainManager) PreInit(pic components.PreInitComponents) (*components.ManagerInitResult, error) {
-	return &components.ManagerInitResult{}, nil
+func (dm *domainManager) PreInit(c components.PreInitComponents) (*components.ManagerInitResult, error) {
+	dm.buildRPCModule()
+	return &components.ManagerInitResult{
+		RPCModules: []*rpcserver.RPCModule{dm.rpcModule},
+	}, nil
 }
 
 func (dm *domainManager) PostInit(c components.AllComponents) error {
 	dm.stateStore = c.StateManager()
 	dm.txManager = c.TxManager()
-	dm.privateTxManager = c.PrivateTxManager()
+	dm.sequencerManager = c.SequencerManager()
 	dm.persistence = c.Persistence()
 	dm.ethClientFactory = c.EthClientFactory()
 	dm.blockIndexer = c.BlockIndexer()
 	dm.keyManager = c.KeyManager()
 	dm.transportMgr = c.TransportManager()
-
-	// Register ourselves as a signing on the key manager
-	dm.domainSigner = &domainSigner{dm: dm}
-	c.KeyManager().AddInMemorySigner("domain", dm.domainSigner)
+	dm.publicTxManager = c.PublicTxManager()
+	dm.groupManager = c.GroupManager()
 
 	for name, d := range dm.conf.Domains {
-		if _, err := tktypes.ParseEthAddress(d.RegistryAddress); err != nil {
+		if _, err := pldtypes.ParseEthAddress(d.RegistryAddress); err != nil {
 			return i18n.WrapError(dm.bgCtx, err, msgs.MsgDomainRegistryAddressInvalid, d.RegistryAddress, name)
 		}
 	}
 	return nil
 }
 
-func (dm *domainManager) Start() error { return nil }
+func (dm *domainManager) Start() error {
+	// Register ourselves as a signing module on the key manager after it has been started
+	dm.domainSigner = &domainSigner{dm: dm}
+	dm.keyManager.AddInMemorySigner("domain", dm.domainSigner)
+
+	return nil
+}
 
 func (dm *domainManager) Stop() {
 	dm.mux.Lock()
@@ -194,6 +217,7 @@ func (dm *domainManager) registerDomain(name string, toDomain components.DomainM
 
 // fails if domain is not yet initialized (note external endpoints of Paladin do not open up until all domains initialized)
 func (dm *domainManager) GetDomainByName(ctx context.Context, name string) (components.Domain, error) {
+	ctx = log.WithComponent(ctx, "domainmanager")
 	domain, err := dm.getDomainByName(ctx, name)
 	if err != nil {
 		return nil, err
@@ -217,6 +241,7 @@ func (dm *domainManager) getDomainByName(ctx context.Context, name string) (*dom
 func (dm *domainManager) ExecDeployAndWait(ctx context.Context, txID uuid.UUID, call func() error) (dc components.DomainSmartContract, err error) {
 	// Waits for the event that confirms a smart contract has been deployed (or a context timeout)
 	// using the transaction ID of the deploy transaction
+	ctx = log.WithComponent(ctx, "domainmanager")
 	req := dm.privateTxWaiter.AddInflight(ctx, txID)
 	defer req.Cancel()
 	log.L(ctx).Infof("Added waiter %s for private deployment TransactionID %s", req.ID(), txID)
@@ -250,6 +275,7 @@ func (dm *domainManager) waitForDeploy(ctx context.Context, req *inflight.Inflig
 func (dm *domainManager) ExecAndWaitTransaction(ctx context.Context, txID uuid.UUID, call func() error) error {
 	// Waits for the event that confirms a transaction has been processed (or a context timeout)
 	// using the ID of the transaction
+	ctx = log.WithComponent(ctx, "domainmanager")
 	req := dm.privateTxWaiter.AddInflight(ctx, txID)
 	defer req.Cancel()
 	log.L(ctx).Infof("Added waiter %s for private TransactionID %s", req.ID(), txID)
@@ -267,7 +293,7 @@ func (dm *domainManager) setDomainAddress(d *domain) {
 	dm.domainsByAddress[*d.RegistryAddress()] = d
 }
 
-func (dm *domainManager) getDomainByAddress(ctx context.Context, addr *tktypes.EthAddress) (d *domain, _ error) {
+func (dm *domainManager) getDomainByAddress(ctx context.Context, addr *pldtypes.EthAddress) (d *domain, _ error) {
 	dm.mux.Lock()
 	defer dm.mux.Unlock()
 	if addr != nil {
@@ -279,13 +305,14 @@ func (dm *domainManager) getDomainByAddress(ctx context.Context, addr *tktypes.E
 	return d, nil
 }
 
-func (dm *domainManager) getDomainByAddressOrNil(addr *tktypes.EthAddress) *domain {
+func (dm *domainManager) getDomainByAddressOrNil(addr *pldtypes.EthAddress) *domain {
 	dm.mux.Lock()
 	defer dm.mux.Unlock()
 	return dm.domainsByAddress[*addr]
 }
 
-func (dm *domainManager) GetSmartContractByAddress(ctx context.Context, dbTX persistence.DBTX, addr tktypes.EthAddress) (components.DomainSmartContract, error) {
+func (dm *domainManager) GetSmartContractByAddress(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress) (components.DomainSmartContract, error) {
+	ctx = log.WithComponent(ctx, "domainmanager")
 	loadResult, dc, err := dm.getSmartContractCached(ctx, dbTX, addr)
 	if dc != nil || err != nil {
 		return dc, err
@@ -300,7 +327,7 @@ func (dm *domainManager) GetSmartContractByAddress(ctx context.Context, dbTX per
 	}
 }
 
-func (dm *domainManager) getSmartContractCached(ctx context.Context, dbTX persistence.DBTX, addr tktypes.EthAddress) (pscLoadResult, *domainContract, error) {
+func (dm *domainManager) getSmartContractCached(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress) (pscLoadResult, *domainContract, error) {
 	dc, isCached := dm.contractCache.Get(addr)
 	if isCached {
 		return pscValid, dc, nil
@@ -309,12 +336,46 @@ func (dm *domainManager) getSmartContractCached(ctx context.Context, dbTX persis
 	return dm.dbGetSmartContract(ctx, dbTX, func(db *gorm.DB) *gorm.DB { return db.Where("address = ?", addr) })
 }
 
+func (dm *domainManager) populateContractConfig(result *pldapi.DomainSmartContract, config *prototk.ContractConfig) {
+	if config != nil {
+		result.Config = &pldapi.ContractConfig{}
+		if config.ContractConfigJson != "" {
+			result.Config.ContractConfig = pldtypes.RawJSON(config.ContractConfigJson)
+		}
+	}
+}
+
+func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.DomainSmartContract, error) {
+	qw := &filters.QueryWrapper[PrivateSmartContract, pldapi.DomainSmartContract]{
+		P:           dm.persistence,
+		Table:       "private_smart_contracts",
+		DefaultSort: "domainAddress",
+		Filters:     smartContractFilters,
+		Query:       jq,
+		MapResult: func(pt *PrivateSmartContract) (result *pldapi.DomainSmartContract, err error) {
+			_, dc, err := dm.enrichContractWithDomain(ctx, dbTX, pt)
+			if err == nil {
+				result = &pldapi.DomainSmartContract{
+					DomainAddress: &pt.RegistryAddress,
+					Address:       pt.Address,
+					Created:       pt.Created,
+				}
+				if dc != nil {
+					result.DomainName = dc.Domain().Name()
+					dm.populateContractConfig(result, dc.config)
+				}
+			}
+			return result, err
+		},
+	}
+	return qw.Run(ctx, dbTX)
+}
+
 func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistence.DBTX, setWhere func(db *gorm.DB) *gorm.DB) (pscLoadResult, *domainContract, error) {
 	var contracts []*PrivateSmartContract
-	query := dbTX.DB().Table("private_smart_contracts")
+	query := dbTX.DB(ctx).Table("private_smart_contracts")
 	query = setWhere(query)
 	err := query.
-		WithContext(ctx).
 		Limit(1).
 		Find(&contracts).
 		Error
@@ -323,8 +384,8 @@ func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistenc
 	}
 
 	// At this point it's possible we have a matching smart contract in our DB, for which we
-	// no longer recognize the domain registry (as it's not one that is configured an longer)
-	loadResult, dc, err := dm.enrichContractWithDomain(ctx, contracts[0])
+	// no longer recognize the domain registry (as it's not one that is configured any longer)
+	loadResult, dc, err := dm.enrichContractWithDomain(ctx, dbTX, contracts[0])
 	if err != nil {
 		return loadResult, nil, err
 	}
@@ -334,7 +395,7 @@ func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistenc
 	return loadResult, dc, nil
 }
 
-func (dm *domainManager) enrichContractWithDomain(ctx context.Context, contract *PrivateSmartContract) (pscLoadResult, *domainContract, error) {
+func (dm *domainManager) enrichContractWithDomain(ctx context.Context, dbTX persistence.DBTX, contract *PrivateSmartContract) (pscLoadResult, *domainContract, error) {
 
 	// Get the domain by address
 	d := dm.getDomainByAddressOrNil(&contract.RegistryAddress)
@@ -342,7 +403,7 @@ func (dm *domainManager) enrichContractWithDomain(ctx context.Context, contract 
 		return pscDomainNotFound, nil, nil
 	}
 
-	return d.initSmartContract(ctx, contract)
+	return d.initSmartContract(ctx, dbTX, contract)
 }
 
 // If an embedded ABI is broken, we don't even run the tests / start the runtime
@@ -370,7 +431,8 @@ func mustParseEventSoliditySignature(a abi.ABI, eventName string) string {
 	return solString
 }
 
-func mustParseEventSignatureHash(a abi.ABI, eventName string) tktypes.Bytes32 {
+//nolint:unused // Used in tests
+func mustParseEventSignatureHash(a abi.ABI, eventName string) pldtypes.Bytes32 {
 	event := a.Events()[eventName]
 	if event == nil {
 		panic("ABI missing " + eventName)
@@ -379,5 +441,5 @@ func mustParseEventSignatureHash(a abi.ABI, eventName string) tktypes.Bytes32 {
 	if err != nil {
 		panic(err)
 	}
-	return tktypes.NewBytes32FromSlice(sig)
+	return pldtypes.NewBytes32FromSlice(sig)
 }

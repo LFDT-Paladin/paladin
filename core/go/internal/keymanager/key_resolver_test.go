@@ -22,11 +22,11 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,9 +52,9 @@ func mockNewFirstLevelEntryExistingRoot(mc *mockComponents) {
 
 func TestGetOrCreateIdentifierPathEmptySegment(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()
@@ -71,9 +71,9 @@ func TestGetOrCreateIdentifierPathEmptySegment(t *testing.T) {
 
 func TestResolvePathNoCreate(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()
@@ -90,9 +90,9 @@ func TestResolvePathNoCreate(t *testing.T) {
 
 func TestResolvePathInLockLookupFail(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()
@@ -110,9 +110,9 @@ func TestResolvePathInLockLookupFail(t *testing.T) {
 
 func TestResolvePathCreateFail(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()
@@ -131,9 +131,9 @@ func TestResolvePathCreateFail(t *testing.T) {
 
 func TestResolveKeyIdentifierLookupFail(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mockNewFirstLevelEntryExistingRoot(mc)
@@ -150,9 +150,9 @@ func TestResolveKeyIdentifierLookupFail(t *testing.T) {
 
 func TestGetStoredVerifierFail(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()
@@ -169,9 +169,9 @@ func TestGetStoredVerifierFail(t *testing.T) {
 
 func TestGetStoredVerifierNotFound(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()
@@ -190,9 +190,9 @@ func TestGetStoredVerifierNotFound(t *testing.T) {
 
 func TestResolveKeyNotFound(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()
@@ -216,9 +216,9 @@ func TestResolveKeyNotFound(t *testing.T) {
 
 func TestResolveNewMappingNoSuitableWalletError(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "not_this_one")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()
@@ -241,9 +241,9 @@ func TestResolveNewMappingNoSuitableWalletError(t *testing.T) {
 
 func TestResolveExistingMappingNoWallet(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()
@@ -266,9 +266,9 @@ func TestResolveExistingMappingNoWallet(t *testing.T) {
 
 func TestResolveExistingGetStoredVerifierFail(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()
@@ -290,11 +290,44 @@ func TestResolveExistingGetStoredVerifierFail(t *testing.T) {
 
 }
 
+func TestResolvePathLockContextCancelled(t *testing.T) {
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
+		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
+	}, nil)
+	defer done()
+
+	// Hold the allocation lock with a fake resolver that never releases
+	fakeHolder := &keyResolver{km: km, id: "fake-holder", done: make(chan struct{})}
+	km.allocLock.Lock()
+	km.allocLockHolder = fakeHolder
+	km.allocLock.Unlock()
+	defer close(fakeHolder.done)
+
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// The hook fires at the exact moment takeAllocationLock is about to enter
+	// its select — i.e., after the DB query has completed successfully and the
+	// holder has been found. Cancelling here guarantees ctx.Done() is already
+	// closed when the select runs, with no race against the DB query.
+	km.testHookBeforeAllocationWait = func() { cancel() }
+
+	mc.db.ExpectBegin()
+	mc.db.ExpectQuery("SELECT.*key_paths").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	err := km.p.Transaction(ctx, func(_ context.Context, dbTX persistence.DBTX) error {
+		kr := km.KeyResolverForDBTX(dbTX).(*keyResolver)
+		_, err := kr.resolvePathSegment(cancelCtx, kr.rootPath, "testkey", true)
+		return err
+	})
+	require.Regexp(t, "PD010301", err)
+}
+
 func TestResolveNewMappingWhenRequiredExisting(t *testing.T) {
 
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
-	})
+	}, nil)
 	defer done()
 
 	mc.db.ExpectBegin()

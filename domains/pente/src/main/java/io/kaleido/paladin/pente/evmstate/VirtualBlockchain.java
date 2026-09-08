@@ -15,6 +15,8 @@
 
 package io.kaleido.paladin.pente.evmstate;
 
+import java.util.Optional;
+
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.hyperledger.besu.datatypes.Hash;
@@ -22,17 +24,15 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.operation.BlockHashOperation;
 
-import java.util.Optional;
-
 public class VirtualBlockchain implements BlockValues, BlockHashOperation.BlockHashLookup {
 
     private long blockNumber;
     private long blockTimestamp;
     private long gasLimit;
 
-    public VirtualBlockchain(long blockNumber) {
+    public VirtualBlockchain(long blockNumber, long blockTimestamp) {
         this.blockNumber = blockNumber;
-        this.blockTimestamp = System.currentTimeMillis() / 1000;
+        this.blockTimestamp = blockTimestamp;
         this.gasLimit = Long.MAX_VALUE; // TODO: consider right answer here
     }
 
@@ -58,12 +58,12 @@ public class VirtualBlockchain implements BlockValues, BlockHashOperation.BlockH
 
     @Override
     public long getTimestamp() {
-        return this.gasLimit;
+        return this.blockTimestamp;
     }
 
     @Override
     public long getGasLimit() {
-        return this.blockTimestamp;
+        return this.gasLimit;
     }
 
     @Override

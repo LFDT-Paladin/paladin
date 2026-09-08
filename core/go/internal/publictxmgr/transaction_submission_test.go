@@ -20,11 +20,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 
-	"github.com/kaleido-io/paladin/core/pkg/ethclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -34,10 +34,14 @@ const testHashedSignedMessage string = "0x30783733363936373665363536343230366436
 const testTxHash string = "0x0503bb2e013a6ecfe29c6c7e073d6f0cf834edf6d305606c4e4623c98cb7fa5a"
 const testWrongTxHash string = "0x0503bb2e013a6ecfe29c6c3e073d6f0cf834edf6d305606c4e4623c98cb7fa5a"
 
+func testCancel(ctx context.Context) bool {
+	return false
+}
+
 func TestTxSubmissionWithSignedMessage(t *testing.T) {
 
-	textTxHashByte32 := tktypes.MustParseBytes32(testTxHash)
-	textWrongTxHashByte32 := tktypes.MustParseBytes32(testWrongTxHash)
+	textTxHashByte32 := pldtypes.MustParseBytes32(testTxHash)
+	textWrongTxHashByte32 := pldtypes.MustParseBytes32(testWrongTxHash)
 
 	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
 		conf.Orchestrator.SubmissionRetry.MaxAttempts = confutil.P(1)
@@ -45,18 +49,27 @@ func TestTxSubmissionWithSignedMessage(t *testing.T) {
 	defer done()
 	it, ifts := newInflightTransaction(o, 1)
 	ifts.ApplyInMemoryUpdates(ctx, &BaseTXUpdates{
-		TransactionHash: &textTxHashByte32,
+		NewValues: BaseTXUpdateNewValues{
+			TransactionHash: &textTxHashByte32,
+		},
 	})
 
 	// successful send with tx hash returned
 	txSendMock := m.ethClient.On("SendRawTransaction", ctx, mock.Anything)
+
 	txSendMock.Run(func(args mock.Arguments) {
-		txRawMessage := args[1].(tktypes.HexBytes)
-		assert.Equal(t, tktypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
+		txRawMessage := args[1].(pldtypes.HexBytes)
+		assert.Equal(t, pldtypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
 		txSendMock.Return(&textTxHashByte32, nil)
 	}).Once()
 
-	txHash, _, errReason, outCome, err := it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err := it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	require.NoError(t, err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeSubmittedNew, outCome)
@@ -64,12 +77,18 @@ func TestTxSubmissionWithSignedMessage(t *testing.T) {
 
 	// successful send with tx hash missing
 	txSendMock.Run(func(args mock.Arguments) {
-		txRawMessage := args[1].(tktypes.HexBytes)
-		assert.Equal(t, tktypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
+		txRawMessage := args[1].(pldtypes.HexBytes)
+		assert.Equal(t, pldtypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
 		txSendMock.Return(nil, nil)
 	}).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	require.NoError(t, err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeSubmittedNew, outCome)
@@ -77,12 +96,18 @@ func TestTxSubmissionWithSignedMessage(t *testing.T) {
 
 	// error send due to tx hash mismatch
 	txSendMock.Run(func(args mock.Arguments) {
-		txRawMessage := args[1].(tktypes.HexBytes)
-		assert.Equal(t, tktypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
+		txRawMessage := args[1].(pldtypes.HexBytes)
+		assert.Equal(t, pldtypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
 		txSendMock.Return(&textWrongTxHashByte32, nil)
 	}).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	assert.Regexp(t, "PD011905", err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeFailedRequiresRetry, outCome)
@@ -90,48 +115,72 @@ func TestTxSubmissionWithSignedMessage(t *testing.T) {
 
 	// underpriced
 	txSendMock.Run(func(args mock.Arguments) {
-		txRawMessage := args[1].(tktypes.HexBytes)
-		assert.Equal(t, tktypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
+		txRawMessage := args[1].(pldtypes.HexBytes)
+		assert.Equal(t, pldtypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
 		txSendMock.Return(nil, fmt.Errorf("transaction underpriced"))
 	}).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	assert.Regexp(t, "transaction underpriced", err)
 	assert.Equal(t, ethclient.ErrorReasonTransactionUnderpriced, errReason)
 	assert.Equal(t, SubmissionOutcomeFailedRequiresRetry, outCome)
 	assert.Equal(t, testTxHash, txHash.String())
 	// reverted
 	txSendMock.Run(func(args mock.Arguments) {
-		txRawMessage := args[1].(tktypes.HexBytes)
-		assert.Equal(t, tktypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
+		txRawMessage := args[1].(pldtypes.HexBytes)
+		assert.Equal(t, pldtypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
 		txSendMock.Return(nil, fmt.Errorf("execution reverted"))
 	}).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	assert.Regexp(t, "execution reverted", err)
 	assert.Equal(t, ethclient.ErrorReasonTransactionReverted, errReason)
 	assert.Equal(t, SubmissionOutcomeFailedRequiresRetry, outCome)
 	assert.Equal(t, testTxHash, txHash.String())
 	// known transaction
 	txSendMock.Run(func(args mock.Arguments) {
-		txRawMessage := args[1].(tktypes.HexBytes)
-		assert.Equal(t, tktypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
+		txRawMessage := args[1].(pldtypes.HexBytes)
+		assert.Equal(t, pldtypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
 		txSendMock.Return(nil, fmt.Errorf("known transaction"))
 	}).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	require.NoError(t, err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeAlreadyKnown, outCome)
 	assert.Equal(t, testTxHash, txHash.String()) // able to use the calculated hash
 	// nonce too low
 	txSendMock.Run(func(args mock.Arguments) {
-		txRawMessage := args[1].(tktypes.HexBytes)
-		assert.Equal(t, tktypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
+		txRawMessage := args[1].(pldtypes.HexBytes)
+		assert.Equal(t, pldtypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
 		txSendMock.Return(nil, fmt.Errorf("nonce too low"))
 	}).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	require.NoError(t, err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeNonceTooLow, outCome)
@@ -139,12 +188,18 @@ func TestTxSubmissionWithSignedMessage(t *testing.T) {
 
 	// other error
 	txSendMock.Run(func(args mock.Arguments) {
-		txRawMessage := args[1].(tktypes.HexBytes)
-		assert.Equal(t, tktypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
+		txRawMessage := args[1].(pldtypes.HexBytes)
+		assert.Equal(t, pldtypes.MustParseHexBytes(testHashedSignedMessage), txRawMessage)
 		txSendMock.Return(nil, fmt.Errorf("error submitting transaction"))
 	}).Once()
 
-	_, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	_, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	assert.Regexp(t, "error submitting", err)
 	assert.Equal(t, ethclient.ErrorReason(""), errReason)
 	assert.Equal(t, SubmissionOutcomeFailedRequiresRetry, outCome)
@@ -152,8 +207,8 @@ func TestTxSubmissionWithSignedMessage(t *testing.T) {
 
 func TestTxSubmissionWithSignedMessageWithRetry(t *testing.T) {
 
-	textTxHashByte32 := tktypes.MustParseBytes32(testTxHash)
-	textWrongTxHashByte32 := tktypes.MustParseBytes32(testWrongTxHash)
+	textTxHashByte32 := pldtypes.MustParseBytes32(testTxHash)
+	textWrongTxHashByte32 := pldtypes.MustParseBytes32(testWrongTxHash)
 
 	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
 		conf.Orchestrator.SubmissionRetry.MaxAttempts = confutil.P(2)
@@ -161,13 +216,21 @@ func TestTxSubmissionWithSignedMessageWithRetry(t *testing.T) {
 	defer done()
 	it, ifts := newInflightTransaction(o, 1)
 	ifts.ApplyInMemoryUpdates(ctx, &BaseTXUpdates{
-		TransactionHash: &textTxHashByte32,
+		NewValues: BaseTXUpdateNewValues{
+			TransactionHash: &textTxHashByte32,
+		},
 	})
 
 	// successful send with tx hash returned
 	m.ethClient.On("SendRawTransaction", ctx, mock.Anything).Return(&textTxHashByte32, nil).Once()
 
-	txHash, _, errReason, outCome, err := it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err := it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	require.NoError(t, err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeSubmittedNew, outCome)
@@ -179,7 +242,13 @@ func TestTxSubmissionWithSignedMessageWithRetry(t *testing.T) {
 		nil,
 	).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	require.NoError(t, err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeSubmittedNew, outCome)
@@ -190,7 +259,13 @@ func TestTxSubmissionWithSignedMessageWithRetry(t *testing.T) {
 	// but corrected in the retry
 	m.ethClient.On("SendRawTransaction", ctx, mock.Anything).Return(&textTxHashByte32, nil).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	require.NoError(t, err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeSubmittedNew, outCome)
@@ -200,7 +275,13 @@ func TestTxSubmissionWithSignedMessageWithRetry(t *testing.T) {
 	// underpriced
 	m.ethClient.On("SendRawTransaction", ctx, mock.Anything).Return(nil, fmt.Errorf("transaction underpriced")).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	assert.Regexp(t, "transaction underpriced", err)
 	assert.Equal(t, ethclient.ErrorReasonTransactionUnderpriced, errReason)
 	assert.Equal(t, SubmissionOutcomeFailedRequiresRetry, outCome)
@@ -208,7 +289,13 @@ func TestTxSubmissionWithSignedMessageWithRetry(t *testing.T) {
 	// reverted
 	m.ethClient.On("SendRawTransaction", ctx, mock.Anything).Return(nil, fmt.Errorf("execution reverted")).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	assert.Regexp(t, "execution reverted", err)
 	assert.Equal(t, ethclient.ErrorReasonTransactionReverted, errReason)
 	assert.Equal(t, SubmissionOutcomeFailedRequiresRetry, outCome)
@@ -216,7 +303,13 @@ func TestTxSubmissionWithSignedMessageWithRetry(t *testing.T) {
 	// known transaction
 	m.ethClient.On("SendRawTransaction", ctx, mock.Anything).Return(nil, fmt.Errorf("known transaction")).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	require.NoError(t, err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeAlreadyKnown, outCome)
@@ -224,7 +317,13 @@ func TestTxSubmissionWithSignedMessageWithRetry(t *testing.T) {
 	// nonce too low
 	m.ethClient.On("SendRawTransaction", ctx, mock.Anything).Return(nil, fmt.Errorf("nonce too low")).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	require.NoError(t, err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeNonceTooLow, outCome)
@@ -237,7 +336,13 @@ func TestTxSubmissionWithSignedMessageWithRetry(t *testing.T) {
 	// but the second time was successful
 	m.ethClient.On("SendRawTransaction", ctx, mock.Anything).Return(&textTxHashByte32, nil).Once()
 
-	txHash, _, errReason, outCome, err = it.submitTX(ctx, it.stateManager, []byte(testTransactionData))
+	txHash, _, errReason, outCome, err = it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	require.NoError(t, err)
 	assert.Empty(t, errReason)
 	assert.Equal(t, SubmissionOutcomeSubmittedNew, outCome)
@@ -247,8 +352,93 @@ func TestTxSubmissionWithSignedMessageWithRetry(t *testing.T) {
 	canceledContext, cancel := context.WithCancel(ctx)
 	cancel()
 	m.ethClient.On("SendRawTransaction", canceledContext, mock.Anything).Return(nil, fmt.Errorf("error submitting transaction")).Once()
-	txHash, _, _, outCome, err = it.submitTX(canceledContext, it.stateManager, []byte(testHashedSignedMessage))
+	txHash, _, _, outCome, err = it.submitTX(canceledContext,
+		[]byte(testHashedSignedMessage),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
 	assert.Regexp(t, "PD020000", err)
 	assert.Equal(t, SubmissionOutcomeFailedRequiresRetry, outCome)
 	assert.Nil(t, txHash)
+}
+
+func TestTxSubmissionWithNilCalculatedTxHash(t *testing.T) {
+	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Orchestrator.SubmissionRetry.MaxAttempts = confutil.P(1)
+	})
+	defer done()
+	it, _ := newInflightTransaction(o, 1)
+
+	// Test submitTX with nil calculatedTxHash
+	txHash, submitTime, errReason, outcome, err := it.submitTX(ctx,
+		[]byte(testTransactionData),
+		nil, // calculatedTxHash is nil - this should trigger the error path
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		testCancel)
+
+	// Verify the error response
+	assert.Error(t, err)
+	assert.Nil(t, txHash)
+	assert.Nil(t, submitTime)
+	assert.Equal(t, ethclient.ErrorReasonInvalidInputs, errReason)
+	assert.Equal(t, SubmissionOutcomeFailedRequiresRetry, outcome)
+	assert.Contains(t, err.Error(), "missing transaction hash from previous sign stage")
+
+	// Verify that SendRawTransaction was not called since we returned early
+	m.ethClient.AssertNotCalled(t, "SendRawTransaction")
+}
+
+func TestTxSubmissionWithCancelledDuringRetry(t *testing.T) {
+	textTxHashByte32 := pldtypes.MustParseBytes32(testTxHash)
+
+	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Orchestrator.SubmissionRetry.MaxAttempts = confutil.P(2) // Allow retries
+	})
+	defer done()
+	it, ifts := newInflightTransaction(o, 1)
+	ifts.ApplyInMemoryUpdates(ctx, &BaseTXUpdates{
+		NewValues: BaseTXUpdateNewValues{
+			TransactionHash: &textTxHashByte32,
+		},
+	})
+
+	// Create a cancelled function that returns false on first call, true on second call
+	callCount := 0
+	cancelledFunc := func(ctx context.Context) bool {
+		callCount++
+		return callCount > 1 // Return true on second call (during retry)
+	}
+
+	// Mock SendRawTransaction to return an error that triggers retry (falls into default case)
+	m.ethClient.On("SendRawTransaction", ctx, mock.Anything).Return(nil, fmt.Errorf("network error")).Once()
+
+	// Test submitTX with the cancelled function - we don't worry about the result as it will be discarded after a cancel
+	it.submitTX(ctx,
+		[]byte(testTransactionData),
+		it.stateManager.GetTransactionHash(),
+		it.stateManager.GetSignerNonce(),
+		it.stateManager.GetTo().String(),
+		it.stateManager.GetLastSubmitTime(),
+		cancelledFunc)
+
+	// Verify that SendRawTransaction was called only once (first attempt)
+	m.ethClient.AssertExpectations(t)
+}
+
+func TestCalculateTransactionHashWithNilInput(t *testing.T) {
+	// Test calculateTransactionHash with nil input - should return nil
+	result := calculateTransactionHash(nil)
+	assert.Nil(t, result)
+}
+
+func TestCalculateTransactionHashWithValidInput(t *testing.T) {
+	// Test calculateTransactionHash with valid input - should return a valid hash
+	testData := []byte("test transaction data")
+	result := calculateTransactionHash(testData)
+	assert.NotNil(t, result)
+	assert.IsType(t, &pldtypes.Bytes32{}, result)
 }

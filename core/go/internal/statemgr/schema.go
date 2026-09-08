@@ -19,16 +19,17 @@ package statemgr
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/filters"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
 	"gorm.io/gorm/clause"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 type labelType int
@@ -50,21 +51,20 @@ type schemaLabelInfo struct {
 }
 
 type idOnly struct {
-	ID tktypes.HexBytes `gorm:"primaryKey"`
+	ID pldtypes.HexBytes `gorm:"primaryKey"`
 }
 
 type labelInfoAccess interface {
 	labelInfo() []*schemaLabelInfo
 }
 
-func schemaCacheKey(domainName string, id tktypes.Bytes32) string {
+func schemaCacheKey(domainName string, id pldtypes.Bytes32) string {
 	return domainName + "/" + id.String()
 }
 
 func (ss *stateManager) persistSchemas(ctx context.Context, dbTX persistence.DBTX, schemas []*pldapi.Schema) error {
-	return dbTX.DB().
+	return dbTX.DB(ctx).
 		Table("schemas").
-		WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{
 				{Name: "domain_name"},
@@ -76,7 +76,8 @@ func (ss *stateManager) persistSchemas(ctx context.Context, dbTX persistence.DBT
 		Error
 }
 
-func (ss *stateManager) GetSchemaByID(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID tktypes.Bytes32, failNotFound bool) (*pldapi.Schema, error) {
+func (ss *stateManager) GetSchemaByID(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID pldtypes.Bytes32, failNotFound bool) (*pldapi.Schema, error) {
+	ctx = log.WithComponent(ctx, "statemanager")
 	s, err := ss.getSchemaByID(ctx, dbTX, domainName, schemaID, failNotFound)
 	if err != nil || s == nil {
 		return nil, err
@@ -84,7 +85,7 @@ func (ss *stateManager) GetSchemaByID(ctx context.Context, dbTX persistence.DBTX
 	return s.Persisted(), nil
 }
 
-func (ss *stateManager) getSchemaByID(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID tktypes.Bytes32, failNotFound bool) (components.Schema, error) {
+func (ss *stateManager) getSchemaByID(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID pldtypes.Bytes32, failNotFound bool) (components.Schema, error) {
 
 	cacheKey := schemaCacheKey(domainName, schemaID)
 	s, cached := ss.abiSchemaCache.Get(cacheKey)
@@ -93,7 +94,7 @@ func (ss *stateManager) getSchemaByID(ctx context.Context, dbTX persistence.DBTX
 	}
 
 	var results []*pldapi.Schema
-	err := dbTX.DB().
+	err := dbTX.DB(ctx).
 		Table("schemas").
 		Where("domain_name = ?", domainName).
 		Where("id = ?", schemaID).
@@ -126,7 +127,7 @@ func (ss *stateManager) restoreSchema(ctx context.Context, persisted *pldapi.Sch
 
 func (ss *stateManager) ListSchemas(ctx context.Context, dbTX persistence.DBTX, domainName string) (results []components.Schema, err error) {
 	var ids []*idOnly
-	err = ss.p.DB().
+	err = ss.p.DB(ctx).
 		Table("schemas").
 		Select("id").
 		Where("domain_name = ?", domainName).
@@ -137,7 +138,7 @@ func (ss *stateManager) ListSchemas(ctx context.Context, dbTX persistence.DBTX, 
 	}
 	results = make([]components.Schema, len(ids))
 	for i, id := range ids {
-		if results[i], err = ss.getSchemaByID(ctx, dbTX, domainName, tktypes.Bytes32(id.ID), true); err != nil {
+		if results[i], err = ss.getSchemaByID(ctx, dbTX, domainName, pldtypes.Bytes32(id.ID), true); err != nil {
 			return nil, err
 		}
 	}
@@ -156,6 +157,7 @@ func (ss *stateManager) ListSchemasForJSON(ctx context.Context, dbTX persistence
 }
 
 func (ss *stateManager) EnsureABISchemas(ctx context.Context, dbTX persistence.DBTX, domainName string, defs []*abi.Parameter) ([]components.Schema, error) {
+	ctx = log.WithComponent(ctx, "statemanager")
 	if len(defs) == 0 {
 		return nil, nil
 	}

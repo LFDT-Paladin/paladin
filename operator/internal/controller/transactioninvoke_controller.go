@@ -34,17 +34,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/Masterminds/sprig/v3"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	corev1alpha1 "github.com/kaleido-io/paladin/operator/api/v1alpha1"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
 
 // TransactionInvokeReconciler reconciles a TransactionInvoke object
 type TransactionInvokeReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme           *runtime.Scheme
+	RPCClientManager *rpcClientManager
+
+	// Injected dependencies for testing
+	checkDepsFunc               func(context.Context, client.Client, string, []string, *corev1alpha1.ContactDependenciesStatus) (bool, bool, error)
+	newTransactionReconcileFunc func(client.Client, *rpcClientManager, string, string, string, *corev1alpha1.TransactionSubmission, string, func() (bool, *pldapi.TransactionInput, error)) transactionReconcileInterface
 }
 
 // allows generic functions by giving a mapping between the types and interfaces for the CR
@@ -63,8 +68,6 @@ var TransactionInvokeCRMap = CRMap[corev1alpha1.TransactionInvoke, *corev1alpha1
 func (r *TransactionInvokeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	// TODO: Add an admission webhook to make the contract deps, bytecode and ABIs immutable
-
 	// Fetch the TransactionInvoke instance
 	var txi corev1alpha1.TransactionInvoke
 	if err := r.Get(ctx, req.NamespacedName, &txi); err != nil {
@@ -75,18 +78,25 @@ func (r *TransactionInvokeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	// Check all our deps are resolved
-	depsChanged, ready, err := checkSmartContractDeps(ctx, r.Client, txi.Namespace, txi.Spec.ContractDeploymentDeps, &txi.Status.ContactDependenciesStatus)
+	// Use injected dependency for checking smart contract dependencies
+	if r.checkDepsFunc == nil {
+		r.checkDepsFunc = checkSmartContractDeps
+	}
+	depsChanged, ready, err := r.checkDepsFunc(ctx, r.Client, txi.Namespace, txi.Spec.ContractDeploymentDeps, &txi.Status.ContactDependenciesStatus)
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 	} else if depsChanged {
 		return r.updateStatusAndRequeue(ctx, &txi)
 	} else if !ready {
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 	}
 
-	// Reconcile the deployment transaction
-	txReconcile := newTransactionReconcile(r.Client,
+	// Use injected dependency for transaction reconcile
+	if r.newTransactionReconcileFunc == nil {
+		r.newTransactionReconcileFunc = newTransactionReconcile
+	}
+	txReconcile := r.newTransactionReconcileFunc(r.Client,
+		r.RPCClientManager,
 		"txinvoke."+txi.Name,
 		txi.Spec.Node, txi.Namespace,
 		&txi.Status.TransactionSubmission,
@@ -98,9 +108,9 @@ func (r *TransactionInvokeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		// There's nothing to notify us when the world changes other than polling, so we keep re-trying at
 		// a fixed rate (matching the readiness probe period of Paladin) to avoid any exponential backoff
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
-	} else if txReconcile.statusChanged {
+	} else if txReconcile.isStatusChanged() {
 		return r.updateStatusAndRequeue(ctx, &txi)
-	} else if !txReconcile.failed && !txReconcile.succeeded {
+	} else if !txReconcile.isFailed() && !txReconcile.isSucceeded() {
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 	}
 	// Nothing left to do - we succeeded or failed
@@ -139,7 +149,7 @@ func (r *TransactionInvokeReconciler) buildDeployTransaction(txi *corev1alpha1.T
 	if err = toTemplate.Execute(toBuff, crMap); err != nil {
 		return false, nil, fmt.Errorf("toTemplate failed: %s", err)
 	}
-	to, err := tktypes.ParseEthAddress(toBuff.String())
+	to, err := pldtypes.ParseEthAddress(toBuff.String())
 	if err != nil {
 		return false, nil, fmt.Errorf("toTemplate result '%s' not a valid address: %s", toBuff, err)
 	}
@@ -156,7 +166,7 @@ func (r *TransactionInvokeReconciler) buildDeployTransaction(txi *corev1alpha1.T
 
 	return true, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
-			Type:   tktypes.Enum[pldapi.TransactionType](txi.Spec.TxType),
+			Type:   pldtypes.Enum[pldapi.TransactionType](txi.Spec.TxType),
 			Domain: txi.Spec.Domain,
 			From:   txi.Spec.From,
 			To:     to,

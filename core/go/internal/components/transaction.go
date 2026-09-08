@@ -16,18 +16,18 @@
 package components
 
 import (
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
 
 type TransactionStateRefs struct {
-	Confirmed []tktypes.HexBytes
-	Read      []tktypes.HexBytes
-	Spent     []tktypes.HexBytes
-	Info      []tktypes.HexBytes
+	Confirmed []pldtypes.HexBytes
+	Read      []pldtypes.HexBytes
+	Spent     []pldtypes.HexBytes
+	Info      []pldtypes.HexBytes
 }
 
 type PreparedTransactionWithRefs struct {
@@ -35,44 +35,36 @@ type PreparedTransactionWithRefs struct {
 	StateRefs TransactionStateRefs `json:"stateRefs"` // the states associated with the original private transaction
 }
 
-type TransactionPreAssembly struct {
-	TransactionSpecification *prototk.TransactionSpecification `json:"transaction_specification"`
-	RequiredVerifiers        []*prototk.ResolveVerifierRequest `json:"required_verifiers"`
-	Verifiers                []*prototk.ResolvedVerifier       `json:"verifiers"`
-	PublicTxOptions          pldapi.PublicTxOptions            `json:"public_tx_options"`
-}
-
-type FullState struct {
-	ID     tktypes.HexBytes `json:"id"`
-	Schema tktypes.Bytes32  `json:"schema"`
-	Data   tktypes.RawJSON  `json:"data"`
-}
-
 type EthTransaction struct {
 	FunctionABI *abi.Entry
-	To          tktypes.EthAddress
+	To          pldtypes.EthAddress
 	Inputs      *abi.ComponentValue
 }
 
 type EthDeployTransaction struct {
 	ConstructorABI *abi.Entry
-	Bytecode       tktypes.HexBytes
+	Bytecode       pldtypes.HexBytes
 	Inputs         *abi.ComponentValue
 }
 
 type TransactionPostAssembly struct {
-	AssemblyResult        prototk.AssembleTransactionResponse_Result `json:"assembly_result"`
-	OutputStatesPotential []*prototk.NewState                        `json:"output_states_potential"` // the raw result of assembly, before sequence allocation
-	InfoStatesPotential   []*prototk.NewState                        `json:"info_states_potential"`   // the raw result of assembly, before sequence allocation
-	InputStates           []*FullState                               `json:"input_states"`
-	ReadStates            []*FullState                               `json:"read_states"`
-	OutputStates          []*FullState                               `json:"output_states"`
-	InfoStates            []*FullState                               `json:"info_states"`
-	AttestationPlan       []*prototk.AttestationRequest              `json:"attestation_plan"`
-	Signatures            []*prototk.AttestationResult               `json:"signatures"`
-	Endorsements          []*prototk.AttestationResult               `json:"endorsements"`
-	DomainData            *string                                    `json:"domain_data"`
-	RevertReason          *string                                    `json:"revert_reason"`
+	// Immutable proto: the wire format received/sent in AssembleResponse.
+	AssembleResponse *prototk.TransactionPostAssembly
+
+	// Output/Info states resolved from the OutputStatesPotential/InfoStatesPotential arrays in
+	// AssembleResponse, with state IDs and labels computed. The post assembly steps of sequencing
+	// require these states in both prototk.EndorsableState and StateWithLabels form, so we store
+	// both representations upfront. This approaches intentionally minimises CPU time spent converting
+	// between the two representations at the expense of memory usage.
+	OutputStates           []*prototk.EndorsableState
+	OutputStatesWithLabels []*StateWithLabels
+	InfoStates             []*prototk.EndorsableState
+	InfoStatesWithLabels   []*StateWithLabels
+
+	// Endorsements accumulated during the EndorsementGathering phase by the coordinator.
+	// Seeded from AssemblyResponse.Endorsements so any pre-assembly endorsements included
+	// by the originator are also counted.
+	CollectedEndorsements []*prototk.AttestationResult
 }
 
 // PrivateTransaction is the critical exchange object between the engine and the domain manager,
@@ -81,25 +73,36 @@ type TransactionPostAssembly struct {
 type PrivateTransaction struct {
 
 	// The identifier for the transaction
-	ID      uuid.UUID          `json:"id"`
-	Domain  string             `json:"domain"`
-	Address tktypes.EthAddress `json:"address"`
+	ID      uuid.UUID
+	Domain  string
+	Address pldtypes.EthAddress
 
 	// This enum describes the point in the private transaction flow where processing of the transaction should stop
-	Intent prototk.TransactionSpecification_Intent `json:"intent"`
+	Intent prototk.TransactionSpecification_Intent
 
 	// ASSEMBLY PHASE: Items that get added to the transaction as it goes on its journey through
 	// assembly, signing and endorsement (possibly going back through the journey many times)
-	PreAssembly  *TransactionPreAssembly  `json:"pre_assembly"`  // the bit of the assembly phase state that can be retained across re-assembly
-	PostAssembly *TransactionPostAssembly `json:"post_assembly"` // the bit of the assembly phase state that must be completely discarded on re-assembly
+	PreAssembly       *prototk.TransactionPreAssembly // the bit of the assembly phase state that can be retained across re-assembly
+	PostAssembly      *TransactionPostAssembly        // the bit of the assembly phase state that must be completely discarded on re-assembly
+	ResolvedVerifiers []*prototk.ResolvedVerifier     // Verifiers resolved before delegation and consumed by assembly
 
 	// DISPATCH PHASE: Once the transaction has reached sufficient confidence of success, we move on to submission.
 	// Each private transaction may result in a public transaction which should be submitted to the
 	// base ledger, or another private transaction which should go around the transaction loop again.
-	Signer                     string                   `json:"signer"`
-	PreparedPublicTransaction  *pldapi.TransactionInput `json:"-"`
-	PreparedPrivateTransaction *pldapi.TransactionInput `json:"-"`
-	PreparedMetadata           tktypes.RawJSON          `json:"-"`
+	Signer                     string
+	PreparedPublicTransaction  *pldapi.TransactionInput
+	PreparedPrivateTransaction *pldapi.TransactionInput
+	PreparedMetadata           pldtypes.RawJSON
+}
+
+// CleanUpPostAssemblyData releases the heavy post-assembly and prepared-dispatch
+// payload data. Shared by re-assembly cleanup (which retains PreAssembly for reuse)
+// and post-dispatch cleanup (which additionally releases PreAssembly).
+func (pt *PrivateTransaction) CleanUpPostAssemblyData() {
+	pt.PostAssembly = nil
+	pt.PreparedPublicTransaction = nil
+	pt.PreparedPrivateTransaction = nil
+	pt.PreparedMetadata = nil
 }
 
 // PrivateContractDeploy is a simpler transaction type that constructs new private smart contract instances
@@ -110,7 +113,7 @@ type PrivateContractDeploy struct {
 	ID     uuid.UUID
 	Domain string
 	From   string
-	Inputs tktypes.RawJSON
+	Inputs pldtypes.RawJSON
 
 	// ASSEMBLY PHASE
 	TransactionSpecification *prototk.DeployTransactionSpecification
@@ -124,6 +127,7 @@ type PrivateContractDeploy struct {
 }
 
 type PrivateTransactionEndorseRequest struct {
+	BlockContext             *prototk.BlockContext
 	TransactionSpecification *prototk.TransactionSpecification
 	Verifiers                []*prototk.ResolvedVerifier
 	Signatures               []*prototk.AttestationResult

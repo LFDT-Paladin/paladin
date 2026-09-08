@@ -1,0 +1,36 @@
+{{- if (eq .Values.mode "devnet") }}
+
+{{- $registryAdminKey := .Values.smartContractDeployments.registry.from }}
+{{- if not $registryAdminKey }}
+{{- $registryAdminKey = .Values.smartContractDeployments.default.from }}
+{{- end }}
+{{- if not $registryAdminKey }}
+{{- $registryAdminKey = "registry.operator" }}
+{{- end }}
+
+{{- $prefix := .Values.paladin.nodeNamePrefix }}
+{{- $count := include "paladin-operator.paladinNodeCount" . | int }}
+
+{{- $adminNode := printf "%s1" $prefix }}
+
+{{- range $i, $ := until $count }}
+{{- $n := add $i 1 }}
+{{- $name := printf "%s%d" $prefix $n }}
+apiVersion: core.paladin.io/v1alpha1
+kind: PaladinRegistration
+metadata:
+  labels:
+    app.kubernetes.io/name: operator-go
+    app.kubernetes.io/managed-by: kustomize
+  name: {{ $name }}
+spec:
+  registry: evm-registry
+  registryAdminNode: {{ $adminNode }} # home of the root key
+  registryAdminKey: {{ $registryAdminKey }}
+  node: {{ $name }}
+  nodeAdminKey: registry.{{ $name }}
+  transports:
+    - grpc
+---
+{{- end }}
+{{- end }}

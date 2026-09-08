@@ -20,9 +20,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/go-resty/resty/v2"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +38,7 @@ func TestRCPModule(t *testing.T) {
 		})),
 	)
 
-	var jsonResponse tktypes.RawJSON
+	var jsonResponse pldtypes.RawJSON
 	res, err := resty.New().R().
 		SetBody(`{
 		  "jsonrpc": "2.0",

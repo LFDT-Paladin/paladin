@@ -2,7 +2,7 @@
 
 In this tutorial, you'll learn how to deploy and interact with a **private storage contract** using **Paladin’s privacy groups**. Unlike the **public storage contract**, where data is visible to everyone, **private storage ensures that only authorized members** of a privacy group can interact with the contract.
 
-If you're new to **Pente privacy groups** or want to dive deeper into their architecture, check out the [Pente documentation](https://lf-decentralized-trust-labs.github.io/paladin/head/architecture/pente) for more information.
+If you're new to **Pente privacy groups** or want to dive deeper into their architecture, check out the [Pente documentation](https://LFDT-Paladin.github.io/paladin/head/architecture/pente) for more information.
 
 ---
 
@@ -26,7 +26,15 @@ This tutorial will guide you through:
 3. **Interacting with the contract** – Members will **store and retrieve values** securely.
 4. **Testing unauthorized access** – A non-member (Node3) will attempt to retrieve data, demonstrating **privacy enforcement**.
 
-The **full example** code is available in the [Paladin example repository](https://github.com/LF-Decentralized-Trust-labs/paladin/blob/main/example/private-storage).
+There is a second example (`update.js`) in the privacy storage example folder which does the following:
+
+1. **Attaches to an existing privacy group and private storage smart contract**
+2. **Reads the value of the existing smart contract, then adds a new random number to it**
+3. **Writes the newly update value to the smart contract**
+
+You can use this second example to learn about using resuming use of existing privacy groups and contracts.
+
+The **full example** code is available in the [Paladin example repository](https://github.com/LFDT-Paladin/paladin/blob/main/examples/privacy-storage).
 
 ---
 
@@ -41,19 +49,14 @@ const memberPrivacyGroup = await penteFactory.newPrivacyGroup({
   members: [verifierNode1, verifierNode2],
   evmVersion: "shanghai",
   externalCallsEnabled: true,
-});
-
-if (!checkDeploy(memberPrivacyGroup)) {
-  logger.error("Failed to create the privacy group.");
-  return false;
-}
-logger.log("Privacy group created successfully!");
+}).waitForDeploy();
 ```
 
-#### Key Points:  
-1.  The **privacy group** consists of **Node1 and Node2**.  
-2. Transactions within this group will **only be visible** to these members.  
-3. **Node3 is excluded**, meaning it **won’t have access** to private transactions.  
+#### Key Points:
+
+1.  The **privacy group** consists of **Node1 and Node2**.
+2.  Transactions within this group will **only be visible** to these members.
+3.  **Node3 is excluded**, meaning it **won’t have access** to private transactions.
 
 ---
 
@@ -62,24 +65,18 @@ logger.log("Privacy group created successfully!");
 Now that the **privacy group** is established, **deploy** the `Storage` contract inside this group.
 
 ```typescript
-logger.log("Deploying a private Storage contract...");
+logger.log("Deploying a smart contract to the privacy group...");
 const contractAddress = await memberPrivacyGroup.deploy({
   abi: storageJson.abi,
   bytecode: storageJson.bytecode,
-  from: verifierNode1.lookup
-});
-
-if (!contractAddress) {
-  logger.error("Failed to deploy the private Storage contract.");
-  return false;
-}
-logger.log(`Private smart contract deployed! Address: ${contractAddress}`);
+  from: verifierNode1.lookup,
+}).waitForDeploy();
 ```
 
-#### Key Points  
+#### Key Points
 
-1. The contract is deployed **inside the privacy group**, meaning **only group members** can interact with it.  
-2. **Transactions involving this contract are private** and only visible to **Node1 & Node2**.  
+1. The contract is deployed **inside the privacy group**, meaning **only group members** can interact with it.
+2. **Transactions involving this contract are private** and only visible to **Node1 & Node2**.
 
 ---
 
@@ -90,16 +87,22 @@ logger.log(`Private smart contract deployed! Address: ${contractAddress}`);
 Now that the contract is deployed, **Node1** can store a value.
 
 ```typescript
-const privateStorage = new PrivateStorage(memberPrivacyGroup, contractAddress);
+const privateStorageContract = new PrivateStorage(
+  memberPrivacyGroup,
+  contractAddress
+);
 
 const valueToStore = 125; // Example value to store
 logger.log(`Storing a value "${valueToStore}" in the contract...`);
-const storeTx = await privateStorageContract.sendTransaction({
+const storeReceipt = await privateStorageContract.sendTransaction({
   from: verifierNode1.lookup,
   function: "store",
-  data: { num: valueToStore }
-});
-logger.log("Value stored successfully! Transaction hash:", storeTx?.transactionHash);
+  data: { num: valueToStore },
+}).waitForReceipt();
+logger.log(
+  "Value stored successfully! Transaction hash:",
+  storeReceipt?.transactionHash
+);
 ```
 
 ---
@@ -112,11 +115,13 @@ Group members **Node1 & Node2** can now retrieve the stored value.
 // Retrieve the value as Node1
 logger.log("Node1 retrieving the value from the contract...");
 const retrievedValueNode1 = await privateStorageContract.call({
-    from: verifierNode1.lookup,
-    function: "retrieve"
-  }
+  from: verifierNode1.lookup,
+  function: "retrieve",
+});
+logger.log(
+  "Node1 retrieved the value successfully:",
+  retrievedValueNode1["value"]
 );
-logger.log("Node1 retrieved the value successfully:", retrievedValueNode1["value"]);
 
 // Retrieve the value as Node2
 logger.log("Node2 retrieving the value from the contract...");
@@ -126,39 +131,47 @@ const retrievedValueNode2 = await privateStorageContract
     from: verifierNode2.lookup,
     function: "retrieve",
   });
-logger.log("Node2 retrieved the value successfully:", retrievedValueNode2["value"]);
+logger.log(
+  "Node2 retrieved the value successfully:",
+  retrievedValueNode2["value"]
+);
 ```
 
 ---
 
 ## Step 4: Verify Privacy by Testing Unauthorized Access
 
-Now, let’s test if **Node3 (an outsider)** can access the stored data.  
+Now, let’s test if **Node3 (an outsider)** can access the stored data.
 
-### **What should happen?**  
+### **What should happen?**
 
-Node3 should NOT be able to retrieve the stored value because it wasn’t part of the privacy group.  
+Node3 should NOT be able to retrieve the stored value because it wasn’t part of the privacy group.
 
 ```typescript
 try {
   logger.log("Node3 (outsider) attempting to retrieve the value...");
-     await privateStorageContract.using(paladinNode3).call({
-      from: verifierNode3.lookup,
-      function: "retrieve",
+  await privateStorageContract.using(paladinNode3).call({
+    from: verifierNode3.lookup,
+    function: "retrieve",
   });
-  logger.error("Node3 (outsider) should not have access to the private Storage contract!");
+  logger.error(
+    "Node3 (outsider) should not have access to the private Storage contract!"
+  );
   return false;
 } catch (error) {
-  logger.info("Expected error - Node3 (outsider) cannot retrieve the data. Access denied.");
+  logger.info(
+    "Expected error - Node3 (outsider) cannot retrieve the data. Access denied."
+  );
 }
 ```
 
 ### Why Privacy Groups Work
-- **Private State Isolation** – Transactions within a privacy group are only visible to its members.  
-- **No Global State Sharing** – Outsiders (e.g., Node3) never receive the transaction history, making it impossible for them to infer contract data.  
-- **Selective State Distribution** – Only group members can access and verify the shared state.  
 
-By design, **Node3 does not just “lack permission” to call the contract—it lacks any knowledge of its state, history, or data, making unauthorized access fundamentally impossible**.  
+- **Private State Isolation** – Transactions within a privacy group are only visible to its members.
+- **No Global State Sharing** – Outsiders (e.g., Node3) never receive the transaction history, making it impossible for them to infer contract data.
+- **Selective State Distribution** – Only group members can access and verify the shared state.
+
+By design, **Node3 does not just “lack permission” to call the contract—it lacks any knowledge of its state, history, or data, making unauthorized access fundamentally impossible**.
 
 ## Conclusion
 

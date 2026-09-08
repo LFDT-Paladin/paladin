@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -28,18 +29,40 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	corev1alpha1 "github.com/kaleido-io/paladin/operator/api/v1alpha1"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcclient"
 )
+
+var _ transactionReconcileInterface = &transactionReconcile{}
+
+type transactionReconcileInterface interface {
+	reconcile(ctx context.Context) error
+	isStatusChanged() bool
+	isSucceeded() bool
+	isFailed() bool
+	getReceipt() *pldapi.TransactionReceipt
+}
+
+type rpcClientManager struct {
+	clients map[string]pldclient.PaladinClient
+	mux     sync.RWMutex
+}
+
+func NewRPCCache() *rpcClientManager {
+	return &rpcClientManager{
+		clients: make(map[string]pldclient.PaladinClient),
+	}
+}
 
 type transactionReconcile struct {
 	client.Client
+	rpcClientManager     *rpcClientManager
 	idempotencyKeyPrefix string
 	nodeName             string
 	namespace            string
@@ -49,16 +72,18 @@ type transactionReconcile struct {
 	statusChanged        bool
 	succeeded            bool
 	failed               bool
+	getPaladinRPCFunc    func(context.Context, client.Client, *rpcClientManager, string, string, string) (pldclient.PaladinClient, error)
 	timeout              string
 }
 
 func newTransactionReconcile(c client.Client,
+	rpcClientManager *rpcClientManager,
 	idempotencyKeyPrefix,
 	nodeName, namespace string,
 	pStatus *corev1alpha1.TransactionSubmission,
 	timeout string,
 	txFactory func() (bool, *pldapi.TransactionInput, error),
-) *transactionReconcile {
+) transactionReconcileInterface {
 	return &transactionReconcile{
 		Client:               c,
 		idempotencyKeyPrefix: idempotencyKeyPrefix,
@@ -67,8 +92,13 @@ func newTransactionReconcile(c client.Client,
 		txFactory:            txFactory,
 		pStatus:              pStatus,
 		timeout:              timeout,
+		rpcClientManager:     rpcClientManager,
 	}
 }
+func (r *transactionReconcile) isStatusChanged() bool                  { return r.statusChanged }
+func (r *transactionReconcile) isSucceeded() bool                      { return r.succeeded }
+func (r *transactionReconcile) isFailed() bool                         { return r.failed }
+func (r *transactionReconcile) getReceipt() *pldapi.TransactionReceipt { return r.receipt }
 
 func (r *transactionReconcile) reconcile(ctx context.Context) error {
 
@@ -90,8 +120,11 @@ func (r *transactionReconcile) reconcile(ctx context.Context) error {
 		return nil
 	}
 
-	// Check availability of the Paladin node and deploy
-	paladinRPC, err := getPaladinRPC(ctx, r.Client, r.nodeName, r.namespace, r.timeout)
+	if r.getPaladinRPCFunc == nil {
+		r.getPaladinRPCFunc = getPaladinRPC
+	}
+
+	paladinRPC, err := r.getPaladinRPCFunc(ctx, r.Client, r.rpcClientManager, r.nodeName, r.namespace, r.timeout)
 	if err != nil || paladinRPC == nil {
 		return err
 	}
@@ -162,15 +195,20 @@ func (r *transactionReconcile) trackTransactionAndRequeue(ctx context.Context, p
 	}
 	if r.receipt.Success {
 		r.pStatus.TransactionStatus = corev1alpha1.TransactionStatusSuccess
+		r.succeeded = true
+		r.pStatus.BlockNumber = r.receipt.BlockNumber
 	} else {
 		r.pStatus.TransactionStatus = corev1alpha1.TransactionStatusFailed
 		r.pStatus.FailureMessage = r.receipt.FailureMessage
+		r.failed = true
 	}
 	r.statusChanged = true
 	return nil
 }
 
-func getPaladinRPC(ctx context.Context, c client.Client, nodeName, namespace string, timeout string) (pldclient.PaladinClient, error) {
+var getPaladinURLEndpointFunc = getPaladinURLEndpoint
+
+func getPaladinRPC(ctx context.Context, c client.Client, rpcM *rpcClientManager, nodeName, namespace string, timeout string) (pldclient.PaladinClient, error) {
 
 	log := log.FromContext(ctx)
 	pName := generatePaladinName(nodeName)
@@ -189,13 +227,58 @@ func getPaladinRPC(ctx context.Context, c client.Client, nodeName, namespace str
 		return nil, nil
 	}
 
-	url, err := getPaladinURLEndpoint(ctx, c, nodeName, namespace)
+	url, err := getPaladinURLEndpointFunc(ctx, c, nodeName, namespace)
 	if err != nil {
 		return nil, err
 	}
-	return pldclient.New().HTTP(ctx, &pldconf.HTTPClientConfig{
+
+	// Adding the timeout to the cache key to ensure that different timeouts are cached separately
+	// This is important because the timeout is used in the HTTP client config
+	// and different timeouts may require different configurations.
+	key := fmt.Sprintf("%s/%s", nodeName, timeout)
+
+	// Check if the client is already in the cache
+	// Use a read lock to avoid blocking other goroutines
+	rpcM.mux.RLock()
+	if client, ok := rpcM.clients[key]; ok && client != nil {
+		rpcM.mux.RUnlock()
+		return client, nil
+	}
+	rpcM.mux.RUnlock()
+
+	// If not, create a new client and store it in the cache
+	rpcM.mux.Lock()
+	defer rpcM.mux.Unlock()
+
+	// Check again in the cache after acquiring the lock
+	// This is to ensure that another goroutine didn't create the client while we were waiting for the lock
+	if client, ok := rpcM.clients[key]; ok && client != nil {
+		return client, nil
+	}
+
+	client, err := pldclient.New().HTTP(ctx, &pldconf.HTTPClientConfig{
 		URL:               url,
 		ConnectionTimeout: confutil.P(timeout),
 		RequestTimeout:    confutil.P(timeout),
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	rpcM.clients[key] = client
+	return client, nil
+}
+
+func (r *rpcClientManager) removeNode(nodeName string) {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+	var toRemove []string
+	for i := range r.clients {
+		if strings.HasPrefix(i, nodeName+"/") {
+			toRemove = append(toRemove, i)
+		}
+	}
+	for _, i := range toRemove {
+		delete(r.clients, i) // Remove the client from the cache
+	}
 }

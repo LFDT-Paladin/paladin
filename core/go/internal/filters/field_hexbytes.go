@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -23,9 +23,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 type HexBytesField string
@@ -38,7 +38,7 @@ func (sf HexBytesField) SupportsLIKE() bool {
 	return false
 }
 
-func (sf HexBytesField) SQLValue(ctx context.Context, jsonValue tktypes.RawJSON) (driver.Value, error) {
+func (sf HexBytesField) SQLValue(ctx context.Context, jsonValue pldtypes.RawJSON) (driver.Value, error) {
 	if jsonValue.IsNil() {
 		return nil, nil
 	}

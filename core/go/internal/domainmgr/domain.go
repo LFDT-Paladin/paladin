@@ -22,86 +22,91 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/plugins"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/eip712"
 	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/pkg/blockindexer"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
 	"golang.org/x/crypto/sha3"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/retry"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signpayloads"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 )
 
 type domain struct {
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 
-	conf            *pldconf.DomainConfig
-	defaultGasLimit tktypes.HexUint64
-	dm              *domainManager
-	name            string
-	api             components.DomainManagerToDomain
-	registryAddress *tktypes.EthAddress
+	conf                 *pldconf.DomainConfig
+	defaultGasLimit      pldtypes.HexUint64
+	dm                   *domainManager
+	name                 string
+	api                  components.DomainManagerToDomain
+	registryAddress      *pldtypes.EthAddress
+	fixedSigningIdentity string
 
-	stateLock          sync.Mutex
-	initialized        atomic.Bool
-	initRetry          *retry.Retry
-	config             *prototk.DomainConfig
-	schemasBySignature map[string]components.Schema
-	schemasByID        map[string]components.Schema
-	eventStream        *blockindexer.EventStream
+	stateLock   sync.Mutex
+	initialized atomic.Bool
+	initRetry   *retry.Retry
+	config      *prototk.DomainConfig
+	schemasByID map[string]components.Schema
+	eventStream blockindexer.EventStream
 
 	initError atomic.Pointer[error]
 	initDone  chan struct{}
 
 	inFlight     map[string]*inFlightDomainRequest
 	inFlightLock sync.Mutex
+
+	completionQueue chan []*components.TxCompletion
+	completionWG    sync.WaitGroup
 }
 
 type inFlightDomainRequest struct {
 	d        *domain
-	id       string                   // each request gets a unique ID
-	dbTX     persistence.DBTX         // only if there's a DB transactions such as when called by block indexer
-	dCtx     components.DomainContext // might be short lived, or managed externally (by private TX manager)
+	id       string                        // each request gets a unique ID
+	dbTX     persistence.DBTX              // only if there's a DB transactions such as when called by block indexer
+	dqc      components.DomainQueryContext // might be short lived, or managed externally (by private TX manager)
 	readOnly bool
 }
 
+var DefaultDefaultGasLimit pldtypes.HexUint64 = 4000000 // high gas limit by default (accommodating zkp transactions)
+
 func (dm *domainManager) newDomain(name string, conf *pldconf.DomainConfig, toDomain components.DomainManagerToDomain) *domain {
 	d := &domain{
-		dm:              dm,
-		conf:            conf,
-		defaultGasLimit: pldconf.DefaultDefaultGasLimit,             // can be set by config below
-		initRetry:       retry.NewRetryIndefinite(&conf.Init.Retry), // indefinite retry
-		name:            name,
-		api:             toDomain,
-		initDone:        make(chan struct{}),
-		registryAddress: tktypes.MustEthAddress(conf.RegistryAddress), // check earlier in startup
-
-		schemasByID:        make(map[string]components.Schema),
-		schemasBySignature: make(map[string]components.Schema),
-
-		inFlight: make(map[string]*inFlightDomainRequest),
+		dm:                   dm,
+		conf:                 conf,
+		defaultGasLimit:      DefaultDefaultGasLimit,                     // can be set by config below
+		initRetry:            retry.NewRetryIndefinite(&conf.Init.Retry), // indefinite retry
+		name:                 name,
+		api:                  toDomain,
+		initDone:             make(chan struct{}),
+		registryAddress:      pldtypes.MustEthAddress(conf.RegistryAddress), // check earlier in startup
+		fixedSigningIdentity: conf.FixedSigningIdentity,
+		schemasByID:          make(map[string]components.Schema),
+		inFlight:             make(map[string]*inFlightDomainRequest),
+		completionQueue:      make(chan []*components.TxCompletion, 100),
 	}
 	if conf.DefaultGasLimit != nil {
-		d.defaultGasLimit = tktypes.HexUint64(*conf.DefaultGasLimit)
+		d.defaultGasLimit = pldtypes.HexUint64(*conf.DefaultGasLimit)
 	}
-	log.L(dm.bgCtx).Debugf("Domain %s configured. Config: %s", name, tktypes.JSONString(conf.Config))
-	d.ctx, d.cancelCtx = context.WithCancel(log.WithLogField(dm.bgCtx, "domain", d.name))
+	log.L(dm.bgCtx).Debugf("Domain %s configured. Config: %s", name, pldtypes.JSONString(conf.Config))
+	d.ctx, d.cancelCtx = context.WithCancel(log.WithComponent(dm.bgCtx, log.Component(fmt.Sprintf("domain-%s", d.Name()))))
 	return d
 }
 
@@ -133,14 +138,13 @@ func (d *domain) processDomainConfig(dbTX persistence.DBTX, confRes *prototk.Con
 	for i, s := range schemas {
 		schemaID := s.ID()
 		d.schemasByID[schemaID.String()] = s
-		d.schemasBySignature[s.Signature()] = s
 		schemasProto[i] = &prototk.StateSchema{
 			Id:        schemaID.String(),
 			Signature: s.Signature(),
 		}
 	}
 
-	stream := &blockindexer.EventStream{
+	stream := &blockindexer.EventStreamDefinition{
 		Type: blockindexer.EventStreamTypeInternal.Enum(),
 		Sources: []blockindexer.EventStreamSource{
 			{ABI: iPaladinContractRegistryABI, Address: d.registryAddress},
@@ -171,8 +175,8 @@ func (d *domain) processDomainConfig(dbTX persistence.DBTX, confRes *prototk.Con
 
 	// Create the event stream
 	d.eventStream, err = d.dm.blockIndexer.AddEventStream(d.ctx, dbTX, &blockindexer.InternalEventStream{
-		Definition: stream,
-		Handler:    d.handleEventBatch,
+		Definition:  stream,
+		HandlerDBTX: d.handleEventBatch,
 	})
 	if err != nil {
 		return nil, err
@@ -195,7 +199,9 @@ func (d *domain) init() {
 			Name:                    d.name,
 			RegistryContractAddress: d.RegistryAddress().String(),
 			ChainId:                 d.dm.ethClientFactory.ChainID(),
-			ConfigJson:              tktypes.JSONString(d.conf.Config).String(),
+			ConfigJson:              pldtypes.JSONString(d.conf.Config).String(),
+			FixedSigningIdentity:    d.fixedSigningIdentity,
+			LogLevel:                log.GetLevel(),
 		})
 		if err != nil {
 			return true, err
@@ -222,17 +228,18 @@ func (d *domain) init() {
 	} else {
 		log.L(d.ctx).Debugf("domain initialization complete")
 		d.dm.setDomainAddress(d)
+		d.startCompletionLoop()
 		d.initialized.Store(true)
 		// Inform the plugin manager callback
 		d.api.Initialized()
 	}
 }
 
-func (d *domain) newInFlightDomainRequest(dbTX persistence.DBTX, dc components.DomainContext, readOnly bool) *inFlightDomainRequest {
+func (d *domain) newInFlightDomainRequest(dbTX persistence.DBTX, dc components.DomainQueryContext, readOnly bool) *inFlightDomainRequest {
 	c := &inFlightDomainRequest{
 		d:        d,
-		dCtx:     dc,
-		id:       tktypes.ShortID(),
+		dqc:      dc,
+		id:       pldtypes.ShortID(),
 		dbTX:     dbTX,
 		readOnly: readOnly,
 	}
@@ -279,12 +286,20 @@ func (d *domain) Name() string {
 	return d.name
 }
 
-func (d *domain) RegistryAddress() *tktypes.EthAddress {
+func (d *domain) RegistryAddress() *pldtypes.EthAddress {
 	return d.registryAddress
 }
 
 func (d *domain) Configuration() *prototk.DomainConfig {
 	return d.config
+}
+
+func (d *domain) GetBlockHeight() int64 {
+	return d.eventStream.CheckpointBlock()
+}
+
+func (d *domain) FixedSigningIdentity() string {
+	return d.fixedSigningIdentity
 }
 
 func toProtoStates(states []*pldapi.State) []*prototk.StoredState {
@@ -295,13 +310,6 @@ func toProtoStates(states []*pldapi.State) []*prototk.StoredState {
 			SchemaId:  s.Schema.String(),
 			CreatedAt: s.Created.UnixNano(),
 			DataJson:  string(s.Data),
-			Locks:     []*prototk.StateLock{},
-		}
-		for _, l := range s.Locks {
-			pbStates[i].Locks = append(pbStates[i].Locks, &prototk.StateLock{
-				Type:        mapStateLockType(l.Type.V()),
-				Transaction: l.Transaction.String(),
-			})
 		}
 	}
 	return pbStates
@@ -314,21 +322,25 @@ func (d *domain) FindAvailableStates(ctx context.Context, req *prototk.FindAvail
 		return nil, err
 	}
 
+	ctx = log.WithLogField(ctx, "domain", d.name)
+	ctx = log.WithLogField(ctx, "schema", req.SchemaId)
+	log.L(ctx).Debugf("Domain callback FindAvailableStates")
+
 	var query query.QueryJSON
 	if err = json.Unmarshal([]byte(req.QueryJson), &query); err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgDomainInvalidQueryJSON)
 	}
 
-	schemaID, err := tktypes.ParseBytes32(req.SchemaId)
+	schemaID, err := pldtypes.ParseBytes32(req.SchemaId)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgDomainInvalidSchemaID, req.SchemaId)
 	}
 
 	var states []*pldapi.State
 	if req.UseNullifiers != nil && *req.UseNullifiers {
-		_, states, err = c.dCtx.FindAvailableNullifiers(c.dbTX, schemaID, &query)
+		_, states, err = c.dqc.FindAvailableNullifiers(ctx, c.dbTX, schemaID, &query)
 	} else {
-		_, states, err = c.dCtx.FindAvailableStates(c.dbTX, schemaID, &query)
+		_, states, err = c.dqc.FindAvailableStates(ctx, c.dbTX, schemaID, &query)
 	}
 	if err != nil {
 		return nil, err
@@ -340,20 +352,6 @@ func (d *domain) FindAvailableStates(ctx context.Context, req *prototk.FindAvail
 
 }
 
-func mapStateLockType(t pldapi.StateLockType) prototk.StateLock_StateLockType {
-	switch t {
-	case pldapi.StateLockTypeCreate:
-		return prototk.StateLock_CREATE
-	case pldapi.StateLockTypeSpend:
-		return prototk.StateLock_SPEND
-	case pldapi.StateLockTypeRead:
-		return prototk.StateLock_READ
-	default:
-		// Unit test covers all valid types and we only use this in fully controlled code
-		panic(fmt.Errorf("invalid type: %s", t))
-	}
-}
-
 func (d *domain) EncodeData(ctx context.Context, encRequest *prototk.EncodeDataRequest) (*prototk.EncodeDataResponse, error) {
 	var abiData []byte
 	switch encRequest.EncodingType {
@@ -361,27 +359,27 @@ func (d *domain) EncodeData(ctx context.Context, encRequest *prototk.EncodeDataR
 		var entry *abi.Entry
 		err := json.Unmarshal([]byte(encRequest.Definition), &entry)
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingRequestEntryInvalid)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingRequestEntryInvalid))
 		}
 		abiData, err = entry.EncodeCallDataJSONCtx(ctx, []byte(encRequest.Body))
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingRequestEncodingFail)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingRequestEncodingFail))
 		}
 	case prototk.EncodingType_TUPLE:
 		var param *abi.Parameter
 		err := json.Unmarshal([]byte(encRequest.Definition), &param)
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingRequestEntryInvalid)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingRequestEntryInvalid))
 		}
 		abiData, err = param.Components.EncodeABIDataJSONCtx(ctx, []byte(encRequest.Body))
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingRequestEncodingFail)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingRequestEncodingFail))
 		}
 	case prototk.EncodingType_ETH_TRANSACTION, prototk.EncodingType_ETH_TRANSACTION_SIGNED:
 		var tx *ethsigner.Transaction
 		err := json.Unmarshal([]byte(encRequest.Body), &tx)
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingRequestEntryInvalid)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingRequestEntryInvalid))
 		}
 		// We only support EIP-155 and EIP-1559 as they include the ChainID in the payload
 		var sigPayload *ethsigner.TransactionSignaturePayload
@@ -393,10 +391,13 @@ func (d *domain) EncodeData(ctx context.Context, encRequest *prototk.EncodeDataR
 		case "eip155", "eip-155":
 			sigPayload = tx.SignaturePayloadLegacyEIP155(d.dm.ethClientFactory.ChainID())
 			finalizer = func(signaturePayload *ethsigner.TransactionSignaturePayload, sig *secp256k1.SignatureData) ([]byte, error) {
+				// sig will have a 0/1 V value as that is the contract with Paladin key manager but firefly-signer library specifies
+				// "starting point must be legacy 27/28" for EIP-155 so we need to convert
+				sig.V.SetInt64(sig.V.Int64() + 27)
 				return tx.FinalizeLegacyEIP155WithSignature(signaturePayload, sig, d.dm.ethClientFactory.ChainID())
 			}
 		default:
-			return nil, i18n.NewError(ctx, msgs.MsgDomainABIEncodingRequestInvalidType, encRequest.Definition)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.NewError(ctx, msgs.MsgDomainABIEncodingRequestInvalidType, encRequest.Definition))
 		}
 		if encRequest.EncodingType == prototk.EncodingType_ETH_TRANSACTION_SIGNED {
 			sig, err := d.inlineEthSign(ctx, sigPayload.Bytes(), encRequest.KeyIdentifier)
@@ -413,14 +414,14 @@ func (d *domain) EncodeData(ctx context.Context, encRequest *prototk.EncodeDataR
 		var tdv4 *eip712.TypedData
 		err := json.Unmarshal([]byte(encRequest.Body), &tdv4)
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingTypedDataInvalid)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingTypedDataInvalid))
 		}
 		abiData, err = eip712.EncodeTypedDataV4(ctx, tdv4)
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingTypedDataFail)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIEncodingTypedDataFail))
 		}
 	default:
-		return nil, i18n.NewError(ctx, msgs.MsgDomainABIEncodingRequestInvalidType, encRequest.EncodingType)
+		return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.NewError(ctx, msgs.MsgDomainABIEncodingRequestInvalidType, encRequest.EncodingType))
 	}
 	return &prototk.EncodeDataResponse{
 		Data: abiData,
@@ -434,7 +435,7 @@ func (d *domain) inlineEthSign(ctx context.Context, payload []byte, keyIdentifie
 
 	var localKeyIdentifier, nodeName string
 	if err == nil {
-		localKeyIdentifier, nodeName, err = tktypes.PrivateIdentityLocator(keyIdentifier).Validate(ctx, "", true)
+		localKeyIdentifier, nodeName, err = pldtypes.PrivateIdentityLocator(keyIdentifier).Validate(ctx, "", true)
 	}
 
 	if err == nil && nodeName != "" && nodeName != d.dm.transportMgr.LocalNodeName() {
@@ -448,7 +449,7 @@ func (d *domain) inlineEthSign(ctx context.Context, payload []byte, keyIdentifie
 
 	var signatureRSV []byte
 	if err == nil {
-		signatureRSV, err = d.dm.keyManager.Sign(ctx, resolvedKey, signpayloads.OPAQUE_TO_RSV, tktypes.HexBytes(sigPayloadHash.Sum(nil)))
+		signatureRSV, err = d.dm.keyManager.Sign(ctx, resolvedKey, signpayloads.OPAQUE_TO_RSV, pldtypes.HexBytes(sigPayloadHash.Sum(nil)))
 	}
 
 	if err == nil {
@@ -465,33 +466,33 @@ func (d *domain) DecodeData(ctx context.Context, decRequest *prototk.DecodeDataR
 		var entry *abi.Entry
 		err := json.Unmarshal([]byte(decRequest.Definition), &entry)
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestEntryInvalid)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestEntryInvalid))
 		}
 		cv, err := entry.DecodeCallDataCtx(ctx, decRequest.Data)
 		if err == nil {
 			body, err = cv.JSON()
 		}
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestFail)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestFail))
 		}
 	case prototk.EncodingType_TUPLE:
 		var param *abi.Parameter
 		err := json.Unmarshal([]byte(decRequest.Definition), &param)
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestEntryInvalid)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestEntryInvalid))
 		}
 		cv, err := param.Components.DecodeABIDataCtx(ctx, []byte(decRequest.Data), 0)
 		if err == nil {
 			body, err = cv.JSON()
 		}
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestFail)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestFail))
 		}
 	case prototk.EncodingType_EVENT_DATA:
 		var entry *abi.Entry
 		err := json.Unmarshal([]byte(decRequest.Definition), &entry)
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestEntryInvalid)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestEntryInvalid))
 		}
 		topics := make([]ethtypes.HexBytes0xPrefix, len(decRequest.Topics))
 		for i, topic := range decRequest.Topics {
@@ -502,7 +503,7 @@ func (d *domain) DecodeData(ctx context.Context, decRequest *prototk.DecodeDataR
 			body, err = cv.JSON()
 		}
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestFail)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestFail))
 		}
 	case prototk.EncodingType_ETH_TRANSACTION:
 		// We support round tripping the same types as encode
@@ -512,7 +513,7 @@ func (d *domain) DecodeData(ctx context.Context, decRequest *prototk.DecodeDataR
 		case "", "eip1559", "eip-1559": // this is all we support currently
 			tx, err = ethsigner.DecodeEIP1559SignaturePayload(ctx, decRequest.Data, d.dm.ethClientFactory.ChainID())
 		default:
-			return nil, i18n.NewError(ctx, msgs.MsgDomainABIDecodingRequestEntryInvalid, decRequest.Definition)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.NewError(ctx, msgs.MsgDomainABIDecodingRequestEntryInvalid, decRequest.Definition))
 		}
 		if err == nil {
 			body, err = json.Marshal(tx)
@@ -531,7 +532,7 @@ func (d *domain) DecodeData(ctx context.Context, decRequest *prototk.DecodeDataR
 		case "eip155", "eip-155":
 			from, tx, err = ethsigner.RecoverLegacyRawTransaction(ctx, decRequest.Data, d.dm.ethClientFactory.ChainID())
 		default:
-			err = i18n.NewError(ctx, msgs.MsgDomainABIDecodingRequestEntryInvalid, decRequest.Definition)
+			return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.NewError(ctx, msgs.MsgDomainABIDecodingRequestEntryInvalid, decRequest.Definition))
 		}
 		if err == nil {
 			tx.From = json.RawMessage(fmt.Sprintf(`"%s"`, from))
@@ -541,7 +542,7 @@ func (d *domain) DecodeData(ctx context.Context, decRequest *prototk.DecodeDataR
 			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainABIDecodingRequestFail)
 		}
 	default:
-		return nil, i18n.NewError(ctx, msgs.MsgDomainABIDecodingRequestInvalidType, decRequest.EncodingType)
+		return nil, plugins.NewPluginError(prototk.Header_INVALID_INPUT, i18n.NewError(ctx, msgs.MsgDomainABIDecodingRequestInvalidType, decRequest.EncodingType))
 	}
 	return &prototk.DecodeDataResponse{
 		Body: string(body),
@@ -569,6 +570,7 @@ func (d *domain) RecoverSigner(ctx context.Context, recoverRequest *prototk.Reco
 }
 
 func (d *domain) InitDeploy(ctx context.Context, tx *components.PrivateContractDeploy) error {
+	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
 	if tx.Inputs == nil {
 		return i18n.NewError(ctx, msgs.MsgDomainTXIncompleteInitDeploy)
 	}
@@ -577,7 +579,7 @@ func (d *domain) InitDeploy(ctx context.Context, tx *components.PrivateContractD
 	txSpec := &prototk.DeployTransactionSpecification{}
 	tx.TransactionSpecification = txSpec
 	txSpec.From = tx.From
-	txSpec.TransactionId = tktypes.Bytes32UUIDFirst16(tx.ID).String()
+	txSpec.TransactionId = pldtypes.Bytes32UUIDFirst16(tx.ID).String()
 	txSpec.ConstructorParamsJson = tx.Inputs.String()
 
 	// Do the request with the domain
@@ -594,6 +596,7 @@ func (d *domain) InitDeploy(ctx context.Context, tx *components.PrivateContractD
 }
 
 func (d *domain) PrepareDeploy(ctx context.Context, tx *components.PrivateContractDeploy) error {
+	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
 	if tx.Inputs == nil || tx.TransactionSpecification == nil || tx.Verifiers == nil {
 		return i18n.NewError(ctx, msgs.MsgDomainTXIncompletePrepareDeploy)
 	}
@@ -664,6 +667,36 @@ func emptyJSONIfBlank(js string) []byte {
 func (d *domain) close() {
 	d.cancelCtx()
 	<-d.initDone
+	d.completionWG.Wait()
+}
+
+func (d *domain) startCompletionLoop() {
+	d.completionWG.Add(1)
+	go func() {
+		defer d.completionWG.Done()
+		d.completionLoop()
+	}()
+}
+
+func (d *domain) completionLoop() {
+	log.L(d.ctx).Debugf("domain %s completion loop started", d.name)
+	for {
+		select {
+		case batch := <-d.completionQueue:
+			d.dm.sequencerManager.PrivateTransactionsConfirmed(d.ctx, batch)
+		case <-d.ctx.Done():
+			log.L(d.ctx).Debugf("domain %s completion loop stopping", d.name)
+			return
+		}
+	}
+}
+
+func (d *domain) enqueueCompletions(completions []*components.TxCompletion) {
+	select {
+	case d.completionQueue <- completions:
+	case <-d.ctx.Done():
+		log.L(d.ctx).Warnf("domain %s context cancelled, dropping %d completion notifications", d.name, len(completions))
+	}
 }
 
 func (d *domain) getVerifier(ctx context.Context, algorithm string, verifierType string, privateKey []byte) (verifier string, err error) {
@@ -691,18 +724,6 @@ func (d *domain) sign(ctx context.Context, algorithm string, payloadType string,
 	return res.Payload, nil
 }
 
-func (d *domain) toEndorsableList(states []*components.FullState) []*prototk.EndorsableState {
-	endorsableList := make([]*prototk.EndorsableState, len(states))
-	for i, input := range states {
-		endorsableList[i] = &prototk.EndorsableState{
-			Id:            input.ID.String(),
-			SchemaId:      input.Schema.String(),
-			StateDataJson: string(input.Data),
-		}
-	}
-	return endorsableList
-}
-
 func (d *domain) toEndorsableListBase(states []*pldapi.StateBase) []*prototk.EndorsableState {
 	endorsableList := make([]*prototk.EndorsableState, len(states))
 	for i, input := range states {
@@ -720,34 +741,48 @@ func (d *domain) CustomHashFunction() bool {
 	return d.config.CustomHashFunction
 }
 
-func (d *domain) ValidateStateHashes(ctx context.Context, states []*components.FullState) ([]tktypes.HexBytes, error) {
+func (d *domain) FullStateAvailablityRequired() bool {
+	// note config assured to be non-nil by GetDomainByName() not returning a domain until init complete
+	return d.config.FullStateAvailablityRequired
+}
+
+func (d *domain) ValidateStateHashes(ctx context.Context, states []*prototk.EndorsableState) ([]pldtypes.HexBytes, error) {
+	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
 	if len(states) == 0 {
-		return []tktypes.HexBytes{}, nil
+		return []pldtypes.HexBytes{}, nil
 	}
 	validateRes, err := d.api.ValidateStateHashes(d.ctx, &prototk.ValidateStateHashesRequest{
-		States: d.toEndorsableList(states),
+		States: states,
 	})
 	if err != nil {
 		return nil, i18n.WrapError(d.ctx, err, msgs.MsgDomainInvalidStates)
 	}
-	validResponse := len(validateRes.StateIds) == len(states)
-	hexIDs := make([]tktypes.HexBytes, len(states))
-	for i := 0; i < len(states) && validResponse; i++ {
-		hexID, err := tktypes.ParseHexBytes(ctx, validateRes.StateIds[i])
+	if len(validateRes.StateIds) != len(states) {
+		return nil, i18n.NewError(d.ctx, msgs.MsgDomainInvalidResponseToValidate)
+	}
+	hexIDs := make([]pldtypes.HexBytes, len(states))
+	for i := range states {
+		hexID, err := pldtypes.ParseHexBytes(ctx, validateRes.StateIds[i])
 		if err != nil || len(hexID) == 0 {
 			return nil, i18n.WrapError(d.ctx, err, msgs.MsgDomainInvalidResponseToValidate)
 		}
 		hexIDs[i] = hexID
 		// If a state ID was supplied on the way in, it must be returned unchanged
-		validResponse = states[i].ID == nil || states[i].ID.Equals(hexID)
-	}
-	if !validResponse {
-		return nil, i18n.NewError(d.ctx, msgs.MsgDomainInvalidResponseToValidate)
+		if suppliedID := states[i].Id; suppliedID != "" {
+			parsedSuppliedID, err := pldtypes.ParseHexBytes(ctx, suppliedID)
+			if err != nil {
+				return nil, i18n.WrapError(d.ctx, err, msgs.MsgDomainInvalidResponseToValidate)
+			}
+			if !parsedSuppliedID.Equals(hexID) {
+				return nil, i18n.NewError(d.ctx, msgs.MsgDomainInvalidResponseToValidate)
+			}
+		}
 	}
 	return hexIDs, nil
 }
 
-func (d *domain) GetDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (tktypes.RawJSON, error) {
+func (d *domain) GetDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (pldtypes.RawJSON, error) {
+	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
 
 	// Load up the currently available set of states
 	txStates, err := d.dm.stateStore.GetTransactionStates(ctx, dbTX, txID)
@@ -758,7 +793,9 @@ func (d *domain) GetDomainReceipt(ctx context.Context, dbTX persistence.DBTX, tx
 	return d.BuildDomainReceipt(ctx, dbTX, txID, txStates)
 }
 
-func (d *domain) BuildDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (tktypes.RawJSON, error) {
+func (d *domain) BuildDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (pldtypes.RawJSON, error) {
+	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
+
 	if txStates.None {
 		// We know nothing about this transaction yet
 		return nil, i18n.NewError(ctx, msgs.MsgDomainDomainReceiptNotAvailable, txID)
@@ -771,17 +808,17 @@ func (d *domain) BuildDomainReceipt(ctx context.Context, dbTX persistence.DBTX, 
 
 	// As long as we have some knowledge, we call to the domain and see what it builds with what we have available
 	res, err := d.api.BuildReceipt(ctx, &prototk.BuildReceiptRequest{
-		TransactionId: tktypes.Bytes32UUIDFirst16(txID).String(),
-		Complete:      txStates.Unavailable == nil, // important for the domain to know if we have everything (it may fail with partial knowledge)
-		InputStates:   d.toEndorsableListBase(txStates.Spent),
-		ReadStates:    d.toEndorsableListBase(txStates.Read),
-		OutputStates:  d.toEndorsableListBase(txStates.Confirmed),
-		InfoStates:    d.toEndorsableListBase(txStates.Info),
+		TransactionId:     pldtypes.Bytes32UUIDFirst16(txID).String(),
+		UnavailableStates: txStates.Unavailable != nil, // important for the domain to know if we have everything (it may fail with partial knowledge)
+		InputStates:       d.toEndorsableListBase(txStates.Spent),
+		ReadStates:        d.toEndorsableListBase(txStates.Read),
+		OutputStates:      d.toEndorsableListBase(txStates.Confirmed),
+		InfoStates:        d.toEndorsableListBase(txStates.Info),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return tktypes.RawJSON(res.ReceiptJson), nil
+	return pldtypes.RawJSON(res.ReceiptJson), nil
 }
 
 func (d *domain) SendTransaction(ctx context.Context, req *prototk.SendTransactionRequest) (*prototk.SendTransactionResponse, error) {
@@ -794,7 +831,7 @@ func (d *domain) SendTransaction(ctx context.Context, req *prototk.SendTransacti
 	if req.Transaction.Type == prototk.TransactionInput_PUBLIC {
 		txType = pldapi.TransactionTypePublic
 	}
-	contractAddress, err := tktypes.ParseEthAddress(req.Transaction.ContractAddress)
+	contractAddress, err := pldtypes.ParseEthAddress(req.Transaction.ContractAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -808,7 +845,7 @@ func (d *domain) SendTransaction(ctx context.Context, req *prototk.SendTransacti
 			Type: txType.Enum(),
 			From: req.Transaction.From,
 			To:   contractAddress,
-			Data: tktypes.RawJSON(req.Transaction.ParamsJson),
+			Data: pldtypes.RawJSON(req.Transaction.ParamsJson),
 		},
 		ABI: abi.ABI{&functionABI},
 	})
@@ -830,18 +867,78 @@ func (d *domain) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRe
 		return nil, err
 	}
 
-	schemaID, err := tktypes.ParseBytes32(req.SchemaId)
+	schemaID, err := pldtypes.ParseBytes32(req.SchemaId)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgDomainInvalidSchemaID, req.SchemaId)
 	}
 
-	_, states, err := c.dCtx.GetStatesByID(c.dbTX, schemaID, req.StateIds)
+	_, states, err := c.dqc.GetStatesByID(ctx, c.dbTX, schemaID, req.StateIds)
 	return &prototk.GetStatesByIDResponse{
 		States: toProtoStates(states),
 	}, err
 }
 
+func (d *domain) ReverseKeyLookup(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error) {
+	results := make([]*prototk.ReverseKeyLookupResult, len(req.Lookups))
+	for i, lookup := range req.Lookups {
+		resolve, err := d.dm.keyManager.ReverseKeyLookup(ctx, d.dm.persistence.NOTX(), lookup.Algorithm, lookup.VerifierType, lookup.Verifier)
+		if err != nil {
+			i18nErr, ok := err.(i18n.PDError)
+			if ok && i18nErr.MessageKey() == msgs.MsgKeyManagerVerifierLookupNotFound {
+				log.L(ctx).Debugf("Key for verifier %s not found (algorithm=%s,verifierType=%s)", lookup.Verifier, lookup.Algorithm, lookup.VerifierType)
+				results[i] = &prototk.ReverseKeyLookupResult{Verifier: lookup.Verifier, Found: false}
+				continue
+			}
+			return nil, err
+		}
+		keyIdentifier := resolve.Identifier
+		log.L(ctx).Debugf("Key available locally for verifier %s (algorithm=%s,verifierType=%s): %s", lookup.Verifier, lookup.Algorithm, lookup.VerifierType, keyIdentifier)
+		results[i] = &prototk.ReverseKeyLookupResult{Verifier: lookup.Verifier, Found: true, KeyIdentifier: &keyIdentifier}
+	}
+	return &prototk.ReverseKeyLookupResponse{Results: results}, nil
+}
+
+func (d *domain) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+	c, err := d.checkInFlight(ctx, req.StateQueryContext, false)
+	if err != nil {
+		return nil, err
+	}
+	statesToValidate := make([]*prototk.EndorsableState, len(req.States))
+	for i, s := range req.States {
+		schema := d.schemasByID[s.SchemaId]
+		if schema == nil {
+			return nil, i18n.NewError(ctx, msgs.MsgDomainUnknownSchema, s.SchemaId)
+		}
+		es := &prototk.EndorsableState{
+			SchemaId:      schema.ID().String(),
+			StateDataJson: s.StateDataJson,
+		}
+		if s.Id != nil {
+			es.Id = *s.Id
+		}
+		statesToValidate[i] = es
+	}
+	// The validated response is a pldapi struct with richer types. Convert it back to a proto type
+	// to send back to the domain. Validation will have computed the ID and normalized the state data.
+	validated, err := d.dm.stateStore.ValidateStates(ctx, c.dbTX, d, c.dqc.ContractAddress(), statesToValidate...)
+	if err != nil {
+		return nil, err
+	}
+	validatedStates := make([]*prototk.EndorsableState, len(validated))
+	for i, s := range validated {
+		validatedStates[i] = &prototk.EndorsableState{
+			Id:            s.ID.String(),
+			SchemaId:      s.Schema.String(),
+			StateDataJson: string(s.Data),
+		}
+	}
+	return &prototk.ValidateStatesResponse{
+		States: validatedStates,
+	}, nil
+}
+
 func (d *domain) ConfigurePrivacyGroup(ctx context.Context, inputConfiguration map[string]string) (configuration map[string]string, err error) {
+	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
 	res, err := d.api.ConfigurePrivacyGroup(ctx, &prototk.ConfigurePrivacyGroupRequest{
 		InputConfiguration: inputConfiguration,
 	})
@@ -851,7 +948,8 @@ func (d *domain) ConfigurePrivacyGroup(ctx context.Context, inputConfiguration m
 	return res.Configuration, nil
 }
 
-func (d *domain) InitPrivacyGroup(ctx context.Context, id tktypes.HexBytes, genesis *pldapi.PrivacyGroupGenesisState) (tx *pldapi.TransactionInput, err error) {
+func (d *domain) InitPrivacyGroup(ctx context.Context, id pldtypes.HexBytes, genesis *pldapi.PrivacyGroupGenesisState) (tx *pldapi.TransactionInput, err error) {
+	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
 
 	// This one is a straight forward pass-through to the domain - the Privacy Group manager does the
 	// hard work in validating the data returned against the genesis ABI spec returned.
@@ -875,9 +973,9 @@ func (d *domain) InitPrivacyGroup(ctx context.Context, id tktypes.HexBytes, gene
 	if err := json.Unmarshal(([]byte)(res.Transaction.FunctionAbiJson), &functionABI); err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgDomainPrivateAbiJsonInvalid)
 	}
-	var optionalContractAddr *tktypes.EthAddress
+	var optionalContractAddr *pldtypes.EthAddress
 	if res.Transaction.ContractAddress != nil {
-		optionalContractAddr, err = tktypes.ParseEthAddress(*res.Transaction.ContractAddress)
+		optionalContractAddr, err = pldtypes.ParseEthAddress(*res.Transaction.ContractAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -888,10 +986,51 @@ func (d *domain) InitPrivacyGroup(ctx context.Context, id tktypes.HexBytes, gene
 			From:   signer,
 			To:     optionalContractAddr,
 			Type:   txType,
-			Data:   tktypes.RawJSON(res.Transaction.ParamsJson),
+			Data:   pldtypes.RawJSON(res.Transaction.ParamsJson),
 			Domain: d.name,
 		},
 		ABI: abi.ABI{&functionABI},
 	}, nil
 
+}
+
+func (d *domain) CheckStateCompletion(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (nextMissingStateID pldtypes.HexBytes, err error) {
+	scr := &prototk.CheckStateCompletionRequest{
+		TransactionId:     pldtypes.Bytes32UUIDFirst16(txID).String(),
+		InputStates:       d.toEndorsableListBase(txStates.Spent),
+		ReadStates:        d.toEndorsableListBase(txStates.Read),
+		OutputStates:      d.toEndorsableListBase(txStates.Confirmed),
+		InfoStates:        d.toEndorsableListBase(txStates.Info),
+		UnavailableStates: &prototk.UnavailableStates{}, // always non-nil, but FirstUnavailable will be nil if none unavailable
+	}
+	setIfFirstUnavailable := func(unavailable pldtypes.HexBytes) {
+		if scr.UnavailableStates.FirstUnavailableId == nil {
+			idStr := unavailable.String()
+			scr.UnavailableStates.FirstUnavailableId = &idStr
+		}
+	}
+	// The order of these checks is documented in the first_unavailable_id
+	if txStates.Unavailable != nil {
+		for _, unavailable := range txStates.Unavailable.Info {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.InfoStateIds = append(scr.UnavailableStates.InfoStateIds, unavailable.String())
+		}
+		for _, unavailable := range txStates.Unavailable.Spent {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.InputStateIds = append(scr.UnavailableStates.InputStateIds, unavailable.String())
+		}
+		for _, unavailable := range txStates.Unavailable.Confirmed {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.OutputStateIds = append(scr.UnavailableStates.OutputStateIds, unavailable.String())
+		}
+		for _, unavailable := range txStates.Unavailable.Read {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.ReadStateIds = append(scr.UnavailableStates.ReadStateIds, unavailable.String())
+		}
+	}
+	res, err := d.api.CheckStateCompletion(ctx, scr)
+	if err == nil && res.NextMissingStateId != nil && len(*res.NextMissingStateId) > 0 {
+		nextMissingStateID, err = pldtypes.ParseHexBytes(ctx, *res.NextMissingStateId)
+	}
+	return nextMissingStateID, err
 }

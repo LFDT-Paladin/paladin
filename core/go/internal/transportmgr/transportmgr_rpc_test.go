@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright contributors to Paladin, an LFDT project
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -21,18 +21,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,7 +67,12 @@ func TestRPCLocalDetails(t *testing.T) {
 	_, err := tm.getPeer(ctx, "node2", false)
 	require.NoError(t, err)
 
-	peers, rpcErr := transportRPC.Peers(ctx)
+	peers, rpcErr := transportRPC.QueryPeers(ctx, query.NewQueryBuilder().Limit(100).Query())
+	require.NoError(t, rpcErr)
+	require.Len(t, peers, 1)
+	require.Equal(t, "node2", peers[0].Name)
+
+	peers, rpcErr = transportRPC.Peers(ctx)
 	require.NoError(t, rpcErr)
 	require.Len(t, peers, 1)
 	require.Equal(t, "node2", peers[0].Name)
@@ -117,7 +122,7 @@ func TestRPCReliableMessages(t *testing.T) {
 		msg := &pldapi.ReliableMessage{
 			MessageType: pldapi.RMTPrivacyGroup.Enum(),
 			Node:        "node2",
-			Metadata:    tktypes.RawJSON(`{}`),
+			Metadata:    pldtypes.RawJSON(`{}`),
 		}
 		err := tm.SendReliable(ctx, dbTX, msg)
 		msgID = msg.ID

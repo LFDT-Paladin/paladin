@@ -21,12 +21,12 @@ import (
 
 	_ "embed"
 
-	"github.com/kaleido-io/paladin/registries/evm/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/registries/evm/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 //go:embed abis/IdentityRegistry.json
@@ -53,12 +53,13 @@ func NewPlugin(ctx context.Context) plugintk.PluginBase {
 
 func NewEVMRegistry(callbacks plugintk.RegistryCallbacks) plugintk.RegistryAPI {
 	return &evmRegistry{
-		bgCtx:     context.Background(),
+		bgCtx:     log.WithComponent(context.Background(), "evmregistry"),
 		callbacks: callbacks,
 	}
 }
 
 func (r *evmRegistry) ConfigureRegistry(ctx context.Context, req *prototk.ConfigureRegistryRequest) (*prototk.ConfigureRegistryResponse, error) {
+	ctx = log.WithComponent(ctx, "evmregistry")
 	r.name = req.Name
 
 	err := json.Unmarshal([]byte(req.ConfigJson), &r.conf)
@@ -84,7 +85,7 @@ func (r *evmRegistry) ConfigureRegistry(ctx context.Context, req *prototk.Config
 			EventSources: []*prototk.RegistryEventSource{
 				{
 					ContractAddress: r.conf.ContractAddress.String(),
-					AbiEventsJson:   tktypes.JSONString(contractDetail.abi).Pretty(),
+					AbiEventsJson:   pldtypes.JSONString(contractDetail.abi).Pretty(),
 				},
 			},
 		},
@@ -100,7 +101,7 @@ func (r *evmRegistry) handleIdentityRegistered(ctx context.Context, inEvent *pro
 
 	// Check rules that the server will return errors for and we need to discard before hand
 	// as the on-chain smart contract does not reject these.
-	if err := tktypes.ValidateSafeCharsStartEndAlphaNum(ctx, parsedEvent.Name, tktypes.DefaultNameMaxLen, "name"); err != nil {
+	if err := pldtypes.ValidateSafeCharsStartEndAlphaNum(ctx, parsedEvent.Name, pldtypes.DefaultNameMaxLen, "name"); err != nil {
 		log.L(ctx).Warnf("Discarding %s event due to invalid entity name (%d/%d/%d): %s",
 			inEvent.SoliditySignature, inEvent.Location.BlockNumber, inEvent.Location.TransactionIndex, inEvent.Location.LogIndex, err)
 		// Not an error in our code
@@ -142,7 +143,7 @@ func (r *evmRegistry) handlePropertySet(ctx context.Context, inEvent *prototk.On
 
 	// Check rules that the server will return errors for and we need to discard before hand
 	// as the on-chain smart contract does not reject these.
-	if err := tktypes.ValidateSafeCharsStartEndAlphaNum(ctx, parsedEvent.Name, tktypes.DefaultNameMaxLen, "name"); err != nil {
+	if err := pldtypes.ValidateSafeCharsStartEndAlphaNum(ctx, parsedEvent.Name, pldtypes.DefaultNameMaxLen, "name"); err != nil {
 		log.L(ctx).Warnf("Discarding %s event due to invalid property name (%d/%d/%d): %s",
 			inEvent.SoliditySignature, inEvent.Location.BlockNumber, inEvent.Location.TransactionIndex, inEvent.Location.LogIndex, err)
 		// Not an error in our code
@@ -159,13 +160,14 @@ func (r *evmRegistry) handlePropertySet(ctx context.Context, inEvent *prototk.On
 }
 
 func (r *evmRegistry) HandleRegistryEvents(ctx context.Context, req *prototk.HandleRegistryEventsRequest) (*prototk.HandleRegistryEventsResponse, error) {
+	ctx = log.WithComponent(ctx, "evmregistry")
 
 	entries := []*prototk.RegistryEntry{}
 	properties := []*prototk.RegistryProperty{}
 
 	// Parse all the events
 	for _, inEvent := range req.Events {
-		inSig, err := tktypes.ParseBytes32(inEvent.Signature)
+		inSig, err := pldtypes.ParseBytes32(inEvent.Signature)
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidRegistryEvent, inEvent.Location)
 		}

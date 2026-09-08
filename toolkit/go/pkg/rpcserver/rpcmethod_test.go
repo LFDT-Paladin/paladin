@@ -20,11 +20,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/go-resty/resty/v2"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +38,7 @@ func TestRCPMethod0(t *testing.T) {
 		return "result0", nil
 	}))
 
-	var jsonResponse tktypes.RawJSON
+	var jsonResponse pldtypes.RawJSON
 	res, err := resty.New().R().
 		SetBody(`{
 		  "jsonrpc": "2.0",
@@ -69,7 +69,7 @@ func TestRCPMethod1(t *testing.T) {
 		return "result0", nil
 	}))
 
-	var jsonResponse tktypes.RawJSON
+	var jsonResponse pldtypes.RawJSON
 	res, err := resty.New().R().
 		SetBody(`{
 		  "jsonrpc": "2.0",
@@ -103,7 +103,7 @@ func TestRCPMethod2(t *testing.T) {
 		return "result0", nil
 	}))
 
-	var jsonResponse tktypes.RawJSON
+	var jsonResponse pldtypes.RawJSON
 	res, err := resty.New().R().
 		SetBody(`{
 		  "jsonrpc": "2.0",
@@ -139,7 +139,7 @@ func TestRCPMethod3(t *testing.T) {
 		return "result0", nil
 	}))
 
-	var jsonResponse tktypes.RawJSON
+	var jsonResponse pldtypes.RawJSON
 	res, err := resty.New().R().
 		SetBody(`{
 		  "jsonrpc": "2.0",
@@ -177,7 +177,7 @@ func TestRCPMethod4(t *testing.T) {
 		return "result0", nil
 	}))
 
-	var jsonResponse tktypes.RawJSON
+	var jsonResponse pldtypes.RawJSON
 	res, err := resty.New().R().
 		SetBody(`{
 		  "jsonrpc": "2.0",
@@ -217,7 +217,7 @@ func TestRCPMethod5(t *testing.T) {
 		return "result0", nil
 	}))
 
-	var jsonResponse tktypes.RawJSON
+	var jsonResponse pldtypes.RawJSON
 	res, err := resty.New().R().
 		SetBody(`{
 		  "jsonrpc": "2.0",
@@ -255,7 +255,7 @@ func TestRCPMethodNullParamPointerPassed(t *testing.T) {
 		return "result0", nil
 	}))
 
-	var jsonResponse tktypes.RawJSON
+	var jsonResponse pldtypes.RawJSON
 	res, err := resty.New().R().
 		SetBody(`{
 		  "jsonrpc": "2.0",
@@ -290,7 +290,7 @@ func TestRCPMethodNullParamNonPointerEmptyVal(t *testing.T) {
 		return "result0", nil
 	}))
 
-	var jsonResponse tktypes.RawJSON
+	var jsonResponse pldtypes.RawJSON
 	res, err := resty.New().R().
 		SetBody(`{
 		  "jsonrpc": "2.0",
@@ -332,10 +332,11 @@ func TestRCPMethodInvalidValue(t *testing.T) {
 		  "method": "stringy_method",
 		  "params": [ "not an array" ]
 		}`).
+		SetResult(&errResponse).
 		SetError(&errResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), errResponse.Error.Code)
 	assert.Regexp(t, "PD020704", errResponse.Error.Message)
 
@@ -359,10 +360,11 @@ func TestRCPMethodWrongParamCount(t *testing.T) {
 		  "method": "stringy_method",
 		  "params": [ "more", "than", "one" ]
 		}`).
+		SetResult(&errResponse).
 		SetError(&errResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), errResponse.Error.Code)
 	assert.Regexp(t, "PD020703", errResponse.Error.Message)
 
@@ -385,10 +387,11 @@ func TestRCPMethodBadResult(t *testing.T) {
 		  "method": "stringy_method",
 		  "params": [ ]
 		}`).
+		SetResult(&errResponse).
 		SetError(&errResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.Equal(t, int64(rpcclient.RPCCodeInternalError), errResponse.Error.Code)
 	assert.Regexp(t, "PD020705", errResponse.Error.Message)
 

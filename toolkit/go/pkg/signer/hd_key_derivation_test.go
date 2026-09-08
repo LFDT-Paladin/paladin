@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2025 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -19,16 +19,17 @@ import (
 	"context"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signerapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signpayloads"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tyler-smith/go-bip39"
@@ -58,8 +59,8 @@ func TestHDSigningStaticExample(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	res, err := sm.Resolve(ctx, &signerapi.ResolveKeyRequest{
-		RequiredIdentifiers: []*signerapi.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
+	res, err := sm.Resolve(ctx, &prototk.ResolveKeyRequest{
+		RequiredIdentifiers: []*prototk.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
 		Name:                "key1",
 		Index:               0,
 	})
@@ -67,7 +68,7 @@ func TestHDSigningStaticExample(t *testing.T) {
 	assert.Equal(t, "m/44'/60'/0'/0/0", res.KeyHandle)
 	assert.Equal(t, "0x6331ccb948aaf903a69d6054fd718062bd0d535c", res.Identifiers[0].Verifier)
 
-	resSign, err := sm.Sign(ctx, &signerapi.SignRequest{
+	resSign, err := sm.Sign(ctx, &prototk.SignWithKeyRequest{
 		KeyHandle:   res.KeyHandle,
 		Algorithm:   algorithms.ECDSA_SECP256K1,
 		PayloadType: signpayloads.OPAQUE_TO_RSV,
@@ -94,7 +95,7 @@ func TestHDSigningStaticExamplePreResolved(t *testing.T) {
 				Keys: map[string]pldconf.StaticKeyEntryConfig{
 					"directly.resolved": {
 						Encoding: "hex",
-						Inline:   tktypes.RandHex(32),
+						Inline:   pldtypes.RandHex(32),
 					},
 				},
 			},
@@ -102,15 +103,15 @@ func TestHDSigningStaticExamplePreResolved(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	res, err := sm.Resolve(ctx, &signerapi.ResolveKeyRequest{
-		RequiredIdentifiers: []*signerapi.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
+	res, err := sm.Resolve(ctx, &prototk.ResolveKeyRequest{
+		RequiredIdentifiers: []*prototk.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
 		Name:                "key1",
 		Index:               0,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "m/44'/60'/0'", res.KeyHandle)
 
-	resSign, err := sm.Sign(ctx, &signerapi.SignRequest{
+	resSign, err := sm.Sign(ctx, &prototk.SignWithKeyRequest{
 		KeyHandle:   res.KeyHandle,
 		Algorithm:   algorithms.ECDSA_SECP256K1,
 		PayloadType: signpayloads.OPAQUE_TO_RSV,
@@ -138,11 +139,11 @@ func TestHDSigningDirectResNoPrefix(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	res, err := sm.Resolve(ctx, &signerapi.ResolveKeyRequest{
-		RequiredIdentifiers: []*signerapi.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
+	res, err := sm.Resolve(ctx, &prototk.ResolveKeyRequest{
+		RequiredIdentifiers: []*prototk.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
 		Name:                "50'",
 		Index:               0,
-		Path: []*signerapi.ResolveKeyPathSegment{
+		Path: []*prototk.ResolveKeyPathSegment{
 			{
 				Name:  "10'",
 				Index: 0,
@@ -164,21 +165,21 @@ func TestHDSigningDirectResNoPrefix(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "m/10'/20'/30/40/50'", res.KeyHandle)
 
-	_, err = sm.Resolve(ctx, &signerapi.ResolveKeyRequest{
-		RequiredIdentifiers: []*signerapi.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
+	_, err = sm.Resolve(ctx, &prototk.ResolveKeyRequest{
+		RequiredIdentifiers: []*prototk.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
 		Name:                "key1",
 		Index:               0,
 	})
 	assert.Regexp(t, "PD020813", err)
 
-	_, err = sm.Resolve(ctx, &signerapi.ResolveKeyRequest{
-		RequiredIdentifiers: []*signerapi.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
+	_, err = sm.Resolve(ctx, &prototk.ResolveKeyRequest{
+		RequiredIdentifiers: []*prototk.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
 		Name:                "2147483648", // too big
 		Index:               0,
 	})
 	assert.Regexp(t, "PD020814", err)
 
-	_, err = sm.(*signingModule[*signerapi.ConfigNoExt]).hd.signHDWalletKey(ctx, &signerapi.SignRequest{
+	_, err = sm.(*signingModule[*signerapi.ConfigNoExt]).hd.signHDWalletKey(ctx, &prototk.SignWithKeyRequest{
 		KeyHandle: "m/wrong",
 	})
 	assert.Regexp(t, "PD020813", err)
@@ -222,11 +223,11 @@ func TestHDSigningDefaultBehaviorOK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	res, err := sm.Resolve(ctx, &signerapi.ResolveKeyRequest{
-		RequiredIdentifiers: []*signerapi.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
+	res, err := sm.Resolve(ctx, &prototk.ResolveKeyRequest{
+		RequiredIdentifiers: []*prototk.PublicKeyIdentifierType{{Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS}},
 		Name:                "E82D5A3F-D154-4C5B-A297-F8D49528DA73",
 		Index:               0x7FFFFFFF, // largest possible - not in hardened range
-		Path: []*signerapi.ResolveKeyPathSegment{
+		Path: []*prototk.ResolveKeyPathSegment{
 			{
 				Name:  "bob",
 				Index: 0x7FFFFFFF, // largest possible - will be pushed to hardened range (default config)
@@ -261,7 +262,7 @@ func TestHDSigningDefaultBehaviorOK(t *testing.T) {
 	testKeyPair := secp256k1.KeyPairFromBytes(keyBytes[:])
 	assert.Equal(t, testKeyPair.Address.String(), res.Identifiers[0].Verifier)
 
-	resSign, err := sm.Sign(ctx, &signerapi.SignRequest{
+	resSign, err := sm.Sign(ctx, &prototk.SignWithKeyRequest{
 		KeyHandle:   res.KeyHandle,
 		Algorithm:   algorithms.ECDSA_SECP256K1,
 		PayloadType: signpayloads.OPAQUE_TO_RSV,
@@ -271,7 +272,10 @@ func TestHDSigningDefaultBehaviorOK(t *testing.T) {
 
 	testSign, err := testKeyPair.SignDirect(([]byte)("some data"))
 	require.NoError(t, err)
-	assert.Equal(t, tktypes.HexBytes(testSign.CompactRSV()), resSign.Payload)
+	// signature from firefly signer will have 27/28 V value. Paladin signing module converts it to 0/1. So we need to convert one
+	// of them to accurately compare
+	testSign.V.SetInt64(testSign.V.Int64() - 27)
+	assert.Equal(t, testSign.CompactRSV(), resSign.Payload)
 	sig, err := secp256k1.DecodeCompactRSV(ctx, resSign.Payload)
 	require.NoError(t, err)
 	assert.Equal(t, testSign, sig)
@@ -380,4 +384,64 @@ func TestHDInitGenSeed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, generatedSeed, 32)
 	assert.NotEqual(t, make([]byte, 32), generatedSeed) // not zero
+}
+
+func TestHDLoadWalletPrivateKeyDeriveError(t *testing.T) {
+	ctx := context.Background()
+	entropy, err := bip39.NewEntropy(256)
+	require.NoError(t, err)
+
+	mnemonic, err := bip39.NewMnemonic(entropy)
+	require.NoError(t, err)
+
+	sm, err := NewSigningModule(ctx, &signerapi.ConfigNoExt{
+		KeyDerivation: pldconf.KeyDerivationConfig{
+			Type: pldconf.KeyDerivationTypeBIP32,
+		},
+		KeyStore: pldconf.KeyStoreConfig{
+			Type: pldconf.KeyStoreTypeStatic,
+			Static: pldconf.StaticKeyStoreConfig{
+				Keys: map[string]pldconf.StaticKeyEntryConfig{
+					"seed": {
+						Encoding: "none",
+						Inline:   mnemonic,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	hd := sm.(*signingModule[*signerapi.ConfigNoExt]).hd
+	require.NotNil(t, hd)
+
+	// Derive a non-hardened child to get a private key
+	// Then convert it to an extended public key (xpub)
+	// We'll use path m/44'/60'/0 to get a private key, then convert to xpub
+	seed, err := bip39.NewSeedWithErrorChecking(mnemonic, "")
+	require.NoError(t, err)
+
+	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
+	require.NoError(t, err)
+
+	// Derive m/44'/60'/0 (hardened path)
+	key44, err := masterKey.Derive(0x80000000 + 44)
+	require.NoError(t, err)
+
+	key60, err := key44.Derive(0x80000000 + 60)
+	require.NoError(t, err)
+
+	key0, err := key60.Derive(0x80000000 + 0)
+	require.NoError(t, err)
+
+	xpub, err := key0.Neuter()
+	require.NoError(t, err)
+
+	// Now we have a public key at the base, and trying to derive hardened children will fail
+	hd.hdKeyChain = xpub
+
+	// Try to load a key handle that requires deriving a hardened child from the xpub
+	_, err = hd.loadHDWalletPrivateKey(ctx, "m/1'")
+	assert.Error(t, err)
+	assert.Regexp(t, "PD020813", err)
 }

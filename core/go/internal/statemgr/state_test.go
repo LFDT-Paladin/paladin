@@ -17,19 +17,21 @@
 package statemgr
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/mocks/componentmocks"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -47,8 +49,8 @@ func TestPersistStateMissingSchema(t *testing.T) {
 
 	upserts := []*components.StateUpsertOutsideContext{
 		{
-			ContractAddress: tktypes.RandAddress(),
-			SchemaID:        tktypes.Bytes32Keccak(([]byte)("test")),
+			ContractAddress: pldtypes.RandAddress(),
+			SchemaID:        pldtypes.Bytes32Keccak(([]byte)("test")),
 		},
 	}
 
@@ -65,7 +67,7 @@ func TestPersistStateInvalidState(t *testing.T) {
 
 	_ = mockDomain(t, m, "domain1", false)
 
-	schemaID := tktypes.Bytes32Keccak(([]byte)("schema1"))
+	schemaID := pldtypes.Bytes32Keccak(([]byte)("schema1"))
 	cacheKey := schemaCacheKey("domain1", schemaID)
 	ss.abiSchemaCache.Set(cacheKey, &abiSchema{
 		definition: &abi.Parameter{},
@@ -73,7 +75,7 @@ func TestPersistStateInvalidState(t *testing.T) {
 
 	upserts := []*components.StateUpsertOutsideContext{
 		{
-			ContractAddress: tktypes.RandAddress(),
+			ContractAddress: pldtypes.RandAddress(),
 			SchemaID:        schemaID,
 		},
 	}
@@ -91,8 +93,8 @@ func TestGetStateMissing(t *testing.T) {
 
 	db.ExpectQuery("SELECT").WillReturnRows(db.NewRows([]string{}))
 
-	stateID := tktypes.Bytes32Keccak(([]byte)("state1")).Bytes()
-	_, err := ss.GetStatesByID(ctx, ss.p.NOTX(), "domain1", nil, []tktypes.HexBytes{stateID}, true, false)
+	stateID := pldtypes.Bytes32Keccak(([]byte)("state1")).Bytes()
+	_, err := ss.GetStatesByID(ctx, ss.p.NOTX(), "domain1", nil, []pldtypes.HexBytes{stateID}, true, false)
 	assert.Regexp(t, "PD010112", err)
 }
 
@@ -102,8 +104,8 @@ func TestFindStatesMissingSchema(t *testing.T) {
 
 	db.ExpectQuery("SELECT").WillReturnRows(db.NewRows([]string{}))
 
-	contractAddress := tktypes.RandAddress()
-	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, tktypes.Bytes32Keccak(([]byte)("schema1")), &query.QueryJSON{}, "all")
+	contractAddress := pldtypes.RandAddress()
+	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, pldtypes.Bytes32Keccak(([]byte)("schema1")), &query.QueryJSON{}, "all")
 	assert.Regexp(t, "PD010106", err)
 }
 
@@ -111,13 +113,13 @@ func TestFindStatesBadQuery(t *testing.T) {
 	ctx, ss, _, _, done := newDBMockStateManager(t)
 	defer done()
 
-	schemaID := tktypes.Bytes32Keccak(([]byte)("schema1"))
+	schemaID := pldtypes.Bytes32Keccak(([]byte)("schema1"))
 	cacheKey := schemaCacheKey("domain1", schemaID)
 	ss.abiSchemaCache.Set(cacheKey, &abiSchema{
 		definition: &abi.Parameter{},
 	})
 
-	contractAddress := tktypes.RandAddress()
+	contractAddress := pldtypes.RandAddress()
 	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
 		Statements: query.Statements{
 			Ops: query.Ops{
@@ -135,7 +137,7 @@ func TestFindStatesFail(t *testing.T) {
 	ctx, ss, db, _, done := newDBMockStateManager(t)
 	defer done()
 
-	schemaID := tktypes.Bytes32Keccak(([]byte)("schema1"))
+	schemaID := pldtypes.Bytes32Keccak(([]byte)("schema1"))
 	cacheKey := schemaCacheKey("domain1", schemaID)
 	ss.abiSchemaCache.Set(cacheKey, &abiSchema{
 		Schema:     &pldapi.Schema{ID: schemaID},
@@ -144,14 +146,14 @@ func TestFindStatesFail(t *testing.T) {
 
 	db.ExpectQuery("SELECT.*created").WillReturnError(fmt.Errorf("pop"))
 
-	contractAddress := tktypes.RandAddress()
+	contractAddress := pldtypes.RandAddress()
 	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
 		Statements: query.Statements{
 			Ops: query.Ops{
 				GreaterThan: []*query.OpSingleVal{
 					{Op: query.Op{
 						Field: ".created",
-					}, Value: tktypes.RawJSON(fmt.Sprintf("%d", time.Now().UnixNano()))},
+					}, Value: pldtypes.RawJSON(fmt.Sprintf("%d", time.Now().UnixNano()))},
 				},
 			},
 		},
@@ -164,15 +166,15 @@ func TestFindStatesUnknownContext(t *testing.T) {
 	ctx, ss, _, _, done := newDBMockStateManager(t)
 	defer done()
 
-	schemaID := tktypes.Bytes32Keccak(([]byte)("schema1"))
-	contractAddress := tktypes.RandAddress()
+	schemaID := pldtypes.Bytes32Keccak(([]byte)("schema1"))
+	contractAddress := pldtypes.RandAddress()
 	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
 		Statements: query.Statements{
 			Ops: query.Ops{
 				GreaterThan: []*query.OpSingleVal{
 					{Op: query.Op{
 						Field: ".created",
-					}, Value: tktypes.RawJSON(fmt.Sprintf("%d", time.Now().UnixNano()))},
+					}, Value: pldtypes.RawJSON(fmt.Sprintf("%d", time.Now().UnixNano()))},
 				},
 			},
 		},
@@ -203,10 +205,10 @@ func TestWriteReceivedStatesValidateHashFail(t *testing.T) {
 	md.On("ValidateStateHashes", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop"))
 
 	_, err := ss.WriteReceivedStates(ctx, ss.p.NOTX(), "domain1", []*components.StateUpsertOutsideContext{
-		{ID: tktypes.RandBytes(32), SchemaID: tktypes.RandBytes32(),
-			Data: tktypes.RawJSON(fmt.Sprintf(
+		{ID: pldtypes.RandBytes(32), SchemaID: pldtypes.RandBytes32(),
+			Data: pldtypes.RawJSON(fmt.Sprintf(
 				`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-				tktypes.RandHex(32)))},
+				pldtypes.RandHex(32)))},
 	})
 	assert.Regexp(t, "pop", err)
 
@@ -222,13 +224,13 @@ func TestWriteReceivedStatesValidateHashOkInsertFail(t *testing.T) {
 	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema1.ID()), schema1)
 
 	md := mockDomain(t, m, "domain1", true)
-	stateID1 := tktypes.RandBytes(32)
-	md.On("ValidateStateHashes", mock.Anything, mock.Anything).Return([]tktypes.HexBytes{stateID1}, nil)
+	stateID1 := pldtypes.RandBytes(32)
+	md.On("ValidateStateHashes", mock.Anything, mock.Anything).Return([]pldtypes.HexBytes{stateID1}, nil)
 
 	_, err = ss.WriteReceivedStates(ctx, ss.p.NOTX(), "domain1", []*components.StateUpsertOutsideContext{
-		{SchemaID: schema1.ID(), Data: tktypes.RawJSON(fmt.Sprintf(
+		{SchemaID: schema1.ID(), Data: pldtypes.RawJSON(fmt.Sprintf(
 			`{"amount": 20, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
-			tktypes.RandHex(32)))},
+			pldtypes.RandHex(32)))},
 	})
 	assert.Regexp(t, "pop", err)
 
@@ -238,18 +240,18 @@ func TestWriteNullifiersForReceivedStatesOkRealDB(t *testing.T) {
 	ctx, ss, m, done := newDBTestStateManager(t)
 	defer done()
 
-	md := componentmocks.NewDomain(t)
+	md := componentsmocks.NewDomain(t)
 	md.On("Name").Return("domain1")
 	m.domainManager.On("GetDomainByName", mock.Anything, "domain1").Return(md, nil)
 
 	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*components.NullifierUpsert{
 		{
-			ID:    tktypes.HexBytes(tktypes.RandHex(32)),
-			State: tktypes.HexBytes(tktypes.RandHex(32)),
+			ID:    pldtypes.HexBytes(pldtypes.RandHex(32)),
+			State: pldtypes.HexBytes(pldtypes.RandHex(32)),
 		},
 		{
-			ID:    tktypes.HexBytes(tktypes.RandHex(32)),
-			State: tktypes.HexBytes(tktypes.RandHex(32)),
+			ID:    pldtypes.HexBytes(pldtypes.RandHex(32)),
+			State: pldtypes.HexBytes(pldtypes.RandHex(32)),
 		},
 	})
 	require.NoError(t, err)
@@ -264,8 +266,8 @@ func TestWriteNullifiersForReceivedStatesBadDomain(t *testing.T) {
 
 	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*components.NullifierUpsert{
 		{
-			ID:    tktypes.HexBytes(tktypes.RandHex(32)),
-			State: tktypes.HexBytes(tktypes.RandHex(32)),
+			ID:    pldtypes.HexBytes(pldtypes.RandHex(32)),
+			State: pldtypes.HexBytes(pldtypes.RandHex(32)),
 		},
 	})
 	assert.Regexp(t, "not found", err)
@@ -278,23 +280,23 @@ func TestFindNullifiersInContext(t *testing.T) {
 
 	db.ExpectQuery("SELECT.*states").WillReturnRows(sqlmock.NewRows([]string{}))
 
-	schemaID := tktypes.Bytes32Keccak(([]byte)("schema1"))
+	schemaID := pldtypes.Bytes32Keccak(([]byte)("schema1"))
 	cacheKey := schemaCacheKey("domain1", schemaID)
 	ss.abiSchemaCache.Set(cacheKey, &abiSchema{
 		definition: &abi.Parameter{},
 		Schema:     &pldapi.Schema{},
 	})
 
-	td := componentmocks.NewDomain(t)
+	td := componentsmocks.NewDomain(t)
 	td.On("Name").Return("domain1")
 	td.On("CustomHashFunction").Return(false)
 
-	dCtx := ss.NewDomainContext(ctx, td, *tktypes.RandAddress())
-	defer dCtx.Close()
+	dqc := ss.NewDomainQueryContext(ctx, td, *pldtypes.RandAddress())
+	defer dqc.Close(ctx)
 
-	contractAddress := tktypes.RandAddress()
+	contractAddress := pldtypes.RandAddress()
 	results, err := ss.FindContractNullifiers(ctx, ss.p.NOTX(), "domain1", *contractAddress, schemaID,
-		query.NewQueryBuilder().Limit(1).Query(), pldapi.StateStatusQualifier(dCtx.Info().ID.String()))
+		query.NewQueryBuilder().Limit(1).Query(), pldapi.StateStatusQualifier(dqc.ID().String()))
 	require.NoError(t, err)
 	require.Empty(t, results)
 
@@ -304,15 +306,15 @@ func TestFindNullifiersUnknownContext(t *testing.T) {
 	ctx, ss, _, _, done := newDBMockStateManager(t)
 	defer done()
 
-	schemaID := tktypes.Bytes32Keccak(([]byte)("schema1"))
-	contractAddress := tktypes.RandAddress()
+	schemaID := pldtypes.Bytes32Keccak(([]byte)("schema1"))
+	contractAddress := pldtypes.RandAddress()
 	_, err := ss.FindContractNullifiers(ctx, ss.p.NOTX(), "domain1", *contractAddress, schemaID, &query.QueryJSON{
 		Statements: query.Statements{
 			Ops: query.Ops{
 				GreaterThan: []*query.OpSingleVal{
 					{Op: query.Op{
 						Field: ".created",
-					}, Value: tktypes.RawJSON(fmt.Sprintf("%d", time.Now().UnixNano()))},
+					}, Value: pldtypes.RawJSON(fmt.Sprintf("%d", time.Now().UnixNano()))},
 				},
 			},
 		},
@@ -329,7 +331,7 @@ func TestFindStatesWithAdvancedDBQueryModifier(t *testing.T) {
 	mdb.ExpectQuery(`SELECT.*FROM "states".*LEFT JOIN "another_table".*"j"."state_id" IS NOT NULL`).
 		WillReturnError(fmt.Errorf("called"))
 
-	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", tktypes.RandBytes32(), query.NewQueryBuilder().Query(), &components.StateQueryOptions{
+	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", pldtypes.RandBytes32(), query.NewQueryBuilder().Query(), &components.StateQueryOptions{
 		QueryModifier: func(db persistence.DBTX, query *gorm.DB) *gorm.DB {
 			return query.
 				Joins(`LEFT JOIN "another_table" AS "j" WHERE "j"."state_id" = "states"."id"`).
@@ -347,7 +349,240 @@ func TestFindStatesWithNilOptions(t *testing.T) {
 	mockGetSchemaOK(mdb)
 	mdb.ExpectQuery(`SELECT.*FROM`).WillReturnError(fmt.Errorf("called"))
 
-	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", tktypes.RandBytes32(), query.NewQueryBuilder().Query(), nil)
+	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", pldtypes.RandBytes32(), query.NewQueryBuilder().Query(), nil)
 	assert.Regexp(t, "called", err)
+
+}
+
+func TestWritePreVerifiedStates_ClearsCompletionRows(t *testing.T) {
+	// Writing states should delete any outstanding completion rows for those state IDs.
+	ctx, ss, m, done := newDBTestStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+
+	_ = mockDomain(t, m, "domain1", false)
+	m.txManager.On("NotifyStatesDBChanged", mock.Anything).Return()
+
+	contractAddr := pldtypes.RandAddress()
+
+	// We need the real state IDs to pre-insert completion rows, so write the states first.
+	var states []*pldapi.State
+	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		states, err = ss.WritePreVerifiedStates(ctx, dbTX, "domain1", []*components.StateUpsertOutsideContext{
+			{
+				SchemaID:        schema.ID(),
+				Data:            pldtypes.RawJSON(fmt.Sprintf(`{"amount":10,"owner":"0x615dD09124271D8008225054d85Ffe720E7a447A","salt":"%s"}`, pldtypes.RandHex(32))),
+				ContractAddress: contractAddr,
+			},
+			{
+				SchemaID:        schema.ID(),
+				Data:            pldtypes.RawJSON(fmt.Sprintf(`{"amount":20,"owner":"0x615dD09124271D8008225054d85Ffe720E7a447A","salt":"%s"}`, pldtypes.RandHex(32))),
+				ContractAddress: contractAddr,
+			},
+		})
+		return err
+	})
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+
+	// Seed pending rows for both state IDs.
+	for _, s := range states {
+		err = ss.p.DB(ctx).Create(&pendingPrivateStateData{
+			StateID:     s.ID.String(),
+			Contract:    contractAddr.String(),
+			BlockNumber: 1,
+		}).Error
+		require.NoError(t, err)
+	}
+
+	// Now write the states again (idempotent upsert) — this must clear the pending rows.
+	err = ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err = ss.WritePreVerifiedStates(ctx, dbTX, "domain1", []*components.StateUpsertOutsideContext{
+			{ID: states[0].ID, SchemaID: schema.ID(), Data: states[0].Data, ContractAddress: contractAddr},
+			{ID: states[1].ID, SchemaID: schema.ID(), Data: states[1].Data, ContractAddress: contractAddr},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	var remaining []pendingPrivateStateData
+	err = ss.p.DB(ctx).Find(&remaining).Error
+	require.NoError(t, err)
+	assert.Empty(t, remaining)
+}
+
+// validationDomain is a minimal domain for the state validation calls, which read only the domain
+// name and whether the domain calculates its own state hashes.
+func validationDomain(t *testing.T, name string, customHashFunction bool) components.Domain {
+	md := componentsmocks.NewDomain(t)
+	md.On("Name").Return(name).Maybe()
+	md.On("CustomHashFunction").Return(customHashFunction).Maybe()
+	return md
+}
+
+func TestValidateStates(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schemas, err := ss.EnsureABISchemas(ctx, ss.p.NOTX(), "domain1", []*abi.Parameter{testABIParam(t, fakeCoinABI)})
+	require.NoError(t, err)
+	require.Len(t, schemas, 1)
+	schemaID := schemas[0].ID()
+	fakeHash1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	fakeHash2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	contractAddress := *pldtypes.RandAddress()
+
+	state1 := &prototk.EndorsableState{
+		Id:            fakeHash1.String(),
+		SchemaId:      schemaID.String(),
+		StateDataJson: fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32)),
+	}
+	states, err := ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", true), contractAddress,
+		state1,
+		&prototk.EndorsableState{
+			Id:            fakeHash2.String(),
+			SchemaId:      schemaID.String(),
+			StateDataJson: fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32)),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+	assert.NotEmpty(t, states[0].ID)
+	assert.Equal(t, fakeHash2, states[1].ID)
+
+	// Empty call is a no-op
+	states, err = ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", true), contractAddress)
+	require.NoError(t, err)
+	require.Empty(t, states)
+
+}
+
+func TestValidateStatesBadSchema(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	contractAddress := *pldtypes.RandAddress()
+	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
+		SchemaId:      pldtypes.RandBytes32().String(),
+		StateDataJson: `{}`,
+	})
+	assert.Regexp(t, "PD010106", err) // unknown schema
+
+}
+
+func TestValidateStatesBadData(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schemas, err := ss.EnsureABISchemas(ctx, ss.p.NOTX(), "domain1", []*abi.Parameter{testABIParam(t, fakeCoinABI)})
+	require.NoError(t, err)
+	require.Len(t, schemas, 1)
+
+	contractAddress := *pldtypes.RandAddress()
+	_, err = ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
+		SchemaId:      schemas[0].ID().String(),
+		StateDataJson: `{!!! wrong`,
+	})
+	assert.Regexp(t, "PD010116", err)
+
+}
+
+// TestValidateStatesCacheMissAndHit proves ValidateStates participates in the validated-state
+// cache: a content-addressed state with a verified ID misses and re-validates on first sight
+// (without seeding the cache itself), and once the caching path (ValidateStatesWithLabels) has
+// stored it, re-validation is served from the cache with the label rows stripped.
+func TestValidateStatesCacheMissAndHit(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schema1, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	require.NoError(t, ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema1.Schema}))
+
+	contractAddress := *pldtypes.RandAddress()
+	s := makeFakeCoin(t, ctx, schema1, &contractAddress, false, 10)
+	es := &prototk.EndorsableState{Id: s.ID.String(), SchemaId: schema1.ID().String(), StateDataJson: string(s.Data)}
+	domain := validationDomain(t, "domain1", false)
+	cacheKey := validatedStateCacheKey("domain1", contractAddress, s.ID)
+
+	// First call: cache miss — the state re-validates from content, and ValidateStates itself
+	// does not seed the cache.
+	out1, err := ss.ValidateStates(ctx, ss.p.NOTX(), domain, contractAddress, es)
+	require.NoError(t, err)
+	require.Len(t, out1, 1)
+	assert.Equal(t, s.ID, out1[0].ID)
+	hits, misses := cacheCounts(ss)
+	assert.Equal(t, 0, hits)
+	assert.Equal(t, 1, misses)
+	_, ok := peekCache(ss, cacheKey)
+	assert.False(t, ok, "ValidateStates must not seed the cache")
+
+	// Seed the cache through the labels path, then re-validate: served from the cache, with the
+	// label rows nil-ed off the returned copy.
+	_, err = ss.ValidateStatesWithLabels(ctx, ss.p.NOTX(), domain, contractAddress, es)
+	require.NoError(t, err)
+	out2, err := ss.ValidateStates(ctx, ss.p.NOTX(), domain, contractAddress, es)
+	require.NoError(t, err)
+	require.Len(t, out2, 1)
+	assert.Equal(t, s.ID, out2[0].ID)
+	assert.Nil(t, out2[0].Labels)
+	assert.Nil(t, out2[0].Int64Labels)
+	hits, misses = cacheCounts(ss)
+	assert.Equal(t, 1, hits, "the second ValidateStates must be served from the cache")
+	assert.Equal(t, 2, misses)
+
+	// The hit returns an isolated shallow copy — stamping it must not touch the cache entry.
+	cached, ok := peekCache(ss, cacheKey)
+	require.True(t, ok)
+	assert.NotSame(t, cached.State, out2[0])
+	out2[0].Created = 12345
+	cachedAfter, _ := peekCache(ss, cacheKey)
+	assert.Equal(t, pldtypes.Timestamp(0), cachedAfter.Created)
+
+}
+
+func TestValidateStatesUnparseableSchemaID(t *testing.T) {
+
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	contractAddress := *pldtypes.RandAddress()
+
+	// The schema ID parse failure surfaces from both validation paths.
+	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
+		SchemaId:      "not-a-schema",
+		StateDataJson: `{}`,
+	})
+	require.Error(t, err)
+
+	_, err = ss.ValidateStatesWithLabels(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
+		SchemaId:      "not-a-schema",
+		StateDataJson: `{}`,
+	})
+	require.Error(t, err)
+
+}
+
+func TestValidateStatesBadStateID(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	contractAddress := *pldtypes.RandAddress()
+	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
+		Id:            "not-valid-hex",
+		SchemaId:      pldtypes.RandBytes32().String(),
+		StateDataJson: `{}`,
+	})
+	require.Error(t, err)
 
 }

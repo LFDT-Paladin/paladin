@@ -28,31 +28,70 @@ import (
 	"regexp"
 	"strings"
 
-	corev1alpha1 "github.com/kaleido-io/paladin/operator/api/v1alpha1"
-	"github.com/kaleido-io/paladin/toolkit/pkg/solutils"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/yaml"
 )
 
-// file names that are basenet specific
-var basenet = []string{"issuer", "paladindomain", "paladinregistry", "smartcontractdeployment", "transactioninvoke"}
-
-// file names that are devnet specific
-var devnet = []string{"besu_node", "paladin_node", "genesis", "paladinregistration"}
-
 var scope = map[string][]string{
-	"basenet": basenet,
-	"devnet":  append(devnet, basenet...),
+	"basenet":   {"issuer", "smartcontractdeployment", "transactioninvoke"},
+	"devnet":    {"issuer", "smartcontractdeployment", "transactioninvoke", "paladindomain", "paladinregistry"},
+	"customnet": {"issuer", "smartcontractdeployment", "transactioninvoke", "paladindomain", "paladinregistry"},
+	"attach":    {"issuer", "paladindomain", "paladinregistry"},
+}
+
+// Map of snake_case keys to camelCase keys for smart contract deployments and transaction invokes
+var snakeToCamelMap = map[string]string{
+	// Smart Contract Deployments
+	"default":                                     "default",
+	"registry":                                    "registry",
+	"noto":                                        "noto",
+	"noto_factory":                                "notoFactory",
+	"noto_factory_proxy":                          "notoFactoryProxy",
+	"pente_factory":                               "penteFactory",
+	"pente_factory_proxy":                         "penteFactoryProxy",
+	"zeto_g16_anon":                               "zetoG16Anon",
+	"zeto_g16_anon_batch":                         "zetoG16AnonBatch",
+	"zeto_g16_anon_enc":                           "zetoG16AnonEnc",
+	"zeto_g16_anon_enc_batch":                     "zetoG16AnonEncBatch",
+	"zeto_g16_anon_nullifier_transfer":            "zetoG16AnonNullifierTransfer",
+	"zeto_g16_anon_nullifier_transfer_batch":      "zetoG16AnonNullifierTransferBatch",
+	"zeto_g16_anon_nullifier_kyc_transfer":        "zetoG16AnonNullifierKycTransfer",
+	"zeto_g16_anon_nullifier_kyc_transfer_batch":  "zetoG16AnonNullifierKycTransferBatch",
+	"zeto_g16_anon_nullifier_kyc_transfer_locked": "zetoG16AnonNullifierKycTransferLocked",
+	"zeto_g16_anon_nullifier_kyc_transfer_locked_batch": "zetoG16AnonNullifierKycTransferLockedBatch",
+	"zeto_g16_deposit":                  "zetoG16Deposit",
+	"zeto_g16_withdraw":                 "zetoG16Withdraw",
+	"zeto_g16_withdraw_batch":           "zetoG16WithdrawBatch",
+	"zeto_g16_withdraw_nullifier":       "zetoG16WithdrawNullifier",
+	"zeto_g16_withdraw_nullifier_batch": "zetoG16WithdrawNullifierBatch",
+	"zeto_poseidon_unit2l":              "zetoPoseidonUnit2l",
+	"zeto_poseidon_unit3l":              "zetoPoseidonUnit3l",
+	"zeto_smt_lib":                      "zetoSmtLib",
+	"zeto_impl_anon":                    "zetoImplAnon",
+	"zeto_impl_anon_enc":                "zetoImplAnonEnc",
+	"zeto_impl_anon_nullifier":          "zetoImplAnonNullifier",
+	"zeto_impl_anon_nullifier_kyc":      "zetoImplAnonNullifierKyc",
+	"zeto_factory":                      "zetoFactory",
+	"zeto_factory_proxy":                "zetoFactoryProxy",
+
+	// Transaction Invokes
+	"zeto_anon":               "zetoAnon",
+	"zeto_anon_enc":           "zetoAnonEnc",
+	"zeto_anon_nullifier":     "zetoAnonNullifier",
+	"zeto_anon_nullifier_kyc": "zetoAnonNullifierKyc",
 }
 
 type ContractMap map[string]*ContractMapBuild
 
 type ContractMapBuild struct {
-	Filename   string            `json:"filename"`
-	LinkedLibs map[string]string `json:"linkedContracts"`
-	Params     any               `json:"params"`
+	Filename            string            `json:"filename"`
+	LinkedLibs          map[string]string `json:"linkedContracts"`
+	Params              any               `json:"params"`
+	RequiredDeployments []string          `json:"requiredDeployments"` // Additional deployment dependencies (for constructor params referencing other contracts)
 }
 
 var cmd = map[string]func() error{
@@ -122,6 +161,10 @@ func (m *ContractMap) process(name string, b *ContractMapBuild) error {
 		b.Params = map[string]any{}
 	}
 	requiredBuilds := []string{}
+	// Include any explicitly declared deployment dependencies (for constructor params that reference other contracts)
+	for _, dep := range b.RequiredDeployments {
+		requiredBuilds = append(requiredBuilds, strings.ReplaceAll(dep, "_", "-"))
+	}
 	linkedContracts := map[string]string{}
 
 	if build.ABI == nil {
@@ -134,7 +177,7 @@ func (m *ContractMap) process(name string, b *ContractMapBuild) error {
 
 	linkReferencesJSON := ""
 	if len(build.LinkReferences) > 0 {
-		linkReferencesJSON = tktypes.JSONString(build.LinkReferences).Pretty()
+		linkReferencesJSON = pldtypes.JSONString(build.LinkReferences).Pretty()
 		libCount := 0
 		for _, libsInFile := range build.LinkReferences {
 			for range libsInFile {
@@ -153,7 +196,7 @@ func (m *ContractMap) process(name string, b *ContractMapBuild) error {
 			return fmt.Errorf("mismatch in links for unlinked Solidity %s expected=%d provided=%d", name, libCount, len(b.LinkedLibs))
 		}
 	}
-	firstNameSegment := strings.SplitN(name, "_", 2)[0]
+	firstNameSegment := strings.SplitN(name, "-", 2)[0]
 	scd := corev1alpha1.SmartContractDeployment{
 		TypeMeta: v1.TypeMeta{
 			APIVersion: "core.paladin.io/v1alpha1",
@@ -170,8 +213,8 @@ func (m *ContractMap) process(name string, b *ContractMapBuild) error {
 			Node:                        "node1",
 			TxType:                      "public",
 			From:                        fmt.Sprintf("%s.operator", firstNameSegment),
-			ParamsJSON:                  tktypes.JSONString(b.Params).Pretty(),
-			ABIJSON:                     tktypes.JSONString(build.ABI).Pretty(),
+			ParamsJSON:                  pldtypes.JSONString(b.Params).Pretty(),
+			ABIJSON:                     pldtypes.JSONString(build.ABI).Pretty(),
 			Bytecode:                    build.Bytecode,
 			LinkReferencesJSON:          linkReferencesJSON,
 			RequiredContractDeployments: requiredBuilds,
@@ -202,27 +245,32 @@ func template() error {
 	// Step 1: Create the destination directory if it doesn't exist
 	err := os.MkdirAll(destDir, 0755)
 	if err != nil {
-		return fmt.Errorf("Error creating directory %s: %v", destDir, err)
+		return fmt.Errorf("error creating directory %s: %v", destDir, err)
 	}
 
 	// Step 2: Copy files from source patterns to the destination directory
 	sourcePatterns := []string{
-		"core_v1*",
-		"cert*",
+		"*issuer*",
+		"*paladindomain*",
+		"*paladinregistry*",
+		"*smartcontractdeployment*",
+		"*transactioninvoke*",
 	}
 
 	for _, pattern := range sourcePatterns {
+
 		pattern = filepath.Join(srcDir, pattern)
 		files, err := filepath.Glob(pattern)
 		if err != nil {
-			return fmt.Errorf("Error finding files with pattern %s: %v", pattern, err)
+			return fmt.Errorf("error finding files with pattern %s: %v", pattern, err)
 		}
 
 		for _, srcFile := range files {
+
 			dstFile := filepath.Join(destDir, filepath.Base(srcFile))
 			err := copyFile(srcFile, dstFile)
 			if err != nil {
-				return fmt.Errorf("Error copying file from %s to %s: %v", srcFile, dstFile, err)
+				return fmt.Errorf("error copying file from %s to %s: %v", srcFile, dstFile, err)
 			}
 		}
 	}
@@ -230,11 +278,11 @@ func template() error {
 	// Step 3: Process all .yaml files in the destination directory
 	files, err := filepath.Glob(filepath.Join(destDir, "*.yaml"))
 	if err != nil {
-		return fmt.Errorf("Error finding files: %v", err)
+		return fmt.Errorf("error finding files: %v", err)
 	}
 
 	if len(files) == 0 {
-		return fmt.Errorf("No '.yaml' files found in the directory")
+		return fmt.Errorf("no '.yaml' files found in the directory")
 	}
 
 	// Compile the regular expression pattern
@@ -245,11 +293,95 @@ func template() error {
 		// Read the file content
 		content, err := os.ReadFile(file)
 		if err != nil {
-			return fmt.Errorf("Error reading file %s: %v", file, err)
+			return fmt.Errorf("error reading file %s: %v", file, err)
 		}
 
-		// Perform the regex replacement
-		newContent := pattern.ReplaceAllString(string(content), "{{ `{{${1}}}` }}")
+		newContent := string(content)
+
+		if strings.Contains(file, "smartcontractdeployment") {
+			var scd corev1alpha1.SmartContractDeployment
+			if err := yaml.Unmarshal(content, &scd); err != nil {
+				return fmt.Errorf("error unmarshalling content: %v", err)
+			}
+
+			from := scd.Spec.From
+			contractName := strings.ReplaceAll(scd.Name, "-", "_")
+			firstNameSegment := strings.SplitN(contractName, "_", 2)[0]
+
+			if content, err = yaml.Marshal(scd); err != nil {
+				return fmt.Errorf("error marshalling content: %v", err)
+			}
+
+			newContent = pattern.ReplaceAllString(string(content), "{{ `{{${1}}}` }}")
+
+			// Convert snake_case to camelCase using our map
+			camelCaseContractName := contractName
+			if mapped, exists := snakeToCamelMap[contractName]; exists {
+				camelCaseContractName = mapped
+			}
+
+			// string replace rather than modifying the gostruct so that the template is on one line
+			helmTemplate := fmt.Sprintf("\"{{if .Values.smartContractDeployments.%s.from}}{{.Values.smartContractDeployments.%s.from}}{{else if .Values.smartContractDeployments.default.from}}{{.Values.smartContractDeployments.default.from}}{{else}}%s.operator{{end}}\"", camelCaseContractName, camelCaseContractName, firstNameSegment)
+			newContent = strings.ReplaceAll(newContent, from, helmTemplate)
+
+		} else if strings.Contains(file, "transactioninvoke") {
+			var ti corev1alpha1.TransactionInvoke
+			if err := yaml.Unmarshal(content, &ti); err != nil {
+				return fmt.Errorf("error unmarshalling content: %v", err)
+			}
+
+			from := ti.Spec.From
+			transactionName := strings.ReplaceAll(ti.Name, "-", "_")
+			firstNameSegment := strings.SplitN(transactionName, "_", 2)[0]
+
+			if content, err = yaml.Marshal(ti); err != nil {
+				return fmt.Errorf("error marshalling content: %v", err)
+			}
+
+			newContent = pattern.ReplaceAllString(string(content), "{{ `{{${1}}}` }}")
+
+			// Convert snake_case to camelCase using our map
+			camelCaseTransactionName := transactionName
+			if mapped, exists := snakeToCamelMap[transactionName]; exists {
+				camelCaseTransactionName = mapped
+			}
+
+			// string replace rather than modifying the gostruct so that the template is on one line
+			helmTemplate := fmt.Sprintf("\"{{if .Values.transactionInvokes.%s.from}}{{.Values.transactionInvokes.%s.from}}{{else if .Values.transactionInvokes.default.from}}{{.Values.transactionInvokes.default.from}}{{else}}%s.operator{{end}}\"", camelCaseTransactionName, camelCaseTransactionName, firstNameSegment)
+			newContent = strings.ReplaceAll(newContent, from, helmTemplate)
+		} else if strings.Contains(file, "paladindomain") {
+
+			var domain corev1alpha1.PaladinDomain
+			if err := yaml.Unmarshal(content, &domain); err != nil {
+				return fmt.Errorf("error unmarshalling content: %v", err)
+			}
+
+			valuesRef := fmt.Sprintf(".Values.smartContractsReferences.%sFactoryProxy", domain.Name)
+			deploymentName := fmt.Sprintf("%s-factory-proxy", domain.Name)
+
+			domain.Spec.RegistryAddress = fmt.Sprintf("{{ %s.address }}", valuesRef)
+			domain.Spec.SmartContractDeployment = fmt.Sprintf("{{- if ne .Values.mode \"attach\" }}%s{{- end }}", deploymentName)
+
+			domain.Spec.FixedSigningIdentity = fmt.Sprintf("{{ .Values.domains.%s.fixedSigningIdentity }}", domain.Name)
+			if content, err = yaml.Marshal(domain); err != nil {
+				return fmt.Errorf("error marshalling content: %v", err)
+			}
+			newContent = string(content)
+		} else if strings.Contains(file, "paladinregistry") {
+			var registry corev1alpha1.PaladinRegistry
+			if err := yaml.Unmarshal(content, &registry); err != nil {
+				return fmt.Errorf("error unmarshalling content: %v", err)
+			}
+			registry.Spec.EVM.ContractAddress = "{{ .Values.smartContractsReferences.registry.address }}"
+			registry.Spec.EVM.SmartContractDeployment = "{{- if ne .Values.mode \"attach\" }}registry{{- end }}"
+			if content, err = yaml.Marshal(registry); err != nil {
+				return fmt.Errorf("error marshalling content: %v", err)
+			}
+			newContent = string(content)
+		}
+
+		// Replace the node name prefix
+		newContent = strings.ReplaceAll(newContent, "node1", "\"{{- if eq .Values.mode \"customnet\" }}{{ (index .Values.paladinNodes 0).name }}{{- else }}{{ .Values.paladin.nodeNamePrefix }}1{{- end }}\"")
 
 		// Add conditional wrapper around the content
 		vScopes := scopes(file)
@@ -273,10 +405,12 @@ func template() error {
 			newContent = fmt.Sprintf("{{- if %s }}\n\n%s\n{{- end }}", condition, newContent)
 		}
 
+		bContent := []byte(newContent)
+
 		// Write the modified content back to the same file
-		err = os.WriteFile(file, []byte(newContent), fs.FileMode(0644))
+		err = os.WriteFile(file, bContent, fs.FileMode(0644))
 		if err != nil {
-			return fmt.Errorf("Error writing file %s: %v", file, err)
+			return fmt.Errorf("error writing file %s: %v", file, err)
 		}
 
 		// Print a message indicating the file has been processed
@@ -295,7 +429,7 @@ func generateArtifacts() error {
 	// Create the output directory if it doesn't exist
 	err := os.MkdirAll(outDir, 0755)
 	if err != nil {
-		return fmt.Errorf("Error creating directory %s: %v", outDir, err)
+		return fmt.Errorf("error creating directory %s: %v", outDir, err)
 	}
 
 	// For each scope, combine the YAML files
@@ -304,7 +438,7 @@ func generateArtifacts() error {
 		// Collect all files that match the scope
 		files, err := filepath.Glob(filepath.Join(srcDir, "*.yaml"))
 		if err != nil {
-			return fmt.Errorf("Error finding YAML files in %s: %v", srcDir, err)
+			return fmt.Errorf("error finding YAML files in %s: %v", srcDir, err)
 		}
 
 		for _, file := range files {
@@ -313,7 +447,7 @@ func generateArtifacts() error {
 			if fileBelongsToScope(filename, scopeName) {
 				content, err := os.ReadFile(file)
 				if err != nil {
-					return fmt.Errorf("Error reading file %s: %v", file, err)
+					return fmt.Errorf("error reading file %s: %v", file, err)
 				}
 				// Add a YAML document separator if needed
 				if len(combinedContent) > 0 {
@@ -328,7 +462,7 @@ func generateArtifacts() error {
 			outFile := filepath.Join(outDir, fmt.Sprintf("%s.yaml", scopeName))
 			err = os.WriteFile(outFile, []byte(combinedContent), 0644)
 			if err != nil {
-				return fmt.Errorf("Error writing combined YAML file %s: %v", outFile, err)
+				return fmt.Errorf("error writing combined YAML file %s: %v", outFile, err)
 			}
 			fmt.Printf("Combined YAML for scope '%s' written to %s\n", scopeName, outFile)
 		} else {
@@ -339,7 +473,7 @@ func generateArtifacts() error {
 	// Create a .tar.gz archive for all YAML files in the source directory
 	err = createTarGz(srcDir, filepath.Join(outDir, "artifacts.tar.gz"))
 	if err != nil {
-		return fmt.Errorf("Error creating tar.gz archive: %v", err)
+		return fmt.Errorf("error creating tar.gz archive: %v", err)
 	}
 
 	fmt.Printf("Tar.gz archive created at %s\n", filepath.Join(outDir, "artifacts.tar.gz"))
@@ -351,7 +485,7 @@ func createTarGz(srcDir, destFile string) error {
 	// Create the output file
 	outFile, err := os.Create(destFile)
 	if err != nil {
-		return fmt.Errorf("Error creating tar.gz file %s: %v", destFile, err)
+		return fmt.Errorf("error creating tar.gz file %s: %v", destFile, err)
 	}
 	defer outFile.Close()
 
@@ -378,7 +512,7 @@ func createTarGz(srcDir, destFile string) error {
 		if filepath.Ext(path) == ".yaml" {
 			file, err := os.Open(path)
 			if err != nil {
-				return fmt.Errorf("Error opening file %s: %v", path, err)
+				return fmt.Errorf("error opening file %s: %v", path, err)
 			}
 			defer file.Close()
 
@@ -390,19 +524,19 @@ func createTarGz(srcDir, destFile string) error {
 				ModTime: info.ModTime(),
 			}
 			if err := tw.WriteHeader(header); err != nil {
-				return fmt.Errorf("Error writing tar header for file %s: %v", path, err)
+				return fmt.Errorf("error writing tar header for file %s: %v", path, err)
 			}
 
 			// Copy the file content to the tar writer
 			_, err = io.Copy(tw, file)
 			if err != nil {
-				return fmt.Errorf("Error writing file %s to tar: %v", path, err)
+				return fmt.Errorf("error writing file %s to tar: %v", path, err)
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("Error walking the directory %s: %v", srcDir, err)
+		return fmt.Errorf("error walking the directory %s: %v", srcDir, err)
 	}
 
 	return nil
@@ -434,27 +568,27 @@ func copyFile(src, dst string) error {
 	// Open the source file
 	srcFile, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("Error opening source file %s: %w", src, err)
+		return fmt.Errorf("error opening source file %s: %w", src, err)
 	}
 	defer srcFile.Close()
 
 	// Create the destination file
 	dstFile, err := os.Create(dst)
 	if err != nil {
-		return fmt.Errorf("Error creating destination file %s: %w", dst, err)
+		return fmt.Errorf("error creating destination file %s: %w", dst, err)
 	}
 	defer dstFile.Close()
 
 	// Copy the content from source to destination
 	_, err = io.Copy(dstFile, srcFile)
 	if err != nil {
-		return fmt.Errorf("Error copying from %s to %s: %w", src, dst, err)
+		return fmt.Errorf("error copying from %s to %s: %w", src, dst, err)
 	}
 
 	// Flush and close the files
 	err = dstFile.Sync()
 	if err != nil {
-		return fmt.Errorf("Error syncing destination file %s: %w", dst, err)
+		return fmt.Errorf("error syncing destination file %s: %w", dst, err)
 	}
 
 	return nil
@@ -471,7 +605,7 @@ func usageMessage() string {
 func main() {
 
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, fmt.Errorf(usageMessage()))
+		fmt.Fprintln(os.Stderr, usageMessage())
 		os.Exit(1)
 	}
 	if f, ok := cmd[os.Args[1]]; ok {
@@ -481,6 +615,6 @@ func main() {
 		}
 		return
 	}
-	fmt.Fprintln(os.Stderr, fmt.Errorf(usageMessage()))
+	fmt.Fprintln(os.Stderr, usageMessage())
 	os.Exit(1)
 }

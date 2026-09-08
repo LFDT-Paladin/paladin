@@ -21,21 +21,21 @@ import (
 	"path"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/componentmgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentmgrmocks"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/componentmgr"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/mocks/componentmocks"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestConfig(t *testing.T, mockers ...func(mockCM *componentmocks.ComponentManager)) (socketFile, loaderUUID, configFile string, done func()) {
+func setupTestConfig(t *testing.T, mockers ...func(mockCM *componentmgrmocks.ComponentManager)) (socketFile, loaderUUID, configFile string, done func()) {
 	id := uuid.New()
 	origCMFactory := componentManagerFactory
-	mockCM := componentmocks.NewComponentManager(t)
+	mockCM := componentmgrmocks.NewComponentManager(t)
 	componentManagerFactory = func(bgCtx context.Context, grpcTarget string, instanceUUID uuid.UUID, conf *pldconf.PaladinConfig, additionalManagers ...components.AdditionalManager) componentmgr.ComponentManager {
 		assert.Equal(t, id, instanceUUID)
 		assert.Equal(t, "http://localhost:8545", conf.Blockchain.HTTP.URL)
@@ -57,7 +57,7 @@ func setupTestConfig(t *testing.T, mockers ...func(mockCM *componentmocks.Compon
 func TestEntrypointOK(t *testing.T) {
 
 	cmStarted := make(chan struct{})
-	socketFile, loaderUUID, configFile, done := setupTestConfig(t, func(mockCM *componentmocks.ComponentManager) {
+	socketFile, loaderUUID, configFile, done := setupTestConfig(t, func(mockCM *componentmgrmocks.ComponentManager) {
 		mockCM.On("Init").Return(nil)
 		mockCM.On("StartManagers").Return(nil)
 		mockCM.On("CompleteStart").Return(nil).Run(func(args mock.Arguments) {
@@ -90,7 +90,7 @@ func TestEntrypointOK(t *testing.T) {
 
 func TestEntrypointBadMode(t *testing.T) {
 
-	socketFile, loaderUUID, configFile, done := setupTestConfig(t, func(mockCM *componentmocks.ComponentManager) {})
+	socketFile, loaderUUID, configFile, done := setupTestConfig(t, func(mockCM *componentmgrmocks.ComponentManager) {})
 	defer done()
 
 	rc := Run(socketFile, loaderUUID, configFile, "wrong")

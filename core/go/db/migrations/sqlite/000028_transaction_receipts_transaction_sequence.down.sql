@@ -1,0 +1,1 @@
+DROP INDEX transaction_receipts_transaction_sequence;

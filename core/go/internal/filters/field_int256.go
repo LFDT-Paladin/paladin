@@ -20,8 +20,8 @@ import (
 	"context"
 	"database/sql/driver"
 
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
 
 type Int256Field string
@@ -34,7 +34,7 @@ func (sf Int256Field) SupportsLIKE() bool {
 	return false
 }
 
-func (sf Int256Field) SQLValue(ctx context.Context, jsonValue tktypes.RawJSON) (driver.Value, error) {
+func (sf Int256Field) SQLValue(ctx context.Context, jsonValue pldtypes.RawJSON) (driver.Value, error) {
 	if jsonValue.IsNil() {
 		return nil, nil
 	}
@@ -42,5 +42,5 @@ func (sf Int256Field) SQLValue(ctx context.Context, jsonValue tktypes.RawJSON) (
 	if err != nil {
 		return "", err
 	}
-	return tktypes.Int256To65CharDBSafeSortableString(bi), nil
+	return pldtypes.Int256To65CharDBSafeSortableString(bi), nil
 }

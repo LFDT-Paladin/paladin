@@ -15,20 +15,36 @@
 
 package io.kaleido.paladin.pente.domain;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.kaleido.paladin.pente.domain.PenteConfiguration.GroupTupleJSON;
-import io.kaleido.paladin.pente.domain.helpers.*;
-import io.kaleido.paladin.testbed.Testbed;
-import io.kaleido.paladin.toolkit.*;
-import org.junit.jupiter.api.Test;
-
 import java.util.HashMap;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import org.junit.jupiter.api.Test;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import io.kaleido.paladin.pente.domain.PenteConfiguration.GroupTupleJSON;
+import io.kaleido.paladin.pente.domain.helpers.BondSubscriptionHelper;
+import io.kaleido.paladin.pente.domain.helpers.BondTrackerHelper;
+import io.kaleido.paladin.pente.domain.helpers.NotoHelper;
+import io.kaleido.paladin.pente.domain.helpers.PenteHelper;
+import io.kaleido.paladin.pente.domain.helpers.TestbedHelper;
+import io.kaleido.paladin.testbed.Testbed;
+import io.kaleido.paladin.toolkit.Algorithms;
+import io.kaleido.paladin.toolkit.JsonABI;
+import io.kaleido.paladin.toolkit.JsonHex;
+import io.kaleido.paladin.toolkit.ResourceLoader;
+import io.kaleido.paladin.toolkit.Verifiers;
+
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.Function;
+
+import java.util.Arrays;
 
 public class BondTest {
 
@@ -39,6 +55,7 @@ public class BondTest {
 
     JsonHex.Address deployPenteFactory() throws Exception {
         try (Testbed deployBed = new Testbed(testbedSetup)) {
+            // Deploy PenteFactory implementation
             String factoryBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
                     "contracts/domains/pente/PenteFactory.sol/PenteFactory.json",
@@ -49,17 +66,63 @@ public class BondTest {
                     "contracts/domains/pente/PenteFactory.sol/PenteFactory.json",
                     "abi"
             );
-            String contractAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+            String factoryImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
                     "deployer",
                     factoryABI,
                     factoryBytecode,
                     new HashMap<String, String>());
-            return new JsonHex.Address(contractAddr);
+
+            // Encode initialize() calldata - PenteFactory.initialize() takes no parameters
+            Function initializeFunction = new Function(
+                    "initialize",
+                    Arrays.asList(),
+                    Arrays.asList()
+            );
+            String initCalldata = FunctionEncoder.encode(initializeFunction);
+
+            // Deploy ERC1967Proxy
+            String proxyBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "bytecode"
+            );
+            JsonABI proxyABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "abi"
+            );
+            String proxyAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    proxyABI,
+                    proxyBytecode,
+                    new HashMap<String, String>() {{
+                        put("implementation", factoryImplAddr);
+                        put("_data", initCalldata);
+                    }});
+            return new JsonHex.Address(proxyAddr);
         }
     }
 
     JsonHex.Address deployNotoFactory() throws Exception {
         try (Testbed deployBed = new Testbed(testbedSetup)) {
+            // Deploy Noto implementation
+            String notoImplBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "contracts/domains/noto/Noto.sol/Noto.json",
+                    "bytecode"
+            );
+            JsonABI notoImplABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "contracts/domains/noto/Noto.sol/Noto.json",
+                    "abi"
+            );
+            String notoImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    notoImplABI,
+                    notoImplBytecode,
+                    new HashMap<String, String>());
+
+            // Deploy NotoFactory implementation
             String factoryBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
                     "contracts/domains/noto/NotoFactory.sol/NotoFactory.json",
@@ -70,12 +133,40 @@ public class BondTest {
                     "contracts/domains/noto/NotoFactory.sol/NotoFactory.json",
                     "abi"
             );
-            String contractAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+            String factoryImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
                     "deployer",
                     factoryABI,
                     factoryBytecode,
                     new HashMap<String, String>());
-            return new JsonHex.Address(contractAddr);
+
+            // Encode initialize(notoImplAddr) calldata
+            Function initializeFunction = new Function(
+                    "initialize",
+                    Arrays.asList(new Address(notoImplAddr)),
+                    Arrays.asList()
+            );
+            String initCalldata = FunctionEncoder.encode(initializeFunction);
+
+            // Deploy ERC1967Proxy
+            String proxyBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "bytecode"
+            );
+            JsonABI proxyABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "abi"
+            );
+            String proxyAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    proxyABI,
+                    proxyBytecode,
+                    new HashMap<String, String>() {{
+                        put("implementation", factoryImplAddr);
+                        put("_data", initCalldata);
+                    }});
+            return new JsonHex.Address(proxyAddr);
         }
     }
 
@@ -103,7 +194,9 @@ public class BondTest {
                         "noto",
                         notoFactoryAddress,
                         new Testbed.ConfigPlugin("c-shared", "noto", ""),
-                        new HashMap<>()
+                        new HashMap<String, Object>() {{
+                            put("factoryVersion", 2);
+                        }}
                 )
         )) {
 
@@ -120,14 +213,14 @@ public class BondTest {
             var mapper = new ObjectMapper();
 
             List<HashMap<String, Object>> notoSchemas = testbed.getRpcClient().request("pstate_listSchemas", "noto");
-            StateSchema notoSchema = null;
+            StateSchema coinSchema = null;
             for (var schemaJson : notoSchemas) {
                 var schema = mapper.convertValue(schemaJson, StateSchema.class);
                 if (schema.signature().startsWith("type=NotoCoin")) {
-                    notoSchema = schema;
+                    coinSchema = schema;
                 }
             }
-            assertNotNull(notoSchema);
+            assertNotNull(coinSchema);
 
             String bondTrackerPublicBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
@@ -141,12 +234,12 @@ public class BondTest {
             );
             String atomFactoryBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
-                    "contracts/shared/Atom.sol/AtomFactory.json",
+                    "contracts/shared/AtomFactory.sol/AtomFactory.json",
                     "bytecode"
             );
             JsonABI atomFactoryABI = JsonABI.fromJSONResourceEntry(
                     this.getClass().getClassLoader(),
-                    "contracts/shared/Atom.sol/AtomFactory.json",
+                    "contracts/shared/AtomFactory.sol/AtomFactory.json",
                     "abi"
             );
             JsonABI atomABI = JsonABI.fromJSONResourceEntry(
@@ -171,6 +264,8 @@ public class BondTest {
             // Create Noto cash token
             var notoCash = NotoHelper.deploy("noto", cashIssuer, testbed,
                     new NotoHelper.ConstructorParams(
+                            "CASH",
+                            "CASH",
                             cashIssuer + "@node1",
                             "basic",
                             null));
@@ -200,6 +295,8 @@ public class BondTest {
             // Create Noto bond token
             var notoBond = NotoHelper.deploy("noto", bondCustodian, testbed,
                     new NotoHelper.ConstructorParams(
+                            "BOND",
+                            "BOND",
                             bondCustodian + "@node1",
                             "hooks",
                             new NotoHelper.OptionsParams(
@@ -216,11 +313,11 @@ public class BondTest {
             notoBond.mint(bondIssuer, bondCustodian, 1000);
 
             // Validate Noto balances
-            var notoCashStates = notoCash.queryStates(notoSchema.id, null);
+            var notoCashStates = notoCash.queryStates(coinSchema.id, null);
             assertEquals(1, notoCashStates.size());
             assertEquals("100000", notoCashStates.getFirst().data().amount());
             assertEquals(aliceAddress, notoCashStates.getFirst().data().owner());
-            var notoBondStates = notoBond.queryStates(notoSchema.id, null);
+            var notoBondStates = notoBond.queryStates(coinSchema.id, null);
             assertEquals(1, notoBondStates.size());
             assertEquals("1000", notoBondStates.getFirst().data().amount());
             assertEquals(custodianAddress, notoBondStates.getFirst().data().owner());
@@ -251,28 +348,21 @@ public class BondTest {
                 put("atomFactory_", atomFactoryAddress);
             }});
 
-            // Prepare the bond transfer (requires 2 calls to prepare, as the Noto transaction spawns a Pente transaction to wrap it)
-            var bondTransfer = notoBond.prepareTransfer(bondCustodian, alice, 1000);
-            assertEquals("private", bondTransfer.preparedTransaction().type());
-            assertEquals("pente", bondTransfer.preparedTransaction().domain());
-            assertEquals(issuerCustodianInstance.address(), bondTransfer.preparedTransaction().to().toString());
-            assertEquals(1, bondTransfer.preparedTransaction().abi().size());
-            var bondTransfer2 = issuerCustodianInstance.prepare(
-                    bondTransfer.preparedTransaction().from(),
-                    bondTransfer.preparedTransaction().abi().getFirst(),
-                    bondTransfer.preparedTransaction().data()
-            );
-            assertEquals("public", bondTransfer2.preparedTransaction().type());
-            var bondTransferMetadata = mapper.convertValue(bondTransfer2.preparedMetadata(), PenteHelper.PenteTransitionMetadata.class);
+            // Prepare the bond transfer
+            var bondLock = notoBond.lock(bondCustodian, 1000);
+            var bondLockReceipt = mapper.convertValue(bondLock.domainReceipt(), NotoHelper.NotoDomainReceipt.class);
+            var bondUnlock = notoBond.prepareUnlock(bondCustodian, bondLockReceipt.lockInfo().lockId(), bondCustodian, alice, 1000);
+            var bondUnlockReceipt = mapper.convertValue(bondUnlock.domainReceipt(), NotoHelper.NotoDomainReceipt.class);
 
             // Prepare the payment transfer
-            var paymentTransfer = notoCash.prepareTransfer(alice, bondCustodian, 1000);
-            assertEquals("public", paymentTransfer.preparedTransaction().type());
-            var paymentMetadata = mapper.convertValue(paymentTransfer.preparedMetadata(), NotoHelper.NotoTransferMetadata.class);
+            var cashLock = notoCash.lock(alice, 1000);
+            var cashLockReceipt = mapper.convertValue(cashLock.domainReceipt(), NotoHelper.NotoDomainReceipt.class);
+            var cashUnlock = notoCash.prepareUnlock(alice, cashLockReceipt.lockInfo().lockId(), alice, bondCustodian, 1000);
+            var cashUnlockReceipt = mapper.convertValue(cashUnlock.domainReceipt(), NotoHelper.NotoDomainReceipt.class);
 
             // Pass the prepared transfers to the subscription contract
-            bondSubscription.prepareBond(bondCustodian, bondTransfer2.preparedTransaction().to(), bondTransferMetadata.transitionWithApproval().encodedCall());
-            bondSubscription.preparePayment(alice, paymentTransfer.preparedTransaction().to(), paymentMetadata.transferWithApproval().encodedCall());
+            bondSubscription.prepareBond(bondCustodian, JsonHex.addressFrom(notoBond.address()), bondUnlockReceipt.lockInfo().unlockCall());
+            bondSubscription.preparePayment(alice, JsonHex.addressFrom(notoCash.address()), cashUnlockReceipt.lockInfo().unlockCall());
 
             // Alice receives full bond distribution
             var distributeTX = bondSubscription.distribute(bondCustodian);
@@ -290,25 +380,13 @@ public class BondTest {
             var atomAddress = JsonHex.addressFrom(deployEventData.get("addr").toString());
 
             // Alice approves payment transfer
-            notoCash.approveTransfer(
-                    "alice",
-                    paymentTransfer.inputStates(),
-                    paymentTransfer.outputStates(),
-                    paymentMetadata.approvalParams().data(),
-                    atomAddress.toString());
+            notoCash.delegateLock(alice, cashLockReceipt.lockInfo().lockId(), atomAddress);
 
             // Custodian approves bond transfer
-            var txID = issuerCustodianInstance.approveTransition(
-                    bondCustodian,
-                    JsonHex.randomBytes32(),
-                    atomAddress,
-                    bondTransferMetadata.approvalParams().transitionHash(),
-                    bondTransferMetadata.approvalParams().signatures());
-            var receipt = TestbedHelper.pollForReceipt(testbed, txID, 3000);
-            assertNotNull(receipt);
+            notoBond.delegateLock(bondCustodian, bondLockReceipt.lockInfo().lockId(), atomAddress);
 
             // Execute the Atom
-            txID = TestbedHelper.sendTransaction(testbed,
+            var txID = TestbedHelper.sendTransaction(testbed,
                     new Testbed.TransactionInput(
                             "public",
                             "",
@@ -318,27 +396,22 @@ public class BondTest {
                             atomABI,
                             "execute"
                     ));
-            receipt = TestbedHelper.pollForReceipt(testbed, txID, 3000);
+            var receipt = TestbedHelper.pollForReceipt(testbed, txID, 3000);
             assertNotNull(receipt);
 
-            // All prepared transactions should now be resolved
-            receipt = TestbedHelper.pollForReceipt(testbed, paymentTransfer.id(), 3000);
-            assertNotNull(receipt);
-            receipt = TestbedHelper.pollForReceipt(testbed, bondTransfer2.id(), 3000);
-            assertNotNull(receipt);
-            receipt = TestbedHelper.pollForReceipt(testbed, bondTransfer.id(), 3000);
-            assertNotNull(receipt);
+            // TODO: figure out a better way to wait for events to settle
+            Thread.sleep(2000);
 
             // TODO: figure out how to test negative cases (such as when Pente reverts due to a non-allowed investor)
 
             // Validate Noto balance
-            notoCashStates = notoCash.queryStates(notoSchema.id, null);
+            notoCashStates = notoCash.queryStates(coinSchema.id, null);
             assertEquals(2, notoCashStates.size());
-            assertEquals("1000", notoCashStates.get(0).data().amount());
-            assertEquals(custodianAddress, notoCashStates.get(0).data().owner());
-            assertEquals("99000", notoCashStates.get(1).data().amount());
-            assertEquals(aliceAddress, notoCashStates.get(1).data().owner());
-            notoBondStates = notoBond.queryStates(notoSchema.id, null);
+            assertEquals("99000", notoCashStates.get(0).data().amount());
+            assertEquals(aliceAddress, notoCashStates.get(0).data().owner());
+            assertEquals("1000", notoCashStates.get(1).data().amount());
+            assertEquals(custodianAddress, notoCashStates.get(1).data().owner());
+            notoBondStates = notoBond.queryStates(coinSchema.id, null);
             assertEquals(1, notoBondStates.size());
             assertEquals("1000", notoBondStates.getFirst().data().amount());
             assertEquals(aliceAddress, notoBondStates.getFirst().data().owner());

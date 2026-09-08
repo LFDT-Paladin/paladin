@@ -19,12 +19,12 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/kaleido-io/paladin/registries/static/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/registries/static/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -47,12 +47,13 @@ func NewPlugin() plugintk.PluginBase {
 
 func NewStatic(callbacks plugintk.RegistryCallbacks) plugintk.RegistryAPI {
 	return &staticRegistry{
-		bgCtx:     context.Background(),
+		bgCtx:     log.WithComponent(context.Background(), "staticregistry"),
 		callbacks: callbacks,
 	}
 }
 
 func (r *staticRegistry) ConfigureRegistry(ctx context.Context, req *prototk.ConfigureRegistryRequest) (*prototk.ConfigureRegistryResponse, error) {
+	ctx = log.WithComponent(ctx, "staticregistry")
 	r.name = req.Name
 
 	err := json.Unmarshal([]byte(req.ConfigJson), &r.conf)
@@ -82,14 +83,14 @@ func (r *staticRegistry) HandleRegistryEvents(ctx context.Context, req *prototk.
 	return nil, i18n.NewError(ctx, msgs.MsgFunctionUnsupported)
 }
 
-func (r *staticRegistry) recurseBuildUpsert(ctx context.Context, req *prototk.UpsertRegistryRecordsRequest, parentID tktypes.HexBytes, name string, inEntry *StaticEntry) error {
+func (r *staticRegistry) recurseBuildUpsert(ctx context.Context, req *prototk.UpsertRegistryRecordsRequest, parentID pldtypes.HexBytes, name string, inEntry *StaticEntry) error {
 
 	idHash := sha3.NewLegacyKeccak256()
 	if parentID != nil {
 		idHash.Write([]byte(parentID))
 	}
 	idHash.Write([]byte(name))
-	entryID := tktypes.HexBytes(idHash.Sum(nil))
+	entryID := pldtypes.HexBytes(idHash.Sum(nil))
 	entry := prototk.RegistryEntry{
 		Id:       entryID.String(),
 		Name:     name,

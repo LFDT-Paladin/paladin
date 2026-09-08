@@ -24,17 +24,20 @@ import (
 	"math/big"
 	"testing"
 
+	zetocommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
+	protoz "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/crypto"
 	"github.com/iden3/go-iden3-crypto/poseidon"
-	"github.com/kaleido-io/paladin/domains/zeto/internal/zeto/signer"
-	"github.com/kaleido-io/paladin/domains/zeto/pkg/constants"
-	protoz "github.com/kaleido-io/paladin/domains/zeto/pkg/proto"
-	"github.com/kaleido-io/paladin/domains/zeto/pkg/types"
-	"github.com/kaleido-io/paladin/domains/zeto/pkg/zetosigner"
-	"github.com/kaleido-io/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/domain"
-	pb "github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -100,7 +103,12 @@ func TestConfigureDomain(t *testing.T) {
 
 func TestDecodeDomainConfig(t *testing.T) {
 	config := &types.DomainInstanceConfig{
-		CircuitId: "circuit-id",
+		Circuits: &zetosignerapi.Circuits{
+			"deposit":        &zetosignerapi.Circuit{Name: "circuit-deposit"},
+			"withdraw":       &zetosignerapi.Circuit{Name: "circuit-withdraw"},
+			"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
+			"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
+		},
 		TokenName: "token-name",
 	}
 	configJSON, err := json.Marshal(config)
@@ -133,6 +141,9 @@ func TestInitDomain(t *testing.T) {
 			},
 			{
 				Id: "schema4",
+			},
+			{
+				Id: "schema5",
 			},
 		},
 	}
@@ -168,7 +179,7 @@ func TestPrepareDeploy(t *testing.T) {
 		constructorParamsJson string
 		errorMsg              string
 		tokenName             string
-		circuitId             string
+		circuits              *zetosignerapi.Circuits
 		isNonFungible         bool
 	}{
 		{
@@ -179,28 +190,45 @@ func TestPrepareDeploy(t *testing.T) {
 		{
 			name:                  "Circuit ID Not Found",
 			constructorParamsJson: "{}",
-			circuitId:             "circuit1",
-			tokenName:             "testToken1",
-			errorMsg:              "PD210007: Failed to find circuit ID based on the token name. PD210000: Contract '' not found",
+			circuits: &zetosignerapi.Circuits{
+				"deposit": &zetosignerapi.Circuit{Name: "circuit1"},
+			},
+			tokenName: "testToken1",
+			errorMsg:  "PD210007: Failed to find circuit ID based on the token name. PD210000: Contract '' not found",
 		},
 		{
-			name:                  "Valid fungible token",
-			tokenName:             constants.TOKEN_ANON,
-			circuitId:             constants.CIRCUIT_ANON,
+			name:      "Valid fungible token",
+			tokenName: constants.TOKEN_ANON,
+			circuits: &zetosignerapi.Circuits{
+				"deposit":        &zetosignerapi.Circuit{Name: "circuit-deposit"},
+				"withdraw":       &zetosignerapi.Circuit{Name: "circuit-withdraw"},
+				"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
+				"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
+			},
 			constructorParamsJson: fmt.Sprintf("{\"tokenName\":\"%s\"}", constants.TOKEN_ANON),
 			isNonFungible:         false,
 		},
 		{
-			name:                  "Non-fungible token",
-			tokenName:             constants.TOKEN_NF_ANON,
-			circuitId:             constants.CIRCUIT_NF_ANON,
+			name:      "Non-fungible token",
+			tokenName: constants.TOKEN_NF_ANON,
+			circuits: &zetosignerapi.Circuits{
+				"deposit":        &zetosignerapi.Circuit{Name: "circuit-deposit"},
+				"withdraw":       &zetosignerapi.Circuit{Name: "circuit-withdraw"},
+				"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
+				"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
+			},
 			constructorParamsJson: fmt.Sprintf("{\"tokenName\":\"%s\"}", constants.TOKEN_NF_ANON),
 			isNonFungible:         true,
 		},
 		{
-			name:                  "Non-fungible token with nullifier",
-			tokenName:             constants.TOKEN_NF_ANON_NULLIFIER,
-			circuitId:             constants.CIRCUIT_NF_ANON_NULLIFIER,
+			name:      "Non-fungible token with nullifier",
+			tokenName: constants.TOKEN_NF_ANON_NULLIFIER,
+			circuits: &zetosignerapi.Circuits{
+				"deposit":        &zetosignerapi.Circuit{Name: "circuit-deposit"},
+				"withdraw":       &zetosignerapi.Circuit{Name: "circuit-withdraw"},
+				"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
+				"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
+			},
 			constructorParamsJson: fmt.Sprintf("{\"tokenName\":\"%s\"}", constants.TOKEN_NF_ANON_NULLIFIER),
 			isNonFungible:         true,
 		},
@@ -208,14 +236,14 @@ func TestPrepareDeploy(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testCallbacks := &testDomainCallbacks{}
+			testCallbacks := &domain.MockDomainCallbacks{}
 			z := New(testCallbacks)
 			z.config = &types.DomainFactoryConfig{
 				DomainContracts: types.DomainConfigContracts{
 					Implementations: []*types.DomainContract{
 						{
-							Name:      tc.tokenName,
-							CircuitId: tc.circuitId,
+							Name:     tc.tokenName,
+							Circuits: tc.circuits,
 						},
 					},
 				},
@@ -257,7 +285,12 @@ func TestInitContract(t *testing.T) {
 	require.False(t, res.Valid)
 
 	conf := types.DomainInstanceConfig{
-		CircuitId: "circuit1",
+		Circuits: &zetosignerapi.Circuits{
+			"deposit":        &zetosignerapi.Circuit{Name: "circuit-deposit"},
+			"withdraw":       &zetosignerapi.Circuit{Name: "circuit-withdraw"},
+			"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
+			"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
+		},
 		TokenName: "testToken1",
 	}
 	configJSON, _ := json.Marshal(conf)
@@ -268,7 +301,12 @@ func TestInitContract(t *testing.T) {
 	assert.NoError(t, err)
 	require.True(t, res.Valid)
 	require.JSONEq(t, `{
-		"circuitId": "circuit1",
+		"circuits": {
+			"deposit": { "name": "circuit-deposit", "type": "", "usesEncryption": false, "usesKyc":false, "usesNullifiers": false },
+			"withdraw": { "name": "circuit-withdraw", "type": "", "usesEncryption": false, "usesKyc":false, "usesNullifiers": false },
+			"transfer": { "name": "circuit-transfer", "type": "", "usesEncryption": false, "usesKyc":false, "usesNullifiers": false },
+			"transferLocked": { "name": "circuit-transfer-locked", "type": "", "usesEncryption": false, "usesKyc":false, "usesNullifiers": false }
+		},
 		"tokenName": "testToken1"
 	}`, res.ContractConfig.ContractConfigJson)
 }
@@ -298,7 +336,9 @@ func TestInitTransaction(t *testing.T) {
 	assert.ErrorContains(t, err, "PD210008")
 
 	conf := types.DomainInstanceConfig{
-		CircuitId: "circuit1",
+		Circuits: &zetosignerapi.Circuits{
+			"deposit": &zetosignerapi.Circuit{Name: "circuit-deposit"},
+		},
 		TokenName: "testToken1",
 	}
 	configJSON, err := json.Marshal(conf)
@@ -329,9 +369,9 @@ func TestInitTransaction(t *testing.T) {
 
 	req.Transaction.FunctionParamsJson = "{\"mints\":[{\"to\":\"Alice\",\"amount\":\"10\"}]}"
 	_, err = z.InitTransaction(context.Background(), req)
-	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210016: Unexpected signature for function 'mint': expected='function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; }', actual=''")
+	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210016: Unexpected signature for function 'mint': expected='function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; bytes data; }', actual=''")
 
-	req.Transaction.FunctionSignature = "function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; }"
+	req.Transaction.FunctionSignature = "function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; bytes data; }"
 	_, err = z.InitTransaction(context.Background(), req)
 	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210017: Failed to decode contract address. bad address - must be 20 bytes (len=0)")
 
@@ -347,6 +387,9 @@ func TestAssembleTransaction(t *testing.T) {
 	z.name = "z1"
 	z.coinSchema = &pb.StateSchema{
 		Id: "coin",
+	}
+	z.dataSchema = &pb.StateSchema{
+		Id: "data",
 	}
 
 	assert.Equal(t, "z1", z.Name())
@@ -373,12 +416,14 @@ func TestAssembleTransaction(t *testing.T) {
 	_, err := z.AssembleTransaction(context.Background(), req)
 	assert.ErrorContains(t, err, "PD210009")
 
-	req.Transaction.FunctionSignature = "function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; }"
+	req.Transaction.FunctionSignature = "function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; bytes data; }"
 	conf := types.DomainInstanceConfig{
-		CircuitId: "circuit1",
+		Circuits: &zetosignerapi.Circuits{
+			"deposit": &zetosignerapi.Circuit{Name: "circuit-deposit"},
+		},
 		TokenName: "testToken1",
 	}
-	req.Transaction.ContractInfo.ContractConfigJson = tktypes.JSONString(conf).Pretty()
+	req.Transaction.ContractInfo.ContractConfigJson = pldtypes.JSONString(conf).Pretty()
 	_, err = z.AssembleTransaction(context.Background(), req)
 	assert.NoError(t, err)
 }
@@ -399,12 +444,14 @@ func TestEndorseTransaction(t *testing.T) {
 	assert.EqualError(t, err, "PD210010: Failed to validate endorse transaction spec. PD210012: Failed to unmarshal function abi json. unexpected end of JSON input")
 
 	req.Transaction.FunctionAbiJson = "{\"type\":\"function\",\"name\":\"mint\"}"
-	req.Transaction.FunctionSignature = "function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; }"
+	req.Transaction.FunctionSignature = "function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; bytes data; }"
 	conf := types.DomainInstanceConfig{
-		CircuitId: "circuit1",
+		Circuits: &zetosignerapi.Circuits{
+			"deposit": &zetosignerapi.Circuit{Name: "circuit-deposit"},
+		},
 		TokenName: "testToken1",
 	}
-	req.Transaction.ContractInfo.ContractConfigJson = tktypes.JSONString(conf).Pretty()
+	req.Transaction.ContractInfo.ContractConfigJson = pldtypes.JSONString(conf).Pretty()
 	_, err = z.EndorseTransaction(context.Background(), req)
 	assert.NoError(t, err)
 }
@@ -416,15 +463,17 @@ func TestPrepareTransaction(t *testing.T) {
 		DomainContracts: types.DomainConfigContracts{
 			Implementations: []*types.DomainContract{
 				{
-					Name:      "testToken1",
-					CircuitId: "circuit1",
+					Name: "testToken1",
+					Circuits: &zetosignerapi.Circuits{
+						"deposit": &zetosignerapi.Circuit{Name: "circuit-deposit"},
+					},
 				},
 			},
 		},
 	}
 	req := &pb.PrepareTransactionRequest{
 		Transaction: &pb.TransactionSpecification{
-			TransactionId:      "0x1234",
+			TransactionId:      pldtypes.RandBytes32().String(),
 			FunctionParamsJson: "{\"mints\":[{\"to\":\"Alice\",\"amount\":\"10\"}]}",
 			ContractInfo: &pb.ContractInfo{
 				ContractAddress: "0x1234567890123456789012345678901234567890",
@@ -440,19 +489,21 @@ func TestPrepareTransaction(t *testing.T) {
 	assert.EqualError(t, err, "PD210011: Failed to validate prepare transaction spec. PD210012: Failed to unmarshal function abi json. unexpected end of JSON input")
 
 	req.Transaction.FunctionAbiJson = "{\"type\":\"function\",\"name\":\"mint\"}"
-	req.Transaction.FunctionSignature = "function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; }"
+	req.Transaction.FunctionSignature = "function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; bytes data; }"
 	conf := types.DomainInstanceConfig{
-		CircuitId: "circuit1",
+		Circuits: &zetosignerapi.Circuits{
+			"deposit": &zetosignerapi.Circuit{Name: "circuit-deposit"},
+		},
 		TokenName: "testToken1",
 	}
-	req.Transaction.ContractInfo.ContractConfigJson = tktypes.JSONString(conf).Pretty()
+	req.Transaction.ContractInfo.ContractConfigJson = pldtypes.JSONString(conf).Pretty()
 	_, err = z.PrepareTransaction(context.Background(), req)
 	assert.NoError(t, err)
 }
 
 func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*pb.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 			return &pb.FindAvailableStatesResponse{}, nil
 		},
 	}
@@ -467,15 +518,22 @@ func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	z.merkleTreeNodeSchema = &pb.StateSchema{
 		Id: "merkle_tree_node",
 	}
-	z.mintSignature = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
-	z.transferSignature = "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)"
-	z.transferWithEncSignature = "event UTXOTransferWithEncryptedValues(uint256[] inputs, uint256[] outputs, uint256 encryptionNonce, uint256[2] ecdhPublicKey, uint256[] encryptedValues, address indexed submitter, bytes data)"
+	z.dataSchema = &pb.StateSchema{
+		Id: "data",
+	}
+	z.events.mint = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
+	z.events.burn = "event UTXOBurn(uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
+	z.events.transfer = "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)"
+	z.events.transferWithEnc = "event UTXOTransferWithEncryptedValues(uint256[] inputs, uint256[] outputs, uint256 encryptionNonce, uint256[2] ecdhPublicKey, uint256[] encryptedValues, address indexed submitter, bytes data)"
+	z.events.withdraw = "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
+	z.events.lock = "event UTXOsLocked(uint256[] inputs, uint256[] outputs, uint256[] lockedOutputs, address indexed delegate, address indexed submitter, bytes data)"
+	z.events.identityRegistered = "event IdentityRegistered(uint256[] publicKey, bytes data)"
 	return z, testCallbacks
 }
 
 func TestHandleEventBatch(t *testing.T) {
 	z, testCallbacks := newTestZeto()
-	testCallbacks.MockFindAvailableStates = func() (*pb.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 		return nil, errors.New("find merkle tree root error")
 	}
 	ctx := context.Background()
@@ -493,7 +551,7 @@ func TestHandleEventBatch(t *testing.T) {
 	_, err := z.HandleEventBatch(ctx, req)
 	assert.ErrorContains(t, err, "PD210018")
 
-	req.ContractInfo.ContractConfigJson = tktypes.JSONString(map[string]interface{}{
+	req.ContractInfo.ContractConfigJson = pldtypes.JSONString(map[string]interface{}{
 		"circuitId": "anon_nullifier",
 		"tokenName": "Zeto_AnonNullifier",
 	}).Pretty()
@@ -503,9 +561,9 @@ func TestHandleEventBatch(t *testing.T) {
 
 	req.ContractInfo.ContractAddress = "0x1234567890123456789012345678901234567890"
 	_, err = z.HandleEventBatch(ctx, req)
-	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: PD210065: Failed to find available states for the merkle tree. find merkle tree root error")
+	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree spec for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: find merkle tree root error")
 
-	testCallbacks.MockFindAvailableStates = func() (*pb.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 		return &pb.FindAvailableStatesResponse{}, nil
 	}
 	res1, err := z.HandleEventBatch(ctx, req)
@@ -522,21 +580,55 @@ func TestHandleEventBatch(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, res3.TransactionsComplete, 0)
 
-	req.Events[0].SoliditySignature = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
-	req.Events[0].DataJson = "{\"data\":\"0x0001000030e43028afbb41d6887444f4c2b4ed6d00000000000000000000000000000000\",\"outputs\":[\"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\"],\"submitter\":\"0x74e71b05854ee819cb9397be01c82570a178d019\"}"
-	_, err = z.HandleEventBatch(ctx, req)
-	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD210056: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	encodedData, err := zetocommon.EncodeTransactionData(ctx, &prototk.TransactionSpecification{
+		TransactionId: "0x30e43028afbb41d6887444f4c2b4ed6d00000000000000000000000000000000",
+	}, nil)
+	require.NoError(t, err)
 
-	req.Events[0].DataJson = "{\"data\":\"0x0001000030e43028afbb41d6887444f4c2b4ed6d00000000000000000000000000000000\",\"outputs\":[\"7980718117603030807695495350922077879582656644717071592146865497574198464253\"],\"submitter\":\"0x74e71b05854ee819cb9397be01c82570a178d019\"}"
+	data, _ := json.Marshal(map[string]any{
+		"data":      encodedData,
+		"outputs":   []string{"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
+	})
+	req.Events[0].DataJson = string(data)
+	req.Events[0].SoliditySignature = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
+	_, err = z.HandleEventBatch(ctx, req)
+	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+
+	data, _ = json.Marshal(map[string]any{
+		"data":      encodedData,
+		"outputs":   []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
+	})
+	req.Events[0].DataJson = string(data)
 	res4, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res4.TransactionsComplete, 1)
 	assert.Len(t, res4.NewStates, 2)
 
+	data, _ = json.Marshal(map[string]any{
+		"data":      encodedData,
+		"outputs":   []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
+	})
+	req.Events[0].DataJson = string(data)
 	req.Events[0].SoliditySignature = "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
-	req.Events[0].DataJson = "{\"data\":\"0x0001000030e43028afbb41d6887444f4c2b4ed6d00000000000000000000000000000000\",\"output\":\"7980718117603030807695495350922077879582656644717071592146865497574198464253\",\"submitter\":\"0x74e71b05854ee819cb9397be01c82570a178d019\"}"
 	_, err = z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
+
+	req.Events[0].SoliditySignature = "event UTXOsLocked(uint256[] inputs, uint256[] outputs, uint256[] lockedOutputs, address indexed delegate, address indexed submitter, bytes data)"
+	res5, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res5.TransactionsComplete, 1)
+
+	req.ContractInfo.ContractConfigJson = pldtypes.JSONString(map[string]interface{}{
+		"circuitId": "anon_nullifier_kyc_transfer",
+		"tokenName": "Zeto_AnonNullifierKYC",
+	}).Pretty()
+	req.Events[0].SoliditySignature = "event IdentityRegistered(uint256[] publicKey, bytes data)"
+	res6, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res6.TransactionsComplete, 0)
 }
 
 func TestGetVerifier(t *testing.T) {
@@ -590,10 +682,8 @@ func TestSign(t *testing.T) {
 	_, err = z.Sign(context.Background(), req)
 	assert.ErrorContains(t, err, "PD210023: Failed to sign. PD210088: 'bad algo' does not match supported algorithm")
 
-	_, err = hex.DecodeString("7cdd539f3ed6c283494f47d8481f84308a6d7043087fb6711c9f1df04e2b8025")
-	assert.NoError(t, err)
-	alice := signer.NewTestKeypair()
-	bob := signer.NewTestKeypair()
+	alice := signercommon.NewTestKeypair()
+	bob := signercommon.NewTestKeypair()
 
 	inputValues := []*big.Int{big.NewInt(30), big.NewInt(40)}
 	outputValues := []*big.Int{big.NewInt(32), big.NewInt(38)}
@@ -618,7 +708,12 @@ func TestSign(t *testing.T) {
 	require.NoError(t, err)
 
 	provingReq := protoz.ProvingRequest{
-		CircuitId: constants.CIRCUIT_ANON,
+		Circuit: &protoz.Circuit{
+			Name:           "anon",
+			Type:           "transfer",
+			UsesNullifiers: false,
+			UsesEncryption: false,
+		},
 		Common: &protoz.ProvingRequestCommon{
 			InputCommitments: inputCommitments,
 			InputSalts:       inputSalts,
@@ -644,15 +739,15 @@ func TestSign(t *testing.T) {
 	// Test with nullifiers
 	salt := crypto.NewSalt()
 	fakeCoin := types.ZetoCoin{
-		Salt:   (*tktypes.HexUint256)(salt),
-		Owner:  tktypes.MustParseHexBytes(alicePubKey),
-		Amount: tktypes.Int64ToInt256(12345),
+		Salt:   (*pldtypes.HexUint256)(salt),
+		Owner:  pldtypes.MustParseHexBytes(alicePubKey),
+		Amount: pldtypes.Int64ToInt256(12345),
 	}
 	req = &pb.SignRequest{
 		Algorithm:   z.getAlgoZetoSnarkBJJ(),
 		PayloadType: "domain:zeto:nullifier",
 		PrivateKey:  bytes,
-		Payload:     tktypes.JSONString(fakeCoin),
+		Payload:     pldtypes.JSONString(fakeCoin),
 	}
 	res, err = z.Sign(context.Background(), req)
 	assert.NoError(t, err)
@@ -692,6 +787,42 @@ func TestValidateStateHashes(t *testing.T) {
 	assert.Len(t, res.StateIds, 1)
 }
 
+func TestValidateStateHashesDataState(t *testing.T) {
+	z, _ := newTestZeto()
+	ctx := context.Background()
+
+	req := &pb.ValidateStateHashesRequest{
+		States: []*pb.EndorsableState{
+			{
+				SchemaId:      z.DataSchemaID(),
+				StateDataJson: "bad json",
+			},
+		},
+	}
+	_, err := z.ValidateStateHashes(ctx, req)
+	assert.ErrorContains(t, err, "PD210087: Failed to unmarshal state data. invalid character 'b' looking for beginning of value")
+
+	// Test case: Valid data state with no ID
+	req.States[0].StateDataJson = `{
+		"salt": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+		"data": "0xabcdef"
+	}`
+	res, err := z.ValidateStateHashes(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res.StateIds, 1)
+
+	// Test case: State hash mismatch
+	req.States[0].Id = "0x1234"
+	_, err = z.ValidateStateHashes(ctx, req)
+	assert.ErrorContains(t, err, "PD210086: State hash mismatch (hashed vs. received)")
+
+	// Test case: Matching state hash
+	req.States[0].Id = "0x90a5df696783c409e262a20766584d6c90faf92c2851eed119d8b56704b90335"
+	res, err = z.ValidateStateHashes(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res.StateIds, 1)
+}
+
 func TestGetHandler(t *testing.T) {
 	z := &Zeto{
 		name: "test1",
@@ -706,6 +837,7 @@ func TestGetHandler(t *testing.T) {
 		// Tests for TOKEN_ANON
 		{"Valid mint handler for TOKEN_ANON", "mint", constants.TOKEN_ANON, false},
 		{"Valid transfer handler for TOKEN_ANON", "transfer", constants.TOKEN_ANON, false},
+		{"Valid transferLocked handler for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, false},
 		{"Valid lock handler for TOKEN_ANON", "lock", constants.TOKEN_ANON, false},
 		{"Valid deposit handler for TOKEN_ANON", "deposit", constants.TOKEN_ANON, false},
 		{"Valid withdraw handler for TOKEN_ANON", "withdraw", constants.TOKEN_ANON, false},
@@ -729,20 +861,54 @@ func TestGetHandler(t *testing.T) {
 	}
 }
 
+func TestGetCallHandler(t *testing.T) {
+	z := &Zeto{
+		name: "test1",
+	}
+
+	tests := []struct {
+		name        string
+		action      string
+		tokenName   string
+		expectedNil bool
+	}{
+		{"Valid call handler for TOKEN_ANON", "balanceOf", constants.TOKEN_ANON, false},
+		{"Invalid call handler for TOKEN_ANON", "bad", constants.TOKEN_ANON, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := z.GetCallHandler(tt.action, tt.tokenName)
+			if tt.expectedNil {
+				assert.Nil(t, handler)
+			} else {
+				assert.NotNil(t, handler)
+			}
+		})
+	}
+}
+
+func TestIsBaseLedgerRevertRetryable(t *testing.T) {
+	z := &Zeto{}
+	res, err := z.IsBaseLedgerRevertRetryable(context.Background(), nil)
+	assert.NoError(t, err)
+	assert.True(t, res.Retryable)
+}
+
 func TestUnimplementedMethods(t *testing.T) {
 	z := &Zeto{}
-	_, err := z.InitCall(context.Background(), nil)
+	_, err := z.ConfigurePrivacyGroup(context.Background(), nil)
 	assert.ErrorContains(t, err, "PD210085: Not implemented")
-
-	_, err = z.ExecCall(context.Background(), nil)
+	_, err = z.InitPrivacyGroup(context.Background(), nil)
 	assert.ErrorContains(t, err, "PD210085: Not implemented")
-
-	_, err = z.BuildReceipt(context.Background(), nil)
-	assert.ErrorContains(t, err, "PD210102: Not implemented")
+	_, err = z.WrapPrivacyGroupEVMTX(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
+	_, err = z.InvokeRPC(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
 }
 
 func TestGetStateSchemas(t *testing.T) {
-	schemas, err := getStateSchemas(context.Background())
+	schemas, err := types.GetStateSchemas()
 	assert.NoError(t, err)
-	assert.Len(t, schemas, 4)
+	assert.Len(t, schemas, 5)
 }

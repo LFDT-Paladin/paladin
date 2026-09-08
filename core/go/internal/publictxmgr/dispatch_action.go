@@ -18,8 +18,8 @@ package publictxmgr
 import (
 	"context"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 type AsyncRequestType int
@@ -30,25 +30,31 @@ const (
 	ActionCompleted
 )
 
-func (pte *pubTxManager) persistSuspendedFlag(ctx context.Context, from tktypes.EthAddress, nonce uint64, suspended bool) error {
+func (ptm *pubTxManager) persistSuspendedFlag(ctx context.Context, from pldtypes.EthAddress, nonce uint64, suspended bool) error {
 	log.L(ctx).Infof("Setting suspend status to '%t' for transaction %s:%d", suspended, from, nonce)
-	return pte.p.DB().
-		WithContext(ctx).
+	return ptm.p.DB(ctx).
 		Table("public_txns").
 		Where(`"from" = ?`, from).
 		Where("nonce = ?", nonce).
+		Where("dispatcher = ? OR dispatcher = ''", ptm.nodeName).
 		UpdateColumn("suspended", suspended).
 		Error
 }
 
-func (pte *pubTxManager) dispatchAction(ctx context.Context, from tktypes.EthAddress, nonce uint64, action AsyncRequestType) error {
-	pte.inFlightOrchestratorMux.Lock()
-	defer pte.inFlightOrchestratorMux.Unlock()
-	inFlightOrchestrator, orchestratorInFlight := pte.inFlightOrchestrators[from]
+// TODO: this code needs to stop using from and nonce as the way of identifying a transaction. It didn't get edited
+// with the move to delayed nonce assignment, where pubTXID became the primary key for a public transaction instead
+// of from and nonce as a composite primary key. This isn't a problem for dispatching a confirm action because a
+// confirmed transaction must have a nonce, but it isn't guaranteed to work for suspend and resume. Those actions
+// have been copied across but aren't wired up above this level so they aren't obviously broken yet.
+func (ptm *pubTxManager) dispatchAction(ctx context.Context, from pldtypes.EthAddress, nonce uint64, action AsyncRequestType) error {
+	ptm.inFlightOrchestratorMux.Lock()
+	defer ptm.inFlightOrchestratorMux.Unlock()
+	inFlightOrchestrator, orchestratorInFlight := ptm.inFlightOrchestrators[from]
 	switch action {
 	case ActionCompleted:
 		// Only need to pass this on if there's an orchestrator in flight for this signing address
 		if orchestratorInFlight {
+			log.L(ctx).Infof("Dispatching 'completed' action to active orchestrator for %s", from)
 			return inFlightOrchestrator.dispatchAction(ctx, nonce, action)
 		}
 	case ActionSuspend, ActionResume:
@@ -58,9 +64,11 @@ func (pte *pubTxManager) dispatchAction(ctx context.Context, from tktypes.EthAdd
 		}
 		if !orchestratorInFlight {
 			// no in-flight orchestrator for the signing address, it's OK to update the DB directly
-			return pte.persistSuspendedFlag(ctx, from, nonce, suspended)
+			log.L(ctx).Infof("No orchestrator in-flight for %s so persisting suspended=%t flag", from, suspended)
+			return ptm.persistSuspendedFlag(ctx, from, nonce, suspended)
 		}
 		// has to be done in the context of the orchestrator
+		log.L(ctx).Infof("Dispatching suspended=%t action to active orchestrator for %s", suspended, from)
 		return inFlightOrchestrator.dispatchAction(ctx, nonce, action)
 	}
 	return nil
@@ -97,4 +105,17 @@ func (oc *orchestrator) dispatchAction(ctx context.Context, nonce uint64, action
 		oc.MarkInFlightTxStale()
 	}
 	return err
+}
+
+func (ptm *pubTxManager) dispatchUpdate(update *transactionUpdate) {
+	// updateMux must be locked by the called
+	ptm.updates = append(ptm.updates, update)
+	ptm.MarkInFlightOrchestratorsStale()
+}
+
+func (oc *orchestrator) dispatchUpdate(update *transactionUpdate) {
+	oc.updateMux.Lock()
+	defer oc.updateMux.Unlock()
+	oc.updates = append(oc.updates, update)
+	oc.MarkInFlightTxStale()
 }

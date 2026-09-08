@@ -19,14 +19,14 @@ import (
 	"context"
 	"sync"
 
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 type rpcEventStreams struct {
@@ -63,21 +63,21 @@ type receiptListenerSubscription struct {
 	closed    chan struct{}
 }
 
-func (es *rpcEventStreams) HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl rpcserver.RPCAsyncControl) (rpcserver.RPCAsyncInstance, *rpcclient.RPCResponse) {
+func (es *rpcEventStreams) HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl rpcserver.RPCAsyncControl) (subscription rpcserver.RPCAsyncInstance, res *rpcclient.RPCResponse, afterSend func()) {
 	es.subLock.Lock()
 	defer es.subLock.Unlock()
 
-	var eventType tktypes.Enum[pldapi.PGroupEventType]
+	var eventType pldtypes.Enum[pldapi.PGroupEventType]
 	if len(req.Params) >= 1 {
-		eventType = tktypes.Enum[pldapi.PGroupEventType](req.Params[0].StringValue())
+		eventType = pldtypes.Enum[pldapi.PGroupEventType](req.Params[0].StringValue())
 	}
 	if _, err := eventType.Validate(); err != nil {
-		return nil, rpcclient.NewRPCErrorResponse(err, req.ID, rpcclient.RPCCodeInvalidRequest)
+		return nil, rpcclient.NewRPCErrorResponse(err, req.ID, rpcclient.RPCCodeInvalidRequest), nil
 	}
 
 	// Only one type right now
 	if len(req.Params) < 2 {
-		return nil, rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, msgs.MsgPGroupsListenerNameRequired), req.ID, rpcclient.RPCCodeInvalidRequest)
+		return nil, rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, msgs.MsgPGroupsListenerNameRequired), req.ID, rpcclient.RPCCodeInvalidRequest), nil
 	}
 	sub := &receiptListenerSubscription{
 		es:        es,
@@ -85,18 +85,23 @@ func (es *rpcEventStreams) HandleStart(ctx context.Context, req *rpcclient.RPCRe
 		acksNacks: make(chan *rpcAckNack, 1),
 		closed:    make(chan struct{}),
 	}
-	es.receiptSubs[ctrl.ID()] = sub
+
 	var err error
 	sub.pgmrc, err = es.gm.AddMessageReceiver(ctx, req.Params[1].StringValue(), sub)
 	if err != nil {
-		return nil, rpcclient.NewRPCErrorResponse(err, req.ID, rpcclient.RPCCodeInvalidRequest)
+		return nil, rpcclient.NewRPCErrorResponse(err, req.ID, rpcclient.RPCCodeInvalidRequest), nil
+	}
+
+	es.receiptSubs[ctrl.ID()] = sub
+	afterSend = func() {
+		sub.pgmrc.SetActive()
 	}
 
 	return sub, &rpcclient.RPCResponse{
 		JSONRpc: "2.0",
 		ID:      req.ID,
-		Result:  tktypes.JSONString(ctrl.ID()),
-	}
+		Result:  pldtypes.JSONString(ctrl.ID()),
+	}, afterSend
 }
 
 func (es *rpcEventStreams) cleanupSubscription(subID string) {
@@ -141,7 +146,7 @@ func (es *rpcEventStreams) HandleLifecycle(ctx context.Context, req *rpcclient.R
 		return &rpcclient.RPCResponse{
 			JSONRpc: "2.0",
 			ID:      req.ID,
-			Result:  tktypes.JSONString(sub != nil),
+			Result:  pldtypes.JSONString(sub != nil),
 		}
 	default:
 		return rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, msgs.MsgPGroupsLifecycleMethodUnknown, req.Method), req.ID, rpcclient.RPCCodeInvalidRequest)

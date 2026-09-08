@@ -16,18 +16,20 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -37,11 +39,11 @@ import (
 type mockPlugin[T any] struct {
 	t *testing.T
 
-	conf                *pldconf.PluginConfig
-	allowRegisterErrors bool
-	preRegister         func(domainID string) *T
-	customResponses     func(*T) []*T
-	expectClose         func(err error)
+	conf             *pldconf.PluginConfig
+	preRegister      func(pluginID string) *T
+	registerOverride func(pluginID string) *T
+	customResponses  func(*T) []*T
+	expectClose      func(err error)
 
 	headerAccessor func(*T) *prototk.Header
 	connectFactory func(ctx context.Context, client prototk.PluginControllerClient) (grpc.BidiStreamingClient[T, T], error)
@@ -53,7 +55,7 @@ type mockPlugin[T any] struct {
 func (tp *mockPlugin[T]) Conf() *pldconf.PluginConfig {
 	if tp.conf == nil {
 		tp.conf = &pldconf.PluginConfig{
-			Type:    string(tktypes.LibraryTypeCShared),
+			Type:    string(pldtypes.LibraryTypeCShared),
 			Library: "/any/where",
 		}
 	}
@@ -78,26 +80,30 @@ func (tp *mockPlugin[T]) Run(grpcTarget, pluginId string) {
 		err = stream.Send(tp.preRegister(pluginId))
 		require.NoError(t, err)
 	}
-	regMsg := new(T)
-	header := tp.headerAccessor(regMsg)
-	header.PluginId = pluginId
-	header.MessageId = uuid.New().String()
-	header.MessageType = prototk.Header_REGISTER
+	var regMsg *T
+	if tp.registerOverride != nil {
+		regMsg = tp.registerOverride(pluginId)
+	} else {
+		regMsg = new(T)
+		header := tp.headerAccessor(regMsg)
+		header.PluginId = pluginId
+		header.MessageId = uuid.New().String()
+		header.MessageType = prototk.Header_REGISTER
+	}
 	err = stream.Send(regMsg)
-	if err != nil {
-		if tp.allowRegisterErrors {
-			return
-		}
+	if err != nil && tp.expectClose == nil {
 		require.NoError(t, err)
 	}
 
-	// Switch to stream conect
+	// Switch to stream context
 	ctx := stream.Context()
 	for {
 		if tp.sendRequest != nil {
 			req := tp.sendRequest(pluginId)
 			err := stream.Send(req)
-			require.NoError(t, err)
+			if tp.expectClose == nil {
+				require.NoError(t, err)
+			}
 			tp.sendRequest = nil
 		}
 
@@ -115,7 +121,9 @@ func (tp *mockPlugin[T]) Run(grpcTarget, pluginId string) {
 				responses := tp.customResponses(msg)
 				for _, r := range responses {
 					err := stream.Send(r)
-					assert.NoError(t, err)
+					if tp.expectClose == nil {
+						require.NoError(t, err)
+					}
 				}
 				continue
 			}
@@ -128,7 +136,9 @@ func (tp *mockPlugin[T]) Run(grpcTarget, pluginId string) {
 			replyHeader.MessageType = prototk.Header_RESPONSE_FROM_PLUGIN
 			replyHeader.CorrelationId = &tp.headerAccessor(msg).MessageId
 			err := stream.Send(reply)
-			require.NoError(t, err)
+			if tp.expectClose == nil {
+				require.NoError(t, err)
+			}
 		case prototk.Header_RESPONSE_TO_PLUGIN, prototk.Header_ERROR_RESPONSE:
 			tp.handleResponse(msg)
 		}
@@ -168,6 +178,7 @@ func TestPluginRequestsError(t *testing.T) {
 				handleResponse: func(dm *prototk.DomainMessage) {
 					assert.Equal(t, msgID, *dm.Header.CorrelationId)
 					assert.Regexp(t, "pop", *dm.Header.ErrorMessage)
+					assert.Equal(t, prototk.Header_INVALID_INPUT, dm.Header.ErrorType)
 					close(waitForResponse)
 				},
 			},
@@ -177,7 +188,7 @@ func TestPluginRequestsError(t *testing.T) {
 		return tdm, nil
 	}
 	tdm.findAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
-		return nil, fmt.Errorf("pop")
+		return nil, NewPluginError(prototk.Header_INVALID_INPUT, fmt.Errorf("pop"))
 	}
 
 	_, _, done := newTestDomainPluginManager(t, &testManagers{
@@ -185,8 +196,13 @@ func TestPluginRequestsError(t *testing.T) {
 	})
 	defer done()
 
-	<-waitForResponse
-
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case <-waitForResponse:
+		// Response received successfully
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for response - expected response was not received")
+	}
 }
 
 func TestSenderErrorHandling(t *testing.T) {
@@ -211,26 +227,29 @@ func TestSenderErrorHandling(t *testing.T) {
 		testDomainManager: tdm,
 	})
 
-	domainAPI := <-waitForRegister
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case domainAPI := <-waitForRegister:
+		// Stop
+		done()
 
-	// Stop
-	done()
-
-	// Check send loop sending on closed stream
-	bridge := domainAPI.(*domainBridge)
-	handler := bridge.toPlugin.(*pluginHandler[prototk.DomainMessage])
-	handler.senderDone = make(chan struct{})
-	handler.sendChl = make(chan plugintk.PluginMessage[prototk.DomainMessage])
-	cancellable, cancel := context.WithCancel(context.Background())
-	handler.ctx = cancellable
-	go func() {
+		// Check send loop sending on closed stream
+		bridge := domainAPI.(*domainBridge)
+		handler := bridge.toPlugin.(*pluginHandler[prototk.DomainMessage])
+		handler.senderDone = make(chan struct{})
+		handler.sendChl = make(chan plugintk.PluginMessage[prototk.DomainMessage])
+		cancellable, cancel := context.WithCancel(context.Background())
+		handler.ctx = cancellable
+		go func() {
+			handler.send(handler.wrapper.Wrap(&prototk.DomainMessage{}))
+			cancel() // cancel after first message pushed to sender
+		}()
+		handler.sender()
+		// Check does not block after context is closed
 		handler.send(handler.wrapper.Wrap(&prototk.DomainMessage{}))
-		cancel() // cancel after first message pushed to sender
-	}()
-	handler.sender()
-	// Check does not block after context is closed
-	handler.send(handler.wrapper.Wrap(&prototk.DomainMessage{}))
-
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for domain API - expected registration was not received")
+	}
 }
 
 func TestDomainRequestsBadResponse(t *testing.T) {
@@ -272,11 +291,14 @@ func TestDomainRequestsBadResponse(t *testing.T) {
 	})
 	defer done()
 
-	domainAPI := <-waitForRegister
-
-	_, err := domainAPI.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{})
-	assert.Regexp(t, "PD011205", err)
-
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case domainAPI := <-waitForRegister:
+		_, err := domainAPI.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{})
+		assert.Regexp(t, "PD011205", err)
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for domain API - expected registration was not received")
+	}
 }
 
 func TestDomainRequestsErrorWithMessage(t *testing.T) {
@@ -314,11 +336,14 @@ func TestDomainRequestsErrorWithMessage(t *testing.T) {
 	})
 	defer done()
 
-	domainAPI := <-waitForRegister
-
-	_, err := domainAPI.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{})
-	assert.Regexp(t, "PD011206.*some error", err)
-
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case domainAPI := <-waitForRegister:
+		_, err := domainAPI.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{})
+		assert.Regexp(t, "PD011206.*some error", err)
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for domain API - expected registration was not received")
+	}
 }
 
 func TestDomainRequestsErrorNoMessage(t *testing.T) {
@@ -355,11 +380,14 @@ func TestDomainRequestsErrorNoMessage(t *testing.T) {
 	})
 	defer done()
 
-	domainAPI := <-waitForRegister
-
-	_, err := domainAPI.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{})
-	assert.Regexp(t, "PD011206.*ERROR_RESPONSE", err)
-
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case domainAPI := <-waitForRegister:
+		_, err := domainAPI.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{})
+		assert.Regexp(t, "PD011206.*ERROR_RESPONSE", err)
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for domain API - expected registration was not received")
+	}
 }
 
 func TestReceiveAfterTimeout(t *testing.T) {
@@ -392,19 +420,23 @@ func TestReceiveAfterTimeout(t *testing.T) {
 	})
 	defer done()
 
-	domainAPI := <-waitForRegister
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case domainAPI := <-waitForRegister:
+		go func() {
+			<-readyToGo
+			// Force a timeout by closing the inflight handler while the request is mid-flight
+			bridge := domainAPI.(*domainBridge)
+			handler := bridge.toPlugin.(*pluginHandler[prototk.DomainMessage])
+			handler.inflight.Close()
+			gone <- true
+		}()
 
-	go func() {
-		<-readyToGo
-		// Force a timeout by closing the inflight handler while the request is mid-flight
-		bridge := domainAPI.(*domainBridge)
-		handler := bridge.toPlugin.(*pluginHandler[prototk.DomainMessage])
-		handler.inflight.Close()
-		close(gone)
-	}()
-	_, err := domainAPI.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{})
-	assert.Regexp(t, "PD020100", err)
-
+		_, err := domainAPI.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{})
+		assert.Regexp(t, "PD020100", err)
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for domain API - expected registration was not received")
+	}
 }
 
 func TestDomainSendBeforeRegister(t *testing.T) {
@@ -437,7 +469,13 @@ func TestDomainSendBeforeRegister(t *testing.T) {
 	})
 	defer done()
 
-	<-waitForRegister
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case <-waitForRegister:
+		// Registration received successfully
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for registration - expected registration was not received")
+	}
 }
 
 func TestDomainSendDoubleRegister(t *testing.T) {
@@ -472,8 +510,13 @@ func TestDomainSendDoubleRegister(t *testing.T) {
 	})
 	defer done()
 
-	<-waitForRegister
-
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case <-waitForRegister:
+		// Registration received successfully
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for registration - expected registration was not received")
+	}
 }
 
 func TestDomainRegisterWrongID(t *testing.T) {
@@ -486,7 +529,7 @@ func TestDomainRegisterWrongID(t *testing.T) {
 				t:              t,
 				connectFactory: domainConnectFactory,
 				headerAccessor: domainHeaderAccessor,
-				preRegister: func(domainID string) *prototk.DomainMessage {
+				registerOverride: func(domainID string) *prototk.DomainMessage {
 					return &prototk.DomainMessage{
 						Header: &prototk.Header{
 							MessageType: prototk.Header_REGISTER,
@@ -510,7 +553,13 @@ func TestDomainRegisterWrongID(t *testing.T) {
 	})
 	defer done()
 
-	assert.Regexp(t, "UUID", <-waitForError)
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case err := <-waitForError:
+		assert.Regexp(t, "UUID", err.Error())
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for error - expected error was not received")
+	}
 }
 
 func TestDomainSendResponseWrongID(t *testing.T) {
@@ -580,12 +629,22 @@ func TestDomainSendResponseWrongID(t *testing.T) {
 	})
 	defer done()
 
-	domainAPI := <-waitForRegister
-	atr, err := domainAPI.AssembleTransaction(ctx, &prototk.AssembleTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{
-			TransactionId: "tx2_prepare",
-		},
-	})
-	assert.NoError(t, err)
-	assert.Equal(t, prototk.AssembleTransactionResponse_REVERT, atr.AssemblyResult)
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case domainAPI := <-waitForRegister:
+		atr, err := domainAPI.AssembleTransaction(ctx, &prototk.AssembleTransactionRequest{
+			Transaction: &prototk.TransactionSpecification{
+				TransactionId: "tx2_prepare",
+			},
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, prototk.AssembleTransactionResponse_REVERT, atr.AssemblyResult)
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for domain API - expected registration was not received")
+	}
+}
+
+func TestNewPluginError(t *testing.T) {
+	pErr := NewPluginError(prototk.Header_INVALID_INPUT, errors.New("pop"))
+	require.EqualError(t, pErr, "pop")
 }

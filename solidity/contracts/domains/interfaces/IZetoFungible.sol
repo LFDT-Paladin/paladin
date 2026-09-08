@@ -10,12 +10,19 @@ interface IZetoFungible {
     struct TransferParam {
         string to;
         uint256 amount;
+        bytes data;
     }
 
     function mint(TransferParam[] memory mints) external;
     function transfer(TransferParam[] memory transfers) external;
-    function lock(address delegate, bytes memory call) external;
+    function transferLocked(
+        uint256[] memory lockedInputs,
+        string memory delegate,
+        TransferParam[] memory transfers
+    ) external;
+    function lock(uint256 amount, address delegate) external;
     function deposit(uint256 amount) external;
     function withdraw(uint256 amount) external;
     function setERC20(address erc20) external;
+    function balanceOf(string memory account) external view returns (uint256 totalStates, uint256 totalBalance, bool overflow);
 }

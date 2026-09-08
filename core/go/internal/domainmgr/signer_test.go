@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -21,13 +21,13 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signerapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signpayloads"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +46,7 @@ func newTestSigner(t *testing.T, privKey []byte) (context.Context, *ecdsaSigner,
 
 func TestErrors(t *testing.T) {
 
-	ctx, signer, _ := newTestSigner(t, tktypes.RandBytes(32))
+	ctx, signer, _ := newTestSigner(t, pldtypes.RandBytes(32))
 
 	_, err := signer.Sign(ctx, "ecdsa:unknown", "", nil, nil)
 	assert.Regexp(t, "PD020822", err)
@@ -69,9 +69,9 @@ func TestErrors(t *testing.T) {
 }
 
 func TestECDSASigning_secp256k1(t *testing.T) {
-	ctx, signer, kp := newTestSigner(t, tktypes.RandBytes(32))
+	ctx, signer, kp := newTestSigner(t, pldtypes.RandBytes(32))
 
-	testData := tktypes.RandBytes(128)
+	testData := pldtypes.RandBytes(128)
 
 	keyLen, err := signer.GetMinimumKeyLen(ctx, algorithms.ECDSA_SECP256K1)
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestECDSASigning_secp256k1(t *testing.T) {
 
 	sig, err := secp256k1.DecodeCompactRSV(ctx, signatureRSV)
 	require.NoError(t, err)
-	assert.True(t, sig.V.Int64() == 27 || sig.V.Int64() == 28)
+	assert.True(t, sig.V.Int64() == 0 || sig.V.Int64() == 1)
 
 	anyChainID, _ := rand.Int(rand.Reader, big.NewInt(1122334455))
 	recovered, err := sig.RecoverDirect(testData,

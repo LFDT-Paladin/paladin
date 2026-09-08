@@ -18,8 +18,16 @@ syntax = "proto3";
 package io.kaleido.paladin.kata.zeto;
 option go_package = "pkg/proto";
 
+message Circuit {
+  string name = 1;
+  string type = 2;
+  bool usesNullifiers = 3;
+  bool usesEncryption = 4;
+  bool usesKyc = 5;
+}
+
 message ProvingRequest {
-  string circuitId = 1;
+  Circuit circuit = 1;
   ProvingRequestCommon common = 2;
   bytes extras = 3;
 }
@@ -55,6 +63,17 @@ message ProvingRequestExtras_Encryption {
 }
 
 message ProvingRequestExtras_Nullifiers {
+  MerkleProofObject smtProof = 1;
+  string delegate = 2;
+}
+
+message ProvingRequestExtras_NullifiersKyc {
+  MerkleProofObject smtUtxoProof = 1;
+  MerkleProofObject smtKycProof = 2;
+  string delegate = 3;
+}
+
+message MerkleProofObject {
   string root = 1;
   repeated MerkleProof merkleProofs = 2;
   repeated bool enabled = 3;

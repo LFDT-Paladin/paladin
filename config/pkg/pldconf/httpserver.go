@@ -17,7 +17,7 @@
 package pldconf
 
 import (
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 )
 
 type HTTPServerConfig struct {
@@ -32,7 +32,7 @@ type HTTPServerConfig struct {
 	ShutdownTimeout       *string    `json:"shutdownTimeout"`
 }
 
-var HTTPDefaults = &HTTPServerConfig{
+var HTTPDefaults = HTTPServerConfig{
 	Address:               confutil.P("127.0.0.1"),
 	DefaultRequestTimeout: confutil.P("2m"),
 	MaxRequestTimeout:     confutil.P("10m"),
@@ -49,16 +49,32 @@ type CORSConfig struct {
 	MaxAge           *string  `json:"maxAge"`
 }
 type StaticServerConfig struct {
-	Enabled    bool   `json:"enabled"`
-	StaticPath string `json:"staticPath"` // Path to the static files in the server FS e.g /app/ui
-	URLPath    string `json:"urlPath"`    // URL path to serve the static files e.g /ui -> http://host:port/ui
+	Enabled      bool   `json:"enabled"`
+	StaticPath   string `json:"staticPath"`   // Path to the static files in the server FS e.g /app/ui
+	URLPath      string `json:"urlPath"`      // URL path to serve the static files e.g /ui -> http://host:port/ui
+	BaseRedirect string `json:"baseRedirect"` // if the URL path is hit directly without a filename, this redirect is sent
 }
 
 type DebugServerConfig struct {
+	Enabled              *bool `json:"enabled"`
+	BlockProfileRate     *int  `json:"blockProfileRate"`     // BlockProfileRate sets runtime.SetBlockProfileRate; 0 disables block profiling, 1 records every event, N samples 1/N.
+	MutexProfileFraction *int  `json:"mutexProfileFraction"` // MutexProfileFraction sets runtime.SetMutexProfileFraction; 0 disables mutex profiling, 1 records every event, N samples 1/N.
+	HTTPServerConfig
+}
+
+var DebugServerDefaults = DebugServerConfig{
+	Enabled:              confutil.P(false),
+	BlockProfileRate:     confutil.P(0),
+	MutexProfileFraction: confutil.P(0),
+	HTTPServerConfig:     HTTPDefaults,
+}
+
+type MetricsServerConfig struct {
 	Enabled *bool `json:"enabled"`
 	HTTPServerConfig
 }
 
-var DebugServerDefaults = &DebugServerConfig{
-	Enabled: confutil.P(false),
+var MetricsServerDefaults = MetricsServerConfig{
+	Enabled:          confutil.P(false),
+	HTTPServerConfig: HTTPDefaults,
 }

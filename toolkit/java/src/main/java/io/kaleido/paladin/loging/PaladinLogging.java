@@ -35,7 +35,7 @@
                          .addAttribute("target", ConsoleAppender.Target.SYSTEM_OUT)
                          .add(logConfigBuilder
                                  .newLayout("PatternLayout")
-                                 .addAttribute("pattern", "[%d{ISO8601}{GMT+0}] %-5p JAVA: %m (thread=%t,class=%marker)%n")
+                                 .addAttribute("pattern", "[%d{ISO8601}{GMT+0}] %-5p JAVA: %m (thread=%t,class=%marker,tx=%X{tx},contract=%X{contract})%n")
                          )
                  )
                  .add(logConfigBuilder

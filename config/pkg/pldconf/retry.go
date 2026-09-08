@@ -16,7 +16,7 @@
 
 package pldconf
 
-import "github.com/kaleido-io/paladin/config/pkg/confutil"
+import "github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 
 type RetryConfig struct {
 	InitialDelay *string  `json:"initialDelay"`

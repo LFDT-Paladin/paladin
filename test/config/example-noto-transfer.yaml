@@ -1,0 +1,24 @@
+nodes:
+  - name: node1
+    httpEndpoint: http://127.0.0.1:31548
+    wsEndpoint: ws://127.0.0.1:31549
+  # - name: node2
+  #   httpEndpoint: http://127.0.0.1:31648
+  #   wsEndpoint: ws://127.0.0.1:31649
+  # - name: node3
+  #   httpEndpoint: http://127.0.0.1:31748
+  #   wsEndpoint: ws://127.0.0.1:31749
+instances:
+  - name: noto-transfer-test
+    test:
+      name: noto_transfer
+      workers: 10
+      actionsPerLoop: 1
+      options:
+        notoCount: 1
+    maxSubmissionsPerSecond: 10
+    completionTimeout: 5m
+    # maxActions: 10000
+    length: 5m
+logLevel: info
+logEvents: false

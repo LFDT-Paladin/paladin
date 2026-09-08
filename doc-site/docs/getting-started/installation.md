@@ -1,4 +1,6 @@
-# Installation Guide
+# Installation
+
+Installing the operator in `devnet` mode also installs and configures a three node Paladin network and three node Besu network. This is great way to get up and running quickly with Paladin and to try out the [tutorials](../tutorials/index.md).
 
 ## Pre-requisites
 
@@ -10,13 +12,13 @@
 
 If you are new to Kubernetes or simply need a quick way to get a running cluster, [kind](https://kind.sigs.k8s.io/)
 provides a lightweight way to run a local Kubernetes cluster on your machine. This repo contains a
-[starter config file](https://github.com/LF-Decentralized-Trust-labs/paladin/blob/main/operator/paladin-kind.yaml)
+[starter config file](https://github.com/LFDT-Paladin/paladin/blob/main/operator/paladin-kind.yaml)
 for kind which will open up the container ports used by the Paladin charts below.
 
 You can create a new cluster with:
 
 ```bash
-curl https://raw.githubusercontent.com/LF-Decentralized-Trust-labs/paladin/refs/heads/main/operator/paladin-kind.yaml -L -O
+curl https://raw.githubusercontent.com/LFDT-Paladin/paladin/refs/heads/main/operator/paladin-kind.yaml -L -O
 kind create cluster --name paladin --config paladin-kind.yaml
 ```
 
@@ -36,7 +38,7 @@ documentation for any issues with these tools.
 Install the CRD chart that contains the necessary Custom Resource Definitions (CRDs) for the Paladin operator:
 
 ```bash
-helm repo add paladin https://LF-Decentralized-Trust-labs.github.io/paladin --force-update
+helm repo add paladin https://LFDT-Paladin.github.io/paladin --force-update
 helm upgrade --install paladin-crds paladin/paladin-operator-crd
 ```
 
@@ -173,11 +175,15 @@ Each Paladin node runs an instance of the Paladin UI at the path `/ui`. If you u
 
 Learn about interacting with the [UI](./user-interface.md), and try out the [Tutorials](./../tutorials/index.md).
 
+## Advanced installation
+
+This guide is designed for first-time Paladin users looking for a quick and easy introduction. For more complex setups, integration with existing blockchain networks, or detailed customization, please refer to the [Advanced Installation](./installation-advanced.md) or [Manual Installation](./installation-manual.md) guides.
+
 ## Troubleshooting
 
 If you encounter any issues during installation, please refer to the [Troubleshooting Guide](./troubleshooting.md).  
 
-If your issue is not listed or remains unresolved, please report it by [opening an issue on the Paladin GitHub page](https://github.com/LF-Decentralized-Trust-labs/paladin/issues).
+If your issue is not listed or remains unresolved, please report it by [opening an issue on the Paladin GitHub page](https://github.com/LFDT-Paladin/paladin/issues).
 
 ## Uninstall
 

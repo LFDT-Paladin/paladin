@@ -20,6 +20,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.kaleido.paladin.pente.domain.PenteConfiguration;
+import io.kaleido.paladin.pente.domain.PenteEVMTransaction;
 import io.kaleido.paladin.testbed.Testbed;
 import io.kaleido.paladin.toolkit.JsonABI;
 import io.kaleido.paladin.toolkit.JsonHex;
@@ -123,8 +124,8 @@ public class PenteHelper {
                         new JsonABI(List.of(deployABI)),
                         ""
                 ), true));
-        var domainData = new ObjectMapper().convertValue(tx.domainData(), PenteConfiguration.DomainData.class);
-        return domainData.contractAddress();
+        var domainReceipt = new ObjectMapper().convertValue(tx.domainReceipt(), PenteEVMTransaction.JSONReceipt.class);
+        return domainReceipt.receipt().contractAddress();
     }
 
     public Testbed.TransactionResult invoke(String methodName, JsonABI.Parameters inputParams, String sender, JsonHex.Address privateAddress, Object inputValues) throws IOException {
@@ -187,45 +188,5 @@ public class PenteHelper {
                         ""
                 ), "");
         return new ObjectMapper().convertValue(queryResult, PenteCallOutputJSON.class);
-    }
-
-    public Testbed.TransactionResult prepare(String sender, JsonABI.Entry fn, Map<String, Object> inputs) throws IOException {
-        return TestbedHelper.getTransactionResult(
-                testbed.getRpcClient().request("testbed_prepare", new Testbed.TransactionInput(
-                        "private",
-                        "",
-                        sender,
-                        JsonHex.addressFrom(address),
-                        inputs,
-                        new JsonABI(List.of(fn)),
-                        "")));
-    }
-
-    public String approveTransition(String sender, JsonHex.Bytes32 txID, JsonHex.Address delegate, JsonHex.Bytes32 transitionHash, List<JsonHex.Bytes> signatures) throws IOException {
-        JsonABI.Entry fn = JsonABI.newFunction(
-                "approveTransition",
-                JsonABI.newParameters(
-                        JsonABI.newParameter("txId", "bytes32"),
-                        JsonABI.newParameter("delegate", "address"),
-                        JsonABI.newParameter("transitionHash", "bytes32"),
-                        JsonABI.newParameter("signatures", "bytes[]")
-                ),
-                JsonABI.newParameters()
-        );
-
-        return TestbedHelper.sendTransaction(testbed,
-                new Testbed.TransactionInput(
-                        "public",
-                        "",
-                        sender,
-                        JsonHex.addressFrom(address),
-                        new HashMap<>() {{
-                            put("txId", txID);
-                            put("delegate", delegate);
-                            put("transitionHash", transitionHash);
-                            put("signatures", signatures);
-                        }},
-                        new JsonABI(List.of(fn)),
-                        ""));
     }
 }

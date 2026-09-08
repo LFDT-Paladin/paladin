@@ -1,22 +1,18 @@
 import { ethers } from "ethers";
-import { IGroupInfo, IStateEncoded, TransactionType } from "../interfaces";
+import { TransactionType } from "../interfaces";
 import PaladinClient from "../paladin";
-import * as notoPrivateJSON from "./abis/INotoPrivate.json";
-import * as notoJSON from "./abis/INoto.json";
-import { penteGroupABI } from "./pente";
 import { PaladinVerifier } from "../verifier";
-
-const DEFAULT_POLL_TIMEOUT = 10000;
-
-export interface NotoOptions {
-  pollTimeout?: number;
-}
+import * as notoJSON from "./abis/INoto.json";
+import * as notoPrivateJSON from "./abis/INotoPrivate.json";
+import { TransactionFuture } from "../transaction";
 
 export const notoConstructorABI = (
   withHooks: boolean
 ): ethers.JsonFragment => ({
   type: "constructor",
   inputs: [
+    { name: "name", type: "string" },
+    { name: "symbol", type: "string" },
     { name: "notary", type: "string" },
     { name: "notaryMode", type: "string" },
     {
@@ -32,7 +28,10 @@ export const notoConstructorABI = (
                   {
                     name: "privateGroup",
                     type: "tuple",
-                    components: penteGroupABI.components,
+                    components: [
+                      { name: "salt", type: "bytes32" },
+                      { name: "members", type: "string[]" },
+                    ],
                   },
                   { name: "publicAddress", type: "address" },
                   { name: "privateAddress", type: "address" },
@@ -55,7 +54,18 @@ export const notoConstructorABI = (
   ],
 });
 
+export interface IGroupInfo {
+  salt: string;
+  members: string[];
+}
+
 export interface NotoConstructorParams {
+  // Added in NotoFactory V1 (will be ignored in V0)
+  name?: string;
+
+  // Added in NotoFactory V1 (will be ignored in V0)
+  symbol?: string;
+
   notary: PaladinVerifier;
   notaryMode: "basic" | "hooks";
   options?: {
@@ -78,26 +88,52 @@ export interface NotoMintParams {
   data: string;
 }
 
+export interface NotoBurnParams {
+  amount: string | number;
+  data: string;
+}
+
+export interface NotoBurnFromParams {
+  from: PaladinVerifier;
+  amount: string | number;
+  data: string;
+}
+
 export interface NotoTransferParams {
   to: PaladinVerifier;
   amount: string | number;
   data: string;
 }
 
-export interface NotoBurnParams {
+export interface NotoTransferFromParams {
+  from: PaladinVerifier;
+  to: PaladinVerifier;
   amount: string | number;
   data: string;
-}
-
-export interface NotoApproveTransferParams {
-  inputs: IStateEncoded[];
-  outputs: IStateEncoded[];
-  data: string;
-  delegate: string;
 }
 
 export interface NotoLockParams {
   amount: string | number;
+  data: string;
+}
+
+export interface NotoCreateTransferLockParams {
+  from: PaladinVerifier;
+  recipients: UnlockRecipient[];
+  unlockData: string;
+  data: string;
+}
+
+export interface NotoCreateMintLockParams {
+  recipients: UnlockRecipient[];
+  unlockData: string;
+  data: string;
+}
+
+export interface NotoCreateBurnLockParams {
+  from: PaladinVerifier;
+  amount: string | number;
+  unlockData: string;
   data: string;
 }
 
@@ -108,6 +144,29 @@ export interface NotoUnlockParams {
   data: string;
 }
 
+export interface NotoPrepareUnlockParams {
+  lockId: string;
+  from: PaladinVerifier;
+  recipients: UnlockRecipient[];
+  unlockData: string;
+  data: string;
+}
+
+export interface NotoPrepareMintUnlockParams {
+  lockId: string;
+  recipients: UnlockRecipient[];
+  unlockData: string;
+  data: string;
+}
+
+export interface NotoPrepareBurnUnlockParams {
+  lockId: string;
+  from: PaladinVerifier;
+  amount: string | number;
+  unlockData: string;
+  data: string;
+}
+
 export interface UnlockRecipient {
   to: PaladinVerifier;
   amount: string | number;
@@ -115,12 +174,13 @@ export interface UnlockRecipient {
 
 export interface NotoDelegateLockParams {
   lockId: string;
-  unlock: NotoUnlockPublicParams;
+  unlock?: NotoUnlockPublicParams; // Required for V0, omitted for V1
   delegate: string;
   data: string;
 }
 
 export interface NotoUnlockPublicParams {
+  txId: string;
   lockedInputs: string[];
   lockedOutputs: string[];
   outputs: string[];
@@ -128,225 +188,463 @@ export interface NotoUnlockPublicParams {
   data: string;
 }
 
-export class NotoFactory {
-  private options: Required<NotoOptions>;
+export interface SpendLockPublicParams {
+  lockId: string;
+  spendArgs: string;
+  data: string;
+}
 
-  constructor(
-    private paladin: PaladinClient,
-    public readonly domain: string,
-    options?: NotoOptions
-  ) {
-    this.options = {
-      pollTimeout: DEFAULT_POLL_TIMEOUT,
-      ...options,
-    };
+export interface CancelLockPublicParams {
+  lockId: string;
+  cancelArgs: string;
+  data: string;
+}
+
+export interface NotoBalanceOfParams {
+  account: string;
+}
+
+export interface NotoBalanceOfResult {
+  totalBalance: string;
+  totalStates: string;
+  overflow: boolean;
+}
+
+// Represents an in-flight Noto deployment
+export class NotoFuture extends TransactionFuture {
+  async waitForDeploy(waitMs?: number) {
+    const receipt = await this.waitForReceipt(waitMs);
+    return receipt?.contractAddress
+      ? new NotoInstance(this.paladin, receipt.contractAddress)
+      : undefined;
   }
+}
+
+export class NotoFactory {
+  constructor(private paladin: PaladinClient, public readonly domain: string) {}
 
   using(paladin: PaladinClient) {
-    return new NotoFactory(paladin, this.domain, this.options);
+    return new NotoFactory(paladin, this.domain);
   }
 
-  async newNoto(from: PaladinVerifier, data: NotoConstructorParams) {
-    const txID = await this.paladin.sendTransaction({
-      type: TransactionType.PRIVATE,
-      domain: this.domain,
-      abi: [notoConstructorABI(!!data.options?.hooks)],
-      function: "",
-      from: from.lookup,
-      data: {
-        ...data,
-        notary: data.notary.lookup,
-        options: {
-          basic: {
-            restrictMint: true,
-            allowBurn: true,
-            allowLock: true,
-            ...data.options?.basic,
+  newNoto(from: PaladinVerifier, data: NotoConstructorParams, idempotencyKey?: string) {
+    return new NotoFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        domain: this.domain,
+        abi: [notoConstructorABI(!!data.options?.hooks)],
+        function: "",
+        from: from.lookup,
+        data: {
+          ...data,
+          name: data.name ?? "",
+          symbol: data.symbol ?? "",
+          notary: data.notary.lookup,
+          options: {
+            basic: {
+              restrictMint: true,
+              allowBurn: true,
+              allowLock: true,
+              ...data.options?.basic,
+            },
+            ...data.options,
           },
-          ...data.options,
         },
-      },
-    });
-    const receipt = await this.paladin.pollForReceipt(
-      txID,
-      this.options.pollTimeout
+      })
     );
-    return receipt?.contractAddress === undefined
-      ? undefined
-      : new NotoInstance(this.paladin, receipt.contractAddress, this.options);
   }
 }
 
 export class NotoInstance {
-  private options: Required<NotoOptions>;
-
   constructor(
     private paladin: PaladinClient,
-    public readonly address: string,
-    options?: NotoOptions
-  ) {
-    this.options = {
-      pollTimeout: DEFAULT_POLL_TIMEOUT,
-      ...options,
-    };
-  }
+    public readonly address: string
+  ) {}
 
   using(paladin: PaladinClient) {
-    return new NotoInstance(paladin, this.address, this.options);
+    return new NotoInstance(paladin, this.address);
   }
 
-  async mint(from: PaladinVerifier, data: NotoMintParams) {
-    const txID = await this.paladin.sendTransaction({
-      type: TransactionType.PRIVATE,
-      abi: notoPrivateJSON.abi,
-      function: "mint",
-      to: this.address,
-      from: from.lookup,
-      data: {
-        ...data,
-        to: data.to.lookup,
-      },
-    });
-    return this.paladin.pollForReceipt(txID, this.options.pollTimeout);
+  mint(from: PaladinVerifier, data: NotoMintParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "mint",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          to: data.to.lookup,
+        },
+      })
+    );
   }
 
-  async transfer(from: PaladinVerifier, data: NotoTransferParams) {
-    const txID = await this.paladin.sendTransaction({
-      type: TransactionType.PRIVATE,
-      abi: notoPrivateJSON.abi,
-      function: "transfer",
-      to: this.address,
-      from: from.lookup,
-      data: {
-        ...data,
-        to: data.to.lookup,
-      },
-    });
-    return this.paladin.pollForReceipt(txID, this.options.pollTimeout);
+  transfer(from: PaladinVerifier, data: NotoTransferParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "transfer",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          to: data.to.lookup,
+        },
+      })
+    );
   }
 
-  prepareTransfer(from: PaladinVerifier, data: NotoTransferParams) {
-    return this.paladin.prepareTransaction({
-      type: TransactionType.PRIVATE,
-      abi: notoPrivateJSON.abi,
-      function: "transfer",
-      to: this.address,
-      from: from.lookup,
-      data: {
-        ...data,
-        to: data.to.lookup,
-      },
-    });
+  transferFrom(from: PaladinVerifier, data: NotoTransferFromParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "transferFrom",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
+          to: data.to.lookup,
+        },
+      })
+    );
   }
 
-  async approveTransfer(
+  burn(from: PaladinVerifier, data: NotoBurnParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "burn",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  burnFrom(from: PaladinVerifier, data: NotoBurnFromParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "burnFrom",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
+        },
+      })
+    );
+  }
+
+  // @deprecated - use createLock instead
+  lock(from: PaladinVerifier, data: NotoLockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "lock",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  createLock(from: PaladinVerifier, data: NotoLockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "createLock",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  createTransferLock(from: PaladinVerifier, data: NotoCreateTransferLockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "createTransferLock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
+          recipients: data.recipients.map((recipient) => ({
+            to: recipient.to.lookup,
+            amount: recipient.amount,
+          })),
+        },
+      })
+    );
+  }
+
+  createMintLock(from: PaladinVerifier, data: NotoCreateMintLockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "createMintLock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          recipients: data.recipients.map((recipient) => ({
+            to: recipient.to.lookup,
+            amount: recipient.amount,
+          })),
+        },
+      })
+    );
+  }
+
+  createBurnLock(from: PaladinVerifier, data: NotoCreateBurnLockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "createBurnLock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
+        },
+      })
+    );
+  }
+
+  unlock(from: PaladinVerifier, data: NotoUnlockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "unlock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
+          recipients: data.recipients.map((recipient) => ({
+            to: recipient.to.lookup,
+            amount: recipient.amount,
+          })),
+        },
+      })
+    );
+  }
+
+  spendLock(
     from: PaladinVerifier,
-    data: NotoApproveTransferParams
+    data: SpendLockPublicParams,
+    idempotencyKey?: string,
   ) {
-    const txID = await this.paladin.sendTransaction({
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PUBLIC,
+        abi: notoJSON.abi,
+        function: "spendLock",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  cancelLock(
+    from: PaladinVerifier,
+    data: CancelLockPublicParams,
+    idempotencyKey?: string,
+  ) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PUBLIC,
+        abi: notoJSON.abi,
+        function: "cancelLock",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  prepareUnlock(from: PaladinVerifier, data: NotoPrepareUnlockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "prepareUnlock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
+          recipients: data.recipients.map((recipient) => ({
+            to: recipient.to.lookup,
+            amount: recipient.amount,
+          })),
+        },
+      })
+    );
+  }
+
+  prepareMintUnlock(from: PaladinVerifier, data: NotoPrepareMintUnlockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "prepareMintUnlock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          recipients: data.recipients.map((recipient) => ({
+            to: recipient.to.lookup,
+            amount: recipient.amount,
+          })),
+        },
+      })
+    );
+  }
+
+  prepareBurnUnlock(from: PaladinVerifier, data: NotoPrepareBurnUnlockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "prepareBurnUnlock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
+        },
+      })
+    );
+  }
+
+  delegateLock(from: PaladinVerifier, data: NotoDelegateLockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "delegateLock",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  encodeSpendLock(data: SpendLockPublicParams) {
+    return new ethers.Interface(notoJSON.abi).encodeFunctionData(
+      "spendLock",
+      [data.lockId, data.spendArgs, data.data]
+    );
+  }
+
+  encodeCancelLock(data: CancelLockPublicParams) {
+    return new ethers.Interface(notoJSON.abi).encodeFunctionData(
+      "cancelLock",
+      [data.lockId, data.cancelArgs, data.data]
+    );
+  }
+
+  name(from: PaladinVerifier): Promise<string> {
+    return this.paladin.call({
       type: TransactionType.PRIVATE,
+      domain: "noto",
       abi: notoPrivateJSON.abi,
-      function: "approveTransfer",
+      function: "name",
+      to: this.address,
+      from: from.lookup,
+      data: {},
+    });
+  }
+
+  symbol(from: PaladinVerifier): Promise<string> {
+    return this.paladin.call({
+      type: TransactionType.PRIVATE,
+      domain: "noto",
+      abi: notoPrivateJSON.abi,
+      function: "symbol",
+      to: this.address,
+      from: from.lookup,
+      data: {},
+    });
+  }
+
+  decimals(from: PaladinVerifier): Promise<number> {
+    return this.paladin.call({
+      type: TransactionType.PRIVATE,
+      domain: "noto",
+      abi: notoPrivateJSON.abi,
+      function: "decimals",
+      to: this.address,
+      from: from.lookup,
+      data: {},
+    });
+  }
+
+  balanceOf(
+    from: PaladinVerifier,
+    data: NotoBalanceOfParams
+  ): Promise<NotoBalanceOfResult> {
+    return this.paladin.call({
+      type: TransactionType.PRIVATE,
+      domain: "noto",
+      abi: notoPrivateJSON.abi,
+      function: "balanceOf",
       to: this.address,
       from: from.lookup,
       data,
     });
-    return this.paladin.pollForReceipt(txID, this.options.pollTimeout);
-  }
-
-  async burn(from: PaladinVerifier, data: NotoBurnParams) {
-    const txID = await this.paladin.sendTransaction({
-      type: TransactionType.PRIVATE,
-      abi: notoPrivateJSON.abi,
-      function: "burn",
-      to: this.address,
-      from: from.lookup,
-      data,
-    });
-    return this.paladin.pollForReceipt(txID, this.options.pollTimeout);
-  }
-
-  async lock(from: PaladinVerifier, data: NotoLockParams) {
-    const txID = await this.paladin.sendTransaction({
-      type: TransactionType.PRIVATE,
-      abi: notoPrivateJSON.abi,
-      function: "lock",
-      to: this.address,
-      from: from.lookup,
-      data,
-    });
-    return this.paladin.pollForReceipt(txID, this.options.pollTimeout);
-  }
-
-  async unlock(from: PaladinVerifier, data: NotoUnlockParams) {
-    const txID = await this.paladin.sendTransaction({
-      type: TransactionType.PRIVATE,
-      abi: notoPrivateJSON.abi,
-      function: "unlock",
-      to: this.address,
-      from: from.lookup,
-      data: {
-        ...data,
-        from: data.from.lookup,
-        recipients: data.recipients.map((recipient) => ({
-          to: recipient.to.lookup,
-          amount: recipient.amount,
-        })),
-      },
-    });
-    return this.paladin.pollForReceipt(txID, this.options.pollTimeout);
-  }
-
-  async unlockAsDelegate(from: PaladinVerifier, data: NotoUnlockPublicParams) {
-    const txID = await this.paladin.sendTransaction({
-      type: TransactionType.PUBLIC,
-      abi: notoJSON.abi,
-      function: "unlock",
-      to: this.address,
-      from: from.lookup,
-      data,
-    });
-    return this.paladin.pollForReceipt(txID, this.options.pollTimeout);
-  }
-
-  async prepareUnlock(from: PaladinVerifier, data: NotoUnlockParams) {
-    const txID = await this.paladin.sendTransaction({
-      type: TransactionType.PRIVATE,
-      abi: notoPrivateJSON.abi,
-      function: "prepareUnlock",
-      to: this.address,
-      from: from.lookup,
-      data: {
-        ...data,
-        from: data.from.lookup,
-        recipients: data.recipients.map((recipient) => ({
-          to: recipient.to.lookup,
-          amount: recipient.amount,
-        })),
-      },
-    });
-    return this.paladin.pollForReceipt(txID, this.options.pollTimeout);
-  }
-
-  async delegateLock(from: PaladinVerifier, data: NotoDelegateLockParams) {
-    const txID = await this.paladin.sendTransaction({
-      type: TransactionType.PRIVATE,
-      abi: notoPrivateJSON.abi,
-      function: "delegateLock",
-      to: this.address,
-      from: from.lookup,
-      data,
-    });
-    return this.paladin.pollForReceipt(txID, this.options.pollTimeout);
-  }
-
-  encodeUnlock(data: NotoUnlockPublicParams) {
-    return new ethers.Interface(notoJSON.abi).encodeFunctionData("unlock", [
-      data.lockedInputs,
-      data.lockedOutputs,
-      data.outputs,
-      data.signature,
-      data.data,
-    ]);
   }
 }

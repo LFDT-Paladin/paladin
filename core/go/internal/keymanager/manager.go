@@ -19,29 +19,31 @@ import (
 	"context"
 	"sync"
 
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/filters"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"gorm.io/gorm"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signer"
+	"github.com/google/uuid"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/cache"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signerapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 )
 
 type keyManager struct {
 	bgCtx context.Context
 
-	conf                    *pldconf.KeyManagerConfig
+	conf                    *pldconf.KeyManagerInlineConfig
 	rpcModule               *rpcserver.RPCModule
 	identifierCache         cache.Cache[string, *pldapi.KeyMappingWithPath]
 	verifierByIdentityCache cache.Cache[string, *pldapi.KeyVerifier]
@@ -52,14 +54,26 @@ type keyManager struct {
 	allocLock       sync.Mutex
 	allocLockHolder *keyResolver
 
+	// testHookBeforeAllocationWait is nil in production. Tests set it to
+	// synchronize on the moment takeAllocationLock is about to block in its
+	// select, enabling deterministic coverage of the contention paths.
+	testHookBeforeAllocationWait func()
+
+	// plugin signing modules
+	mux                  sync.Mutex
+	signingModulesByID   map[uuid.UUID]*signingModule
+	signingModulesByName map[string]*signingModule
+
 	p persistence.Persistence
 }
 
-func NewKeyManager(bgCtx context.Context, conf *pldconf.KeyManagerConfig) components.KeyManager {
+func NewKeyManager(bgCtx context.Context, conf *pldconf.KeyManagerInlineConfig) components.KeyManager {
 	return &keyManager{
 		bgCtx:                   bgCtx,
 		conf:                    conf,
 		identifierCache:         cache.NewCache[string, *pldapi.KeyMappingWithPath](&conf.IdentifierCache, &pldconf.KeyManagerDefaults.IdentifierCache),
+		signingModulesByID:      make(map[uuid.UUID]*signingModule),
+		signingModulesByName:    make(map[string]*signingModule),
 		verifierByIdentityCache: cache.NewCache[string, *pldapi.KeyVerifier](&conf.VerifierCache, &pldconf.KeyManagerDefaults.VerifierCache),
 		verifierReverseCache:    cache.NewCache[string, *pldapi.KeyMappingAndVerifier](&conf.VerifierCache, &pldconf.KeyManagerDefaults.VerifierCache),
 		walletsByName:           make(map[string]*wallet),
@@ -75,7 +89,11 @@ func (km *keyManager) PreInit(pic components.PreInitComponents) (*components.Man
 
 func (km *keyManager) PostInit(c components.AllComponents) error {
 	km.p = c.Persistence()
+	return nil
+}
 
+func (km *keyManager) Start() error {
+	// Process wallets once all signing modules have been loaded
 	for _, walletConf := range km.conf.Wallets {
 		w, err := km.newWallet(km.bgCtx, walletConf)
 		if err != nil {
@@ -91,14 +109,64 @@ func (km *keyManager) PostInit(c components.AllComponents) error {
 	return nil
 }
 
-func (km *keyManager) Start() error {
-	return nil
-}
-
 func (km *keyManager) Stop() {
 }
 
+func (km *keyManager) cleanupSigningModule(sm *signingModule) {
+	sm.close()
+	delete(km.signingModulesByID, sm.id)
+	delete(km.signingModulesByName, sm.name)
+}
+
+func (km *keyManager) ConfiguredSigningModules() map[string]*pldconf.PluginConfig {
+	pluginConf := make(map[string]*pldconf.PluginConfig)
+	for name, conf := range km.conf.SigningModules {
+		pluginConf[name] = &conf.Plugin
+	}
+	return pluginConf
+}
+
+func (km *keyManager) SigningModuleRegistered(name string, id uuid.UUID, toSigningModule components.KeyManagerToSigningModule) (fromSigningModule plugintk.SigningModuleCallbacks, err error) {
+	// Replaces any previously registered instance
+	existingSigningModule, _ := km.GetSigningModule(km.bgCtx, name)
+	for existingSigningModule != nil {
+		// Can't hold the lock in cleanup, hence the loop
+		km.cleanupSigningModule(existingSigningModule.(*signingModule))
+		existingSigningModule, _ = km.GetSigningModule(km.bgCtx, name)
+	}
+
+	km.mux.Lock()
+	defer km.mux.Unlock()
+
+	// Get the config for this signing module
+	conf := km.conf.SigningModules[name]
+	if conf == nil {
+		// Shouldn't be possible
+		return nil, i18n.NewError(km.bgCtx, msgs.MsgKeyManagerSigningModuleNotFound, name)
+	}
+
+	// Initialize
+	sm := km.newSigningModule(id, name, conf, toSigningModule).(*signingModule)
+	km.signingModulesByID[id] = sm
+	km.signingModulesByName[name] = sm
+	go sm.init()
+	return sm, nil
+}
+
+func (km *keyManager) GetSigningModule(ctx context.Context, name string) (signer.SigningModule, error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
+	km.mux.Lock()
+	defer km.mux.Unlock()
+
+	sm := km.signingModulesByName[name]
+	if sm == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgKeyManagerSigningModuleNotFound, name)
+	}
+	return sm, nil
+}
+
 func (km *keyManager) Sign(ctx context.Context, mapping *pldapi.KeyMappingAndVerifier, payloadType string, payload []byte) ([]byte, error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	w, err := km.getWalletByName(ctx, mapping.Wallet)
 	if err != nil {
 		return nil, err
@@ -124,6 +192,9 @@ func (km *keyManager) takeAllocationLock(ctx context.Context, kr *keyResolver) e
 			return nil
 		}
 		// There is contention on this path - wait until the lock is released, and try to get it again
+		if km.testHookBeforeAllocationWait != nil {
+			km.testHookBeforeAllocationWait()
+		}
 		select {
 		case <-lockingKRC.done:
 		case <-ctx.Done():
@@ -151,7 +222,7 @@ func (km *keyManager) unlockAllocation(ctx context.Context, kr *keyResolver) {
 }
 
 func (km *keyManager) AddInMemorySigner(prefix string, signer signerapi.InMemorySigner) {
-	// Called during PostInit phase by domain manager
+	// Called during Start phase by domain manager
 	for _, w := range km.walletsByName {
 		w.signingModule.AddInMemorySigner(prefix, signer)
 	}
@@ -159,6 +230,7 @@ func (km *keyManager) AddInMemorySigner(prefix string, signer signerapi.InMemory
 
 // Convenience function
 func (km *keyManager) ResolveKeyNewDatabaseTX(ctx context.Context, identifier, algorithm, verifierType string) (resolvedKey *pldapi.KeyMappingAndVerifier, err error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	resolvedKeys, err := km.ResolveBatchNewDatabaseTX(ctx, algorithm, verifierType, []string{identifier})
 	if err != nil {
 		return nil, err
@@ -166,7 +238,8 @@ func (km *keyManager) ResolveKeyNewDatabaseTX(ctx context.Context, identifier, a
 	return resolvedKeys[0], nil
 }
 
-func (km *keyManager) ResolveEthAddressNewDatabaseTX(ctx context.Context, identifier string) (ethAddress *tktypes.EthAddress, err error) {
+func (km *keyManager) ResolveEthAddressNewDatabaseTX(ctx context.Context, identifier string) (ethAddress *pldtypes.EthAddress, err error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	ethAddresses, err := km.ResolveEthAddressBatchNewDatabaseTX(ctx, []string{identifier})
 	if err != nil {
 		return nil, err
@@ -174,12 +247,13 @@ func (km *keyManager) ResolveEthAddressNewDatabaseTX(ctx context.Context, identi
 	return ethAddresses[0], nil
 }
 
-func (km *keyManager) ResolveEthAddressBatchNewDatabaseTX(ctx context.Context, identifiers []string) (ethAddresses []*tktypes.EthAddress, err error) {
-	ethAddresses = make([]*tktypes.EthAddress, len(identifiers))
+func (km *keyManager) ResolveEthAddressBatchNewDatabaseTX(ctx context.Context, identifiers []string) (ethAddresses []*pldtypes.EthAddress, err error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
+	ethAddresses = make([]*pldtypes.EthAddress, len(identifiers))
 	resolvedKeys, err := km.ResolveBatchNewDatabaseTX(ctx, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, identifiers)
 	for i := 0; i < len(identifiers); i++ {
 		if err == nil {
-			ethAddresses[i], err = tktypes.ParseEthAddress(resolvedKeys[i].Verifier.Verifier)
+			ethAddresses[i], err = pldtypes.ParseEthAddress(resolvedKeys[i].Verifier.Verifier)
 		}
 	}
 	if err != nil {
@@ -190,6 +264,7 @@ func (km *keyManager) ResolveEthAddressBatchNewDatabaseTX(ctx context.Context, i
 
 // Convenience function
 func (km *keyManager) ResolveBatchNewDatabaseTX(ctx context.Context, algorithm, verifierType string, identifiers []string) (resolvedKeys []*pldapi.KeyMappingAndVerifier, err error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	resolvedKeys = make([]*pldapi.KeyMappingAndVerifier, len(identifiers))
 	err = km.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		kr := km.KeyResolverForDBTX(dbTX)
@@ -207,13 +282,14 @@ func (km *keyManager) ResolveBatchNewDatabaseTX(ctx context.Context, algorithm, 
 }
 
 func (km *keyManager) ReverseKeyLookup(ctx context.Context, dbTX persistence.DBTX, algorithm, verifierType, verifier string) (*pldapi.KeyMappingAndVerifier, error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	vKey := verifierReverseCacheKey(algorithm, verifierType, verifier)
 	mapping, _ := km.verifierReverseCache.Get(vKey)
 	if mapping != nil {
 		return mapping, nil
 	}
 	var dbVerifiers []*DBKeyVerifier
-	err := dbTX.DB().WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Where(`"algorithm" = ?`, algorithm).
 		Where(`"type" = ?`, verifierType).
 		Where(`"verifier" = ?`, verifier).
@@ -238,10 +314,10 @@ func (km *keyManager) ReverseKeyLookup(ctx context.Context, dbTX persistence.DBT
 	return mapping, nil
 }
 
-func (km *keyManager) QueryKeys(ctx context.Context, dbTX *gorm.DB, jq *query.QueryJSON) (keyList []*pldapi.KeyQueryEntry, err error) {
+func (km *keyManager) QueryKeys(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) (keyList []*pldapi.KeyQueryEntry, err error) {
 
 	q := filters.BuildGORM(ctx, jq,
-		dbTX.WithContext(ctx).
+		dbTX.DB(ctx).
 			Table("key_paths"), KeyEntryFilters)
 
 	q.Select(`DISTINCT key_mappings.identifier IS NOT NULL AS "is_key",` +
@@ -269,7 +345,7 @@ func (km *keyManager) QueryKeys(ctx context.Context, dbTX *gorm.DB, jq *query.Qu
 
 	var verifiers []*DBKeyVerifier
 
-	err = dbTX.Table("key_verifiers").
+	err = dbTX.DB(ctx).Table("key_verifiers").
 		Where("identifier IN ?", ids).
 		Scan(&verifiers).Error
 	if err != nil {

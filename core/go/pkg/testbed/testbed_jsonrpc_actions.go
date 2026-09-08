@@ -20,17 +20,17 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 )
 
 func (tb *testbed) initRPC() {
@@ -90,8 +90,8 @@ func (tb *testbed) rpcDeployBytecode() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod4(func(ctx context.Context,
 		from string,
 		abi abi.ABI,
-		bytecode tktypes.HexBytes,
-		params tktypes.RawJSON,
+		bytecode pldtypes.HexBytes,
+		params pldtypes.RawJSON,
 	) (*ethtypes.Address0xHex, error) {
 
 		receipt, err := tb.ExecTransactionSync(ctx, &pldapi.TransactionInput{
@@ -101,7 +101,7 @@ func (tb *testbed) rpcDeployBytecode() rpcserver.RPCHandler {
 				Data: params,
 			},
 			ABI:      abi,
-			Bytecode: tktypes.HexBytes(bytecode),
+			Bytecode: pldtypes.HexBytes(bytecode),
 		})
 		if err != nil {
 			return nil, err
@@ -131,8 +131,8 @@ func (tb *testbed) rpcTestbedDeploy() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod3(func(ctx context.Context,
 		domainName string,
 		from string,
-		constructorParams tktypes.RawJSON,
-	) (*tktypes.EthAddress, error) {
+		constructorParams pldtypes.RawJSON,
+	) (*pldtypes.EthAddress, error) {
 
 		domain, err := tb.c.DomainManager().GetDomainByName(ctx, domainName)
 		if err != nil {
@@ -238,13 +238,13 @@ func (tb *testbed) resolveFunction(invocation *pldapi.TransactionInput) (*abi.En
 	if invocation.Function == "" && len(invocation.ABI) == 1 {
 		return invocation.ABI[0], nil
 	}
-	return nil, fmt.Errorf("Could not find function '%s' in provided ABI", invocation.Function)
+	return nil, fmt.Errorf("could not find function '%s' in provided ABI", invocation.Function)
 }
 
 func (tb *testbed) resolveTXSigner(tx *testbedTransaction) error {
 	// The testbed implements much simpler checking here than the full private TX manager
 	// on whether the ENDORSER_MUST_SUBMIT constraint clashes with the config on the contract.
-	for _, ar := range tx.ptx.PostAssembly.Endorsements {
+	for _, ar := range tx.ptx.PostAssembly.CollectedEndorsements {
 		for _, c := range ar.Constraints {
 			if c == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
 				if tx.ptx.Signer != "" {
@@ -270,9 +270,10 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 		tx.localTx.Transaction.From = fmt.Sprintf("%s@%s", sender, tb.c.TransportManager().LocalNodeName())
 	}
 
-	// Testbed just uses a domain context for the duration of the TX, and flushes before returning
-	dCtx := tb.c.StateManager().NewDomainContext(ctx, tx.psc.Domain(), tx.psc.Address())
-	defer dCtx.Close()
+	// Testbed uses a domain context (for queries) and a domain state writer (for writes).
+	dqc := tb.c.StateManager().NewDomainQueryContext(ctx, tx.psc.Domain(), tx.psc.Address())
+	defer dqc.Close(ctx)
+	dsw := tb.c.StateManager().NewDomainStateWriter(ctx, tx.psc.Domain(), tx.psc.Address())
 
 	// First we call init on the smart contract to:
 	// - validate the transaction ABI is understood by the contract
@@ -282,13 +283,13 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	// Gather the addresses - in the testbed we assume these all to be local
-	tx.ptx.PreAssembly.Verifiers = make([]*prototk.ResolvedVerifier, len(tx.ptx.PreAssembly.RequiredVerifiers))
+	resolvedVerifiers := make([]*prototk.ResolvedVerifier, len(tx.ptx.PreAssembly.RequiredVerifiers))
 	for i, v := range tx.ptx.PreAssembly.RequiredVerifiers {
 		resolvedKey, err := tb.ResolveKey(ctx, v.Lookup, v.Algorithm, v.VerifierType)
 		if err != nil {
 			return fmt.Errorf("failed to resolve key %q: %s", v.Lookup, err)
 		}
-		tx.ptx.PreAssembly.Verifiers[i] = &prototk.ResolvedVerifier{
+		resolvedVerifiers[i] = &prototk.ResolvedVerifier{
 			Lookup:       v.Lookup,
 			Algorithm:    v.Algorithm,
 			Verifier:     resolvedKey.Verifier.Verifier,
@@ -297,21 +298,30 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	// Now call assemble
-	if err := tx.psc.AssembleTransaction(dCtx, tb.c.Persistence().NOTX(), tx.ptx, tx.localTx); err != nil {
-		return err
+	assembleResponse, assembleErr := tx.psc.AssembleTransaction(ctx, dqc, tb.c.Persistence().NOTX(), tx.ptx.ID, tx.ptx.PreAssembly, tx.localTx, resolvedVerifiers)
+	if assembleErr != nil {
+		return assembleErr
+	}
+	assembleResponse.ResolvedVerifiers = resolvedVerifiers
+	tx.ptx.PostAssembly = &components.TransactionPostAssembly{
+		AssembleResponse: assembleResponse,
 	}
 
 	// The testbed only handles the OK result
-	switch tx.ptx.PostAssembly.AssemblyResult {
+	switch tx.ptx.PostAssembly.AssembleResponse.GetAssemblyResult() {
 	case prototk.AssembleTransactionResponse_OK:
 	default:
-		return fmt.Errorf("assemble result was %s", tx.ptx.PostAssembly.AssemblyResult)
+		revertReason := "(no revert reason)"
+		if tx.ptx.PostAssembly.AssembleResponse.RevertReason != nil {
+			revertReason = *tx.ptx.PostAssembly.AssembleResponse.RevertReason
+		}
+		return fmt.Errorf("assemble result was %s (reason: %s)", tx.ptx.PostAssembly.AssembleResponse.GetAssemblyResult(), revertReason)
 	}
 
 	// The testbed always chooses to take the assemble output and progress to endorse
 	// (no complex sequence selection routine that might result in abandonment).
-	// So just write the states
-	if err := tx.psc.WritePotentialStates(dCtx, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
+	// So just resolve the states (staging into the writer happens with the nullifiers below)
+	if err := tx.psc.ResolvePotentialStates(ctx, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
 		return err
 	}
 
@@ -321,31 +331,30 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	// Gather endorsements (this would be a distributed activity across nodes in the real engine)
-	if err := tb.gatherEndorsements(dCtx, tx); err != nil {
+	if err := tb.gatherEndorsements(ctx, dqc, tx); err != nil {
 		return err
 	}
 
 	log.L(ctx).Infof("Assembled and endorsed inputs=%d outputs=%d signatures=%d endorsements=%d",
-		len(tx.ptx.PostAssembly.InputStates), len(tx.ptx.PostAssembly.OutputStates), len(tx.ptx.PostAssembly.Signatures), len(tx.ptx.PostAssembly.Endorsements))
+		len(tx.ptx.PostAssembly.AssembleResponse.GetInputStates()), len(tx.ptx.PostAssembly.OutputStates), len(tx.ptx.PostAssembly.AssembleResponse.GetSignatures()), len(tx.ptx.PostAssembly.CollectedEndorsements))
 
 	// Pick the signer for the base ledger transaction (we are always the coordinator in the testbed so this logic is much simplified from the private TX manager)
 	if err := tb.resolveTXSigner(tx); err != nil {
 		return err
 	}
 
-	// Prepare the transaction
-	if err := tx.psc.PrepareTransaction(dCtx, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
+	if err := tx.psc.PrepareTransaction(ctx, dqc, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
 		return err
 	}
 
 	// Build any nullifiers
-	if err := tb.writeNullifiersToContext(dCtx, tx.ptx); err != nil {
+	if err := tb.writeNullifiersToContext(dsw, tx.ptx); err != nil {
 		return err
 	}
 
-	// Flush the context
+	// Flush the state writer
 	err := tb.Components().Persistence().Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		return dCtx.Flush(dbTX)
+		return dsw.Flush(ctx, dbTX)
 	})
 	if err != nil {
 		return err
@@ -381,32 +390,59 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 }
 
-func mapTransactionState(state *components.FullState, tx *testbedTransaction) *pldapi.StateEncoded {
-	return &pldapi.StateEncoded{
+func mapEndorsableToBaseState(state *prototk.EndorsableState, tx *testbedTransaction) *pldapi.StateBase {
+	return &pldapi.StateBase{
 		DomainName:      tx.ptx.Domain,
 		ContractAddress: &tx.ptx.Address,
-		ID:              state.ID,
-		Schema:          state.Schema,
-		Data:            state.Data.Bytes(),
+		ID:              pldtypes.MustParseHexBytes(state.GetId()),
+		Schema:          pldtypes.MustParseBytes32(state.GetSchemaId()),
+		Data:            []byte(state.GetStateDataJson()),
 	}
 }
 
+func mapEndorsableToEncodedState(state *prototk.EndorsableState, tx *testbedTransaction) *pldapi.StateEncoded {
+	return &pldapi.StateEncoded{
+		DomainName:      tx.ptx.Domain,
+		ContractAddress: &tx.ptx.Address,
+		ID:              pldtypes.MustParseHexBytes(state.GetId()),
+		Schema:          pldtypes.MustParseBytes32(state.GetSchemaId()),
+		Data:            []byte(state.GetStateDataJson()),
+	}
+}
+
+func mapStatesForReceipt(tx *testbedTransaction) *pldapi.TransactionStates {
+	states := &pldapi.TransactionStates{}
+	for _, state := range tx.ptx.PostAssembly.AssembleResponse.GetInputStates() {
+		states.Spent = append(states.Spent, mapEndorsableToBaseState(state, tx))
+	}
+	for _, state := range tx.ptx.PostAssembly.OutputStates {
+		states.Confirmed = append(states.Confirmed, mapEndorsableToBaseState(state, tx))
+	}
+	for _, state := range tx.ptx.PostAssembly.AssembleResponse.GetReadStates() {
+		states.Read = append(states.Read, mapEndorsableToBaseState(state, tx))
+	}
+	for _, state := range tx.ptx.PostAssembly.InfoStates {
+		states.Info = append(states.Info, mapEndorsableToBaseState(state, tx))
+	}
+	return states
+}
+
 func (tb *testbed) mapTransaction(ctx context.Context, tx *testbedTransaction) (*TransactionResult, error) {
-	inputStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.InputStates))
-	for i, state := range tx.ptx.PostAssembly.InputStates {
-		inputStates[i] = mapTransactionState(state, tx)
+	inputStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.AssembleResponse.GetInputStates()))
+	for i, state := range tx.ptx.PostAssembly.AssembleResponse.GetInputStates() {
+		inputStates[i] = mapEndorsableToEncodedState(state, tx)
 	}
 	outputStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.OutputStates))
 	for i, state := range tx.ptx.PostAssembly.OutputStates {
-		outputStates[i] = mapTransactionState(state, tx)
+		outputStates[i] = mapEndorsableToEncodedState(state, tx)
 	}
-	readStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.ReadStates))
-	for i, state := range tx.ptx.PostAssembly.ReadStates {
-		readStates[i] = mapTransactionState(state, tx)
+	readStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.AssembleResponse.GetReadStates()))
+	for i, state := range tx.ptx.PostAssembly.AssembleResponse.GetReadStates() {
+		readStates[i] = mapEndorsableToEncodedState(state, tx)
 	}
 	infoStates := make([]*pldapi.StateEncoded, len(tx.ptx.PostAssembly.InfoStates))
 	for i, state := range tx.ptx.PostAssembly.InfoStates {
-		infoStates[i] = mapTransactionState(state, tx)
+		infoStates[i] = mapEndorsableToEncodedState(state, tx)
 	}
 
 	preparedTransaction := tx.ptx.PreparedPublicTransaction
@@ -419,10 +455,7 @@ func (tb *testbed) mapTransaction(ctx context.Context, tx *testbedTransaction) (
 		return nil, err
 	}
 
-	var domainData []byte
-	if tx.ptx.PostAssembly.DomainData != nil {
-		domainData = []byte(*tx.ptx.PostAssembly.DomainData)
-	}
+	domainReceipt, _ := tx.psc.Domain().BuildDomainReceipt(ctx, nil, tx.ptx.ID, mapStatesForReceipt(tx))
 
 	return &TransactionResult{
 		ID:                  tx.ptx.ID,
@@ -433,7 +466,7 @@ func (tb *testbed) mapTransaction(ctx context.Context, tx *testbedTransaction) (
 		OutputStates:        outputStates,
 		ReadStates:          readStates,
 		InfoStates:          infoStates,
-		DomainData:          domainData,
+		DomainReceipt:       domainReceipt,
 	}, nil
 }
 
@@ -496,8 +529,8 @@ func (tb *testbed) rpcResolveVerifier() rpcserver.RPCHandler {
 func (tb *testbed) rpcTestbedCall() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod2(func(ctx context.Context,
 		invocation *pldapi.TransactionInput,
-		dataFormat tktypes.JSONFormatOptions,
-	) (tktypes.RawJSON, error) {
+		dataFormat pldtypes.JSONFormatOptions,
+	) (pldtypes.RawJSON, error) {
 		tx, err := tb.newTestbedTransaction(ctx, invocation, prototk.TransactionSpecification_CALL)
 		if err != nil {
 			return nil, err
@@ -513,10 +546,10 @@ func (tb *testbed) rpcTestbedCall() rpcserver.RPCHandler {
 			return nil, err
 		}
 
-		dCtx := tb.c.StateManager().NewDomainContext(ctx, tx.psc.Domain(), tx.psc.Address())
-		defer dCtx.Close()
+		dqc := tb.c.StateManager().NewDomainQueryContext(ctx, tx.psc.Domain(), tx.psc.Address())
+		defer dqc.Close(ctx)
 
-		cv, err := tx.psc.ExecCall(dCtx, tb.c.Persistence().NOTX(), tx.localTx, resolvedVerifiers)
+		cv, err := tx.psc.ExecCall(ctx, dqc, tb.c.Persistence().NOTX(), tx.localTx, resolvedVerifiers)
 		if err != nil {
 			return nil, err
 		}

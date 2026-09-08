@@ -1,0 +1,88 @@
+// Copyright contributors to Paladin, an LFDT project
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import { Button, Grid2 as Grid } from '@mui/material';
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { NotoDeployDialog } from '../dialogs/domains/noto/NotoDeploy';
+import { ZetoDeployDialog } from '../dialogs/domains/zeto/ZetoDeploy';
+import UploadIcon from '@mui/icons-material/Upload';
+
+type Props = {
+  domainName: string;
+};
+
+interface DeployButton {
+  action: () => void;
+}
+
+export const DomainDeploy: React.FC<Props> = ({ domainName }) => {
+  const { t } = useTranslation();
+  const [button, setButton] = useState<DeployButton>();
+  const [notoDeployModalOpen, setNotoDeployModalOpen] = useState(false);
+  const [zetoDeployModalOpen, setZetoDeployModalOpen] = useState(false);
+
+  useEffect(() => {
+    // TODO: should key off of the domain "type" instead of expecting a specific name
+    switch (domainName) {
+      case 'noto': {
+        setButton({
+          action: () => setNotoDeployModalOpen(true),
+        });
+        break;
+      }
+      case 'zeto': {
+        setButton({
+          action: () => setZetoDeployModalOpen(true),
+        });
+        break;
+      }
+    }
+  }, [domainName]);
+
+  return (
+    <>
+      <Grid>
+        {button && (
+          <Button
+            size="small"
+            variant="outlined"
+            sx={{ borderRadius: '20px', minWidth: '120px' }}
+            onClick={button.action}
+            disabled={domainName === 'pente'}
+            startIcon={<UploadIcon />}
+            >
+            {t('deployNew')}
+          </Button>
+        )}
+      </Grid>
+
+      {notoDeployModalOpen && (
+        <NotoDeployDialog
+          onClose={() => setNotoDeployModalOpen(false)}
+          domain={domainName}
+        />
+      )}
+
+      {zetoDeployModalOpen && (
+        <ZetoDeployDialog
+          onClose={() => setZetoDeployModalOpen(false)}
+          domain={domainName}
+        />
+      )}
+    </>
+  );
+};

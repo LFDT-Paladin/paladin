@@ -21,14 +21,16 @@ import (
 	"hash/fnv"
 
 	// Import pq driver
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"gorm.io/gorm"
 )
 
 type Persistence interface {
-	DB() *gorm.DB
+	// DB returns the shared gorm handle bound to ctx. The bind is the single unavoidable
+	// context attach for ad-hoc/non-transactional queries; call sites must not add .WithContext.
+	DB(ctx context.Context) *gorm.DB
 	Close()
 
 	// We provide our own transaction wrapper with extra functions over gORM

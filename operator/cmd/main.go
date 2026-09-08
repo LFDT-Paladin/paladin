@@ -36,8 +36,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	corev1alpha1 "github.com/kaleido-io/paladin/operator/api/v1alpha1"
-	"github.com/kaleido-io/paladin/operator/internal/controller"
+	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
+	"github.com/LFDT-Paladin/paladin/operator/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -127,19 +127,22 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+	rpcClientManager := controller.NewRPCCache()
 
 	if err = (&controller.PaladinReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Changes: controller.NewInFlight(30 * time.Second),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		RPCClientManager: rpcClientManager,
+		Changes:          controller.NewInFlight(30 * time.Second),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Paladin")
 		os.Exit(1)
 	}
-	if err = (&controller.SmartContractDeploymentReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	if err = (controller.NewSmartContractDeploymentReconciler(
+		mgr.GetClient(),
+		rpcClientManager,
+		mgr.GetScheme(),
+	)).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SmartContractDeployment")
 		os.Exit(1)
 	}
@@ -172,15 +175,17 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.PaladinRegistrationReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		RPCClientManager: rpcClientManager,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PaladinRegistration")
 		os.Exit(1)
 	}
 	if err = (&controller.TransactionInvokeReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		RPCClientManager: rpcClientManager,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TransactionInvoke")
 		os.Exit(1)

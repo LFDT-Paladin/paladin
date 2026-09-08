@@ -21,19 +21,20 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/mocks/componentmocks"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcclient"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -62,7 +63,7 @@ func newTestRPCServer(t *testing.T, ctx context.Context, gm *groupManager) rpccl
 
 func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 
-	contractAddr := tktypes.RandAddress()
+	contractAddr := pldtypes.RandAddress()
 	ctx, gm, _, done := newTestGroupManager(t, true, &pldconf.GroupManagerConfig{}, func(mc *mockComponents, conf *pldconf.GroupManagerConfig) {
 		mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").
 			Return([]*components.RegistryNodeTransportEntry{ /* contents not checked */ }, nil)
@@ -93,17 +94,17 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 		mc.txManager.On("SendTransactions", mock.Anything, mock.Anything, mock.Anything).
 			Return([]uuid.UUID{deployTXID}, nil).
 			Run(func(args mock.Arguments) {
-				tx := args[2].(*pldapi.TransactionInput)
+				tx := args[2].([]*pldapi.TransactionInput)[0]
 				assert.Regexp(t, `domains\.domain1\.pgroupinit\.0x[0-9a-f]{32}`, tx.From)
 				assert.Equal(t, "tx_1", tx.IdempotencyKey)
 				assert.Equal(t, uint64(12345), tx.PublicTxOptions.Gas.Uint64())
 			}).Once()
 
 		// Validate the state send gets the correct data
-		mc.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.MatchedBy(func(rm *pldapi.ReliableMessage) bool {
-			return rm.MessageType.V() == pldapi.RMTPrivacyGroup
+		mc.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.MatchedBy(func(rm []*pldapi.ReliableMessage) bool {
+			return rm[0].MessageType.V() == pldapi.RMTPrivacyGroup
 		})).Return(nil).Run(func(args mock.Arguments) {
-			msg := args[2].(*pldapi.ReliableMessage)
+			msg := args[2].([]*pldapi.ReliableMessage)[0]
 			require.Equal(t, pldapi.RMTPrivacyGroup, msg.MessageType.V())
 			var pgd *components.PrivacyGroupDistribution
 			err := json.Unmarshal(msg.Metadata, &pgd)
@@ -114,7 +115,7 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 			require.Equal(t, deployTXID, pgd.GenesisTransaction)
 		})
 
-		psc := componentmocks.NewDomainSmartContract(t)
+		psc := componentsmocks.NewDomainSmartContract(t)
 		mc.domainManager.On("GetSmartContractByAddress", mock.Anything, mock.Anything, *contractAddr).Return(psc, nil)
 
 		mwpgt1 := psc.On("WrapPrivacyGroupEVMTX", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Once()
@@ -123,7 +124,7 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 				TransactionBase: pldapi.TransactionBase{
 					Type: pldapi.TransactionTypePrivate.Enum(),
 					From: `my.key`,
-					Data: tktypes.RawJSON(`{"wrapped":"transaction"}`),
+					Data: pldtypes.RawJSON(`{"wrapped":"transaction"}`),
 				},
 			}, nil)
 		})
@@ -132,7 +133,7 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 		mc.txManager.On("SendTransactions", mock.Anything, mock.Anything, mock.Anything).
 			Return([]uuid.UUID{tx1ID}, nil).
 			Run(func(args mock.Arguments) {
-				tx := args[2].(*pldapi.TransactionInput)
+				tx := args[2].([]*pldapi.TransactionInput)[0]
 				assert.Regexp(t, `my.key`, tx.From)
 				assert.Equal(t, "pgtx_deploy", tx.IdempotencyKey)
 				assert.JSONEq(t, `{"wrapped":"transaction"}`, tx.Data.Pretty())
@@ -142,9 +143,9 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 		mwpgt2.Run(func(args mock.Arguments) {
 			mwpgt2.Return(&pldapi.TransactionInput{
 				TransactionBase: pldapi.TransactionBase{
-					To:   tktypes.RandAddress(),
+					To:   pldtypes.RandAddress(),
 					Type: pldapi.TransactionTypePrivate.Enum(),
-					Data: tktypes.RawJSON(`{"wrapped":"call"}`),
+					Data: pldtypes.RawJSON(`{"wrapped":"call"}`),
 				},
 			}, nil)
 		})
@@ -156,13 +157,13 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 				assert.Empty(t, tx.From)
 				assert.NotNil(t, tx.To)
 				assert.JSONEq(t, `{"wrapped":"call"}`, tx.Data.Pretty())
-				res := args[2].(*tktypes.RawJSON)
-				*res = tktypes.RawJSON(`{"call":"result"}`)
+				res := args[2].(*pldtypes.RawJSON)
+				*res = pldtypes.RawJSON(`{"call":"result"}`)
 			}).Once()
 
 		// Validate we also get a send reliable for the message
-		mc.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.MatchedBy(func(rm *pldapi.ReliableMessage) bool {
-			return rm.MessageType.V() == pldapi.RMTPrivacyGroupMessage
+		mc.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.MatchedBy(func(rm []*pldapi.ReliableMessage) bool {
+			return rm[0].MessageType.V() == pldapi.RMTPrivacyGroupMessage
 		})).Return(nil)
 	})
 	defer done()
@@ -178,7 +179,7 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 		TransactionOptions: &pldapi.PrivacyGroupTXOptions{
 			IdempotencyKey: "tx_1",
 			PublicTxOptions: pldapi.PublicTxOptions{
-				Gas: confutil.P(tktypes.HexUint64(12345)),
+				Gas: confutil.P(pldtypes.HexUint64(12345)),
 			},
 		},
 	})
@@ -196,10 +197,10 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 	require.Equal(t, []string{"me@node1", "you@node2"}, groups[0].Members) // enriched from members table
 
 	// Simulate completion of the transaction so we have the contract address
-	err = gm.p.DB().Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, contract_address) VALUES ( ?, ?, ?, ?, ? )`,
+	err = gm.p.DB(ctx).Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, contract_address) VALUES ( ?, ?, ?, ?, ? )`,
 		groups[0].GenesisTransaction,
 		groups[0].Domain,
-		tktypes.TimestampNow(),
+		pldtypes.TimestampNow(),
 		true,
 		contractAddr,
 	).Error
@@ -239,10 +240,10 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 			From:     "my.key",
 			To:       nil, // simulate is a deploy inside the privacy group
 			Function: &abi.Entry{Type: abi.Constructor, Inputs: abi.ParameterArray{{Type: "string", Name: "input1"}}},
-			Gas:      confutil.P(tktypes.HexUint64(12345)),
-			Value:    tktypes.Int64ToInt256(123456789),
-			Input:    tktypes.RawJSON(`{"input1": "value1"}`),
-			Bytecode: tktypes.MustParseHexBytes(`0xfeedbeef`),
+			Gas:      confutil.P(pldtypes.HexUint64(12345)),
+			Value:    pldtypes.Int64ToInt256(123456789),
+			Input:    pldtypes.RawJSON(`{"input1": "value1"}`),
+			Bytecode: pldtypes.MustParseHexBytes(`0xfeedbeef`),
 		},
 	})
 	require.NoError(t, err)
@@ -253,7 +254,7 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 		Domain: "domain1",
 		Group:  group.ID,
 		PrivacyGroupEVMTX: pldapi.PrivacyGroupEVMTX{
-			To:       tktypes.RandAddress(),
+			To:       pldtypes.RandAddress(),
 			Function: &abi.Entry{Type: abi.Function, Name: "getThing"},
 		},
 	})
@@ -265,7 +266,7 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 	msgID, err := pgroupRPC.SendMessage(ctx, &pldapi.PrivacyGroupMessageInput{
 		Domain:        "domain1",
 		Group:         groupID,
-		Data:          tktypes.JSONString("some data"),
+		Data:          pldtypes.JSONString("some data"),
 		Topic:         "my/topic",
 		CorrelationID: &cid,
 	})
@@ -283,6 +284,37 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 	require.Len(t, msgByCID, 1)
 	require.Equal(t, msgID, msgByCID[0].ID)
 
+}
+
+func TestRPCInvokeRPCError(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	client := newTestRPCServer(t, ctx, gm)
+
+	var result pldtypes.RawJSON
+	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", pldtypes.HexBytes(pldtypes.RandBytes(32)), pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "PD012502", rpcErr)
+}
+
+func TestRPCInvokeRPCOK(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(pldtypes.RawJSON(`"0xdeadbeef"`), nil)
+
+	client := newTestRPCServer(t, ctx, gm)
+
+	var result pldtypes.RawJSON
+	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	require.NoError(t, rpcErr)
+	assert.Equal(t, pldtypes.RawJSON(`"0xdeadbeef"`), result)
 }
 
 func TestRCPMessageListenersCRUDRealDB(t *testing.T) {
@@ -361,7 +393,7 @@ func TestRCPMessageListenersCRUDRealDB(t *testing.T) {
 	gm.messagesInit()
 
 	// Force persistent state to be started
-	err = gm.p.DB().Model(&persistedMessageListener{}).
+	err = gm.p.DB(ctx).Model(&persistedMessageListener{}).
 		Where("name = ?", "listener1").Update("started", true).Error
 	require.NoError(t, err)
 

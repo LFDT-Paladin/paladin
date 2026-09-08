@@ -21,29 +21,29 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/filters"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/retry"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 type persistedMessageListener struct {
-	Name    string            `gorm:"column:name"`
-	Created tktypes.Timestamp `gorm:"column:created"`
-	Started *bool             `gorm:"column:started"`
-	Filters tktypes.RawJSON   `gorm:"column:filters"`
-	Options tktypes.RawJSON   `gorm:"column:options"`
+	Name    string             `gorm:"column:name"`
+	Created pldtypes.Timestamp `gorm:"column:created"`
+	Started *bool              `gorm:"column:started"`
+	Filters pldtypes.RawJSON   `gorm:"column:filters"`
+	Options pldtypes.RawJSON   `gorm:"column:options"`
 }
 
 var messageListenerFilters = filters.FieldMap{
@@ -57,9 +57,9 @@ func (persistedMessageListener) TableName() string {
 }
 
 type persistedMessageCheckpoint struct {
-	Listener string            `gorm:"column:listener"`
-	Sequence uint64            `gorm:"column:sequence"`
-	Time     tktypes.Timestamp `gorm:"column:time"`
+	Listener string             `gorm:"column:listener"`
+	Sequence uint64             `gorm:"column:sequence"`
+	Time     pldtypes.Timestamp `gorm:"column:time"`
 }
 
 func (persistedMessageCheckpoint) TableName() string {
@@ -78,11 +78,12 @@ type messageListener struct {
 
 	newMessages chan bool
 
-	nextBatchID  uint64
-	newReceivers chan bool
-	receiverLock sync.Mutex
-	receivers    []*registeredMessageReceiver
-	done         chan struct{}
+	nextBatchID      uint64
+	newReceivers     chan bool
+	receiverLock     sync.Mutex
+	receivers        []*registeredMessageReceiver
+	pendingReceivers []*registeredMessageReceiver
+	done             chan struct{}
 }
 
 type registeredMessageReceiver struct {
@@ -121,7 +122,7 @@ func (pm *persistedMessage) mapToAPI() *pldapi.PrivacyGroupMessage {
 }
 
 func (gm *groupManager) CreateMessageListener(ctx context.Context, spec *pldapi.PrivacyGroupMessageListener) error {
-
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	log.L(ctx).Infof("Creating message listener '%s'", spec.Name)
 	if _, err := gm.validateListenerSpec(ctx, spec); err != nil {
 		return err
@@ -131,12 +132,11 @@ func (gm *groupManager) CreateMessageListener(ctx context.Context, spec *pldapi.
 	dbSpec := &persistedMessageListener{
 		Name:    spec.Name,
 		Started: &started,
-		Created: tktypes.TimestampNow(),
-		Filters: tktypes.JSONString(&spec.Filters),
-		Options: tktypes.JSONString(&spec.Options),
+		Created: pldtypes.TimestampNow(),
+		Filters: pldtypes.JSONString(&spec.Filters),
+		Options: pldtypes.JSONString(&spec.Options),
 	}
-	if insertErr := gm.p.DB().
-		WithContext(ctx).
+	if insertErr := gm.p.DB(ctx).
 		Create(dbSpec).
 		Error; insertErr != nil {
 
@@ -163,7 +163,12 @@ func (rr *registeredMessageReceiver) Close() {
 	rr.l.removeReceiver(rr.id)
 }
 
+func (rr *registeredMessageReceiver) SetActive() {
+	rr.l.setActive(rr)
+}
+
 func (gm *groupManager) AddMessageReceiver(ctx context.Context, name string, r components.PrivacyGroupMessageReceiver) (components.PrivacyGroupMessageReceiverCloser, error) {
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	gm.messageListenerLock.Lock()
 	defer gm.messageListenerLock.Unlock()
 
@@ -176,7 +181,7 @@ func (gm *groupManager) AddMessageReceiver(ctx context.Context, name string, r c
 }
 
 func (gm *groupManager) GetMessageListener(ctx context.Context, name string) *pldapi.PrivacyGroupMessageListener {
-
+	// ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	gm.messageListenerLock.Lock()
 	defer gm.messageListenerLock.Unlock()
 
@@ -206,8 +211,7 @@ func (gm *groupManager) setMessageListenerStatus(ctx context.Context, name strin
 	if l == nil {
 		return i18n.NewError(ctx, msgs.MsgPGroupsMessageListenerNotLoaded, name)
 	}
-	err := gm.p.DB().
-		WithContext(ctx).
+	err := gm.p.DB(ctx).
 		Model(&persistedMessageListener{}).
 		Where("name = ?", name).
 		Update("started", started).
@@ -235,8 +239,7 @@ func (gm *groupManager) DeleteMessageListener(ctx context.Context, name string) 
 
 	l.stop()
 
-	err := gm.p.DB().
-		WithContext(ctx).
+	err := gm.p.DB(ctx).
 		Where("name = ?", name).
 		Delete(&persistedMessageListener{}).
 		Error
@@ -287,8 +290,7 @@ func (gm *groupManager) loadMessageListeners() error {
 	for {
 
 		var page []*persistedMessageListener
-		q := gm.p.DB().
-			WithContext(ctx).
+		q := gm.p.DB(ctx).
 			Order("name").
 			Limit(gm.messageListenersLoadPageSize)
 		if lastPageEnd != nil {
@@ -349,7 +351,7 @@ func (gm *groupManager) stopMessageListeners() {
 }
 
 func (gm *groupManager) validateListenerSpec(ctx context.Context, spec *pldapi.PrivacyGroupMessageListener) (topicMatch *regexp.Regexp, err error) {
-	if err := tktypes.ValidateSafeCharsStartEndAlphaNum(ctx, spec.Name, tktypes.DefaultNameMaxLen, "name"); err != nil {
+	if err := pldtypes.ValidateSafeCharsStartEndAlphaNum(ctx, spec.Name, pldtypes.DefaultNameMaxLen, "name"); err != nil {
 		return nil, err
 	}
 
@@ -494,35 +496,53 @@ func (l *messageListener) addReceiver(r components.PrivacyGroupMessageReceiver) 
 		l:                           l,
 		PrivacyGroupMessageReceiver: r,
 	}
-	l.receivers = append(l.receivers, registered)
+	l.pendingReceivers = append(l.pendingReceivers, registered)
+
+	return registered
+}
+
+func (l *messageListener) setActive(receiver *registeredMessageReceiver) {
+	l.receiverLock.Lock()
+	defer l.receiverLock.Unlock()
+
+	for _, existing := range l.receivers {
+		if existing.id == receiver.id {
+			return // already active
+		}
+	}
+	l.receivers = append(l.receivers, receiver)
+	l.pendingReceivers = l.removeReceiverFromList(l.pendingReceivers, receiver.id)
 
 	select {
 	case l.newReceivers <- true:
 	default:
 	}
-
-	return registered
 }
 
 func (l *messageListener) removeReceiver(rid uuid.UUID) {
 	l.receiverLock.Lock()
 	defer l.receiverLock.Unlock()
 
-	if len(l.receivers) > 0 {
-		newReceivers := make([]*registeredMessageReceiver, 0, len(l.receivers)-1)
-		for _, existing := range l.receivers {
-			if existing.id != rid {
-				newReceivers = append(newReceivers, existing)
-			}
-		}
-		l.receivers = newReceivers
+	l.receivers = l.removeReceiverFromList(l.receivers, rid)
+	l.pendingReceivers = l.removeReceiverFromList(l.pendingReceivers, rid)
+}
+
+func (l *messageListener) removeReceiverFromList(receivers []*registeredMessageReceiver, rid uuid.UUID) []*registeredMessageReceiver {
+	if len(receivers) == 0 {
+		return receivers
 	}
+	newReceivers := make([]*registeredMessageReceiver, 0, len(receivers))
+	for _, existing := range receivers {
+		if existing.id != rid {
+			newReceivers = append(newReceivers, existing)
+		}
+	}
+	return newReceivers
 }
 
 func (l *messageListener) loadCheckpoint() error {
 	var checkpoints []*persistedMessageCheckpoint
-	err := l.gm.p.DB().
-		WithContext(l.ctx).
+	err := l.gm.p.DB(l.ctx).
 		Where("listener = ?", l.spec.Name).
 		Limit(1).
 		Find(&checkpoints).
@@ -548,7 +568,7 @@ func (l *messageListener) loadCheckpoint() error {
 func (l *messageListener) readPage() ([]*persistedMessage, error) {
 	var messages []*persistedMessage
 	err := l.gm.messagesRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-		db := l.gm.p.DB()
+		db := l.gm.p.DB(l.ctx)
 		q := l.gm.buildListenerDBQuery(l.spec, db)
 		if l.checkpoint != nil {
 			q = q.Where(`"pgroup_msgs"."local_seq" > ?`, *l.checkpoint)
@@ -603,8 +623,7 @@ func (l *messageListener) deliverBatch(b *messageDeliveryBatch) error {
 
 func (l *messageListener) updateCheckpoint(newSequence uint64) error {
 	return l.gm.p.Transaction(l.ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		err := dbTX.DB().
-			WithContext(ctx).
+		err := dbTX.DB(ctx).
 			Clauses(clause.OnConflict{
 				Columns: []clause.Column{
 					{Name: "listener"},
@@ -617,7 +636,7 @@ func (l *messageListener) updateCheckpoint(newSequence uint64) error {
 			Create(&persistedMessageCheckpoint{
 				Listener: l.spec.Name,
 				Sequence: newSequence,
-				Time:     tktypes.TimestampNow(),
+				Time:     pldtypes.TimestampNow(),
 			}).
 			Error
 		if err != nil {

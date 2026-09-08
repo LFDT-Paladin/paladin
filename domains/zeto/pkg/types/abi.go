@@ -18,8 +18,8 @@ package types
 import (
 	_ "embed"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/solutils"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 )
 
 //go:embed abis/IZetoFungible.json
@@ -32,17 +32,31 @@ var ZetoFungibleABI = solutils.MustParseBuildABI(zetoFungibleJSON)
 
 var ZetoNonFungibleABI = solutils.MustParseBuildABI(zetoNonFungibleJSON)
 
+const (
+	METHOD_MINT            = "mint"
+	METHOD_TRANSFER        = "transfer"
+	METHOD_TRANSFER_LOCKED = "transferLocked"
+	METHOD_LOCK            = "lock"
+	METHOD_DEPOSIT         = "deposit"
+	METHOD_WITHDRAW        = "withdraw"
+	METHOD_BALANCE_OF      = "balanceOf"
+)
+
 type InitializerParams struct {
+	Name      string `json:"name"`
+	Symbol    string `json:"symbol"`
 	TokenName string `json:"tokenName"`
 	// InitialOwner string `json:"initialOwner"` // TODO: allow the initial owner to be specified by the deploy request
 }
 
 type DeployParams struct {
-	TransactionID string           `json:"transactionId"`
-	Data          tktypes.HexBytes `json:"data"`
-	TokenName     string           `json:"tokenName"`
-	InitialOwner  string           `json:"initialOwner"`
-	IsNonFungible bool             `json:"isNonFungible"`
+	TransactionID string            `json:"transactionId"`
+	Data          pldtypes.HexBytes `json:"data"`
+	TokenName     string            `json:"tokenName"`
+	Name          string            `json:"name"`
+	Symbol        string            `json:"symbol"`
+	InitialOwner  string            `json:"initialOwner"`
+	IsNonFungible bool              `json:"isNonFungible"`
 }
 
 type NonFungibleMintParams struct {
@@ -52,13 +66,21 @@ type NonFungibleMintParams struct {
 type FungibleMintParams struct {
 	Mints []*FungibleTransferParamEntry `json:"mints"`
 }
+
 type FungibleTransferParams struct {
 	Transfers []*FungibleTransferParamEntry `json:"transfers"`
 }
 
 type FungibleTransferParamEntry struct {
-	To     string              `json:"to"`
-	Amount *tktypes.HexUint256 `json:"amount"`
+	To     string               `json:"to"`
+	Amount *pldtypes.HexUint256 `json:"amount"`
+	Data   pldtypes.HexBytes    `json:"data"`
+}
+
+type FungibleTransferLockedParams struct {
+	LockedInputs []*pldtypes.HexUint256        `json:"lockedInputs"`
+	Delegate     string                        `json:"delegate"`
+	Transfers    []*FungibleTransferParamEntry `json:"transfers"`
 }
 
 type NonFungibleTransferParams struct {
@@ -66,20 +88,30 @@ type NonFungibleTransferParams struct {
 }
 
 type NonFungibleTransferParamEntry struct {
-	To      string              `json:"to"`
-	URI     string              `json:"uri,omitempty"`
-	TokenID *tktypes.HexUint256 `json:"tokenID"`
+	To      string               `json:"to"`
+	URI     string               `json:"uri,omitempty"`
+	TokenID *pldtypes.HexUint256 `json:"tokenID"`
 }
 
 type LockParams struct {
-	Delegate *tktypes.EthAddress `json:"delegate"`
-	Call     tktypes.HexBytes    `json:"call"`
+	Amount   *pldtypes.HexUint256 `json:"amount"`
+	Delegate *pldtypes.EthAddress `json:"delegate"`
 }
 
 type DepositParams struct {
-	Amount *tktypes.HexUint256 `json:"amount"`
+	Amount *pldtypes.HexUint256 `json:"amount"`
 }
 
 type WithdrawParams struct {
-	Amount *tktypes.HexUint256 `json:"amount"`
+	Amount *pldtypes.HexUint256 `json:"amount"`
+}
+
+type FungibleBalanceOfParam struct {
+	Account string `json:"account"`
+}
+
+type BalanceOfResult struct {
+	TotalBalance *pldtypes.HexUint256 `json:"totalBalance"`
+	TotalStates  *pldtypes.HexUint256 `json:"totalStates"`
+	Overflow     bool                 `json:"overflow"`
 }

@@ -74,10 +74,24 @@ describe("PentePrivacyGroup", function () {
     );
     const configBytes = concat([configTypeBytes, config]);
 
-    const PenteFactory = await hre.ethers.getContractFactory("PenteFactory");
-    const penteFactory = await (
-      await PenteFactory.connect(deployer).deploy()
+    // Deploy the factory implementation
+    const PenteFactoryImpl = await hre.ethers.getContractFactory("PenteFactory");
+    const penteFactoryImpl = await (
+      await PenteFactoryImpl.connect(deployer).deploy()
     ).waitForDeployment();
+
+    // Deploy the factory proxy with initialize calldata
+    const ERC1967Proxy = await hre.ethers.getContractFactory("ERC1967Proxy");
+    const initData = PenteFactoryImpl.interface.encodeFunctionData("initialize");
+    const proxy = await (
+      await ERC1967Proxy.connect(deployer).deploy(
+        await penteFactoryImpl.getAddress(),
+        initData
+      )
+    ).waitForDeployment();
+
+    // Get factory interface at proxy address
+    const penteFactory = PenteFactoryImpl.attach(await proxy.getAddress());
 
     // Invoke the factory function to create the actual PentePrivacyGroup
     const deployTxId = randBytes32();
@@ -86,14 +100,17 @@ describe("PentePrivacyGroup", function () {
         .connect(deployer)
         .newPrivacyGroup(deployTxId, configBytes)
     ).wait();
-    expect(factoryTX?.logs).to.have.lengthOf(2);
-
-    // It should emit an event declaring its existence, linking back to the domain
-    const deployEvent = PenteFactory.interface.parseLog(factoryTX!.logs[1]);
-    expect(factoryTX!.logs[1].address).to.equal(
-      await penteFactory.getAddress()
+    // Find the PaladinRegisterSmartContract_V0 event
+    const factoryAddress = await penteFactory.getAddress();
+    const deployEventLog = factoryTX!.logs.find(
+      (log) =>
+        log.address === factoryAddress &&
+        PenteFactoryImpl.interface.parseLog(log)?.name ===
+          "PaladinRegisterSmartContract_V0"
     );
-    expect(deployEvent?.name).to.equal("PaladinRegisterSmartContract_V0");
+    expect(deployEventLog).to.not.be.undefined;
+
+    const deployEvent = PenteFactoryImpl.interface.parseLog(deployEventLog!);
     expect(deployEvent?.args.toObject()["txId"]).to.equal(deployTxId);
     expect(deployEvent?.args.toObject()["config"]).to.equal(configBytes);
     const privacyGroupAddress = deployEvent?.args.toObject()["instance"];
@@ -135,25 +152,13 @@ describe("PentePrivacyGroup", function () {
       outputs: stateSet1,
       info: info1,
     };
-    await expect(
-      privacyGroup.transition(
-        tx1ID,
-        tx1,
-        [],
-        endorsements1
-      )
-    )
+    await expect(privacyGroup.transition(tx1ID, tx1, [], endorsements1))
       .to.emit(privacyGroup, "PenteTransition")
       .withArgs(tx1ID, [], [], stateSet1, info1);
 
     // Rejects duplicate
     await expect(
-      privacyGroup.transition(
-        tx1ID,
-        tx1,
-        [],
-        endorsements1
-      )
+      privacyGroup.transition(tx1ID, tx1, [], endorsements1)
     ).to.be.rejectedWith("PenteDuplicateTransaction");
 
     const stateSet2 = [randBytes32(), randBytes32(), randBytes32()];

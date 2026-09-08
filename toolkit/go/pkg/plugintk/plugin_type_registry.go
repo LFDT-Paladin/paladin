@@ -17,9 +17,9 @@ package plugintk
 import (
 	"context"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tkmsgs"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"google.golang.org/grpc"
 	pb "google.golang.org/protobuf/proto"
 )
@@ -115,6 +115,7 @@ func (th *registryHandler) RequestToPlugin(ctx context.Context, iReq PluginMessa
 	var err error
 	switch input := req.RequestToRegistry.(type) {
 	case *prototk.RegistryMessage_ConfigureRegistry:
+		applyLogLevel(input.ConfigureRegistry.LogLevel)
 		resMsg := &prototk.RegistryMessage_ConfigureRegistryRes{}
 		resMsg.ConfigureRegistryRes, err = th.api.ConfigureRegistry(ctx, input.ConfigureRegistry)
 		res.ResponseFromRegistry = resMsg
@@ -123,9 +124,14 @@ func (th *registryHandler) RequestToPlugin(ctx context.Context, iReq PluginMessa
 		resMsg.HandleRegistryEventsRes, err = th.api.HandleRegistryEvents(ctx, input.HandleRegistryEvents)
 		res.ResponseFromRegistry = resMsg
 	default:
-		err = i18n.NewError(ctx, tkmsgs.MsgPluginUnsupportedRequest, input)
+		err = i18n.NewError(ctx, pldmsgs.MsgPluginUnsupportedRequest, input)
 	}
 	return th.Wrap(res), err
+}
+
+func (dh *registryHandler) ClosePlugin(ctx context.Context) (PluginMessage[prototk.RegistryMessage], error) {
+	// Not implemented
+	return nil, nil
 }
 
 func (dh *registryHandler) UpsertRegistryRecords(ctx context.Context, req *prototk.UpsertRegistryRecordsRequest) (*prototk.UpsertRegistryRecordsResponse, error) {

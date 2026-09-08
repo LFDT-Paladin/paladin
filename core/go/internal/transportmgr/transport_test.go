@@ -22,14 +22,14 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -53,9 +53,9 @@ func newTestPlugin(transportFuncs *plugintk.TransportAPIFunctions) *testPlugin {
 	}
 }
 
-func newTestTransport(t *testing.T, realDB bool, extraSetup ...func(mc *mockComponents, conf *pldconf.TransportManagerConfig)) (context.Context, *transportManager, *testPlugin, func()) {
+func newTestTransport(t *testing.T, realDB bool, extraSetup ...func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig)) (context.Context, *transportManager, *testPlugin, func()) {
 
-	conf := &pldconf.TransportManagerConfig{
+	conf := &pldconf.TransportManagerInlineConfig{
 		NodeName: "node1",
 		Transports: map[string]*pldconf.TransportConfig{
 			"test1": {
@@ -119,12 +119,12 @@ func testMessage() *components.FireAndForgetMessageSend {
 	return &components.FireAndForgetMessageSend{
 		Node:          "node2",
 		CorrelationID: confutil.P(uuid.New()),
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("something"),
 	}
 }
 
-func mockEmptyReliableMsgs(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+func mockEmptyReliableMsgs(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 	mc.db.Mock.ExpectQuery("SELECT.*reliable_msgs").WillReturnRows(sqlmock.NewRows([]string{}))
 	mc.db.Mock.MatchExpectationsInOrder(false)
 }
@@ -138,7 +138,7 @@ func mockActivateDeactivateOk(tp *testPlugin) {
 	}
 }
 
-func mockGoodTransport(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+func mockGoodTransport(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 	mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").Return([]*components.RegistryNodeTransportEntry{
 		{
 			Node:      "node2",
@@ -176,7 +176,7 @@ func TestSendMessage(t *testing.T) {
 func TestSendMessageNotInit(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").Return([]*components.RegistryNodeTransportEntry{
 				{
 					Node:      "node1",
@@ -200,7 +200,7 @@ func TestSendMessageNotInit(t *testing.T) {
 func TestSendMessageFail(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockEmptyReliableMsgs,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").Return([]*components.RegistryNodeTransportEntry{
 				{
 					Node:      "node1",
@@ -227,7 +227,7 @@ func TestSendMessageFail(t *testing.T) {
 }
 
 func TestSendMessageDestNotFound(t *testing.T) {
-	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 		mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").Return(nil, fmt.Errorf("not found"))
 	})
 	defer done()
@@ -240,7 +240,7 @@ func TestSendMessageDestNotFound(t *testing.T) {
 }
 
 func TestSendMessageDestNotAvailable(t *testing.T) {
-	ctx, tm, tp, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+	ctx, tm, tp, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 		mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").Return([]*components.RegistryNodeTransportEntry{
 			{
 				Node:      "node1",
@@ -269,7 +269,7 @@ func TestSendMessageDestNotAvailable(t *testing.T) {
 }
 
 func TestGetTransportDetailsOk(t *testing.T) {
-	ctx, _, tp, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+	ctx, _, tp, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 		mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").Return([]*components.RegistryNodeTransportEntry{
 			{
 				Node:      "node1",
@@ -319,8 +319,8 @@ func TestSendInvalidMessageNoPayload(t *testing.T) {
 func TestReceiveMessageTransactionEngine(t *testing.T) {
 	receivedMessages := make(chan *components.ReceivedMessage, 1)
 
-	ctx, _, tp, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
-		mc.privateTxManager.On("HandlePaladinMsg", mock.Anything, mock.Anything).Return().Run(func(args mock.Arguments) {
+	ctx, _, tp, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+		mc.sequencerManager.On("HandlePaladinMsg", mock.Anything, mock.Anything).Return().Run(func(args mock.Arguments) {
 			receivedMessages <- args[1].(*components.ReceivedMessage)
 		})
 	})
@@ -330,7 +330,7 @@ func TestReceiveMessageTransactionEngine(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_TRANSACTION_ENGINE,
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 
@@ -347,7 +347,7 @@ func TestReceiveMessageTransactionEngine(t *testing.T) {
 func TestReceiveMessageIdentityResolver(t *testing.T) {
 	receivedMessages := make(chan *components.ReceivedMessage, 1)
 
-	ctx, _, tp, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+	ctx, _, tp, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 		mc.identityResolver.On("HandlePaladinMsg", mock.Anything, mock.Anything).Return().Run(func(args mock.Arguments) {
 			receivedMessages <- args[1].(*components.ReceivedMessage)
 		})
@@ -358,7 +358,7 @@ func TestReceiveMessageIdentityResolver(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_IDENTITY_RESOLVER,
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 
@@ -380,7 +380,7 @@ func TestReceiveMessageInvalidComponent(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_Component(42),
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 
@@ -399,7 +399,7 @@ func TestReceiveMessageInvalidNode(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_Component(42),
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 
@@ -420,7 +420,7 @@ func TestReceiveMessageNotInit(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_TRANSACTION_ENGINE,
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 	_, err := tp.t.ReceiveMessage(ctx, &prototk.ReceiveMessageRequest{
@@ -447,7 +447,7 @@ func TestReceiveMessageBadDestination(t *testing.T) {
 	msg := &prototk.PaladinMsg{
 		MessageId:   uuid.NewString(),
 		Component:   prototk.PaladinMsg_Component(42),
-		MessageType: "myMessageType",
+		MessageType: "test-message-type",
 		Payload:     []byte("some data"),
 	}
 	_, err := tp.t.ReceiveMessage(ctx, &prototk.ReceiveMessageRequest{
@@ -463,7 +463,7 @@ func TestReceiveMessageBadMsgID(t *testing.T) {
 
 	msg := &prototk.PaladinMsg{
 		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
-		MessageType: "myMessageType",
+		MessageType: "test-message-type",
 		Payload:     []byte("some data"),
 	}
 	_, err := tp.t.ReceiveMessage(ctx, &prototk.ReceiveMessageRequest{
@@ -480,7 +480,7 @@ func TestReceiveMessageBadCorrelID(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P("wrong"),
 		Component:     prototk.PaladinMsg_TRANSACTION_ENGINE,
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 	_, err := tp.t.ReceiveMessage(ctx, &prototk.ReceiveMessageRequest{
@@ -495,7 +495,7 @@ func TestSendContextClosed(t *testing.T) {
 
 	p := &peer{
 		transport: tp.t,
-		sendQueue: make(chan *prototk.PaladinMsg),
+		sendQueue: make(chan *msgWithErrChan),
 	}
 	tm.peers = map[string]*peer{
 		"node2": p,
@@ -507,10 +507,32 @@ func TestSendContextClosed(t *testing.T) {
 
 }
 
+func TestSendSenderStopped(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false)
+	defer done()
+
+	senderDone := make(chan struct{})
+	close(senderDone)
+
+	p := &peer{
+		transport:  tp.t,
+		sendQueue:  make(chan *msgWithErrChan), // no readers, so the send case never fires
+		senderDone: senderDone,
+	}
+	tm.peers = map[string]*peer{
+		"node2": p,
+	}
+	p.senderStarted.Store(true)
+	defer delete(tm.peers, "node2") // remove before done() runs to avoid Stop() trying to reap this bare peer
+
+	err := tm.Send(ctx, testMessage())
+	assert.NoError(t, err)
+}
+
 func TestSendReliableOk(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectQuery("INSERT.*reliable_msgs").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(12345))
 			mc.db.Mock.ExpectCommit()
@@ -533,7 +555,7 @@ func TestSendReliableOk(t *testing.T) {
 func TestSendReliableFail(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGoodTransport,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnError(fmt.Errorf("pop"))
 		},

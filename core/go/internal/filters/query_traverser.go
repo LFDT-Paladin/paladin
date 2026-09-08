@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -22,10 +22,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 )
 
 type Traverser[T any] interface {
@@ -53,7 +53,7 @@ var justCaseInsensitive = []string{"caseInsensitive"}
 type FieldResolver interface {
 	SupportsLIKE() bool
 	SQLColumn() string
-	SQLValue(ctx context.Context, v tktypes.RawJSON) (driver.Value, error)
+	SQLValue(ctx context.Context, v pldtypes.RawJSON) (driver.Value, error)
 }
 
 // FieldSet is an interface (rather than a simple map) as the function
@@ -135,7 +135,7 @@ func resolveField(ctx context.Context, fieldSet FieldSet, fieldName string) (Fie
 	return nil, i18n.NewError(ctx, msgs.MsgFiltersUnknownField, fieldName)
 }
 
-func resolveValue(ctx context.Context, fieldName string, field FieldResolver, jsonValue tktypes.RawJSON) (driver.Value, error) {
+func resolveValue(ctx context.Context, fieldName string, field FieldResolver, jsonValue pldtypes.RawJSON) (driver.Value, error) {
 	if len(jsonValue) == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgFiltersValueMissing, fieldName)
 	}
@@ -146,7 +146,7 @@ func resolveValue(ctx context.Context, fieldName string, field FieldResolver, js
 	return value, nil
 }
 
-func resolveFieldAndValue(ctx context.Context, fieldSet FieldSet, fieldName string, jsonValue tktypes.RawJSON) (FieldResolver, driver.Value, error) {
+func resolveFieldAndValue(ctx context.Context, fieldSet FieldSet, fieldName string, jsonValue pldtypes.RawJSON) (FieldResolver, driver.Value, error) {
 	field, err := resolveField(ctx, fieldSet, fieldName)
 	if err != nil {
 		return nil, nil, err
@@ -158,7 +158,7 @@ func resolveFieldAndValue(ctx context.Context, fieldSet FieldSet, fieldName stri
 	return field, value, nil
 }
 
-func resolveFieldAndValues(ctx context.Context, fieldSet FieldSet, fieldName string, jsonValues []tktypes.RawJSON) (FieldResolver, []driver.Value, error) {
+func resolveFieldAndValues(ctx context.Context, fieldSet FieldSet, fieldName string, jsonValues []pldtypes.RawJSON) (FieldResolver, []driver.Value, error) {
 	field, err := resolveField(ctx, fieldSet, fieldName)
 	if err != nil {
 		return nil, nil, err

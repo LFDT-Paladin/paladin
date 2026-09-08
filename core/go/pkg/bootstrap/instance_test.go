@@ -21,7 +21,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/kaleido-io/paladin/core/mocks/componentmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentmgrmocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -29,7 +29,7 @@ import (
 func TestSignalHandlerStop(t *testing.T) {
 
 	cmStarted := make(chan struct{})
-	socketFile, loaderUUID, configFile, done := setupTestConfig(t, func(mockCM *componentmocks.ComponentManager) {
+	socketFile, loaderUUID, configFile, done := setupTestConfig(t, func(mockCM *componentmgrmocks.ComponentManager) {
 		mockCM.On("Init").Return(nil)
 		mockCM.On("StartManagers").Return(nil)
 		mockCM.On("CompleteStart").Return(nil).Run(func(args mock.Arguments) {
@@ -77,7 +77,7 @@ func TestBadConfigFile(t *testing.T) {
 
 func TestComponentManagerStartFail(t *testing.T) {
 
-	socketFile, loaderUUID, configFile, done := setupTestConfig(t, func(mockCM *componentmocks.ComponentManager) {
+	socketFile, loaderUUID, configFile, done := setupTestConfig(t, func(mockCM *componentmgrmocks.ComponentManager) {
 		mockCM.On("Init").Return(nil)
 		mockCM.On("StartManagers").Return(nil)
 		mockCM.On("CompleteStart").Return(fmt.Errorf("pop"))

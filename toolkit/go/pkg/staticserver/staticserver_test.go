@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 )
 
 // Helper to create a temporary UI directory with files for testing
@@ -60,6 +60,7 @@ func TestServeStaticFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "<html><body>Some content</body></html>")
 }
+
 func TestServeStaticPath(t *testing.T) {
 	p := "/static"
 	tmpDir := setupUITestDir(t, p)
@@ -79,6 +80,45 @@ func TestServeStaticPath(t *testing.T) {
 	body, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "<html><body>Some content</body></html>")
+}
+
+func TestServeStaticBaseRedirect(t *testing.T) {
+	p := "/somepath"
+	tmpDir := setupUITestDir(t, p)
+
+	conf := pldconf.StaticServerConfig{
+		Enabled:      true,
+		StaticPath:   tmpDir,
+		URLPath:      p,
+		BaseRedirect: "somepath/index.html",
+	}
+	server := NewStaticServer(conf)
+	req := httptest.NewRequest(http.MethodGet, conf.URLPath, nil)
+	res := httptest.NewRecorder()
+
+	server.HTTPHandler(res, req)
+
+	require.Equal(t, http.StatusFound, res.Code)
+	require.Equal(t, "somepath/index.html", res.Header().Get("Location"))
+}
+
+func TestServeStaticNoRedirectWithSlash(t *testing.T) {
+	p := "/somepath"
+	tmpDir := setupUITestDir(t, p)
+
+	conf := pldconf.StaticServerConfig{
+		Enabled:      true,
+		StaticPath:   tmpDir,
+		URLPath:      p,
+		BaseRedirect: "somepath/index.html",
+	}
+	server := NewStaticServer(conf)
+	req := httptest.NewRequest(http.MethodGet, "/somepath/", nil)
+	res := httptest.NewRecorder()
+
+	server.HTTPHandler(res, req)
+
+	require.Equal(t, http.StatusOK, res.Code)
 }
 
 func TestServeStaticFileNotFound(t *testing.T) {

@@ -15,21 +15,33 @@
 
 package io.kaleido.paladin.pente.domain;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.kaleido.paladin.pente.domain.PenteConfiguration.GroupTupleJSON;
-import io.kaleido.paladin.testbed.Testbed;
-import io.kaleido.paladin.toolkit.*;
-import org.junit.jupiter.api.Test;
-
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import org.junit.jupiter.api.Test;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import io.kaleido.paladin.pente.domain.PenteConfiguration.GroupTupleJSON;
+import io.kaleido.paladin.testbed.Testbed;
+import io.kaleido.paladin.toolkit.Algorithms;
+import io.kaleido.paladin.toolkit.JsonABI;
+import io.kaleido.paladin.toolkit.JsonHex;
+import io.kaleido.paladin.toolkit.ResourceLoader;
+import io.kaleido.paladin.toolkit.Verifiers;
+
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.Function;
+import org.web3j.abi.datatypes.DynamicBytes;
 
 public class DomainIntegrationTests {
 
@@ -40,6 +52,7 @@ public class DomainIntegrationTests {
 
     JsonHex.Address deployPenteFactory() throws Exception {
         try (Testbed deployBed = new Testbed(testbedSetup)) {
+            // Deploy PenteFactory implementation
             String factoryBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
                     "contracts/domains/pente/PenteFactory.sol/PenteFactory.json",
@@ -50,17 +63,63 @@ public class DomainIntegrationTests {
                     "contracts/domains/pente/PenteFactory.sol/PenteFactory.json",
                     "abi"
             );
-            String contractAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+            String factoryImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
                     "deployer",
                     factoryABI,
                     factoryBytecode,
                     new HashMap<String, String>());
-            return new JsonHex.Address(contractAddr);
+
+            // Encode initialize() calldata - PenteFactory.initialize() takes no parameters
+            Function initializeFunction = new Function(
+                    "initialize",
+                    Arrays.asList(),
+                    Arrays.asList()
+            );
+            String initCalldata = FunctionEncoder.encode(initializeFunction);
+
+            // Deploy ERC1967Proxy
+            String proxyBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "bytecode"
+            );
+            JsonABI proxyABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "abi"
+            );
+            String proxyAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    proxyABI,
+                    proxyBytecode,
+                    new HashMap<String, String>() {{
+                        put("implementation", factoryImplAddr);
+                        put("_data", initCalldata);
+                    }});
+            return new JsonHex.Address(proxyAddr);
         }
     }
 
     JsonHex.Address deployNotoFactory() throws Exception {
         try (Testbed deployBed = new Testbed(testbedSetup)) {
+            // Deploy Noto implementation
+            String notoImplBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "contracts/domains/noto/Noto.sol/Noto.json",
+                    "bytecode"
+            );
+            JsonABI notoImplABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "contracts/domains/noto/Noto.sol/Noto.json",
+                    "abi"
+            );
+            String notoImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    notoImplABI,
+                    notoImplBytecode,
+                    new HashMap<String, String>());
+
+            // Deploy NotoFactory implementation
             String factoryBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
                     "contracts/domains/noto/NotoFactory.sol/NotoFactory.json",
@@ -71,17 +130,49 @@ public class DomainIntegrationTests {
                     "contracts/domains/noto/NotoFactory.sol/NotoFactory.json",
                     "abi"
             );
-            String contractAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+            String factoryImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
                     "deployer",
                     factoryABI,
                     factoryBytecode,
                     new HashMap<String, String>());
-            return new JsonHex.Address(contractAddr);
+
+            // Encode initialize(notoImplAddr) calldata
+            Function initializeFunction = new Function(
+                    "initialize",
+                    Arrays.asList(new Address(notoImplAddr)),
+                    Arrays.asList()
+            );
+            String initCalldata = FunctionEncoder.encode(initializeFunction);
+
+            // Deploy ERC1967Proxy
+            String proxyBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "bytecode"
+            );
+            JsonABI proxyABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "abi"
+            );
+            String proxyAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    proxyABI,
+                    proxyBytecode,
+                    new HashMap<String, String>() {{
+                        put("implementation", factoryImplAddr);
+                        put("_data", initCalldata);
+                    }});
+            return new JsonHex.Address(proxyAddr);
         }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record NotoConstructorParamsJSON(
+            @JsonProperty
+            String name,
+            @JsonProperty
+            String symbol,
             @JsonProperty
             String notary,
             @JsonProperty
@@ -207,7 +298,9 @@ public class DomainIntegrationTests {
                         "noto",
                         notoFactoryAddress,
                         new Testbed.ConfigPlugin("c-shared", "noto", ""),
-                        new HashMap<>()
+                        new HashMap<String, Object>() {{
+                            put("factoryVersion", 2);
+                        }}
                 )
         )) {
 
@@ -263,13 +356,15 @@ public class DomainIntegrationTests {
                                     notoTrackerABI,
                                     "deploy"
                             ), true));
-            var domainData = mapper.convertValue(tx.domainData(), PenteConfiguration.DomainData.class);
-            var notoTrackerAddress = domainData.contractAddress();
+            var domainReceipt = mapper.convertValue(tx.domainReceipt(), PenteEVMTransaction.JSONReceipt.class);
+            var notoTrackerAddress = domainReceipt.receipt().contractAddress();
 
             // Create Noto token
             String notoInstanceAddress = testbed.getRpcClient().request("testbed_deploy",
                     "noto", "notary",
                     new NotoConstructorParamsJSON(
+                            "NOTO",
+                            "NOTO",
                             "notary@node1",
                             "hooks",
                             new NotoOptionsJSON(

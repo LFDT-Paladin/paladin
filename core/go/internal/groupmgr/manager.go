@@ -21,22 +21,25 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/groupmgr/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/filters"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/cache"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
-	"github.com/kaleido-io/paladin/toolkit/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/retry"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 var groupDBOnlyFilters = filters.FieldMap{
@@ -70,11 +73,12 @@ type groupManager struct {
 	messageListenersLoadPageSize int
 	messageListenerLock          sync.Mutex
 	messageListeners             map[string]*messageListener
+	metrics                      metrics.GroupManagerMetrics
 }
 
 type referencedReceipt struct {
-	Transaction     uuid.UUID           `gorm:"column:transaction;primaryKey"`
-	ContractAddress *tktypes.EthAddress `gorm:"column:contract_address"`
+	Transaction     uuid.UUID            `gorm:"column:transaction;primaryKey"`
+	ContractAddress *pldtypes.EthAddress `gorm:"column:contract_address"`
 }
 
 func (rr referencedReceipt) TableName() string {
@@ -83,14 +87,14 @@ func (rr referencedReceipt) TableName() string {
 
 type persistedGroup struct {
 	Domain        string             `gorm:"column:domain;primaryKey"`
-	ID            tktypes.HexBytes   `gorm:"column:id;primaryKey"`
-	Created       tktypes.Timestamp  `gorm:"column:created"`
+	ID            pldtypes.HexBytes  `gorm:"column:id;primaryKey"`
+	Created       pldtypes.Timestamp `gorm:"column:created"`
 	Name          string             `gorm:"column:name"`
 	GenesisTX     uuid.UUID          `gorm:"column:genesis_tx"`
-	GenesisSchema tktypes.Bytes32    `gorm:"column:genesis_schema"`
-	GenesisSalt   tktypes.Bytes32    `gorm:"column:genesis_salt"`
-	Properties    tktypes.RawJSON    `gorm:"column:properties"`
-	Configuration tktypes.RawJSON    `gorm:"column:configuration"`
+	GenesisSchema pldtypes.Bytes32   `gorm:"column:genesis_schema"`
+	GenesisSalt   pldtypes.Bytes32   `gorm:"column:genesis_salt"`
+	Properties    pldtypes.RawJSON   `gorm:"column:properties"`
+	Configuration pldtypes.RawJSON   `gorm:"column:configuration"`
 	Receipt       *referencedReceipt `gorm:"foreignKey:genesis_tx;references:transaction"`
 }
 
@@ -99,10 +103,10 @@ func (pg persistedGroup) TableName() string {
 }
 
 type persistedGroupMember struct {
-	Group    tktypes.HexBytes `gorm:"column:group;primaryKey"`
-	Domain   string           `gorm:"column:domain;primaryKey"`
-	Index    int              `gorm:"column:idx;primaryKey"`
-	Identity string           `gorm:"column:identity"`
+	Group    pldtypes.HexBytes `gorm:"column:group;primaryKey"`
+	Domain   string            `gorm:"column:domain;primaryKey"`
+	Index    int               `gorm:"column:idx;primaryKey"`
+	Identity string            `gorm:"column:identity"`
 }
 
 func (pgm persistedGroupMember) TableName() string {
@@ -117,11 +121,12 @@ func NewGroupManager(bgCtx context.Context, conf *pldconf.GroupManagerConfig) co
 	}
 	gm.messagesInit()
 	gm.rpcEventStreams = newRPCEventStreams(gm)
-	gm.bgCtx, gm.cancelCtx = context.WithCancel(bgCtx)
+	gm.bgCtx, gm.cancelCtx = context.WithCancel(log.WithComponent(bgCtx, log.Component("groupmanager")))
 	return gm
 }
 
 func (gm *groupManager) PreInit(pic components.PreInitComponents) (*components.ManagerInitResult, error) {
+	gm.metrics = metrics.InitMetrics(gm.bgCtx, pic.MetricsManager().Registry())
 	gm.initRPC()
 	return &components.ManagerInitResult{
 		RPCModules: []*rpcserver.RPCModule{gm.rpcModule},
@@ -156,7 +161,7 @@ func (gm *groupManager) validateMembers(ctx context.Context, members []string, c
 		return nil, i18n.NewError(ctx, msgs.MsgPGroupsNoMembers)
 	}
 	for _, m := range members {
-		_, node, err := tktypes.PrivateIdentityLocator(m).Validate(ctx, "", false)
+		_, node, err := pldtypes.PrivateIdentityLocator(m).Validate(ctx, "", false)
 		if err != nil {
 			return nil, err
 		}
@@ -175,19 +180,24 @@ func (gm *groupManager) validateMembers(ctx context.Context, members []string, c
 	return remoteMembers, nil
 }
 
-func (gm *groupManager) insertGroup(ctx context.Context, dbTX persistence.DBTX, domainName string, genesisSchemaID tktypes.Bytes32, stateID tktypes.HexBytes, genesisTx uuid.UUID, pgGenesis *pldapi.PrivacyGroupGenesisState) (*persistedGroup, error) {
+func (gm *groupManager) insertGroup(ctx context.Context, dbTX persistence.DBTX, domainName string, genesisSchemaID pldtypes.Bytes32, stateID pldtypes.HexBytes, genesisTx uuid.UUID, pgGenesis *pldapi.PrivacyGroupGenesisState) (*persistedGroup, error) {
 	pg := &persistedGroup{
 		ID:            stateID,
-		Created:       tktypes.TimestampNow(),
+		Created:       pldtypes.TimestampNow(),
 		Domain:        domainName,
 		Name:          pgGenesis.Name,
 		GenesisSchema: genesisSchemaID,
 		GenesisSalt:   pgGenesis.GenesisSalt,
-		Properties:    tktypes.JSONString(pgGenesis.Properties.Map()),
-		Configuration: tktypes.JSONString(pgGenesis.Configuration.Map()),
+		Properties:    pldtypes.JSONString(pgGenesis.Properties.Map()),
+		Configuration: pldtypes.JSONString(pgGenesis.Configuration.Map()),
 		GenesisTX:     genesisTx,
 	}
-	err := dbTX.DB().WithContext(ctx).Create(pg).Error
+	err := dbTX.DB(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "domain"}, {Name: "id"}},
+			DoNothing: true,
+		}).
+		Create(pg).Error
 	if err == nil {
 		pgms := make([]*persistedGroupMember, len(pgGenesis.Members))
 		for i, identity := range pgGenesis.Members {
@@ -198,7 +208,11 @@ func (gm *groupManager) insertGroup(ctx context.Context, dbTX persistence.DBTX, 
 				Identity: identity,
 			}
 		}
-		err = dbTX.DB().WithContext(ctx).
+		err = dbTX.DB(ctx).
+			Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "domain"}, {Name: "group"}, {Name: "idx"}},
+				DoNothing: true,
+			}).
 			Create(pgms).
 			Error
 	}
@@ -216,7 +230,7 @@ func (gm *groupManager) validateGroupGenesisSet(ctx context.Context, domainName 
 
 	// Validate the name - which is optional, but must be valid if supplied
 	if pgGenesis.Name != "" {
-		if err := tktypes.ValidateSafeCharsStartEndAlphaNum(ctx, pgGenesis.Name, tktypes.DefaultNameMaxLen, "name"); err != nil {
+		if err := pldtypes.ValidateSafeCharsStartEndAlphaNum(ctx, pgGenesis.Name, pldtypes.DefaultNameMaxLen, "name"); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -228,7 +242,7 @@ func (gm *groupManager) validateGroupGenesisSet(ctx context.Context, domainName 
 	}
 
 	// Salt must be non-zero
-	if pgGenesis.GenesisSalt == (tktypes.Bytes32{}) {
+	if pgGenesis.GenesisSalt == (pldtypes.Bytes32{}) {
 		return nil, nil, i18n.NewError(ctx, msgs.MsgPGroupsGenesisSaltUnset)
 	}
 
@@ -236,8 +250,9 @@ func (gm *groupManager) validateGroupGenesisSet(ctx context.Context, domainName 
 }
 
 func (gm *groupManager) CreateGroup(ctx context.Context, dbTX persistence.DBTX, spec *pldapi.PrivacyGroupInput) (group *pldapi.PrivacyGroup, err error) {
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	pgGenesis := &pldapi.PrivacyGroupGenesisState{
-		GenesisSalt: tktypes.RandBytes32(),
+		GenesisSalt: pldtypes.RandBytes32(),
 		Name:        spec.Name,
 		Members:     spec.Members,
 		Properties:  pldapi.NewKeyValueStringProperties(spec.Properties),
@@ -268,7 +283,7 @@ func (gm *groupManager) CreateGroup(ctx context.Context, dbTX persistence.DBTX, 
 	states, err := gm.stateManager.WriteReceivedStates(ctx, dbTX, spec.Domain, []*components.StateUpsertOutsideContext{
 		{
 			SchemaID: genesisSchemaID,
-			Data:     tktypes.JSONString(&pgGenesis),
+			Data:     pldtypes.JSONString(&pgGenesis),
 			// Note there is no contract address associated with this state - as it comes into existence before the deploy
 		},
 	})
@@ -290,7 +305,11 @@ func (gm *groupManager) CreateGroup(ctx context.Context, dbTX persistence.DBTX, 
 		tx.PublicTxOptions = spec.TransactionOptions.PublicTxOptions
 	}
 	if tx.From == "" {
-		tx.From = fmt.Sprintf("domains.%s.pgroupinit.%s", spec.Domain, id)
+		if identity := domain.FixedSigningIdentity(); identity != "" {
+			tx.From = identity
+		} else {
+			tx.From = fmt.Sprintf("domains.%s.pgroupinit.%s", spec.Domain, id)
+		}
 	}
 
 	// Insert the transaction
@@ -315,7 +334,7 @@ func (gm *groupManager) CreateGroup(ctx context.Context, dbTX persistence.DBTX, 
 			msgs = append(msgs, &pldapi.ReliableMessage{
 				Node:        node,
 				MessageType: pldapi.RMTPrivacyGroup.Enum(),
-				Metadata: tktypes.JSONString(&components.PrivacyGroupDistribution{
+				Metadata: pldtypes.JSONString(&components.PrivacyGroupDistribution{
 					GenesisTransaction: txIDs[0],
 					GenesisState: components.StateDistributionWithData{
 						StateDistribution: components.StateDistribution{
@@ -339,7 +358,7 @@ func (gm *groupManager) CreateGroup(ctx context.Context, dbTX persistence.DBTX, 
 }
 
 func (gm *groupManager) StoreReceivedGroup(ctx context.Context, dbTX persistence.DBTX, domainName string, tx uuid.UUID, state *pldapi.State) (rejectionErr, err error) {
-
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	var pgGenesis pldapi.PrivacyGroupGenesisState
 	if err := json.Unmarshal(state.Data, &pgGenesis); err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgPGroupsReceivedGenesisInvalid)
@@ -361,12 +380,12 @@ func (gm *groupManager) enrichMembers(ctx context.Context, dbTX persistence.DBTX
 	if len(pgs) == 0 {
 		return nil
 	}
-	groupIDs := make([]tktypes.HexBytes, len(pgs))
+	groupIDs := make([]pldtypes.HexBytes, len(pgs))
 	for i, pg := range pgs {
 		groupIDs[i] = pg.ID
 	}
 	var dbMembers []*persistedGroupMember
-	err := dbTX.DB().WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Where(`"group" IN ?`, groupIDs).
 		Order("domain").
 		Order(`"group"`).
@@ -407,7 +426,8 @@ func (dbPG *persistedGroup) mapToAPI() *pldapi.PrivacyGroup {
 	return pg
 }
 
-func (gm *groupManager) GetGroupByID(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID tktypes.HexBytes) (*pldapi.PrivacyGroup, error) {
+func (gm *groupManager) GetGroupByID(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes) (*pldapi.PrivacyGroup, error) {
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	groupIDStr := fmt.Sprintf("%s:%s", domainName, groupID.String())
 	pg, found := gm.deployedPGCache.Get(groupIDStr)
 	if found {
@@ -428,7 +448,7 @@ func (gm *groupManager) GetGroupByID(ctx context.Context, dbTX persistence.DBTX,
 	return pg, nil
 }
 
-func (gm *groupManager) GetGroupByAddress(ctx context.Context, dbTX persistence.DBTX, addr *tktypes.EthAddress) (*pldapi.PrivacyGroup, error) {
+func (gm *groupManager) GetGroupByAddress(ctx context.Context, dbTX persistence.DBTX, addr *pldtypes.EthAddress) (*pldapi.PrivacyGroup, error) {
 	groups, err := gm.QueryGroups(ctx, dbTX, query.NewQueryBuilder().Equal("contractAddress", addr).Limit(1).Query())
 	if err != nil || len(groups) == 0 {
 		return nil, err
@@ -464,6 +484,7 @@ func (gm *groupManager) queryGroupsCommon(ctx context.Context, dbTX persistence.
 }
 
 func (gm *groupManager) QueryGroups(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.PrivacyGroup, error) {
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	return gm.queryGroupsCommon(ctx, dbTX, jq)
 }
 
@@ -473,7 +494,7 @@ func (gm *groupManager) QueryGroupsWithMember(ctx context.Context, dbTX persiste
 	})
 }
 
-func (gm *groupManager) prepareTransaction(ctx context.Context, dbTX persistence.DBTX, domain string, groupID tktypes.HexBytes, pgTX *pldapi.PrivacyGroupEVMTX) (*pldapi.TransactionInput, error) {
+func (gm *groupManager) prepareTransaction(ctx context.Context, dbTX persistence.DBTX, domain string, groupID pldtypes.HexBytes, pgTX *pldapi.PrivacyGroupEVMTX) (*pldapi.TransactionInput, error) {
 
 	if domain == "" {
 		return nil, i18n.NewError(ctx, msgs.MsgPGroupsNoDomain)
@@ -483,20 +504,7 @@ func (gm *groupManager) prepareTransaction(ctx context.Context, dbTX persistence
 		return nil, i18n.NewError(ctx, msgs.MsgPGroupsNoGroupID)
 	}
 
-	// Fluff up the privacy group
-	pg, err := gm.GetGroupByID(ctx, dbTX, domain, groupID)
-	if err != nil {
-		return nil, err
-	}
-	if pg == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgPGroupsGroupNotFound, groupID)
-	}
-	if pg.ContractAddress == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgPGroupsNotReady, groupID, pg.GenesisTransaction)
-	}
-
-	// Get the domain smart contract object from domain mgr
-	psc, err := gm.domainManager.GetSmartContractByAddress(ctx, dbTX, *pg.ContractAddress)
+	pg, psc, err := gm.resolvePrivateContract(ctx, dbTX, domain, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -540,4 +548,35 @@ func (gm *groupManager) Call(ctx context.Context, dbTX persistence.DBTX, result 
 		DataFormat:        call.DataFormat,
 	})
 
+}
+
+func (gm *groupManager) resolvePrivateContract(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes) (*pldapi.PrivacyGroup, components.DomainSmartContract, error) {
+	pg, err := gm.GetGroupByID(ctx, dbTX, domainName, groupID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if pg == nil {
+		return nil, nil, i18n.NewError(ctx, msgs.MsgPGroupsGroupNotFound, groupID)
+	}
+	if pg.ContractAddress == nil {
+		return nil, nil, i18n.NewError(ctx, msgs.MsgPGroupsNotReady, groupID, pg.GenesisTransaction)
+	}
+	psc, err := gm.domainManager.GetSmartContractByAddress(ctx, dbTX, *pg.ContractAddress)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pg, psc, nil
+}
+
+func (gm *groupManager) invokeRPC(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes, stateQualifier pldapi.StateStatusQualifier, rpcCall pldapi.DomainInvokeRPC) (pldtypes.RawJSON, error) {
+	pg, psc, err := gm.resolvePrivateContract(ctx, dbTX, domainName, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if stateQualifier != "" && stateQualifier != pldapi.StateStatusAvailable {
+		return nil, i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
+	}
+	dqc := gm.stateManager.NewDomainQueryContext(ctx, psc.Domain(), *pg.ContractAddress)
+	defer dqc.Close(ctx)
+	return psc.InvokeRPC(ctx, dqc, dbTX, rpcCall)
 }

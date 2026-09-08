@@ -1,4 +1,5 @@
 **/coverage*.txt
+**/coverage*.out
 **/debug.test
 **/__debug_*
 **/.DS_Store
@@ -60,3 +61,8 @@ bin/
 
 ### Proto ###
 *.pb.go
+
+### Examples outputs ###
+examples/data
+
+**.tar.gz

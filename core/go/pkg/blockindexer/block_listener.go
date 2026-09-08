@@ -23,23 +23,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/i18n"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/retry"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 )
 
 // blockListener has two functions:
 // 1) To establish and keep track of what the head block height of the blockchain is, so event streams know how far from the head they are
 // 2) To feed new block information to any registered consumers
 type blockListener struct {
-	ctx                        context.Context
-	wsConn                     rpcclient.WSClient // if configured the getting the blockheight will not complete until WS connects, overrides backend once connected
+	ctx    context.Context
+	wsConn rpcclient.WSClient // if configured the getting the blockheight will not complete until WS connects, overrides backend once connected
+	//nolint:unused // May be used in future
 	wsConnClosed               bool
 	listenLoopDone             chan struct{}
 	initialBlockHeightObtained chan struct{}
@@ -56,10 +57,6 @@ type blockListener struct {
 }
 
 func newBlockListener(ctx context.Context, conf *pldconf.BlockIndexerConfig, wsConfig *pldconf.WSClientConfig) (bl *blockListener, err error) {
-	wscConf, err := rpcclient.ParseWSConfig(ctx, wsConfig)
-	if err != nil {
-		return nil, err
-	}
 	chainHeadCacheLen := confutil.IntMin(conf.ChainHeadCacheLen, 1, *pldconf.BlockIndexerDefaults.ChainHeadCacheLen)
 	bl = &blockListener{
 		ctx:                        log.WithLogField(ctx, "role", "blocklistener"),
@@ -70,8 +67,11 @@ func newBlockListener(ctx context.Context, conf *pldconf.BlockIndexerConfig, wsC
 		canonicalChain:             list.New(),
 		unstableHeadLength:         chainHeadCacheLen,
 		retry:                      retry.NewRetryIndefinite(&conf.Retry),
-		wsConn:                     rpcclient.WrapWSConfig(wscConf),
 		newBlocks:                  make(chan *BlockInfoJSONRPC, chainHeadCacheLen),
+	}
+	bl.wsConn, err = rpcclient.NewWSClient(ctx, wsConfig)
+	if err != nil {
+		return nil, err
 	}
 	return bl, nil
 }
@@ -487,6 +487,8 @@ func (bl *blockListener) getHighestBlock(ctx context.Context) (uint64, error) {
 	log.L(bl.ctx).Debugf("ChainHead=%d", highestBlock)
 	return highestBlock, nil
 }
+
+//nolint:unused // May be used in future
 func (bl *blockListener) waitClosed() {
 	bl.wsMux.Lock()
 	listenLoopDone := bl.listenLoopDone

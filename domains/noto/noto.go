@@ -18,8 +18,8 @@ import (
 	"C"
 )
 import (
-	"github.com/kaleido-io/paladin/domains/noto/internal/noto"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/noto"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 )
 
 var ple = plugintk.NewPluginLibraryEntrypoint(func() plugintk.PluginBase {

@@ -16,14 +16,15 @@
 package publictxmgr
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/tktypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -36,8 +37,8 @@ func TestNewEnginePollingCancelledContext(t *testing.T) {
 }
 
 func TestNewEnginePollingStoppingAnOrchestratorForFairnessControl(t *testing.T) {
-	testSigningAddr1 := tktypes.RandAddress()
-	testSigningAddr2 := tktypes.RandAddress()
+	testSigningAddr1 := pldtypes.RandAddress()
+	testSigningAddr2 := pldtypes.RandAddress()
 
 	ctx, ble, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
 		mocks.disableManagerStart = true                         // we don't want the manager running... yet
@@ -47,17 +48,20 @@ func TestNewEnginePollingStoppingAnOrchestratorForFairnessControl(t *testing.T) 
 	defer done()
 
 	// Fake an inflight orchestrator for signing address 1
+	ocCtx, ocCtxCancel := context.WithCancel(ctx)
 	existingOrchestrator := &orchestrator{
 		signingAddress:              *testSigningAddr1,
 		orchestratorBirthTime:       time.Now().Add(-1 * time.Hour),
 		pubTxManager:                ble,
+		ctx:                         ocCtx,
+		ctxCancel:                   ocCtxCancel,
 		orchestratorPollingInterval: ble.enginePollingInterval,
 		state:                       OrchestratorStateRunning,
 		stateEntryTime:              time.Now().Add(1 * time.Hour).Add(-1 * time.Minute),
 		InFlightTxsStale:            make(chan bool, 1),
 		stopProcess:                 make(chan bool, 1),
 	}
-	ble.inFlightOrchestrators = map[tktypes.EthAddress]*orchestrator{
+	ble.inFlightOrchestrators = map[pldtypes.EthAddress]*orchestrator{
 		*testSigningAddr1: existingOrchestrator, // already has an orchestrator for 0x1
 	}
 
@@ -68,12 +72,12 @@ func TestNewEnginePollingStoppingAnOrchestratorForFairnessControl(t *testing.T) 
 	existingOrchestrator.orchestratorLoopDone = make(chan struct{})
 	existingOrchestrator.orchestratorLoop()
 	<-existingOrchestrator.orchestratorLoopDone
-	assert.Equal(t, OrchestratorStateStopped, existingOrchestrator.state)
+	assert.Equal(t, OrchestratorStateStopped, existingOrchestrator.getState())
 }
 
 func TestNewEnginePollingExcludePausedOrchestrator(t *testing.T) {
 
-	testSigningAddr1 := *tktypes.RandAddress()
+	testSigningAddr1 := *pldtypes.RandAddress()
 
 	ctx, ble, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
 		mocks.disableManagerStart = true                         // we don't want the manager running... yet
@@ -85,8 +89,8 @@ func TestNewEnginePollingExcludePausedOrchestrator(t *testing.T) {
 	m.db.ExpectQuery("SELECT.*public_txn").WillReturnRows(sqlmock.NewRows([]string{"from"}))
 
 	// already has a running orchestrator for the address so no new orchestrator should be started
-	ble.inFlightOrchestrators = map[tktypes.EthAddress]*orchestrator{}
-	ble.signingAddressesPausedUntil = map[tktypes.EthAddress]time.Time{testSigningAddr1: time.Now().Add(1 * time.Hour)}
+	ble.inFlightOrchestrators = map[pldtypes.EthAddress]*orchestrator{}
+	ble.signingAddressesPausedUntil = map[pldtypes.EthAddress]time.Time{testSigningAddr1: time.Now().Add(1 * time.Hour)}
 
 	ble.poll(ctx)
 
