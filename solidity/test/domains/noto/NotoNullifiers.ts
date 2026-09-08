@@ -109,6 +109,25 @@ describe("NotoNullifiers", function () {
       ).rejectedWith("NotoInvalidInput");
     });
 
+    it("Check that a commitment cannot be spent as though it were a nullifier", async function () {
+      // The contract cannot verify that a nullifier belongs to an unspent commitment, but it
+      // can reject an input that is itself a commitment in the tree. Without this, spending by
+      // commitment id would be accepted silently, leaving the real nullifier unused and the
+      // coin spendable again.
+      const root = await smtNotary.root();
+      await expect(
+        doTransferWithNullifiers(
+          randomBytes32(),
+          notary,
+          noto,
+          [txo2.hash!] /* the commitment, not txo2.nullifier */,
+          [newUTXO(20).hash!],
+          root.bigInt().toString(10),
+          randomBytes32()
+        )
+      ).rejectedWith("NotoNullifierIsCommitment");
+    });
+
     it("Spend another", async function () {
       // Spend another
       const root1 = await smtNotary.root();

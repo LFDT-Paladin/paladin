@@ -72,16 +72,7 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 		return nil, err
 	}
 	if useNullifiers {
-		for _, newState := range outputStates.states {
-			newState.NullifierSpecs = []*prototk.NullifierSpec{
-				{
-					Party:        to,
-					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
-					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
-					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
-				},
-			}
-		}
+		h.noto.addNullifierSpecs(outputStates.states, to, (*pldtypes.EthAddress)(tx.ContractAddress))
 	}
 
 	infoDistribution := identityList{notaryID, senderID, fromID, toID}
@@ -98,16 +89,7 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 			return nil, err
 		}
 		if useNullifiers {
-			for _, newState := range returnedStates.states {
-				newState.NullifierSpecs = []*prototk.NullifierSpec{
-					{
-						Party:        from,
-						Algorithm:    types.AlgoDomainNullifier(h.noto.name),
-						VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
-						PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
-					},
-				}
-			}
+			h.noto.addNullifierSpecs(returnedStates.states, from, (*pldtypes.EthAddress)(tx.ContractAddress))
 		}
 		outputStates.distributions = append(outputStates.distributions, returnedStates.distributions...)
 		outputStates.coins = append(outputStates.coins, returnedStates.coins...)
@@ -201,16 +183,16 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 	if tx.DomainConfig.IsV0() {
 		paramsJSON, err = json.Marshal(&NotoTransfer_V0_Params{
 			TxId:      req.Transaction.TransactionId,
-			Inputs:    endorsableStateIDs(ctx, req.InputStates, false),
-			Outputs:   endorsableStateIDs(ctx, req.OutputStates, false),
+			Inputs:    h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.InputStates, false),
+			Outputs:   h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.OutputStates, false),
 			Signature: signature.Payload,
 			Data:      data,
 		})
 	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		paramsJSON, err = json.Marshal(&NotoTransferParams{
 			TxId:    req.Transaction.TransactionId,
-			Inputs:  endorsableStateIDs(ctx, req.InputStates, useNullifiers),
-			Outputs: endorsableStateIDs(ctx, req.OutputStates, false),
+			Inputs:  h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.InputStates, useNullifiers),
+			Outputs: h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.OutputStates, false),
 			Proof:   proof,
 			Data:    data,
 		})

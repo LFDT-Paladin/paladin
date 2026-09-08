@@ -345,6 +345,10 @@ func (s *notoTestSuite) TestNotoLockV1() {
 	s.testNotoLock("v1", "")
 }
 
+func (s *notoTestSuite) TestNotoLockV1Nullifiers() {
+	s.testNotoLock("v1", "noto_nullifiers")
+}
+
 func (s *notoTestSuite) TestNotoLockV0() {
 	s.testNotoLock("v0", "")
 }
@@ -399,7 +403,15 @@ func (s *notoTestSuite) testNotoLock(version, variant string) {
 	assert.Equal(t, int64(100), mintReceipt.Transfers[0].Amount.Int().Int64())
 	assert.Equal(t, recipient1Key, mintReceipt.Transfers[0].To.String())
 
-	coins := findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	// Nullifier-backed contracts record spends of unlocked coins on nullifier ids, so spendable
+	// unlocked coins are listed via queryContractNullifiers. Locked coins are always spent by
+	// state id, in every variant, so they are always listed via queryContractStates.
+	coinQueryMethod := "pstate_queryContractStates"
+	if variant == "noto_nullifiers" {
+		coinQueryMethod = "pstate_queryContractNullifiers"
+	}
+
+	coins := findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), coinQueryMethod, noto.Address, nil)
 	require.Len(t, coins, 1)
 	assert.Equal(t, int64(100), coins[0].Data.Amount.Int().Int64())
 	assert.Equal(t, recipient1Key, coins[0].Data.Owner.String())
@@ -429,7 +441,7 @@ func (s *notoTestSuite) testNotoLock(version, variant string) {
 	require.Len(t, lockedCoins, 1)
 	assert.Equal(t, int64(50), lockedCoins[0].Data.Amount.Int().Int64())
 	assert.Equal(t, recipient1Key, lockedCoins[0].Data.Owner.String())
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), coinQueryMethod, noto.Address, nil)
 	require.Len(t, coins, 1)
 	assert.Equal(t, int64(50), coins[0].Data.Amount.Int().Int64())
 	assert.Equal(t, recipient1Key, coins[0].Data.Owner.String())
@@ -461,7 +473,7 @@ func (s *notoTestSuite) testNotoLock(version, variant string) {
 	require.Len(t, lockedCoins, 1)
 	assert.Equal(t, int64(50), lockedCoins[0].Data.Amount.Int().Int64())
 	assert.Equal(t, recipient1Key, lockedCoins[0].Data.Owner.String())
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), coinQueryMethod, noto.Address, nil)
 	require.Len(t, coins, 1)
 	assert.Equal(t, int64(50), coins[0].Data.Amount.Int().Int64())
 	assert.Equal(t, recipient2Key, coins[0].Data.Owner.String())
@@ -568,7 +580,7 @@ func (s *notoTestSuite) testNotoLock(version, variant string) {
 	findAvailableCoins(t, ctx, paladinClient, notoDomain.Name(), notoDomain.LockedCoinSchemaID(), "pstate_queryContractStates", noto.Address, nil, func(coins []*types.NotoLockedCoinState) bool {
 		return len(coins) == 0
 	})
-	coins = findAvailableCoins(t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil, func(coins []*types.NotoCoinState) bool {
+	coins = findAvailableCoins(t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), coinQueryMethod, noto.Address, nil, func(coins []*types.NotoCoinState) bool {
 		return len(coins) == 2
 	})
 

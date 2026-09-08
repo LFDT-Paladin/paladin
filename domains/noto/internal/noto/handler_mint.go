@@ -89,28 +89,19 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 		// which will be persisted in the state DB. This allows us to track which states have been spent,
 		// because the spending transactions will include the nullifier IDs, rather than the state IDs, in
 		// the receipt.
+		contract := (*pldtypes.EthAddress)(tx.ContractAddress)
 		for _, newState := range outputStates.states {
 			// Here the new output state could be for the minter (notaryID) or the receiver (toID).
 			// regardless of the owner, the notary always knows about the nullifier. So we always
 			// add the nullifier spec for the notary.
 			newState.NullifierSpecs = []*prototk.NullifierSpec{
-				{
-					Party:        notaryID.identifier,
-					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
-					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
-					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
-				},
+				h.noto.nullifierSpec(notaryID.identifier, contract),
 			}
 			// In addition, Paladin also puts the responsibility to generate the nullifier for the states
 			// to be owned by the receiver, on the minter. So if the receiver is not the notary, we add
 			// another nullifier spec with the distribution to the receiver.
 			if toID.identifier != notaryID.identifier {
-				newState.NullifierSpecs = append(newState.NullifierSpecs, &prototk.NullifierSpec{
-					Party:        toID.identifier,
-					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
-					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
-					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
-				})
+				newState.NullifierSpecs = append(newState.NullifierSpecs, h.noto.nullifierSpec(toID.identifier, contract))
 			}
 		}
 	}
@@ -208,14 +199,14 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 	if tx.DomainConfig.IsV0() {
 		paramsJSON, err = json.Marshal(&NotoMint_V0_Params{
 			TxId:      req.Transaction.TransactionId,
-			Outputs:   endorsableStateIDs(ctx, req.OutputStates, false),
+			Outputs:   h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.OutputStates, false),
 			Signature: sender.Payload,
 			Data:      data,
 		})
 	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		paramsJSON, err = json.Marshal(&NotoMintParams{
 			TxId:    req.Transaction.TransactionId,
-			Outputs: endorsableStateIDs(ctx, req.OutputStates, false),
+			Outputs: h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.OutputStates, false),
 			Proof:   payload,
 			Data:    data,
 		})
