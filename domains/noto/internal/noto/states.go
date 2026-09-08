@@ -676,7 +676,7 @@ func (n *Noto) stateNullifier(ctx context.Context, contract *pldtypes.EthAddress
 	}
 	coin, err := n.unmarshalCoinStrict(state.StateDataJson)
 	if err != nil {
-		return "", false, err
+		return "", false, i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)
 	}
 	hash, err := calculateNullifier(ctx, contract, coin)
 	if err != nil {
