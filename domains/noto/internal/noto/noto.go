@@ -41,8 +41,11 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
 )
 
-// ParamValidator defines the interface for validating transaction parameters
+// ParamValidator constrains the handler types validateTransactionCommon accepts. Each
+// validates its own parameters, and each is compared against its zero value to detect a
+// function with no handler. Both types.DomainHandler and types.DomainCallHandler satisfy it.
 type ParamValidator interface {
+	comparable
 	ValidateParams(ctx context.Context, domainConfig *types.NotoParsedConfig, paramsJson string) (any, error)
 }
 
@@ -872,7 +875,7 @@ func (n *Noto) validateDeploy(ctx context.Context, tx *prototk.DeployTransaction
 	return &params, err
 }
 
-func validateTransactionCommon[T comparable](
+func validateTransactionCommon[T ParamValidator](
 	ctx context.Context,
 	tx *prototk.TransactionSpecification,
 	getHandler func(method string) T,
@@ -907,13 +910,7 @@ func validateTransactionCommon[T comparable](
 		return nil, unsetT, i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)
 	}
 
-	// check if the handler implements the ValidateParams method cause generic T
-	validator, ok := any(handler).(ParamValidator)
-	if !ok {
-		return nil, *new(T), i18n.NewError(ctx, msgs.MsgErrorHandlerImplementationNotFound)
-	}
-
-	params, err := validator.ValidateParams(ctx, &domainConfig, tx.FunctionParamsJson)
+	params, err := handler.ValidateParams(ctx, &domainConfig, tx.FunctionParamsJson)
 	if err != nil {
 		return nil, *new(T), err
 	}
