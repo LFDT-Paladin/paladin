@@ -21,12 +21,14 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"math/big"
+	"strconv"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 )
 
-// HexUint256 is any integer (signed or unsigned) up to 256 bits in size, serialized to the DB using a 65 sortable string (a 0/1 sign character, followed by 32 hex bytes)
+// HexUint256 is an unsigned integer of at most 256 bits, serialized to the DB as a 64 character
+// string of zero-padded hex, which sorts naturally as an unsigned value
 type HexUint256 big.Int
 
 func Uint64ToUint256(v uint64) *HexUint256 {
@@ -39,7 +41,23 @@ func ParseHexUint256(ctx context.Context, s string) (*HexUint256, error) {
 	if !ok {
 		return nil, i18n.NewError(ctx, pldmsgs.MsgTypesInvalidHexInteger, s)
 	}
+	if err := checkUint256Range(ctx, bi, s); err != nil {
+		return nil, err
+	}
 	return (*HexUint256)(bi), nil
+}
+
+// checkUint256Range enforces the range of the type. The DB serialization is exactly 256
+// unsigned bits, so the same check covers both parsing a value and persisting one.
+func checkUint256Range(ctx context.Context, bi *big.Int, desc string) error {
+	switch {
+	case bi.Sign() < 0:
+		return i18n.NewError(ctx, pldmsgs.MsgTypesUint256Negative, desc)
+	case bi.BitLen() > 256:
+		return i18n.NewError(ctx, pldmsgs.MsgTypesUint256TooLarge, desc)
+	default:
+		return nil
+	}
 }
 
 func MustParseHexUint256(s string) *HexUint256 {
@@ -91,13 +109,17 @@ func (hi *HexUint256) HexString0xPrefix() string {
 	i := hi.Int()
 	// Avoid allocating a new big.Int for Abs in the common non-negative case
 	str := i.Text(16)
+	sign := ""
 	if i.Sign() < 0 {
+		// A negative can only have been supplied by conversion, as no constructor of this
+		// type accepts one. Report it as what it is rather than as its absolute value
+		sign = "-"
 		str = new(big.Int).Abs(i).Text(16)
 	}
 	if len(str)%2 != 0 {
-		return "0x0" + str
+		return sign + "0x0" + str
 	}
-	return "0x" + str
+	return sign + "0x" + str
 }
 
 // Get string (without 0x prefix) - nil is all zeros
@@ -109,7 +131,11 @@ func (hi *HexUint256) Value() (driver.Value, error) {
 	if hi == nil {
 		return nil, nil
 	}
-	return string(PadHexBigUint((*big.Int)(hi), make([]byte, 64))), nil
+	bi := (*big.Int)(hi)
+	if err := checkUint256Range(context.Background(), bi, bi.Text(10)); err != nil {
+		return nil, err
+	}
+	return string(PadHexBigUint(bi, make([]byte, 64))), nil
 }
 
 func (hi *HexUint256) Scan(src interface{}) error {
@@ -123,6 +149,9 @@ func (hi *HexUint256) Scan(src interface{}) error {
 		*hi = (HexUint256)(*bi)
 		return nil
 	case int64:
+		if v < 0 {
+			return i18n.NewError(context.Background(), pldmsgs.MsgTypesUint256Negative, strconv.FormatInt(v, 10))
+		}
 		*hi = (HexUint256)(*big.NewInt(v))
 		return nil
 	default:
@@ -130,9 +159,10 @@ func (hi *HexUint256) Scan(src interface{}) error {
 	}
 }
 
-// PadHexBigUint returns the supplied buffer, with all the bytes to the left of the integer set to '0'
+// PadHexBigUint returns the supplied buffer, with all the bytes to the left of the integer set to '0'.
+// The supplied integer is not modified, and a negative one is padded as its absolute value
 func PadHexBigUint(bi *big.Int, buff []byte) []byte {
-	unPadded := bi.Abs(bi).Text(16)
+	unPadded := new(big.Int).Abs(bi).Text(16)
 	boundary := len(buff) - len(unPadded)
 	for i := 0; i < len(buff); i++ {
 		if i >= boundary {

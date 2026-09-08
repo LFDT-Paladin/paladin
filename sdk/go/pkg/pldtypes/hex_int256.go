@@ -29,8 +29,23 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
-// HexInt256 is any integer (signed or unsigned) up to 256 bits in size, serialized to the DB using a 65 sortable string (a 0/1 sign character, followed by 32 hex bytes)
+// HexInt256 is a signed integer in the range -2^255 to 2^255-1, serialized to the DB using a
+// 65 character sortable string (a 0/1 sign character, followed by 32 hex bytes of two's complement)
 type HexInt256 big.Int
+
+var (
+	int256Min = new(big.Int).Neg(new(big.Int).Lsh(big.NewInt(1), 255))
+	int256Max = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 255), big.NewInt(1))
+)
+
+// checkInt256Range enforces the range of the type. The DB serialization is exactly 32 bytes of
+// two's complement, so the same check covers both parsing a value and persisting one.
+func checkInt256Range(ctx context.Context, bi *big.Int, desc string) error {
+	if bi.Cmp(int256Min) < 0 || bi.Cmp(int256Max) > 0 {
+		return i18n.NewError(ctx, pldmsgs.MsgTypesInt256OutOfRange, desc)
+	}
+	return nil
+}
 
 func Int64ToInt256(v int64) *HexUint256 {
 	return (*HexUint256)(new(big.Int).SetInt64(v))
@@ -41,6 +56,9 @@ func ParseHexInt256(ctx context.Context, s string) (*HexInt256, error) {
 	bi, ok := new(big.Int).SetString(s, 0)
 	if !ok {
 		return nil, i18n.NewError(ctx, pldmsgs.MsgTypesInvalidHexInteger, s)
+	}
+	if err := checkInt256Range(ctx, bi, s); err != nil {
+		return nil, err
 	}
 	return (*HexInt256)(bi), nil
 }
@@ -108,7 +126,11 @@ func (hi *HexInt256) Value() (driver.Value, error) {
 	if hi == nil {
 		return nil, nil
 	}
-	return Int256To65CharDBSafeSortableString((*big.Int)(hi)), nil
+	bi := (*big.Int)(hi)
+	if err := checkInt256Range(context.Background(), bi, bi.Text(10)); err != nil {
+		return nil, err
+	}
+	return Int256To65CharDBSafeSortableString(bi), nil
 }
 
 func (hi *HexInt256) Scan(src interface{}) error {
