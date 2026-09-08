@@ -19,6 +19,7 @@ package pldtypes
 import (
 	"encoding/json"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -171,9 +172,15 @@ func TestHexUint256(t *testing.T) {
 	assert.Regexp(t, "PD020028", err)
 	assert.Equal(t, 257, over.Int().BitLen())
 
+	// A negative is rejected rather than encoded as its absolute value, and is left unmodified
 	bi := big.NewInt(-99)
-	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000000063", string(PadHexBigUint(bi, make([]byte, 64))))
+	_, err = PadHexBigUint(t.Context(), bi, make([]byte, 64))
+	assert.Regexp(t, "PD020027", err)
 	assert.Equal(t, int64(-99), bi.Int64())
+
+	padded, err := PadHexBigUint(t.Context(), big.NewInt(99), make([]byte, 64))
+	require.NoError(t, err)
+	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000000063", string(padded))
 
 	assert.True(t, ((*HexUint256)(nil)).NilOrZero())
 
@@ -181,4 +188,45 @@ func TestHexUint256(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Nil(t, dbv)
 
+}
+
+func TestHexUint256ScanRejectsSignedDBValue(t *testing.T) {
+
+	// big.Int.SetString accepts a leading sign, so a 64 character value carrying one would
+	// otherwise scan into a negative - a value outside the range of this type, and one that
+	// Value() never writes
+	for _, v := range []string{
+		"-" + strings.Repeat("f", 63),
+		"+" + strings.Repeat("f", 63),
+		"-" + strings.Repeat("0", 62) + "1",
+	} {
+		var hi HexUint256
+		err := hi.Scan(v)
+		assert.Regexp(t, "PD020013", err, "scanning %q", v)
+	}
+
+	// The full unsigned range of the type still scans
+	for _, v := range []string{strings.Repeat("0", 64), strings.Repeat("f", 64)} {
+		var hi HexUint256
+		require.NoError(t, hi.Scan(v))
+		assert.GreaterOrEqual(t, hi.Int().Sign(), 0)
+	}
+}
+
+func TestPadHexBigUintBounds(t *testing.T) {
+
+	maxUint256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
+	padded, err := PadHexBigUint(t.Context(), maxUint256, make([]byte, 64))
+	require.NoError(t, err)
+	assert.Equal(t, strings.Repeat("f", 64), string(padded))
+
+	// 2^256 does not fit the 64 character encoding. Without a range check the leading digit is
+	// silently dropped, making it indistinguishable from the encoding of zero
+	_, err = PadHexBigUint(t.Context(), new(big.Int).Lsh(big.NewInt(1), 256), make([]byte, 64))
+	assert.Regexp(t, "PD020028", err)
+
+	// A buffer too small for an in-range value truncates the same way, so is also an error
+	_, err = PadHexBigUint(t.Context(), big.NewInt(0x1234), make([]byte, 3))
+	assert.Regexp(t, "PD020030", err)
 }

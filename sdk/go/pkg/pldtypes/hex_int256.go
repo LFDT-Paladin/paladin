@@ -40,9 +40,9 @@ var (
 
 // checkInt256Range enforces the range of the type. The DB serialization is exactly 32 bytes of
 // two's complement, so the same check covers both parsing a value and persisting one.
-func checkInt256Range(ctx context.Context, bi *big.Int, desc string) error {
+func checkInt256Range(ctx context.Context, bi *big.Int) error {
 	if bi.Cmp(int256Min) < 0 || bi.Cmp(int256Max) > 0 {
-		return i18n.NewError(ctx, pldmsgs.MsgTypesInt256OutOfRange, desc)
+		return i18n.NewError(ctx, pldmsgs.MsgTypesInt256OutOfRange, bi.Text(10))
 	}
 	return nil
 }
@@ -57,7 +57,7 @@ func ParseHexInt256(ctx context.Context, s string) (*HexInt256, error) {
 	if !ok {
 		return nil, i18n.NewError(ctx, pldmsgs.MsgTypesInvalidHexInteger, s)
 	}
-	if err := checkInt256Range(ctx, bi, s); err != nil {
+	if err := checkInt256Range(ctx, bi); err != nil {
 		return nil, err
 	}
 	return (*HexInt256)(bi), nil
@@ -126,11 +126,11 @@ func (hi *HexInt256) Value() (driver.Value, error) {
 	if hi == nil {
 		return nil, nil
 	}
-	bi := (*big.Int)(hi)
-	if err := checkInt256Range(context.Background(), bi, bi.Text(10)); err != nil {
+	s, err := Int256To65CharDBSafeSortableString(context.Background(), (*big.Int)(hi))
+	if err != nil {
 		return nil, err
 	}
-	return Int256To65CharDBSafeSortableString(bi), nil
+	return s, nil
 }
 
 func (hi *HexInt256) Scan(src interface{}) error {
@@ -155,30 +155,48 @@ func (hi *HexInt256) Scan(src interface{}) error {
 	}
 }
 
-func Int256To65CharDBSafeSortableString(bi *big.Int) string {
+func Int256To65CharDBSafeSortableString(ctx context.Context, bi *big.Int) (string, error) {
 	sign := bi.Sign()
-	signPlusZeroPaddedInt256 := PadHexBigIntTwosComplement(bi, make([]byte, 65))
+	signPlusZeroPaddedInt256, err := PadHexBigIntTwosComplement(ctx, bi, make([]byte, 65))
+	if err != nil {
+		return "", err
+	}
 	if sign < 0 {
 		signPlusZeroPaddedInt256[0] = '0'
 	} else {
 		// Zero or positive get a "1" in the first string position, which makes them
 		signPlusZeroPaddedInt256[0] = '1'
 	}
-	return (string)(signPlusZeroPaddedInt256)
+	return (string)(signPlusZeroPaddedInt256), nil
 }
 
-// PadHexBigIntTwosComplement returns the supplied buffer, with all the bytes to the left of
-// the two's complement formatted string set to 0
-func PadHexBigIntTwosComplement(bi *big.Int, buff []byte) []byte {
+// PadHexBigIntTwosComplement returns the supplied buffer, containing the two's complement
+// formatted string sign-extended to the left - with 'f' for a negative integer, and '0' for
+// zero or a positive one. The supplied integer is not modified.
+//
+// The integer must be in the range of an int256, and its encoding must fit within the supplied
+// buffer. Both are errors, rather than the silently wrapped or truncated - and so incorrect -
+// encoding that an out of range value would otherwise produce
+func PadHexBigIntTwosComplement(ctx context.Context, bi *big.Int, buff []byte) ([]byte, error) {
+	if err := checkInt256Range(ctx, bi); err != nil {
+		return nil, err
+	}
 	twosComplement := abi.SerializeInt256TwosComplementBytes(bi)
 	unPadded := hex.EncodeToString(twosComplement)
 	boundary := len(buff) - len(unPadded)
+	if boundary < 0 {
+		return nil, i18n.NewError(ctx, pldmsgs.MsgTypesHexIntBufferTooSmall, len(buff), len(unPadded))
+	}
+	signExtend := byte('0')
+	if bi.Sign() < 0 {
+		signExtend = 'f'
+	}
 	for i := 0; i < len(buff); i++ {
 		if i >= boundary {
 			buff[i] = unPadded[i-boundary]
 		} else {
-			buff[i] = 'f'
+			buff[i] = signExtend
 		}
 	}
-	return buff
+	return buff, nil
 }

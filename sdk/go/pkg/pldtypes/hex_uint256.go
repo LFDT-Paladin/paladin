@@ -41,7 +41,7 @@ func ParseHexUint256(ctx context.Context, s string) (*HexUint256, error) {
 	if !ok {
 		return nil, i18n.NewError(ctx, pldmsgs.MsgTypesInvalidHexInteger, s)
 	}
-	if err := checkUint256Range(ctx, bi, s); err != nil {
+	if err := checkUint256Range(ctx, bi); err != nil {
 		return nil, err
 	}
 	return (*HexUint256)(bi), nil
@@ -49,12 +49,12 @@ func ParseHexUint256(ctx context.Context, s string) (*HexUint256, error) {
 
 // checkUint256Range enforces the range of the type. The DB serialization is exactly 256
 // unsigned bits, so the same check covers both parsing a value and persisting one.
-func checkUint256Range(ctx context.Context, bi *big.Int, desc string) error {
+func checkUint256Range(ctx context.Context, bi *big.Int) error {
 	switch {
 	case bi.Sign() < 0:
-		return i18n.NewError(ctx, pldmsgs.MsgTypesUint256Negative, desc)
+		return i18n.NewError(ctx, pldmsgs.MsgTypesUint256Negative, bi.Text(10))
 	case bi.BitLen() > 256:
-		return i18n.NewError(ctx, pldmsgs.MsgTypesUint256TooLarge, desc)
+		return i18n.NewError(ctx, pldmsgs.MsgTypesUint256TooLarge, bi.Text(10))
 	default:
 		return nil
 	}
@@ -131,18 +131,20 @@ func (hi *HexUint256) Value() (driver.Value, error) {
 	if hi == nil {
 		return nil, nil
 	}
-	bi := (*big.Int)(hi)
-	if err := checkUint256Range(context.Background(), bi, bi.Text(10)); err != nil {
+	buff, err := PadHexBigUint(context.Background(), (*big.Int)(hi), make([]byte, 64))
+	if err != nil {
 		return nil, err
 	}
-	return string(PadHexBigUint(bi, make([]byte, 64))), nil
+	return string(buff), nil
 }
 
 func (hi *HexUint256) Scan(src interface{}) error {
 	switch v := src.(type) {
 	case string:
 		bi, ok := new(big.Int).SetString(v, 16)
-		if len(v) != 64 || !ok {
+		// Note SetString accepts a leading sign, where Value() writes 64 hex digits and no
+		// sign. A '-' would otherwise scan into a negative, outside the range of this type
+		if len(v) != 64 || v[0] == '-' || v[0] == '+' || !ok {
 			// This type was not used to serialize to the database
 			return i18n.NewError(context.Background(), pldmsgs.MsgTypesInvalidDBUint256, v)
 		}
@@ -160,10 +162,20 @@ func (hi *HexUint256) Scan(src interface{}) error {
 }
 
 // PadHexBigUint returns the supplied buffer, with all the bytes to the left of the integer set to '0'.
-// The supplied integer is not modified, and a negative one is padded as its absolute value
-func PadHexBigUint(bi *big.Int, buff []byte) []byte {
-	unPadded := new(big.Int).Abs(bi).Text(16)
+// The supplied integer is not modified.
+//
+// The integer must be in the range of a uint256, and its encoding must fit within the supplied
+// buffer. Both are errors, rather than the silently truncated - and so incorrect - encoding that
+// a value too large for the buffer would otherwise produce
+func PadHexBigUint(ctx context.Context, bi *big.Int, buff []byte) ([]byte, error) {
+	if err := checkUint256Range(ctx, bi); err != nil {
+		return nil, err
+	}
+	unPadded := bi.Text(16)
 	boundary := len(buff) - len(unPadded)
+	if boundary < 0 {
+		return nil, i18n.NewError(ctx, pldmsgs.MsgTypesHexIntBufferTooSmall, len(buff), len(unPadded))
+	}
 	for i := 0; i < len(buff); i++ {
 		if i >= boundary {
 			buff[i] = unPadded[i-boundary]
@@ -171,5 +183,5 @@ func PadHexBigUint(bi *big.Int, buff []byte) []byte {
 			buff[i] = '0'
 		}
 	}
-	return buff
+	return buff, nil
 }
