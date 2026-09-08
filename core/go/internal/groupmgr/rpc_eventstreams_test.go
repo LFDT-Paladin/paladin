@@ -23,15 +23,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/wsclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/wsclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -576,6 +576,23 @@ type mockRPCAsyncControl struct{}
 func (ac *mockRPCAsyncControl) ID() string                     { return "sub1" }
 func (ac *mockRPCAsyncControl) Closed()                        {}
 func (ac *mockRPCAsyncControl) Send(method string, params any) {}
+
+func TestStopWithActiveSubscriptions(t *testing.T) {
+	_, _, gm, _, done := newTestGroupManagerWithWebSocketRPC(t)
+	defer done()
+
+	ctrl := &mockRPCAsyncControl{}
+	es := gm.rpcEventStreams
+	es.receiptSubs["sub1"] = &receiptListenerSubscription{
+		es:        es,
+		ctrl:      ctrl,
+		acksNacks: make(chan *rpcAckNack),
+		closed:    make(chan struct{}),
+	}
+
+	es.stop()
+	require.Empty(t, es.receiptSubs)
+}
 
 func TestHandleLifecycleNoBlockNack(t *testing.T) {
 	ctx, _, gm, _, done := newTestGroupManagerWithWebSocketRPC(t)

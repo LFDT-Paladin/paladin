@@ -6,14 +6,15 @@ import (
 	"math/big"
 	"testing"
 
-	corepb "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/proto"
+	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/iden3/go-iden3-crypto/babyjub"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/constants"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	pb "github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -196,22 +197,22 @@ func TestCryptoRandBN254(t *testing.T) {
 func TestNewMerkleTreeSpec(t *testing.T) {
 	ctx := context.Background()
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*pb.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 			return &pb.FindAvailableStatesResponse{}, nil
 		},
 	}
 
-	spec, err := NewMerkleTreeSpec(ctx, "testSmt", StatesTree, testCallbacks, "smt_root_schema", "smt_node_schema", "test_query_context")
+	spec, err := NewMerkleTreeSpec(ctx, "testSmt", smt.StatesTree, testCallbacks, "smt_root_schema", "smt_node_schema", "test_query_context")
 	require.NoError(t, err)
-	assert.Equal(t, StatesTree, spec.Type)
+	assert.Equal(t, smt.StatesTree, spec.Type)
 
-	spec, err = NewMerkleTreeSpec(ctx, "testSmt", LockedStatesTree, testCallbacks, "smt_root_schema", "smt_node_schema", "test_query_context")
+	spec, err = NewMerkleTreeSpec(ctx, "testSmt", smt.LockedStatesTree, testCallbacks, "smt_root_schema", "smt_node_schema", "test_query_context")
 	require.NoError(t, err)
-	assert.Equal(t, LockedStatesTree, spec.Type)
+	assert.Equal(t, smt.LockedStatesTree, spec.Type)
 
-	spec, err = NewMerkleTreeSpec(ctx, "testSmt", KycStatesTree, testCallbacks, "smt_root_schema", "smt_node_schema", "test_query_context")
+	spec, err = NewMerkleTreeSpec(ctx, "testSmt", smt.KycStatesTree, testCallbacks, "smt_root_schema", "smt_node_schema", "test_query_context")
 	require.NoError(t, err)
-	assert.Equal(t, KycStatesTree, spec.Type)
+	assert.Equal(t, smt.KycStatesTree, spec.Type)
 
 	spec, err = NewMerkleTreeSpec(ctx, "testSmt", 3, testCallbacks, "smt_root_schema", "smt_node_schema", "test_query_context")
 	require.ErrorContains(t, err, "PD210140: Unknown states merkle tree type: 3")

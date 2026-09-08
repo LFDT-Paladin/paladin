@@ -16,14 +16,15 @@
 package publictxmgr
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -47,10 +48,13 @@ func TestNewEnginePollingStoppingAnOrchestratorForFairnessControl(t *testing.T) 
 	defer done()
 
 	// Fake an inflight orchestrator for signing address 1
+	ocCtx, ocCtxCancel := context.WithCancel(ctx)
 	existingOrchestrator := &orchestrator{
 		signingAddress:              *testSigningAddr1,
 		orchestratorBirthTime:       time.Now().Add(-1 * time.Hour),
 		pubTxManager:                ble,
+		ctx:                         ocCtx,
+		ctxCancel:                   ocCtxCancel,
 		orchestratorPollingInterval: ble.enginePollingInterval,
 		state:                       OrchestratorStateRunning,
 		stateEntryTime:              time.Now().Add(1 * time.Hour).Add(-1 * time.Minute),
@@ -68,7 +72,7 @@ func TestNewEnginePollingStoppingAnOrchestratorForFairnessControl(t *testing.T) 
 	existingOrchestrator.orchestratorLoopDone = make(chan struct{})
 	existingOrchestrator.orchestratorLoop()
 	<-existingOrchestrator.orchestratorLoopDone
-	assert.Equal(t, OrchestratorStateStopped, existingOrchestrator.state)
+	assert.Equal(t, OrchestratorStateStopped, existingOrchestrator.getState())
 }
 
 func TestNewEnginePollingExcludePausedOrchestrator(t *testing.T) {

@@ -1,0 +1,71 @@
+# Unified release entry point for all release operations.
+# This is the sole workflow_dispatch entry point, enabling npm trusted publishing via OIDC.
+#
+# Usage:
+#   - RC release:    release_type=rc, tag=v1.2.3-rc.1
+#   - Final release: release_type=final, tag=v1.2.3, rc_tag=v1.2.3-rc.1
+#   - SDK only:      release_type=sdk, tag=v1.2.3, sdk_dist_tags=latest;stable [, ref=<commit>]
+name: Release Entry Point
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        type: choice
+        options:
+          - rc
+          - final
+          - sdk
+        description: 'Type of release'
+        required: true
+      tag:
+        type: string
+        description: 'Target tag (RC tag for rc, final tag for final, version for sdk)'
+        required: true
+      rc_tag:
+        type: string
+        description: '(final only) RC tag to release from'
+        required: false
+      latest:
+        type: boolean
+        default: true
+        description: '(final only) Mark as latest release'
+      ref:
+        type: string
+        description: '(sdk only) Commit ref for checkout, defaults to workflow branch'
+        required: false
+      sdk_dist_tags:
+        type: string
+        description: '(sdk only) NPM dist-tags, semicolon-separated'
+        required: false
+
+jobs:
+  release-candidate:
+    if: inputs.release_type == 'rc'
+    uses: ./.github/workflows/release-candidate.yaml
+    with:
+      tag: ${{ inputs.tag }}
+    secrets: inherit
+
+  release-final:
+    if: inputs.release_type == 'final'
+    uses: ./.github/workflows/release.yaml
+    with:
+      tag: ${{ inputs.tag }}
+      rc_tag: ${{ inputs.rc_tag }}
+      latest: ${{ inputs.latest }}
+    secrets: inherit
+
+  release-sdk:
+    if: inputs.release_type == 'sdk'
+    uses: ./.github/workflows/release-typescript-sdk.yaml
+    with:
+      sdk_version: ${{ inputs.tag }}
+      sdk_tag: ${{ inputs.sdk_dist_tags }}
+      ref: ${{ inputs.ref }}
+

@@ -1,0 +1,11 @@
+name: 'Print Disk Usage'
+description: 'Prints current disk usage statistics.'
+runs:
+  using: "composite"
+  steps:
+    - name: Print disk usage
+      shell: bash
+      run: |
+        echo "--- Disk Usage ---"
+        df -h
+

@@ -21,13 +21,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"gorm.io/gorm/clause"
 )
 
@@ -98,7 +98,7 @@ func (kr *keyResolver) getOrCreateIdentifierPath(ctx context.Context, identifier
 
 func (kr *keyResolver) resolvePathSegment(ctx context.Context, parent *resolvedDBPath, segment string, allowCreate bool) (*resolvedDBPath, error) {
 
-	db := kr.dbTX.DB()
+	db := kr.dbTX.DB(ctx)
 
 	path := segment
 	if parent.path != "" {
@@ -114,8 +114,10 @@ func (kr *keyResolver) resolvePathSegment(ctx context.Context, parent *resolvedD
 	for {
 		// Check for an existing entry in the DB
 		var pathList []*DBKeyPath
-		err := db.WithContext(ctx).
+		err := db.
+			Model(&DBKeyPath{}).
 			Where("path = ?", path).
+			Limit(1).
 			Find(&pathList).Error
 		if err != nil {
 			return nil, err
@@ -147,7 +149,8 @@ func (kr *keyResolver) resolvePathSegment(ctx context.Context, parent *resolvedD
 		nextIndex := int64(0)
 		if parent.nextIndex == nil {
 			// Get the highest index on the parent so far written to the DB
-			err = db.WithContext(ctx).
+			err = db.
+				Model(&DBKeyPath{}).
 				Where("parent = ?", parent.path).
 				Order(`"index" DESC`).
 				Limit(1).
@@ -170,7 +173,7 @@ func (kr *keyResolver) resolvePathSegment(ctx context.Context, parent *resolvedD
 
 		// We might get a conflict because we did a dirty read before we took the lock.
 		log.L(ctx).Infof("allocating index %d on parent %s to key-path %s", nextIndex, parent.path, path)
-		result := db.WithContext(ctx).
+		result := db.
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(dbPath)
 		if result.Error != nil {
@@ -203,7 +206,7 @@ func (kr *keyResolver) getStoredVerifier(ctx context.Context, identifier, algori
 		return verifier, nil
 	}
 	var verifiers []*DBKeyVerifier
-	err := kr.dbTX.DB().WithContext(ctx).
+	err := kr.dbTX.DB(ctx).
 		Where(`"identifier" = ?`, identifier).
 		Where(`"algorithm" = ?`, algorithm).
 		Where(`"type" = ?`, verifierType).
@@ -226,6 +229,7 @@ func (kr *keyResolver) getStoredVerifier(ctx context.Context, identifier, algori
 }
 
 func (kr *keyResolver) ResolveKey(ctx context.Context, identifier, algorithm, verifierType string) (_ *pldapi.KeyMappingAndVerifier, err error) {
+	ctx = log.WithComponent(ctx, log.Component("keyresolver"))
 	return kr.resolveKey(ctx, identifier, algorithm, verifierType, false /* allow creation */)
 }
 
@@ -254,7 +258,7 @@ func (kr *keyResolver) resolveKey(ctx context.Context, identifier, algorithm, ve
 
 	var isNewMapping = false
 	var dbPath *resolvedDBPath
-	db := kr.dbTX.DB()
+	db := kr.dbTX.DB(ctx)
 	if mapping == nil {
 		// We go look up the hierarchical path of this identifier, to see if it's existing or new.
 		// Lots of optimistic locking complexity inside this function to efficiently race threads to ensure one wins
@@ -272,7 +276,7 @@ func (kr *keyResolver) resolveKey(ctx context.Context, identifier, algorithm, ve
 		// know if the key has already been allocated (it's possible previously this entry was just a path even
 		// if it already existed) ... so do a query.
 		var mappings []*DBKeyMapping
-		err = db.WithContext(ctx).
+		err = db.
 			Where(`"identifier" = ?`, identifier).
 			Limit(1).
 			Find(&mappings).
@@ -414,7 +418,7 @@ func (kr *keyResolver) preCommit(ctx context.Context, dbTX persistence.DBTX) (er
 		}
 		// Note we have locking to prevent us having an ON CONFLICT here, and
 		// if one is added it needs careful understanding of why.
-		err = dbTX.DB().WithContext(ctx).Create(dbMappings).Error
+		err = dbTX.DB(ctx).Create(dbMappings).Error
 	}
 	if err == nil && len(kr.newVerifiers) > 0 {
 		dbVerifiers := make([]*DBKeyVerifier, len(kr.newVerifiers))
@@ -426,7 +430,7 @@ func (kr *keyResolver) preCommit(ctx context.Context, dbTX persistence.DBTX) (er
 				Verifier:   v.Verifier,
 			}
 		}
-		err = dbTX.DB().WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Clauses(clause.OnConflict{DoNothing: true}). // explained where we add to kr.newVerifiers
 			Create(dbVerifiers).
 			Error

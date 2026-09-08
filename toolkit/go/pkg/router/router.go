@@ -21,8 +21,8 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/httpserver"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/httpserver"
 	"github.com/gorilla/mux"
 )
 
@@ -42,6 +42,7 @@ func NewRouter(ctx context.Context, description string, conf *pldconf.HTTPServer
 	}
 
 	r.server, err = httpserver.NewServer(ctx, description, conf, r.router)
+	// r.router.Handle("/metrics", promhttp.Handler())
 	return r, err
 }
 
@@ -52,6 +53,10 @@ type router struct {
 	ctx    context.Context
 	router *mux.Router
 	server httpserver.Server
+}
+
+func (r *router) Router() *mux.Router {
+	return r.router
 }
 
 func (r *router) HandleFunc(path string, f func(http.ResponseWriter, *http.Request)) {

@@ -19,7 +19,7 @@ package pldapi
 import (
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,5 +71,26 @@ func TestKeyValueStringProperties(t *testing.T) {
 		Properties:    m,
 		Configuration: map[string]string{"conf1": "value1"},
 	}).GenesisStateData()).Pretty())
+
+}
+
+func TestKeyValueStringPropertiesSortInterface(t *testing.T) {
+
+	// NewKeyValueStringProperties sorts properties built from a map, so whether Swap()
+	// gets called at all depends on Go's randomized map iteration order. Exercise the
+	// sort.Interface implementation directly so coverage is deterministic.
+	p := KeyValueStringProperties{
+		{"bbb", "BBB"},
+		{"aaa", "AAA"},
+	}
+	require.Equal(t, 2, p.Len())
+	require.True(t, p.Less(1, 0))
+	require.False(t, p.Less(0, 1))
+
+	p.Swap(0, 1)
+	require.Equal(t, KeyValueStringProperties{
+		{"aaa", "AAA"},
+		{"bbb", "BBB"},
+	}, p)
 
 }

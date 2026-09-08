@@ -18,10 +18,10 @@ package filters
 import (
 	"context"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"gorm.io/gorm"
 )
 
@@ -56,7 +56,7 @@ func (qw *QueryWrapper[PT, T]) Run(ctx context.Context, dbTX persistence.DBTX) (
 	if dbTX == nil {
 		dbTX = qw.P.NOTX()
 	}
-	q := dbTX.DB().WithContext(ctx)
+	q := dbTX.DB(ctx)
 	if qw.Table != "" {
 		q = q.Table(qw.Table)
 	}

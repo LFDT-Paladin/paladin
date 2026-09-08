@@ -21,10 +21,10 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/stretchr/testify/assert"
@@ -273,4 +273,38 @@ func TestUnconnectedRPCClient(t *testing.T) {
 	ec := NewUnconnectedRPCClient(ctx, &pldconf.EthClientConfig{}, 0)
 	_, err := ec.GetBalance(ctx, *pldtypes.RandAddress(), "latest")
 	assert.Regexp(t, "PD011517", err)
+}
+
+func TestFeeHistory(t *testing.T) {
+	expectedFeeHistory := &FeeHistoryResult{
+		OldestBlock:   pldtypes.HexUint64(100),
+		BaseFeePerGas: []pldtypes.HexUint256{*pldtypes.Uint64ToUint256(20000000000), *pldtypes.Uint64ToUint256(21000000000)},
+		GasUsedRatio:  []float64{0.5, 0.6},
+		Reward:        [][]pldtypes.HexUint256{{*pldtypes.Uint64ToUint256(1000000000), *pldtypes.Uint64ToUint256(2000000000)}},
+	}
+	ctx, ec, done := newTestClientAndServer(t, &mockEth{
+		eth_feeHistory: func(ctx context.Context, blockCount int, newestBlock string, rewardPercentiles []float64) (*FeeHistoryResult, error) {
+			return expectedFeeHistory, nil
+		},
+	})
+	defer done()
+
+	feeHistory, err := ec.HTTPClient().FeeHistory(ctx, 2, "latest", []float64{25.0, 75.0})
+	require.NoError(t, err)
+	assert.Equal(t, expectedFeeHistory.OldestBlock, feeHistory.OldestBlock)
+	assert.Equal(t, expectedFeeHistory.BaseFeePerGas, feeHistory.BaseFeePerGas)
+	assert.Equal(t, expectedFeeHistory.GasUsedRatio, feeHistory.GasUsedRatio)
+	assert.Equal(t, expectedFeeHistory.Reward, feeHistory.Reward)
+}
+
+func TestFeeHistoryFail(t *testing.T) {
+	ctx, ec, done := newTestClientAndServer(t, &mockEth{
+		eth_feeHistory: func(ctx context.Context, blockCount int, newestBlock string, rewardPercentiles []float64) (*FeeHistoryResult, error) {
+			return nil, fmt.Errorf("pop")
+		},
+	})
+	defer done()
+
+	_, err := ec.HTTPClient().FeeHistory(ctx, 2, "latest", []float64{25.0, 75.0})
+	assert.Regexp(t, "pop", err)
 }

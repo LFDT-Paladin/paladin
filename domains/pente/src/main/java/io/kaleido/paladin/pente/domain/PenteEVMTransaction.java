@@ -68,6 +68,9 @@
  
      /** the base block we pass to the EVM for execution as a virtual block number */
      long baseBlock;
+
+     /** the timestamp of the base block passed to the EVM for execution as a virtual block timestamp */
+     long baseBlockTimestamp;
  
      /** split out from the full encoded data - will have a function selector prefix for functions, but not for deploy */
      byte[] callData;
@@ -110,7 +113,8 @@
          this.domain = domain;
          this.evmVersion = ptx.getConfig().evmVersion();
          this.baseBlock = ptx.getBaseBlock();
- 
+         this.baseBlockTimestamp = ptx.getBaseBlockTimestamp();
+
          var values = ptx.getValues();
  
          this.from = from;
@@ -163,19 +167,20 @@
          var evmTxn = objectMapper.readValue(response.getBody(), PenteEVMTransaction.class);
  
          // Now complete initialization with the other information in the info
-         evmTxn.postJSONParseInit(domain, txInputState.evmVersion(), txInputState.baseBlock().longValue(), txInputState.bytecodeLength().intValue());
+         evmTxn.postJSONParseInit(domain, txInputState.evmVersion(), txInputState.baseBlock().longValue(), txInputState.baseBlockTimestamp().longValue(), txInputState.bytecodeLength().intValue());
  
          return evmTxn;
  
      }
  
-     private void postJSONParseInit(PenteDomain domain, String evmVersion, long baseBlock, int bytecodeLen) {
+     private void postJSONParseInit(PenteDomain domain, String evmVersion, long baseBlock, long baseBlockTimestamp, int bytecodeLen) {
          if (initialized) {
              throw new IllegalStateException("EVM transaction already initialized");
          }
          this.domain = domain;
          this.evmVersion = evmVersion;
          this.baseBlock = baseBlock;
+         this.baseBlockTimestamp = baseBlockTimestamp;
  
          if (to == null) {
              var data = this.data.getBytes();
@@ -202,7 +207,7 @@
          this.initialized = true;
      }
  
-     EVMRunner getEVM(long chainId, long blockNumber, AccountLoader accountLoader) throws ClassNotFoundException {
+     EVMRunner getEVM(long chainId, long blockNumber, long blockTimestamp, AccountLoader accountLoader) throws ClassNotFoundException {
          var evmConfig = EvmConfiguration.DEFAULT;
          EVMVersion evmVersion = switch (this.evmVersion) {
              case "london" -> EVMVersion.London(chainId, evmConfig);
@@ -210,13 +215,13 @@
              case "shanghai" -> EVMVersion.Shanghai(chainId, evmConfig);
              default -> throw new IllegalArgumentException("unknown EVM version '%s'".formatted(this.evmVersion));
          };
-         return new EVMRunner(evmVersion, accountLoader, blockNumber);
+         return new EVMRunner(evmVersion, accountLoader, blockNumber, blockTimestamp);
      }
  
      EVMExecutionResult invokeEVM(AccountLoader accountLoader) throws IOException, ClassNotFoundException, EVMExecutionException {
          if (!initialized) throw new IllegalArgumentException("transaction has not been initialized");
  
-         var evm = getEVM(domain.getConfig().getChainId(), baseBlock, accountLoader);
+         var evm = getEVM(domain.getConfig().getChainId(), baseBlock, baseBlockTimestamp, accountLoader);
          var senderAddress = org.hyperledger.besu.datatypes.Address.wrap(Bytes.wrap(from.getBytes()));
          var sender = evm.getWorld().getUpdater().getOrCreate(senderAddress);
          var senderNonce = sender.getNonce();
@@ -367,6 +372,10 @@
  
      long getBaseBlock() {
          return this.baseBlock;
+     }
+
+     long getBaseBlockTimestamp() {
+         return this.baseBlockTimestamp;
      }
  
      String getEVMVersion() {

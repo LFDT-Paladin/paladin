@@ -21,14 +21,15 @@ import (
 
 	"encoding/json"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
@@ -44,14 +45,22 @@ func (n *Noto) GetHandler(method string) types.DomainHandler {
 		return &burnHandler{burnCommon: burnCommon{noto: n}}
 	case "burnFrom":
 		return &burnFromHandler{burnCommon: burnCommon{noto: n}}
-	case "approveTransfer":
-		return &approveHandler{noto: n}
-	case "lock":
+	case "lock", "createLock":
 		return &lockHandler{noto: n}
 	case "unlock":
-		return &unlockHandler{unlockCommon: unlockCommon{noto: n}}
+		return &unlockHandler{unlockCommon: unlockCommon{lockCommon: lockCommon{noto: n}}}
+	case "createTransferLock":
+		return &createTransferLockHandler{lockCommon: lockCommon{noto: n}}
+	case "createMintLock":
+		return &createMintLockHandler{lockCommon: lockCommon{noto: n}}
+	case "createBurnLock":
+		return &createBurnLockHandler{lockCommon: lockCommon{noto: n}}
 	case "prepareUnlock":
-		return &prepareUnlockHandler{unlockCommon: unlockCommon{noto: n}}
+		return &prepareUnlockHandler{unlockCommon: unlockCommon{lockCommon: lockCommon{noto: n}}}
+	case "prepareMintUnlock":
+		return &prepareMintUnlockHandler{lockCommon: lockCommon{noto: n}}
+	case "prepareBurnUnlock":
+		return &prepareBurnUnlockHandler{lockCommon: lockCommon{noto: n}}
 	case "delegateLock":
 		return &delegateLockHandler{noto: n}
 	default:
@@ -61,6 +70,12 @@ func (n *Noto) GetHandler(method string) types.DomainHandler {
 
 func (n *Noto) GetCallHandler(method string) types.DomainCallHandler {
 	switch method {
+	case "name":
+		return &nameHandler{noto: n}
+	case "symbol":
+		return &symbolHandler{noto: n}
+	case "decimals":
+		return &decimalsHandler{noto: n}
 	case "balanceOf":
 		return &balanceOfHandler{noto: n}
 	default:
@@ -103,8 +118,9 @@ func (n *Noto) validateBurnAmounts(ctx context.Context, params *types.BurnParams
 }
 
 // Check that a lock produces locked coins matching the difference between the inputs and outputs
-func (n *Noto) validateLockAmounts(ctx context.Context, inputs, outputs *parsedCoins) error {
-	if len(inputs.coins) == 0 {
+func (n *Noto) validateLockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) error {
+	if tx.DomainConfig.IsV0() && len(inputs.coins) == 0 {
+		// V0 did not support empty locks
 		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "lock", inputs.coins)
 	}
 	amount := big.NewInt(0).Sub(inputs.total, outputs.total)
@@ -115,13 +131,82 @@ func (n *Noto) validateLockAmounts(ctx context.Context, inputs, outputs *parsedC
 }
 
 // Check that an unlock produces unlocked coins matching the difference between the locked inputs and outputs
-func (n *Noto) validateUnlockAmounts(ctx context.Context, inputs, outputs *parsedCoins) error {
-	if len(inputs.lockedCoins) == 0 {
+// Note that mint & burn uses a different function (this is only used for transfers)
+func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) error {
+	if tx.DomainConfig.IsV0() && len(inputs.lockedCoins) == 0 {
+		// In V0 there was no lock object to check
 		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "unlock", inputs.lockedCoins)
 	}
 	amount := big.NewInt(0).Sub(inputs.lockedTotal, outputs.lockedTotal)
 	if amount.Cmp(outputs.total) != 0 {
 		return i18n.NewError(ctx, msgs.MsgInvalidAmount, "unlock", outputs.total.Text(10), amount.Text(10))
+	}
+	return nil
+}
+
+// Check that no two coins in the transaction derive the same nullifier.
+//
+// The nullifier derivation covers every field of a coin, so a collision means a duplicate
+// coin - which is already rejected by the base ledger and the state store. This check is
+// belt and braces: it catches any regression in the derivation, and turns what would be a
+// base ledger revert (or worse, an unspendable coin) into a clear endorsement failure.
+//
+// Both inputs and outputs are checked as one set, because an output that collides with an
+// input is nullified by the very transaction that creates it.
+func (n *Noto) validateDistinctNullifiers(ctx context.Context, contract *pldtypes.EthAddress, stateLists ...[]*prototk.EndorsableState) error {
+	nullifiers := make(map[string]string) // nullifier -> first state ID that derived it
+	seenStates := make(map[string]bool)
+	for _, states := range stateLists {
+		for _, state := range states {
+			if seenStates[state.Id] {
+				// The same state appearing twice is checked separately (see parseCoinList)
+				continue
+			}
+			seenStates[state.Id] = true
+
+			nullifier, isCoin, err := n.stateNullifier(ctx, contract, state)
+			if err != nil {
+				return err
+			}
+			if !isCoin {
+				// Identified on-chain by ID, so it has no nullifier
+				continue
+			}
+			if existing, found := nullifiers[nullifier]; found {
+				return i18n.NewError(ctx, msgs.MsgDuplicateNullifierInList, existing, state.Id, nullifier)
+			}
+			nullifiers[nullifier] = state.Id
+		}
+	}
+	return nil
+}
+
+// Check that every new unlocked coin carries the nullifier spec that makes it spendable.
+//
+// Only unlocked coins are nullified: locked coins and lock info states are spent by ID, so they
+// are skipped. Note the state data is deliberately not included in the error - it holds the
+// owner and amount.
+func (n *Noto) validateNullifierSpecs(ctx context.Context, contract *pldtypes.EthAddress, assembled *prototk.AssembledTransaction) error {
+	if assembled == nil || n.coinSchema == nil {
+		return nil
+	}
+	expectedPayloadType := types.NullifierPayloadType(contract)
+	for _, states := range [][]*prototk.NewState{assembled.OutputStates, assembled.InfoStates} {
+		for i, state := range states {
+			if state.SchemaId != n.coinSchema.Id {
+				continue
+			}
+			if len(state.NullifierSpecs) == 0 {
+				return i18n.NewError(ctx, msgs.MsgMissingNullifierSpec, i)
+			}
+			// The spec must name this contract, or the owner's node would derive a nullifier
+			// bound to a different one - which the base ledger here would never recognise
+			for _, spec := range state.NullifierSpecs {
+				if spec.PayloadType != expectedPayloadType {
+					return i18n.NewError(ctx, msgs.MsgNullifierWrongContract, i, expectedPayloadType, spec.PayloadType)
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -143,14 +228,14 @@ func (n *Noto) validateSignature(ctx context.Context, name string, attestations 
 }
 
 // Check that all coins are owned by the transaction sender
-func (n *Noto) validateOwners(ctx context.Context, owner string, req *prototk.EndorseTransactionRequest, coins []*types.NotoCoin, states []*prototk.StateRef) error {
-	fromAddress, err := n.findEthAddressVerifier(ctx, "from", owner, req.ResolvedVerifiers)
+func (n *Noto) validateOwners(ctx context.Context, owner string, verifiers []*prototk.ResolvedVerifier, coins []*types.NotoCoin, states []*prototk.StateRef) error {
+	fromAddress, err := n.findEthAddressVerifier(ctx, "from", owner, verifiers)
 	if err != nil {
 		return err
 	}
 
 	for i, coin := range coins {
-		if !coin.Owner.Equals(fromAddress) {
+		if !coin.Owner.Equals(fromAddress.address) {
 			return i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)
 		}
 	}
@@ -164,7 +249,7 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 		return err
 	}
 	for i, coin := range coins {
-		if !coin.Owner.Equals(fromAddress) {
+		if !coin.Owner.Equals(fromAddress.address) {
 			return i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)
 		}
 	}
@@ -172,12 +257,16 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 }
 
 // Parse a resolved verifier as an eth address
-func (n *Noto) findEthAddressVerifier(ctx context.Context, label, lookup string, verifierList []*prototk.ResolvedVerifier) (*pldtypes.EthAddress, error) {
+func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, lookup string, verifierList []*prototk.ResolvedVerifier) (*identityPair, error) {
 	verifier := domain.FindVerifier(lookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, verifierList)
 	if verifier == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, label)
+		return nil, i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, errorDescription)
 	}
-	return pldtypes.ParseEthAddress(verifier.Verifier)
+	address, err := pldtypes.ParseEthAddress(verifier.Verifier)
+	if err != nil {
+		return nil, err
+	}
+	return &identityPair{identifier: lookup, address: address}, nil
 }
 
 type TransactionWrapper struct {
@@ -187,7 +276,7 @@ type TransactionWrapper struct {
 	contractAddress *pldtypes.EthAddress
 }
 
-func (tw *TransactionWrapper) prepare(metadata []byte) (*prototk.PrepareTransactionResponse, error) {
+func (tw *TransactionWrapper) prepare() (*prototk.PrepareTransactionResponse, error) {
 	functionJSON, err := json.Marshal(tw.functionABI)
 	if err != nil {
 		return nil, err
@@ -205,13 +294,80 @@ func (tw *TransactionWrapper) prepare(metadata []byte) (*prototk.PrepareTransact
 			ContractAddress: contractAddress,
 		},
 	}
-	if metadata != nil {
-		metadataString := string(metadata)
-		res.Metadata = &metadataString
-	}
 	return res, nil
 }
 
 func (tw *TransactionWrapper) encode(ctx context.Context) ([]byte, error) {
 	return tw.functionABI.EncodeCallDataJSONCtx(ctx, tw.paramsJSON)
+}
+
+type resolvedIdentities struct {
+	notary *identityPair
+	sender *identityPair
+	from   *identityPair
+	to     *identityPair
+}
+
+// resolveIdentities resolves notary and sender from the transaction, plus optional from/to lookups.
+func resolveIdentities(ctx context.Context, n *Noto, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, fromLookup, toLookup string) (*resolvedIdentities, error) {
+	notaryID, err := n.findEthAddressVerifier(ctx, "notary", tx.DomainConfig.NotaryLookup, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	senderID, err := n.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	ids := &resolvedIdentities{notary: notaryID, sender: senderID}
+	if fromLookup != "" {
+		ids.from, err = n.findEthAddressVerifier(ctx, "from", fromLookup, req.ResolvedVerifiers)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if toLookup != "" {
+		ids.to, err = n.findEthAddressVerifier(ctx, "to", toLookup, req.ResolvedVerifiers)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return ids, nil
+}
+
+// buildEndorsePlan returns the standard Noto attestation plan:
+// sender signs the payload, notary endorses.
+func buildEndorsePlan(notaryParty, senderParty string, signPayload []byte) []*prototk.AttestationRequest {
+	return []*prototk.AttestationRequest{
+		{
+			Name:            "sender",
+			AttestationType: prototk.AttestationType_SIGN,
+			Algorithm:       algorithms.ECDSA_SECP256K1,
+			VerifierType:    verifiers.ETH_ADDRESS,
+			Payload:         signPayload,
+			PayloadType:     signpayloads.OPAQUE_TO_RSV,
+			Parties:         []string{senderParty},
+		},
+		{
+			Name:            "notary",
+			AttestationType: prototk.AttestationType_ENDORSE,
+			Algorithm:       algorithms.ECDSA_SECP256K1,
+			VerifierType:    verifiers.ETH_ADDRESS,
+			Parties:         []string{notaryParty},
+		},
+	}
+}
+
+// assembleRevertOrError returns a revert Assemble response when revert is true, otherwise the original error.
+func assembleRevertOrError(revert bool, err error) (*prototk.AssembleTransactionResponse, error) {
+	if err == nil {
+		return nil, nil
+	}
+	if revert {
+		reason := err.Error()
+		return &prototk.AssembleTransactionResponse{
+			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+			RevertReason:   &reason,
+		}, nil
+	}
+	return nil, err
 }

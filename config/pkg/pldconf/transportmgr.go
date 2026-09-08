@@ -14,30 +14,32 @@
  */
 package pldconf
 
-import "github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
+import "github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 
-type TransportManagerConfig struct {
-	NodeName              string                      `json:"nodeName"`
-	SendQueueLen          *int                        `json:"sendQueueLen"`
-	PeerInactivityTimeout *string                     `json:"peerInactivityTimeout"`
-	PeerReaperInterval    *string                     `json:"peerReaperInterval"`
-	SendRetry             RetryConfigWithMax          `json:"sendRetry"`
-	ReliableScanRetry     RetryConfig                 `json:"reliableScanRetry"`
-	ReliableMessageResend *string                     `json:"reliableMessageResend"`
-	ReliableMessageWriter FlushWriterConfig           `json:"reliableMessageWriter"`
-	Transports            map[string]*TransportConfig `json:"transports"`
+type TransportManagerInlineConfig struct {
+	NodeName                  string                      `json:"nodeName"`
+	SendQueueLen              *int                        `json:"sendQueueLen"`
+	PeerInactivityTimeout     *string                     `json:"peerInactivityTimeout"`
+	PeerReaperInterval        *string                     `json:"peerReaperInterval"`
+	SendFailureResetThreshold *int                        `json:"sendFailureResetThreshold"`
+	SendRetry                 RetryConfigWithMax          `json:"sendRetry"`
+	ReliableScanRetry         RetryConfig                 `json:"reliableScanRetry"`
+	ReliableMessageResend     *string                     `json:"reliableMessageResend"`
+	ReliableMessageWriter     FlushWriterConfig           `json:"reliableMessageWriter"`
+	Transports                map[string]*TransportConfig `json:"transports" configdefaults:"TransportConfigDefaults"`
 }
 
 type TransportInitConfig struct {
 	Retry RetryConfig `json:"retry"`
 }
 
-var TransportManagerDefaults = &TransportManagerConfig{
-	SendQueueLen:          confutil.P(10),
-	ReliableMessageResend: confutil.P("30s"),
-	PeerInactivityTimeout: confutil.P("1m"),
-	PeerReaperInterval:    confutil.P("30s"),
-	ReliableScanRetry:     GenericRetryDefaults.RetryConfig,
+var TransportManagerDefaults = TransportManagerInlineConfig{
+	SendQueueLen:              confutil.P(10),
+	ReliableMessageResend:     confutil.P("30s"),
+	PeerInactivityTimeout:     confutil.P("1m"),
+	PeerReaperInterval:        confutil.P("30s"),
+	SendFailureResetThreshold: confutil.P(3),
+	ReliableScanRetry:         GenericRetryDefaults.RetryConfig,
 	// SendRetry defaults are deliberately short
 	SendRetry: RetryConfigWithMax{
 		RetryConfig: RetryConfig{
@@ -58,4 +60,10 @@ type TransportConfig struct {
 	Init   TransportInitConfig `json:"init"`
 	Plugin PluginConfig        `json:"plugin"`
 	Config map[string]any      `json:"config"`
+}
+
+var TransportConfigDefaults = TransportConfig{
+	Init: TransportInitConfig{
+		Retry: GenericRetryDefaults.RetryConfig,
+	},
 }

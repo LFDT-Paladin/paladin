@@ -1,0 +1,1 @@
+A chained dispatch record tracks a private transaction that was created as a consequence of another private transaction (the original). The `id` correlates with the `subjectId` field on sequencer activity records of type `chained_dispatch`.

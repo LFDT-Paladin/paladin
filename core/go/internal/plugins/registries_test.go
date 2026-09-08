@@ -22,14 +22,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/google/uuid"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -144,7 +144,12 @@ func TestRegistryRequestsOK(t *testing.T) {
 	})
 	defer done()
 
-	registryAPI := <-waitForAPI
+	var registryAPI components.RegistryManagerToRegistry
+	select {
+	case registryAPI = <-waitForAPI:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for registry API - expected registration was not received")
+	}
 
 	_, err := registryAPI.ConfigureRegistry(ctx, &prototk.ConfigureRegistryRequest{})
 	require.NoError(t, err)
@@ -160,7 +165,13 @@ func TestRegistryRequestsOK(t *testing.T) {
 	registryAPI.Initialized()
 	require.NoError(t, pc.WaitForInit(ctx, prototk.PluginInfo_DOMAIN))
 
-	callbacks := <-waitForCallbacks
+	// Add timeout for callbacks
+	var callbacks plugintk.RegistryCallbacks
+	select {
+	case callbacks = <-waitForCallbacks:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for callbacks - expected callbacks were not received")
+	}
 
 	utr, err := callbacks.UpsertRegistryRecords(ctx, &prototk.UpsertRegistryRecordsRequest{
 		Entries: []*prototk.RegistryEntry{{Name: "node1"}},
@@ -180,15 +191,6 @@ func TestRegistryRegisterFail(t *testing.T) {
 				t:              t,
 				connectFactory: registryConnectFactory,
 				headerAccessor: registryHeaderAccessor,
-				preRegister: func(registryID string) *prototk.RegistryMessage {
-					return &prototk.RegistryMessage{
-						Header: &prototk.Header{
-							MessageType: prototk.Header_REGISTER,
-							PluginId:    registryID,
-							MessageId:   uuid.NewString(),
-						},
-					}
-				},
 				expectClose: func(err error) {
 					waitForError <- err
 				},
@@ -207,7 +209,7 @@ func TestRegistryRegisterFail(t *testing.T) {
 	select {
 	case err := <-waitForError:
 		assert.Regexp(t, "pop", err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("Test timed out waiting for registration callback")
 	}
 }
@@ -252,7 +254,7 @@ func TestFromRegistryRequestBadReq(t *testing.T) {
 
 	select {
 	case <-waitForResponse:
-	case <-time.After(5 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("Test timed out waiting for waitForResponse callback")
 	}
 }

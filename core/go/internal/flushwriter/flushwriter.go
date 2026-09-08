@@ -22,16 +22,16 @@ import (
 	"hash/fnv"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 )
 
 type Writeable[R any] interface {
@@ -197,7 +197,16 @@ func (w *writer[T, R]) queue(ctx context.Context, value T, flush bool) *op[T, R]
 }
 
 func (w *writer[T, R]) worker(i int) {
-	defer close(w.workersDone[i])
+	defer func() {
+		if w.workersDone[i] != nil {
+			// Close the channel if it isn't closed already
+			select {
+			case <-w.workersDone[i]:
+			default:
+				close(w.workersDone[i])
+			}
+		}
+	}()
 	workerID := fmt.Sprintf("writer_%s_%.4d", w.writerId, i)
 	ctx := log.WithLogField(w.bgCtx, "job", workerID)
 	l := log.L(ctx)
@@ -246,7 +255,9 @@ func (w *writer[T, R]) worker(i int) {
 		}
 
 		if b != nil && (timedOutOrFlush || (len(b.ops) >= w.batchMaxSize)) {
-			b.timeoutCancel()
+			if b.timeoutContext != nil {
+				b.timeoutCancel()
+			}
 			l.Debugf("Running batch %s (len=%d,timeout=%t,age=%dms)", b.id, len(b.ops), timedOutOrFlush, time.Since(b.opened).Milliseconds())
 			w.runBatch(ctx, b)
 			b = nil

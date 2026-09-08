@@ -65,6 +65,7 @@
  
      private String domainName;
      private long chainId;
+     private String fixedSigningIdentity;
  
      private String schemaId_AccountState_v24_10_0;
  
@@ -186,6 +187,7 @@
                  JsonABI.newParameter("rawTransaction", "bytes"),
                  JsonABI.newParameter("evmVersion", "string"),
                  JsonABI.newParameter("baseBlock", "uint64"),
+                 JsonABI.newParameter("baseBlockTimestamp", "uint64"),
                  JsonABI.newParameter("bytecodeLength", "uint32")
          ));
      }
@@ -312,10 +314,15 @@
      synchronized String getDomainName() {
          return domainName;
      }
+
+     synchronized String getFixedSigningIdentity() {
+         return fixedSigningIdentity;
+     }
  
      synchronized void initFromConfig(ConfigureDomainRequest configReq) {
          this.domainName = configReq.getName();
          this.chainId = configReq.getChainId();
+         this.fixedSigningIdentity = configReq.getFixedSigningIdentity();
      }
  
      List<String> allPenteSchemas() {

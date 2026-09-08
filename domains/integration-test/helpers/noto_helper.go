@@ -20,19 +20,39 @@ import (
 	_ "embed"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/solutils"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //go:embed abis/NotoFactory.json
 var NotoFactoryJSON []byte
 
+//go:embed abis/Noto.json
+var NotoJSON []byte
+
+//go:embed abis/Noto_V0.json
+var NotoV0JSON []byte
+
+//go:embed abis/SmtLib.json
+var SmtLibJSON []byte
+
+//go:embed abis/NotoNullifiers.json
+var NotoNullifiersJSON []byte
+
+//go:embed abis/ERC1967Proxy.json
+var ERC1967ProxyJSON []byte
+
 //go:embed abis/INoto.json
 var NotoInterfaceJSON []byte
+
+//go:embed abis/INoto_V0.json
+var NotoV0InterfaceJSON []byte
+
+var NotoFactoryABI = solutils.MustParseBuildABI(NotoFactoryJSON)
 
 type NotoHelper struct {
 	t       *testing.T
@@ -41,14 +61,18 @@ type NotoHelper struct {
 	ABI     abi.ABI
 }
 
-func DeployNoto(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, notary string, hooks *pldtypes.EthAddress) *NotoHelper {
+func DeployNoto(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, variant, notary string, hooks *pldtypes.EthAddress) *NotoHelper {
+	return DeployNotoImplementation(ctx, t, rpc, domainName, variant, notary, hooks)
+}
+
+func DeployNotoImplementation(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, implementation, notary string, hooks *pldtypes.EthAddress) *NotoHelper {
 	notaryMode := types.NotaryModeBasic
 	if hooks != nil {
 		notaryMode = types.NotaryModeHooks
 	}
 
 	var addr pldtypes.EthAddress
-	rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deploy", domainName, "notary", &types.ConstructorParams{
+	constructorParams := &types.ConstructorParams{
 		Notary:     notary + "@node1",
 		NotaryMode: notaryMode,
 		Options: types.NotoOptions{
@@ -57,9 +81,14 @@ func DeployNoto(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainN
 				DevUsePublicHooks: true,
 			},
 		},
-	})
+	}
+	if implementation != "" {
+		constructorParams.Implementation = implementation
+		constructorParams.Name = implementation + "-" + pldtypes.RandHex(4)
+	}
+	rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deploy", domainName, "notary", constructorParams)
 	if rpcerr != nil {
-		assert.NoError(t, rpcerr)
+		require.NoError(t, rpcerr)
 	}
 	return &NotoHelper{
 		t:       t,
@@ -124,7 +153,7 @@ func (n *NotoHelper) Unlock(ctx context.Context, params *types.UnlockParams) *Do
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, params))
 }
 
-func (n *NotoHelper) PrepareUnlock(ctx context.Context, params *types.UnlockParams) *DomainTransactionHelper {
+func (n *NotoHelper) PrepareUnlock(ctx context.Context, params *types.PrepareUnlockParams) *DomainTransactionHelper {
 	fn := types.NotoABI.Functions()["prepareUnlock"]
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, params))
 }

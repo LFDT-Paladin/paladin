@@ -22,11 +22,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/solutils"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
@@ -597,6 +597,59 @@ func TestIdempotentSubmit(t *testing.T) {
 
 }
 
+func TestIdempotentSubmitRPCCodeConflict(t *testing.T) {
+	txID := uuid.New()
+	// Simulate new Paladin behaviour: HTTP 200 with RPCCodeConflict (-32001) in the error body
+	conflictResponse := func(id pldtypes.RawJSON) (int, *rpcclient.RPCResponse) {
+		return 200, &rpcclient.RPCResponse{
+			JSONRpc: "2.0",
+			ID:      id,
+			Error: &rpcclient.RPCError{
+				Code:    int64(RPCCodeConflict),
+				Message: "PD012220: key clash",
+			},
+		}
+	}
+	methods := []testRPCMethod{
+		{
+			name: "ptx_sendTransaction",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return conflictResponse(rpcReq.ID)
+			},
+		},
+		{
+			name: "ptx_prepareTransaction",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return conflictResponse(rpcReq.ID)
+			},
+		},
+		{
+			name: "ptx_getTransactionByIdempotencyKey",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return successResponse(rpcReq.ID, pldtypes.RawJSON(`{"id": "`+txID.String()+`"}`))
+			},
+		},
+	}
+	ctx, c, done := newTestClientAndServerHTTP(t, methods...)
+	defer done()
+
+	txb := c.TxBuilder(ctx).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx.12345").
+		ABIJSON(testABIJSON).
+		From("tx.sender").
+		Inputs(`{"supplier": "0x172EA50B3535721154ae5B368E850825615882BB"}`)
+
+	send := txb.Send()
+	require.NoError(t, send.Error())
+	assert.Equal(t, txID, *send.ID())
+
+	prepare := txb.Prepare()
+	require.NoError(t, prepare.Error())
+	assert.Equal(t, txID, *prepare.ID())
+}
+
 func TestDeferFunctionSelectError(t *testing.T) {
 	ctx, c, done := newTestClientAndServerHTTP(t)
 	defer done()
@@ -712,6 +765,9 @@ func TestErrChainingTXAndReceipt(t *testing.T) {
 	_, err = send.GetReceipt()
 	require.Regexp(t, "PD020211", err)
 
+	_, err = send.GetReceiptFull()
+	require.Regexp(t, "PD020211", err)
+
 	prepare := builder.Prepare()
 	require.Regexp(t, "PD020211", prepare.Error())
 	require.Regexp(t, "PD020211", prepare.Wait(100*time.Microsecond).Error())
@@ -743,6 +799,8 @@ func TestBuildBadABIJSON(t *testing.T) {
 
 func TestGetters(t *testing.T) {
 
+	dep1 := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	dep2 := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	tx := &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			IdempotencyKey: "tx1",
@@ -756,8 +814,9 @@ func TestGetters(t *testing.T) {
 				Gas: confutil.P(pldtypes.HexUint64(100000)),
 			},
 		},
-		ABI:      abi.ABI{{Type: abi.Constructor}},
-		Bytecode: pldtypes.HexBytes(pldtypes.RandBytes(64)),
+		DependsOn: []uuid.UUID{dep1, dep2},
+		ABI:       abi.ABI{{Type: abi.Constructor}},
+		Bytecode:  pldtypes.HexBytes(pldtypes.RandBytes(64)),
 	}
 
 	// This isn't a valid TX, but we're just testing getters
@@ -773,6 +832,7 @@ func TestGetters(t *testing.T) {
 	assert.Equal(t, "function1", b.GetFunction())
 	assert.Equal(t, tx.Bytecode, b.GetBytecode())
 	assert.Equal(t, tx.PublicTxOptions, b.GetPublicTxOptions())
+	assert.Equal(t, tx.DependsOn, b.GetDependsOn())
 
 	require.NotNil(t, b.Client())
 
@@ -796,6 +856,38 @@ func TestGetters(t *testing.T) {
 
 	tx3 := b.BuildTX().CallTX()
 	require.Equal(t, callTX, tx3)
+}
+
+func TestDependsOn(t *testing.T) {
+	ctx := context.Background()
+	b := New().TxBuilder(ctx)
+
+	// DependsOn(nil) sets nil and allows chaining
+	chained := b.DependsOn(nil)
+	require.Same(t, b, chained)
+	assert.Nil(t, b.GetDependsOn())
+	built := b.BuildTX().TX()
+	assert.Nil(t, built.DependsOn)
+
+	// DependsOn(empty slice)
+	b = New().TxBuilder(ctx).DependsOn([]uuid.UUID{})
+	assert.Empty(t, b.GetDependsOn())
+	built = b.BuildTX().TX()
+	assert.Empty(t, built.DependsOn)
+
+	// DependsOn with one or more UUIDs
+	dep1 := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	dep2 := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	deps := []uuid.UUID{dep1, dep2}
+	b = New().TxBuilder(ctx).DependsOn(deps)
+	require.Equal(t, deps, b.GetDependsOn())
+	built = b.BuildTX().TX()
+	require.Equal(t, deps, built.DependsOn)
+
+	// Overwrite: second DependsOn call replaces
+	dep3 := uuid.New()
+	b = b.DependsOn([]uuid.UUID{dep3})
+	require.Equal(t, []uuid.UUID{dep3}, b.GetDependsOn())
 }
 
 func TestBuildCallDataFunction(t *testing.T) {
@@ -900,4 +992,392 @@ func TestMissingBytecode(t *testing.T) {
 		Constructor().
 		Send()
 	assert.Regexp(t, "PD020206", res.Error())
+}
+
+func TestPrivacyGroupDeployWithConstructor(t *testing.T) {
+	groupID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	txID := uuid.New()
+	deployedAddr := pldtypes.RandAddress()
+	bytecode := pldtypes.HexBytes(pldtypes.RandBytes(64))
+
+	methods := []testRPCMethod{
+		{
+			name: "pgroup_sendTransaction",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				var tx pldapi.PrivacyGroupEVMTXInput
+				err := json.Unmarshal(rpcReq.Params[0], &tx)
+				if err != nil {
+					return errorResponse(rpcReq.ID, err)
+				}
+				require.Equal(t, "pente", tx.Domain)
+				require.Equal(t, groupID, tx.Group)
+				require.Equal(t, "member@node1", tx.From)
+				require.Nil(t, tx.To)
+				require.Equal(t, bytecode, tx.Bytecode)
+				require.NotNil(t, tx.Function)
+				require.Equal(t, abi.Constructor, tx.Function.Type)
+				require.Len(t, tx.Function.Inputs, 1)
+				require.JSONEq(t, `{"supplier": "0x172ea50b3535721154ae5b368e850825615882bb"}`, string(tx.Input))
+				require.Equal(t, "deploy1", tx.IdempotencyKey)
+				require.Equal(t, pldtypes.HexUint64(100000), *tx.PublicTxOptions.Gas)
+				return successResponse(rpcReq.ID, pldtypes.JSONString(txID.String()))
+			},
+		},
+		{
+			name: "ptx_getTransactionReceipt",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return successResponse(rpcReq.ID, pldtypes.RawJSON(`{
+					"id": "`+txID.String()+`",
+					"success": true
+				}`))
+			},
+		},
+		{
+			name: "ptx_getTransactionReceiptFull",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				var suppliedID uuid.UUID
+				if err := json.Unmarshal(rpcReq.Params[0], &suppliedID); err != nil {
+					return errorResponse(rpcReq.ID, err)
+				}
+				require.Equal(t, txID, suppliedID)
+				return successResponse(rpcReq.ID, pldtypes.RawJSON(`{
+					"id": "`+txID.String()+`",
+					"success": true,
+					"domainReceipt": {"receipt": {"contractAddress": "`+deployedAddr.String()+`"}}
+				}`))
+			},
+		},
+	}
+	ctx, c, done := newTestClientAndServerHTTP(t, methods...)
+	defer done()
+
+	sent := c.TxBuilder(ctx).
+		Domain("pente").
+		PrivacyGroupID(groupID).
+		ABIJSON(testABIJSON).
+		Bytecode(bytecode).
+		Constructor().
+		Inputs(map[string]any{"supplier": "0x172EA50B3535721154ae5B368E850825615882BB"}).
+		From("member@node1").
+		IdempotencyKey("deploy1").
+		PublicTxOptions(pldapi.PublicTxOptions{
+			Gas: confutil.P(pldtypes.HexUint64(100000)),
+		}).
+		Send()
+
+	res := sent.Wait(100 * time.Millisecond)
+	require.NoError(t, res.Error())
+	require.Equal(t, txID, res.ID())
+
+	full, err := sent.GetReceiptFull()
+	require.NoError(t, err)
+	var penteReceipt pldapi.PenteDomainReceipt
+	require.NoError(t, json.Unmarshal(full.DomainReceipt, &penteReceipt))
+	require.Equal(t, deployedAddr, penteReceipt.Receipt.ContractAddress)
+}
+
+func TestPrivacyGroupDeployDefaultConstructor(t *testing.T) {
+	group := &pldapi.PrivacyGroup{
+		Domain: "pente",
+		ID:     pldtypes.HexBytes(pldtypes.RandBytes(32)),
+	}
+	txID := uuid.New()
+	bytecode := pldtypes.HexBytes(pldtypes.RandBytes(64))
+
+	ctx, c, done := newTestClientAndServerHTTP(t, testRPCMethod{
+		name: "pgroup_sendTransaction",
+		handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+			var tx pldapi.PrivacyGroupEVMTXInput
+			err := json.Unmarshal(rpcReq.Params[0], &tx)
+			if err != nil {
+				return errorResponse(rpcReq.ID, err)
+			}
+			require.Equal(t, group.ID, tx.Group)
+			require.Equal(t, bytecode, tx.Bytecode)
+			require.NotNil(t, tx.Function)
+			require.Equal(t, abi.Constructor, tx.Function.Type)
+			require.Empty(t, tx.Function.Inputs)
+			require.JSONEq(t, `{}`, string(tx.Input))
+			return successResponse(rpcReq.ID, pldtypes.JSONString(txID.String()))
+		},
+	})
+	defer done()
+
+	// The ABI has no constructor entry - a default constructor is supplied
+	sent := c.TxBuilder(ctx).
+		PrivacyGroup(group).
+		ABIJSON([]byte(`[{"name": "get", "type": "function", "inputs": [], "outputs": []}]`)).
+		Bytecode(bytecode).
+		Constructor().
+		From("member@node1").
+		Send()
+	require.NoError(t, sent.Error())
+	require.Equal(t, txID, *sent.ID())
+}
+
+func TestPrivacyGroupDeployNoABI(t *testing.T) {
+	group := &pldapi.PrivacyGroup{
+		Domain: "pente",
+		ID:     pldtypes.HexBytes(pldtypes.RandBytes(32)),
+	}
+	txID := uuid.New()
+	bytecode := pldtypes.HexBytes(pldtypes.RandBytes(64))
+
+	ctx, c, done := newTestClientAndServerHTTP(t, testRPCMethod{
+		name: "pgroup_sendTransaction",
+		handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+			var tx pldapi.PrivacyGroupEVMTXInput
+			err := json.Unmarshal(rpcReq.Params[0], &tx)
+			if err != nil {
+				return errorResponse(rpcReq.ID, err)
+			}
+			require.Equal(t, group.ID, tx.Group)
+			require.Equal(t, bytecode, tx.Bytecode)
+			require.Nil(t, tx.Function)
+			require.Empty(t, tx.Input)
+			return successResponse(rpcReq.ID, pldtypes.JSONString(txID.String()))
+		},
+	})
+	defer done()
+
+	// No ABI supplied - the bytecode-only deploy passes through without a function definition
+	sent := c.TxBuilder(ctx).
+		PrivacyGroup(group).
+		Bytecode(bytecode).
+		From("member@node1").
+		Send()
+	require.NoError(t, sent.Error())
+	require.Equal(t, txID, *sent.ID())
+}
+
+func TestPrivacyGroupInvoke(t *testing.T) {
+	group := &pldapi.PrivacyGroup{
+		Domain: "pente",
+		ID:     pldtypes.HexBytes(pldtypes.RandBytes(32)),
+	}
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+
+	ctx, c, done := newTestClientAndServerHTTP(t, testRPCMethod{
+		name: "pgroup_sendTransaction",
+		handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+			var tx pldapi.PrivacyGroupEVMTXInput
+			err := json.Unmarshal(rpcReq.Params[0], &tx)
+			if err != nil {
+				return errorResponse(rpcReq.ID, err)
+			}
+			require.Equal(t, "pente", tx.Domain)
+			require.Equal(t, group.ID, tx.Group)
+			require.Equal(t, contractAddr, tx.To)
+			require.NotNil(t, tx.Function)
+			require.Equal(t, "newWidget", tx.Function.Name)
+			require.JSONEq(t, `{
+				"widget": {
+					"id": "0x172ea50b3535721154ae5b368e850825615882bb",
+					"sku": "12345",
+					"features": ["blue", "round"]
+				}
+			}`, string(tx.Input))
+			return successResponse(rpcReq.ID, pldtypes.JSONString(txID.String()))
+		},
+	})
+	defer done()
+
+	sent := c.ForABI(ctx, testABI).
+		PrivacyGroup(group).
+		Function("newWidget").
+		To(contractAddr).
+		Inputs(map[string]any{
+			"widget": map[string]any{
+				"id":       "0x172EA50B3535721154ae5B368E850825615882BB",
+				"sku":      12345,
+				"features": []string{"blue", "round"},
+			},
+		}).
+		From("member@node1").
+		Send()
+	require.NoError(t, sent.Error())
+	require.Equal(t, txID, *sent.ID())
+}
+
+func TestPrivacyGroupCall(t *testing.T) {
+	group := &pldapi.PrivacyGroup{
+		Domain: "pente",
+		ID:     pldtypes.HexBytes(pldtypes.RandBytes(32)),
+	}
+	contractAddr := pldtypes.RandAddress()
+
+	ctx, c, done := newTestClientAndServerHTTP(t, testRPCMethod{
+		name: "pgroup_call",
+		handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+			var call pldapi.PrivacyGroupEVMCall
+			err := json.Unmarshal(rpcReq.Params[0], &call)
+			if err != nil {
+				return errorResponse(rpcReq.ID, err)
+			}
+			require.Equal(t, "pente", call.Domain)
+			require.Equal(t, group.ID, call.Group)
+			require.Equal(t, contractAddr, call.To)
+			require.Equal(t, "member@node1", call.From)
+			require.NotNil(t, call.Function)
+			require.Equal(t, "getWidgets", call.Function.Name)
+			require.JSONEq(t, `["12345"]`, string(call.Input))
+			require.Equal(t, pldtypes.JSONFormatOptions("mode=array"), call.DataFormat)
+			require.Equal(t, "latest", call.Block.String())
+			return successResponse(rpcReq.ID, pldtypes.RawJSON(`[[
+				"0x172ea50b3535721154ae5b368e850825615882bb",
+				"12345",
+				["blue", "round"]
+			]]`))
+		},
+	})
+	defer done()
+
+	var widgets []any
+	err := c.ForABI(ctx, testABI).
+		PrivacyGroup(group).
+		Function("getWidgets").
+		To(contractAddr).
+		Inputs([]int{12345}).
+		Outputs(&widgets).
+		DataFormat("mode=array").
+		PublicCallOptions(pldapi.PublicCallOptions{
+			Block: "latest",
+		}).
+		From("member@node1").
+		Call()
+	require.NoError(t, err)
+	require.Len(t, widgets, 1)
+}
+
+func TestPrivacyGroupIdempotentSubmit(t *testing.T) {
+	groupID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	txID := uuid.New()
+	bytecode := pldtypes.HexBytes(pldtypes.RandBytes(64))
+
+	methods := []testRPCMethod{
+		{
+			name: "pgroup_sendTransaction",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				return errorResponse(rpcReq.ID, fmt.Errorf("PD012220: key clash"))
+			},
+		},
+		{
+			name: "ptx_getTransactionByIdempotencyKey",
+			handler: func(rpcReq *rpcclient.RPCRequest) (int, *rpcclient.RPCResponse) {
+				var suppliedID string
+				if err := json.Unmarshal(rpcReq.Params[0], &suppliedID); err != nil {
+					return errorResponse(rpcReq.ID, err)
+				}
+				require.Equal(t, "deploy1", suppliedID)
+				return successResponse(rpcReq.ID, pldtypes.RawJSON(`{
+					"id": "`+txID.String()+`"
+				}`))
+			},
+		},
+	}
+	ctx, c, done := newTestClientAndServerHTTP(t, methods...)
+	defer done()
+
+	sent := c.TxBuilder(ctx).
+		Domain("pente").
+		PrivacyGroupID(groupID).
+		ABIJSON([]byte(`[]`)).
+		Bytecode(bytecode).
+		Constructor().
+		IdempotencyKey("deploy1").
+		From("member@node1").
+		Send()
+	require.NoError(t, sent.Error())
+	require.Equal(t, txID, *sent.ID())
+}
+
+func TestPrivacyGroupValidation(t *testing.T) {
+	ctx := context.Background()
+	groupID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	bytecode := pldtypes.MustParseHexBytes("0xfeedbeef")
+
+	// An explicit Public() conflicts with a privacy group target
+	res := New().TxBuilder(ctx).
+		Domain("pente").
+		PrivacyGroupID(groupID).
+		Public().
+		ABIJSON(testABIJSON).
+		Constructor().
+		Bytecode(bytecode).
+		From("member@node1").
+		Send()
+	assert.Regexp(t, "PD020218", res.Error())
+
+	// Domain still required
+	res = New().TxBuilder(ctx).
+		PrivacyGroupID(groupID).
+		ABIJSON(testABIJSON).
+		Constructor().
+		Bytecode(bytecode).
+		From("member@node1").
+		Send()
+	assert.Regexp(t, "PD020214", res.Error())
+
+	// An invoke still requires a function
+	res = New().TxBuilder(ctx).
+		Domain("pente").
+		PrivacyGroupID(groupID).
+		ABIJSON(testABIJSON).
+		To(pldtypes.RandAddress()).
+		From("member@node1").
+		Send()
+	assert.Regexp(t, "PD020215", res.Error())
+
+	// A deploy requires bytecode
+	res = New().TxBuilder(ctx).
+		Domain("pente").
+		PrivacyGroupID(groupID).
+		ABIJSON(testABIJSON).
+		Constructor().
+		From("member@node1").
+		Send()
+	assert.Regexp(t, "PD020220", res.Error())
+
+	// A function still requires a to address
+	res = New().TxBuilder(ctx).
+		Domain("pente").
+		PrivacyGroupID(groupID).
+		ABIJSON(testABIJSON).
+		Function("newWidget").
+		From("member@node1").
+		Send()
+	assert.Regexp(t, "PD020202", res.Error())
+
+	// A named function requires an ABI to resolve the full definition to send
+	res = New().TxBuilder(ctx).
+		Domain("pente").
+		PrivacyGroupID(groupID).
+		Function("someFunc").
+		To(pldtypes.RandAddress()).
+		Inputs(`[]`).
+		From("member@node1").
+		Send()
+	assert.Regexp(t, "PD020213", res.Error())
+
+	// Prepare is not supported
+	prepare := New().TxBuilder(ctx).
+		Domain("pente").
+		PrivacyGroupID(groupID).
+		ABIJSON([]byte(`[]`)).
+		Constructor().
+		Bytecode(bytecode).
+		From("member@node1").
+		Prepare()
+	assert.Regexp(t, "PD020219", prepare.Error())
+}
+
+func TestPrivacyGroupGetters(t *testing.T) {
+	group := &pldapi.PrivacyGroup{
+		Domain: "pente",
+		ID:     pldtypes.HexBytes(pldtypes.RandBytes(32)),
+	}
+	b := New().TxBuilder(context.Background()).PrivacyGroup(group).Clone()
+	assert.Equal(t, group.ID, b.GetPrivacyGroupID())
+	assert.Equal(t, "pente", b.GetDomain())
 }

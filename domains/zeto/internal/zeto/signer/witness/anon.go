@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"math/big"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/signer/common"
-	pb "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
+	pb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/key-manager/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo"
 )
 
 type FungibleWitnessInputs struct {
@@ -51,7 +51,7 @@ func (f *FungibleWitnessInputs) Build(ctx context.Context, commonInputs *pb.Prov
 			outputOwnerPublicKeys[i] = []*big.Int{ownerPubKey.X, ownerPubKey.Y}
 			value := tokenData.OutputValues[i]
 			outputValues[i] = new(big.Int).SetUint64(value)
-			u := utxo.NewFungible(new(big.Int).SetUint64(value), ownerPubKey, salt)
+			u := utxo.NewFungible(new(big.Int).SetUint64(value), ownerPubKey, salt, common.GetHasher())
 			hash, err := u.GetHash()
 			if err != nil {
 				return err

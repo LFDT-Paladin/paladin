@@ -22,17 +22,18 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/statemgr"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence/mockpersistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/statemgr"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -63,6 +64,7 @@ func newMockComponents(t *testing.T, realDB bool) *mockComponents {
 	mc.c.On("TransportManager").Return(mc.transportManager).Maybe()
 	mc.c.On("RegistryManager").Return(mc.registryManager).Maybe()
 	mc.c.On("TxManager").Return(mc.txManager).Maybe()
+	mc.c.On("MetricsManager").Return(metrics.NewMetricsManager(context.Background())).Maybe()
 
 	if realDB {
 		p, cleanup, err := persistence.NewUnitTestPersistence(context.Background(), "groupmgr")
@@ -103,10 +105,11 @@ func newMockComponents(t *testing.T, realDB bool) *mockComponents {
 
 func newTestGroupManager(t *testing.T, realDB bool, conf *pldconf.GroupManagerConfig, extraSetup ...func(mc *mockComponents, conf *pldconf.GroupManagerConfig)) (context.Context, *groupManager, *mockComponents, func()) {
 	ctx, cancelCtx := context.WithCancel(context.Background())
-	oldLevel := logrus.GetLevel()
-	logrus.SetLevel(logrus.TraceLevel)
+	oldLevel := log.GetLevel()
+	log.SetLevel("trace")
 
 	mc := newMockComponents(t, realDB)
+	mc.domain.On("FixedSigningIdentity").Return("").Maybe()
 	for _, fn := range extraSetup {
 		fn(mc, conf)
 	}
@@ -125,7 +128,7 @@ func newTestGroupManager(t *testing.T, realDB bool, conf *pldconf.GroupManagerCo
 
 	return ctx, gm.(*groupManager), mc, func() {
 		if !t.Failed() {
-			logrus.SetLevel(oldLevel)
+			log.SetLevel(oldLevel)
 			cancelCtx()
 			gm.Stop()
 		}
@@ -445,6 +448,72 @@ func TestPrivacyGroupSendReliableFail(t *testing.T) {
 	require.NoError(t, mc.db.Mock.ExpectationsWereMet())
 }
 
+func TestPrivacyGroupFixedSigningIdentity(t *testing.T) {
+	// Test that when tx.From is empty and domain.FixedSigningIdentity() returns a non-empty string,
+	fixedIdentity := "fixed-identity-123"
+
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{},
+		mockEmptyMessageListeners,
+		func(mc *mockComponents, conf *pldconf.GroupManagerConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectExec("INSERT.*privacy_groups").WillReturnResult(driver.ResultNoRows)
+			mc.db.Mock.ExpectExec("INSERT.*privacy_group_members").WillReturnResult(driver.ResultNoRows)
+			mc.db.Mock.ExpectCommit()
+		},
+		func(mc *mockComponents, conf *pldconf.GroupManagerConfig) {
+			// Override the default FixedSigningIdentity mock to return a non-empty string
+			// We need to reset the default Maybe() expectation first by setting up a new one
+			// that will be checked before the Maybe() one
+			mc.domain.ExpectedCalls = nil // Clear existing expectations
+			mc.domain.On("FixedSigningIdentity").Return(fixedIdentity)
+			mc.domain.On("CustomHashFunction").Return(false).Maybe()
+			mc.domain.On("Name").Return("domain1").Maybe()
+			// Set up domain configuration
+			mc.domain.On("ConfigurePrivacyGroup", mock.Anything, mock.Anything).Return(map[string]string{}, nil)
+			// Override InitPrivacyGroup to return a transaction with empty From field
+			mc.domain.On("InitPrivacyGroup", mock.Anything, mock.Anything, mock.Anything).
+				Return(&pldapi.TransactionInput{
+					TransactionBase: pldapi.TransactionBase{
+						Domain: "domain1",
+						Type:   pldapi.TransactionTypePrivate.Enum(),
+						From:   "", // Empty From to trigger the FixedSigningIdentity logic
+					},
+				}, nil)
+			// Set up state manager mocks
+			ms := componentsmocks.NewSchema(t)
+			ms.On("ID").Return(pldtypes.RandBytes32())
+			ms.On("Signature").Return("").Maybe()
+			mc.stateManager.On("EnsureABISchemas", mock.Anything, mock.Anything, "domain1", mock.Anything).
+				Return([]components.Schema{ms}, nil)
+			mc.stateManager.On("WriteReceivedStates", mock.Anything, mock.Anything, "domain1", mock.Anything).
+				Return([]*pldapi.State{
+					{StateBase: pldapi.StateBase{
+						ID: pldtypes.RandBytes(32),
+					}},
+				}, nil)
+			// Verify that SendTransactions is called with a transaction that has From set to fixedIdentity
+			mc.txManager.On("SendTransactions", mock.Anything, mock.Anything, mock.Anything).
+				Return([]uuid.UUID{uuid.New()}, nil).
+				Run(func(args mock.Arguments) {
+					tx := args[2].([]*pldapi.TransactionInput)[0]
+					assert.Equal(t, fixedIdentity, tx.From, "tx.From should be set to the fixed signing identity")
+				})
+			// SendReliable is only called when there are remote members, but we're only using local members
+		})
+	defer done()
+
+	err := gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := gm.CreateGroup(ctx, dbTX, &pldapi.PrivacyGroupInput{
+			Domain:  "domain1",
+			Members: []string{"me@node1"},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, mc.db.Mock.ExpectationsWereMet())
+}
+
 func TestQueryGroupsFail(t *testing.T) {
 
 	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
@@ -627,6 +696,85 @@ func TestSendTransactionSendPreparedTx(t *testing.T) {
 	})
 	require.Regexp(t, "pop", err)
 
+}
+
+func mockGetPrivateSmartContract(t *testing.T, mc *mockComponents, schemaID pldtypes.Bytes32, groupID pldtypes.HexBytes, contractAddr *pldtypes.EthAddress) *componentsmocks.DomainSmartContract {
+	mockDBPrivacyGroup(mc, schemaID, groupID, contractAddr)
+	psc := componentsmocks.NewDomainSmartContract(t)
+	mc.domainManager.On("GetSmartContractByAddress", mock.Anything, mock.Anything, *contractAddr).Return(psc, nil)
+	psc.On("Domain").Return(mc.domain).Maybe()
+	mdc := componentsmocks.NewDomainQueryContext(t)
+	mc.stateManager.On("NewDomainQueryContext", mock.Anything, mc.domain, *contractAddr).Return(mdc)
+	mdc.On("Close", mock.Anything).Return()
+	return psc
+}
+
+func TestInvokeRPCGroupNotFound(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", pldtypes.RandBytes(32), pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "PD012502", err)
+}
+
+func TestInvokeRPCGroupNotReady(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	mockDBPrivacyGroup(mc, schemaID, groupID, nil)
+
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "PD012503", err)
+}
+
+func TestInvokeRPCOK(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+
+	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)}).Return(pldtypes.RawJSON(`"0xdeadbeef"`), nil)
+
+	result, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	require.NoError(t, err)
+	assert.Equal(t, pldtypes.RawJSON(`"0xdeadbeef"`), result)
+}
+
+func TestInvokeRPCError(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+
+	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)}).Return(nil, fmt.Errorf("pop"))
+
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	require.Regexp(t, "pop", err)
+}
+
+func TestInvokeRPCUnsupportedQualifier(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	mockDBPrivacyGroup(mc, schemaID, groupID, contractAddr)
+	psc := componentsmocks.NewDomainSmartContract(t)
+	mc.domainManager.On("GetSmartContractByAddress", mock.Anything, mock.Anything, *contractAddr).Return(psc, nil)
+
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, "pending", pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "PD011667", err)
 }
 
 func newValidPGState() *pldapi.State {

@@ -53,7 +53,7 @@ Examples include:
 
 The diagram below shows the fundamental anatomy of the EVM smart contract. There are a set of standard functions that Paladin uses to coordinate operations with your smart contract, and code that maps these down to EVM state and proof/signature verification functions.
 
-> TODO: Provide link to detailed developer guidance / samples / instructions
+<!-- TODO: Provide link to detailed developer guidance / samples / instructions -->
 
 ![EVM Smart Contract - Layer A](../images/evm_smart_contract_layer_a.jpg)
 
@@ -105,7 +105,7 @@ Paladin provides a modular system for plugging in the off-chain half of your pri
 For more information see the following architecture pages:
 
 - [UTXO State Store](./uxto_state_store.md)
-- [Distributed Transaction Manager](./transaction_manager.md)
+- [Distributed Transaction Manager](./distributed_sequencer_overview.md)
 - [Runtime Architecture](./runtime_architecture.md)
 
 ## Layer C: Ecosystem programmability (Private EVM)

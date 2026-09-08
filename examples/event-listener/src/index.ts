@@ -1,22 +1,43 @@
+/*
+ * Copyright © 2025 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import PaladinClient, {
   ITransactionReceipt,
   PaladinWebSocketClient,
   PenteFactory,
   TransactionType,
-} from "@lfdecentralizedtrust-labs/paladin-sdk";
+} from "@lfdecentralizedtrust/paladin-sdk";
 import { nanoid } from "nanoid";
-import { checkDeploy } from "paladin-example-common";
+import { checkDeploy, getCachePath, DEFAULT_POLL_TIMEOUT } from "paladin-example-common";
 import helloWorldJson from "./abis/HelloWorld.json";
 import * as fs from 'fs';
 import * as path from 'path';
-import { ContractData } from "./verify-deployed";
+import { ContractData } from "./tests/data-persistence";
+import { nodeConnections } from "paladin-example-common";
 
 const logger = console;
 
-const paladin = new PaladinClient({ url: "http://127.0.0.1:31548" });
-
 async function main(): Promise<boolean> {
-  const [verifierNode1] = paladin.getVerifiers("member@node1");
+  // --- Initialization from Imported Config ---
+  if (nodeConnections.length < 1) {
+    logger.error("The environment config must provide at least 1 node for this scenario.");
+    return false;
+  }
+  
+  logger.log("Initializing Paladin client from the environment configuration...");
+  const paladin = new PaladinClient(nodeConnections[0].clientOptions);
+  const [verifierNode1] = paladin.getVerifiers(`member@${nodeConnections[0].id}`);
 
   // Create a privacy group for Node1 alone
   logger.log("Creating a privacy group for Node1...");
@@ -27,7 +48,7 @@ async function main(): Promise<boolean> {
       evmVersion: "shanghai",
       externalCallsEnabled: true,
     })
-    .waitForDeploy();
+    .waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(memberPrivacyGroup)) return false;
 
   // Deploy a smart contract within the privacy group
@@ -37,8 +58,8 @@ async function main(): Promise<boolean> {
     bytecode: helloWorldJson.bytecode,
     from: verifierNode1.lookup,
   });
-  const receipt = await deploy.waitForReceipt(10000);
-  const contractAddress = await deploy.waitForDeploy();
+  const receipt = await deploy.waitForReceipt(DEFAULT_POLL_TIMEOUT);
+  const contractAddress = await deploy.waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!receipt || !contractAddress) {
     logger.error("Failed to deploy the contract. No address returned.");
     return false;
@@ -183,14 +204,13 @@ async function main(): Promise<boolean> {
   // Wait for event data to be properly captured
   logger.log("Waiting for event data to be captured...");
   const startTime = Date.now();
-  const maxWaitTime = 60000; // Reduced to 30 seconds
   
   while (!receivedEventData || !receivedReceiptId) {
     await new Promise((resolve) => setTimeout(resolve, 500)); // Reduced polling interval
     
-    // If maxWaitTime passed from the beginning of the loop then fail the test
-    if (Date.now() - startTime > maxWaitTime) {
-      logger.error(`Failed to capture event data after ${maxWaitTime/1000} seconds`);
+    // If DEFAULT_POLL_TIMEOUT passed from the beginning of the loop then fail the test
+    if (Date.now() - startTime > DEFAULT_POLL_TIMEOUT) {
+      logger.error(`Failed to capture event data after ${DEFAULT_POLL_TIMEOUT/1000} seconds`);
       logger.error(`received: ${received}, receivedEventData: ${!!receivedEventData}, receivedReceiptId: ${!!receivedReceiptId}`);
       return false;
     }
@@ -214,7 +234,7 @@ async function main(): Promise<boolean> {
       name: name,
       receivedEventData: receivedEventData,
       receivedReceiptId: receivedReceiptId,
-      transactionId: txId
+      transactionId: txId,
     },
     listenerConfig: {
       type: TransactionType.PRIVATE,
@@ -233,7 +253,8 @@ async function main(): Promise<boolean> {
     timestamp: new Date().toISOString()
   };
 
-  const dataDir = path.join(__dirname, '..', 'data');
+  // Use command-line argument for data directory if provided, otherwise use default
+  const dataDir = getCachePath();
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }

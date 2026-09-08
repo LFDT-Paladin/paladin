@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -18,44 +18,86 @@ package statemgr
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/cache"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
 	"gorm.io/gorm/clause"
 )
 
 type stateManager struct {
-	p                 persistence.Persistence
-	bgCtx             context.Context
-	cancelCtx         context.CancelFunc
-	conf              *pldconf.StateStoreConfig
-	domainManager     components.DomainManager
-	txManager         components.TXManager
-	abiSchemaCache    cache.Cache[string, components.Schema]
-	rpcModule         *rpcserver.RPCModule
-	domainContextLock sync.Mutex
-	domainContexts    map[uuid.UUID]*domainContext
+	p                   persistence.Persistence
+	bgCtx               context.Context
+	cancelCtx           context.CancelFunc
+	conf                *pldconf.StateStoreConfig
+	domainManager       components.DomainManager
+	txManager           components.TXManager
+	transportManager    components.TransportManager
+	abiSchemaCache      cache.Cache[string, components.Schema]
+	validatedStateCache cache.Cache[string, *components.StateWithLabels]
+	rpcModule           *rpcserver.RPCModule
+	domainContextLock   sync.Mutex
+	domainContexts      map[uuid.UUID]*domainQueryContext
 }
 
-var SchemaCacheDefaults = &pldconf.CacheConfig{
-	Capacity: confutil.P(1000),
+type logStateSpendRecords []*pldapi.StateSpendRecord
+
+func (lr logStateSpendRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
+}
+
+type logStateReadRecords []*pldapi.StateReadRecord
+
+func (lr logStateReadRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
+}
+
+type logStateConfirmRecords []*pldapi.StateConfirmRecord
+
+func (lr logStateConfirmRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
+}
+
+type logStateInfoRecords []*pldapi.StateInfoRecord
+
+func (lr logStateInfoRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
 }
 
 func NewStateManager(ctx context.Context, conf *pldconf.StateStoreConfig, p persistence.Persistence) components.StateManager {
 	ss := &stateManager{
 		p:              p,
 		conf:           conf,
-		abiSchemaCache: cache.NewCache[string, components.Schema](&conf.SchemaCache, SchemaCacheDefaults),
-		domainContexts: make(map[uuid.UUID]*domainContext),
+		abiSchemaCache: cache.NewCache[string, components.Schema](&conf.SchemaCache, &pldconf.StateStoreConfigDefaults.SchemaCache),
+		validatedStateCache: cache.NewCache[string, *components.StateWithLabels](
+			&conf.ValidatedStateCache, &pldconf.StateStoreConfigDefaults.ValidatedStateCache),
+		domainContexts: make(map[uuid.UUID]*domainQueryContext),
 	}
-	ss.bgCtx, ss.cancelCtx = context.WithCancel(ctx)
+	ss.bgCtx, ss.cancelCtx = context.WithCancel(log.WithComponent(ctx, "statemanager"))
 	return ss
 }
 
@@ -69,6 +111,7 @@ func (ss *stateManager) PreInit(c components.PreInitComponents) (*components.Man
 func (ss *stateManager) PostInit(c components.AllComponents) error {
 	ss.domainManager = c.DomainManager()
 	ss.txManager = c.TxManager()
+	ss.transportManager = c.TransportManager()
 	return nil
 }
 
@@ -94,33 +137,51 @@ func (ss *stateManager) Stop() {
 // might find new states become available and/or states marked locked for spending
 // become fully unavailable.
 func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord, reads []*pldapi.StateReadRecord, confirms []*pldapi.StateConfirmRecord, infoRecords []*pldapi.StateInfoRecord) (err error) {
+	ctx = log.WithComponent(ctx, "statemanager")
+	// The spent/confirmed flags on states are denormalized from these records via setStatesSpent/
+	// setStatesConfirmed. A record can be written before its state row exists (private data not yet
+	// received), in which case the flag UPDATE matches nothing and setStateAvailableFromSpendConfirmRecords sets it
+	// on arrival. availabilityFlagLock serializes this flag maintenance against that arrival-path
+	// reconciliation, so whichever transaction commits second sees the other's rows/records and the
+	// flag ends up set exactly once.
+	if len(spends) > 0 || len(confirms) > 0 {
+		if err = ss.p.TakeNamedLock(ctx, dbTX, availabilityFlagLock); err != nil {
+			return err
+		}
+	}
 	if len(spends) > 0 {
-		err = dbTX.DB().
-			WithContext(ctx).
+		log.L(ctx).Debugf("Finalizing spends: %s", logStateSpendRecords(spends))
+		err = dbTX.DB(ctx).
 			Table("state_spend_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(spends).
 			Error
+		if err == nil {
+			err = setStatesSpent(ctx, dbTX, spends)
+		}
 	}
 	if err == nil && len(reads) > 0 {
-		err = dbTX.DB().
-			WithContext(ctx).
+		log.L(ctx).Debugf("Finalizing reads: %s", logStateReadRecords(reads))
+		err = dbTX.DB(ctx).
 			Table("state_read_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(reads).
 			Error
 	}
 	if err == nil && len(confirms) > 0 {
-		err = dbTX.DB().
-			WithContext(ctx).
+		log.L(ctx).Debugf("Finalizing confirms: %s", logStateConfirmRecords(confirms))
+		err = dbTX.DB(ctx).
 			Table("state_confirm_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(confirms).
 			Error
+		if err == nil {
+			err = setStatesConfirmed(ctx, dbTX, confirms)
+		}
 	}
 	if err == nil && len(infoRecords) > 0 {
-		err = dbTX.DB().
-			WithContext(ctx).
+		log.L(ctx).Debugf("Finalizing info: %s", logStateInfoRecords(infoRecords))
+		err = dbTX.DB(ctx).
 			Table("state_info_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(infoRecords).
@@ -130,20 +191,31 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 }
 
 func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (*pldapi.TransactionStates, error) {
+	ctx = log.WithComponent(ctx, "statemanager")
 
 	// We query from the records table, joining in the other fields
 	var records []*transactionStateRecord
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		// This query joins across three tables in a single query - pushing the complexity to the DB.
 		// The reason we have three tables is to make the queries for available states simpler.
-		Raw(`SELECT * from "states" RIGHT JOIN ( `+
-			`SELECT "transaction", "state", 'spent'     AS "record_type" FROM "state_spend_records"   WHERE "transaction" = ? UNION ALL `+
+		// Previously we used OR join condition to join the records table with the states table.
+		// This prevented the planner from using the states.id index, forcing a full table scan.
+		// Instead we use union all to join the records table with the states table.
+		Raw(`SELECT "states".*, "records"."state", "records"."transaction", "records"."record_type" FROM ( `+
+			`SELECT "transaction", "state", 'spent' AS "record_type" FROM "state_spend_records" WHERE "transaction" = ? `+
+			`  AND NOT EXISTS (SELECT 1 FROM "state_nullifiers" WHERE "state_nullifiers"."id" = "state_spend_records"."state") `+
+			`UNION ALL `+
 			`SELECT "transaction", "state", 'read'      AS "record_type" FROM "state_read_records"    WHERE "transaction" = ? UNION ALL `+
 			`SELECT "transaction", "state", 'confirmed' AS "record_type" FROM "state_confirm_records" WHERE "transaction" = ? UNION ALL `+
-			`SELECT "transaction", "state", 'info'      AS "record_type" FROM "state_info_records"    WHERE "transaction" = ? ) "records" `+
-			`ON "states"."id" = "records"."state"`,
-			txID, txID, txID, txID).
+			`SELECT "transaction", "state", 'info'      AS "record_type" FROM "state_info_records"    WHERE "transaction" = ? `+
+			`) AS "records" LEFT JOIN "states" ON "states"."id" = "records"."state" `+
+			`UNION ALL `+
+			`SELECT "states".*, "sn"."id" AS "state", "sr"."transaction", 'spent' AS "record_type" `+
+			`FROM "state_spend_records" "sr" `+
+			`JOIN "state_nullifiers" "sn" ON "sn"."id" = "sr"."state" `+
+			`LEFT JOIN "states" ON "states"."id" = "sn"."state" `+
+			`WHERE "sr"."transaction" = ?`,
+			txID, txID, txID, txID, txID).
 		Scan(&records).
 		Error
 	if err != nil {

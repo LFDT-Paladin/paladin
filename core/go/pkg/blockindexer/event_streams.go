@@ -21,19 +21,19 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/filters"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"gorm.io/gorm/clause"
 )
 
@@ -41,13 +41,13 @@ type eventStream struct {
 	ctx               context.Context
 	cancelCtx         context.CancelFunc
 	bi                *blockIndexer
-	definition        *EventStream
+	definition        *EventStreamDefinition
 	signatures        map[string]bool
 	signatureList     []pldtypes.Bytes32
 	batchSize         int
 	batchTimeout      time.Duration
 	blocks            chan *eventStreamBlock
-	dispatch          chan *eventDispatch
+	dispatch          chan *detectorMsg
 	useNOTXHandler    bool
 	handlerDBTX       InternalStreamCallbackDBTX
 	handlerNOTX       InternalStreamCallbackNOTX
@@ -74,6 +74,15 @@ type eventDispatch struct {
 	lastInBlock bool
 }
 
+type blockConfirmed struct {
+	blockNumber int64
+}
+
+type detectorMsg struct {
+	event     *eventDispatch
+	confirmed *blockConfirmed
+}
+
 // event streams get notified of every confirmed block to process the data in that block,
 // or simply update their checkpoint. They might fall behind and need to to query the
 // database to catch up.
@@ -86,10 +95,9 @@ func (bi *blockIndexer) loadEventStreams(ctx context.Context) error {
 
 	// Paladin is optimized for a relatively small number of event streams
 	// We hold all event streams in memory, as we process all of them against every block.
-	var eventStreams []*EventStream
-	err := bi.persistence.DB().
+	var eventStreams []*EventStreamDefinition
+	err := bi.persistence.DB(ctx).
 		Table("event_streams").
-		WithContext(ctx).
 		Find(&eventStreams).
 		Error
 	if err != nil {
@@ -102,7 +110,20 @@ func (bi *blockIndexer) loadEventStreams(ctx context.Context) error {
 	return nil
 }
 
-func (bi *blockIndexer) AddEventStream(ctx context.Context, dbTX persistence.DBTX, stream *InternalEventStream) (*EventStream, error) {
+func (es *eventStream) ID() uuid.UUID {
+	return es.definition.ID
+}
+
+func (es *eventStream) Definition() *EventStreamDefinition {
+	return es.definition
+}
+
+func (es *eventStream) CheckpointBlock() int64 {
+	return es.checkpoint.Load()
+}
+
+func (bi *blockIndexer) AddEventStream(ctx context.Context, dbTX persistence.DBTX, stream *InternalEventStream) (EventStream, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	es, err := bi.upsertInternalEventStream(ctx, dbTX, stream)
 	if err != nil {
 		return nil, err
@@ -119,7 +140,7 @@ func (bi *blockIndexer) AddEventStream(ctx context.Context, dbTX persistence.DBT
 		// no possibility of error if not updating DB
 		_ = bi.startEventStream(es, false)
 	}
-	return es.definition, nil
+	return es, nil
 }
 
 func (bi *blockIndexer) upsertInternalEventStream(ctx context.Context, dbTX persistence.DBTX, ies *InternalEventStream) (*eventStream, error) {
@@ -127,7 +148,7 @@ func (bi *blockIndexer) upsertInternalEventStream(ctx context.Context, dbTX pers
 	// Defensive coding against panics
 	def := ies.Definition
 	if def == nil {
-		def = &EventStream{}
+		def = &EventStreamDefinition{}
 	}
 
 	if def.Type == "" {
@@ -140,17 +161,16 @@ func (bi *blockIndexer) upsertInternalEventStream(ctx context.Context, dbTX pers
 	}
 
 	// Validate the fromBlock
-	if _, err := bi.getFromBlock(ctx, def.Config.FromBlock, EventStreamDefaults.FromBlock); err != nil {
+	if _, err := bi.getFromBlock(ctx, def.Config.FromBlock, EventStreamsDefaults.FromBlock); err != nil {
 		return nil, err
 	}
 
 	// Find if one exists - as we need to check it matches, and get its uuid
-	var existing []*EventStream
-	err := dbTX.DB().
+	var existing []*EventStreamDefinition
+	err := dbTX.DB(ctx).
 		Table("event_streams").
 		Where("type = ?", def.Type).
 		Where("name = ?", def.Name).
-		WithContext(ctx).
 		Find(&existing).
 		Error
 	if err != nil {
@@ -177,12 +197,11 @@ func (bi *blockIndexer) upsertInternalEventStream(ctx context.Context, dbTX pers
 		// Update in the DB so we store the latest config
 		// only the config can be updated. In particular the
 		// "Source" is immutable after creation
-		err := dbTX.DB().
+		err := dbTX.DB(ctx).
 			Table("event_streams").
 			Where("type = ?", def.Type).
 			Where("name = ?", def.Name).
-			WithContext(ctx).
-			Updates(&EventStream{Config: def.Config}).
+			Updates(&EventStreamDefinition{Config: def.Config}).
 			Error
 		if err != nil {
 			return nil, err
@@ -190,9 +209,8 @@ func (bi *blockIndexer) upsertInternalEventStream(ctx context.Context, dbTX pers
 	} else {
 		// Otherwise we're just creating
 		def.ID = uuid.New()
-		err := dbTX.DB().
+		err := dbTX.DB(ctx).
 			Table("event_streams").
-			WithContext(ctx).
 			Create(def).
 			Error
 		if err != nil {
@@ -206,7 +224,7 @@ func (bi *blockIndexer) upsertInternalEventStream(ctx context.Context, dbTX pers
 	return bi.initEventStreamNOTX(ctx, def, ies.HandlerNOTX), nil
 }
 
-func (bi *blockIndexer) initEventStreamNOTX(ctx context.Context, definition *EventStream, handlerNOTX InternalStreamCallbackNOTX) *eventStream {
+func (bi *blockIndexer) initEventStreamNOTX(ctx context.Context, definition *EventStreamDefinition, handlerNOTX InternalStreamCallbackNOTX) *eventStream {
 	bi.eventStreamsLock.Lock()
 	defer bi.eventStreamsLock.Unlock()
 
@@ -217,7 +235,7 @@ func (bi *blockIndexer) initEventStreamNOTX(ctx context.Context, definition *Eve
 	return es
 }
 
-func (bi *blockIndexer) initEventStreamDBTX(ctx context.Context, definition *EventStream, handlerDBTX InternalStreamCallbackDBTX) *eventStream {
+func (bi *blockIndexer) initEventStreamDBTX(ctx context.Context, definition *EventStreamDefinition, handlerDBTX InternalStreamCallbackDBTX) *eventStream {
 	bi.eventStreamsLock.Lock()
 	defer bi.eventStreamsLock.Unlock()
 
@@ -228,9 +246,9 @@ func (bi *blockIndexer) initEventStreamDBTX(ctx context.Context, definition *Eve
 }
 
 // Note that the event stream must be stopped when this is called
-func (bi *blockIndexer) initEventStream(ctx context.Context, definition *EventStream) *eventStream {
+func (bi *blockIndexer) initEventStream(ctx context.Context, definition *EventStreamDefinition) *eventStream {
 	es := bi.eventStreams[definition.ID]
-	batchSize := confutil.IntMin(definition.Config.BatchSize, 1, *EventStreamDefaults.BatchSize)
+	batchSize := confutil.IntMin(definition.Config.BatchSize, 1, *EventStreamsDefaults.BatchSize)
 	if es != nil {
 		// If we're already initialized, the only thing that can be changed is the pldconf.
 		// Caller is responsible for ensuring we're stopped at this point
@@ -241,16 +259,16 @@ func (bi *blockIndexer) initEventStream(ctx context.Context, definition *EventSt
 			definition: definition,
 			signatures: make(map[string]bool),
 			blocks:     make(chan *eventStreamBlock, bi.esBlockDispatchQueueLength),
-			dispatch:   make(chan *eventDispatch, batchSize),
+			dispatch:   make(chan *detectorMsg, batchSize),
 			serializer: definition.Format.GetABISerializerIgnoreErrors(ctx),
 		}
 	}
 
 	// Set the batch config
 	es.batchSize = batchSize
-	es.batchTimeout = confutil.DurationMin(definition.Config.BatchTimeout, 0, *EventStreamDefaults.BatchTimeout)
+	es.batchTimeout = confutil.DurationMin(definition.Config.BatchTimeout, 0, *EventStreamsDefaults.BatchTimeout)
 	// The error is already checked before writing to the DB
-	es.fromBlock, _ = es.bi.getFromBlock(ctx, definition.Config.FromBlock, EventStreamDefaults.FromBlock)
+	es.fromBlock, _ = es.bi.getFromBlock(ctx, definition.Config.FromBlock, EventStreamsDefaults.FromBlock)
 	es.checkpoint.Store(-1)
 	es.catchup.Store(true)
 
@@ -283,6 +301,7 @@ func (bi *blockIndexer) initEventStream(ctx context.Context, definition *EventSt
 }
 
 func (bi *blockIndexer) RemoveEventStream(ctx context.Context, id uuid.UUID) error {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	bi.eventStreamsLock.Lock()
 	defer bi.eventStreamsLock.Unlock()
 
@@ -291,11 +310,10 @@ func (bi *blockIndexer) RemoveEventStream(ctx context.Context, id uuid.UUID) err
 		return i18n.NewError(ctx, msgs.MsgBlockIndexerEventStreamNotFound, id)
 	}
 
-	err := bi.persistence.NOTX().DB().
-		WithContext(ctx).
+	err := bi.persistence.NOTX().DB(ctx).
 		Table("event_streams").
 		Where("id = ?", id).
-		Delete(&EventStream{}).
+		Delete(&EventStreamDefinition{}).
 		Error
 	if err != nil {
 		log.L(ctx).Errorf("Failed to delete event stream %s: %s", id, err)
@@ -308,23 +326,24 @@ func (bi *blockIndexer) RemoveEventStream(ctx context.Context, id uuid.UUID) err
 	return nil
 }
 
-func (bi *blockIndexer) QueryEventStreamDefinitions(ctx context.Context, dbTX persistence.DBTX, esType pldtypes.Enum[EventStreamType], jq *query.QueryJSON) ([]*EventStream, error) {
+func (bi *blockIndexer) QueryEventStreamDefinitions(ctx context.Context, dbTX persistence.DBTX, esType pldtypes.Enum[EventStreamType], jq *query.QueryJSON) ([]*EventStreamDefinition, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	if jq == nil || jq.Limit == nil || *jq.Limit == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgBlockIndexerLimitRequired)
 	}
-	q := dbTX.DB().
+	q := dbTX.DB(ctx).
 		Table("event_streams").
-		WithContext(ctx).
 		Where("type = ?", esType)
 
 	q = filters.BuildGORM(ctx, jq, q, EventStreamFilters)
 
-	var results []*EventStream
+	var results []*EventStreamDefinition
 	err := q.Find(&results).Error
 	return results, err
 }
 
 func (bi *blockIndexer) StartEventStream(ctx context.Context, id uuid.UUID) error {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	if bi.eventStreams[id] == nil {
 		return i18n.NewError(ctx, msgs.MsgBlockIndexerEventStreamNotFound, id)
 	}
@@ -332,6 +351,7 @@ func (bi *blockIndexer) StartEventStream(ctx context.Context, id uuid.UUID) erro
 }
 
 func (bi *blockIndexer) StopEventStream(ctx context.Context, id uuid.UUID) error {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	bi.eventStreamsLock.Lock()
 	defer bi.eventStreamsLock.Unlock()
 
@@ -342,6 +362,7 @@ func (bi *blockIndexer) StopEventStream(ctx context.Context, id uuid.UUID) error
 }
 
 func (bi *blockIndexer) GetEventStreamStatus(ctx context.Context, id uuid.UUID) (*EventStreamStatus, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	bi.eventStreamsLock.Lock()
 	defer bi.eventStreamsLock.Unlock()
 
@@ -384,8 +405,7 @@ func (es *eventStream) start(updateDB bool) error {
 		es.ctx, es.cancelCtx = context.WithCancel(log.WithLogField(es.bi.parentCtxForReset, "eventstream", es.definition.ID.String()))
 		log.L(es.ctx).Infof("Starting event stream %s [%s]", es.definition.Name, es.definition.ID)
 		if updateDB {
-			err := es.bi.persistence.NOTX().DB().
-				WithContext(es.ctx).
+			err := es.bi.persistence.NOTX().DB(es.ctx).
 				Table("event_streams").
 				Where("id = ?", es.definition.ID).
 				Update("started", true).
@@ -393,6 +413,11 @@ func (es *eventStream) start(updateDB bool) error {
 			if err != nil {
 				return err
 			}
+			// Keep in-memory definition in sync with DB so callers of Definition()
+			// (e.g. ptx_getBlockchainEventListener) see the current started status.
+			// Only update when persisting — temporary runtime stops/starts must not
+			// overwrite the configured/desired started state.
+			es.definition.Started = confutil.P(true)
 		}
 		es.detectorDone = make(chan struct{})
 		es.dispatcherDone = make(chan struct{})
@@ -406,8 +431,7 @@ func (es *eventStream) start(updateDB bool) error {
 
 func (es *eventStream) stop(updateDB bool) error {
 	if updateDB {
-		err := es.bi.persistence.NOTX().DB().
-			WithContext(es.ctx).
+		err := es.bi.persistence.NOTX().DB(es.ctx).
 			Table("event_streams").
 			Where("id = ?", es.definition.ID).
 			Update("started", false).
@@ -415,6 +439,11 @@ func (es *eventStream) stop(updateDB bool) error {
 		if err != nil {
 			return err
 		}
+		// Keep in-memory definition in sync with DB so callers of Definition()
+		// (e.g. ptx_getBlockchainEventListener) see the current started status.
+		// Only update when persisting — temporary runtime stops must not
+		// overwrite the configured/desired started state.
+		es.definition.Started = confutil.P(false)
 	}
 	if es.cancelCtx != nil {
 		es.cancelCtx()
@@ -433,10 +462,9 @@ func (es *eventStream) stop(updateDB bool) error {
 
 func (es *eventStream) readDBCheckpoint() (*int64, error) {
 	var checkpoints []*EventStreamCheckpoint
-	err := es.bi.persistence.DB().
+	err := es.bi.persistence.DB(es.ctx).
 		Table("event_stream_checkpoints").
 		Where("stream = ?", es.definition.ID).
-		WithContext(es.ctx).
 		Find(&checkpoints).
 		Error
 	if err != nil {
@@ -471,11 +499,10 @@ func (es *eventStream) processCheckpoint() (baseBlock *int64, err error) {
 func (bi *blockIndexer) getHighestIndexedBlock(ctx context.Context) (*int64, error) {
 	var blocks []*pldapi.IndexedBlock
 	err := bi.retry.Do(ctx, func(attempt int) (retryable bool, err error) {
-		return true, bi.persistence.DB().
+		return true, bi.persistence.DB(ctx).
 			Table("indexed_blocks").
 			Order("number DESC").
 			Limit(1).
-			WithContext(ctx).
 			Find(&blocks).
 			Error
 	})
@@ -496,7 +523,8 @@ func (es *eventStream) detector() {
 
 	// This routine reads the checkpoint on startup, and maintains its view in memory,
 	// but never writes it back.
-	// The checkpoint is updated on the dispatcher after each batch is confirmed downstream.
+	// The detector checkpoint represents the next block that the detector will process. It is different to
+	// the dispatcher's checkpoint, which represents the last block to be fully processed and persisted.
 	checkpointBlock, err := es.processCheckpoint()
 	if err != nil {
 		log.L(es.ctx).Debugf("exiting before retrieving checkpoint")
@@ -587,7 +615,9 @@ func (es *eventStream) detector() {
 					checkpointBlock = confutil.P(int64(catchUpToBlock.block.Number))
 					catchUpToBlock = nil
 				} else {
-					// We've now started
+					// Startup catchup complete: all events up to (but not including)
+					// catchUpToBlockNumber have been processed; advance in-memory checkpoint.
+					es.sendCheckpointAdvance(catchUpToBlockNumber - 1)
 					checkpointBlock = startupBlock
 					startupBlock = nil
 				}
@@ -597,6 +627,7 @@ func (es *eventStream) detector() {
 }
 
 func (es *eventStream) processNotifiedBlock(block *eventStreamBlock, fullBlock bool) {
+	dispatched := 0
 	for i, l := range block.events {
 		indexedEvent := es.bi.logToIndexedEvent(l)
 		indexedEvent.Block = es.bi.blockInfoToIndexedBlock(block.block)
@@ -609,16 +640,30 @@ func (es *eventStream) processNotifiedBlock(block *eventStreamBlock, fullBlock b
 				es.sendToDispatcher(event,
 					// Can only move checkpoint past this block once we know we've processed the last one
 					fullBlock && i == (len(block.events)-1))
+				dispatched++
 				break
 			}
 		}
+	}
+	if dispatched == 0 {
+		// No matching events in this block - tell the dispatcher so it can advance the checkpoint
+		// in correct sequence with blocks it is dispatching events for.
+		es.sendCheckpointAdvance(int64(block.block.Number))
 	}
 }
 
 func (es *eventStream) sendToDispatcher(event *pldapi.EventWithData, lastInBlock bool) {
 	log.L(es.ctx).Debugf("passing event to dispatcher %d/%d/%d (tx=%s,address=%s)", event.BlockNumber, event.TransactionIndex, event.LogIndex, event.TransactionHash, &event.Address)
 	select {
-	case es.dispatch <- &eventDispatch{event, lastInBlock}:
+	case es.dispatch <- &detectorMsg{event: &eventDispatch{event: event, lastInBlock: lastInBlock}}:
+	case <-es.ctx.Done():
+	}
+}
+
+func (es *eventStream) sendCheckpointAdvance(blockNumber int64) {
+	log.L(es.ctx).Debugf("sending checkpoint advance to dispatcher %d", blockNumber)
+	select {
+	case es.dispatch <- &detectorMsg{confirmed: &blockConfirmed{blockNumber: blockNumber}}:
 	case <-es.ctx.Done():
 	}
 }
@@ -640,7 +685,22 @@ func (es *eventStream) dispatcher() {
 			timeoutContext = es.ctx
 		}
 		select {
-		case d := <-es.dispatch:
+		case msg := <-es.dispatch:
+			if msg.confirmed != nil {
+				// A block (or catchup range) was confirmed to contain no matching events- advance the checkpoint
+				if msg.confirmed.blockNumber > es.checkpoint.Load() {
+					err := es.updateCheckpoint(es.ctx, es.bi.persistence.NOTX(), int64(msg.confirmed.blockNumber))
+					if err != nil {
+						l.Debugf("event stream dispatcher ending (during checkpoint update)")
+						return
+					}
+				}
+				continue
+			}
+			if msg.event == nil {
+				continue
+			}
+			d := msg.event
 			if batch == nil {
 				batch = &eventBatch{
 					EventDeliveryBatch: EventDeliveryBatch{
@@ -686,8 +746,7 @@ func (es *eventStream) dispatcher() {
 }
 
 func (es *eventStream) updateCheckpoint(ctx context.Context, dbTX persistence.DBTX, blockNumber int64) error {
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Table("event_stream_checkpoints").
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "stream"}},
@@ -740,7 +799,7 @@ func (es *eventStream) processCatchupEventPage(lastCatchupEvent *pldapi.IndexedE
 	pageSize := es.bi.esCatchUpQueryPageSize
 	var page []*pldapi.IndexedEvent
 	err = es.bi.retry.Do(es.ctx, func(attempt int) (retryable bool, err error) {
-		db := es.bi.persistence.DB()
+		db := es.bi.persistence.DB(es.ctx)
 		q := db.
 			Table("indexed_events").
 			Joins("Block").

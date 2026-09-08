@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -22,13 +22,17 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  TextField,
+  Stack,
+  TextField
 } from '@mui/material';
 import { useMutation } from '@tanstack/react-query';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TransactionType } from '../../../interfaces';
 import { sendTransaction } from '../../../queries/transactions';
+import { useNavigate } from 'react-router-dom';
+import { customNavigate } from '../../../utils';
+import { AppRouteFactory } from '../../../routes';
 
 const notoConstructorABI = {
   type: 'constructor',
@@ -44,15 +48,13 @@ interface NotoConstructorParams {
 }
 
 type Props = {
-  dialogOpen: boolean;
-  setDialogOpen: Dispatch<SetStateAction<boolean>>;
+  onClose: () => void
   domain: string;
 };
 
 export const NotoDeployDialog: React.FC<Props> = ({
   domain,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
   const { t } = useTranslation();
   const [sender, setSender] = useState<string>('');
@@ -61,17 +63,17 @@ export const NotoDeployDialog: React.FC<Props> = ({
     notaryMode: 'basic',
   });
   const [errorMessage, setErrorMessage] = useState<string>();
+  const navigate = useNavigate();
 
-  const { mutate, error } = useMutation({
+  const { mutate, error, data: transactionId } = useMutation({
     mutationFn: () =>
       sendTransaction({
         type: TransactionType.PRIVATE,
         from: sender,
         domain,
         abi: [notoConstructorABI],
-        data: form,
-      }),
-    onSuccess: () => setDialogOpen(false),
+        data: form
+      })
   });
 
   useEffect(() => {
@@ -84,8 +86,8 @@ export const NotoDeployDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       fullWidth
       maxWidth="sm"
     >
@@ -106,7 +108,17 @@ export const NotoDeployDialog: React.FC<Props> = ({
           </Box>
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ marginTop: '5px' }}>
+          <Stack spacing={3} sx={{ marginTop: '5px' }}>
+            {transactionId !== undefined &&
+            <Alert variant="filled" severity="success"
+              action={
+                <Button variant="outlined" color="inherit" size="small"
+                  onClick={event => customNavigate(AppRouteFactory.getPath('Transaction', { hashOrId: transactionId }, { back: 'domains' }), event, navigate)}
+                >{t('view')}</Button>
+              }
+            >
+              {t('transactionValue', { value: transactionId })}
+            </Alert>}
             <TextField
               fullWidth
               disabled
@@ -114,8 +126,6 @@ export const NotoDeployDialog: React.FC<Props> = ({
               autoComplete="off"
               value={domain}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('deployer')}
@@ -123,8 +133,6 @@ export const NotoDeployDialog: React.FC<Props> = ({
               value={sender}
               onChange={(event) => setSender(event.target.value)}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('notary')}
@@ -134,8 +142,6 @@ export const NotoDeployDialog: React.FC<Props> = ({
                 setForm({ ...form, notary: event.target.value })
               }
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('notaryMode')}
@@ -143,7 +149,7 @@ export const NotoDeployDialog: React.FC<Props> = ({
               disabled
               value={form.notaryMode}
             />
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', paddingBottom: '20px' }}>
           <Button
@@ -161,7 +167,7 @@ export const NotoDeployDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('close')}
           </Button>

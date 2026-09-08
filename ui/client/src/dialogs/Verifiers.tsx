@@ -27,14 +27,12 @@ import { IVerifier } from '../interfaces';
 import { SingleValue } from '../components/SingleValue';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
   verifiers: IVerifier[]
 }
 
 export const VerifiersDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
+  onClose,
   verifiers
 }) => {
 
@@ -43,8 +41,8 @@ export const VerifiersDialog: React.FC<Props> = ({
   return (
     <Dialog
       fullWidth
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       maxWidth="md"
     >
       <DialogTitle sx={{ textAlign: 'center' }}>
@@ -62,7 +60,7 @@ export const VerifiersDialog: React.FC<Props> = ({
       </DialogContent>
       <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
         <Button
-          onClick={() => setDialogOpen(false)}
+          onClick={() => onClose()}
           variant="contained"
           disableElevation>
           {t('close')}

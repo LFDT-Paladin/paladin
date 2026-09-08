@@ -24,8 +24,8 @@ import (
 	"gorm.io/gorm"
 
 	// Import pq driver
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	migratedb "github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 )
@@ -57,5 +57,5 @@ func (p *postgresProvider) GetMigrationDriver(db *sql.DB) (migratedb.Driver, err
 }
 
 func (p *postgresProvider) TakeNamedLock(ctx context.Context, dbTX DBTX, lockName string) error {
-	return dbTX.DB().Exec(`SELECT pg_advisory_xact_lock( ? )`, hashCode(lockName)).Error
+	return dbTX.DB(ctx).Exec(`SELECT pg_advisory_xact_lock( ? )`, hashCode(lockName)).Error
 }

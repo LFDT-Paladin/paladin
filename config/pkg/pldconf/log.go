@@ -16,7 +16,7 @@
 
 package pldconf
 
-import "github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
+import "github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 
 type LogConfig struct {
 	// the logging level
@@ -37,6 +37,8 @@ type LogConfig struct {
 	File LogFileConfig `json:"file"`
 	// configure json based logging
 	JSON LogJSONConfig `json:"json"`
+	// configure buffered log output
+	Buffer LogBufferConfig `json:"buffer"`
 }
 
 type LogFileConfig struct {
@@ -52,6 +54,15 @@ type LogFileConfig struct {
 	Compress *bool `json:"compress"`
 }
 
+type LogBufferConfig struct {
+	// enables buffered log output, batching lines in memory to reduce the number of write syscalls (default false)
+	Enabled *bool `json:"enabled"`
+	// the amount of log output to accumulate in memory before flushing (e.g. "256Kb")
+	Size *string `json:"size"`
+	// the maximum time to hold buffered log lines before flushing them
+	FlushInterval *string `json:"flushInterval"`
+}
+
 type LogJSONConfig struct {
 	// configures the JSON key containing the timestamp of the log
 	TimestampField *string `json:"timestampField"`
@@ -65,7 +76,7 @@ type LogJSONConfig struct {
 	FileField *string `json:"fileField"`
 }
 
-var LogDefaults = &LogConfig{
+var LogDefaults = LogConfig{
 	Level:        confutil.P("info"),
 	Format:       confutil.P("simple"),
 	Output:       confutil.P("stderr"),
@@ -86,5 +97,10 @@ var LogDefaults = &LogConfig{
 		MessageField:   confutil.P("message"),
 		FuncField:      confutil.P("func"),
 		FileField:      confutil.P("file"),
+	},
+	Buffer: LogBufferConfig{
+		Enabled:       confutil.P(false),
+		Size:          confutil.P("64Kb"),
+		FlushInterval: confutil.P("1s"),
 	},
 }

@@ -17,15 +17,16 @@ package plugintk
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/retry"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/inflight"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/inflight"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -92,6 +93,11 @@ func (pr *pluginRun[M]) run() error {
 	// Ensure we cleanup
 	var conn *grpc.ClientConn
 	defer func() {
+		// Always run plugin-specific shutdown logic if a handler was initialized.
+		// For transport plugins this ensures listener teardown on every exit path.
+		if pr.handler != nil {
+			pr.closePlugin()
+		}
 		// Cancel any in-flight requests
 		pr.inflight.Close()
 		// Close the connection
@@ -168,9 +174,18 @@ func (pr *pluginRun[M]) serve() error {
 	for {
 		sMsg, err := pr.stream.Recv()
 		if err != nil {
-			log.L(pr.ctx).Errorf("received failed: %s", err)
+			// Should check if the err is io.EOF but `errors.Is(err, io.EOF)` returns false even where the
+			// err description is "error reading from server: EOF" so for now just exit on any error. If the
+			// error isn't as a result of Paladin shutting down the server will be relaunched by the plugin loader.
+			if strings.Contains(err.Error(), "EOF") {
+				log.L(pr.ctx).Tracef("recv closed with err treated as EOF: %s", err)
+				log.L(pr.ctx).Infof("recv closed with EOF, shutting down the plugin")
+				return nil
+			}
+			log.L(pr.ctx).Warnf("recv failed, err %s", err)
 			return err
 		}
+
 		msg := pr.pi.impl.Wrap(sMsg)
 		header := msg.Header()
 
@@ -198,7 +213,14 @@ func (pr *pluginRun[M]) serve() error {
 			l.Warnf("UNEXPECTED %s", PluginMessageToJSON(msg))
 		}
 	}
+}
 
+func (pr *pluginRun[M]) closePlugin() {
+	// Call the handler
+	_, err := pr.handler.ClosePlugin(pr.ctx)
+	if err != nil {
+		log.L(pr.ctx).Errorf("Error closing plugin: %s", err)
+	}
 }
 
 func (pr *pluginRun[M]) handleRequestToPlugin(msg PluginMessage[M]) {

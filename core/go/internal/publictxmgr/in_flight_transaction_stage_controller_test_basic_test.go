@@ -20,14 +20,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestProduceLatestInFlightStageContextTriggerStageError(t *testing.T) {
-	ctx, o, _, done := newTestOrchestrator(t)
+	ctx, o, m, done := newTestOrchestrator(t)
 	defer done()
 	it, _ := newInflightTransaction(o, 1)
+
+	for range 2 {
+		m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(uuid.New().String()))
+	}
 
 	assert.Nil(t, it.stateManager.GetCurrentGeneration(ctx).GetRunningStageContext(ctx))
 	tOut := it.ProduceLatestInFlightStageContext(ctx, &OrchestratorContext{
@@ -53,9 +59,13 @@ func TestProduceLatestInFlightStageContextTriggerStageError(t *testing.T) {
 }
 
 func TestProduceLatestInFlightStageContextStatusChange(t *testing.T) {
-	ctx, o, _, done := newTestOrchestrator(t)
+	ctx, o, m, done := newTestOrchestrator(t)
 	defer done()
 	it, ifts := newInflightTransaction(o, 1)
+
+	for range 3 {
+		m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(uuid.New().String()))
+	}
 
 	// trigger status change
 	assert.Nil(t, it.stateManager.GetCurrentGeneration(ctx).GetRunningStageContext(ctx))
@@ -91,7 +101,9 @@ func TestProduceLatestInFlightStageContextStatusChange(t *testing.T) {
 
 	// persisted stage success and move on
 	ifts.ApplyInMemoryUpdates(ctx, &BaseTXUpdates{
-		InFlightStatus: &suspended,
+		NewValues: BaseTXUpdateNewValues{
+			InFlightStatus: &suspended,
+		},
 	})
 	currentGeneration.bufferedStageOutputs = make([]*StageOutput, 0)
 	it.stateManager.GetCurrentGeneration(ctx).AddPersistenceOutput(ctx, InFlightTxStageStatusUpdate, time.Now(), nil)
@@ -124,9 +136,14 @@ func TestProduceLatestInFlightStageContextTriggerStatusUpdate(t *testing.T) {
 }
 
 func TestProduceLatestInFlightStageContextStatusUpdatePanic(t *testing.T) {
-	ctx, o, _, done := newTestOrchestrator(t)
+	ctx, o, m, done := newTestOrchestrator(t)
 	defer done()
 	it, _ := newInflightTransaction(o, 1)
+	it.testOnlyNoActionMode = true
+
+	for range 2 {
+		m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(uuid.New().String()))
+	}
 
 	// trigger status change
 	assert.Nil(t, it.stateManager.GetCurrentGeneration(ctx).GetRunningStageContext(ctx))

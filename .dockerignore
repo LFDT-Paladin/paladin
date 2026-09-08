@@ -19,9 +19,9 @@ doc-site/
 
 # Zeto ZKP is 1GB
 domains/zeto/zkp
-# perf is not needed
-perf/
-!perf/go.mod
+# test is not needed
+test/
+!test/go.mod
 
 # Other folders not needed for the Docker build
 examples/

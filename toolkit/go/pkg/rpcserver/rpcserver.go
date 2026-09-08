@@ -19,18 +19,25 @@ package rpcserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/httpserver"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/router"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/staticserver"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/httpserver"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/router"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/staticserver"
 	"github.com/gorilla/websocket"
 )
+
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+const authResultKey contextKey = "authResult" // For storing authenticated results (used for both HTTP and WebSocket)
 
 type RPCServer interface {
 	Start() error
@@ -39,6 +46,7 @@ type RPCServer interface {
 	WSAddr() net.Addr
 
 	Register(module *RPCModule)
+	SetAuthorizers(auths []Authorizer)
 
 	WSHandler(w http.ResponseWriter, r *http.Request)   // Provides access to the WebSocket handler directly to be able to install it into another server
 	HTTPHandler(w http.ResponseWriter, r *http.Request) // Provides access to the http handler directly to be able to install it into another server
@@ -46,9 +54,10 @@ type RPCServer interface {
 
 func NewRPCServer(ctx context.Context, conf *pldconf.RPCServerConfig) (_ *rpcServer, err error) {
 	s := &rpcServer{
-		bgCtx:         ctx,
-		wsConnections: make(map[string]*webSocketConnection),
-		rpcModules:    make(map[string]*RPCModule),
+		bgCtx:             ctx,
+		wsConnections:     make(map[string]*webSocketConnection),
+		rpcModules:        make(map[string]*RPCModule),
+		legacyReturnCodes: conf.LegacyReturnCodes,
 	}
 
 	// Add the HTTP server
@@ -76,8 +85,8 @@ func NewRPCServer(ctx context.Context, conf *pldconf.RPCServerConfig) (_ *rpcSer
 	// Add the WebSocket server
 	if !conf.WS.Disabled {
 		s.wsUpgrader = &websocket.Upgrader{
-			ReadBufferSize:  int(confutil.ByteSize(conf.WS.ReadBufferSize, 0, *pldconf.WSDefaults.ReadBufferSize)),
-			WriteBufferSize: int(confutil.ByteSize(conf.WS.WriteBufferSize, 0, *pldconf.WSDefaults.WriteBufferSize)),
+			ReadBufferSize:  int(confutil.ByteSize(conf.WS.ReadBufferSize, 0, *pldconf.RPCServerConfigDefaults.WS.ReadBufferSize)),
+			WriteBufferSize: int(confutil.ByteSize(conf.WS.WriteBufferSize, 0, *pldconf.RPCServerConfigDefaults.WS.WriteBufferSize)),
 		}
 		log.L(ctx).Infof("WebSocket server readBufferSize=%d writeBufferSize=%d", s.wsUpgrader.ReadBufferSize, s.wsUpgrader.WriteBufferSize)
 		if s.wsServer, err = httpserver.NewServer(ctx, "JSON/RPC (WebSocket)", &conf.WS.HTTPServerConfig, http.HandlerFunc(s.wsHandler)); err != nil {
@@ -92,13 +101,24 @@ func NewRPCServer(ctx context.Context, conf *pldconf.RPCServerConfig) (_ *rpcSer
 var _ RPCServer = &rpcServer{}
 
 type rpcServer struct {
-	bgCtx         context.Context
-	httpServer    httpserver.Server
-	wsServer      httpserver.Server
-	wsMux         sync.Mutex
-	wsUpgrader    *websocket.Upgrader
-	wsConnections map[string]*webSocketConnection
-	rpcModules    map[string]*RPCModule
+	bgCtx             context.Context
+	httpServer        httpserver.Server
+	wsServer          httpserver.Server
+	wsMux             sync.Mutex
+	wsUpgrader        *websocket.Upgrader
+	wsConnections     map[string]*webSocketConnection
+	rpcModules        map[string]*RPCModule
+	authorizers       []Authorizer
+	legacyReturnCodes bool
+}
+
+type Authorizer interface {
+	Authenticate(ctx context.Context, headers map[string]string) (result string, err error)
+	Authorize(ctx context.Context, result string, method string, payload []byte) bool
+}
+
+func (s *rpcServer) SetAuthorizers(auths []Authorizer) {
+	s.authorizers = auths
 }
 
 func (s *rpcServer) Register(module *RPCModule) {
@@ -131,26 +151,116 @@ func (s *rpcServer) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 func (s *rpcServer) httpHandler(res http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		res.WriteHeader(http.StatusMethodNotAllowed)
+		return
 	}
 
-	r := s.rpcHandler(req.Context(), req.Body, nil /* not websockets */)
+	ctx := req.Context()
+
+	// Authenticate BEFORE parsing request body if authorizers are configured
+	authenticated, authenticationResults := s.authenticate(ctx, req)
+	if !authenticated {
+		res.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if authenticationResults != nil {
+		// Store authentication results in context for use in authorization phase
+		ctx = context.WithValue(ctx, authResultKey, authenticationResults)
+	}
+
+	var r handlerResult
+	func() {
+		defer func() {
+			if rc := recover(); rc != nil {
+				log.L(ctx).Errorf("Panic in RPC handler: %v", rc)
+				r = handlerResult{httpStatus: http.StatusInternalServerError, sendRes: true,
+					res: rpcclient.NewRPCErrorResponse(fmt.Errorf("%v", rc), nil, rpcclient.RPCCodeInternalError)}
+			}
+		}()
+		r = s.rpcHandler(ctx, req.Body, nil /* not websockets */)
+	}()
 
 	res.Header().Set("Content-Type", "application/json; charset=utf-8")
-	status := http.StatusOK
-	if !r.isOK {
-		status = http.StatusInternalServerError
+	status := r.httpStatus
+	if s.legacyReturnCodes {
+		// Legacy mode: run with the pre-v1 behaviour where any JSON/RPC error (including
+		// authorization failures) returned HTTP 500. This is a temporary config option while
+		// we ensure that the new default behaviour hasn't affected user applications.
+		if (status == 0 || status == http.StatusForbidden) && rpcResponseHasError(r.res) {
+			status = http.StatusInternalServerError
+		} else if status == 0 {
+			status = http.StatusOK
+		}
+	} else if status == 0 {
+		status = http.StatusOK
 	}
 	res.WriteHeader(status)
 	_ = json.NewEncoder(res).Encode(r.res)
 }
 
+// Reports whether the response value contains a JSON/RPC error.
+// For batch responses it returns true only when every entry has an error (matching the
+// pre-v1 batch behaviour: 200 if at least one request succeeded).
+func rpcResponseHasError(res any) bool {
+	switch v := res.(type) {
+	case *rpcclient.RPCResponse:
+		return v != nil && v.Error != nil
+	case []*rpcclient.RPCResponse:
+		if len(v) == 0 {
+			return false
+		}
+		for _, r := range v {
+			if r == nil || r.Error == nil {
+				return false // at least one success → not a full failure
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func (s *rpcServer) wsHandler(res http.ResponseWriter, req *http.Request) {
+	// Authenticate BEFORE parsing request body if authorizers are configured
+	authenticated, authenticationResults := s.authenticate(req.Context(), req)
+	if !authenticated {
+		res.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if authenticationResults != nil {
+		// Store authentication results in context for use in authorization phase
+		req = req.WithContext(context.WithValue(req.Context(), authResultKey, authenticationResults))
+	}
+	// Now proceed with upgrade (only if auth succeeded or not required)
 	conn, err := s.wsUpgrader.Upgrade(res, req, nil)
 	if err != nil {
 		log.L(req.Context()).Errorf("WebSocket upgrade failed: %s", err)
 		return
 	}
-	s.newWSConnection(conn)
+	s.newWSConnection(conn, req)
+}
+
+func (s *rpcServer) authenticate(ctx context.Context, req *http.Request) (bool, []string) {
+	if len(s.authorizers) == 0 {
+		return true, nil
+	}
+
+	// Extract headers for authentication
+	headers := make(map[string]string)
+	for key, values := range req.Header {
+		if len(values) > 0 {
+			headers[key] = values[0] // Take first value for each header
+		}
+	}
+
+	authenticationResults := make([]string, len(s.authorizers))
+	for i, auth := range s.authorizers {
+		authenticationResult, err := auth.Authenticate(ctx, headers)
+		if err != nil {
+			log.L(ctx).Errorf("HTTP authentication failed at authorizer %d: %s", i, err)
+			return false, nil
+		}
+		authenticationResults[i] = authenticationResult
+	}
+	return true, authenticationResults
 }
 
 func (s *rpcServer) Start() (err error) {

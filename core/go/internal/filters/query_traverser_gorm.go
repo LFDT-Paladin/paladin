@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -21,7 +21,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"gorm.io/gorm"
 )
 
@@ -80,7 +80,10 @@ func (t *gormTraverser) And(ot *gormTraverser) Traverser[*gormTraverser] {
 }
 
 func (t *gormTraverser) BuildOr(ot ...*gormTraverser) Traverser[*gormTraverser] {
-	or := t.NewRoot().T()
+	or := &gormTraverser{
+		rootDB: t.rootDB,
+		db:     t.rootDB.Session(&gorm.Session{NewDB: true, SkipDefaultTransaction: true}),
+	}
 	for _, o := range ot {
 		or.db = or.db.Or(o.db)
 	}

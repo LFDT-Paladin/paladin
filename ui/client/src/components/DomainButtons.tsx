@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -14,13 +14,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Button, Grid2 } from '@mui/material';
+import { Box } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotoMintDialog } from '../dialogs/domains/noto/NotoMint';
 import { NotoTransferDialog } from '../dialogs/domains/noto/NotoTransfer';
 import { ZetoMintDialog } from '../dialogs/domains/zeto/ZetoMint';
 import { ZetoTransferDialog } from '../dialogs/domains/zeto/ZetoTransfer';
+import { NotoCheckBalanceDialog } from '../dialogs/domains/noto/NotoCheckBalance';
+import { ZetoCheckBalanceDialog } from '../dialogs/domains/zeto/ZetoCheckBalance';
+import { NotoBurnDialog } from '../dialogs/domains/noto/NotoBurn';
+import { useApplicationContext } from '../contexts/ApplicationContext';
+import { ActionButton } from './ActionButton';
 
 type Props = {
   domainName: string;
@@ -36,12 +41,16 @@ export const DomainButtons: React.FC<Props> = ({
   domainName,
   contractAddress,
 }) => {
+  const { readOnly } = useApplicationContext();
   const { t } = useTranslation();
   const [buttons, setButtons] = useState<DomainButton[]>([]);
   const [notoMintDialogOpen, setNotoMintDialogOpen] = useState(false);
   const [notoTransferDialogOpen, setNotoTransferDialogOpen] = useState(false);
   const [zetoMintDialogOpen, setZetoMintDialogOpen] = useState(false);
   const [zetoTransferDialogOpen, setZetoTransferDialogOpen] = useState(false);
+  const [notoCheckBalanceDialogOpen, setNotoCheckBalanceDialogOpen] = useState(false);
+  const [zetoCheckBalanceDialogOpen, setZetoCheckBalanceDialogOpen] = useState(false);
+  const [notoBurnDialogOpen, setNotoBurnDialogOpen] = useState(false);
 
   useEffect(() => {
     const tmpButtons: DomainButton[] = [];
@@ -50,70 +59,110 @@ export const DomainButtons: React.FC<Props> = ({
     switch (domainName) {
       case 'noto': {
         tmpButtons.push({
-          name: 'mint',
-          action: () => setNotoMintDialogOpen(true),
+          name: 'balance',
+          action: () => setNotoCheckBalanceDialogOpen(true),
         });
-        tmpButtons.push({
-          name: 'transfer',
-          action: () => setNotoTransferDialogOpen(true),
-        });
+        if (!readOnly) {
+          tmpButtons.push({
+            name: 'mint',
+            action: () => setNotoMintDialogOpen(true),
+          });
+          tmpButtons.push({
+            name: 'transfer',
+            action: () => setNotoTransferDialogOpen(true),
+          });
+          tmpButtons.push({
+            name: 'burn',
+            action: () => setNotoBurnDialogOpen(true),
+          });
+        }
         break;
       }
       case 'zeto': {
         tmpButtons.push({
-          name: 'mint',
-          action: () => setZetoMintDialogOpen(true),
+          name: 'balance',
+          action: () => setZetoCheckBalanceDialogOpen(true),
         });
-        tmpButtons.push({
-          name: 'transfer',
-          action: () => setZetoTransferDialogOpen(true),
-        });
+        if (!readOnly) {
+          tmpButtons.push({
+            name: 'mint',
+            action: () => setZetoMintDialogOpen(true),
+          });
+          tmpButtons.push({
+            name: 'transfer',
+            action: () => setZetoTransferDialogOpen(true),
+          });
+        }
         break;
       }
     }
 
     setButtons(tmpButtons);
-  }, [domainName]);
+  }, [domainName, readOnly]);
 
   return (
     <>
-      <Grid2>
+      <Box sx={{ display: 'flex', gap: '10px' }}>
         {buttons.map((button) => (
-          <Button
+          <ActionButton
             key={button.name}
-            sx={{ fontWeight: '400' }}
-            size="small"
             onClick={button.action}
           >
             {t(button.name)}
-          </Button>
+          </ActionButton>
         ))}
         {buttons.length === 0 && t('noActions')}
-      </Grid2>
+      </Box>
 
-      <NotoMintDialog
-        dialogOpen={notoMintDialogOpen}
-        setDialogOpen={setNotoMintDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoMintDialogOpen && (
+        <NotoMintDialog
+          onClose={() => setNotoMintDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <NotoTransferDialog
-        dialogOpen={notoTransferDialogOpen}
-        setDialogOpen={setNotoTransferDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoTransferDialogOpen && (
+        <NotoTransferDialog
+          onClose={() => setNotoTransferDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <ZetoMintDialog
-        dialogOpen={zetoMintDialogOpen}
-        setDialogOpen={setZetoMintDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoBurnDialogOpen && (
+        <NotoBurnDialog
+          onClose={() => setNotoBurnDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <ZetoTransferDialog
-        dialogOpen={zetoTransferDialogOpen}
-        setDialogOpen={setZetoTransferDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {zetoMintDialogOpen && (
+        <ZetoMintDialog
+          onClose={() => setZetoMintDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
+
+      {zetoTransferDialogOpen && (
+        <ZetoTransferDialog
+          onClose={() => setZetoTransferDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
+
+      {notoCheckBalanceDialogOpen && (
+        <NotoCheckBalanceDialog
+          onClose={() => setNotoCheckBalanceDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
+
+      {zetoCheckBalanceDialogOpen && (
+        <ZetoCheckBalanceDialog
+          onClose={() => setZetoCheckBalanceDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
+
     </>
   );
 };

@@ -19,11 +19,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 type balanceOfHandler struct {
@@ -54,12 +54,13 @@ func (h *balanceOfHandler) InitCall(ctx context.Context, tx *types.ParsedTransac
 func (h *balanceOfHandler) ExecCall(ctx context.Context, tx *types.ParsedTransaction, req *prototk.ExecCallRequest) (*prototk.ExecCallResponse, error) {
 
 	param := tx.Params.(*types.BalanceOfParam)
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
-	accountAddress, err := h.noto.findEthAddressVerifier(ctx, "account", param.Account, req.ResolvedVerifiers)
+	accountID, err := h.noto.findEthAddressVerifier(ctx, "account", param.Account, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	totalStates, totalBalance, overflow, _, err := h.noto.getAccountBalance(ctx, req.StateQueryContext, accountAddress)
+	totalStates, totalBalance, overflow, _, err := h.noto.getAccountBalance(ctx, req.StateQueryContext, accountID.address, useNullifiers)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgErrorGetAccountBalance, param.Account)
 	}

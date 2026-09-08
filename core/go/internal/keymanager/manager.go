@@ -19,32 +19,31 @@ import (
 	"context"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/filters"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signer"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signer"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/cache"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 )
 
 type keyManager struct {
 	bgCtx context.Context
 
-	conf                    *pldconf.KeyManagerConfig
+	conf                    *pldconf.KeyManagerInlineConfig
 	rpcModule               *rpcserver.RPCModule
 	identifierCache         cache.Cache[string, *pldapi.KeyMappingWithPath]
 	verifierByIdentityCache cache.Cache[string, *pldapi.KeyVerifier]
@@ -55,6 +54,11 @@ type keyManager struct {
 	allocLock       sync.Mutex
 	allocLockHolder *keyResolver
 
+	// testHookBeforeAllocationWait is nil in production. Tests set it to
+	// synchronize on the moment takeAllocationLock is about to block in its
+	// select, enabling deterministic coverage of the contention paths.
+	testHookBeforeAllocationWait func()
+
 	// plugin signing modules
 	mux                  sync.Mutex
 	signingModulesByID   map[uuid.UUID]*signingModule
@@ -63,7 +67,7 @@ type keyManager struct {
 	p persistence.Persistence
 }
 
-func NewKeyManager(bgCtx context.Context, conf *pldconf.KeyManagerConfig) components.KeyManager {
+func NewKeyManager(bgCtx context.Context, conf *pldconf.KeyManagerInlineConfig) components.KeyManager {
 	return &keyManager{
 		bgCtx:                   bgCtx,
 		conf:                    conf,
@@ -150,6 +154,7 @@ func (km *keyManager) SigningModuleRegistered(name string, id uuid.UUID, toSigni
 }
 
 func (km *keyManager) GetSigningModule(ctx context.Context, name string) (signer.SigningModule, error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	km.mux.Lock()
 	defer km.mux.Unlock()
 
@@ -161,6 +166,7 @@ func (km *keyManager) GetSigningModule(ctx context.Context, name string) (signer
 }
 
 func (km *keyManager) Sign(ctx context.Context, mapping *pldapi.KeyMappingAndVerifier, payloadType string, payload []byte) ([]byte, error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	w, err := km.getWalletByName(ctx, mapping.Wallet)
 	if err != nil {
 		return nil, err
@@ -186,6 +192,9 @@ func (km *keyManager) takeAllocationLock(ctx context.Context, kr *keyResolver) e
 			return nil
 		}
 		// There is contention on this path - wait until the lock is released, and try to get it again
+		if km.testHookBeforeAllocationWait != nil {
+			km.testHookBeforeAllocationWait()
+		}
 		select {
 		case <-lockingKRC.done:
 		case <-ctx.Done():
@@ -221,6 +230,7 @@ func (km *keyManager) AddInMemorySigner(prefix string, signer signerapi.InMemory
 
 // Convenience function
 func (km *keyManager) ResolveKeyNewDatabaseTX(ctx context.Context, identifier, algorithm, verifierType string) (resolvedKey *pldapi.KeyMappingAndVerifier, err error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	resolvedKeys, err := km.ResolveBatchNewDatabaseTX(ctx, algorithm, verifierType, []string{identifier})
 	if err != nil {
 		return nil, err
@@ -229,6 +239,7 @@ func (km *keyManager) ResolveKeyNewDatabaseTX(ctx context.Context, identifier, a
 }
 
 func (km *keyManager) ResolveEthAddressNewDatabaseTX(ctx context.Context, identifier string) (ethAddress *pldtypes.EthAddress, err error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	ethAddresses, err := km.ResolveEthAddressBatchNewDatabaseTX(ctx, []string{identifier})
 	if err != nil {
 		return nil, err
@@ -237,6 +248,7 @@ func (km *keyManager) ResolveEthAddressNewDatabaseTX(ctx context.Context, identi
 }
 
 func (km *keyManager) ResolveEthAddressBatchNewDatabaseTX(ctx context.Context, identifiers []string) (ethAddresses []*pldtypes.EthAddress, err error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	ethAddresses = make([]*pldtypes.EthAddress, len(identifiers))
 	resolvedKeys, err := km.ResolveBatchNewDatabaseTX(ctx, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, identifiers)
 	for i := 0; i < len(identifiers); i++ {
@@ -252,6 +264,7 @@ func (km *keyManager) ResolveEthAddressBatchNewDatabaseTX(ctx context.Context, i
 
 // Convenience function
 func (km *keyManager) ResolveBatchNewDatabaseTX(ctx context.Context, algorithm, verifierType string, identifiers []string) (resolvedKeys []*pldapi.KeyMappingAndVerifier, err error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	resolvedKeys = make([]*pldapi.KeyMappingAndVerifier, len(identifiers))
 	err = km.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		kr := km.KeyResolverForDBTX(dbTX)
@@ -269,13 +282,14 @@ func (km *keyManager) ResolveBatchNewDatabaseTX(ctx context.Context, algorithm, 
 }
 
 func (km *keyManager) ReverseKeyLookup(ctx context.Context, dbTX persistence.DBTX, algorithm, verifierType, verifier string) (*pldapi.KeyMappingAndVerifier, error) {
+	ctx = log.WithComponent(ctx, log.Component("keymanager"))
 	vKey := verifierReverseCacheKey(algorithm, verifierType, verifier)
 	mapping, _ := km.verifierReverseCache.Get(vKey)
 	if mapping != nil {
 		return mapping, nil
 	}
 	var dbVerifiers []*DBKeyVerifier
-	err := dbTX.DB().WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Where(`"algorithm" = ?`, algorithm).
 		Where(`"type" = ?`, verifierType).
 		Where(`"verifier" = ?`, verifier).
@@ -300,10 +314,10 @@ func (km *keyManager) ReverseKeyLookup(ctx context.Context, dbTX persistence.DBT
 	return mapping, nil
 }
 
-func (km *keyManager) QueryKeys(ctx context.Context, dbTX *gorm.DB, jq *query.QueryJSON) (keyList []*pldapi.KeyQueryEntry, err error) {
+func (km *keyManager) QueryKeys(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) (keyList []*pldapi.KeyQueryEntry, err error) {
 
 	q := filters.BuildGORM(ctx, jq,
-		dbTX.WithContext(ctx).
+		dbTX.DB(ctx).
 			Table("key_paths"), KeyEntryFilters)
 
 	q.Select(`DISTINCT key_mappings.identifier IS NOT NULL AS "is_key",` +
@@ -331,7 +345,7 @@ func (km *keyManager) QueryKeys(ctx context.Context, dbTX *gorm.DB, jq *query.Qu
 
 	var verifiers []*DBKeyVerifier
 
-	err = dbTX.Table("key_verifiers").
+	err = dbTX.DB(ctx).Table("key_verifiers").
 		Where("identifier IN ?", ids).
 		Scan(&verifiers).Error
 	if err != nil {

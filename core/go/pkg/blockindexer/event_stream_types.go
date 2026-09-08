@@ -26,10 +26,10 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"golang.org/x/crypto/sha3"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 type EventStreamConfig struct {
@@ -38,7 +38,7 @@ type EventStreamConfig struct {
 	FromBlock    json.RawMessage `json:"fromBlock,omitempty"`
 }
 
-var EventStreamDefaults = &EventStreamConfig{
+var EventStreamsDefaults = &EventStreamConfig{
 	BatchSize:    confutil.P(50),
 	BatchTimeout: confutil.P("75ms"),
 	FromBlock:    json.RawMessage(`0`),
@@ -61,7 +61,7 @@ func (est EventStreamType) Enum() pldtypes.Enum[EventStreamType] {
 	return pldtypes.Enum[EventStreamType](est)
 }
 
-type EventStream struct {
+type EventStreamDefinition struct {
 	ID      uuid.UUID                      `json:"id"             gorm:"primaryKey"`
 	Name    string                         `json:"name"`
 	Created pldtypes.Timestamp             `json:"created"        gorm:"autoCreateTime:nano"`
@@ -123,6 +123,20 @@ type EventStreamStatus struct {
 	Catchup         bool
 }
 
+// EventStream is the handle returned to components that register an internal event stream.
+// It provides access to the stream's definition and its current confirmed processing position.
+type EventStream interface {
+	ID() uuid.UUID
+	Definition() *EventStreamDefinition
+	// CheckpointBlock returns the highest block number that has been fully confirmed as
+	// processed by this event stream — either because matching events were delivered to
+	// the handler, or because the block was confirmed to contain no matching events.
+	// Initialized from the persisted DB checkpoint on startup. In-memory only for
+	// empty-block advances; only advanced in the DB after successful event delivery.
+	// Returns -1 if the stream has not yet processed any blocks.
+	CheckpointBlock() int64
+}
+
 type EventDeliveryBatch struct {
 	StreamID   uuid.UUID               `json:"streamId"`
 	StreamName string                  `json:"streamName"`
@@ -156,7 +170,7 @@ const (
 
 type InternalEventStream struct {
 	Type             IESType
-	Definition       *EventStream
+	Definition       *EventStreamDefinition
 	HandlerDBTX      InternalStreamCallbackDBTX
 	HandlerNOTX      InternalStreamCallbackNOTX
 	PreCommitHandler PreCommitHandler

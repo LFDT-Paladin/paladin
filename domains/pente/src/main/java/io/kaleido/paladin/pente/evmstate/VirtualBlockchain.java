@@ -30,9 +30,9 @@ public class VirtualBlockchain implements BlockValues, BlockHashOperation.BlockH
     private long blockTimestamp;
     private long gasLimit;
 
-    public VirtualBlockchain(long blockNumber) {
+    public VirtualBlockchain(long blockNumber, long blockTimestamp) {
         this.blockNumber = blockNumber;
-        this.blockTimestamp = System.currentTimeMillis() / 1000;
+        this.blockTimestamp = blockTimestamp;
         this.gasLimit = Long.MAX_VALUE; // TODO: consider right answer here
     }
 
@@ -63,7 +63,7 @@ public class VirtualBlockchain implements BlockValues, BlockHashOperation.BlockH
 
     @Override
     public long getGasLimit() {
-        return this.blockTimestamp;
+        return this.gasLimit;
     }
 
     @Override

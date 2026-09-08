@@ -20,8 +20,18 @@ on:
         required: false
         type: string
         default: 'start'
+      chart_tag:
+        description: 'The tag of the chart to install'
+        required: false
+        type: string
+        default: 'latest'
   workflow_call:
     inputs:
+      ref:
+        description: 'Commit ref for checkout'
+        required: false
+        type: string
+        default: ''
       build_local_sdk:
         description: 'Build local TypeScript SDK instead of using published package'
         required: false
@@ -37,6 +47,11 @@ on:
         required: false
         type: string
         default: 'start'
+      chart_tag:
+        description: 'The tag of the chart to install'
+        required: false
+        type: string
+        default: 'latest'
 
 jobs:
   run-examples:
@@ -50,6 +65,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
 
       - name: Install Kind
         uses: helm/kind-action@v1
@@ -60,7 +81,7 @@ jobs:
       - name: Create cluster
         run: |
           # Download the kind configuration
-          curl https://raw.githubusercontent.com/LF-Decentralized-Trust-labs/paladin/refs/heads/main/operator/paladin-kind.yaml -L -O
+          curl https://raw.githubusercontent.com/LFDT-Paladin/paladin/refs/heads/main/operator/paladin-kind.yaml -L -O
           
           # Create the cluster
           kind create cluster --name paladin --config paladin-kind.yaml
@@ -81,12 +102,17 @@ jobs:
       - name: Install latest Paladin charts
         run: |
           # Step 1: Add the charts
-          helm repo add paladin https://LF-Decentralized-Trust-labs.github.io/paladin --force-update
+          helm repo add paladin https://LFDT-Paladin.github.io/paladin --force-update
           helm repo add jetstack https://charts.jetstack.io --force-update
           helm repo update
-          
+
+          # add version if not latest
+          if [ "${{ inputs.chart_tag }}" != "latest" ] && [ "${{ inputs.chart_tag }}" != "" ]; then
+            version_flag="--version ${{ inputs.chart_tag }}"
+          fi
+
           # Step 2: Install the CRD Chart
-          helm upgrade --install paladin-crds paladin/paladin-operator-crd
+          helm upgrade --install paladin-crds paladin/paladin-operator-crd $version_flag
           
           # Step 3: Install cert-manager CRDs
           helm install cert-manager --namespace cert-manager --version v1.16.1 jetstack/cert-manager --create-namespace --set crds.enabled=true
@@ -95,7 +121,7 @@ jobs:
           kubectl wait --for=condition=Ready pods --all -n cert-manager --timeout=300s
           
           # Step 4: Install the Paladin Operator Chart
-          helm upgrade --install paladin paladin/paladin-operator -n paladin --create-namespace --set besuNodeCount=1  --wait
+          helm upgrade --install paladin paladin/paladin-operator -n paladin --create-namespace --set besuNodeCount=1 --wait $version_flag
 
       - name: Validate installation
         run: |
@@ -109,6 +135,9 @@ jobs:
           RUN_COMMANDS: ${{ inputs.run_commands }}
         run: |
           ./scripts/run-examples.sh
+       
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage    
 
       - name: Cleanup cluster
         if: always()

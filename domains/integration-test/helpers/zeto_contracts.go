@@ -24,14 +24,14 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/testbed"
-	zetotypes "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/solutils"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
+	zetotypes "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
@@ -39,6 +39,9 @@ import (
 
 //go:embed abis/ZetoFactory.json
 var zetoFactoryJSON []byte
+
+//go:embed abis/ERC1967Proxy.json
+var erc1967ProxyJSON []byte
 
 type ZetoDomainConfig struct {
 	DomainContracts zetoDomainContracts `yaml:"contracts"`
@@ -116,10 +119,10 @@ func DeployZetoContracts(t *testing.T, hdWalletSeed *testbed.UTInitFunction, con
 	log.L(ctx).Infof("Deploy Zeto Contracts")
 
 	tb := testbed.NewTestBed()
-	url, _, done, err := tb.StartForTest("./testbed.config.yaml", map[string]*testbed.TestbedDomain{}, hdWalletSeed)
+	httpURL, _, _, done, err := tb.StartForTest("./testbed.config.yaml", map[string]*testbed.TestbedDomain{}, hdWalletSeed)
 	require.NoError(t, err)
 	defer done()
-	rpc := rpcclient.WrapRestyClient(resty.New().SetBaseURL(url))
+	rpc := rpcclient.WrapRestyClient(resty.New().SetBaseURL(httpURL))
 
 	var config ZetoDomainConfig
 	testZetoConfigYaml, err := os.ReadFile(configFile)
@@ -180,12 +183,30 @@ func deployDomainContracts(ctx context.Context, rpc rpcclient.Client, deployer s
 		return nil, err
 	}
 
-	// deploy the factory contract
-	factoryAddr, _, err := deployContract(ctx, rpc, deployer, &config.DomainContracts.Factory, deployedContracts)
+	// deploy the factory implementation contract
+	factoryImplAddr, _, err := deployContract(ctx, rpc, deployer, &config.DomainContracts.Factory, deployedContracts)
 	if err != nil {
 		return nil, err
 	}
-	log.L(ctx).Infof("Deployed factory contract to %s", factoryAddr.String())
+	log.L(ctx).Infof("Deployed factory implementation to %s", factoryImplAddr.String())
+
+	// deploy ERC1967Proxy with factory impl and initialize() calldata
+	zetoFactoryABI := solutils.MustParseBuildABI(zetoFactoryJSON)
+	initCalldata, err := zetoFactoryABI.Functions()["initialize"].EncodeCallDataJSON([]byte(`[]`))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode initialize calldata: %s", err)
+	}
+
+	proxyBuild := solutils.MustLoadBuild(erc1967ProxyJSON)
+	proxyParams := fmt.Sprintf(`["%s", "%s"]`, factoryImplAddr.String(), pldtypes.HexBytes(initCalldata))
+	var proxyAddrStr string
+	rpcerr := rpc.CallRPC(ctx, &proxyAddrStr, "testbed_deployBytecode",
+		deployer, proxyBuild.ABI, proxyBuild.Bytecode.String(), pldtypes.RawJSON(proxyParams))
+	if rpcerr != nil {
+		return nil, fmt.Errorf("failed to deploy factory proxy: %s", rpcerr)
+	}
+	factoryAddr := pldtypes.MustEthAddress(proxyAddrStr)
+	log.L(ctx).Infof("Deployed factory proxy to %s", factoryAddr.String())
 
 	ctrs := newZetoDomainContracts()
 	ctrs.FactoryAddress = factoryAddr

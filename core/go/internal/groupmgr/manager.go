@@ -21,23 +21,25 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/filters"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/groupmgr/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/retry"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/cache"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 var groupDBOnlyFilters = filters.FieldMap{
@@ -71,6 +73,7 @@ type groupManager struct {
 	messageListenersLoadPageSize int
 	messageListenerLock          sync.Mutex
 	messageListeners             map[string]*messageListener
+	metrics                      metrics.GroupManagerMetrics
 }
 
 type referencedReceipt struct {
@@ -118,11 +121,12 @@ func NewGroupManager(bgCtx context.Context, conf *pldconf.GroupManagerConfig) co
 	}
 	gm.messagesInit()
 	gm.rpcEventStreams = newRPCEventStreams(gm)
-	gm.bgCtx, gm.cancelCtx = context.WithCancel(bgCtx)
+	gm.bgCtx, gm.cancelCtx = context.WithCancel(log.WithComponent(bgCtx, log.Component("groupmanager")))
 	return gm
 }
 
 func (gm *groupManager) PreInit(pic components.PreInitComponents) (*components.ManagerInitResult, error) {
+	gm.metrics = metrics.InitMetrics(gm.bgCtx, pic.MetricsManager().Registry())
 	gm.initRPC()
 	return &components.ManagerInitResult{
 		RPCModules: []*rpcserver.RPCModule{gm.rpcModule},
@@ -188,8 +192,7 @@ func (gm *groupManager) insertGroup(ctx context.Context, dbTX persistence.DBTX, 
 		Configuration: pldtypes.JSONString(pgGenesis.Configuration.Map()),
 		GenesisTX:     genesisTx,
 	}
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "domain"}, {Name: "id"}},
 			DoNothing: true,
@@ -205,7 +208,7 @@ func (gm *groupManager) insertGroup(ctx context.Context, dbTX persistence.DBTX, 
 				Identity: identity,
 			}
 		}
-		err = dbTX.DB().WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "domain"}, {Name: "group"}, {Name: "idx"}},
 				DoNothing: true,
@@ -247,6 +250,7 @@ func (gm *groupManager) validateGroupGenesisSet(ctx context.Context, domainName 
 }
 
 func (gm *groupManager) CreateGroup(ctx context.Context, dbTX persistence.DBTX, spec *pldapi.PrivacyGroupInput) (group *pldapi.PrivacyGroup, err error) {
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	pgGenesis := &pldapi.PrivacyGroupGenesisState{
 		GenesisSalt: pldtypes.RandBytes32(),
 		Name:        spec.Name,
@@ -301,7 +305,11 @@ func (gm *groupManager) CreateGroup(ctx context.Context, dbTX persistence.DBTX, 
 		tx.PublicTxOptions = spec.TransactionOptions.PublicTxOptions
 	}
 	if tx.From == "" {
-		tx.From = fmt.Sprintf("domains.%s.pgroupinit.%s", spec.Domain, id)
+		if identity := domain.FixedSigningIdentity(); identity != "" {
+			tx.From = identity
+		} else {
+			tx.From = fmt.Sprintf("domains.%s.pgroupinit.%s", spec.Domain, id)
+		}
 	}
 
 	// Insert the transaction
@@ -350,7 +358,7 @@ func (gm *groupManager) CreateGroup(ctx context.Context, dbTX persistence.DBTX, 
 }
 
 func (gm *groupManager) StoreReceivedGroup(ctx context.Context, dbTX persistence.DBTX, domainName string, tx uuid.UUID, state *pldapi.State) (rejectionErr, err error) {
-
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	var pgGenesis pldapi.PrivacyGroupGenesisState
 	if err := json.Unmarshal(state.Data, &pgGenesis); err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgPGroupsReceivedGenesisInvalid)
@@ -377,7 +385,7 @@ func (gm *groupManager) enrichMembers(ctx context.Context, dbTX persistence.DBTX
 		groupIDs[i] = pg.ID
 	}
 	var dbMembers []*persistedGroupMember
-	err := dbTX.DB().WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Where(`"group" IN ?`, groupIDs).
 		Order("domain").
 		Order(`"group"`).
@@ -419,6 +427,7 @@ func (dbPG *persistedGroup) mapToAPI() *pldapi.PrivacyGroup {
 }
 
 func (gm *groupManager) GetGroupByID(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes) (*pldapi.PrivacyGroup, error) {
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	groupIDStr := fmt.Sprintf("%s:%s", domainName, groupID.String())
 	pg, found := gm.deployedPGCache.Get(groupIDStr)
 	if found {
@@ -475,6 +484,7 @@ func (gm *groupManager) queryGroupsCommon(ctx context.Context, dbTX persistence.
 }
 
 func (gm *groupManager) QueryGroups(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.PrivacyGroup, error) {
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
 	return gm.queryGroupsCommon(ctx, dbTX, jq)
 }
 
@@ -494,20 +504,7 @@ func (gm *groupManager) prepareTransaction(ctx context.Context, dbTX persistence
 		return nil, i18n.NewError(ctx, msgs.MsgPGroupsNoGroupID)
 	}
 
-	// Fluff up the privacy group
-	pg, err := gm.GetGroupByID(ctx, dbTX, domain, groupID)
-	if err != nil {
-		return nil, err
-	}
-	if pg == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgPGroupsGroupNotFound, groupID)
-	}
-	if pg.ContractAddress == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgPGroupsNotReady, groupID, pg.GenesisTransaction)
-	}
-
-	// Get the domain smart contract object from domain mgr
-	psc, err := gm.domainManager.GetSmartContractByAddress(ctx, dbTX, *pg.ContractAddress)
+	pg, psc, err := gm.resolvePrivateContract(ctx, dbTX, domain, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -551,4 +548,35 @@ func (gm *groupManager) Call(ctx context.Context, dbTX persistence.DBTX, result 
 		DataFormat:        call.DataFormat,
 	})
 
+}
+
+func (gm *groupManager) resolvePrivateContract(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes) (*pldapi.PrivacyGroup, components.DomainSmartContract, error) {
+	pg, err := gm.GetGroupByID(ctx, dbTX, domainName, groupID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if pg == nil {
+		return nil, nil, i18n.NewError(ctx, msgs.MsgPGroupsGroupNotFound, groupID)
+	}
+	if pg.ContractAddress == nil {
+		return nil, nil, i18n.NewError(ctx, msgs.MsgPGroupsNotReady, groupID, pg.GenesisTransaction)
+	}
+	psc, err := gm.domainManager.GetSmartContractByAddress(ctx, dbTX, *pg.ContractAddress)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pg, psc, nil
+}
+
+func (gm *groupManager) invokeRPC(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes, stateQualifier pldapi.StateStatusQualifier, rpcCall pldapi.DomainInvokeRPC) (pldtypes.RawJSON, error) {
+	pg, psc, err := gm.resolvePrivateContract(ctx, dbTX, domainName, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if stateQualifier != "" && stateQualifier != pldapi.StateStatusAvailable {
+		return nil, i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
+	}
+	dqc := gm.stateManager.NewDomainQueryContext(ctx, psc.Domain(), *pg.ContractAddress)
+	defer dqc.Close(ctx)
+	return psc.InvokeRPC(ctx, dqc, dbTX, rpcCall)
 }

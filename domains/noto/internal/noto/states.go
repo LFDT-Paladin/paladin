@@ -17,18 +17,24 @@ package noto
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"slices"
+	"strings"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	notosmt "github.com/LFDT-Paladin/paladin/domains/noto/internal/noto/smt"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/eip712"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 )
@@ -95,10 +101,20 @@ var NotoUnlockTypeSet = eip712.TypeSet{
 	eip712.EIP712Domain: EIP712DomainType,
 }
 
-var NotoUnlockMaskedTypeSet = eip712.TypeSet{
+var NotoUnlockMaskedTypeSet_V0 = eip712.TypeSet{
 	"Unlock": {
 		{Name: "lockedInputs", Type: "bytes32[]"},
 		{Name: "lockedOutputs", Type: "bytes32[]"},
+		{Name: "outputs", Type: "bytes32[]"},
+		{Name: "data", Type: "bytes"},
+	},
+	eip712.EIP712Domain: EIP712DomainType,
+}
+
+var NotoUnlockMaskedTypeSet_V1 = eip712.TypeSet{
+	"Unlock": {
+		{Name: "txId", Type: "bytes32"},
+		{Name: "lockedInputs", Type: "bytes32[]"},
 		{Name: "outputs", Type: "bytes32[]"},
 		{Name: "data", Type: "bytes"},
 	},
@@ -126,14 +142,31 @@ func (n *Noto) unmarshalLockedCoin(stateData string) (*types.NotoLockedCoin, err
 	return &coin, err
 }
 
+// Strict variant used on the nullifier derivation path only. Any field that is not part of
+// an unlocked coin must fail loudly rather than being silently dropped from the nullifier -
+// the nullifier has to cover the whole coin (see calculateNullifier). In particular this
+// rejects a NotoLockedCoin, which would otherwise unmarshal with its lockId discarded.
+func (n *Noto) unmarshalCoinStrict(stateData string) (*types.NotoCoin, error) {
+	var coin types.NotoCoin
+	decoder := json.NewDecoder(strings.NewReader(stateData))
+	decoder.DisallowUnknownFields()
+	return &coin, decoder.Decode(&coin)
+}
+
 func (n *Noto) unmarshalInfo(stateData string) (*types.TransactionData, error) {
 	var info types.TransactionData
 	err := json.Unmarshal([]byte(stateData), &info)
 	return &info, err
 }
 
-func (n *Noto) unmarshalLock(stateData string) (*types.NotoLockInfo, error) {
-	var lock types.NotoLockInfo
+func (n *Noto) unmarshalLockV0(stateData string) (*types.NotoLockInfo_V0, error) {
+	var lock types.NotoLockInfo_V0
+	err := json.Unmarshal([]byte(stateData), &lock)
+	return &lock, err
+}
+
+func (n *Noto) unmarshalLockV1(stateData string) (*types.NotoLockInfo_V1, error) {
+	var lock types.NotoLockInfo_V1
 	err := json.Unmarshal([]byte(stateData), &lock)
 	return &lock, err
 }
@@ -162,25 +195,56 @@ func (n *Noto) makeNewLockedCoinState(coin *types.NotoLockedCoin, distributionLi
 	}, nil
 }
 
-func (n *Noto) makeNewInfoState(info *types.TransactionData, distributionList []string) (*prototk.NewState, error) {
+func (n *Noto) makeNewInfoState(info *types.TransactionData, variant pldtypes.HexUint64, distributionList []string) (*prototk.NewState, error) {
 	infoJSON, err := json.Marshal(info)
 	if err != nil {
 		return nil, err
 	}
+	if variant == types.NotoVariantV0 {
+		return &prototk.NewState{
+			SchemaId:         n.dataSchemaV0.Id,
+			StateDataJson:    string(infoJSON),
+			DistributionList: distributionList,
+		}, nil
+	}
 	return &prototk.NewState{
-		SchemaId:         n.dataSchema.Id,
+		SchemaId:         n.dataSchemaV2.Id,
 		StateDataJson:    string(infoJSON),
 		DistributionList: distributionList,
 	}, nil
 }
 
-func (n *Noto) makeNewLockState(lock *types.NotoLockInfo, distributionList []string) (*prototk.NewState, error) {
+func (n *Noto) makeNewManifestInfoState(manifest *types.NotoManifest, distributionList []string) (*prototk.NewState, error) {
+	infoJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, err
+	}
+	return &prototk.NewState{
+		SchemaId:         n.manifestSchema.Id,
+		StateDataJson:    string(infoJSON),
+		DistributionList: distributionList,
+	}, nil
+}
+
+func (n *Noto) makeNewLockState_V0(lock *types.NotoLockInfo_V0, distributionList []string) (*prototk.NewState, error) {
 	lockJSON, err := json.Marshal(lock)
 	if err != nil {
 		return nil, err
 	}
 	return &prototk.NewState{
-		SchemaId:         n.lockInfoSchema.Id,
+		SchemaId:         n.lockInfoSchemaV0.Id,
+		StateDataJson:    string(lockJSON),
+		DistributionList: distributionList,
+	}, nil
+}
+
+func (n *Noto) makeNewLockState_V1(lock *types.NotoLockInfo_V1, distributionList []string) (*prototk.NewState, error) {
+	lockJSON, err := json.Marshal(lock)
+	if err != nil {
+		return nil, err
+	}
+	return &prototk.NewState{
+		SchemaId:         n.lockInfoSchemaV1.Id,
 		StateDataJson:    string(lockJSON),
 		DistributionList: distributionList,
 	}, nil
@@ -199,33 +263,80 @@ type preparedLockedInputs struct {
 }
 
 type preparedOutputs struct {
-	coins  []*types.NotoCoin
-	states []*prototk.NewState
+	distributions []identityList
+	coins         []*types.NotoCoin
+	states        []*prototk.NewState
 }
 
 type preparedLockedOutputs struct {
-	coins  []*types.NotoLockedCoin
-	states []*prototk.NewState
+	distributions []identityList
+	coins         []*types.NotoLockedCoin
+	states        []*prototk.NewState
 }
 
-func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress, amount *pldtypes.HexUint256) (inputs *preparedInputs, revert bool, err error) {
+type preparedLockInfo struct {
+	distribution identityList
+	stateV0      *types.NotoLockInfo_V0
+	stateV1      *types.NotoLockInfo_V1
+	state        *prototk.NewState
+}
+
+type identityPair struct {
+	identifier string
+	address    *pldtypes.EthAddress
+}
+
+type identityList []*identityPair
+
+// gets the paladin identities, with de-duplication
+func (idl identityList) identities() []string {
+	al := make([]string, 0, len(idl))
+skipDuplicate:
+	for _, id := range idl {
+		for _, existing := range al {
+			if existing == id.identifier {
+				continue skipDuplicate
+			}
+		}
+		al = append(al, id.identifier)
+	}
+	return al
+}
+
+// gets the ethereum addresses, with de-duplication
+func (idl identityList) addresses() []*pldtypes.EthAddress {
+	al := make([]*pldtypes.EthAddress, 0, len(idl))
+skipDuplicate:
+	for _, id := range idl {
+		for _, existing := range al {
+			if existing.Equals(id.address) {
+				continue skipDuplicate
+			}
+		}
+		al = append(al, id.address)
+	}
+	return al
+}
+
+func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *identityPair, amount *pldtypes.HexUint256, useNullifiers bool) (inputs *preparedInputs, revert bool, err error) {
 	var lastStateTimestamp int64
 	total := big.NewInt(0)
 	stateRefs := []*prototk.StateRef{}
 	coins := []*types.NotoCoin{}
-	for {
-		// TODO: make this configurable
+	// Supports being called with a zero transfer
+	for total.Cmp(amount.Int()) < 0 {
+		// TODO: make the coin selection configurable - currently selects oldest coins
 		queryBuilder := query.NewQueryBuilder().
 			Limit(10).
 			Sort(".created").
-			Equal("owner", owner.String())
+			Equal("owner", owner.address.String())
 
 		if lastStateTimestamp > 0 {
 			queryBuilder.GreaterThan(".created", lastStateTimestamp)
 		}
 
 		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
-		states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String())
+		states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String(), useNullifiers)
 		if err != nil {
 			return nil, false, err
 		}
@@ -245,26 +356,28 @@ func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owne
 			})
 			coins = append(coins, coin)
 			log.L(ctx).Debugf("Selecting coin %s value=%s total=%s required=%s)", state.Id, coin.Amount.Int().Text(10), total.Text(10), amount.Int().Text(10))
-			if total.Cmp(amount.Int()) >= 0 {
-				return &preparedInputs{
-					coins:  coins,
-					states: stateRefs,
-					total:  total,
-				}, false, nil
-			}
 		}
 	}
+	return &preparedInputs{
+		coins:  coins,
+		states: stateRefs,
+		total:  total,
+	}, false, nil
 }
 
-func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32, owner *pldtypes.EthAddress, amount *big.Int) (inputs *preparedLockedInputs, revert bool, err error) {
+// Select from available locked states for a given lock ID and owner,
+// ensuring the total amount is at least the specified amount.
+// If selectAll is true, ALL available states will be found selected.
+func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32, owner *pldtypes.EthAddress, amount *big.Int, selectAll bool) (inputs *preparedLockedInputs, revert bool, err error) {
 	var lastStateTimestamp int64
 	total := big.NewInt(0)
 	stateRefs := []*prototk.StateRef{}
 	coins := []*types.NotoLockedCoin{}
+	limit := 10
 
 	for {
 		queryBuilder := query.NewQueryBuilder().
-			Limit(10).
+			Limit(limit).
 			Sort(".created").
 			Equal("lockId", lockID).
 			Equal("owner", owner.String())
@@ -274,13 +387,9 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 		}
 
 		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
-		states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockedCoinSchema.Id, queryBuilder.Query().String())
-
+		states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockedCoinSchema.Id, queryBuilder.Query().String(), false)
 		if err != nil {
 			return nil, false, err
-		}
-		if len(states) == 0 {
-			return nil, true, i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))
 		}
 		for _, state := range states {
 			lastStateTimestamp = state.CreatedAt
@@ -295,69 +404,142 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 			})
 			coins = append(coins, coin)
 			log.L(ctx).Debugf("Selecting coin %s value=%s total=%s required=%s)", state.Id, coin.Amount.Int().Text(10), total.Text(10), amount.Text(10))
-			if total.Cmp(amount) >= 0 {
-				return &preparedLockedInputs{
-					coins:  coins,
-					states: stateRefs,
-					total:  total,
-				}, false, nil
+			if total.Cmp(amount) >= 0 && !selectAll {
+				// total achieved - stop here unless we need to select all states
+				break
 			}
 		}
+
+		if len(states) < limit {
+			// no more states to select
+			break
+		}
 	}
+	if total.Cmp(amount) >= 0 {
+		return &preparedLockedInputs{
+			coins:  coins,
+			states: stateRefs,
+			total:  total,
+		}, false, nil
+	}
+	return nil, true, i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))
 }
 
-func (n *Noto) prepareOutputs(ownerAddress *pldtypes.EthAddress, amount *pldtypes.HexUint256, distributionList []string) (*preparedOutputs, error) {
+func (n *Noto) prepareOutputs(owner *identityPair, amount *pldtypes.HexUint256, distributionList identityList) (*preparedOutputs, error) {
 	// Always produce a single coin for the entire output amount
 	// TODO: make this configurable
 	newCoin := &types.NotoCoin{
 		Salt:   pldtypes.RandBytes32(),
-		Owner:  ownerAddress,
+		Owner:  owner.address,
 		Amount: amount,
 	}
-	newState, err := n.makeNewCoinState(newCoin, distributionList)
+	newState, err := n.makeNewCoinState(newCoin, distributionList.identities())
 	return &preparedOutputs{
-		coins:  []*types.NotoCoin{newCoin},
-		states: []*prototk.NewState{newState},
+		distributions: []identityList{distributionList},
+		coins:         []*types.NotoCoin{newCoin},
+		states:        []*prototk.NewState{newState},
 	}, err
 }
 
-func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, ownerAddress *pldtypes.EthAddress, amount *pldtypes.HexUint256, distributionList []string) (*preparedLockedOutputs, error) {
+// addNullifierSpecs marks new unlocked coin states so that the owner's node derives a
+// nullifier for them when the state is distributed.
+//
+// This is required for every unlocked coin in a nullifier variant: without a nullifier record
+// the coin is invisible to the availability queries (which require one) and can never be
+// spent, even though it is confirmed on the base ledger. Locked coins are excluded - they are
+// spent by ID, so they have no nullifier.
+func (n *Noto) addNullifierSpecs(states []*prototk.NewState, party string, contract *pldtypes.EthAddress) {
+	for _, newState := range states {
+		newState.NullifierSpecs = []*prototk.NullifierSpec{
+			n.nullifierSpec(party, contract),
+		}
+	}
+}
+
+// nullifierSpec builds the instruction for the owner's node to derive this coin's nullifier.
+// The payload type carries the contract, because that is all the signing request will see of
+// the coin's context - see types.NullifierPayloadType.
+func (n *Noto) nullifierSpec(party string, contract *pldtypes.EthAddress) *prototk.NullifierSpec {
+	return &prototk.NullifierSpec{
+		Party:        party,
+		Algorithm:    types.AlgoDomainNullifier(n.name),
+		VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+		PayloadType:  types.NullifierPayloadType(contract),
+	}
+}
+
+func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, owner *identityPair, amount *pldtypes.HexUint256, distributionList identityList) (*preparedLockedOutputs, error) {
+
+	// No outputs if we're preparing an empty lock
+	if amount.Int().Sign() <= 0 {
+		return &preparedLockedOutputs{
+			distributions: []identityList{},
+			coins:         []*types.NotoLockedCoin{},
+			states:        []*prototk.NewState{},
+		}, nil
+	}
+
 	// Always produce a single coin for the entire output amount
 	// TODO: make this configurable
 	newCoin := &types.NotoLockedCoin{
 		Salt:   pldtypes.RandBytes32(),
 		LockID: id,
-		Owner:  ownerAddress,
+		Owner:  owner.address,
 		Amount: amount,
 	}
-	newState, err := n.makeNewLockedCoinState(newCoin, distributionList)
+	newState, err := n.makeNewLockedCoinState(newCoin, distributionList.identities())
 	return &preparedLockedOutputs{
-		coins:  []*types.NotoLockedCoin{newCoin},
-		states: []*prototk.NewState{newState},
+		distributions: []identityList{distributionList},
+		coins:         []*types.NotoLockedCoin{newCoin},
+		states:        []*prototk.NewState{newState},
 	}, err
 }
 
-func (n *Noto) prepareInfo(data pldtypes.HexBytes, distributionList []string) ([]*prototk.NewState, error) {
+func (n *Noto) prepareDataInfo(ctx context.Context, data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string, transaction *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier) ([]*prototk.NewState, error) {
 	newData := &types.TransactionData{
-		Salt: pldtypes.RandHex(32),
-		Data: data,
+		Salt:    pldtypes.RandBytes32(),
+		Data:    data,
+		Variant: variant,
 	}
-	newState, err := n.makeNewInfoState(newData, distributionList)
+	fromAddr, err := n.findEthAddressVerifier(ctx, "from", transaction.From, verifiers)
+	if err == nil && fromAddr != nil {
+		newData.From = fromAddr.address
+	}
+	newState, err := n.makeNewInfoState(newData, variant, distributionList)
 	return []*prototk.NewState{newState}, err
 }
 
-func (n *Noto) prepareLockInfo(lockID pldtypes.Bytes32, owner, delegate *pldtypes.EthAddress, distributionList []string) (*prototk.NewState, error) {
+func (n *Noto) prepareLockInfo_V0(lockID pldtypes.Bytes32, owner, delegate *pldtypes.EthAddress, distributionList identityList) (*preparedLockInfo, error) {
 	if delegate == nil {
 		delegate = &pldtypes.EthAddress{}
 	}
-	newData := &types.NotoLockInfo{
+	newLockInfo := &types.NotoLockInfo_V0{
 		Salt:     pldtypes.RandBytes32(),
 		LockID:   lockID,
 		Owner:    owner,
 		Delegate: delegate,
 	}
-	return n.makeNewLockState(newData, distributionList)
+	lockState, err := n.makeNewLockState_V0(newLockInfo, distributionList.identities())
+	if err != nil {
+		return nil, err
+	}
+	return &preparedLockInfo{
+		stateV0:      newLockInfo,
+		state:        lockState,
+		distribution: distributionList,
+	}, nil
+}
 
+func (n *Noto) prepareLockInfo_V1(newLockInfo *types.NotoLockInfo_V1, distributionList identityList) (*preparedLockInfo, error) {
+	lockState, err := n.makeNewLockState_V1(newLockInfo, distributionList.identities())
+	if err != nil {
+		return nil, err
+	}
+	return &preparedLockInfo{
+		stateV1:      newLockInfo,
+		state:        lockState,
+		distribution: distributionList,
+	}, nil
 }
 
 func (n *Noto) filterSchema(states []*prototk.EndorsableState, schemas []string) (filtered []*prototk.EndorsableState) {
@@ -386,11 +568,12 @@ func (n *Noto) getStates(ctx context.Context, stateQueryContext, schemaId string
 	return res.States, nil
 }
 
-func (n *Noto) findAvailableStates(ctx context.Context, stateQueryContext, schemaId, query string) ([]*prototk.StoredState, error) {
+func (n *Noto) findAvailableStates(ctx context.Context, stateQueryContext, schemaId, query string, useNullifiers bool) ([]*prototk.StoredState, error) {
 	req := &prototk.FindAvailableStatesRequest{
 		StateQueryContext: stateQueryContext,
 		SchemaId:          schemaId,
 		QueryJson:         query,
+		UseNullifiers:     &useNullifiers,
 	}
 	res, err := n.Callbacks.FindAvailableStates(ctx, req)
 	if err != nil {
@@ -441,12 +624,82 @@ func encodedStateIDs(states []*pldapi.StateEncoded) []string {
 	return inputs
 }
 
-func endorsableStateIDs(states []*prototk.EndorsableState) []string {
+func (n *Noto) endorsableStateIDs(ctx context.Context, contract *pldtypes.EthAddress, states []*prototk.EndorsableState, useNullifier bool) []string {
 	inputs := make([]string, len(states))
 	for i, state := range states {
-		inputs[i] = state.Id
+		id, err := n.endorsableStateID(ctx, contract, state, useNullifier)
+		if err != nil {
+			log.L(ctx).Errorf("error calculating nullifier for state %s: %v", state.Id, err)
+			return nil
+		}
+		inputs[i] = id
 	}
 	return inputs
+}
+
+// endorsableStateID determines how a state is identified on the base ledger: by its
+// state ID (the commitment), or by its nullifier for the nullifier variants.
+//
+// Only unlocked coins are ever nullified, so anything else is identified by ID regardless
+// of the caller's preference - see stateNullifier.
+func (n *Noto) endorsableStateID(ctx context.Context, contract *pldtypes.EthAddress, state *prototk.EndorsableState, useNullifier bool) (string, error) {
+	if !useNullifier {
+		return state.Id, nil
+	}
+	nullifier, hasNullifier, err := n.stateNullifier(ctx, contract, state)
+	if err != nil {
+		return "", err
+	}
+	if !hasNullifier {
+		return state.Id, nil
+	}
+	return nullifier, nil
+}
+
+// stateNullifier derives the nullifier for a state, returning hasNullifier=false for the
+// states that are not nullified on-chain.
+//
+// Only unlocked coins have nullifiers. Nullifiers consume the unlocked inputs of a
+// transfer, burn or lock creation; locked states (both the locked coins and the lock info
+// states) are spent by ID throughout their lifecycle, which is what the base ledger checks
+// - see NotoNullifiers.sol and Noto._processLockedInputs. Locked coins are also queried
+// locally without requiring nullifiers (see prepareLockedInputs), so their spend records
+// are keyed by state ID.
+//
+// This dispatches on the schema rather than assuming every state is an unlocked coin,
+// because a NotoLockedCoin will happily unmarshal as a NotoCoin - so a locked coin reaching
+// this path would otherwise be given a plausible but meaningless nullifier, derived without
+// its lockId.
+func (n *Noto) stateNullifier(ctx context.Context, contract *pldtypes.EthAddress, state *prototk.EndorsableState) (nullifier string, hasNullifier bool, err error) {
+	if n.coinSchema == nil || state.SchemaId != n.coinSchema.Id {
+		return "", false, nil
+	}
+	coin, err := n.unmarshalCoinStrict(state.StateDataJson)
+	if err != nil {
+		return "", false, err
+	}
+	hash, err := calculateNullifier(ctx, contract, coin)
+	if err != nil {
+		return "", false, err
+	}
+	return hash.HexString(), true, nil
+}
+
+// IDs must previously have been allocated
+func newStateAllocatedIDs(states []*prototk.NewState) []pldtypes.Bytes32 {
+	inputs := make([]pldtypes.Bytes32, len(states))
+	for i, state := range states {
+		inputs[i] = pldtypes.MustParseBytes32(*state.Id)
+	}
+	return inputs
+}
+
+func stringIDs(ids []pldtypes.Bytes32) []string {
+	result := make([]string, len(ids))
+	for i, id := range ids {
+		result[i] = id.String()
+	}
+	return result
 }
 
 func stringToAny(ids []string) []any {
@@ -508,13 +761,9 @@ func (n *Noto) encodeUnlock(ctx context.Context, contract *ethtypes.Address0xHex
 	})
 }
 
-func (n *Noto) unlockHashFromStates(ctx context.Context, contract *ethtypes.Address0xHex, lockedInputs, lockedOutputs, outputs []*prototk.EndorsableState, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {
-	return n.unlockHashFromIDs(ctx, contract, endorsableStateIDs(lockedInputs), endorsableStateIDs(lockedOutputs), endorsableStateIDs(outputs), data)
-}
-
-func (n *Noto) unlockHashFromIDs(ctx context.Context, contract *ethtypes.Address0xHex, lockedInputs, lockedOutputs, outputs []string, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {
+func (n *Noto) unlockHashFromIDs_V0(ctx context.Context, contract *ethtypes.Address0xHex, lockedInputs, lockedOutputs, outputs []string, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {
 	return eip712.EncodeTypedDataV4(ctx, &eip712.TypedData{
-		Types:       NotoUnlockMaskedTypeSet,
+		Types:       NotoUnlockMaskedTypeSet_V0,
 		PrimaryType: "Unlock",
 		Domain:      n.eip712Domain(contract),
 		Message: map[string]any{
@@ -524,6 +773,27 @@ func (n *Noto) unlockHashFromIDs(ctx context.Context, contract *ethtypes.Address
 			"data":          data,
 		},
 	})
+}
+
+func (n *Noto) unlockHashFromIDs_V1(ctx context.Context, contract *ethtypes.Address0xHex, lockID pldtypes.Bytes32, txId string, lockedInputs, outputs []string, data pldtypes.HexBytes) (encoded pldtypes.Bytes32, err error) {
+	msg := map[string]any{
+		"txId":         txId,
+		"lockedInputs": stringToAny(lockedInputs),
+		"outputs":      stringToAny(outputs),
+		"data":         data,
+	}
+	b, err := eip712.EncodeTypedDataV4(ctx, &eip712.TypedData{
+		Types:       NotoUnlockMaskedTypeSet_V1,
+		PrimaryType: "Unlock",
+		Domain:      n.eip712Domain(contract),
+		Message:     msg,
+	})
+	if err == nil {
+		copy(encoded[:], b[0:32])
+		jsonMsg, _ := json.Marshal(msg)
+		log.L(ctx).Infof("Encoded outcome hash '%s' for unlock operation %s: %s", encoded, lockID, jsonMsg)
+	}
+	return encoded, err
 }
 
 func (n *Noto) encodeDelegateLock(ctx context.Context, contract *ethtypes.Address0xHex, lockID pldtypes.Bytes32, delegate *pldtypes.EthAddress, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {
@@ -539,14 +809,14 @@ func (n *Noto) encodeDelegateLock(ctx context.Context, contract *ethtypes.Addres
 	})
 }
 
-func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress) (totalStates int, totalBalance *big.Int, overflow, revert bool, err error) {
+func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress, useNullifiers bool) (totalStates int, totalBalance *big.Int, overflow, revert bool, err error) {
 	totalBalance = big.NewInt(0)
 	queryBuilder := query.NewQueryBuilder().
 		Limit(1000).
 		Equal("owner", owner.String())
 
 	log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
-	states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String())
+	states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String(), useNullifiers)
 	if err != nil {
 		return 0, nil, false, false, err
 	}
@@ -563,4 +833,147 @@ func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, 
 	}
 
 	return len(states), totalBalance, false, false, nil
+}
+
+func (n *Noto) encodeRootAndSignature(ctx context.Context, txContractAddress, stateQueryContext string, payload []byte) ([]byte, error) {
+	// for nullifier variants, the "signature" parameter includes both the signature and the root
+	smtName := notosmt.MerkleTreeName(txContractAddress)
+	smtType := smt.StatesTree
+	hasher := utxo.NewKeccak256Hasher()
+	mt, err := smt.NewMerkleTreeSpec(ctx, smtName, smtType, notosmt.SMT_HEIGHT_UTXO, hasher, true, n.Callbacks, n.merkleTreeRootSchema.Id, n.merkleTreeNodeSchema.Id, stateQueryContext)
+	if err != nil {
+		return nil, err
+	}
+	root := mt.Tree.Root()
+	jsonObj := map[string]interface{}{
+		"root":      "0x" + root.BigInt().Text(16),
+		"signature": "0x" + hex.EncodeToString(payload),
+	}
+	jsonBytes, err := json.Marshal(jsonObj)
+	if err != nil {
+		return nil, err
+	}
+	args := abi.ParameterArray{
+		{Name: "root", Type: "uint256"},
+		{Name: "signature", Type: "bytes"},
+	}
+	encoded, err := args.EncodeABIDataJSON(jsonBytes)
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}
+
+// Domain separation tag for nullifier derivation, so that any future kind of nullified
+// state cannot derive the same nullifier as a coin even if all of its fields are identical.
+var nullifierTagCoin = pldtypes.Bytes32Keccak([]byte("noto:nullifier:coin"))
+
+// lockProof returns the proof to embed in createLock / updateLock arguments.
+//
+// For the nullifier variants this is (root, signature) rather than the bare signature,
+// because NotoNullifiers checks the commitment tree root when it creates or updates a lock,
+// exactly as it does for a transfer - see NotoNullifiers._createLock / _updateLock, which
+// decode the proof and call _requireValidRoot. Sending only the signature makes those calls
+// revert. Other variants pass the signature through untouched.
+//
+// Note spendLock and delegateLock need no root: the base Noto implementations consume locked
+// states by ID and never decode the proof, and NotoNullifiers does not override them.
+func (n *Noto) lockProof(ctx context.Context, tx *types.ParsedTransaction, stateQueryContext string, signature []byte) ([]byte, error) {
+	if !tx.DomainConfig.IsNullifierVariant() {
+		return signature, nil
+	}
+	return n.encodeRootAndSignature(ctx, tx.ContractAddress.String(), stateQueryContext, signature)
+}
+
+// calculateNullifier derives the nullifier that spends an unlocked coin.
+//
+// The nullifier MUST be an injective function of every field that makes the coin unique -
+// in particular the owner and the contract. Two coins that share a nullifier can never both
+// be spent, as the base ledger records nullifiers as used (see
+// NotoNullifiers._processNullifiers) and the local state store records a spend against the
+// nullifier rather than the state. Neither the notary nor the base ledger can detect the
+// collision: the two coins are distinct commitments and each transaction nets out correctly.
+//
+// The owner is covered because otherwise a sender could build one output to the recipient and
+// one to themselves sharing a salt and amount, then spend their own copy and permanently
+// prevent the recipient from spending theirs.
+//
+// The contract is covered because nullifier records are keyed per domain rather than per
+// contract (state_nullifiers is keyed on domain_name + id, and inserts are OnConflict
+// DoNothing), so the same coin data in two different Noto contracts would collide in the
+// local database and silently leave the second coin unspendable - even though the two
+// contracts' on-chain nullifier sets are independent.
+//
+// Because the nullifier covers exactly the fields that determine the commitment, plus the
+// contract, any collision now requires a duplicate coin in the same contract, which is
+// already rejected: the base ledger refuses to re-add an existing commitment to the
+// append-only tree, and the state store refuses a duplicate state ID.
+//
+// Note this derivation deliberately involves no key material: the notary must be able to
+// recompute it from the unmasked coin data when it endorses a spend. It follows that
+// anyone holding the coin data can compute the nullifier - see the note on GetVerifier.
+func calculateNullifier(ctx context.Context, contract *pldtypes.EthAddress, coin *types.NotoCoin) (*pldtypes.Bytes32, error) {
+	if coin == nil || coin.Owner == nil || coin.Amount == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgIncompleteCoinForNullifier)
+	}
+	if contract == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgNullifierContractRequired)
+	}
+	// the nullifier is keccak256(tag, contract, salt, owner, amount)
+	return nullifierHash(
+		abi.ParameterArray{
+			{Type: "bytes32", Name: "tag"},
+			{Type: "address", Name: "contract"},
+			{Type: "bytes32", Name: "salt"},
+			{Type: "address", Name: "owner"},
+			{Type: "uint256", Name: "amount"},
+		},
+		map[string]any{
+			"tag":      nullifierTagCoin,
+			"contract": contract,
+			"salt":     coin.Salt,
+			"owner":    coin.Owner,
+			"amount":   coin.Amount.Int(),
+		},
+	)
+}
+
+// nullifierHash ABI encodes the supplied values (all static types, so the encoding is an
+// unambiguous concatenation) and returns the keccak256 hash of the result.
+func nullifierHash(paramTypes abi.ParameterArray, paramValues map[string]any) (*pldtypes.Bytes32, error) {
+	jsonData, err := json.Marshal(paramValues)
+	if err != nil {
+		return nil, err
+	}
+
+	encoded, err := paramTypes.EncodeABIDataJSON(jsonData)
+	if err != nil {
+		return nil, err
+	}
+	ret := pldtypes.Bytes32Keccak(encoded)
+	return &ret, nil
+}
+
+func (n *Noto) allocateStateIDs(ctx context.Context, stateQueryContext string, stateLists ...[]*prototk.NewState) error {
+	var allStates []*prototk.NewState
+	for _, stateList := range stateLists {
+		allStates = append(allStates, stateList...)
+	}
+
+	// Send them to Paladin to validate and generate the IDs
+	validatedStates, err := n.Callbacks.ValidateStates(ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: stateQueryContext,
+		States:            allStates,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Store the IDs back into the objects - we do this because it means we'll send them down
+	// to Paladin as a result of the assemble, and that
+	for i, vs := range validatedStates.States {
+		generatedID := vs.Id
+		allStates[i].Id = &generatedID
+	}
+	return nil
 }

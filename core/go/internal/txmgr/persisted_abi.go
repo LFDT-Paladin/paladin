@@ -19,14 +19,14 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/filters"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"gorm.io/gorm/clause"
 )
@@ -56,8 +56,7 @@ func (tm *txManager) getABIByHash(ctx context.Context, dbTX persistence.DBTX, ha
 		return pa, nil
 	}
 	var pABIs []*PersistedABI
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Table("abis").
 		Where("hash = ?", hash).
 		Find(&pABIs).
@@ -91,6 +90,7 @@ func (tm *txManager) storeABI(ctx context.Context, dbTX persistence.DBTX, a abi.
 }
 
 func (tm *txManager) UpsertABI(ctx context.Context, dbTX persistence.DBTX, a abi.ABI) (*pldapi.StoredABI, error) {
+	ctx = log.WithComponent(ctx, "txmanager")
 	hash, err := pldtypes.ABISolDefinitionHash(ctx, a)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgTxMgrInvalidABI)
@@ -122,7 +122,7 @@ func (tm *txManager) UpsertABI(ctx context.Context, dbTX persistence.DBTX, a abi
 	// Otherwise ask the DB to store
 	abiBytes, err := json.Marshal(a)
 	if err == nil {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("abis").
 			Clauses(clause.OnConflict{
 				Columns: []clause.Column{
@@ -137,7 +137,7 @@ func (tm *txManager) UpsertABI(ctx context.Context, dbTX persistence.DBTX, a abi
 			Error
 	}
 	if err == nil && len(abiEntries) > 0 {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("abi_entries").
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(abiEntries).

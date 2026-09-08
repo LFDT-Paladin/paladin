@@ -20,10 +20,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 )
 
 var paladinPrefix = "node"
@@ -31,7 +30,6 @@ var paladinPrefix = "node"
 // Run e2e tests using the Ginkgo runner.
 func TestE2E(t *testing.T) {
 	log.SetLevel("warn")
-	logrus.SetLevel(logrus.WarnLevel)
 
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting operator-go suite\n")

@@ -16,14 +16,18 @@ package plugintk
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func newTestPluginRunner(connString string) *pluginRun[prototk.DomainMessage] {
@@ -232,4 +236,131 @@ func TestEmptyErrorFromServer(t *testing.T) {
 
 	_, err := callbacks.FindAvailableStates(ctx, &prototk.FindAvailableStatesRequest{})
 	assert.Regexp(t, "PD020303", err)
+}
+
+func TestClosePluginError(t *testing.T) {
+	_, tc, tcDone := newTestController(t)
+	defer tcDone()
+
+	funcs := &TransportAPIFunctions{
+		StopTransport: func(ctx context.Context, req *prototk.StopTransportRequest) (*prototk.StopTransportResponse, error) {
+			return nil, assert.AnError
+		},
+	}
+	waitForCallbacks := make(chan TransportCallbacks, 1)
+	transport := NewTransport(func(callbacks TransportCallbacks) TransportAPI {
+		waitForCallbacks <- callbacks
+		return &TransportAPIBase{funcs}
+	})
+	defer transport.Stop()
+
+	pluginID := uuid.NewString()
+	waitConnected := make(chan grpc.BidiStreamingServer[prototk.TransportMessage, prototk.TransportMessage])
+	tc.fakeTransportController = func(bss grpc.BidiStreamingServer[prototk.TransportMessage, prototk.TransportMessage]) error {
+		waitConnected <- bss
+		// Wait for register message, then close the stream to trigger EOF
+		_, err := bss.Recv()
+		if err != nil {
+			return err
+		}
+		// Return immediately to close the stream, which will trigger EOF on the client side
+		return nil
+	}
+
+	transportDone := make(chan struct{})
+	go func() {
+		defer close(transportDone)
+		transport.Run("unix:"+tc.socketFile, pluginID)
+	}()
+	<-waitForCallbacks
+	<-waitConnected
+
+	// Wait for the transport to finish (which should have called closePlugin with an error)
+	<-transportDone
+}
+
+func TestClosePluginRunsOnNonEOFReceiveError(t *testing.T) {
+	_, tc, tcDone := newTestController(t)
+	defer tcDone()
+
+	stopCalled := make(chan struct{})
+	var closeStopCalled sync.Once
+	funcs := &TransportAPIFunctions{
+		StopTransport: func(ctx context.Context, req *prototk.StopTransportRequest) (*prototk.StopTransportResponse, error) {
+			closeStopCalled.Do(func() {
+				close(stopCalled)
+			})
+			return &prototk.StopTransportResponse{}, nil
+		},
+	}
+	transport := NewTransport(func(callbacks TransportCallbacks) TransportAPI {
+		return &TransportAPIBase{funcs}
+	})
+	defer transport.Stop()
+
+	pluginID := uuid.NewString()
+	waitConnected := make(chan struct{})
+	tc.fakeTransportController = func(bss grpc.BidiStreamingServer[prototk.TransportMessage, prototk.TransportMessage]) error {
+		close(waitConnected)
+		// Read register, then force a non-EOF stream termination.
+		_, err := bss.Recv()
+		if err != nil {
+			return err
+		}
+		return status.Error(codes.Unavailable, "controller disconnected")
+	}
+
+	transportDone := make(chan struct{})
+	go func() {
+		defer close(transportDone)
+		transport.Run("unix:"+tc.socketFile, pluginID)
+	}()
+
+	<-waitConnected
+	<-stopCalled
+
+	transport.Stop()
+	<-transportDone
+}
+
+func TestClosePluginRunsOnContextCancellation(t *testing.T) {
+	_, tc, tcDone := newTestController(t)
+	defer tcDone()
+
+	var stopCalls atomic.Int32
+	funcs := &TransportAPIFunctions{
+		StopTransport: func(ctx context.Context, req *prototk.StopTransportRequest) (*prototk.StopTransportResponse, error) {
+			stopCalls.Add(1)
+			return &prototk.StopTransportResponse{}, nil
+		},
+	}
+	transport := NewTransport(func(callbacks TransportCallbacks) TransportAPI {
+		return &TransportAPIBase{funcs}
+	})
+	defer transport.Stop()
+
+	pluginID := uuid.NewString()
+	waitConnected := make(chan struct{})
+	tc.fakeTransportController = func(bss grpc.BidiStreamingServer[prototk.TransportMessage, prototk.TransportMessage]) error {
+		close(waitConnected)
+		// Block on stream recv until the plugin is stopped.
+		for {
+			_, err := bss.Recv()
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	transportDone := make(chan struct{})
+	go func() {
+		defer close(transportDone)
+		transport.Run("unix:"+tc.socketFile, pluginID)
+	}()
+
+	<-waitConnected
+	transport.Stop()
+	<-transportDone
+
+	require.GreaterOrEqual(t, stopCalls.Load(), int32(1), "expected StopTransport to run during cancellation shutdown")
 }

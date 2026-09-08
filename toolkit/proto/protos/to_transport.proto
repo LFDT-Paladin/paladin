@@ -22,6 +22,7 @@ option java_multiple_files = true;
 message ConfigureTransportRequest {
   string name = 1; // The name
   string config_json= 2; // The block of config supplied in the configuration for the domain by the Paladin administrator (converted from YAML to JSON for transport)
+  string log_level = 3; // The configured log level
 }
 
 message ConfigureTransportResponse {
@@ -56,6 +57,12 @@ message GetLocalDetailsRequest {
 
 message GetLocalDetailsResponse {
   string transport_details = 1; // local transport details that can be shared via registry with other parties
+}
+
+message StopTransportRequest {
+}
+
+message StopTransportResponse {
 }
 
 message PaladinMsg {
