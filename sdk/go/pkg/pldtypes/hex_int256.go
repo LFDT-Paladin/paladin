@@ -47,8 +47,8 @@ func checkInt256Range(ctx context.Context, bi *big.Int, desc string) error {
 	return nil
 }
 
-func Int64ToInt256(v int64) *HexUint256 {
-	return (*HexUint256)(new(big.Int).SetInt64(v))
+func Int64ToInt256(v int64) *HexInt256 {
+	return (*HexInt256)(new(big.Int).SetInt64(v))
 }
 
 // Parse a string
