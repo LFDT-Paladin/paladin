@@ -16,6 +16,7 @@
 package publictxmgr
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -47,10 +48,13 @@ func TestNewEnginePollingStoppingAnOrchestratorForFairnessControl(t *testing.T) 
 	defer done()
 
 	// Fake an inflight orchestrator for signing address 1
+	ocCtx, ocCtxCancel := context.WithCancel(ctx)
 	existingOrchestrator := &orchestrator{
 		signingAddress:              *testSigningAddr1,
 		orchestratorBirthTime:       time.Now().Add(-1 * time.Hour),
 		pubTxManager:                ble,
+		ctx:                         ocCtx,
+		ctxCancel:                   ocCtxCancel,
 		orchestratorPollingInterval: ble.enginePollingInterval,
 		state:                       OrchestratorStateRunning,
 		stateEntryTime:              time.Now().Add(1 * time.Hour).Add(-1 * time.Minute),
