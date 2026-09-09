@@ -14,11 +14,11 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
-        zetoFactory:
+        zetoFactoryProxy:
           address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
-        penteFactory:
+        penteFactoryProxy:
           address: "0x48c11bbb7caa77329d53b89235fec64733a24ca1"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -36,7 +36,7 @@ tests:
             - zeto
             - pente
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:
@@ -66,7 +66,7 @@ tests:
             migrationMode: auto
           secretBackedSigners:
             - name: signer-auto-wallet
-              secret: central-bank.keys
+              secret: bank-a.keys
               type: autoHDWallet
               keySelector: ".*"
           paladinRegistration:
@@ -158,7 +158,7 @@ tests:
         template: customnodes/paladin.yaml
       - equal:
           path: 'spec.secretBackedSigners[0].secret'
-          value: 'central-bank.keys'
+          value: 'bank-a.keys'
         documentIndex: 0
         template: customnodes/paladin.yaml
       - equal:
@@ -222,11 +222,13 @@ tests:
           value: 'evm-registry'
         documentIndex: 0
         template: customnodes/paladinregistration.yaml
-      - equal:
-          path: 'spec.registryAdminNode'
-          value: 'central-bank'
-        documentIndex: 0
-        template: customnodes/paladinregistration.yaml
+      # This test is not a meaningful test as paladin registrations don't work as is today in cross cluster mode  
+      # https://github.com/LFDT-Paladin/paladin/issues/860
+      # - equal:
+      #     path: 'spec.registryAdminNode'
+      #     value: 'central-bank'
+      #   documentIndex: 0
+      #   template: customnodes/paladinregistration.yaml
       - equal:
           path: 'spec.registryAdminKey'
           value: 'registry.operator'
@@ -256,7 +258,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -273,7 +275,7 @@ tests:
           domains:
             - noto
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:
@@ -333,7 +335,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -349,7 +351,7 @@ tests:
           domains:
             - noto
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:
@@ -409,7 +411,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -425,7 +427,7 @@ tests:
           domains:
             - noto
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:
@@ -496,9 +498,9 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
-        zetoFactory:
+        zetoFactoryProxy:
           address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -514,7 +516,7 @@ tests:
           domains:
             - noto
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:
@@ -565,7 +567,7 @@ tests:
           domains:
             - zeto
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:
@@ -641,7 +643,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -657,7 +659,7 @@ tests:
           domains:
             - noto
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:
@@ -730,7 +732,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -746,7 +748,7 @@ tests:
           domains:
             - noto
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:
@@ -810,7 +812,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -826,7 +828,7 @@ tests:
           domains:
             - noto
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:
@@ -895,13 +897,13 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
           deployment: ""
-        zetoFactory:
+        zetoFactoryProxy:
           address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
           deployment: ""
-        penteFactory:
+        penteFactoryProxy:
           address: "0x48c11bbb7caa77329d53b89235fec64733a24ca1"
           deployment: ""
         registry:
@@ -919,7 +921,7 @@ tests:
           domains:
             - noto
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:
@@ -1018,13 +1020,13 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
           deployment: ""
-        zetoFactory:
+        zetoFactoryProxy:
           address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
           deployment: ""
-        penteFactory:
+        penteFactoryProxy:
           address: "0x48c11bbb7caa77329d53b89235fec64733a24ca1"
           deployment: ""
         registry:
@@ -1042,7 +1044,7 @@ tests:
           domains:
             - noto
           registries:
-            - evm-reg
+            - evm-registry
           transports:
             - name: grpc
               plugin:

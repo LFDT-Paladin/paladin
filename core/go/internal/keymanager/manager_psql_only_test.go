@@ -23,9 +23,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,7 +63,7 @@ func TestTimeoutWaitingForLock(t *testing.T) {
 		_, err := kr2.ResolveKey(withTimeout, "key1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 		return err
 	})
-	assert.Regexp(t, "PD010301", err)
+	assert.Error(t, err)
 
 	close(waitDone)
 

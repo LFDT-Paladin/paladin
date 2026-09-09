@@ -17,7 +17,6 @@
 package pldtypes
 
 import (
-	"bytes"
 	"context"
 	"database/sql/driver"
 	"encoding/json"
@@ -25,8 +24,8 @@ import (
 	"math/big"
 	"strconv"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 )
 
 const MAX_SAFE_INT64 = 0x7fffffffffffffff
@@ -79,14 +78,11 @@ func (hi *HexUint64) setString(text string) error {
 
 // Parses with/without 0x in any case
 func (hi *HexUint64) UnmarshalJSON(b []byte) error {
-	var iVal interface{}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.UseNumber() // It's not safe to use a JSON number decoder as it uses float64, so can (and does) lose precision
-	err := decoder.Decode(&iVal)
-	if err == nil {
-		err = hi.Scan(iVal)
+	text, ok := jsonNumericText(b)
+	if !ok {
+		return i18n.NewError(context.Background(), pldmsgs.MsgTypesScanFail, string(b), hi)
 	}
-	return err
+	return hi.setString(text)
 }
 
 // Get string with 0x prefix - nil is all zeros

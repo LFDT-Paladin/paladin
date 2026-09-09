@@ -9,7 +9,6 @@ import {
 import PaladinClient from "../paladin";
 import { TransactionFuture } from "../transaction";
 import { PaladinVerifier } from "../verifier";
-import * as penteJSON from "./abis/PentePrivacyGroup.json";
 
 export interface PenteGroupTransactionInput {
   from: string;
@@ -36,6 +35,7 @@ export interface PenteDeploy {
 }
 
 export interface PentePrivacyGroupParams {
+  name?: string;
   members: (string | PaladinVerifier)[];
   salt?: string;
   evmVersion?: string;
@@ -93,8 +93,9 @@ export class PenteFactory {
   newPrivacyGroup(input: PentePrivacyGroupParams) {
     return new PentePrivacyGroupFuture(
       this.paladin,
-      this.paladin.createPrivacyGroup({
+      this.paladin.pgroup.createGroup({
         domain: this.domain,
+        name: input.name,
         members: input.members.map((m) => m.toString()),
         configuration: {
           evmVersion: input.evmVersion,
@@ -111,7 +112,7 @@ export class PenteFactory {
   }
 
   async resumePrivacyGroup(input: IPrivacyGroupResume) {
-    const existingGroup = await this.paladin.getPrivacyGroupById(
+    const existingGroup = await this.paladin.pgroup.getGroupById(
       this.domain,
       input.id
     );
@@ -162,7 +163,7 @@ export class PentePrivacyGroup {
 
     return new PentePrivateDeployFuture(
       this.paladin,
-      this.paladin.sendPrivacyGroupTransaction(transaction)
+      this.paladin.pgroup.sendTransaction(transaction)
     );
   }
 
@@ -173,7 +174,7 @@ export class PentePrivacyGroup {
   ) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendPrivacyGroupTransaction({
+      this.paladin.pgroup.sendTransaction({
         ...txOptions,
         domain: this.group.domain,
         group: this.group.id,
@@ -190,7 +191,7 @@ export class PentePrivacyGroup {
     transaction: PenteGroupTransactionInput,
     txOptions?: Partial<IPrivacyGroupEVMCall>
   ) {
-    return this.paladin.callPrivacyGroup({
+    return this.paladin.pgroup.call({
       ...txOptions,
       domain: this.group.domain,
       group: this.group.id,
@@ -199,23 +200,6 @@ export class PentePrivacyGroup {
       input: transaction.data,
       function: transaction.methodAbi,
     });
-  }
-
-  approveTransition(
-    from: PaladinVerifier,
-    data: PenteApproveTransitionParams
-  ) {
-    return new TransactionFuture(
-      this.paladin,
-      this.paladin.sendTransaction({
-        type: TransactionType.PUBLIC,
-        abi: penteJSON.abi,
-        function: "approveTransition",
-        to: this.address,
-        from: from.lookup,
-        data,
-      })
-    );
   }
 }
 

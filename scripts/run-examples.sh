@@ -15,6 +15,11 @@
 #   RUN_COMMANDS=start ./scripts/run-examples.sh
 #   RUN_COMMANDS=verify ./scripts/run-examples.sh
 #   RUN_COMMANDS=start,verify ./scripts/run-examples.sh
+#   IGNORE_EXAMPLES=event-listener,private-stablecoin,bond,helloworld,swap,zeto ./scripts/run-examples.sh # ignore examples
+#
+# Cache directory arguments:
+#   ./scripts/run-examples.sh [base_cache_dir] [version_tag]
+#   ./scripts/run-examples.sh /tmp/cache v0.10.0 # specify cache directory and version
 RUN_COMMANDS=${RUN_COMMANDS:-"start"}
 BUILD_PALADIN_SDK=${BUILD_PALADIN_SDK:-"false"} # build the paladin SDK locally
 BUILD_PALADIN_ABI=${BUILD_PALADIN_ABI:-"false"} # build the paladin solidity contracts locally
@@ -22,6 +27,12 @@ BUILD_PALADIN_ABI=${BUILD_PALADIN_ABI:-"false"} # build the paladin solidity con
 PALADIN_SDK_VERSION=${PALADIN_SDK_VERSION:-""} # download the paladin SDK from npm (default is latest)
 PALADIN_ABI_VERSION=${PALADIN_ABI_VERSION:-""} # download the paladin solidity contracts from npm (default is latest)   
 ZETO_ABI_VERSION=${ZETO_ABI_VERSION:-"v0.2.0"} # download the zeto solidity contracts from npm (default is v0.2.0)
+
+IGNORE_EXAMPLES=${IGNORE_EXAMPLES:-""} # ignore examples (; separated list of example names)
+
+# Command line arguments for cache directory
+BASE_CACHE_DIR=${1:-""} # first argument: base cache directory
+VERSION_TAG_ARG=${2:-""} # second argument: version tag
 
 # Colors for output
 RED='\033[0;31m'
@@ -81,7 +92,7 @@ fi
 # set paladin SDK version to latest if not set
 if [ "$PALADIN_SDK_VERSION" = "" ] && [ "$BUILD_PALADIN_SDK" = "false" ]; then
     PALADIN_SDK_VERSION=latest
-    # PALADIN_SDK_VERSION=$(npm view @lfdecentralizedtrust-labs/paladin-sdk version)
+    # PALADIN_SDK_VERSION=$(npm view @lfdecentralizedtrust/paladin-sdk version)
     print_status "PALADIN_SDK_VERSION not set, using latest version: $PALADIN_SDK_VERSION"
 fi
 
@@ -97,7 +108,7 @@ switch_paladin_sdk_version() {
     local name="$1"
     if [ "$BUILD_PALADIN_SDK" = "true" ]; then
         print_status "Running $name with local paladin SDK..."
-        npm uninstall @lfdecentralizedtrust-labs/paladin-sdk 2>/dev/null || true
+        npm uninstall @lfdecentralizedtrust/paladin-sdk 2>/dev/null || true
         if ! npm install file:../../sdk/typescript; then
             print_error "Failed to install local SDK for $name"
             exit 1
@@ -106,8 +117,8 @@ switch_paladin_sdk_version() {
 
     if [ "$PALADIN_SDK_VERSION" != "" ]; then
         print_status "Running $name with paladin SDK version $PALADIN_SDK_VERSION..."
-        npm uninstall @lfdecentralizedtrust-labs/paladin-sdk 2>/dev/null || true
-        if ! npm install @lfdecentralizedtrust-labs/paladin-sdk@$PALADIN_SDK_VERSION; then
+        npm uninstall @lfdecentralizedtrust/paladin-sdk 2>/dev/null || true
+        if ! npm install @lfdecentralizedtrust/paladin-sdk@$PALADIN_SDK_VERSION; then
             print_error "Failed to install SDK version $PALADIN_SDK_VERSION for $name"
             exit 1
         fi
@@ -191,6 +202,8 @@ run_example() {
     
     print_header "Running example: $example_name"
     echo "=========================================="
+
+    config_file="../common/config.json"
     
     cd "$examples_dir"
     
@@ -214,15 +227,26 @@ run_example() {
     
     mkdir -p logs
     
+    local cmd_cache_path=""
+    # Construct cache directory path if provided
+    # default is <example_dir>/data
+    if [ -n "$BASE_CACHE_DIR" ] && [ -n "$VERSION_TAG_ARG" ]; then
+        example_cache_path="$BASE_CACHE_DIR/$VERSION_TAG_ARG/$example_name"
+        print_status "Using cache path: $example_cache_path"
+        mkdir -p "$example_cache_path"
+        cmd_cache_path="--cache $example_cache_path"
+    fi
+    
     # Split RUN_COMMANDS by comma and run each command
     IFS=',' read -ra COMMANDS <<< "$RUN_COMMANDS"
     
     for command in "${COMMANDS[@]}"; do
         command=$(echo "$command" | xargs) # trim whitespace
         
-        # Run the example command
-        print_status "Running $example_name with 'npm run $command'..."
-        if ! npm run $command; then
+        # Run the example command, passing the cache path as an argument.
+        cmd="$command -- $cmd_cache_path --config $config_file"
+        print_status "Running command: $cmd"
+        if ! npm run $cmd; then
             print_error "Example $example_name failed to run command '$command'"
             exit_code=1
             break
@@ -276,11 +300,10 @@ main() {
 
         # Check if example should run based on metadata and current version
         if [ -f "$examples_dir/package.json" ]; then
-            if [ "$BUILD_PALADIN_SDK" = "false" ] || [ "$BUILD_PALADIN_ABI" = "false" ]; then
-                # skip event-listener and private-stablecoin examples
-                # TODO: remove this once we release v0.10.0
-                if [ "$example_name" = "event-listener" ] || [ "$example_name" = "private-stablecoin" ]; then
-                    print_status "Skipping example $example_name (not supported for current version)"
+            # ignore examples if IGNORE_EXAMPLES is set
+            if [ "$IGNORE_EXAMPLES" != "" ]; then
+                if [[ "$IGNORE_EXAMPLES" == *$example_name* ]]; then
+                    print_status "Skipping example $example_name (IGNORE_EXAMPLES)"
                     skipped_examples+=("$example_name")
                     continue
                 fi
@@ -305,6 +328,13 @@ main() {
     print_status "BUILD_PALADIN_ABI: $BUILD_PALADIN_ABI"
     print_status "PALADIN_SDK_VERSION: $PALADIN_SDK_VERSION"
     print_status "RUN_COMMANDS: $RUN_COMMANDS"
+    
+    # Display cache configuration in summary
+    local version_tag_to_use="${VERSION_TAG_ARG:-$VERSION_TAG}"
+    if [ "$BASE_CACHE_DIR" != "" ] && [ "$version_tag_to_use" != "" ]; then
+        print_status "BASE_CACHE_DIR: $BASE_CACHE_DIR"
+        print_status "VERSION_TAG: $version_tag_to_use"
+    fi
 
     # Summary
     echo "=========================================="

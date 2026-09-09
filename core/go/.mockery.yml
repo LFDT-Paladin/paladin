@@ -1,48 +1,99 @@
+build-tags: generate_mocks
 template: testify
 pkgname: "{{.SrcPackageName}}mocks"
 structname: "{{.InterfaceName}}"
 filename: "{{.SrcPackageName}}mocks.go"
 dir: "mocks/{{.SrcPackageName}}mocks"
 packages:
-  github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient:
+  github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient:
     config:
       all: true
-  github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver:
+  github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver:
     config:
       all: true
-  github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signer:
+  github.com/LFDT-Paladin/paladin/toolkit/pkg/signer:
     interfaces:
       SigningModule:
-  github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/blockindexer:
+  github.com/LFDT-Paladin/paladin/core/pkg/persistence:
+    config:
+      all: true
+  github.com/LFDT-Paladin/paladin/core/pkg/blockindexer:    
     interfaces:
       BlockIndexer:
-  github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/ethclient:
+      EventStream:
+  github.com/LFDT-Paladin/paladin/core/pkg/ethclient:
     config:
       all: true
-  github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components:
+  github.com/LFDT-Paladin/paladin/core/internal/components:
     config:
       all: true
-    interfaces:
-      KeyManager:
-  github.com/LF-Decentralized-Trust-labs/paladin/core/internal/componentmgr:
+  github.com/LFDT-Paladin/paladin/core/internal/componentmgr:
     config:
       all: true
-  github.com/LF-Decentralized-Trust-labs/paladin/core/internal/metrics:
+  github.com/LFDT-Paladin/paladin/core/internal/metrics:
     config:
       all: true
-  github.com/LF-Decentralized-Trust-labs/paladin/core/internal/privatetxnmgr/ptmgrtypes:
+  github.com/LFDT-Paladin/paladin/core/internal/rpcauthmgr:
     config:
       all: true
-    interfaces:
-      TransactionFlow:
-        config:
-          dir: "{{.InterfaceDir}}"
-          filename: "mock_transaction_flow.go"
-          pkgname: "{{.SrcPackageName}}"
-          structname: "Mock{{.InterfaceName}}"
-  github.com/LF-Decentralized-Trust-labs/paladin/core/internal/privatetxnmgr/syncpoints:
-    config:
-      all: true
-  github.com/LF-Decentralized-Trust-labs/paladin/core/internal/publictxmgr:
+  github.com/LFDT-Paladin/paladin/core/internal/publictxmgr:
     interfaces:
       InFlightStageActionTriggers:
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator:
+    config:
+      all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher:
+    config:
+      all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview:
+    config:
+      all: true
+      pkgname: coordinatorstateviewmocks
+      dir: mocks/coordinatorstateviewmocks
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker:
+    config:
+      all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction:
+    config:
+      pkgname: coordinatortransactionmocks
+      dir: mocks/coordinatortransactionmocks
+      all: true    
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/common:
+    interfaces:
+      EngineIntegration:
+      Clock:
+    config:
+      pkgname: sequencercommonmocks
+      dir: mocks/sequencercommonmocks
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport:
+    config:
+      pkgname: sequencertransportmocks
+      dir: mocks/sequencertransportmocks
+      all: true 
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints:
+    config:
+      all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics:
+    config:
+      all: true
+      pkgname: sequencermetricsmocks
+      dir: mocks/sequencermetricsmocks
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/stateview:
+    config:
+      all: true
+      pkgname: originatorstateviewmocks
+      dir: mocks/originatorstateviewmocks
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction:
+    config:
+      all: true
+      pkgname: originatortransactionmocks
+      dir: mocks/originatortransactionmocks
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator:
+    config:
+      all: true
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine:
+    interfaces:
+      EventLoopMetrics:
+    config:
+      pkgname: statemachinemocks
+      dir: mocks/statemachinemocks

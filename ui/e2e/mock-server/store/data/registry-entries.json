@@ -1,0 +1,252 @@
+[
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000001",
+    "name": "entry01",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000001",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry01.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000002",
+    "name": "entry02",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000002",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry02.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000003",
+    "name": "entry03",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000003",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry03.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000004",
+    "name": "entry04",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000004",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry04.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000005",
+    "name": "entry05",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000005",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry05.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000006",
+    "name": "entry06",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000006",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry06.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000007",
+    "name": "entry07",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000007",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry07.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000008",
+    "name": "entry08",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000008",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry08.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000009",
+    "name": "entry09",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000009",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry09.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x000000000000000000000000000000000000000000000000000000000000000a",
+    "name": "entry10",
+    "active": true,
+    "properties": {
+      "$owner": "0x100000000000000000000000000000000000000a",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry10.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x000000000000000000000000000000000000000000000000000000000000000b",
+    "name": "entry11",
+    "active": true,
+    "properties": {
+      "$owner": "0x100000000000000000000000000000000000000b",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry11.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x000000000000000000000000000000000000000000000000000000000000000c",
+    "name": "entry12",
+    "active": true,
+    "properties": {
+      "$owner": "0x100000000000000000000000000000000000000c",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry12.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x000000000000000000000000000000000000000000000000000000000000000d",
+    "name": "entry13",
+    "active": true,
+    "properties": {
+      "$owner": "0x100000000000000000000000000000000000000d",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry13.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x000000000000000000000000000000000000000000000000000000000000000e",
+    "name": "entry14",
+    "active": true,
+    "properties": {
+      "$owner": "0x100000000000000000000000000000000000000e",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry14.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x000000000000000000000000000000000000000000000000000000000000000f",
+    "name": "entry15",
+    "active": true,
+    "properties": {
+      "$owner": "0x100000000000000000000000000000000000000f",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry15.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000010",
+    "name": "entry16",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000010",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry16.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000011",
+    "name": "entry17",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000011",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry17.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000012",
+    "name": "entry18",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000012",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry18.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000013",
+    "name": "entry19",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000013",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry19.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000014",
+    "name": "entry20",
+    "active": true,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000014",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry20.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000015",
+    "name": "entry21",
+    "active": false,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000015",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry21.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000016",
+    "name": "entry22",
+    "active": false,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000016",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry22.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000017",
+    "name": "entry23",
+    "active": false,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000017",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry23.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000018",
+    "name": "entry24",
+    "active": false,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000018",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry24.example:18888\"}"
+    }
+  },
+  {
+    "registry": "default",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000019",
+    "name": "entry25",
+    "active": false,
+    "properties": {
+      "$owner": "0x1000000000000000000000000000000000000019",
+      "transport.grpc": "{\"endpoint\":\"dns:///entry25.example:18888\"}"
+    }
+  }
+]

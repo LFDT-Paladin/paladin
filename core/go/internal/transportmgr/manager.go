@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright contributors to Paladin, an LFDT project
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -20,26 +20,26 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/filters"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/flushwriter"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/retry"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 type transportManager struct {
@@ -48,17 +48,18 @@ type transportManager struct {
 	mux       sync.Mutex
 
 	rpcModule        *rpcserver.RPCModule
-	conf             *pldconf.TransportManagerConfig
+	conf             *pldconf.TransportManagerInlineConfig
 	localNodeName    string
 	registryManager  components.RegistryManager
 	stateManager     components.StateManager
 	domainManager    components.DomainManager
 	keyManager       components.KeyManager
 	txManager        components.TXManager
-	privateTxManager components.PrivateTxManager
+	sequencerManager components.SequencerManager
 	identityResolver components.IdentityResolver
 	groupManager     components.GroupManager
 	persistence      persistence.Persistence
+	publicTxManager  components.PublicTxManager
 
 	transportsByID   map[uuid.UUID]*transport
 	transportsByName map[string]*transport
@@ -75,14 +76,15 @@ type transportManager struct {
 	quiesceTimeout        time.Duration
 	peerReaperInterval    time.Duration
 
-	senderBufferLen         int
-	reliableMessageResend   time.Duration
-	reliableMessagePageSize int
+	senderBufferLen           int
+	sendFailureResetThreshold int
+	reliableMessageResend     time.Duration
+	reliableMessagePageSize   int
 }
 
 var reliableMessageFilters = filters.FieldMap{
 	"sequence":    filters.Int64Field("sequence"),
-	"id":          filters.UUIDField("id"),
+	"id":          filters.UUIDField(`"reliable_msgs"."id"`),
 	"created":     filters.TimestampField("created"),
 	"node":        filters.StringField("node"),
 	"messageType": filters.StringField("msg_type"),
@@ -94,23 +96,28 @@ var reliableMessageAckFilters = filters.FieldMap{
 	"error":     filters.StringField("error"),
 }
 
-func NewTransportManager(bgCtx context.Context, conf *pldconf.TransportManagerConfig) components.TransportManager {
+var peerInfoFilters = filters.FieldMap{
+	"name": filters.StringField("name"),
+}
+
+func NewTransportManager(bgCtx context.Context, conf *pldconf.TransportManagerInlineConfig) components.TransportManager {
 	tm := &transportManager{
-		conf:                    conf,
-		localNodeName:           conf.NodeName,
-		transportsByID:          make(map[uuid.UUID]*transport),
-		transportsByName:        make(map[string]*transport),
-		peers:                   make(map[string]*peer),
-		senderBufferLen:         confutil.IntMin(conf.SendQueueLen, 0, *pldconf.TransportManagerDefaults.SendQueueLen),
-		reliableMessageResend:   confutil.DurationMin(conf.ReliableMessageResend, 100*time.Millisecond, *pldconf.TransportManagerDefaults.ReliableMessageResend),
-		sendShortRetry:          retry.NewRetryLimited(&conf.SendRetry, &pldconf.TransportManagerDefaults.SendRetry),
-		reliableScanRetry:       retry.NewRetryIndefinite(&conf.ReliableScanRetry, &pldconf.TransportManagerDefaults.ReliableScanRetry),
-		peerInactivityTimeout:   confutil.DurationMin(conf.PeerInactivityTimeout, 0, *pldconf.TransportManagerDefaults.PeerInactivityTimeout),
-		peerReaperInterval:      confutil.DurationMin(conf.PeerReaperInterval, 100*time.Millisecond, *pldconf.TransportManagerDefaults.PeerReaperInterval),
-		quiesceTimeout:          1 * time.Second, // not currently tunable (considered very small edge case)
-		reliableMessagePageSize: 100,             // not currently tunable
+		conf:                      conf,
+		localNodeName:             conf.NodeName,
+		transportsByID:            make(map[uuid.UUID]*transport),
+		transportsByName:          make(map[string]*transport),
+		peers:                     make(map[string]*peer),
+		senderBufferLen:           confutil.IntMin(conf.SendQueueLen, 0, *pldconf.TransportManagerDefaults.SendQueueLen),
+		reliableMessageResend:     confutil.DurationMin(conf.ReliableMessageResend, 100*time.Millisecond, *pldconf.TransportManagerDefaults.ReliableMessageResend),
+		sendShortRetry:            retry.NewRetryLimited(&conf.SendRetry, &pldconf.TransportManagerDefaults.SendRetry),
+		reliableScanRetry:         retry.NewRetryIndefinite(&conf.ReliableScanRetry, &pldconf.TransportManagerDefaults.ReliableScanRetry),
+		peerInactivityTimeout:     confutil.DurationMin(conf.PeerInactivityTimeout, 0, *pldconf.TransportManagerDefaults.PeerInactivityTimeout),
+		peerReaperInterval:        confutil.DurationMin(conf.PeerReaperInterval, 100*time.Millisecond, *pldconf.TransportManagerDefaults.PeerReaperInterval),
+		sendFailureResetThreshold: confutil.IntMin(conf.SendFailureResetThreshold, 1, *pldconf.TransportManagerDefaults.SendFailureResetThreshold),
+		quiesceTimeout:            1 * time.Second, // not currently tunable (considered very small edge case)
+		reliableMessagePageSize:   100,             // not currently tunable
 	}
-	tm.bgCtx, tm.cancelCtx = context.WithCancel(bgCtx)
+	tm.bgCtx, tm.cancelCtx = context.WithCancel(log.WithComponent(bgCtx, "transportmanager"))
 	return tm
 }
 
@@ -133,12 +140,13 @@ func (tm *transportManager) PostInit(c components.AllComponents) error {
 	tm.domainManager = c.DomainManager()
 	tm.keyManager = c.KeyManager()
 	tm.txManager = c.TxManager()
-	tm.privateTxManager = c.PrivateTxManager()
+	tm.sequencerManager = c.SequencerManager()
 	tm.identityResolver = c.IdentityResolver()
 	tm.groupManager = c.GroupManager()
 	tm.persistence = c.Persistence()
 	tm.reliableMsgWriter = flushwriter.NewWriter(tm.bgCtx, tm.handleReliableMsgBatch, tm.persistence,
 		&tm.conf.ReliableMessageWriter, &pldconf.TransportManagerDefaults.ReliableMessageWriter)
+	tm.publicTxManager = c.PublicTxManager()
 	return nil
 }
 
@@ -150,6 +158,10 @@ func (tm *transportManager) Start() error {
 }
 
 func (tm *transportManager) Stop() {
+	// Cancel bgCtx first so any goroutines blocked on p.ctx (derived from bgCtx),
+	// such as startSender holding peersLock while waiting on GetNodeTransports or
+	// ActivatePeer, are unblocked before we attempt to acquire peersLock below.
+	tm.cancelCtx()
 
 	peers := tm.listActivePeers()
 	for _, p := range peers {
@@ -166,7 +178,6 @@ func (tm *transportManager) Stop() {
 		tm.cleanupTransport(t)
 	}
 
-	tm.cancelCtx()
 	if tm.peerReaperDone != nil {
 		<-tm.peerReaperDone
 	}
@@ -254,7 +265,8 @@ func (tm *transportManager) LocalNodeName() string {
 }
 
 // See docs in components package
-func (tm *transportManager) Send(ctx context.Context, send *components.FireAndForgetMessageSend) error {
+func (tm *transportManager) Send(ctx context.Context, send *components.FireAndForgetMessageSend, options ...*components.TransportSendOptions) error {
+	ctx = log.WithComponent(ctx, "transportmanager")
 
 	// Check the message is valid
 	if len(send.Payload) == 0 {
@@ -277,10 +289,18 @@ func (tm *transportManager) Send(ctx context.Context, send *components.FireAndFo
 		msg.CorrelationId = &cidStr
 	}
 
-	return tm.queueFireAndForget(ctx, send.Node, msg)
+	var errorCallback func(ctx context.Context, err error)
+	for _, option := range options {
+		if option.ErrorHandler != nil {
+			errorCallback = option.ErrorHandler
+		}
+	}
+	return tm.queueFireAndForget(ctx, send.Node, msg, errorCallback)
 }
 
-func (tm *transportManager) queueFireAndForget(ctx context.Context, nodeName string, msg *prototk.PaladinMsg) error {
+func (tm *transportManager) queueFireAndForget(ctx context.Context, nodeName string, msg *prototk.PaladinMsg, errorCallback func(ctx context.Context, err error)) error {
+	log.L(ctx).Debugf("Queueing fire and forget message %s/%+v to node %s ", msg.MessageType, msg.MessageId, nodeName)
+
 	// Use or establish a p connection for the send
 	p, err := tm.getPeer(ctx, nodeName, true)
 	if err == nil {
@@ -295,24 +315,29 @@ func (tm *transportManager) queueFireAndForget(ctx context.Context, nodeName str
 	// However, the send is at-most-once, and the higher level message protocols that
 	// use this "send" must be fault tolerant to message loss.
 	select {
-	case p.sendQueue <- msg:
+	case p.sendQueue <- &msgWithErrChan{PaladinMsg: msg, errorHandler: errorCallback}:
 		log.L(ctx).Debugf("queued %s message %s (cid=%v) to %s", msg.MessageType, msg.MessageId, pldtypes.StrOrEmpty(msg.CorrelationId), p.Name)
 		return nil
 	case <-ctx.Done():
 		return i18n.NewError(ctx, msgs.MsgContextCanceled)
+	case <-p.senderDone:
+		log.L(ctx).Warnf("peer %s sender stopped before message %s/%s could be queued (discarding)", p.Name, msg.MessageType, msg.MessageId)
+		return nil
 	}
-
 }
 
 // See docs in components package
 func (tm *transportManager) SendReliable(ctx context.Context, dbTX persistence.DBTX, msgs ...*pldapi.ReliableMessage) (err error) {
-
+	ctx = log.WithComponent(ctx, "transportmanager")
 	peers := make(map[string]*peer)
 	for _, msg := range msgs {
 		var p *peer
 
 		msg.ID = uuid.New()
 		msg.Created = pldtypes.TimestampNow()
+
+		log.L(ctx).Debugf("Sending reliable message %s/%+v to node %s", msg.MessageType, msg.ID, msg.Node)
+
 		_, err = msg.MessageType.Validate()
 
 		if err == nil {
@@ -327,8 +352,7 @@ func (tm *transportManager) SendReliable(ctx context.Context, dbTX persistence.D
 	}
 
 	if err == nil {
-		err = dbTX.DB().
-			WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Create(msgs).
 			Error
 	}
@@ -337,9 +361,20 @@ func (tm *transportManager) SendReliable(ctx context.Context, dbTX persistence.D
 		return err
 	}
 
+	// After Create, each message has its DB-assigned Sequence populated. Compute the minimum
+	// sequence per peer so the post-commit notification can correctly seed the scan floor
+	minSeqPerPeer := make(map[string]uint64, len(peers))
+	for _, msg := range msgs {
+		if prev, ok := minSeqPerPeer[msg.Node]; !ok || msg.Sequence < prev {
+			minSeqPerPeer[msg.Node] = msg.Sequence
+		}
+	}
+
 	dbTX.AddPostCommit(func(ctx context.Context) {
-		for _, p := range peers {
-			p.notifyPersistedMsgAvailable()
+		for nodeName, minSeq := range minSeqPerPeer {
+			if p := peers[nodeName]; p != nil {
+				p.notifyPersistedMsgAvailableFromSeq(minSeq)
+			}
 		}
 	})
 	return nil
@@ -351,8 +386,7 @@ func (tm *transportManager) writeAcks(ctx context.Context, dbTX persistence.DBTX
 		log.L(ctx).Infof("ack received for message %s", ack.MessageID)
 		ack.Time = pldtypes.TimestampNow()
 	}
-	return dbTX.DB().
-		WithContext(ctx).
+	return dbTX.DB(ctx).
 		Clauses(clause.OnConflict{DoNothing: true}).
 		Create(acks).
 		Error
@@ -361,8 +395,7 @@ func (tm *transportManager) writeAcks(ctx context.Context, dbTX persistence.DBTX
 //nolint:unused // May be used in future
 func (tm *transportManager) getReliableMessageByID(ctx context.Context, dbTX persistence.DBTX, id uuid.UUID) (*pldapi.ReliableMessage, error) {
 	var rms []*pldapi.ReliableMessage
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Order("sequence ASC").
 		Joins("Ack").
 		Where(`"reliable_msgs"."id" = ?`, id).
@@ -376,6 +409,7 @@ func (tm *transportManager) getReliableMessageByID(ctx context.Context, dbTX per
 }
 
 func (tm *transportManager) QueryReliableMessages(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.ReliableMessage, error) {
+	ctx = log.WithComponent(ctx, "transportmanager")
 	qw := &filters.QueryWrapper[pldapi.ReliableMessage, pldapi.ReliableMessage]{
 		P:           tm.persistence,
 		DefaultSort: "-sequence",
@@ -392,6 +426,7 @@ func (tm *transportManager) QueryReliableMessages(ctx context.Context, dbTX pers
 }
 
 func (tm *transportManager) QueryReliableMessageAcks(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.ReliableMessageAck, error) {
+	ctx = log.WithComponent(ctx, "transportmanager")
 	qw := &filters.QueryWrapper[pldapi.ReliableMessageAck, pldapi.ReliableMessageAck]{
 		P:           tm.persistence,
 		DefaultSort: "-time",

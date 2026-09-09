@@ -20,10 +20,10 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 )
 
 // RPCHandler should not be implemented directly - use RPCMethod0 ... RPCMethod5 to implement your function
@@ -45,7 +45,7 @@ type RPCAsyncInstance interface {
 type RPCAsyncHandler interface {
 	StartMethod() string
 	LifecycleMethods() []string
-	HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl RPCAsyncControl) (RPCAsyncInstance, *rpcclient.RPCResponse)
+	HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl RPCAsyncControl) (sub RPCAsyncInstance, res *rpcclient.RPCResponse, afterSend func())
 	HandleLifecycle(ctx context.Context, req *rpcclient.RPCRequest) *rpcclient.RPCResponse
 }
 
@@ -73,12 +73,19 @@ func RPCMethod0[R any](impl func(ctx context.Context) (R, error)) RPCHandler {
 }
 
 func RPCMethod1[R any, P0 any](impl func(ctx context.Context, param0 P0) (R, error)) RPCHandler {
+	return RPCMethod1WithRPCCode(func(ctx context.Context, param0 P0) (R, rpcclient.RPCCode, error) {
+		result, err := impl(ctx, param0)
+		return result, 0, err
+	})
+}
+
+func RPCMethod1WithRPCCode[R any, P0 any](impl func(ctx context.Context, param0 P0) (R, rpcclient.RPCCode, error)) RPCHandler {
 	return HandlerFunc(func(ctx context.Context, req *rpcclient.RPCRequest) *rpcclient.RPCResponse {
 		var result R
 		param0 := new(P0)
 		code, err := parseParams(ctx, req, param0)
 		if err == nil {
-			result, err = impl(ctx, *param0)
+			result, code, err = impl(ctx, *param0)
 		}
 		return mapResponse(ctx, req, result, code, err)
 	})

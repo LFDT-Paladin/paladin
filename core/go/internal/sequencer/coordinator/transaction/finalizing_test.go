@@ -1,0 +1,90 @@
+/*
+ * Copyright © 2025 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package transaction
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(3).
+		Build()
+
+	// Should return false when heartbeat intervals is less than grace period
+	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
+}
+
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenEqual(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(5).
+		Build()
+
+	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
+}
+
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(7).
+		Build()
+
+	// Should return true when heartbeat intervals is greater than grace period
+	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
+}
+
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(0).
+		HeartbeatIntervalsSinceStateChange(1).
+		Build()
+
+	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
+}
+
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(0).
+		Build()
+
+	// Should return false when heartbeat intervals is 0 and grace period is positive
+	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
+}
+
+func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedules(t *testing.T) {
+	ctx := t.Context()
+	cancelCalled := false
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		CancelRequestTimeoutSchedule(func() { cancelCalled = true }).
+		Build()
+
+	// Call action_FinalizeAsUnknownByOriginator
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
+	require.NoError(t, err)
+
+	// Verify the cancel function was called
+	assert.True(t, cancelCalled, "assemble request timeout cancel should have been called")
+}

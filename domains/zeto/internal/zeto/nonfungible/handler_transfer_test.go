@@ -7,15 +7,15 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/constants"
-	corepb "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/proto"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	pb "github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
+	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -27,6 +27,14 @@ type testDomainCallbacksT struct {
 	testDomainCallbacks // Embed the default test implementation
 	retStates           []*pb.StoredState
 	retErr              error
+}
+
+func (dc *testDomainCallbacksT) ReverseKeyLookup(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error) {
+	panic("unimplemented")
+}
+
+func (dc *testDomainCallbacksT) ValidateStates(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error) {
+	panic("unimplemented")
 }
 
 func (dc *testDomainCallbacksT) FindAvailableStates(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {

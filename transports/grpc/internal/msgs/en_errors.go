@@ -19,7 +19,7 @@ package msgs
 import (
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"golang.org/x/text/language"
 )
 
@@ -48,4 +48,5 @@ var (
 	MsgInvalidTransportDetails              = pde("PD030014", "Invalid transport details for node '%s'")
 	MsgConnectionFailed                     = pde("PD030015", "GRPC connection failed for endpoint '%s'")
 	MsgNodeNotActive                        = pde("PD030016", "Send for node that is not active '%s'")
+	MsgTransportNotConfigured               = pde("PD030017", "transport not configured: activate peer only after ConfigureTransport has succeeded")
 )

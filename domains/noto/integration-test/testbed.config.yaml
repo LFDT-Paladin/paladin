@@ -22,6 +22,9 @@ blockchain:
   ws:
     url: ws://localhost:8546
     initialConnectAttempts: 25
+# Disable DB polling to resume transactions
+sequencerManager:
+  transactionResumePollInterval: -1s
 log:
   level: debug
   output: file

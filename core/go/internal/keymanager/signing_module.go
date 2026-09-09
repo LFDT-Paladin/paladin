@@ -20,13 +20,13 @@ import (
 	"encoding/json"
 	"sync/atomic"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/retry"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signer"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signer"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 	"github.com/google/uuid"
 )
 
@@ -73,6 +73,7 @@ func (sm *signingModule) init() {
 		_, err := sm.api.ConfigureSigningModule(sm.ctx, &prototk.ConfigureSigningModuleRequest{
 			Name:       sm.name,
 			ConfigJson: string(confJSON),
+			LogLevel:   log.GetLevel(),
 		})
 		return true, err
 	})

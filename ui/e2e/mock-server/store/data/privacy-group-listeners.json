@@ -1,0 +1,128 @@
+[
+  {
+    "name": "listener01",
+    "created": "2026-01-01T12:00:00.999Z",
+    "started": true,
+    "options": {
+      "excludeLocal": false
+    },
+    "filters": {
+      "domain": "pente",
+      "group": "0xe000000000000000000000000000000000000000000000000000000000000001",
+      "topic": "orders"
+    }
+  },
+  {
+    "name": "listener02",
+    "created": "2026-01-01T12:00:00.998Z",
+    "started": true,
+    "options": {
+      "excludeLocal": true
+    },
+    "filters": {
+      "domain": "pente",
+      "group": "0xe000000000000000000000000000000000000000000000000000000000000002",
+      "topic": "orders"
+    }
+  },
+  {
+    "name": "listener03",
+    "created": "2026-01-01T12:00:00.997Z",
+    "started": true,
+    "options": {
+      "excludeLocal": false
+    },
+    "filters": {
+      "domain": "pente",
+      "group": "0xe000000000000000000000000000000000000000000000000000000000000003",
+      "topic": "orders"
+    }
+  },
+  {
+    "name": "listener04",
+    "created": "2026-01-01T12:00:00.996Z",
+    "started": true,
+    "options": {
+      "excludeLocal": true
+    },
+    "filters": {
+      "domain": "pente",
+      "group": "0xe000000000000000000000000000000000000000000000000000000000000004",
+      "topic": "orders"
+    }
+  },
+  {
+    "name": "listener05",
+    "created": "2026-01-01T12:00:00.995Z",
+    "started": true,
+    "options": {
+      "excludeLocal": false
+    },
+    "filters": {
+      "domain": "pente",
+      "group": "0xe000000000000000000000000000000000000000000000000000000000000005",
+      "topic": "orders"
+    }
+  },
+  {
+    "name": "listener06",
+    "created": "2026-01-01T12:00:00.994Z",
+    "started": true,
+    "options": {
+      "excludeLocal": true
+    },
+    "filters": {
+      "domain": "pente",
+      "group": "0xe000000000000000000000000000000000000000000000000000000000000006",
+      "topic": "orders"
+    }
+  },
+  {
+    "name": "listener07",
+    "created": "2026-01-01T12:00:00.993Z",
+    "started": true,
+    "options": {
+      "excludeLocal": false
+    }
+  },
+  {
+    "name": "listener08",
+    "created": "2026-01-01T12:00:00.992Z",
+    "started": true,
+    "options": {
+      "excludeLocal": true
+    }
+  },
+  {
+    "name": "listener09",
+    "created": "2026-01-01T12:00:00.991Z",
+    "started": false,
+    "options": {
+      "excludeLocal": false
+    }
+  },
+  {
+    "name": "listener10",
+    "created": "2026-01-01T12:00:00.990Z",
+    "started": false,
+    "options": {
+      "excludeLocal": true
+    }
+  },
+  {
+    "name": "listener11",
+    "created": "2026-01-01T12:00:00.989Z",
+    "started": false,
+    "options": {
+      "excludeLocal": false
+    }
+  },
+  {
+    "name": "listener12",
+    "created": "2026-01-01T12:00:00.988Z",
+    "started": false,
+    "options": {
+      "excludeLocal": true
+    }
+  }
+]

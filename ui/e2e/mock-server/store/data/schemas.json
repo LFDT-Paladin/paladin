@@ -1,0 +1,141 @@
+[
+  {
+    "id": "0x8000000000000000000000000000000000000000000000000000000000000001",
+    "created": "2026-01-01T12:00:00.001Z",
+    "domain": "noto",
+    "type": "abi",
+    "signature": "type=NotoCoin(bytes32 salt,address owner,uint256 amount),labels=[owner,amount]",
+    "definition": {
+      "name": "NotoCoin",
+      "type": "tuple",
+      "internalType": "struct NotoCoin",
+      "components": [
+        {
+          "name": "salt",
+          "type": "bytes32",
+          "indexed": false
+        },
+        {
+          "name": "owner",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": true
+        }
+      ]
+    },
+    "labels": [
+      "owner",
+      "amount"
+    ]
+  },
+  {
+    "id": "0x8000000000000000000000000000000000000000000000000000000000000002",
+    "created": "2026-01-01T12:00:00.002Z",
+    "domain": "noto",
+    "type": "abi",
+    "signature": "type=NotoLockedCoin(bytes32 salt,address owner,uint256 amount,bool locked),labels=[owner,amount,locked]",
+    "definition": {
+      "name": "NotoLockedCoin",
+      "type": "tuple",
+      "internalType": "struct NotoLockedCoin",
+      "components": [
+        {
+          "name": "salt",
+          "type": "bytes32",
+          "indexed": false
+        },
+        {
+          "name": "owner",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "locked",
+          "type": "bool",
+          "indexed": true
+        }
+      ]
+    },
+    "labels": [
+      "owner",
+      "amount",
+      "locked"
+    ]
+  },
+  {
+    "id": "0x8000000000000000000000000000000000000000000000000000000000000003",
+    "created": "2026-01-01T12:00:00.003Z",
+    "domain": "zeto",
+    "type": "abi",
+    "signature": "type=ZetoCoin(bytes32 salt,bytes32 owner,uint256 amount,bool locked),labels=[owner,amount,locked]",
+    "definition": {
+      "name": "ZetoCoin",
+      "type": "tuple",
+      "internalType": "struct ZetoCoin",
+      "components": [
+        {
+          "name": "salt",
+          "type": "bytes32",
+          "indexed": false
+        },
+        {
+          "name": "owner",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "locked",
+          "type": "bool",
+          "indexed": true
+        }
+      ]
+    },
+    "labels": [
+      "owner",
+      "amount",
+      "locked"
+    ]
+  },
+  {
+    "id": "0x8000000000000000000000000000000000000000000000000000000000000004",
+    "created": "2026-01-01T12:00:00.004Z",
+    "domain": "pente",
+    "type": "abi",
+    "signature": "type=AccountState(address address,uint256 balance),labels=[address,balance]",
+    "definition": {
+      "name": "AccountState",
+      "type": "tuple",
+      "internalType": "struct AccountState",
+      "components": [
+        {
+          "name": "address",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "balance",
+          "type": "uint256",
+          "indexed": true
+        }
+      ]
+    },
+    "labels": [
+      "address",
+      "balance"
+    ]
+  }
+]

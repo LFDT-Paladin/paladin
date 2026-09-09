@@ -11,7 +11,7 @@ transfer.
 
 ## Private ABI
 
-The private ABI of Noto is implemented in [Go](https://github.com/LF-Decentralized-Trust-labs/paladin/tree/main/domains/noto),
+The private ABI of Noto is implemented in [Go](https://github.com/LFDT-Paladin/paladin/tree/main/domains/noto),
 and can be accessed by calling `ptx_sendTransaction` with `"type": "private"`.
 
 ### constructor
@@ -122,35 +122,6 @@ Inputs:
 * **to** - lookup string for the identity that will receive transferred value
 * **amount** - amount of value to transfer
 * **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
-
-### approveTransfer
-
-Approve a transfer to be executed by another party.
-
-When calling `ptx_prepareTransaction()` to prepare a private `transfer`, the `metadata` of the prepared transaction
-will include information on how to build a proper `approveTransfer` call. This allows preparing a transfer and then
-delegating it to another party for execution.
-
-```json
-{
-    "name": "approveTransfer",
-    "type": "function",
-    "inputs": [
-        {"name": "inputs", "type": "tuple[]", "components": [
-            {"name": "id", "type": "bytes"},
-            {"name": "schema", "type": "bytes32"},
-            {"name": "data", "type": "bytes"}
-        ]},
-        {"name": "outputs", "type": "tuple[]", "components": [
-            {"name": "id", "type": "bytes"},
-            {"name": "schema", "type": "bytes32"},
-            {"name": "data", "type": "bytes"}
-        ]},
-        {"name": "data", "type": "bytes"},
-        {"name": "delegate", "type": "address"}
-    ]
-}
-```
 
 ### burn
 
@@ -263,6 +234,7 @@ When used in combination with `delegateLock`, this can allow any base ledger add
             {"name": "to", "type": "string"},
             {"name": "amount", "type": "uint256"}
         ]},
+        {"name": "unlockData", "type": "bytes"}
         {"name": "data", "type": "bytes"}
     ]
 }
@@ -273,6 +245,7 @@ Inputs:
 * **lockId** - the lock ID assigned when the value was locked (available from the domain receipt)
 * **from** - the lookup string for the owner of the locked value
 * **recipients** - array of recipients to receive some of the value (the sum of the amounts must be less than or equal to the total locked amount)
+* **unlockData** - user/application data to include with the unlock spend/cancel transaction when performed
 * **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### delegateLock
@@ -309,7 +282,7 @@ Inputs:
 
 ## Public ABI
 
-The public ABI of Noto is implemented in Solidity by [Noto.sol](https://github.com/LF-Decentralized-Trust-labs/paladin/blob/main/solidity/contracts/domains/noto/Noto.sol),
+The public ABI of Noto is implemented in Solidity by [Noto.sol](https://github.com/LFDT-Paladin/paladin/blob/main/solidity/contracts/domains/noto/Noto.sol),
 and can be accessed by calling `ptx_sendTransaction` with `"type": "public"`. However, it is not often required
 to invoke the public ABI directly.
 
@@ -353,63 +326,6 @@ May only be invoked by the notary address.
         {"name": "signature", "type": "bytes"},
         {"name": "data", "type": "bytes"}
     ]
-}
-```
-
-Inputs:
-
-* **inputs** - input states that will be spent
-* **outputs** - output states that will be created
-* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **data** - encoded Paladin and/or user data
-
-### approveTransfer
-
-Approve a specific `transfer` transaction to be executed by a specific `delegate` address.
-Generally should not be called directly.
-
-The `txhash` should be computed as the EIP-712 hash of the intended transfer, using type:
-`Transfer(bytes32[] inputs,bytes32[] outputs,bytes data)`.
-
-May only be invoked by the notary address.
-
-```json
-{
-    "name": "approveTransfer",
-    "type": "function",
-    "inputs": [
-        {"name": "delegate", "type": "address"},
-        {"name": "txhash", "type": "bytes32"},
-        {"name": "signature", "type": "bytes"},
-        {"name": "data", "type": "bytes"}
-      ]
-}
-```
-
-Inputs:
-
-* **delegate** - address of the delegate party that will be able to execute this transaction once approved
-* **txhash** - EIP-712 hash of the intended transfer, using type `Transfer(bytes32[] inputs,bytes32[] outputs,bytes data)`
-* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **data** - encoded Paladin and/or user data
-
-### transferWithApproval
-
-Execute a transfer that was previously approved.
-
-The values of `inputs`, `outputs`, and `data` will be used to (re-)compute a `txhash`, which must exactly
-match a `txhash` that was previously delegated to the sender via `approveTransfer`.
-
-```json
-{
-    "name": "transferWithApproval",
-    "type": "function",
-    "inputs": [
-        {"name": "inputs", "type": "bytes32[]"},
-        {"name": "outputs", "type": "bytes32[]"},
-        {"name": "signature", "type": "bytes"},
-        {"name": "data", "type": "bytes"}
-      ]
 }
 ```
 
@@ -571,7 +487,7 @@ Outputs:
 
 ## Notary logic
 
-The notary logic (implemented in the domain [Go library](../../../domains/noto)) is responsible for validating and
+The notary logic (implemented in the domain [Go library](https://github.com/LFDT-Paladin/paladin/tree/main/domains/noto)) is responsible for validating and
 submitting all transactions to the base shared ledger.
 
 The notary will validate the following:
@@ -609,7 +525,7 @@ In addition, the following restrictions will always be enforced, and cannot be d
 ### Notary mode: hooks
 
 When a Noto contract is constructed with notary mode `hooks`, the address of a private Pente contract implementing
-[INotoHooks](https://github.com/LF-Decentralized-Trust-labs/paladin/blob/main/solidity/contracts/domains/interfaces/INotoHooks.sol)
+[INotoHooks](https://github.com/LFDT-Paladin/paladin/blob/main/solidity/contracts/domains/interfaces/INotoHooks.sol)
 must be provided. This contract may be deployed into a privacy group only visible to the notary, or into a group
 that includes other parties for observability.
 
@@ -666,3 +582,95 @@ No information is leaked to Party C, that allows them to infer that Party A and 
     - a) Receives the private data for `#7` to allow it to store `S7` in its wallet
     - b) Receives the confirmation from the blockchain that `TX2` created `#7`
     - Now `Party C` has `S7` confirmed in its wallet and ready to spend
+
+## Locking and atomic settlement
+
+![Noto locking state machine](../images/noto_lock_state_machine_v1.svg)
+
+This model supports advanced DvP and PvP transactions, where locks are prepared, and then delegated for on-chain atomic settlement to a smart contract that coordinates multiple legs of a transaction.
+
+The delegated smart contract can either:
+
+1. Complete the predetermined transaction outcome (logically "commit")
+2. Revert ownership back to the owner (logically "rollback")
+
+The delegated smart contract can perform either of these actions directly on-chain without involvement of the notary. This is possible because the notary pre-verifies and records the transaction signature (hash of masked inputs and outputs) in the lock. Then when the lock is spent/cancelled the hash of the prepared transaction is compared on-chain to the actual activity being instructed.
+
+Transaction legs might include Noto token transactions from multiple smart contracts with different notaries, alongside transparent ERC-20 token legs, ZKP token legs (Zeto and other ZKP domains), and preparation of the transaction that occurs in EVM privacy groups (Pente).
+
+The atomic coordination smart contract can be set up to ensure that all of these legs commit with a pre-agreed outcome across all legs, or they all rollback.
+
+As such fully atomic settlement.
+
+<details>
+  <summary>Mermaid diagram source</summary>
+
+```mermaid
+---
+config:
+  theme: redux
+  layout: elk
+---
+flowchart TB
+    A(["Avaiable coins"]) -- owner:createLock(coins) --> B["LOCK
+lockId,contents,owner,spendHash,cancelHash,options"]
+    B -- owner:delegateLock(spender) --> C["DELEGATED_LOCK
+lockId,contents,owner,spender,spendHash,cancelHash,options"]
+    B -. owner:spendLock(inputs,outputs) .-> Y(["New Coins
+SPEND OUTCOME"])
+    B -. owner:cancelLock(inputs,outputs) .-> Z(["New Coins
+CANCEL OUTCOME"])
+    B -- owner:updateLock(spendHash,cancelHash,options) --> B
+    C -- delegate:delegateLock(spender) --> C
+    C -- delegate:delegateLock(owner) --> B
+    C -- delegate:spendLock(inputs,outputs) --> Y
+    C -- delegate:cancelLock(inputs,outputs) --> Z
+```
+</details>
+
+<details>
+  <summary>Noto V0 model</summary>
+
+Noto V0 had a very similar locking model, but with a more complex terminology that was simplified in V1, and a couple of functional limitations that were addressed in V1.
+
+The functional issues addressed V0 as part of the upgrade were:
+- No UTXO state transactions for the lock object itself, only the locked input coins
+    - This prevented the use of the model for locking a `mint` operation
+- Only the success path was prepared - the cancel path was a re-delegate to nil
+    - Meaning additional steps after a transaction cancel/rollback to reclaim tokens
+
+![Noto locking state machine (V0)](../images/noto_lock_state_machine_v0.svg)
+
+> Mermaid syntax rendered above using ELK layout.
+
+```mermaid
+---
+config:
+  theme: redux
+  layout: elk
+---
+flowchart TB
+    A(["Original coins"]) -- owner:lock(coins) --> B["Locked[coins,lockId,owner]
+(unprepared)
+(undelegated)"]
+    B -- owner:prepareUnlock(inputs,outputs) --> C["Locked[coins,lockId,owner,unlockHash]
+PREPARED
+(undlegated)"]
+    C -- owner:prepareUnlock(inputs,outputs) --> C
+    C -- owner:unlock() --> X(["New Coins (any)"])
+    C -- owner:delegateLock(address) --> D["Locked(coins,lockId,unlockHash,delegate)
+PREPARED
+DELEGATED"]
+    B -- owner:delegateLock(address) --> E["Locked(coins,lockId,delegate)
+(unprepared)
+DELEGATED"]
+    D -- delegate:delegateLock(address) --> D
+    D -- delegate:delegateLock(nil) --> C
+    D -- delegate:unlock(matching hash) --> Y(["New Coins - PREPARED SET"])
+    E -- delegate:delegate(address) --> E
+    E -- delegate:unlock() --> X
+    E -- delegate:delegate(nil) --> B
+    B -- owner:unlock() --> X
+```
+
+</details>

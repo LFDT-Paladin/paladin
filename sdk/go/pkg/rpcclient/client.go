@@ -24,14 +24,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldresty"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldresty"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/go-resty/resty/v2"
-	"github.com/sirupsen/logrus"
 )
 
 type RPCCode int64
@@ -42,13 +41,34 @@ const (
 	RPCCodeInternalError  RPCCode = -32603
 )
 
+// ClosableClient is a Client that can be closed to release underlying connections (HTTP or WebSocket).
+type ClosableClient interface {
+	Client
+	Close()
+}
+
+// closeableHTTPClient wraps an HTTP Client with a close function to release the connection pool.
+type closeableHTTPClient struct {
+	Client
+	closeFn func()
+}
+
+func (c *closeableHTTPClient) Close() {
+	if c.closeFn != nil {
+		c.closeFn()
+	}
+}
+
 // NewRPCClient Constructor
-func NewHTTPClient(ctx context.Context, conf *pldconf.HTTPClientConfig) (Client, error) {
+func NewHTTPClient(ctx context.Context, conf *pldconf.HTTPClientConfig) (ClosableClient, error) {
 	rc, err := pldresty.New(ctx, conf)
 	if err != nil {
 		return nil, err
 	}
-	return WrapRestyClient(rc), nil
+	return &closeableHTTPClient{
+		Client:  WrapRestyClient(rc.Client),
+		closeFn: rc.Close,
+	}, nil
 }
 
 func WrapRestyClient(rc *resty.Client) Client {
@@ -201,7 +221,7 @@ func (rc *rpcClient) SyncRequest(ctx context.Context, rpcReq *RPCRequest) (rpcRe
 	rpcRes = new(RPCResponse)
 
 	log.L(ctx).Debugf("RPC[%s] --> %s", rpcTraceID, rpcReq.Method)
-	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+	if log.IsTraceEnabled() {
 		jsonInput, _ := json.Marshal(rpcReq)
 		log.L(ctx).Tracef("RPC[%s] INPUT: %s", rpcTraceID, jsonInput)
 	}
@@ -221,7 +241,7 @@ func (rc *rpcClient) SyncRequest(ctx context.Context, rpcReq *RPCRequest) (rpcRe
 		rpcRes = RPCErrorResponse(err, rpcReq.ID, RPCCodeInternalError)
 		return rpcRes, err
 	}
-	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+	if log.IsTraceEnabled() {
 		jsonOutput, _ := json.Marshal(rpcRes)
 		log.L(ctx).Tracef("RPC[%s] OUTPUT: %s", rpcTraceID, jsonOutput)
 	}

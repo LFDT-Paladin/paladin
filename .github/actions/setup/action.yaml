@@ -4,8 +4,7 @@ description: 'Install pre-requisites for building paladin'
 runs:
   using: 'composite'
   steps:
- 
-  - name: Install protoc if not cached
+  - name: Install protoc
     shell: bash
     run: |
       curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-x86_64.zip
@@ -20,11 +19,20 @@ runs:
       distribution: 'temurin'
       java-version: 21
 
+  # Set up Node (UI client build + Playwright e2e)
+  - name: Setup Node
+    uses: actions/setup-node@v7
+    with:
+      node-version: '20'
+      cache: 'npm'
+      cache-dependency-path: |
+        ui/**/package-lock.json
+
   # Set up Go
   - name: Set up Go
     uses: actions/setup-go@v5
     with:
-      go-version: '1.24'
+      go-version: '1.25'
       check-latest: true
       cache-dependency-path: |
         **/*.sum

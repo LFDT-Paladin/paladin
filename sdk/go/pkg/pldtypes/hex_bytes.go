@@ -21,11 +21,10 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/hex"
-	"fmt"
 	"strings"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 )
 
 // HexBytes is byte slice that is formatted in JSON with an 0x prefix, and stored in the DB as hex
@@ -80,7 +79,10 @@ func (id HexBytes) HexString0xPrefix() string {
 	if id == nil {
 		return (&HexBytes{}).HexString0xPrefix()
 	}
-	return fmt.Sprintf("0x%s", hex.EncodeToString(id[:]))
+	buf := make([]byte, 2+hex.EncodedLen(len(id)))
+	buf[0], buf[1] = '0', 'x'
+	hex.Encode(buf[2:], id)
+	return string(buf)
 }
 
 // Get string (without 0x prefix) - nil is all zeros

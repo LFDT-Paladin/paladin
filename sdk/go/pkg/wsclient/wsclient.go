@@ -28,13 +28,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/retry"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/tlsconf"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/tlsconf"
 	"github.com/gorilla/websocket"
 )
 
@@ -60,6 +60,7 @@ type wsClient struct {
 	receive              chan []byte
 	send                 chan []byte
 	sendDone             chan []byte
+	sendDoneMu           sync.Mutex
 	closing              chan struct{}
 	beforeConnect        WSPreConnectHandler
 	afterConnect         WSPostConnectHandler
@@ -92,10 +93,7 @@ func New(ctx context.Context, config *pldconf.WSClientConfig, beforeConnect WSPr
 			TLSClientConfig:  tlsConfig,
 			HandshakeTimeout: confutil.DurationMin(config.ConnectionTimeout, 0, *pldconf.DefaultWSConfig.ConnectionTimeout),
 		},
-		retry: *retry.NewRetryIndefinite(&pldconf.RetryConfig{
-			InitialDelay: config.ConnectRetry.InitialDelay,
-			MaxDelay:     config.ConnectRetry.MaxDelay,
-		}),
+		retry:                *retry.NewRetryIndefinite(&config.ConnectRetry),
 		initialRetryAttempts: confutil.IntMin(config.InitialConnectAttempts, 0, *pldconf.DefaultWSConfig.InitialConnectAttempts),
 		headers:              make(http.Header),
 		send:                 make(chan []byte),
@@ -185,7 +183,16 @@ func (w *wsClient) SetHeader(header, value string) {
 }
 
 func (w *wsClient) Send(ctx context.Context, message []byte) error {
-	// Send
+	// Capture sendDone under the mutex so we get a consistent reference. Before
+	// the first connection is established sendDone is nil; a nil channel never
+	// fires in a select case, so Send() correctly blocks until ctx expires or
+	// the client closes. After the first connection sendDone is always a
+	// closed or open channel: closed means the send loop exited and we return
+	// immediately, open means the send loop is running and w.send will be read.
+	w.sendDoneMu.Lock()
+	sendDone := w.sendDone
+	w.sendDoneMu.Unlock()
+
 	select {
 	case w.send <- message:
 		return nil
@@ -193,6 +200,8 @@ func (w *wsClient) Send(ctx context.Context, message []byte) error {
 		return i18n.NewError(ctx, pldmsgs.MsgWSClientSendTimedOut)
 	case <-w.closing:
 		return i18n.NewError(ctx, pldmsgs.MsgWSClientClosing)
+	case <-sendDone:
+		return i18n.NewError(ctx, pldmsgs.MsgWSClientSendLoopExited)
 	}
 }
 
@@ -343,7 +352,9 @@ func (w *wsClient) receiveReconnectLoop() {
 	defer close(w.receive)
 	for !w.closed {
 		// Start the sender, letting it close without blocking sending a notification on the sendDone
+		w.sendDoneMu.Lock()
 		w.sendDone = make(chan []byte, 1)
+		w.sendDoneMu.Unlock()
 		receiverDone := make(chan struct{})
 		go w.sendLoop(receiverDone)
 
@@ -356,17 +367,19 @@ func (w *wsClient) receiveReconnectLoop() {
 		if err == nil {
 			// Synchronously invoke the reader, as it's important we react immediately to any error there.
 			w.readLoop()
-			close(receiverDone)
-			<-w.sendDone
-
-			// Ensure the connection is closed after the sender and receivers exit
-			err = w.wsconn.Close()
-			if err != nil {
-				l.Debugf("WS %s close failed: %s", w.url, err)
-			}
-			w.sendDone = nil
-			w.wsconn = nil
 		}
+		// Always drain the sender regardless of afterConnect result. Closing receiverDone
+		// is harmless if sendLoop already exited; <-w.sendDone returns immediately because
+		// sendLoop closes that channel via defer before returning.
+		close(receiverDone)
+		<-w.sendDone
+
+		// Ensure the connection is closed after the sender and receivers exit
+		err = w.wsconn.Close()
+		if err != nil {
+			l.Debugf("WS %s close failed: %s", w.url, err)
+		}
+		w.wsconn = nil
 
 		// Go into reconnect
 		if !w.closed {

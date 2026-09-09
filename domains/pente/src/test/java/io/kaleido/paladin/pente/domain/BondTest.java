@@ -15,20 +15,36 @@
 
 package io.kaleido.paladin.pente.domain;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.kaleido.paladin.pente.domain.PenteConfiguration.GroupTupleJSON;
-import io.kaleido.paladin.pente.domain.helpers.*;
-import io.kaleido.paladin.testbed.Testbed;
-import io.kaleido.paladin.toolkit.*;
-import org.junit.jupiter.api.Test;
-
 import java.util.HashMap;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import org.junit.jupiter.api.Test;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import io.kaleido.paladin.pente.domain.PenteConfiguration.GroupTupleJSON;
+import io.kaleido.paladin.pente.domain.helpers.BondSubscriptionHelper;
+import io.kaleido.paladin.pente.domain.helpers.BondTrackerHelper;
+import io.kaleido.paladin.pente.domain.helpers.NotoHelper;
+import io.kaleido.paladin.pente.domain.helpers.PenteHelper;
+import io.kaleido.paladin.pente.domain.helpers.TestbedHelper;
+import io.kaleido.paladin.testbed.Testbed;
+import io.kaleido.paladin.toolkit.Algorithms;
+import io.kaleido.paladin.toolkit.JsonABI;
+import io.kaleido.paladin.toolkit.JsonHex;
+import io.kaleido.paladin.toolkit.ResourceLoader;
+import io.kaleido.paladin.toolkit.Verifiers;
+
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.Function;
+
+import java.util.Arrays;
 
 public class BondTest {
 
@@ -39,6 +55,7 @@ public class BondTest {
 
     JsonHex.Address deployPenteFactory() throws Exception {
         try (Testbed deployBed = new Testbed(testbedSetup)) {
+            // Deploy PenteFactory implementation
             String factoryBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
                     "contracts/domains/pente/PenteFactory.sol/PenteFactory.json",
@@ -49,17 +66,63 @@ public class BondTest {
                     "contracts/domains/pente/PenteFactory.sol/PenteFactory.json",
                     "abi"
             );
-            String contractAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+            String factoryImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
                     "deployer",
                     factoryABI,
                     factoryBytecode,
                     new HashMap<String, String>());
-            return new JsonHex.Address(contractAddr);
+
+            // Encode initialize() calldata - PenteFactory.initialize() takes no parameters
+            Function initializeFunction = new Function(
+                    "initialize",
+                    Arrays.asList(),
+                    Arrays.asList()
+            );
+            String initCalldata = FunctionEncoder.encode(initializeFunction);
+
+            // Deploy ERC1967Proxy
+            String proxyBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "bytecode"
+            );
+            JsonABI proxyABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "abi"
+            );
+            String proxyAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    proxyABI,
+                    proxyBytecode,
+                    new HashMap<String, String>() {{
+                        put("implementation", factoryImplAddr);
+                        put("_data", initCalldata);
+                    }});
+            return new JsonHex.Address(proxyAddr);
         }
     }
 
     JsonHex.Address deployNotoFactory() throws Exception {
         try (Testbed deployBed = new Testbed(testbedSetup)) {
+            // Deploy Noto implementation
+            String notoImplBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "contracts/domains/noto/Noto.sol/Noto.json",
+                    "bytecode"
+            );
+            JsonABI notoImplABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "contracts/domains/noto/Noto.sol/Noto.json",
+                    "abi"
+            );
+            String notoImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    notoImplABI,
+                    notoImplBytecode,
+                    new HashMap<String, String>());
+
+            // Deploy NotoFactory implementation
             String factoryBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
                     "contracts/domains/noto/NotoFactory.sol/NotoFactory.json",
@@ -70,12 +133,40 @@ public class BondTest {
                     "contracts/domains/noto/NotoFactory.sol/NotoFactory.json",
                     "abi"
             );
-            String contractAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+            String factoryImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
                     "deployer",
                     factoryABI,
                     factoryBytecode,
                     new HashMap<String, String>());
-            return new JsonHex.Address(contractAddr);
+
+            // Encode initialize(notoImplAddr) calldata
+            Function initializeFunction = new Function(
+                    "initialize",
+                    Arrays.asList(new Address(notoImplAddr)),
+                    Arrays.asList()
+            );
+            String initCalldata = FunctionEncoder.encode(initializeFunction);
+
+            // Deploy ERC1967Proxy
+            String proxyBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "bytecode"
+            );
+            JsonABI proxyABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "abi"
+            );
+            String proxyAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    proxyABI,
+                    proxyBytecode,
+                    new HashMap<String, String>() {{
+                        put("implementation", factoryImplAddr);
+                        put("_data", initCalldata);
+                    }});
+            return new JsonHex.Address(proxyAddr);
         }
     }
 
@@ -103,7 +194,9 @@ public class BondTest {
                         "noto",
                         notoFactoryAddress,
                         new Testbed.ConfigPlugin("c-shared", "noto", ""),
-                        new HashMap<>()
+                        new HashMap<String, Object>() {{
+                            put("factoryVersion", 2);
+                        }}
                 )
         )) {
 
@@ -121,13 +214,10 @@ public class BondTest {
 
             List<HashMap<String, Object>> notoSchemas = testbed.getRpcClient().request("pstate_listSchemas", "noto");
             StateSchema coinSchema = null;
-            StateSchema lockedCoinSchema = null;
             for (var schemaJson : notoSchemas) {
                 var schema = mapper.convertValue(schemaJson, StateSchema.class);
                 if (schema.signature().startsWith("type=NotoCoin")) {
                     coinSchema = schema;
-                } else if (schema.signature().startsWith("type=NotoLockedCoin")) {
-                    lockedCoinSchema = schema;
                 }
             }
             assertNotNull(coinSchema);
@@ -174,6 +264,8 @@ public class BondTest {
             // Create Noto cash token
             var notoCash = NotoHelper.deploy("noto", cashIssuer, testbed,
                     new NotoHelper.ConstructorParams(
+                            "CASH",
+                            "CASH",
                             cashIssuer + "@node1",
                             "basic",
                             null));
@@ -203,6 +295,8 @@ public class BondTest {
             // Create Noto bond token
             var notoBond = NotoHelper.deploy("noto", bondCustodian, testbed,
                     new NotoHelper.ConstructorParams(
+                            "BOND",
+                            "BOND",
                             bondCustodian + "@node1",
                             "hooks",
                             new NotoHelper.OptionsParams(
@@ -286,10 +380,10 @@ public class BondTest {
             var atomAddress = JsonHex.addressFrom(deployEventData.get("addr").toString());
 
             // Alice approves payment transfer
-            notoCash.delegateLock(alice, cashLockReceipt.lockInfo().lockId(), atomAddress, cashUnlockReceipt.lockInfo().unlockParams());
+            notoCash.delegateLock(alice, cashLockReceipt.lockInfo().lockId(), atomAddress);
 
             // Custodian approves bond transfer
-            notoBond.delegateLock(bondCustodian, bondLockReceipt.lockInfo().lockId(), atomAddress, bondUnlockReceipt.lockInfo().unlockParams());
+            notoBond.delegateLock(bondCustodian, bondLockReceipt.lockInfo().lockId(), atomAddress);
 
             // Execute the Atom
             var txID = TestbedHelper.sendTransaction(testbed,

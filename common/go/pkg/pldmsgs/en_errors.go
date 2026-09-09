@@ -17,7 +17,7 @@
 package pldmsgs
 
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"golang.org/x/text/language"
 )
 
@@ -59,24 +59,27 @@ var (
 	MsgInflightRequestCancelled = pde("PD020100", "Request cancelled after %s")
 
 	// PldClient module PD0202XX
-	MsgPaladinClientInvalidInput      = pde("PD020200", "Unable to convert to ABI function input (%s)")
-	MsgPaladinClientMissingFrom       = pde("PD020201", "From (signing key identifier) missing")
-	MsgPaladinClientMissingTo         = pde("PD020202", "To address missing for function '%s'")
-	MsgPaladinClientMissingInput      = pde("PD020203", "Input missing for %s")
-	MsgPaladinClientMissingOutput     = pde("PD020204", "Output missing")
-	MsgPaladinClientBytecodeWithPriv  = pde("PD020205", "Bytecode cannot be specified with a private contract deployment")
-	MsgPaladinClientBytecodeMissing   = pde("PD020206", "Bytecode required to deploy a public smart contract")
-	MsgPaladinClientABIJson           = pde("PD020207", "JSON ABI parsing failed")
-	MsgPaladinClientFunctionNotFound  = pde("PD020208", "Function %q not found on ABI")
-	MsgPaladinClientToWithConstructor = pde("PD020209", "To address cannot be specified for constructor")
-	MsgPaladinClientNoConnection      = pde("PD020210", "No JSON/RPC connection is available to this client")
-	MsgPaladinClientMissingType       = pde("PD020211", "Type missing (public or private)")
-	MsgPaladinClientNoFailureMsg      = pde("PD020212", "No failure message available")
-	MsgPaladinClientNoABISupplied     = pde("PD020213", "No ABI supplied")
-	MsgPaladinClientNoDomain          = pde("PD020214", "No domain specified for private transaction")
-	MsgPaladinClientNoFunction        = pde("PD020215", "No function specified")
-	MsgPaladinClientPollTxTimedOut    = pde("PD020216", "Polling timed out after %d attempts in %s for transaction %s")
-	MsgPaladinClientWebSocketRequired = pde("PD020217", "WebSocket connection required for async notifications")
+	MsgPaladinClientInvalidInput        = pde("PD020200", "Unable to convert to ABI function input (%s)")
+	MsgPaladinClientMissingFrom         = pde("PD020201", "From (signing key identifier) missing")
+	MsgPaladinClientMissingTo           = pde("PD020202", "To address missing for function '%s'")
+	MsgPaladinClientMissingInput        = pde("PD020203", "Input missing for %s")
+	MsgPaladinClientMissingOutput       = pde("PD020204", "Output missing")
+	MsgPaladinClientBytecodeWithPriv    = pde("PD020205", "Bytecode cannot be specified with a private contract deployment")
+	MsgPaladinClientBytecodeMissing     = pde("PD020206", "Bytecode required to deploy a public smart contract")
+	MsgPaladinClientABIJson             = pde("PD020207", "JSON ABI parsing failed")
+	MsgPaladinClientFunctionNotFound    = pde("PD020208", "Function %q not found on ABI")
+	MsgPaladinClientToWithConstructor   = pde("PD020209", "To address cannot be specified for constructor")
+	MsgPaladinClientNoConnection        = pde("PD020210", "No JSON/RPC connection is available to this client")
+	MsgPaladinClientMissingType         = pde("PD020211", "Type missing (public or private)")
+	MsgPaladinClientNoFailureMsg        = pde("PD020212", "No failure message available")
+	MsgPaladinClientNoABISupplied       = pde("PD020213", "No ABI supplied")
+	MsgPaladinClientNoDomain            = pde("PD020214", "No domain specified for private transaction")
+	MsgPaladinClientNoFunction          = pde("PD020215", "No function specified")
+	MsgPaladinClientPollTxTimedOut      = pde("PD020216", "Polling timed out after %d attempts in %s for transaction %s")
+	MsgPaladinClientWebSocketRequired   = pde("PD020217", "WebSocket connection required for async notifications")
+	MsgPaladinClientPGroupMustBePrivate = pde("PD020218", "Privacy group transactions must be private")
+	MsgPaladinClientPGroupNoPrepare     = pde("PD020219", "Prepare is not supported for privacy group transactions")
+	MsgPaladinClientPGroupNoBytecode    = pde("PD020220", "Bytecode required to deploy a smart contract to a privacy group")
 
 	// Plugin PD0203XX
 	MsgPluginUnsupportedRequest   = pde("PD020300", "Unsupported request %T")
@@ -101,6 +104,7 @@ var (
 	MsgRPCClientResultParseFailed        = pde("PD020504", "Failed to parse result (expected=%T): %s")
 	MsgRPCClientInvalidParam             = pde("PD020505", "Invalid parameter at position %d for method %s: %s")
 	MsgRPCClientSubscribeResponseInvalid = pde("PD020506", "Subscription response invalid")
+	MsgRPCClientRequestTimeout           = pde("PD020507", "RPC request timed out waiting for response")
 
 	// HTTPServer PD0108XX
 	MsgHTTPServerStartFailed        = pde("PD020600", "Failed to start server on '%s'")
@@ -116,6 +120,7 @@ var (
 	MsgJSONRPCInvalidParam        = pde("PD020704", "method %s parameter %d invalid: %s")
 	MsgJSONRPCResultSerialization = pde("PD020705", "method %s result serialization failed: %s")
 	MsgJSONRPCAysncNonWSConn      = pde("PD020706", "method %s only available on WebSocket connections")
+	MsgJSONRPCUnauthorized        = pde("PD020707", "Unauthorized")
 
 	// Signing module PD0208XX
 	MsgSigningModuleBadPathError                = pde("PD020800", "Path '%s' does not exist, or it is not a directory")
@@ -161,4 +166,20 @@ var (
 	MsgWSClientClosing             = pde("PD021102", "Websocket closing")
 	MsgWSClientConnectFailed       = pde("PD021103", "Websocket connect failed")
 	MsgWSClientHeartbeatTimeout    = pde("PD021104", "Websocket heartbeat timed out after %.2fms", 500)
+	MsgWSClientSendLoopExited      = pde("PD021105", "Websocket send loop exited")
+
+	// SMT module PD0212XX
+	MsgErrorNewStateFromCommittedRoot = pde("PD021201", "Failed to create new state from committed merkle tree root node. %s")
+	MsgErrorNewStateFromCommittedNode = pde("PD021202", "Failed to create new state from committed merkle tree node. %s")
+	MsgErrorUnmarshalRootIdx          = pde("PD021203", "Failed to unmarshal root node index. %s")
+	MsgErrorUnmarshalSMTNode          = pde("PD021204", "Failed to unmarshal Merkle Tree Node from state json. %s")
+	MsgErrorNewNodeIndex              = pde("PD021205", "Failed to create new node index from hash. %s")
+	MsgErrorParseNodeRef              = pde("PD021206", "Failed to parse node reference. %s")
+	MsgErrorHashSMTNode               = pde("PD021207", "Failed to hash merkle tree node. %s")
+	MsgErrorParseRootNodeIdx          = pde("PD021208", "Failed to parse root node index. %s")
+	MsgErrorUpsertRootNode            = pde("PD021209", "Failed to upsert root node. %s")
+	MsgErrorNewLeafNode               = pde("PD021210", "Failed to create new leaf node. %s")
+	MsgErrorQueryLeafNode             = pde("PD021211", "Failed to query the smt DB for leaf node (ref=%s). %s")
+	MsgErrorAddLeafNode               = pde("PD021212", "Failed to add leaf node. %s")
+	MsgErrorGetNewSmtStates           = pde("PD021213", "Failed to get new states for Merkle tree %s: %s")
 )

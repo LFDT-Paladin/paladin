@@ -20,15 +20,16 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/blockindexermocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/blockindexer"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
@@ -42,6 +43,13 @@ var mockABI = abi.ABI{{
 
 var mockAddress = pldtypes.RandAddress()
 
+func mockEventStream(t *testing.T, definition *blockindexer.EventStreamDefinition) *blockindexermocks.EventStream {
+	h := blockindexermocks.NewEventStream(t)
+	h.On("Definition").Return(definition).Maybe()
+	h.On("ID").Return(definition.ID).Maybe()
+	return h
+}
+
 func TestLoadBlockchainEventListeners(t *testing.T) {
 	var blockIndexer *blockindexermocks.BlockIndexer
 	_, txm, done := newTestTransactionManager(t, true, func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
@@ -54,7 +62,7 @@ func TestLoadBlockchainEventListeners(t *testing.T) {
 
 	// no listeners to load
 	blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything, blockindexer.EventStreamTypePTXBlockchainEventListener.Enum(), mock.Anything).
-		Return([]*blockindexer.EventStream{}, nil).Once()
+		Return([]*blockindexer.EventStreamDefinition{}, nil).Once()
 	err := txm.LoadBlockchainEventListeners()
 	assert.NoError(t, err)
 
@@ -66,13 +74,11 @@ func TestLoadBlockchainEventListeners(t *testing.T) {
 
 	// error loading listener
 	txm.blockchainEventListeners["dupName"] = &blockchainEventListener{
-		definition: &blockindexer.EventStream{
-			ID: uuid.New(),
-		},
+		eventStream: mockEventStream(t, &blockindexer.EventStreamDefinition{ID: uuid.New()}),
 	}
 	blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything,
 		blockindexer.EventStreamTypePTXBlockchainEventListener.Enum(), mock.Anything).
-		Return([]*blockindexer.EventStream{{
+		Return([]*blockindexer.EventStreamDefinition{{
 			Name: "dupName",
 		}}, nil).Once()
 	err = txm.LoadBlockchainEventListeners()
@@ -80,17 +86,16 @@ func TestLoadBlockchainEventListeners(t *testing.T) {
 
 	// success- multiple pages
 	txm.blockchainEventListenersLoadPageSize = 2 // lower so testing pagination is more feasible
-	mockQuery1 := blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]*blockindexer.EventStream{{
+	mockQuery1 := blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]*blockindexer.EventStreamDefinition{{
 		Name: "bel1",
 	}, {
 		Name: "bel2",
 	}}, nil).Once()
-	mockQuery2 := blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]*blockindexer.EventStream{{
+	mockQuery2 := blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]*blockindexer.EventStreamDefinition{{
 		Name: "bel3",
 	}}, nil).Once()
-	blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(&blockindexer.EventStream{
-		ID: uuid.New(),
-	}, nil).Times(3)
+	mockESHandle := mockEventStream(t, &blockindexer.EventStreamDefinition{ID: uuid.New()})
+	blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(mockESHandle, nil).Times(3)
 
 	mockQuery1.Run(func(args mock.Arguments) {
 		eventStreamType := args.Get(2).(pldtypes.Enum[blockindexer.EventStreamType])
@@ -127,15 +132,11 @@ func TestStopBlockchainEventListeners(t *testing.T) {
 	defer done()
 
 	txm.blockchainEventListeners["bel1"] = &blockchainEventListener{
-		definition: &blockindexer.EventStream{
-			ID: id1,
-		},
+		eventStream: mockEventStream(t, &blockindexer.EventStreamDefinition{ID: id1}),
 	}
 
 	txm.blockchainEventListeners["bel2"] = &blockchainEventListener{
-		definition: &blockindexer.EventStream{
-			ID: id2,
-		},
+		eventStream: mockEventStream(t, &blockindexer.EventStreamDefinition{ID: id2}),
 	}
 
 	txm.stopBlockchainEventListeners()
@@ -151,9 +152,7 @@ func TestCreateBlockchainEventListener(t *testing.T) {
 
 	// duplicate name
 	txm.blockchainEventListeners["dupName"] = &blockchainEventListener{
-		definition: &blockindexer.EventStream{
-			ID: uuid.New(),
-		},
+		eventStream: mockEventStream(t, &blockindexer.EventStreamDefinition{ID: uuid.New()}),
 	}
 
 	err := txm.CreateBlockchainEventListener(ctx, &pldapi.BlockchainEventListener{
@@ -214,7 +213,8 @@ func TestCreateBlockchainEventListener(t *testing.T) {
 	assert.NotContains(t, txm.blockchainEventListeners, "bel1")
 
 	// success
-	mockAdd := blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(&blockindexer.EventStream{}, nil).Once()
+	mockESHandle2 := mockEventStream(t, &blockindexer.EventStreamDefinition{})
+	mockAdd := blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(mockESHandle2, nil).Once()
 	mockAdd.Run(func(args mock.Arguments) {
 		def := args.Get(2).(*blockindexer.InternalEventStream).Definition
 		assert.Equal(t, "bel1", def.Name)
@@ -256,7 +256,7 @@ func TestQueryBlockchainEventListeners(t *testing.T) {
 
 	// success
 	mockQuery := blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return([]*blockindexer.EventStream{{
+		Return([]*blockindexer.EventStreamDefinition{{
 			Name:    "bel1",
 			Started: confutil.P(true),
 			Config: blockindexer.EventStreamConfig{
@@ -299,10 +299,7 @@ func TestGetBlockchainEventListener(t *testing.T) {
 
 	// returns the listener
 	txm.blockchainEventListeners["bel1"] = &blockchainEventListener{
-		definition: &blockindexer.EventStream{
-			Name: "bel1",
-			ID:   uuid.New(),
-		},
+		eventStream: mockEventStream(t, &blockindexer.EventStreamDefinition{Name: "bel1", ID: uuid.New()}),
 	}
 	listener = txm.GetBlockchainEventListener(ctx, "bel1")
 	require.NotNil(t, listener)
@@ -321,10 +318,7 @@ func TestStartBlockchainEventListener(t *testing.T) {
 	assert.ErrorContains(t, err, "PD012248")
 
 	txm.blockchainEventListeners["bel1"] = &blockchainEventListener{
-		definition: &blockindexer.EventStream{
-			Name: "bel1",
-			ID:   id,
-		},
+		eventStream: mockEventStream(t, &blockindexer.EventStreamDefinition{Name: "bel1", ID: id}),
 	}
 
 	err = txm.StartBlockchainEventListener(ctx, "bel1")
@@ -341,10 +335,7 @@ func TestStopBlockchainEventListener(t *testing.T) {
 	assert.ErrorContains(t, err, "PD012248")
 
 	txm.blockchainEventListeners["bel1"] = &blockchainEventListener{
-		definition: &blockindexer.EventStream{
-			Name: "bel1",
-			ID:   uuid.New(),
-		},
+		eventStream: mockEventStream(t, &blockindexer.EventStreamDefinition{Name: "bel1", ID: uuid.New()}),
 	}
 
 	err = txm.StopBlockchainEventListener(ctx, "bel1")
@@ -363,10 +354,7 @@ func TestDeleteBlockchainEventListener(t *testing.T) {
 	assert.ErrorContains(t, err, "PD012248")
 
 	txm.blockchainEventListeners["bel1"] = &blockchainEventListener{
-		definition: &blockindexer.EventStream{
-			Name: "bel1",
-			ID:   id,
-		},
+		eventStream: mockEventStream(t, &blockindexer.EventStreamDefinition{Name: "bel1", ID: id}),
 	}
 	err = txm.DeleteBlockchainEventListener(ctx, "bel1")
 	assert.NoError(t, err)
@@ -389,10 +377,7 @@ func TestGetBlockchainEventListenerStatus(t *testing.T) {
 	assert.ErrorContains(t, err, "PD012248")
 
 	txm.blockchainEventListeners["bel1"] = &blockchainEventListener{
-		definition: &blockindexer.EventStream{
-			Name: "bel1",
-			ID:   id,
-		},
+		eventStream: mockEventStream(t, &blockindexer.EventStreamDefinition{Name: "bel1", ID: id}),
 	}
 
 	_, err = txm.GetBlockchainEventListenerStatus(ctx, "bel1")
@@ -425,17 +410,18 @@ func TestAddRemoveBlockchainEventReceiver(t *testing.T) {
 
 	// success
 	txm.blockchainEventListeners["bel1"] = &blockchainEventListener{
-		definition: &blockindexer.EventStream{
-			Name: "bel1",
-		},
+		tm:           txm,
+		eventStream:  mockEventStream(t, &blockindexer.EventStreamDefinition{Name: "bel1"}),
 		newReceivers: make(chan bool, 1),
 	}
-	_, err = txm.AddBlockchainEventReceiver(ctx, "bel1", &testBlockchainEventReceiver{})
-	assert.NoError(t, err)
-	assert.Len(t, txm.blockchainEventListeners["bel1"].receivers, 1)
-
 	receiver, err := txm.AddBlockchainEventReceiver(ctx, "bel1", &testBlockchainEventReceiver{})
 	assert.NoError(t, err)
+	receiver.SetActive()
+	assert.Len(t, txm.blockchainEventListeners["bel1"].receivers, 1)
+
+	receiver, err = txm.AddBlockchainEventReceiver(ctx, "bel1", &testBlockchainEventReceiver{})
+	assert.NoError(t, err)
+	receiver.SetActive()
 	assert.Len(t, txm.blockchainEventListeners["bel1"].receivers, 2)
 
 	receiver.Close()
@@ -443,18 +429,22 @@ func TestAddRemoveBlockchainEventReceiver(t *testing.T) {
 }
 
 func TestNextReceiver(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
 	readyToReceive := make(chan struct{}) // used to signal when goroutine
 
 	// waiting for a receiver to be added
 	nextReceiver := make(chan components.BlockchainEventReceiver, 1)
 	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		eventStream:  mockEventStream(t, &blockindexer.EventStreamDefinition{Name: "test-next-receiver"}),
 		newReceivers: make(chan bool, 1),
 	}
-	el.ctx, el.cancelCtx = context.WithCancel(context.Background())
 
 	go func() {
 		close(readyToReceive) // signal that we're about to call nextReceiver
-		r, err := el.nextReceiver()
+		r, err := el.nextReceiver(ctx)
 		require.NoError(t, err)
 		nextReceiver <- r
 	}()
@@ -463,7 +453,7 @@ func TestNextReceiver(t *testing.T) {
 
 	el.addReceiver(&testBlockchainEventReceiver{
 		index: 0,
-	})
+	}).SetActive()
 
 	r1 := <-nextReceiver
 	require.NotNil(t, r1)
@@ -472,13 +462,13 @@ func TestNextReceiver(t *testing.T) {
 	// add another receiver
 	el.addReceiver(&testBlockchainEventReceiver{
 		index: 1,
-	})
-	r2, err := el.nextReceiver()
+	}).SetActive()
+	r2, err := el.nextReceiver(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 1, r2.(*registeredBlockchainEventReceiver).BlockchainEventReceiver.(*testBlockchainEventReceiver).index)
 
 	// getting the next receiver should go back to the first receiver
-	r1, err = el.nextReceiver()
+	r1, err = el.nextReceiver(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 0, r1.(*registeredBlockchainEventReceiver).BlockchainEventReceiver.(*testBlockchainEventReceiver).index)
 
@@ -488,20 +478,57 @@ func TestNextReceiver(t *testing.T) {
 	// closing the context should make nextReceiver return an error
 	gotError := make(chan bool, 1)
 	go func() {
-		_, err := el.nextReceiver()
+		_, err := el.nextReceiver(ctx)
 		require.Error(t, err)
 		gotError <- true
 	}()
 
-	el.cancelCtx()
+	cancel()
 	<-gotError
 }
 
-func TestHandleEventBatch(t *testing.T) {
+func TestNextReceiverSkipsInactive(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		eventStream:  mockEventStream(t, &blockindexer.EventStreamDefinition{Name: "test-next-receiver-skips-inactive"}),
 		newReceivers: make(chan bool, 1),
 	}
-	el.ctx, el.cancelCtx = context.WithCancel(context.Background())
+
+	inactive := el.addReceiver(&testBlockchainEventReceiver{index: 0})
+	assert.NotNil(t, inactive)
+
+	nextReceiver := make(chan components.BlockchainEventReceiver, 1)
+	go func() {
+		receiver, nextErr := el.nextReceiver(ctx)
+		require.NoError(t, nextErr)
+		nextReceiver <- receiver
+	}()
+
+	active := el.addReceiver(&testBlockchainEventReceiver{index: 1})
+	active.SetActive()
+
+	select {
+	case receiver := <-nextReceiver:
+		assert.Same(t, active, receiver)
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for receiver activation")
+	}
+}
+
+func TestHandleEventBatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		newReceivers: make(chan bool, 1),
+		eventStream:  mockEventStream(t, &blockindexer.EventStreamDefinition{Name: "bel1"}),
+	}
 
 	testBatchID := uuid.New()
 	testEvents := []*pldapi.EventWithData{{
@@ -518,8 +545,9 @@ func TestHandleEventBatch(t *testing.T) {
 			assert.Equal(t, testEvents, receipts)
 		},
 	})
+	r.SetActive()
 
-	err := el.handleEventBatch(context.Background(), &blockindexer.EventDeliveryBatch{
+	err := el.handleEventBatch(ctx, &blockindexer.EventDeliveryBatch{
 		BatchID: testBatchID,
 		Events:  testEvents,
 	})
@@ -530,11 +558,36 @@ func TestHandleEventBatch(t *testing.T) {
 	// call again in a goroutine with no listeners and cancel
 	gotError := make(chan bool, 1)
 	go func() {
-		err := el.handleEventBatch(context.Background(), nil)
+		err := el.handleEventBatch(ctx, nil)
 		require.Error(t, err)
 		gotError <- true
 	}()
-	el.cancelCtx()
+	cancel()
 	<-gotError
 
+}
+
+func TestBlockchainEventListenerSetActiveAlreadyActive(t *testing.T) {
+	mockES := blockindexermocks.NewEventStream(t)
+	mockES.On("Definition").Return(&blockindexer.EventStreamDefinition{Name: "test-listener"})
+	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		eventStream:  mockES,
+		newReceivers: make(chan bool, 1),
+	}
+
+	r := &testBlockchainEventReceiver{index: 0}
+	registered := el.addReceiver(r)
+
+	// First SetActive should move from pending to active
+	registered.SetActive()
+	assert.Len(t, el.receivers, 1)
+	assert.Len(t, el.pendingReceivers, 0)
+
+	// Second SetActive with the same receiver should be a no-op (already active)
+	registered.SetActive()
+	assert.Len(t, el.receivers, 1)
+	assert.Len(t, el.pendingReceivers, 0)
 }

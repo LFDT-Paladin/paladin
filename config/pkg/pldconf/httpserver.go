@@ -17,7 +17,7 @@
 package pldconf
 
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 )
 
 type HTTPServerConfig struct {
@@ -32,7 +32,7 @@ type HTTPServerConfig struct {
 	ShutdownTimeout       *string    `json:"shutdownTimeout"`
 }
 
-var HTTPDefaults = &HTTPServerConfig{
+var HTTPDefaults = HTTPServerConfig{
 	Address:               confutil.P("127.0.0.1"),
 	DefaultRequestTimeout: confutil.P("2m"),
 	MaxRequestTimeout:     confutil.P("10m"),
@@ -56,12 +56,17 @@ type StaticServerConfig struct {
 }
 
 type DebugServerConfig struct {
-	Enabled *bool `json:"enabled"`
+	Enabled              *bool `json:"enabled"`
+	BlockProfileRate     *int  `json:"blockProfileRate"`     // BlockProfileRate sets runtime.SetBlockProfileRate; 0 disables block profiling, 1 records every event, N samples 1/N.
+	MutexProfileFraction *int  `json:"mutexProfileFraction"` // MutexProfileFraction sets runtime.SetMutexProfileFraction; 0 disables mutex profiling, 1 records every event, N samples 1/N.
 	HTTPServerConfig
 }
 
-var DebugServerDefaults = &DebugServerConfig{
-	Enabled: confutil.P(false),
+var DebugServerDefaults = DebugServerConfig{
+	Enabled:              confutil.P(false),
+	BlockProfileRate:     confutil.P(0),
+	MutexProfileFraction: confutil.P(0),
+	HTTPServerConfig:     HTTPDefaults,
 }
 
 type MetricsServerConfig struct {
@@ -69,6 +74,7 @@ type MetricsServerConfig struct {
 	HTTPServerConfig
 }
 
-var MetricsServerDefaults = &MetricsServerConfig{
-	Enabled: confutil.P(false),
+var MetricsServerDefaults = MetricsServerConfig{
+	Enabled:          confutil.P(false),
+	HTTPServerConfig: HTTPDefaults,
 }

@@ -74,10 +74,24 @@ describe("PentePrivacyGroup", function () {
     );
     const configBytes = concat([configTypeBytes, config]);
 
-    const PenteFactory = await hre.ethers.getContractFactory("PenteFactory");
-    const penteFactory = await (
-      await PenteFactory.connect(deployer).deploy()
+    // Deploy the factory implementation
+    const PenteFactoryImpl = await hre.ethers.getContractFactory("PenteFactory");
+    const penteFactoryImpl = await (
+      await PenteFactoryImpl.connect(deployer).deploy()
     ).waitForDeployment();
+
+    // Deploy the factory proxy with initialize calldata
+    const ERC1967Proxy = await hre.ethers.getContractFactory("ERC1967Proxy");
+    const initData = PenteFactoryImpl.interface.encodeFunctionData("initialize");
+    const proxy = await (
+      await ERC1967Proxy.connect(deployer).deploy(
+        await penteFactoryImpl.getAddress(),
+        initData
+      )
+    ).waitForDeployment();
+
+    // Get factory interface at proxy address
+    const penteFactory = PenteFactoryImpl.attach(await proxy.getAddress());
 
     // Invoke the factory function to create the actual PentePrivacyGroup
     const deployTxId = randBytes32();
@@ -91,12 +105,12 @@ describe("PentePrivacyGroup", function () {
     const deployEventLog = factoryTX!.logs.find(
       (log) =>
         log.address === factoryAddress &&
-        PenteFactory.interface.parseLog(log)?.name ===
+        PenteFactoryImpl.interface.parseLog(log)?.name ===
           "PaladinRegisterSmartContract_V0"
     );
     expect(deployEventLog).to.not.be.undefined;
 
-    const deployEvent = PenteFactory.interface.parseLog(deployEventLog!);
+    const deployEvent = PenteFactoryImpl.interface.parseLog(deployEventLog!);
     expect(deployEvent?.args.toObject()["txId"]).to.equal(deployTxId);
     expect(deployEvent?.args.toObject()["config"]).to.equal(configBytes);
     const privacyGroupAddress = deployEvent?.args.toObject()["instance"];

@@ -21,16 +21,17 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
@@ -196,7 +197,7 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 	require.Equal(t, []string{"me@node1", "you@node2"}, groups[0].Members) // enriched from members table
 
 	// Simulate completion of the transaction so we have the contract address
-	err = gm.p.DB().Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, contract_address) VALUES ( ?, ?, ?, ?, ? )`,
+	err = gm.p.DB(ctx).Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, contract_address) VALUES ( ?, ?, ?, ?, ? )`,
 		groups[0].GenesisTransaction,
 		groups[0].Domain,
 		pldtypes.TimestampNow(),
@@ -285,6 +286,37 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 
 }
 
+func TestRPCInvokeRPCError(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	client := newTestRPCServer(t, ctx, gm)
+
+	var result pldtypes.RawJSON
+	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", pldtypes.HexBytes(pldtypes.RandBytes(32)), pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	require.Regexp(t, "PD012502", rpcErr)
+}
+
+func TestRPCInvokeRPCOK(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(pldtypes.RawJSON(`"0xdeadbeef"`), nil)
+
+	client := newTestRPCServer(t, ctx, gm)
+
+	var result pldtypes.RawJSON
+	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	require.NoError(t, rpcErr)
+	assert.Equal(t, pldtypes.RawJSON(`"0xdeadbeef"`), result)
+}
+
 func TestRCPMessageListenersCRUDRealDB(t *testing.T) {
 	ctx, gm, _, done := newTestGroupManager(t, true, &pldconf.GroupManagerConfig{})
 	defer done()
@@ -361,7 +393,7 @@ func TestRCPMessageListenersCRUDRealDB(t *testing.T) {
 	gm.messagesInit()
 
 	// Force persistent state to be started
-	err = gm.p.DB().Model(&persistedMessageListener{}).
+	err = gm.p.DB(ctx).Model(&persistedMessageListener{}).
 		Where("name = ?", "listener1").Update("started", true).Error
 	require.NoError(t, err)
 

@@ -17,6 +17,9 @@ syntax = "proto3";
 
 package io.kaleido.paladin.toolkit;
 
+import "to_domain.proto";
+import "states.proto";
+
 option java_multiple_files = true;
 
 message FindAvailableStatesRequest {
@@ -98,22 +101,40 @@ message GetStatesByIDResponse {
   repeated StoredState states = 1;
 }
 
+message ReverseKeyLookupRequest {
+  repeated ReverseKeyLookup lookups = 1;
+}
+
+message ReverseKeyLookup {
+  string algorithm = 1;
+  string verifier_type = 2;
+  string verifier = 3;
+}
+
+message ReverseKeyLookupResponse {
+  repeated ReverseKeyLookupResult results = 1;
+}
+
+message ReverseKeyLookupResult {
+  string verifier = 1;
+  bool found = 2;
+  optional string key_identifier = 3;
+}
+
+message ValidateStatesRequest {
+  string state_query_context = 1; // Must hold a valid state query context to perform a submit
+  repeated NewState states = 2;
+}
+
+message ValidateStatesResponse {
+  repeated EndorsableState states = 1;
+}
+
 message StoredState {
   string id = 1;
   string schema_id = 2;
   int64 created_at = 3;
   string data_json = 4;
-  repeated StateLock locks = 5;
-}
-
-message StateLock {
-  enum StateLockType {
-    SPEND = 0;
-    READ = 1;
-    CREATE = 2;
-  }
-  StateLockType type = 1;
-  string transaction = 2;
 }
 
 message TransactionInput {

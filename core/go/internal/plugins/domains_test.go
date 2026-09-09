@@ -20,17 +20,18 @@ import (
 	"os"
 	"runtime/debug"
 	"testing"
+	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/google/uuid"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -38,15 +39,17 @@ import (
 )
 
 type testDomainManager struct {
-	domains             map[string]plugintk.Plugin
-	domainRegistered    func(name string, toDomain components.DomainManagerToDomain) (fromDomain plugintk.DomainCallbacks, err error)
-	findAvailableStates func(context.Context, *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error)
-	encodeData          func(context.Context, *prototk.EncodeDataRequest) (*prototk.EncodeDataResponse, error)
-	decodeData          func(context.Context, *prototk.DecodeDataRequest) (*prototk.DecodeDataResponse, error)
-	recoverSigner       func(context.Context, *prototk.RecoverSignerRequest) (*prototk.RecoverSignerResponse, error)
-	sendTransaction     func(context.Context, *prototk.SendTransactionRequest) (*prototk.SendTransactionResponse, error)
-	localNodeName       func(context.Context, *prototk.LocalNodeNameRequest) (*prototk.LocalNodeNameResponse, error)
-	getStates           func(context.Context, *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error)
+	domains              map[string]plugintk.Plugin
+	domainRegistered     func(name string, toDomain components.DomainManagerToDomain) (fromDomain plugintk.DomainCallbacks, err error)
+	findAvailableStates  func(context.Context, *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error)
+	encodeData           func(context.Context, *prototk.EncodeDataRequest) (*prototk.EncodeDataResponse, error)
+	decodeData           func(context.Context, *prototk.DecodeDataRequest) (*prototk.DecodeDataResponse, error)
+	recoverSigner        func(context.Context, *prototk.RecoverSignerRequest) (*prototk.RecoverSignerResponse, error)
+	sendTransaction      func(context.Context, *prototk.SendTransactionRequest) (*prototk.SendTransactionResponse, error)
+	localNodeName        func(context.Context, *prototk.LocalNodeNameRequest) (*prototk.LocalNodeNameResponse, error)
+	getStates            func(context.Context, *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error)
+	lookupKeyIdentifiers func(context.Context, *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error)
+	validateStates       func(context.Context, *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
 }
 
 func (tp *testDomainManager) FindAvailableStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
@@ -75,6 +78,14 @@ func (tp *testDomainManager) LocalNodeName(ctx context.Context, req *prototk.Loc
 
 func (tp *testDomainManager) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error) {
 	return tp.getStates(ctx, req)
+}
+
+func (tp *testDomainManager) ReverseKeyLookup(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error) {
+	return tp.lookupKeyIdentifiers(ctx, req)
+}
+
+func (tp *testDomainManager) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+	return tp.validateStates(ctx, req)
 }
 
 func domainConnectFactory(ctx context.Context, client prototk.PluginControllerClient) (grpc.BidiStreamingClient[prototk.DomainMessage, prototk.DomainMessage], error) {
@@ -136,7 +147,7 @@ func newTestDomainPluginManager(t *testing.T, setup *testManagers) (context.Cont
 
 func TestDomainRequestsOK(t *testing.T) {
 
-	log.InitConfig(&pldconf.LogConfig{Level: confutil.P("debug")}) // test debug specific logging
+	log.InitConfig(&pldconf.LogConfig{Level: confutil.P("trace")}) // enable trace to exercise trace logging branches
 	waitForAPI := make(chan components.DomainManagerToDomain, 1)
 	waitForCallbacks := make(chan plugintk.DomainCallbacks, 1)
 
@@ -266,6 +277,25 @@ func TestDomainRequestsOK(t *testing.T) {
 				},
 			}, nil
 		},
+		CheckStateCompletion: func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+			assert.Equal(t, `tx1`, cscr.TransactionId)
+			return &prototk.CheckStateCompletionResponse{
+				NextMissingStateId: confutil.P("state1"),
+			}, nil
+		},
+		IsBaseLedgerRevertRetryable: func(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+			assert.Equal(t, []byte("revert1"), req.RevertData)
+			return &prototk.IsBaseLedgerRevertRetryableResponse{
+				Retryable:     true,
+				DecodedReason: "decoded1",
+			}, nil
+		},
+		InvokeRPC: func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+			assert.Equal(t, "method1", req.Method)
+			return &prototk.InvokeRPCResponse{
+				ResultJson: `{"rpc":"result"}`,
+			}, nil
+		},
 	}
 
 	tdm := &testDomainManager{
@@ -332,12 +362,35 @@ func TestDomainRequestsOK(t *testing.T) {
 		}, nil
 	}
 
+	tdm.lookupKeyIdentifiers = func(ctx context.Context, lkir *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error) {
+		assert.Equal(t, "type1", lkir.Lookups[0].VerifierType)
+		assert.Equal(t, "v1", lkir.Lookups[0].Verifier)
+		return &prototk.ReverseKeyLookupResponse{
+			Results: []*prototk.ReverseKeyLookupResult{{Verifier: "v1", Found: false}},
+		}, nil
+	}
+
+	tdm.validateStates = func(ctx context.Context, vsr *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+		assert.Equal(t, "state1", *vsr.States[0].Id)
+		return &prototk.ValidateStatesResponse{
+			States: []*prototk.EndorsableState{
+				{Id: "state1r"},
+			},
+		}, nil
+	}
+
 	ctx, pc, done := newTestDomainPluginManager(t, &testManagers{
 		testDomainManager: tdm,
 	})
 	defer done()
 
-	domainAPI := <-waitForAPI
+	var domainAPI components.DomainManagerToDomain
+	select {
+	case domainAPI = <-waitForAPI:
+		// Received domain API
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for domain API - expected registration was not received")
+	}
 
 	cdr, err := domainAPI.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{
 		ChainId: int64(12345),
@@ -471,7 +524,32 @@ func TestDomainRequestsOK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, `{"wrapped":"params"}`, wpgtr.Transaction.ParamsJson)
 
-	callbacks := <-waitForCallbacks
+	cscr, err := domainAPI.CheckStateCompletion(ctx, &prototk.CheckStateCompletionRequest{
+		TransactionId: "tx1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, `state1`, *cscr.NextMissingStateId)
+
+	iblrr, err := domainAPI.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: []byte("revert1"),
+	})
+	require.NoError(t, err)
+	assert.True(t, iblrr.Retryable)
+	assert.Equal(t, "decoded1", iblrr.DecodedReason)
+
+	irpcr, err := domainAPI.InvokeRPC(ctx, &prototk.InvokeRPCRequest{
+		Method: "method1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, `{"rpc":"result"}`, irpcr.ResultJson)
+
+	// Add timeout for callbacks
+	var callbacks plugintk.DomainCallbacks
+	select {
+	case callbacks = <-waitForCallbacks:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for callbacks - expected callbacks were not received")
+	}
 
 	fas, err := callbacks.FindAvailableStates(ctx, &prototk.FindAvailableStatesRequest{
 		SchemaId: "schema1",
@@ -514,6 +592,25 @@ func TestDomainRequestsOK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Len(t, gsr.States, 1)
+
+	lkir, err := callbacks.ReverseKeyLookup(ctx, &prototk.ReverseKeyLookupRequest{
+		Lookups: []*prototk.ReverseKeyLookup{
+			{
+				VerifierType: "type1",
+				Verifier:     "v1",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, lkir.Results, 1)
+	assert.Equal(t, "v1", lkir.Results[0].Verifier)
+
+	vsr, err := callbacks.ValidateStates(ctx, &prototk.ValidateStatesRequest{
+		States: []*prototk.NewState{{Id: confutil.P("state1")}},
+	})
+	require.NoError(t, err)
+	require.Len(t, vsr.States, 1)
+	assert.Equal(t, "state1r", vsr.States[0].Id)
 }
 
 func TestDomainRegisterFail(t *testing.T) {
@@ -526,15 +623,6 @@ func TestDomainRegisterFail(t *testing.T) {
 				t:              t,
 				connectFactory: domainConnectFactory,
 				headerAccessor: domainHeaderAccessor,
-				preRegister: func(domainID string) *prototk.DomainMessage {
-					return &prototk.DomainMessage{
-						Header: &prototk.Header{
-							MessageType: prototk.Header_REGISTER,
-							PluginId:    domainID,
-							MessageId:   uuid.NewString(),
-						},
-					}
-				},
 			},
 		},
 	}
@@ -548,7 +636,13 @@ func TestDomainRegisterFail(t *testing.T) {
 	})
 	defer done()
 
-	<-waitForError
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case <-waitForError:
+		// Error received successfully
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for error - expected error was not received")
+	}
 }
 
 func TestFromDomainRequestBadReq(t *testing.T) {
@@ -589,6 +683,11 @@ func TestFromDomainRequestBadReq(t *testing.T) {
 	})
 	defer done()
 
-	<-waitForResponse
-
+	// Add timeout to prevent test from hanging indefinitely
+	select {
+	case <-waitForResponse:
+		// Response received successfully
+	case <-time.After(20 * time.Second):
+		t.Fatal("Test timed out waiting for response - expected response was not received")
+	}
 }

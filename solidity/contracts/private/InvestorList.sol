@@ -52,10 +52,10 @@ contract InvestorList is Ownable, ITransferPolicy {
     }
 
     function checkTransfer(
-        address sender,
-        address from,
+        address /* sender */,
+        address /* from */,
         address to,
-        uint256 amount
+        uint256 /* amount */
     ) external view {
         require(isRegistered(to), "Investor is not registered");
     }

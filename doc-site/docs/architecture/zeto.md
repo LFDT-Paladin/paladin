@@ -3,7 +3,7 @@
 Zeto is a UTXO based privacy-preserving token toolkit for EVM, using Zero Knowledge Proofs, implemented via Circom.
 
 The architecture documentations for Zeto is being managed in a separate Github repository here:
-https://github.com/kaleido-io/zeto
+https://github.com/LFDT-Paladin/zeto
 
 Zeto is a growing collection of token implementations that enforce a wide variety of token transaction policies including, but not limited to, mass conservation (for fungible tokens), preservation of asset properties during ownership transfer (for non-fungible tokens), KYC with privacy, and non-repudiation compliance. Each policy is expressed in zeto knowledge proof circuits using [Circom](https://iden3.io/circom). The list of policies and their corresponding token implementations will continue to grow to meet the needs of enterprise use cases.
 
@@ -19,7 +19,7 @@ As a client to Zeto tokens, Paladin has the following features built into the si
 
 ## Private ABI
 
-The private ABI of Zeto is implemented in [Go](https://github.com/LF-Decentralized-Trust-labs/paladin/tree/main/domains/zeto), and can be accessed by calling `ptx_sendTransaction` with `"type": "private"`.
+The private ABI of Zeto is implemented in [Go](https://github.com/LFDT-Paladin/paladin/tree/main/domains/zeto), and can be accessed by calling `ptx_sendTransaction` with `"type": "private"`.
 
 ### constructor
 

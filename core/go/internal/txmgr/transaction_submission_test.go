@@ -24,21 +24,21 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/ethclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -47,6 +47,92 @@ import (
 func mockBeginRollback(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 	mc.db.ExpectBegin()
 	mc.db.ExpectRollback()
+}
+
+func TestInsertTransactionsWithChainedDependsOn(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, true)
+	defer done()
+
+	txID := uuid.New()
+	chainedDepID := uuid.New()
+	sig := "doIt()"
+
+	// Store a real ABI so the FK constraint on transactions.abi_ref is satisfied on Postgres
+	testABI := abi.ABI{{Type: abi.Function, Name: "doIt"}}
+	abiRefPtr, err := txm.storeABINewDBTX(ctx, testABI)
+	require.NoError(t, err)
+	abiRef := *abiRefPtr
+
+	txi := &components.ValidatedTransaction{
+		ResolvedTransaction: components.ResolvedTransaction{
+			Transaction: &pldapi.Transaction{
+				ID:         &txID,
+				SubmitMode: pldapi.SubmitModeAuto.Enum(),
+				TransactionBase: pldapi.TransactionBase{
+					Type:   pldapi.TransactionTypePrivate.Enum(),
+					From:   "me@node1",
+					Domain: "domain1",
+				},
+			},
+			Function: &components.ResolvedFunction{
+				ABIReference: &abiRef,
+				Signature:    sig,
+			},
+			ChainedDependsOn: []uuid.UUID{chainedDepID},
+		},
+	}
+
+	var rowsAffected int64
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		var txErr error
+		rowsAffected, txErr = txm.insertTransactions(ctx, dbTX, []*components.ValidatedTransaction{txi}, false)
+		return txErr
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rowsAffected)
+}
+
+func TestInsertTransactionsChainedDepsDBError(t *testing.T) {
+	txID := uuid.New()
+	chainedDepID := uuid.New()
+	abiRef := (pldtypes.Bytes32)(pldtypes.RandBytes(32))
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			mc.db.ExpectExec("INSERT.*transactions").WillReturnResult(sqlmock.NewResult(1, 1))
+			mc.db.ExpectExec("INSERT.*transaction_history").WillReturnResult(sqlmock.NewResult(1, 1))
+			mc.db.ExpectExec("INSERT.*transaction_chained_deps").WillReturnError(fmt.Errorf("chained deps insert failed"))
+			mc.db.ExpectRollback()
+		})
+	defer done()
+
+	txi := &components.ValidatedTransaction{
+		ResolvedTransaction: components.ResolvedTransaction{
+			Transaction: &pldapi.Transaction{
+				ID:         &txID,
+				SubmitMode: pldapi.SubmitModeAuto.Enum(),
+				TransactionBase: pldapi.TransactionBase{
+					Type:   pldapi.TransactionTypePrivate.Enum(),
+					From:   "me@node1",
+					Domain: "domain1",
+				},
+			},
+			Function: &components.ResolvedFunction{
+				ABIReference: &abiRef,
+				Signature:    "doIt()",
+			},
+			ChainedDependsOn: []uuid.UUID{chainedDepID},
+		},
+	}
+
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := txm.insertTransactions(ctx, dbTX, []*components.ValidatedTransaction{txi}, false)
+		return err
+	})
+	require.Error(t, err)
+	assert.Regexp(t, "chained deps insert failed", err)
 }
 
 func TestResolveFunctionABIAndDef(t *testing.T) {
@@ -383,7 +469,7 @@ func TestSendTransactionPrivateDeploy(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIAndTransactionOK(true),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		})
 	defer done()
 
@@ -408,7 +494,7 @@ func TestSendTransactionPrivateInvoke(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIAndTransactionOK(true), mockDomainContractResolve(t, "domain1"),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		})
 	defer done()
 
@@ -435,7 +521,7 @@ func TestSendTransactionPrivateInvokeFail(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIAndTransactionOK(false), mockDomainContractResolve(t, "domain1"),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
 		})
 	defer done()
 
@@ -960,7 +1046,7 @@ func TestCallTransactionPrivOk(t *testing.T) {
 			res, err := fnDef.Outputs.ParseJSON([]byte(`{"spins": 42}`))
 			require.NoError(t, err)
 
-			mc.privateTxMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
+			mc.sequencerMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
 				Return(res, nil)
 		})
 	defer done()
@@ -989,7 +1075,7 @@ func TestCallTransactionPrivFail(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIBeginCommit,
 		mockDomainContractResolve(t, "domain1"), func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
+			mc.sequencerMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
 				Return(nil, fmt.Errorf("snap"))
 		})
 	defer done()
@@ -1061,20 +1147,44 @@ func newTestInternalTransaction(idempotencyKey string) *pldapi.TransactionInput 
 	}
 }
 
-func TestInternalPrivateTXInsertWithIdempotencyKeys(t *testing.T) {
-	ctx, txm, done := newTestTransactionManager(t, true, mockDomainContractResolve(t, "domain1"))
+func TestChainedPrivateTXInsertWithIdempotencyKeys(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, true,
+		mockDomainContractResolve(t, "domain1"),
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			// Only the parent Txn we create will get a callback
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+		},
+	)
 	defer done()
 
-	fifteenTxns := make([]*components.ValidatedTransaction, 15)
-	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+	exampleABI := abi.ABI{{Type: abi.Function, Name: "doIt"}}
+	callData, err := exampleABI[0].EncodeCallDataJSON([]byte(`[]`))
+	require.NoError(t, err)
+	contractAddr := pldtypes.MustEthAddress(pldtypes.RandHex(20))
+	parentTxnID, err := txm.sendTransactionNewDBTX(ctx, &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			Type:     pldapi.TransactionTypePrivate.Enum(),
+			Function: exampleABI[0].FunctionSelectorBytes().String(),
+			From:     "sender1",
+			To:       contractAddr,
+			Data:     pldtypes.JSONString(pldtypes.HexBytes(callData)),
+		},
+		ABI: exampleABI,
+	})
+	assert.NoError(t, err)
+
+	fifteenTxsByID := make(map[uuid.UUID]*components.ChainedPrivateTransaction)
+	fifteenTxns := make([]*components.ChainedPrivateTransaction, 15)
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
 		for i := range fifteenTxns {
 			tx := newTestInternalTransaction(fmt.Sprintf("tx_%.3d", i))
 			// We do a dep chain
 			if i > 0 {
-				tx.DependsOn = []uuid.UUID{*fifteenTxns[i-1].Transaction.ID}
+				tx.DependsOn = []uuid.UUID{*fifteenTxns[i-1].NewTransaction.Transaction.ID}
 			}
-			fifteenTxns[i], err = txm.PrepareInternalPrivateTransaction(ctx, dbTX, tx, pldapi.SubmitModeAuto)
+			fifteenTxns[i], err = txm.PrepareChainedPrivateTransaction(ctx, dbTX, "", *parentTxnID, "domain1", contractAddr, tx, pldapi.SubmitModeAuto)
 			require.NoError(t, err)
+			fifteenTxsByID[*fifteenTxns[i].NewTransaction.Transaction.ID] = fifteenTxns[i]
 		}
 		return nil
 	})
@@ -1082,14 +1192,14 @@ func TestInternalPrivateTXInsertWithIdempotencyKeys(t *testing.T) {
 
 	// Insert first 10 in a Txn
 	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		err = txm.UpsertInternalPrivateTxsFinalizeIDs(ctx, dbTX, fifteenTxns[0:10])
+		err = txm.ChainPrivateTransactions(ctx, dbTX, fifteenTxns[0:10])
 		return err
 	})
 	require.NoError(t, err)
 
 	// Insert 5-15 in the second txn so with an overlap
 	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		err = txm.UpsertInternalPrivateTxsFinalizeIDs(ctx, dbTX, fifteenTxns[5:15])
+		err = txm.ChainPrivateTransactions(ctx, dbTX, fifteenTxns[5:15])
 		return err
 	})
 	require.NoError(t, err)
@@ -1097,16 +1207,16 @@ func TestInternalPrivateTXInsertWithIdempotencyKeys(t *testing.T) {
 	// Check we can get each back
 	idemQueryKeys := make([]any, len(fifteenTxns))
 	for _, expected := range fifteenTxns {
-		tx, err := txm.GetTransactionByID(ctx, *expected.Transaction.ID)
+		tx, err := txm.GetTransactionByID(ctx, *expected.NewTransaction.Transaction.ID)
 		require.NoError(t, err)
-		require.Equal(t, expected.Transaction.IdempotencyKey, tx.IdempotencyKey)
+		require.Equal(t, expected.NewTransaction.Transaction.IdempotencyKey, tx.IdempotencyKey)
 
-		rtx, err := txm.GetResolvedTransactionByID(ctx, *expected.Transaction.ID)
+		rtx, err := txm.GetResolvedTransactionByID(ctx, *expected.NewTransaction.Transaction.ID)
 		require.NoError(t, err)
 		require.Equal(t, tx, rtx.Transaction)
 		require.NotNil(t, rtx.Function)
 
-		idemQueryKeys = append(idemQueryKeys, expected.Transaction.IdempotencyKey)
+		idemQueryKeys = append(idemQueryKeys, expected.NewTransaction.Transaction.IdempotencyKey)
 	}
 
 	// Check we can query them in bulk (as we would to poll the DB to perform TX management)
@@ -1122,7 +1232,7 @@ func TestInternalPrivateTXInsertWithIdempotencyKeys(t *testing.T) {
 
 }
 
-func TestPrepareInternalPrivateTransactionNoIdempotencyKey(t *testing.T) {
+func TestPrepareChainedPrivateTransactionNoIdempotencyKey(t *testing.T) {
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
@@ -1132,7 +1242,7 @@ func TestPrepareInternalPrivateTransactionNoIdempotencyKey(t *testing.T) {
 	defer done()
 
 	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		_, err = txm.PrepareInternalPrivateTransaction(ctx, dbTX, &pldapi.TransactionInput{}, pldapi.SubmitModeAuto)
+		_, err = txm.PrepareChainedPrivateTransaction(ctx, dbTX, "", uuid.New(), "domain1", nil, &pldapi.TransactionInput{}, pldapi.SubmitModeAuto)
 		return err
 	})
 	assert.Regexp(t, "PD012223", err)
@@ -1152,10 +1262,10 @@ func TestUpsertInternalPrivateTxsFinalizeIDsInsertFail(t *testing.T) {
 	defer done()
 
 	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		tx, err := txm.PrepareInternalPrivateTransaction(ctx, dbTX, newTestInternalTransaction("tx1"), pldapi.SubmitModeAuto)
+		tx, err := txm.PrepareChainedPrivateTransaction(ctx, dbTX, "", uuid.New(), "domain1", nil, newTestInternalTransaction("tx1"), pldapi.SubmitModeAuto)
 		require.NoError(t, err)
 
-		return txm.UpsertInternalPrivateTxsFinalizeIDs(ctx, dbTX, []*components.ValidatedTransaction{tx})
+		return txm.ChainPrivateTransactions(ctx, dbTX, []*components.ChainedPrivateTransaction{tx})
 	})
 	assert.Regexp(t, "pop", err)
 
@@ -1176,10 +1286,10 @@ func TestUpsertInternalPrivateTxsIdempotencyKeyFail(t *testing.T) {
 	defer done()
 
 	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		tx, err := txm.PrepareInternalPrivateTransaction(ctx, dbTX, newTestInternalTransaction("tx1"), pldapi.SubmitModeAuto)
+		tx, err := txm.PrepareChainedPrivateTransaction(ctx, dbTX, "", uuid.New(), "domain1", nil, newTestInternalTransaction("tx1"), pldapi.SubmitModeAuto)
 		require.NoError(t, err)
 
-		return txm.UpsertInternalPrivateTxsFinalizeIDs(ctx, dbTX, []*components.ValidatedTransaction{tx})
+		return txm.ChainPrivateTransactions(ctx, dbTX, []*components.ChainedPrivateTransaction{tx})
 	})
 	assert.Regexp(t, "pop", err)
 
@@ -1200,10 +1310,10 @@ func TestUpsertInternalPrivateTxsIdempotencyMisMatch(t *testing.T) {
 	defer done()
 
 	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		tx, err := txm.PrepareInternalPrivateTransaction(ctx, dbTX, newTestInternalTransaction("tx1"), pldapi.SubmitModeAuto)
+		tx, err := txm.PrepareChainedPrivateTransaction(ctx, dbTX, "", uuid.New(), "domain1", nil, newTestInternalTransaction("tx1"), pldapi.SubmitModeAuto)
 		require.NoError(t, err)
 
-		return txm.UpsertInternalPrivateTxsFinalizeIDs(ctx, dbTX, []*components.ValidatedTransaction{tx})
+		return txm.ChainPrivateTransactions(ctx, dbTX, []*components.ChainedPrivateTransaction{tx})
 	})
 	assert.Regexp(t, "PD012224", err)
 
@@ -1584,3 +1694,4 @@ func TestResolveUpdatedTransactionSuccess(t *testing.T) {
 	assert.Equal(t, `{"value":"46"}`, validatedTransaction.Transaction.Data.String())
 	assert.Equal(t, "60fe47b1000000000000000000000000000000000000000000000000000000000000002e", hex.EncodeToString(validatedTransaction.PublicTxData))
 }
+

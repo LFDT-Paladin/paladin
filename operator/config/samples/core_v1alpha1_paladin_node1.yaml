@@ -64,3 +64,6 @@ spec:
     - name: rpc-ws
       port: 8549
       nodePort: 31549 # see paladin-kind.yaml
+    - name: metrics
+      port: 6100
+      nodePort: 31550 # see paladin-kind.yaml

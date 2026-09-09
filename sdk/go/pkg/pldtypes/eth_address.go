@@ -22,8 +22,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 )
 
@@ -78,7 +78,10 @@ func (a *EthAddress) IsZero() bool {
 }
 
 func (a EthAddress) String() string {
-	return a.Address0xHex().String()
+	var buf [42]byte
+	buf[0], buf[1] = '0', 'x'
+	hex.Encode(buf[2:], a[:])
+	return string(buf[:])
 }
 
 func (a EthAddress) HexString() string {

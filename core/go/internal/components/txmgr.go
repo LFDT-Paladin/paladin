@@ -18,10 +18,10 @@ package components
 import (
 	"context"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
@@ -37,6 +37,12 @@ const (
 	RT_FailedWithMessage
 )
 
+type ReceiptInputWithOriginator struct {
+	Originator            string
+	DomainContractAddress string
+	ReceiptInput
+}
+
 type ReceiptInput struct {
 	Domain          string                   // set when the receipt is from a domain
 	ReceiptType     ReceiptType              // required
@@ -47,15 +53,24 @@ type ReceiptInput struct {
 	RevertData      pldtypes.HexBytes        // set for RT_FailedOnChainWithRevertData
 }
 
+type SequencingActivity struct {
+	SubjectID      string             `json:"subjectId,omitempty"`
+	Timestamp      pldtypes.Timestamp `json:"timestamp,omitempty"`
+	TransactionID  uuid.UUID          `json:"transactionId,omitempty"`
+	ActivityType   string             `json:"activityType,omitempty"`
+	SequencingNode string             `json:"sequencingNode,omitempty"`
+}
+
 type TxCompletion struct {
 	ReceiptInput
 	PSC DomainSmartContract
 }
 
 type ResolvedTransaction struct {
-	Transaction *pldapi.Transaction `json:"transaction"`
-	DependsOn   []uuid.UUID         `json:"dependsOn"`
-	Function    *ResolvedFunction   `json:"function"`
+	Transaction      *pldapi.Transaction `json:"transaction"`
+	DependsOn        []uuid.UUID         `json:"dependsOn"`
+	ChainedDependsOn []uuid.UUID         `json:"chainedDependsOn,omitempty"`
+	Function         *ResolvedFunction   `json:"function"`
 }
 
 // This is a transaction read for insertion into the Paladin database with all pre-verification completed.
@@ -63,6 +78,15 @@ type ValidatedTransaction struct {
 	ResolvedTransaction
 	LocalFrom    string
 	PublicTxData []byte
+}
+
+type ChainedPrivateTransaction struct {
+	ID                      uuid.UUID // the ID of the chained private transaction
+	OriginalSenderLocator   string    // the original sender fully qualified identity
+	OriginalTransaction     uuid.UUID // the original transaction that chained this transaction
+	OriginalDomain          string    // the original domain of the upstream transaction
+	OriginalContractAddress string    // the contract address of the original smart contract within the domain
+	NewTransaction          *ValidatedTransaction
 }
 
 // A resolved function on the ABI
@@ -82,6 +106,7 @@ type BlockchainEventReceiver interface {
 }
 
 type ReceiverCloser interface {
+	SetActive()
 	Close()
 }
 
@@ -128,7 +153,8 @@ type TXManager interface {
 
 	LoadBlockchainEventListeners() error
 	NotifyStatesDBChanged(ctx context.Context) // called by state manager after committing DB TXs writing new states that might fill in gaps
-	PrepareInternalPrivateTransaction(ctx context.Context, dbTX persistence.DBTX, tx *pldapi.TransactionInput, submitMode pldapi.SubmitMode) (*ValidatedTransaction, error)
-	UpsertInternalPrivateTxsFinalizeIDs(ctx context.Context, dbTX persistence.DBTX, txis []*ValidatedTransaction) error
+	PrepareChainedPrivateTransaction(ctx context.Context, dbTX persistence.DBTX, originalSender string, originalTxID uuid.UUID, originalDomain string, originalDomainAddress *pldtypes.EthAddress, txToChain *pldapi.TransactionInput, submitMode pldapi.SubmitMode) (*ChainedPrivateTransaction, error)
+	ChainPrivateTransactions(ctx context.Context, dbTX persistence.DBTX, txis []*ChainedPrivateTransaction) error
 	WritePreparedTransactions(ctx context.Context, dbTX persistence.DBTX, prepared []*PreparedTransactionWithRefs) error
+	BlockedByDependencies(ctx context.Context, dbTX persistence.DBTX, tx *ValidatedTransaction) (bool, error)
 }

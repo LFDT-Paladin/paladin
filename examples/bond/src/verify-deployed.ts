@@ -2,21 +2,12 @@ import PaladinClient, {
   PaladinVerifier,
   NotoFactory,
   PenteFactory,
-} from "@lfdecentralizedtrust-labs/paladin-sdk";
+} from "@lfdecentralizedtrust/paladin-sdk";
 import * as fs from 'fs';
 import * as path from 'path';
+import { nodeConnections } from "../../common/src/config";
 
 const logger = console;
-
-const paladin1 = new PaladinClient({
-  url: "http://127.0.0.1:31548",
-});
-const paladin2 = new PaladinClient({
-  url: "http://127.0.0.1:31648",
-});
-const paladin3 = new PaladinClient({
-  url: "http://127.0.0.1:31748",
-});
 
 export interface ContractData {
   notoCashAddress: string;
@@ -94,6 +85,17 @@ function findLatestContractDataFile(dataDir: string): string | null {
 }
 
 async function main(): Promise<boolean> {
+  // --- Initialization from Imported Config ---
+  if (nodeConnections.length < 3) {
+    logger.error("The environment config must provide at least 3 nodes for this scenario.");
+    return false;
+  }
+  
+  logger.log("Initializing Paladin clients from the environment configuration...");
+  const clients = nodeConnections.map(node => new PaladinClient(node.clientOptions));
+
+  const [paladin1, paladin2, paladin3] = clients;
+
   // STEP 1: Load the saved contract data
   logger.log("STEP 1: Loading saved contract data...");
   const dataDir = path.join(__dirname, '..', 'data');
@@ -126,7 +128,7 @@ async function main(): Promise<boolean> {
   const [investor] = paladin3.getVerifiers("investor@node3");
 
   // Import necessary classes from the SDK
-  const { NotoInstance } = await import("@lfdecentralizedtrust-labs/paladin-sdk");
+  const { NotoInstance } = await import("@lfdecentralizedtrust/paladin-sdk");
   
   // Recreate contract instances
   const notoCash = new NotoInstance(paladin1, contractData.notoCashAddress);

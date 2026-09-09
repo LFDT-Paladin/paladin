@@ -1,3 +1,17 @@
+/*
+ * Copyright © 2025 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import PaladinClient, {
   INotoDomainReceipt,
   IPreparedTransaction,
@@ -5,64 +19,71 @@ import PaladinClient, {
   NotoFactory,
   PenteFactory,
   ZetoFactory,
-} from "@lfdecentralizedtrust-labs/paladin-sdk";
+} from "@lfdecentralizedtrust/paladin-sdk";
 import { ethers } from "ethers";
-import { checkDeploy, checkReceipt } from "paladin-example-common";
+import {
+  checkDeploy,
+  checkReceipt,
+  DEFAULT_POLL_TIMEOUT,
+  LONG_POLL_TIMEOUT,
+  POLL_INTERVAL,
+} from "paladin-example-common";
 import { newAtomFactory } from "./helpers/atom";
 import { newERC20Tracker } from "./helpers/erc20tracker";
 import * as fs from 'fs';
 import * as path from 'path';
-import { ContractData } from "./verify-deployed";
+import { ContractData } from "./tests/data-persistence";
+import { nodeConnections, getCachePath } from "paladin-example-common";
 
 const logger = console;
 
-const paladin1 = new PaladinClient({
-  url: "http://127.0.0.1:31548",
-});
-const paladin2 = new PaladinClient({
-  url: "http://127.0.0.1:31648",
-});
-const paladin3 = new PaladinClient({
-  url: "http://127.0.0.1:31748",
-});
-
-// TODO: eliminate the need for this call
-async function encodeZetoTransfer(preparedCashTransfer: IPreparedTransaction) {
-  try {
-    const zetoTransferAbi = await paladin3.ptx.getStoredABI(
-      preparedCashTransfer.transaction.abiReference ?? ""
-    );
-    
-    if (!zetoTransferAbi) {
-      throw new Error("Failed to get stored ABI for prepared transaction");
-    }
-    
-    const encodedData = new ethers.Interface(zetoTransferAbi.abi).encodeFunctionData(
-      "transferLocked",
-      [
-        preparedCashTransfer.transaction.data.inputs,
-        preparedCashTransfer.transaction.data.outputs,
-        preparedCashTransfer.transaction.data.proof,
-        preparedCashTransfer.transaction.data.data,
-      ]
-    );
-    
-    logger.log("Successfully encoded Zeto transfer data");
-    return encodedData;
-  } catch (error) {
-    logger.error("Failed to encode Zeto transfer:");
-    logger.error(`Error: ${error}`);
-    throw error;
-  }
-}
-
 async function main(): Promise<boolean> {
+  // --- Initialization from Imported Config ---
+  if (nodeConnections.length < 3) {
+    logger.error("The environment config must provide at least 3 nodes for this scenario.");
+    return false;
+  }
+  
+  logger.log("Initializing Paladin clients from the environment configuration...");
+  const clients = nodeConnections.map(node => new PaladinClient(node.clientOptions));
+  const [paladin1, paladin2, paladin3] = clients;
+
   const [cashIssuer, assetIssuer] = paladin1.getVerifiers(
-    "cashIssuer@node1",
-    "assetIssuer@node1"
+    `cashIssuer@${nodeConnections[0].id}`,
+    `assetIssuer@${nodeConnections[0].id}`
   );
-  const [investor1] = paladin2.getVerifiers("investor1@node2");
-  const [investor2] = paladin3.getVerifiers("investor2@node3");
+  const [investor1] = paladin2.getVerifiers(`investor1@${nodeConnections[1].id}`);
+  const [investor2] = paladin3.getVerifiers(`investor2@${nodeConnections[2].id}`);
+
+  // TODO: eliminate the need for this call
+  async function encodeZetoTransfer(preparedCashTransfer: IPreparedTransaction) {
+    try {
+      const zetoTransferAbi = await paladin3.ptx.getStoredABI(
+        preparedCashTransfer.transaction.abiReference ?? ""
+      );
+      
+      if (!zetoTransferAbi) {
+        throw new Error("Failed to get stored ABI for prepared transaction");
+      }
+      
+      const encodedData = new ethers.Interface(zetoTransferAbi.abi).encodeFunctionData(
+        "transferLocked",
+        [
+          preparedCashTransfer.transaction.data.inputs,
+          preparedCashTransfer.transaction.data.outputs,
+          preparedCashTransfer.transaction.data.proof,
+          preparedCashTransfer.transaction.data.data,
+        ]
+      );
+      
+      logger.log("Successfully encoded Zeto transfer data");
+      return encodedData;
+    } catch (error) {
+      logger.error("Failed to encode Zeto transfer:");
+      logger.error(`Error: ${error}`);
+      throw error;
+    }
+  }
 
   const issuedAssetAmount = 1000;
   const issuedAssetAmountToLarge = 10000000;
@@ -82,7 +103,7 @@ async function main(): Promise<boolean> {
     .newZeto(cashIssuer, {
       tokenName: "Zeto_Anon",
     })
-    .waitForDeploy(10000);
+    .waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(zetoCash)) return false;
 
   // Create a Pente privacy group for the asset issuer only
@@ -94,7 +115,7 @@ async function main(): Promise<boolean> {
       evmVersion: "shanghai",
       externalCallsEnabled: true,
     })
-    .waitForDeploy(10000);
+    .waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(issuerGroup)) return false;
 
   // Deploy private tracker to the issuer privacy group
@@ -110,6 +131,8 @@ async function main(): Promise<boolean> {
   const notoFactory = new NotoFactory(paladin1, "noto");
   const notoAsset = await notoFactory
     .newNoto(assetIssuer, {
+      name: "NOTO",
+      symbol: "NOTO",
       notary: assetIssuer,
       notaryMode: "hooks",
       options: {
@@ -120,7 +143,7 @@ async function main(): Promise<boolean> {
         },
       },
     })
-    .waitForDeploy(10000);
+    .waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(notoAsset)) return false;
 
   // Issue asset above threshold first
@@ -145,7 +168,7 @@ async function main(): Promise<boolean> {
       amount: issuedAssetAmount,
       data: "0x",
     })
-    .waitForReceipt(10000);
+    .waitForReceipt(DEFAULT_POLL_TIMEOUT);
   if (!checkReceipt(receipt)) return false;
 
   // Issue cash
@@ -160,7 +183,7 @@ async function main(): Promise<boolean> {
         },
       ],
     })
-    .waitForReceipt(10000);
+    .waitForReceipt(DEFAULT_POLL_TIMEOUT);
   if (!checkReceipt(receipt)) return false;
 
   // Lock the asset for the swap
@@ -171,7 +194,7 @@ async function main(): Promise<boolean> {
       amount: assetAmount,
       data: "0x",
     })
-    .waitForReceipt(10000);
+    .waitForReceipt(DEFAULT_POLL_TIMEOUT);
   if (!checkReceipt(receipt)) return false;
   receipt = await paladin2.ptx.getTransactionReceiptFull(receipt.id);
 
@@ -190,16 +213,16 @@ async function main(): Promise<boolean> {
       lockId,
       from: investor1,
       recipients: [{ to: investor2, amount: assetAmount }],
+      unlockData: "0x",
       data: "0x",
     })
-    .waitForReceipt(10000);
+    .waitForReceipt(DEFAULT_POLL_TIMEOUT);
   if (!checkReceipt(receipt)) return false;
   receipt = await paladin2.ptx.getTransactionReceiptFull(receipt.id);
 
   domainReceipt = receipt?.domainReceipt as INotoDomainReceipt | undefined;
-  const assetUnlockParams = domainReceipt?.lockInfo?.unlockParams;
   const assetUnlockCall = domainReceipt?.lockInfo?.unlockCall;
-  if (assetUnlockParams === undefined || assetUnlockCall === undefined) {
+  if (assetUnlockCall === undefined) {
     logger.error("No unlock data found in domain receipt");
     return false;
   }
@@ -213,15 +236,14 @@ async function main(): Promise<boolean> {
       amount: cashAmount,
       delegate: investor2Address,
     })
-    .waitForReceipt(10000);
+    .waitForReceipt(DEFAULT_POLL_TIMEOUT);
   if (!checkReceipt(receipt)) return false;
   
   // Poll for the lock operation to be fully settled
   logger.log("Waiting for lock operation to settle...");
   let lockedStateId: string | undefined;
   const pollStartTime = Date.now();
-  const pollTimeout = 30000; // 30 seconds
-  while (Date.now() - pollStartTime < pollTimeout) {
+  while (Date.now() - pollStartTime < LONG_POLL_TIMEOUT) {
     const lockedStates = await paladin3.ptx.getStateReceipt(receipt.id);
     const confirmedLockedState = lockedStates?.confirmed?.find(
       (state) => state.data["locked"]
@@ -234,7 +256,7 @@ async function main(): Promise<boolean> {
   }
 
   if (lockedStateId === undefined) {
-    logger.error(`Timed out after ${pollTimeout / 1000}s waiting for locked state in state receipt`);
+    logger.error(`Timed out after ${LONG_POLL_TIMEOUT / 1000}s waiting for locked state in state receipt`);
     return false;
   }
   logger.log(`Locked state ID: ${lockedStateId}`);
@@ -254,7 +276,7 @@ async function main(): Promise<boolean> {
   }).id;
   
   logger.log(`Prepared transaction ID: ${txID}`);
-  const preparedCashTransfer = await paladin3.pollForPreparedTransaction(txID, 50000);
+  const preparedCashTransfer = await paladin3.pollForPreparedTransaction(txID, LONG_POLL_TIMEOUT);
   if (!preparedCashTransfer) {
     logger.error(`Failed to get prepared transaction for ID: ${txID}`);
     return false;
@@ -290,11 +312,10 @@ async function main(): Promise<boolean> {
     .using(paladin2)
     .delegateLock(investor1, {
       lockId,
-      unlock: assetUnlockParams,
       delegate: atom.address,
       data: "0x",
     })
-    .waitForReceipt(10000);
+    .waitForReceipt(LONG_POLL_TIMEOUT);
   if (!checkReceipt(receipt)) return false;
 
   // Approve cash transfer operation
@@ -305,7 +326,7 @@ async function main(): Promise<boolean> {
       utxos: [lockedStateId],
       delegate: atom.address,
     })
-    .waitForReceipt(10000);
+    .waitForReceipt(DEFAULT_POLL_TIMEOUT);
   if (!checkReceipt(receipt)) return false;
 
   // execute the swap
@@ -340,12 +361,13 @@ async function main(): Promise<boolean> {
       logger.log("All balances are non-zero, proceeding...");
       break;
     }
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    // if 60 second passed from the beginning of the loop than fail the test
-    if (Date.now() - startTime > 60000) {
-      logger.error("Failed to get final balances after 60 seconds");
+    // if LONG_POLL_TIMEOUT ms passed from the beginning of the loop than fail the test
+    if (Date.now() - startTime > LONG_POLL_TIMEOUT) {
+      logger.error(`Failed to get final balances after ${LONG_POLL_TIMEOUT / 1000} seconds`);
       return false;
     }
+
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
   }
 
   // Save contract data to file for later use
@@ -400,7 +422,8 @@ async function main(): Promise<boolean> {
     timestamp: new Date().toISOString()
   };
 
-  const dataDir = path.join(__dirname, '..', 'data');
+  // Use command-line argument for data directory if provided, otherwise use default
+  const dataDir = getCachePath();
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }

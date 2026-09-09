@@ -17,20 +17,47 @@ package noto
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func decodeFnParams[T any](t *testing.T, abiFn *abi.Entry, paramsJSONStr string) *T {
+	cv, err := abiFn.Inputs.ParseJSON([]byte(paramsJSONStr))
+	require.NoError(t, err)
+	var v T
+	reEncodedParamsJSON, err := cv.JSON()
+	require.NoError(t, err)
+	err = json.Unmarshal(reEncodedParamsJSON, &v)
+	require.NoError(t, err)
+	return &v
+}
+
+func decodeSingleABITuple[T any](t *testing.T, typeList abi.ParameterArray, paramsEncoded pldtypes.HexBytes) *T {
+	cv, err := typeList.DecodeABIData([]byte(paramsEncoded), 0)
+	require.NoError(t, err)
+	require.Len(t, cv.Children, 1)
+	var v T
+	serializer := abi.NewSerializer().
+		SetFormattingMode(abi.FormatAsObjects).
+		SetByteSerializer(abi.HexByteSerializer0xPrefix)
+	reEncodedParamsJSON, err := serializer.SerializeJSON(cv.Children[0])
+	require.NoError(t, err)
+	err = json.Unmarshal(reEncodedParamsJSON, &v)
+	require.NoError(t, err)
+	return &v
+}
 
 var encodedConfig = func(data *types.NotoConfigData_V0) []byte {
 	dataJSON, err := json.Marshal(data)
@@ -38,7 +65,7 @@ var encodedConfig = func(data *types.NotoConfigData_V0) []byte {
 		panic(err)
 	}
 	encoded, err := types.NotoConfigABI_V0.EncodeABIDataJSON([]byte(fmt.Sprintf(`{
-		"notaryAddress": "0x138baffcdcc3543aad1afd81c71d2182cdf9c8cd",
+		"notary": "0x138baffcdcc3543aad1afd81c71d2182cdf9c8cd",
 		"variant": "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"data": "%s"
 	}`, pldtypes.HexBytes(dataJSON).String())))
@@ -51,12 +78,26 @@ var encodedConfig = func(data *types.NotoConfigData_V0) []byte {
 	return result
 }
 
-var mockCallbacks = &domain.MockDomainCallbacks{
-	MockLocalNodeName: func() (*prototk.LocalNodeNameResponse, error) {
-		return &prototk.LocalNodeNameResponse{
-			Name: "node1",
-		}, nil
-	},
+func newMockCallbacks() *domain.MockDomainCallbacks {
+	return &domain.MockDomainCallbacks{
+		MockLocalNodeName: func() (*prototk.LocalNodeNameResponse, error) {
+			return &prototk.LocalNodeNameResponse{
+				Name: "node1",
+			}, nil
+		},
+		MockValidateStates: func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+			// Default for mock is just to echo back the states supplied with randomly generated IDs
+			statesWithIDs := make([]*prototk.EndorsableState, len(req.States))
+			for i, inputState := range req.States {
+				statesWithIDs[i] = &prototk.EndorsableState{
+					Id:            pldtypes.RandBytes32().String(),
+					SchemaId:      inputState.SchemaId,
+					StateDataJson: inputState.StateDataJson,
+				}
+			}
+			return &prototk.ValidateStatesResponse{States: statesWithIDs}, nil
+		},
+	}
 }
 
 func TestABIParseFailure(t *testing.T) {
@@ -69,15 +110,16 @@ func TestABIParseFailure(t *testing.T) {
 }
 
 func TestNotoDomainInit(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	configureRes, err := n.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{
 		Name:       "noto",
 		ConfigJson: "{}",
 	})
 	require.NoError(t, err)
-	assert.Len(t, configureRes.DomainConfig.AbiStateSchemasJson, 4)
+	assert.Len(t, configureRes.DomainConfig.AbiStateSchemasJson, 10)
 
 	initRes, err := n.InitDomain(ctx, &prototk.InitDomainRequest{
 		AbiStateSchemas: []*prototk.StateSchema{
@@ -85,6 +127,12 @@ func TestNotoDomainInit(t *testing.T) {
 			{Id: "schema2"},
 			{Id: "schema3"},
 			{Id: "schema4"},
+			{Id: "schema5"},
+			{Id: "schema6"},
+			{Id: "schema7"},
+			{Id: "schema8"},
+			{Id: "schema9"},
+			{Id: "schema10"},
 		},
 	})
 	require.NoError(t, err)
@@ -92,14 +140,16 @@ func TestNotoDomainInit(t *testing.T) {
 
 	assert.Equal(t, "noto", n.Name())
 	assert.Equal(t, "schema1", n.CoinSchemaID())
-	assert.Equal(t, "schema2", n.LockInfoSchemaID())
-	assert.Equal(t, "schema3", n.LockedCoinSchemaID())
-	assert.Equal(t, "schema4", n.DataSchemaID())
+	assert.Equal(t, "schema3", n.LockInfoSchemaID()) // V1 lock info schema is 3rd
+	assert.Equal(t, "schema4", n.LockedCoinSchemaID())
+	assert.Equal(t, "schema7", n.DataSchemaID()) // V2 data schema is 7th
+	assert.Equal(t, "schema8", n.ManifestSchemaID())
 }
 
 func TestNotoDomainDeployDefaults(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	deployTransaction := &prototk.DeployTransactionSpecification{
 		TransactionId: "tx1",
@@ -133,7 +183,7 @@ func TestNotoDomainDeployDefaults(t *testing.T) {
 	err = json.Unmarshal([]byte(prepareDeployRes.Transaction.ParamsJson), &deployParams)
 	require.NoError(t, err)
 	assert.Equal(t, "tx1", deployParams["transactionId"])
-	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notaryAddress"])
+	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notary"])
 	deployData := pldtypes.MustParseHexBytes(deployParams["data"].(string))
 	assert.JSONEq(t, `{
 		"notaryLookup": "notary@node1",
@@ -154,8 +204,9 @@ func TestNotoDomainDeployDefaults(t *testing.T) {
 }
 
 func TestNotoDomainDeployBasicConfig(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	deployTransaction := &prototk.DeployTransactionSpecification{
 		TransactionId: "tx1",
@@ -196,7 +247,7 @@ func TestNotoDomainDeployBasicConfig(t *testing.T) {
 	err = json.Unmarshal([]byte(prepareDeployRes.Transaction.ParamsJson), &deployParams)
 	require.NoError(t, err)
 	assert.Equal(t, "tx1", deployParams["transactionId"])
-	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notaryAddress"])
+	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notary"])
 	deployData := pldtypes.MustParseHexBytes(deployParams["data"].(string))
 	assert.JSONEq(t, `{
 		"notaryLookup": "notary@node1",
@@ -217,8 +268,9 @@ func TestNotoDomainDeployBasicConfig(t *testing.T) {
 }
 
 func TestNotoDomainDeployHooksConfig(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	groupSalt := pldtypes.RandBytes32()
 	deployTransaction := &prototk.DeployTransactionSpecification{
@@ -263,7 +315,7 @@ func TestNotoDomainDeployHooksConfig(t *testing.T) {
 	err = json.Unmarshal([]byte(prepareDeployRes.Transaction.ParamsJson), &deployParams)
 	require.NoError(t, err)
 	assert.Equal(t, "tx1", deployParams["transactionId"])
-	assert.Equal(t, "0x0a8cb8c4cf5aea4ea2ed3b3777ccddd3e0eb9bc5", deployParams["notaryAddress"])
+	assert.Equal(t, "0x0a8cb8c4cf5aea4ea2ed3b3777ccddd3e0eb9bc5", deployParams["notary"])
 	deployData := pldtypes.MustParseHexBytes(deployParams["data"].(string))
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"notaryLookup": "notary@node1",
@@ -290,6 +342,7 @@ func TestNotoDomainDeployHooksConfig(t *testing.T) {
 }
 
 func TestConfigureDomainBadConfig(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
 		ConfigJson: "!!wrong",
@@ -298,6 +351,7 @@ func TestConfigureDomainBadConfig(t *testing.T) {
 }
 
 func TestInitDeployBadParams(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitDeploy(context.Background(), &prototk.InitDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -308,6 +362,7 @@ func TestInitDeployBadParams(t *testing.T) {
 }
 
 func TestInitDeployBadMode(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitDeploy(context.Background(), &prototk.InitDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -321,6 +376,7 @@ func TestInitDeployBadMode(t *testing.T) {
 }
 
 func TestInitDeployMissingNotary(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitDeploy(context.Background(), &prototk.InitDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -331,6 +387,7 @@ func TestInitDeployMissingNotary(t *testing.T) {
 }
 
 func TestInitDeployMissingHooksOptions(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 
 	_, err := n.InitDeploy(context.Background(), &prototk.InitDeployRequest{
@@ -389,6 +446,7 @@ func TestInitDeployMissingHooksOptions(t *testing.T) {
 }
 
 func TestPrepareDeployBadParams(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.PrepareDeploy(context.Background(), &prototk.PrepareDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -399,6 +457,7 @@ func TestPrepareDeployBadParams(t *testing.T) {
 }
 
 func TestPrepareDeployMissingVerifier(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.PrepareDeploy(context.Background(), &prototk.PrepareDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -412,6 +471,7 @@ func TestPrepareDeployMissingVerifier(t *testing.T) {
 }
 
 func TestPrepareDeployBadNotary(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.PrepareDeploy(context.Background(), &prototk.PrepareDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -425,6 +485,7 @@ func TestPrepareDeployBadNotary(t *testing.T) {
 }
 
 func TestPrepareDeployUnqualifiedNotary(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	res, err := n.PrepareDeploy(context.Background(), &prototk.PrepareDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -447,14 +508,181 @@ func TestPrepareDeployUnqualifiedNotary(t *testing.T) {
 	var deployParams map[string]any
 	err = json.Unmarshal([]byte(res.Transaction.ParamsJson), &deployParams)
 	require.NoError(t, err)
-	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notaryAddress"])
+	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notary"])
 	var deployData map[string]any
 	err = json.Unmarshal(pldtypes.MustParseHexBytes(deployParams["data"].(string)), &deployData)
 	require.NoError(t, err)
 	assert.Equal(t, "notary@node1", deployData["notaryLookup"])
 }
 
+func TestPrepareDeployV1Factory(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks, config: types.DomainConfig{FactoryVersion: 1}}
+	ctx := context.Background()
+
+	deployTransaction := &prototk.DeployTransactionSpecification{
+		TransactionId: "tx1",
+		ConstructorParamsJson: `{
+			"notary": "notary@node1",
+			"notaryMode": "basic",
+			"name": "test",
+			"symbol": "TEST"
+		}`,
+	}
+
+	prepareDeployRes, err := n.PrepareDeploy(ctx, &prototk.PrepareDeployRequest{
+		Transaction: deployTransaction,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{
+				Lookup:       "notary@node1",
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71",
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, prepareDeployRes.Transaction.FunctionAbiJson)
+	var deployParams map[string]any
+	err = json.Unmarshal([]byte(prepareDeployRes.Transaction.ParamsJson), &deployParams)
+	require.NoError(t, err)
+	assert.Equal(t, "tx1", deployParams["transactionId"])
+	assert.Equal(t, "test", deployParams["name"])
+	assert.Equal(t, "TEST", deployParams["symbol"])
+	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notary"])
+	assert.NotContains(t, deployParams, "implementationName")
+	deployData := pldtypes.MustParseHexBytes(deployParams["data"].(string))
+	assert.JSONEq(t, `{
+		"notaryLookup": "notary@node1",
+		"notaryMode": "0x0",
+		"privateAddress": null,
+		"privateGroup": null,
+		"restrictMint": true,
+		"allowBurn": true,
+		"allowLock": true
+	}`, string(deployData))
+
+	initContractRes, err := n.InitContract(ctx, &prototk.InitContractRequest{
+		ContractAddress: "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3",
+		ContractConfig:  encodedConfig(&types.NotoConfigData_V0{NotaryLookup: "notary@node1"}),
+	})
+	require.NoError(t, err)
+	assert.True(t, initContractRes.Valid)
+}
+
+func TestPrepareDeployV2Factory(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks, config: types.DomainConfig{FactoryVersion: 2}}
+	ctx := context.Background()
+
+	deployTransaction := &prototk.DeployTransactionSpecification{
+		TransactionId: "tx1",
+		ConstructorParamsJson: `{
+			"notary": "notary@node1",
+			"notaryMode": "basic",
+			"name": "test",
+			"symbol": "TEST"
+		}`,
+	}
+
+	prepareDeployRes, err := n.PrepareDeploy(ctx, &prototk.PrepareDeployRequest{
+		Transaction: deployTransaction,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{
+				Lookup:       "notary@node1",
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71",
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, prepareDeployRes.Transaction.FunctionAbiJson)
+	var deployParams map[string]any
+	err = json.Unmarshal([]byte(prepareDeployRes.Transaction.ParamsJson), &deployParams)
+	require.NoError(t, err)
+	assert.Equal(t, "tx1", deployParams["transactionId"])
+	assert.Equal(t, "test", deployParams["name"])
+	assert.Equal(t, "TEST", deployParams["symbol"])
+	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notary"])
+	assert.NotContains(t, deployParams, "implementationName")
+	deployData := pldtypes.MustParseHexBytes(deployParams["data"].(string))
+	assert.JSONEq(t, `{
+		"notaryLookup": "notary@node1",
+		"notaryMode": "0x0",
+		"privateAddress": null,
+		"privateGroup": null,
+		"restrictMint": true,
+		"allowBurn": true,
+		"allowLock": true
+	}`, string(deployData))
+
+	initContractRes, err := n.InitContract(ctx, &prototk.InitContractRequest{
+		ContractAddress: "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3",
+		ContractConfig:  encodedConfig(&types.NotoConfigData_V0{NotaryLookup: "notary@node1"}),
+	})
+	require.NoError(t, err)
+	assert.True(t, initContractRes.Valid)
+}
+
+func TestPrepareDeployV2FactoryImplementation(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks, config: types.DomainConfig{FactoryVersion: 2}}
+	ctx := context.Background()
+
+	deployTransaction := &prototk.DeployTransactionSpecification{
+		TransactionId: "tx1",
+		ConstructorParamsJson: `{
+			"notary": "notary@node1",
+			"notaryMode": "basic",
+			"implementation": "alt-noto",
+			"name": "test",
+			"symbol": "TEST"
+		}`,
+	}
+
+	prepareDeployRes, err := n.PrepareDeploy(ctx, &prototk.PrepareDeployRequest{
+		Transaction: deployTransaction,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{
+				Lookup:       "notary@node1",
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71",
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, prepareDeployRes.Transaction.FunctionAbiJson)
+	var deployParams map[string]any
+	err = json.Unmarshal([]byte(prepareDeployRes.Transaction.ParamsJson), &deployParams)
+	require.NoError(t, err)
+	assert.Equal(t, "tx1", deployParams["transactionId"])
+	assert.Equal(t, "test", deployParams["name"])
+	assert.Equal(t, "TEST", deployParams["symbol"])
+	assert.Equal(t, "0x6e2430d15301a7ee28ceaaee0dff9781f8f82f71", deployParams["notary"])
+	assert.Equal(t, "alt-noto", deployParams["implementationName"])
+	deployData := pldtypes.MustParseHexBytes(deployParams["data"].(string))
+	assert.JSONEq(t, `{
+		"notaryLookup": "notary@node1",
+		"notaryMode": "0x0",
+		"privateAddress": null,
+		"privateGroup": null,
+		"restrictMint": true,
+		"allowBurn": true,
+		"allowLock": true
+	}`, string(deployData))
+
+	initContractRes, err := n.InitContract(ctx, &prototk.InitContractRequest{
+		ContractAddress: "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3",
+		ContractConfig:  encodedConfig(&types.NotoConfigData_V0{NotaryLookup: "notary@node1"}),
+	})
+	require.NoError(t, err)
+	assert.True(t, initContractRes.Valid)
+}
+
 func TestPrepareDeployCheckFunction(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	res, err := n.PrepareDeploy(context.Background(), &prototk.PrepareDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -504,6 +732,7 @@ func TestPrepareDeployCheckFunction(t *testing.T) {
 }
 
 func TestInitContractBadConfig(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	res, err := n.InitContract(context.Background(), &prototk.InitContractRequest{
 		ContractConfig: []byte("!!wrong"),
@@ -513,6 +742,7 @@ func TestInitContractBadConfig(t *testing.T) {
 }
 
 func TestInitContractBadNotary(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitContract(context.Background(), &prototk.InitContractRequest{
 		ContractAddress: pldtypes.RandAddress().String(),
@@ -522,6 +752,7 @@ func TestInitContractBadNotary(t *testing.T) {
 }
 
 func TestInitTransactionBadAbi(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -532,6 +763,7 @@ func TestInitTransactionBadAbi(t *testing.T) {
 }
 
 func TestInitTransactionBadConfig(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -545,6 +777,7 @@ func TestInitTransactionBadConfig(t *testing.T) {
 }
 
 func TestInitTransactionBadFunction(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -559,7 +792,8 @@ func TestInitTransactionBadFunction(t *testing.T) {
 
 // TODO: rework this test because Function signature correctness is checked before contractAddress
 // func TestInitTransactionBadAddress(t *testing.T) {
-// 	n := &Noto{Callbacks: mockCallbacks}
+// 	mockCallbacks := mockCallbacks()
+//  n := &Noto{Callbacks: mockCallbacks,}
 // 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 // 		Transaction: &prototk.TransactionSpecification{
 // 			ContractInfo: &prototk.ContractInfo{
@@ -573,6 +807,7 @@ func TestInitTransactionBadFunction(t *testing.T) {
 // }
 
 func TestInitTransactionBadParams(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -580,7 +815,7 @@ func TestInitTransactionBadParams(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: "!!wrong",
 		},
 	})
@@ -588,6 +823,7 @@ func TestInitTransactionBadParams(t *testing.T) {
 }
 
 func TestInitTransactionMissingTo(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -595,7 +831,7 @@ func TestInitTransactionMissingTo(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: "{}",
 		},
 	})
@@ -603,6 +839,7 @@ func TestInitTransactionMissingTo(t *testing.T) {
 }
 
 func TestInitTransactionMissingAmount(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -610,7 +847,7 @@ func TestInitTransactionMissingAmount(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: `{"to": "recipient"}`,
 		},
 	})
@@ -618,6 +855,7 @@ func TestInitTransactionMissingAmount(t *testing.T) {
 }
 
 func TestInitTransactionBadSignature(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -625,14 +863,134 @@ func TestInitTransactionBadSignature(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: `{"to": "recipient", "amount": 1}`,
 		},
 	})
 	assert.ErrorContains(t, err, "PD200002")
 }
 
+func TestIsBaseLedgerRevertRetryable_ShortData(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: []byte{0x01, 0x02},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_EmptyData(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: []byte{},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_NilData(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: nil,
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_RetryableError_NotoInvalidInput(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	errorEntry := errorsBuild.ABI.Errors()["NotoInvalidInput"]
+	require.NotNil(t, errorEntry)
+	idBytes := pldtypes.RandBytes32()
+	encoded, err := errorEntry.EncodeCallDataJSONCtx(ctx, []byte(fmt.Sprintf(`{"id": "%s"}`, idBytes)))
+	require.NoError(t, err)
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: encoded,
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Contains(t, res.DecodedReason, "NotoInvalidInput")
+	assert.Contains(t, res.DecodedReason, idBytes.String())
+}
+
+func TestIsBaseLedgerRevertRetryable_NonRetryableError_NotNotary(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	errorEntry := errorsBuild.ABI.Errors()["NotoNotNotary"]
+	require.NotNil(t, errorEntry)
+	addr := pldtypes.RandAddress()
+	encoded, err := errorEntry.EncodeCallDataJSONCtx(ctx, []byte(fmt.Sprintf(`{"sender": "%s"}`, addr)))
+	require.NoError(t, err)
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: encoded,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Contains(t, res.DecodedReason, "NotoNotNotary")
+}
+
+func TestIsBaseLedgerRevertRetryable_NonRetryableError_DuplicateTransaction(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	errorEntry := errorsBuild.ABI.Errors()["NotoDuplicateTransaction"]
+	require.NotNil(t, errorEntry)
+	txId := pldtypes.RandBytes32()
+	encoded, err := errorEntry.EncodeCallDataJSONCtx(ctx, []byte(fmt.Sprintf(`{"txId": "%s"}`, txId)))
+	require.NoError(t, err)
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: encoded,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Contains(t, res.DecodedReason, "NotoDuplicateTransaction")
+}
+
+func TestIsBaseLedgerRevertRetryable_UnrecognizedSelector(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	revertData := []byte{0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04}
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: revertData,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_ExactlyFourBytes(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	revertData := []byte{0xab, 0xcd, 0xef, 0x01}
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: revertData,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
 func TestAssembleTransactionBadAbi(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.AssembleTransaction(context.Background(), &prototk.AssembleTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -643,6 +1001,7 @@ func TestAssembleTransactionBadAbi(t *testing.T) {
 }
 
 func TestEndorseTransactionBadAbi(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.EndorseTransaction(context.Background(), &prototk.EndorseTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -653,6 +1012,7 @@ func TestEndorseTransactionBadAbi(t *testing.T) {
 }
 
 func TestPrepareTransactionBadAbi(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.PrepareTransaction(context.Background(), &prototk.PrepareTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -662,23 +1022,83 @@ func TestPrepareTransactionBadAbi(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid character")
 }
 
-func TestUnimplementedMethods(t *testing.T) {
-	n := &Noto{}
+func TestSign(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
-	_, err := n.Sign(ctx, nil)
-	assert.ErrorContains(t, err, "PD200022")
+	coin := &types.NotoCoin{
+		Amount: pldtypes.MustParseHexUint256("100"),
+		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.RandAddress(),
+	}
+	coinJSON, err := json.Marshal(coin)
+	require.NoError(t, err)
 
-	_, err = n.GetVerifier(ctx, nil)
-	assert.ErrorContains(t, err, "PD200022")
+	resp, err := n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
+		Payload:     coinJSON,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, len(resp.Payload), 32)
 
-	_, err = n.ValidateStateHashes(ctx, nil)
+	// The same coin in a different contract must nullify differently, or the two records
+	// collide in the local state store, which is keyed per domain rather than per contract
+	otherContractResp, err := n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(pldtypes.MustEthAddress("0x1111111111111111111111111111111111111111")),
+		Payload:     coinJSON,
+	})
+	require.NoError(t, err)
+	assert.NotEqual(t, resp.Payload, otherContractResp.Payload)
+
+	// A nullifier that is not bound to a contract must be refused
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		Payload:     coinJSON,
+	})
+	assert.ErrorContains(t, err, "PD200043")
+
+	lockedCoin := &types.NotoLockedCoin{
+		Amount: coin.Amount,
+		Salt:   coin.Salt,
+		Owner:  coin.Owner,
+		LockID: pldtypes.RandBytes32(),
+	}
+	lockedCoinJSON, err := json.Marshal(lockedCoin)
+	require.NoError(t, err)
+
+	// Locked coins are spent by ID, so they are never nullified. A locked coin presented as
+	// an unlocked coin is rejected, rather than being nullified with its lockId dropped
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
+		Payload:     lockedCoinJSON,
+	})
+	assert.ErrorContains(t, err, "PD200043")
+
+	// A coin without an owner cannot be nullified
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
+		Payload:     []byte(`{"amount": "100", "salt": "0x1b0d6be69d1d5bd7ff9b1b8b7d3b1de4b23e6ba95d8b6c8e4f0eb9c0f6a9f36e"}`),
+	})
+	assert.ErrorContains(t, err, "PD200044")
+}
+
+func TestUnimplementedMethods(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	_, err := n.ValidateStateHashes(ctx, nil)
 	assert.ErrorContains(t, err, "PD200022")
 }
 
 func TestDecodeConfigInvalid(t *testing.T) {
 	n := &Noto{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _, err := n.decodeConfig(ctx, types.NotoConfigID_V0)
 	assert.ErrorContains(t, err, "FF22047")
@@ -686,8 +1106,22 @@ func TestDecodeConfigInvalid(t *testing.T) {
 
 func TestRecoverSignatureInvalid(t *testing.T) {
 	n := &Noto{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.recoverSignature(ctx, nil, nil)
 	assert.ErrorContains(t, err, "FF22087")
+}
+
+func hashName(name string) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(name))
+	hash := h.Sum(nil)
+	return ((pldtypes.HexBytes)(hash)).String()
+}
+
+func testSchema(name string) *prototk.StateSchema {
+	nameHash := hashName(name)
+	return &prototk.StateSchema{
+		Id: nameHash,
+	}
 }

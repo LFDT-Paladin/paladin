@@ -24,18 +24,18 @@ import (
 	"math/big"
 	"testing"
 
-	zetocommon "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/signer"
-	signercommon "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/signer/common"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/constants"
-	protoz "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/proto"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	pb "github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	zetocommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
+	protoz "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/crypto"
 	"github.com/iden3/go-iden3-crypto/poseidon"
 	"github.com/stretchr/testify/assert"
@@ -503,7 +503,7 @@ func TestPrepareTransaction(t *testing.T) {
 
 func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*pb.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 			return &pb.FindAvailableStatesResponse{}, nil
 		},
 	}
@@ -533,7 +533,7 @@ func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 
 func TestHandleEventBatch(t *testing.T) {
 	z, testCallbacks := newTestZeto()
-	testCallbacks.MockFindAvailableStates = func() (*pb.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 		return nil, errors.New("find merkle tree root error")
 	}
 	ctx := context.Background()
@@ -561,9 +561,9 @@ func TestHandleEventBatch(t *testing.T) {
 
 	req.ContractInfo.ContractAddress = "0x1234567890123456789012345678901234567890"
 	_, err = z.HandleEventBatch(ctx, req)
-	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: PD210065: Failed to find available states for the merkle tree. find merkle tree root error")
+	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree spec for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: find merkle tree root error")
 
-	testCallbacks.MockFindAvailableStates = func() (*pb.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 		return &pb.FindAvailableStatesResponse{}, nil
 	}
 	res1, err := z.HandleEventBatch(ctx, req)
@@ -593,7 +593,7 @@ func TestHandleEventBatch(t *testing.T) {
 	req.Events[0].DataJson = string(data)
 	req.Events[0].SoliditySignature = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
 	_, err = z.HandleEventBatch(ctx, req)
-	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD210056: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 
 	data, _ = json.Marshal(map[string]any{
 		"data":      encodedData,
@@ -888,10 +888,23 @@ func TestGetCallHandler(t *testing.T) {
 	}
 }
 
+func TestIsBaseLedgerRevertRetryable(t *testing.T) {
+	z := &Zeto{}
+	res, err := z.IsBaseLedgerRevertRetryable(context.Background(), nil)
+	assert.NoError(t, err)
+	assert.True(t, res.Retryable)
+}
+
 func TestUnimplementedMethods(t *testing.T) {
 	z := &Zeto{}
-	_, err := z.BuildReceipt(context.Background(), nil)
-	assert.ErrorContains(t, err, "PD210102: Not implemented")
+	_, err := z.ConfigurePrivacyGroup(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
+	_, err = z.InitPrivacyGroup(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
+	_, err = z.WrapPrivacyGroupEVMTX(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
+	_, err = z.InvokeRPC(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
 }
 
 func TestGetStateSchemas(t *testing.T) {

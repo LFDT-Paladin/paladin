@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
 type metricsManager struct {
@@ -27,6 +28,11 @@ type metricsManager struct {
 
 func NewMetricsManager(ctx context.Context) Metrics {
 	registry := prometheus.NewRegistry()
+
+	registry.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
 
 	mm := &metricsManager{
 		ctx:             ctx,

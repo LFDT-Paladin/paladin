@@ -18,22 +18,26 @@ package integrationtest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zeto"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zeto"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/testbed"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/noto"
-	nototypes "github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/types"
-	zetotypes "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/solutils"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
+	"github.com/LFDT-Paladin/paladin/domains/integration-test/helpers"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/noto"
+	nototypes "github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	zetotypes "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,25 +105,55 @@ func mapConfig(t *testing.T, config any) (m map[string]any) {
 	return m
 }
 
-func newTestbed(t *testing.T, hdWalletSeed *testbed.UTInitFunction, domains map[string]*testbed.TestbedDomain) (context.CancelFunc, *pldconf.PaladinConfig, testbed.Testbed, rpcclient.Client) {
+func newTestbed(t *testing.T, hdWalletSeed *testbed.UTInitFunction, domains map[string]*testbed.TestbedDomain) (context.CancelFunc, *pldconf.PaladinConfig, testbed.Testbed, rpcclient.Client, pldclient.PaladinWSClient) {
 	tb := testbed.NewTestBed()
-	url, conf, done, err := tb.StartForTest("./testbed.config.yaml", domains, hdWalletSeed)
+	enableWebSocket := &testbed.UTInitFunction{
+		ModifyConfig: func(conf *pldconf.PaladinConfig) {
+			conf.RPCServer.WS.Disabled = false
+			if conf.RPCServer.WS.Port == nil {
+				conf.RPCServer.WS.Port = confutil.P(0) // Use port 0 for auto-assignment
+			}
+		},
+	}
+	httpURL, wsURL, conf, done, err := tb.StartForTest("./testbed.config.yaml", domains, hdWalletSeed, enableWebSocket)
 	assert.NoError(t, err)
-	rc := resty.New().SetBaseURL(url)
+	rc := resty.New().SetBaseURL(httpURL)
 	rpc := rpcclient.WrapRestyClient(rc)
-	return done, conf, tb, rpc
+
+	var wsClient pldclient.PaladinWSClient
+	if wsURL != "" {
+		ctx := context.Background()
+		wsClient, err = pldclient.New().WebSocket(ctx, &pldconf.WSClientConfig{
+			HTTPClientConfig: pldconf.HTTPClientConfig{
+				URL: wsURL,
+			},
+		})
+		require.NoError(t, err)
+		// Update done function to also close the WebSocket client
+		originalDone := done
+		done = func() {
+			if wsClient != nil {
+				wsClient.Close()
+			}
+			originalDone()
+		}
+	}
+
+	return done, conf, tb, rpc, wsClient
 }
 
-func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UTInitFunction, deployer string, contracts map[string][]byte) map[string]string {
+func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UTInitFunction, deployer string, deployOrder []string, contracts map[string][]byte, postDeploy ...func(deployed map[string]string, rpc rpcclient.Client)) map[string]string {
 	tb := testbed.NewTestBed()
-	url, _, done, err := tb.StartForTest("./testbed.config.yaml", map[string]*testbed.TestbedDomain{}, hdWalletSeed)
+	httpURL, _, _, done, err := tb.StartForTest("./testbed.config.yaml", map[string]*testbed.TestbedDomain{}, hdWalletSeed)
 	assert.NoError(t, err)
 	defer done()
-	rpc := rpcclient.WrapRestyClient(resty.New().SetBaseURL(url))
+	rpc := rpcclient.WrapRestyClient(resty.New().SetBaseURL(httpURL))
 
 	deployed := make(map[string]string, len(contracts))
-	for name, contract := range contracts {
-		build := solutils.MustLoadBuild(contract)
+	libs := make(map[string]*pldtypes.EthAddress, len(contracts))
+	for _, name := range deployOrder {
+		contract := contracts[name]
+		build := solutils.MustLoadBuildResolveLinks(contract, libs)
 		var addr string
 		rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deployBytecode",
 			deployer, build.ABI, build.Bytecode.String(), pldtypes.RawJSON(`{}`))
@@ -127,20 +161,52 @@ func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UT
 			assert.NoError(t, rpcerr)
 		}
 		deployed[name] = addr
+		libs[name] = pldtypes.MustEthAddress(addr)
+	}
+	for _, fn := range postDeploy {
+		fn(deployed, rpc)
 	}
 	return deployed
 }
 
-func newNotoDomain(t *testing.T, config *nototypes.DomainConfig) (chan noto.Noto, *testbed.TestbedDomain) {
+// deployFactoryProxy deploys an ERC1967Proxy for an upgradeable factory contract.
+// It encodes the initialize call with the provided params and deploys the proxy.
+// Returns the proxy address.
+func deployFactoryProxy(
+	ctx context.Context,
+	t *testing.T,
+	rpc rpcclient.Client,
+	deployer string,
+	factoryImplAddr string,
+	factoryABIJSON []byte,
+	initializeParams string, // JSON array of params, e.g. `["0x..."]` or `[]`
+) string {
+	factoryABI := solutils.MustParseBuildABI(factoryABIJSON)
+	initCalldata, err := factoryABI.Functions()["initialize"].EncodeCallDataJSON([]byte(initializeParams))
+	require.NoError(t, err)
+
+	proxyBuild := solutils.MustLoadBuild(helpers.ERC1967ProxyJSON)
+	var proxyAddr string
+	proxyParams := fmt.Sprintf(`["%s", "%s"]`, factoryImplAddr, pldtypes.HexBytes(initCalldata))
+	rpcerr := rpc.CallRPC(ctx, &proxyAddr, "testbed_deployBytecode",
+		deployer, proxyBuild.ABI, proxyBuild.Bytecode.String(), pldtypes.RawJSON(proxyParams))
+	require.NoError(t, rpcerr)
+	return proxyAddr
+}
+
+func newNotoDomain(t *testing.T, registryAddress *pldtypes.EthAddress) (chan noto.Noto, *testbed.TestbedDomain) {
 	waitForDomain := make(chan noto.Noto, 1)
 	tbd := &testbed.TestbedDomain{
-		Config: mapConfig(t, config),
+		Config: mapConfig(t, nototypes.DomainConfig{
+			FactoryVersion: 2,
+		}),
 		Plugin: plugintk.NewDomain(func(callbacks plugintk.DomainCallbacks) plugintk.DomainAPI {
 			domain := noto.New(callbacks)
 			waitForDomain <- domain
 			return domain
 		}),
-		RegistryAddress: pldtypes.MustEthAddress(config.FactoryAddress),
+		RegistryAddress: registryAddress,
+		AllowSigning:    true,
 	}
 	return waitForDomain, tbd
 }

@@ -7,16 +7,18 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/smt"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/node"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/node"
 	"github.com/iden3/go-iden3-crypto/poseidon"
 )
 
@@ -201,29 +203,36 @@ func (z *Zeto) updateMerkleTree(ctx context.Context, tree core.SparseMerkleTree,
 }
 
 func (z *Zeto) addOutputToMerkleTree(ctx context.Context, tree core.SparseMerkleTree, output pldtypes.HexUint256) error {
-	idx, err := node.NewNodeIndexFromBigInt(output.Int())
+	idx, err := node.NewNodeIndexFromBigInt(output.Int(), signercommon.GetHasher())
 	if err != nil {
-		return i18n.NewError(ctx, msgs.MsgErrorNewNodeIndex, output.String(), err)
+		return i18n.NewError(ctx, pldmsgs.MsgErrorNewNodeIndex, output.String(), err)
 	}
 	n := node.NewIndexOnly(idx)
-	leaf, err := node.NewLeafNode(n)
+	leaf, err := node.NewLeafNode(n, nil)
 	if err != nil {
-		return i18n.NewError(ctx, msgs.MsgErrorNewLeafNode, err)
+		return i18n.NewError(ctx, pldmsgs.MsgErrorNewLeafNode, err)
 	}
-	err = tree.AddLeaf(leaf)
+	err = tree.AddLeaf(ctx, leaf)
 	if err != nil {
-		return i18n.NewError(ctx, msgs.MsgErrorAddLeafNode, err)
+		return i18n.NewError(ctx, pldmsgs.MsgErrorAddLeafNode, err)
 	}
 	return nil
 }
 
 func parseStatesFromEvent(txID pldtypes.Bytes32, states []pldtypes.HexUint256) []*prototk.StateUpdate {
-	refs := make([]*prototk.StateUpdate, len(states))
-	for i, state := range states {
-		refs[i] = &prototk.StateUpdate{
+	refs := make([]*prototk.StateUpdate, 0, len(states))
+	for _, state := range states {
+		if state.NilOrZero() {
+			// The UTXO arrays in the events are padded out to the size the circuit requires, so a zero
+			// entry is padding and not a state. Recording it as spent or confirmed leaves the
+			// transaction permanently waiting on a state that will never exist, which in turn stops its
+			// domain receipt from ever being built.
+			continue
+		}
+		refs = append(refs, &prototk.StateUpdate{
 			Id:            common.HexUint256To32ByteHexString(&state),
 			TransactionId: txID.String(),
-		}
+		})
 	}
 	return refs
 }
