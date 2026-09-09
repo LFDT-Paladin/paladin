@@ -307,7 +307,7 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.baseLedgerRevertRetryThreshold,
 		c.assembleErrorRetryThreshhold,
 		c.signErrorRetryThreshhold,
-		c.prepareRetry,
+		c.prepareErrorRetry,
 		c.grapher,
 		c.stateViewProvider,
 		c.stateVisibilityTracker,

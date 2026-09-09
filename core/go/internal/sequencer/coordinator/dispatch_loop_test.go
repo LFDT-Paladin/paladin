@@ -385,7 +385,6 @@ func TestDispatchLoop_CapsBatchSize(t *testing.T) {
 	var wantOrder []uuid.UUID
 	for i := 0; i < 3; i++ {
 		qd := newDispatchQueued(t, plainDispatch())
-		// newDispatchQueued stamps prepared.TransactionID with the mock's own id.
 		wantOrder = append(wantOrder, qd.prepared.TransactionID)
 		c.dispatchQueue <- qd
 	}

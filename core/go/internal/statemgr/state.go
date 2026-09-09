@@ -143,8 +143,6 @@ func (ss *stateManager) processInsertStates(ctx context.Context, dbTX persistenc
 	return processedStates, nil
 }
 
-// WriteStateBatch writes fully-built states and their pre-built nullifier records within the caller's
-// DB transaction. Nullifiers must be validated against and linked to their creating states by the caller.
 func (ss *stateManager) WriteStateBatch(ctx context.Context, dbTX persistence.DBTX, statesWithLabels []*components.StateWithLabels, nullifiers ...*pldapi.StateNullifier) (err error) {
 	states := make([]*pldapi.State, len(statesWithLabels))
 	for i, s := range statesWithLabels {

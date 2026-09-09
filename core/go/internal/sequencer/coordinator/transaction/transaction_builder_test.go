@@ -101,7 +101,7 @@ type TransactionBuilderForTesting struct {
 	assembleErrorRetryThreshhold       int
 	signErrorCount                     int
 	signErrorRetryThreshhold           int
-	prepareRetry                       *retry.Retry
+	prepareErrorRetry                  *retry.Retry
 	endorseToleranceByRequirement      map[string]int
 	revertCount                        int
 	currentBlockHeight                 int64
@@ -407,8 +407,8 @@ func (b *TransactionBuilderForTesting) SignErrorRetryThreshold(threshold int) *T
 	return b
 }
 
-func (b *TransactionBuilderForTesting) PrepareRetry(prepareRetry *retry.Retry) *TransactionBuilderForTesting {
-	b.prepareRetry = prepareRetry
+func (b *TransactionBuilderForTesting) PrepareErrorRetry(prepareErrorRetry *retry.Retry) *TransactionBuilderForTesting {
+	b.prepareErrorRetry = prepareErrorRetry
 	return b
 }
 
@@ -628,9 +628,9 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		}
 	}
 
-	if b.prepareRetry == nil {
+	if b.prepareErrorRetry == nil {
 		// Fast bounded retry so tests exercising prepare failures complete promptly.
-		b.prepareRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		b.prepareErrorRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
 			RetryConfig: pldconf.RetryConfig{InitialDelay: confutil.P("1ms"), MaxDelay: confutil.P("2ms"), Factor: confutil.P(1.1)},
 			MaxAttempts: confutil.P(2),
 		})
@@ -693,7 +693,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.baseLedgerRevertRetryThreshold,
 		b.assembleErrorRetryThreshhold,
 		b.signErrorRetryThreshhold,
-		b.prepareRetry,
+		b.prepareErrorRetry,
 		b.grapher,
 		stateViewProvider,
 		b.stateVisibilityTracker,

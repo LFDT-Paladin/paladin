@@ -804,7 +804,7 @@
 | coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
 | delegationBatchInterval | Interval over which originator delegation requests are coalesced into a single batched send while in the sending state | `string` | `"50ms"` |
-| dispatchCommitRetry | Retry behavior for committing a dispatch batch to the database; retries indefinitely on failure | [`RetryConfig`](#sequencermanagerdispatchcommitretry) | - |
+| dispatchCommitErrorRetry | Retry behavior for committing a dispatch batch to the database; retries indefinitely on failure | [`RetryConfig`](#sequencermanagerdispatchcommiterrorretry) | - |
 | dispatchMaxBatchSize | Maximum number of transactions prepared and committed in a single dispatch batch | `int` | `100` |
 | endorseErrorRetry | Retry configuration for endorsements performed by this node | [`RetryConfigWithMax`](#sequencermanagerendorseerrorretry) | - |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
@@ -814,7 +814,7 @@
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
 | originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
-| prepareRetry | Retry behavior for preparing a transaction and building its dispatch; once the attempts are exhausted the transaction is returned to the pool | [`RetryConfigWithMax`](#sequencermanagerprepareretry) | - |
+| prepareErrorRetry | Retry behavior for preparing a transaction and building its dispatch; once the attempts are exhausted the transaction is returned to the pool | [`RetryConfigWithMax`](#sequencermanagerprepareerrorretry) | - |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
 | signErrorRetryThreshold | Maximum number of times a transaction can error on the signing of its assembled attestations before being evicted | `int` | `3` |
 | stateTimeout | Timeout for request-driven transaction states before repooling | `string` | `"10s"` |
@@ -824,7 +824,7 @@
 | transactionResumePollInterval | Poll interval for resuming transactions | `string` | `"5m"` |
 | writer | Writer configuration | [`FlushWriterConfig`](#sequencermanagerwriter) | - |
 
-## sequencerManager.dispatchCommitRetry
+## sequencerManager.dispatchCommitErrorRetry
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
@@ -841,7 +841,7 @@
 | maxAttempts | Maximum number of retry attempts | `int` | `3` |
 | maxDelay | Maximum delay between retries | `string` | `"30s"` |
 
-## sequencerManager.prepareRetry
+## sequencerManager.prepareErrorRetry
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|

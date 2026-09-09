@@ -31,14 +31,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// action_StartPrepare runs on the transition into State_Preparing. It spawns a goroutine that runs the
-// whole prepare-and-build sequence under a bounded retry with backoff, so slow or transiently failing
-// calls (domain prepare, key resolution, chained transaction preparation) never block the coordinator
-// event loop. The goroutine only reads from the private transaction and writes nothing back to it:
-// everything it builds is carried on the resulting Event_PrepareSucceeded as the pending dispatch,
-// ready to be queued for the dispatch loop. Each spawn is identified by a fresh prepare ID recorded
-// on the transaction; a result from a goroutine spawned before the transaction left and re-entered
-// State_Preparing carries a stale ID and is dropped.
+// action_StartPrepare runs the prepare off the coordinator event loop, under a bounded retry, so slow or
+// transiently failing calls (domain prepare, key resolution, chained transaction preparation) never block
+// the loop. Each spawn is tagged with a fresh prepare ID recorded on the transaction, so a result from a
+// superseded attempt can be recognised.
 func action_StartPrepare(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	prepareID := uuid.New()
 	t.inFlightPrepareID = prepareID
@@ -49,7 +45,7 @@ func action_StartPrepare(ctx context.Context, t *coordinatorTransaction, _ commo
 	go func() {
 		defer cancel()
 		var pendingDispatch *syncpoints.PendingDispatch
-		err := t.prepareRetry.Do(prepareCtx, func(_ int) (bool, error) {
+		err := t.prepareErrorRetry.Do(prepareCtx, func(_ int) (bool, error) {
 			var err error
 			pendingDispatch, err = t.prepareAndBuildDispatch(prepareCtx, pt, revertCount)
 			return true, err
@@ -71,9 +67,8 @@ func action_StartPrepare(ctx context.Context, t *coordinatorTransaction, _ commo
 	return nil
 }
 
-// action_CancelPrepare runs on the transition out of State_Preparing. Cancellation aborts the in-flight
-// prepare goroutine's retry backoff so it exits promptly; on the success path the goroutine has already
-// finished and this just releases the context.
+// action_CancelPrepare aborts an in-flight prepare goroutine's retry backoff so it exits promptly. On the
+// success path the goroutine has already finished and this just releases the context.
 func action_CancelPrepare(_ context.Context, t *coordinatorTransaction, _ common.Event) error {
 	if t.cancelPrepare != nil {
 		t.cancelPrepare()
@@ -83,8 +78,8 @@ func action_CancelPrepare(_ context.Context, t *coordinatorTransaction, _ common
 	return nil
 }
 
-// validator_MatchesInFlightPrepareID drops prepare results from a goroutine spawned before the
-// transaction left and re-entered State_Preparing (e.g. a repool raced the in-flight prepare).
+// validator_MatchesInFlightPrepareID drops prepare results from a superseded attempt - one spawned before
+// the transaction was reset and started preparing again (e.g. a repool raced the in-flight prepare).
 func validator_MatchesInFlightPrepareID(_ context.Context, t *coordinatorTransaction, event common.Event) (bool, error) {
 	switch e := event.(type) {
 	case *PrepareSucceededEvent:
@@ -95,12 +90,6 @@ func validator_MatchesInFlightPrepareID(_ context.Context, t *coordinatorTransac
 	return false, nil
 }
 
-// action_QueuePreparedDispatch applies a successful prepare on the transition into
-// State_Ready_For_Dispatch: it registers any chained child produced by the build, places the built
-// pending dispatch onto the coordinator's dispatch queue, and releases the heavy post-assembly and
-// prepared-dispatch payload data. PreAssembly is preserved because it holds the
-// TransactionSpecification and RequiredVerifiers needed if the transaction reverts and must be
-// re-assembled.
 func action_QueuePreparedDispatch(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*PrepareSucceededEvent)
 	for _, privateDispatch := range e.PendingDispatch.Dispatch.PrivateDispatches {
@@ -111,20 +100,18 @@ func action_QueuePreparedDispatch(ctx context.Context, t *coordinatorTransaction
 		}
 	}
 	t.enqueueForDispatch(ctx, t, e.PendingDispatch)
+	// post assembly data is large and no longer needed once the dispatch is prepared
 	t.pt.CleanUpPostAssemblyData()
 	return nil
 }
 
-// prepareAndBuildDispatch runs off the coordinator event loop. It prepares the transaction via the
-// domain, builds the transaction dispatch, resolves state distributions, and builds the nullifier
-// records validated against and linked to the states to be written. The private transaction is only
-// ever read: the prepare outputs are returned by the domain and everything built from them goes into
-// the returned pending dispatch, so nothing is written back to shared transaction state from this
-// goroutine.
+// prepareAndBuildDispatch runs off the coordinator event loop. The private transaction is only ever read:
+// the prepare outputs are returned by the domain and everything built from them goes into the returned
+// pending dispatch, so nothing is written back to shared transaction state from this goroutine.
 func (t *coordinatorTransaction) prepareAndBuildDispatch(ctx context.Context, pt *components.PrivateTransaction, revertCount int) (*syncpoints.PendingDispatch, error) {
 	// TODO: should this domain query context be populated with a snapshot of the domain's states at the point the transaction
 	// finished assembling? Doing this would require storing a grapher snapshot for every transaction.
-	// In a previous iteration of this code where state/nullifer writing and domain query context capabilities coexisted
+	// In a previous iteration of this code where state and nullifier writing and domain query context capabilities coexisted
 	// in a single domain context, the context was effectively loaded with the entire coordinator ahead of chain view,
 	// including transactions assembled after this one. This was arguably too far ahead, as the domain shouldn't be able
 	// to query the future when preparing the transaction. At this stage the domain should not really need to be querying
@@ -171,10 +158,8 @@ func (t *coordinatorTransaction) prepareAndBuildDispatch(ctx context.Context, pt
 	}, nil
 }
 
-// buildTransactionDispatch builds the dispatch from the outputs of preparing a transaction via the
-// domain. It runs on the prepare goroutine, reading the private transaction and the prepare result;
-// any chained child it produces is registered in the dependency tracker on the event loop when the
-// result is applied, not here.
+// buildTransactionDispatch runs on the prepare goroutine, so it only reads the dependency tracker: any
+// chained child it produces is registered when the result is applied on the event loop.
 func (t *coordinatorTransaction) buildTransactionDispatch(ctx context.Context, pt *components.PrivateTransaction, prep *components.PrepareTransactionResult, revertCount int) (*syncpoints.TransactionDispatch, error) {
 	hasPublicTransaction := prep.PreparedPublicTransaction != nil
 	hasPrivateTransaction := prep.PreparedPrivateTransaction != nil
@@ -219,9 +204,9 @@ func (t *coordinatorTransaction) buildTransactionDispatch(ctx context.Context, p
 			// Propagate ordering knowledge: for each dependency of this transaction,
 			// if that dependency also produced a chained child, the new child must depend on it.
 			// These go into ChainedDependsOn so the receiving sequencer passes them into the coordinator
-			// for in-memory ordering rather than blocking on confirmation. Every dependency reached
-			// State_Ready_For_Dispatch before this transaction entered State_Preparing, so any chained
-			// child a dependency produced is already registered in the tracker.
+			// for in-memory ordering rather than blocking on confirmation. A transaction only starts
+			// preparing once every dependency has its dispatch built, so any chained child a dependency
+			// produced is already registered in the tracker.
 			// This assumes that if a domain instance is dispatching private transactions, it is doing so consistently
 			// for every transaction, and to the same domain instance. This is a valid assumption at the point of writing,
 			// but could change in the future. While we generally don't want to make assumptions about specific domain

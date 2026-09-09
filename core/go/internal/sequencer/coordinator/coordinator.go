@@ -128,7 +128,7 @@ type coordinator struct {
 	assembleErrorRetryThreshhold   int
 	signErrorRetryThreshhold       int
 	requestTimeout                 time.Duration
-	prepareRetry                   *retry.Retry
+	prepareErrorRetry              *retry.Retry
 	stateTimeout                   time.Duration
 	endorseErrorRetry              *retry.Retry
 	nodeName                       string
@@ -150,12 +150,12 @@ type coordinator struct {
 	notifyOriginator      func(ctx context.Context, event common.Event) // optional callback to push events to the co-located originator
 
 	/* Dispatch loop */
-	dispatchQueue      chan queuedDispatch
-	dispatchLoopCancel context.CancelFunc // non-nil iff this coordinator owns a running loop
-	dispatchLoopDone   chan struct{}      // per-run done channel; nil = never started / already stopped+waited
-	dispatchRetry      *retry.Retry       // indefinite retry of the per-batch commit in the dispatch loop
-	inFlightTxns       map[uuid.UUID]struct{}
-	inFlightMutex      *sync.Cond
+	dispatchQueue            chan queuedDispatch
+	dispatchLoopCancel       context.CancelFunc // non-nil iff this coordinator owns a running loop
+	dispatchLoopDone         chan struct{}      // per-run done channel; nil = never started / already stopped+waited
+	dispatchCommitErrorRetry *retry.Retry       // indefinite retry of the per-batch commit in the dispatch loop
+	inFlightTxns             map[uuid.UUID]struct{}
+	inFlightMutex            *sync.Cond
 }
 
 func NewCoordinator(
@@ -212,10 +212,10 @@ func NewCoordinator(
 	c.baseLedgerRevertRetryThreshold = confutil.IntMin(configuration.BaseLedgerRevertRetryThreshold, pldconf.SequencerMinimum.BaseLedgerRevertRetryThreshold, *pldconf.SequencerDefaults.BaseLedgerRevertRetryThreshold)
 	c.assembleErrorRetryThreshhold = confutil.IntMin(configuration.AssembleErrorRetryThreshold, pldconf.SequencerMinimum.AssembleErrorRetryThreshold, *pldconf.SequencerDefaults.AssembleErrorRetryThreshold)
 	c.signErrorRetryThreshhold = confutil.IntMin(configuration.SignErrorRetryThreshold, pldconf.SequencerMinimum.SignErrorRetryThreshold, *pldconf.SequencerDefaults.SignErrorRetryThreshold)
-	c.prepareRetry = retry.NewRetryLimited(&configuration.PrepareRetry, pldconf.GenericRetryDefaults)
+	c.prepareErrorRetry = retry.NewRetryLimited(&configuration.PrepareErrorRetry, pldconf.GenericRetryDefaults)
 	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
-	c.dispatchRetry = retry.NewRetryIndefinite(&configuration.DispatchCommitRetry, &pldconf.GenericRetryDefaults.RetryConfig)
+	c.dispatchCommitErrorRetry = retry.NewRetryIndefinite(&configuration.DispatchCommitErrorRetry, &pldconf.GenericRetryDefaults.RetryConfig)
 
 	// Initialize coordinator selection state from pre-resolved config.
 	c.coordinatorSelection = selectionConfig.Mode

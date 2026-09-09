@@ -43,8 +43,8 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*engineProto.
 		State_Pooled:
 		return &engineProto.SnapshotPooledTransaction{Id: t.pt.ID.String()}, nil, nil, nil
 
-	// State_Ready_For_Dispatch is grouped with State_Dispatched here: its dispatch is queued and awaiting the
-	// dispatch loop, so the snapshot reports it alongside dispatched transactions.
+	// A transaction in State_Ready_For_Dispatch already has its dispatch queued awaiting the dispatch
+	// loop, so the snapshot reports it as dispatched.
 	case State_Ready_For_Dispatch,
 		State_Dispatched:
 		dispatchedTransaction := &engineProto.SnapshotDispatchedTransaction{Id: t.pt.ID.String()}

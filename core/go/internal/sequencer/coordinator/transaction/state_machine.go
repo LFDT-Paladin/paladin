@@ -82,8 +82,8 @@ const (
 	Event_ChainedDependencyFailed                                                               // a chained (same-coordinator) dependency has been permanently finalized as failed
 	Event_ChainedDependencyEvicted                                                              // a chained (same-coordinator) dependency has been evicted (e.g. assembly failure threshold exceeded)
 	Event_PreAssembleDependencyTerminated                                                       // the pre-assemble (FIFO ordering) predecessor has reached a terminal state
-	Event_PrepareSucceeded                                                                      // the prepare goroutine built the dispatch; carries it for enqueueing
-	Event_PrepareFailed                                                                         // the prepare goroutine exhausted its retries; drives repool
+	Event_PrepareSucceeded                                                                      // the prepare goroutine built the dispatch
+	Event_PrepareFailed                                                                         // the prepare goroutine exhausted its retries
 )
 
 // Type aliases for the generic statemachine types, specialized for Transaction
@@ -838,13 +838,10 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Preparing: {
-		// Entering this state spawns the prepare goroutine, which runs the prepare-and-build sequence
-		// under a bounded retry off the event loop. Dependents keep waiting while the transaction is
-		// here: they are only notified of readiness (and can only pass their dependencies-ready check)
-		// once this transaction reaches State_Ready_For_Dispatch with its dispatch built, which is what
-		// guarantees a dependent's own prepare always finds this transaction's chained child. The
-		// transaction stays responsive to dependency resets and reverts; leaving this state cancels the
-		// in-flight prepare and any stale result is dropped by the prepare-epoch validator.
+		// Dependents keep waiting while the transaction is here: they are only notified of readiness (and
+		// can only pass their dependencies-ready check) once this transaction reaches
+		// State_Ready_For_Dispatch with its dispatch built, which is what guarantees a dependent's own
+		// prepare always finds this transaction's chained child.
 		OnTransitionTo: []ActionRule{
 			{Action: action_AllocateSigningIdentity},
 			{Action: action_StartPrepare},
@@ -871,7 +868,8 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_MatchesInFlightPrepareID,
 					Transitions: []Transition{
 						{
-							// TODO AM: should this actually be back to evicted?
+							// TODO: exhausting the prepare retries repools indefinitely - should an eviction
+							// threshold apply here, as it does for assemble errors?
 							To:      State_Pooled,
 							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
 						},
@@ -884,16 +882,13 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Ready_For_Dispatch: {
+		// Entering State_Dispatched is the point of no return: the dispatch loop persists the queued
+		// dispatch and sends it to chain only if its Event_Dispatched lands here. If a reset or revert
+		// moved the transaction off this state first, Event_Dispatched has no handler and the dispatch is
+		// dropped, so it is never counted against the dispatch-ahead limit.
 		OnTransitionTo: []ActionRule{
 			{Action: action_NotifyDependentsOfReadiness},
 		},
-		// The transaction enters this state with its dispatch already built and queued (by the
-		// Event_PrepareSucceeded handler), but not committed. It stays responsive to dependency resets
-		// and reverts here (handled below, as in every other post-assembly state). The point of no
-		// return is entering State_Dispatched: the dispatch loop persists and sends the queued dispatch
-		// to chain only if its Event_Dispatched lands here and moves the transaction to
-		// State_Dispatched. If a reset or revert moved it off this state first, Event_Dispatched has no
-		// handler and the dispatch is dropped, so it is never counted against the dispatch-ahead limit.
 		Events: map[EventType]EventHandlers{
 			Event_Dispatched: {
 				Match: statemachine.MatchFirst,

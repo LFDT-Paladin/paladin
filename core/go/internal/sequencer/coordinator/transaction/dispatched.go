@@ -33,12 +33,9 @@ func action_NotifyDispatched(ctx context.Context, t *coordinatorTransaction, _ c
 	return t.transportWriter.SendDispatched(ctx, t.originatorNode, msg)
 }
 
-// action_MarkDispatchedInFlight records this transaction against the coordinator's dispatch-ahead
-// count when it enters State_Dispatched, but only when the dispatch loop persisted a public
-// transaction for it (reported via DispatchedEvent.PublicTransaction); other dispatch outcomes do
-// not occupy a dispatch-ahead slot. Tracking it here (and clearing it in
-// action_ClearDispatchedInFlight on exit) keeps the count exact across revert-and-redispatch, since
-// both run synchronously within the state transition.
+// action_MarkDispatchedInFlight records this transaction against the coordinator's dispatch-ahead count,
+// but only when the dispatch being persisted includes a public transaction; other dispatch outcomes do
+// not occupy a dispatch-ahead slot.
 func action_MarkDispatchedInFlight(_ context.Context, t *coordinatorTransaction, event common.Event) error {
 	if e, ok := event.(*DispatchedEvent); ok && e.PublicTransaction && t.setDispatchedInFlight != nil {
 		t.setDispatchedInFlight(t.pt.ID, true)
@@ -46,9 +43,9 @@ func action_MarkDispatchedInFlight(_ context.Context, t *coordinatorTransaction,
 	return nil
 }
 
-// action_ClearDispatchedInFlight clears this transaction from the coordinator's dispatch-ahead count
-// when it leaves State_Dispatched. It is idempotent, so it is safe even when the transaction was not
-// counted on entry (i.e. it did not dispatch a public transaction).
+// action_ClearDispatchedInFlight clears this transaction from the coordinator's dispatch-ahead count. It
+// is idempotent, so it is safe even when the transaction was never counted (i.e. it did not dispatch a
+// public transaction).
 func action_ClearDispatchedInFlight(_ context.Context, t *coordinatorTransaction, _ common.Event) error {
 	if t.setDispatchedInFlight != nil {
 		t.setDispatchedInFlight(t.pt.ID, false)

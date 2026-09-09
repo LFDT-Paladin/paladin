@@ -26,25 +26,15 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 )
 
-// queuedDispatch carries a transaction and its already-built pending dispatch onto the dispatch queue,
-// along with the time it was enqueued so the dispatch loop can record a metric for how long it waited
-// before being dequeued.
 type queuedDispatch struct {
 	txn        transaction.CoordinatorTransaction
 	prepared   *syncpoints.PendingDispatch
-	enqueuedAt time.Time
+	enqueuedAt time.Time // so the dispatch loop can report how long the dispatch waited before being dequeued.
 }
 
-// enqueueForDispatch places a prepared transaction and its built dispatch onto the dispatch queue. It is
-// passed to each coordinator transaction at creation and called by the Event_PrepareSucceeded handler,
-// which applies the built dispatch while still in State_Preparing and then transitions to
-// State_Ready_For_Dispatch, so a transaction enqueues itself as its dispatch is built. The call runs on
-// the coordinator event loop under the transaction lock, so transactions are enqueued strictly in the
-// order they reach State_Ready_For_Dispatch, which is the order that ultimately drives on-chain nonce
-// order. Enqueuing is not the point of no return: the queued dispatch is only persisted and sent to chain
-// if the transaction has entered State_Dispatched by the time the dispatch loop processes it. A dependency
-// reset or revert can move it off State_Ready_For_Dispatch first, in which case the queued dispatch is
-// dropped.
+// enqueueForDispatch is called on the coordinator event loop under the transaction lock, so transactions
+// are enqueued strictly in the order they become ready for dispatch - the order that ultimately drives
+// on-chain nonce order.
 func (c *coordinator) enqueueForDispatch(ctx context.Context, txn transaction.CoordinatorTransaction, prepared *syncpoints.PendingDispatch) {
 	select {
 	case c.dispatchQueue <- queuedDispatch{txn: txn, prepared: prepared, enqueuedAt: c.clock.Now()}:
@@ -115,8 +105,6 @@ func (c *coordinator) pullDispatchBatch(first queuedDispatch, capacity int) []qu
 	return batch
 }
 
-// dispatchBatch sends each transaction its dispatched event and, for transactions which have entered State_Dispatched,
-// appends the dispatch to a single DispatchBatch in pull order, then hands off chained children.
 func (c *coordinator) dispatchBatch(ctx context.Context, batch []queuedDispatch) {
 	// Append in pull order. This order is what makes the on-chain nonces follow the order transactions were
 	// selected for dispatch:
@@ -134,12 +122,10 @@ func (c *coordinator) dispatchBatch(ctx context.Context, batch []queuedDispatch)
 	for _, qd := range batch {
 		txID := qd.prepared.TransactionID
 		log.L(ctx).Debugf("submitting transaction %s for dispatch", txID.String())
-		// The point of no return is the transaction entering State_Dispatched, so we persist the dispatch
-		// only if this event takes effect. If the transaction is still in State_Ready_For_Dispatch this
-		// transitions it to State_Dispatched, synchronously adding it to inFlightTxns (via
-		// setDispatchedInFlight) when PublicTransaction is set, so len(inFlightTxns) is accurate for the next
-		// capacity check. If a dependency reset or revert has already moved it off that state, Event_Dispatched
-		// has no handler and is a no-op, so the dispatch is skipped.
+		// The point of no return is the transaction accepting this event, so we persist the dispatch only
+		// if it takes effect. Accepting it also updates the coordinator's in-flight count synchronously, so
+		// len(inFlightTxns) is accurate for the next capacity check. If a dependency reset or revert has
+		// already moved the transaction on, the event is a no-op and the dispatch is dropped.
 		if err := qd.txn.HandleEvent(ctx, &transaction.DispatchedEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 				TransactionID: txID,
@@ -171,8 +157,8 @@ func (c *coordinator) dispatchBatch(ctx context.Context, batch []queuedDispatch)
 	// lock so the DB commit does not block the coordinator event loop behind a tx lock. A failed commit
 	// (typically transient DB unavailability) rolls back the whole DB transaction and the next attempt
 	// re-writes everything from the in-memory batch, retrying indefinitely with backoff. The batch's
-	// transactions remain in State_Dispatched throughout and are persisted when a retry succeeds.
-	err := c.dispatchRetry.Do(ctx, func(_ int) (bool, error) {
+	// transactions stay dispatched throughout and are persisted when a retry succeeds.
+	err := c.dispatchCommitErrorRetry.Do(ctx, func(_ int) (bool, error) {
 		return true, c.syncPoints.PersistDispatchBatch(ctx, dispatchBatch)
 	})
 	if err != nil {

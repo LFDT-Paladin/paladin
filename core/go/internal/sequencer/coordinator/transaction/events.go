@@ -272,8 +272,8 @@ func (*CollectedEvent) TypeString() string {
 // Collected by the dispatcher thread and dispatched to the public transaction manager
 type DispatchedEvent struct {
 	BaseCoordinatorEvent
-	// PublicTransaction reports whether the dispatch loop is persisting a public transaction for this
-	// transaction, so entry into State_Dispatched counts it towards the dispatch-ahead limit.
+	// PublicTransaction reports whether the dispatch being persisted includes a public transaction; only
+	// those occupy a dispatch-ahead slot.
 	PublicTransaction bool
 }
 
@@ -473,10 +473,7 @@ func (*ChainedDependencyEvictedEvent) TypeString() string {
 	return "Event_ChainedDependencyEvicted"
 }
 
-// PrepareSucceededEvent is queued from the prepare goroutine when the prepare-and-build retry loop
-// succeeds. It carries the fully built pending dispatch; the handler registers any chained child and
-// enqueues the dispatch under the transaction lock. PrepareID identifies the prepare attempt so a
-// stale result from a goroutine spawned before the transaction left State_Preparing is dropped.
+// PrepareSucceededEvent carries the fully built pending dispatch back from the prepare goroutine.
 type PrepareSucceededEvent struct {
 	BaseCoordinatorEvent
 	PrepareID       uuid.UUID
@@ -491,9 +488,7 @@ func (*PrepareSucceededEvent) TypeString() string {
 	return "Event_PrepareSucceeded"
 }
 
-// PrepareFailedEvent is queued from the prepare goroutine when the prepare-and-build retry loop
-// exhausts its attempts (or is cancelled). The handler repools the transaction so re-assembly can
-// regenerate its states and nullifiers.
+// PrepareFailedEvent reports that the prepare goroutine exhausted its retries, or was cancelled.
 type PrepareFailedEvent struct {
 	BaseCoordinatorEvent
 	PrepareID uuid.UUID
