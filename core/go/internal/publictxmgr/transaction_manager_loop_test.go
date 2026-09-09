@@ -59,7 +59,6 @@ func TestNewEnginePollingStoppingAnOrchestratorForFairnessControl(t *testing.T) 
 		state:                       OrchestratorStateRunning,
 		stateEntryTime:              time.Now().Add(1 * time.Hour).Add(-1 * time.Minute),
 		InFlightTxsStale:            make(chan bool, 1),
-		stopProcess:                 make(chan bool, 1),
 	}
 	ble.inFlightOrchestrators = map[pldtypes.EthAddress]*orchestrator{
 		*testSigningAddr1: existingOrchestrator, // already has an orchestrator for 0x1
