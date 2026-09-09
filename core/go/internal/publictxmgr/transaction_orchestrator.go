@@ -136,9 +136,6 @@ type orchestrator struct {
 	orchestratorLoopDone chan struct{}
 	InFlightTxsStale     chan bool
 
-	// input channels
-	stopProcess chan bool // a channel to tell the current transaction orchestrator to stop processing all events and mark itself as to be deleted
-
 	// Metrics provided for fairness control in the controler
 	totalCompleted int64 // total number of transaction completed since birth time
 	// state and stateEntryTime are written by the orchestrator loop and read by the engine loop
@@ -195,7 +192,6 @@ func NewOrchestrator(
 		staleTimeout:               confutil.DurationMin(conf.Orchestrator.StaleTimeout, 0, *pldconf.PublicTxManagerDefaults.Orchestrator.StaleTimeout),
 		hasZeroGasPrice:            ptm.gasPriceClient.HasZeroGasPrice(ctx),
 		InFlightTxsStale:           make(chan bool, 1),
-		stopProcess:                make(chan bool, 1),
 		ethClient:                  ptm.ethClient,
 		bIndexer:                   ptm.bIndexer,
 		timeLineLoggingMaxEntries:  conf.Orchestrator.TimeLineLoggingMaxEntries,
@@ -238,7 +234,7 @@ func (oc *orchestrator) orchestratorLoop() {
 		// initNextNonceFromDBRetry uses an indefinite retry, so it only returns an error when a context was
 		// cancelled - either ours (Stop() was called before we even got here) or our parent's (manager
 		// shutdown). Either way we must still reach OrchestratorStateStopped, the same as the main loop's
-		// stopProcess/ctx.Done() exits below, so the engine loop's fairness/eviction bookkeeping and any
+		// ctx.Done() exit below, so the engine loop's fairness/eviction bookkeeping and any
 		// caller waiting on our state (e.g. via poll()) see us as stopped rather than stuck in our prior state.
 		oc.asyncWG.Wait()
 		oc.setState(OrchestratorStateStopped)
@@ -254,19 +250,13 @@ func (oc *orchestrator) orchestratorLoop() {
 		case <-oc.InFlightTxsStale:
 		case <-ticker.C:
 		case <-ctx.Done():
-			// Stop() cancels oc.ctx and signals stopProcess together, so this case and the stopProcess case
-			// below race - select can wake on either one first. Both must therefore do the same cleanup:
-			// wait for any stage actions already launched via executeAsync (sign/submit/gas-price/persist)
-			// to finish, then reach OrchestratorStateStopped, before we let the engine loop remove us from
-			// the pool - otherwise a new orchestrator for this signing address could start while a zombie
-			// goroutine from this one is still signing/submitting, racing a resubmission for the same nonce.
+			// This is our only exit: either Stop() cancelled oc.ctx (idle/stale timeout, or a pool-fairness
+			// swap) or our parent's context was cancelled (manager shutdown). Before we let the engine loop
+			// remove us from the pool we must wait for any stage actions already launched via executeAsync
+			// (sign/submit/gas-price/persist) to finish, then reach OrchestratorStateStopped - otherwise a
+			// new orchestrator for this signing address could start while a zombie goroutine from this one
+			// is still signing/submitting, racing a resubmission for the same nonce.
 			log.L(ctx).Infof("Orchestrator loop exit due to canceled context, it processed %d transaction during its lifetime.", oc.totalCompleted)
-			oc.asyncWG.Wait()
-			oc.setState(OrchestratorStateStopped)
-			oc.MarkInFlightOrchestratorsStale() // trigger engine loop for removal
-			return
-		case <-oc.stopProcess:
-			log.L(ctx).Infof("Orchestrator loop process stopped, it processed %d transaction during its lifetime.", oc.totalCompleted)
 			oc.asyncWG.Wait()
 			oc.setState(OrchestratorStateStopped)
 			oc.MarkInFlightOrchestratorsStale() // trigger engine loop for removal
@@ -649,17 +639,12 @@ func (oc *orchestrator) Start(ctx context.Context) (done <-chan struct{}, err er
 
 // Stop the InFlight transaction process.
 func (oc *orchestrator) Stop() {
-	// Cancel our scoped context first, so any stage action already running in a goroutine started via
-	// executeAsync (for any of our in-flight transactions) observes cancellation as soon as possible -
-	// this bounds how long orchestratorLoop's asyncWG.Wait() blocks after processing the stop signal below.
+	// Cancelling our scoped context both breaks orchestratorLoop out of its select and makes any stage
+	// action already running in a goroutine started via executeAsync (for any of our in-flight
+	// transactions) observe cancellation as soon as possible - which bounds how long the loop's
+	// asyncWG.Wait() blocks before it marks us stopped and removable.
 	// Safe to call multiple times (e.g. idle/stale timeout followed by a later explicit stop).
 	oc.ctxCancel()
-	// try to send an item in `stopProcess` channel, which has a buffer of 1
-	// if it already has an item in the channel, this function does nothing
-	select {
-	case oc.stopProcess <- true:
-	default:
-	}
 }
 
 func (oc *orchestrator) MarkInFlightTxStale() {
