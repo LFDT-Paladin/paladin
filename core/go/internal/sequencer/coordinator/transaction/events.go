@@ -17,6 +17,7 @@ package transaction
 
 import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -271,6 +272,9 @@ func (*CollectedEvent) TypeString() string {
 // Collected by the dispatcher thread and dispatched to the public transaction manager
 type DispatchedEvent struct {
 	BaseCoordinatorEvent
+	// PublicTransaction reports whether the dispatch being persisted includes a public transaction; only
+	// those occupy a dispatch-ahead slot.
+	PublicTransaction bool
 }
 
 func (*DispatchedEvent) Type() EventType {
@@ -467,6 +471,35 @@ func (*ChainedDependencyEvictedEvent) Type() EventType {
 
 func (*ChainedDependencyEvictedEvent) TypeString() string {
 	return "Event_ChainedDependencyEvicted"
+}
+
+// PrepareSucceededEvent carries the fully built pending dispatch back from the prepare goroutine.
+type PrepareSucceededEvent struct {
+	BaseCoordinatorEvent
+	PrepareID       uuid.UUID
+	PendingDispatch *syncpoints.PendingDispatch
+}
+
+func (*PrepareSucceededEvent) Type() EventType {
+	return Event_PrepareSucceeded
+}
+
+func (*PrepareSucceededEvent) TypeString() string {
+	return "Event_PrepareSucceeded"
+}
+
+// PrepareFailedEvent reports that the prepare goroutine exhausted its retries, or was cancelled.
+type PrepareFailedEvent struct {
+	BaseCoordinatorEvent
+	PrepareID uuid.UUID
+}
+
+func (*PrepareFailedEvent) Type() EventType {
+	return Event_PrepareFailed
+}
+
+func (*PrepareFailedEvent) TypeString() string {
+	return "Event_PrepareFailed"
 }
 
 type PreAssembleDependencyTerminatedEvent struct {

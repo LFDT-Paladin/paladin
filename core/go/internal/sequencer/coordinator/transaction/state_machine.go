@@ -38,7 +38,8 @@ const (
 	State_Endorsement_Gathering   = common.CoordinatorTransactionState_Endorsement_Gathering   // The transaction has been successfully assembled and endorsement requests have been sent
 	State_Blocked                 = common.CoordinatorTransactionState_Blocked                 // All endorsements have been received but the transaction cannot proceed due to dependencies not being ready for dispatch
 	State_Confirming_Dispatchable = common.CoordinatorTransactionState_Confirming_Dispatchable // The transaction has been endorsed. Confirmation from the originator is required before the transaction can be dispatched. The originator may still request not to proceed at this point.
-	State_Ready_For_Dispatch      = common.CoordinatorTransactionState_Ready_For_Dispatch      // Dispatch confirmation has been received from the originator and the transaction is waiting to be collected by the dispatch goroutine
+	State_Preparing               = common.CoordinatorTransactionState_Preparing               // Dispatch confirmation has been received from the originator and a goroutine is preparing the transaction and building its dispatch, retrying with backoff off the event loop
+	State_Ready_For_Dispatch      = common.CoordinatorTransactionState_Ready_For_Dispatch      // The transaction's dispatch has been built and queued, and is waiting to be collected by the dispatch goroutine
 	State_Dispatched              = common.CoordinatorTransactionState_Dispatched              // Collected by the dispatcher thread and submitted by the public TX manager to the base ledger
 	State_Confirmed               = common.CoordinatorTransactionState_Confirmed               // The transaction has been confirmed on the base ledger. It will remain in this state for a number heartbeat intervals before moving to State_Final to removed from memory.
 	State_Final                   = common.CoordinatorTransactionState_Final                   // The transaction will be removed from memory upon entry to this state
@@ -81,6 +82,8 @@ const (
 	Event_ChainedDependencyFailed                                                               // a chained (same-coordinator) dependency has been permanently finalized as failed
 	Event_ChainedDependencyEvicted                                                              // a chained (same-coordinator) dependency has been evicted (e.g. assembly failure threshold exceeded)
 	Event_PreAssembleDependencyTerminated                                                       // the pre-assemble (FIFO ordering) predecessor has reached a terminal state
+	Event_PrepareSucceeded                                                                      // the prepare goroutine built the dispatch
+	Event_PrepareFailed                                                                         // the prepare goroutine exhausted its retries
 )
 
 // Type aliases for the generic statemachine types, specialized for Transaction
@@ -767,7 +770,7 @@ var stateDefinitionsMap = StateDefinitions{
 					Actions:   []ActionRule{{Action: action_DispatchRequestApproved}},
 					Transitions: []Transition{
 						{
-							To: State_Ready_For_Dispatch,
+							To: State_Preparing,
 						}},
 				}},
 			},
@@ -834,7 +837,55 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_ChainedDependencyFailed:     chainedDependencyFailedHandler,
 		},
 	},
+	State_Preparing: {
+		// Dependents keep waiting while the transaction is here: they are only notified of readiness (and
+		// can only pass their dependencies-ready check) once this transaction reaches
+		// State_Ready_For_Dispatch with its dispatch built, which is what guarantees a dependent's own
+		// prepare always finds this transaction's chained child.
+		OnTransitionTo: []ActionRule{
+			{Action: action_AllocateSigningIdentity},
+			{Action: action_StartPrepare},
+		},
+		OnTransitionFrom: []ActionRule{
+			{Action: action_CancelPrepare},
+		},
+		Events: map[EventType]EventHandlers{
+			Event_PrepareSucceeded: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_MatchesInFlightPrepareID,
+					Actions:   []ActionRule{{Action: action_QueuePreparedDispatch}},
+					Transitions: []Transition{
+						{
+							To: State_Ready_For_Dispatch,
+						},
+					},
+				}},
+			},
+			Event_PrepareFailed: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					Validator: validator_MatchesInFlightPrepareID,
+					Transitions: []Transition{
+						{
+							// TODO: exhausting the prepare retries repools indefinitely - should an eviction
+							// threshold apply here, as it does for assemble errors?
+							To:      State_Pooled,
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+						},
+					},
+				}},
+			},
+			Event_DependencyReset:             dependencyResetHandler,
+			Event_DependencyConfirmedReverted: dependencyRevertedHandler,
+			Event_ChainedDependencyFailed:     chainedDependencyFailedHandler,
+		},
+	},
 	State_Ready_For_Dispatch: {
+		// Entering State_Dispatched is the point of no return: the dispatch loop persists the queued
+		// dispatch and sends it to chain only if its Event_Dispatched lands here. If a reset or revert
+		// moved the transaction off this state first, Event_Dispatched has no handler and the dispatch is
+		// dropped, so it is never counted against the dispatch-ahead limit.
 		OnTransitionTo: []ActionRule{
 			{Action: action_NotifyDependentsOfReadiness},
 		},
@@ -842,10 +893,6 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_Dispatched: {
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
-					Actions: []ActionRule{
-						{Action: action_AllocateSigningIdentity},
-						{Action: action_DispatchPrepare},
-					},
 					Transitions: []Transition{
 						{
 							To: State_Dispatched,
@@ -853,11 +900,6 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				}},
 			},
-			// When we see a dependency reset or revert while in Ready_For_Dispatch:
-			// - A transaction with a chained dependency will always go to PreAssembly_Blocked as its
-			// chained dependency is now unassembled.
-			// - A trasanction without a chained dependency will always go to Pooled as its post assembly
-			// dependencies are now cleared, and it too far along to have preassembly dependencies.
 			Event_DependencyReset:             dependencyResetHandler,
 			Event_DependencyConfirmedReverted: dependencyRevertedHandler,
 			Event_ChainedDependencyFailed:     chainedDependencyFailedHandler,
@@ -865,9 +907,8 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Dispatched: {
 		OnTransitionTo: []ActionRule{
-			{If: guard_WillDispatchPublicTransaction, Action: action_MarkDispatchedInFlight},
+			{Action: action_MarkDispatchedInFlight},
 			{Action: action_NotifyDispatched},
-			{Action: action_CleanUpAssemblyPayload},
 		},
 		OnTransitionFrom: []ActionRule{
 			{Action: action_ClearDispatchedInFlight},

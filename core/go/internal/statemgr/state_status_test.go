@@ -94,9 +94,9 @@ func makeWidgets(t *testing.T, ctx context.Context, ss *stateManager, domainName
 	return states
 }
 
-func syncFlushWriter(t *testing.T, ctx context.Context, sw *domainStateWriter) {
-	err := sw.ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		return sw.Flush(ctx, dbTX)
+func writeStateBatch(t *testing.T, ctx context.Context, ss *stateManager, states []*components.StateWithLabels, nullifiers ...*pldapi.StateNullifier) {
+	err := ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return ss.WriteStateBatch(ctx, dbTX, states, nullifiers...)
 	})
 	require.NoError(t, err)
 }
@@ -122,23 +122,17 @@ func newTestAssemblyContext(t *testing.T, ctx context.Context, ss *stateManager,
 	return dqc.(*domainQueryContext)
 }
 
-// testStateResolver validates states against the writer's domain and contract, standing in for the
-// coordinator's call to StateManager.ValidateStatesWithLabels ahead of StageWrites.
+// testStateResolver validates states against the given domain and contract, standing in for the
+// coordinator's call to StateManager.ValidateStatesWithLabels ahead of WriteStateBatch.
 type testStateResolver func(states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error)
 
-func newTestDomainStateWriter(t *testing.T, ctx context.Context, ss *stateManager, name string, customHashFunction bool) (*pldtypes.EthAddress, *domainStateWriter, testStateResolver) {
+func newTestStateResolver(t *testing.T, ctx context.Context, ss *stateManager, name string, contractAddress pldtypes.EthAddress, customHashFunction bool) testStateResolver {
 	md := componentsmocks.NewDomain(t)
 	md.On("Name").Return(name)
 	md.On("CustomHashFunction").Return(customHashFunction).Maybe()
-	contractAddress := pldtypes.RandAddress()
-	dsw := ss.NewDomainStateWriter(ctx, md, *contractAddress)
-	sw := dsw.(*domainStateWriter)
-	// Reads sw.contractAddress on each call, so tests that re-point the writer at another contract
-	// resolve against that same contract.
-	resolve := func(states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error) {
-		return ss.ValidateStatesWithLabels(ctx, ss.p.NOTX(), md, sw.contractAddress, states...)
+	return func(states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error) {
+		return ss.ValidateStatesWithLabels(ctx, ss.p.NOTX(), md, contractAddress, states...)
 	}
-	return contractAddress, sw, resolve
 }
 
 func TestStateLockingQuery(t *testing.T) {

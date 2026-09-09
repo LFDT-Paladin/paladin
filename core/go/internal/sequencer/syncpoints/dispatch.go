@@ -36,6 +36,8 @@ type dispatchOperation struct {
 	localPreparedTxns       []*components.PreparedTransactionWithRefs
 	preparedReliableMsgs    []*pldapi.ReliableMessage
 	localSequencerActivites []*components.SequencingActivity
+	states                  []*components.StateWithLabels
+	nullifiers              []*pldapi.StateNullifier
 }
 
 type DispatchPersisted struct {
@@ -66,16 +68,17 @@ type PendingDispatch struct {
 	TransactionID      uuid.UUID
 	Dispatch           *TransactionDispatch
 	StateDistributions []*components.StateDistribution
+	StatesToWrite      []*components.StateWithLabels
+	Nullifiers         []*pldapi.StateNullifier
 }
 
 // DispatchBatch accumulates the pending dispatches for one contract so they commit together in a single DB
-// transaction. The domain state writer and contract address are batch-level, not per-dispatch: every
-// dispatch in a batch belongs to the same coordinator (one contract), so they share the one state writer
-// and the flush-writer WriteKey. Append preserves order, which is what preserves on-chain nonce order.
+// transaction. The contract address is batch-level, not per-dispatch: every dispatch in a batch belongs to
+// the same coordinator (one contract), so they share the flush-writer WriteKey. Append preserves order,
+// which is what preserves on-chain nonce order.
 type DispatchBatch struct {
-	DomainStateWriter components.DomainStateWriter
-	ContractAddress   pldtypes.EthAddress
-	dispatches        []*PendingDispatch
+	ContractAddress pldtypes.EthAddress
+	dispatches      []*PendingDispatch
 }
 
 // Append adds a pending dispatch to the batch, preserving order.
@@ -110,7 +113,6 @@ func (s *syncPoints) PersistDispatchBatch(ctx context.Context, batch *DispatchBa
 	}
 
 	op := s.writer.QueueWithFlush(s.bgCtx, &syncPointOperation{
-		domainStateWriter:  batch.DomainStateWriter,
 		contractAddress:    batch.ContractAddress,
 		dispatchOperations: dispatchOperations,
 	})
@@ -224,6 +226,8 @@ func (s *syncPoints) buildDispatchOperation(ctx context.Context, pd *PendingDisp
 		localPreparedTxns:       localPreparedTxns,
 		preparedReliableMsgs:    preparedReliableMsgs,
 		localSequencerActivites: localSequencerActivities,
+		states:                  pd.StatesToWrite,
+		nullifiers:              pd.Nullifiers,
 	}
 }
 

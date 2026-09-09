@@ -50,8 +50,7 @@ type finalizeOperation struct {
 func (s *syncPoints) QueueTransactionFinalize(ctx context.Context, req *TransactionFinalizeRequest, onCommit func(context.Context), onRollback func(context.Context, error)) {
 
 	op := s.writer.Queue(ctx, &syncPointOperation{
-		domainStateWriter: nil, // finalize does not depend on the flushing of any states
-		contractAddress:   req.ContractAddress,
+		contractAddress: req.ContractAddress,
 		finalizeOperation: &finalizeOperation{
 			TransactionFinalizeRequest: *req,
 		},

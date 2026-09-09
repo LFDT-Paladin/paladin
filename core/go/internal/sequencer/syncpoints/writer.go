@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
@@ -53,7 +54,6 @@ to atomically allocate and record the nonce under that same transaction.
 
 type syncPointOperation struct {
 	contractAddress    pldtypes.EthAddress
-	domainStateWriter  components.DomainStateWriter
 	finalizeOperation  *finalizeOperation
 	dispatchOperations []*dispatchOperation
 }
@@ -68,12 +68,10 @@ func (s *syncPoints) runBatch(ctx context.Context, dbTX persistence.DBTX, values
 
 	finalizeOperations := make([]*finalizeOperation, 0, len(values))
 	dispatchOperations := make([]*dispatchOperation, 0, len(values))
-	domainStateWritersToFlush := make(map[components.DomainStateWriter]components.DomainStateWriter)
+	var statesToWrite []*components.StateWithLabels
+	var nullifiers []*pldapi.StateNullifier
 
 	for _, op := range values {
-		if op.domainStateWriter != nil {
-			domainStateWritersToFlush[op.domainStateWriter] = op.domainStateWriter
-		}
 		if op.finalizeOperation != nil {
 			finalizeOperations = append(finalizeOperations, op.finalizeOperation)
 		}
@@ -82,13 +80,17 @@ func (s *syncPoints) runBatch(ctx context.Context, dbTX persistence.DBTX, values
 		}
 	}
 
-	// We flush all of the affected domain state writers first, as they might contain states we need to
-	// refer to in the DB transaction below using foreign key relationships.
+	// We write the dispatches' new states first, as the dispatch records written in the DB transaction
+	// below may refer to them using foreign key relationships.
+	for _, op := range dispatchOperations {
+		statesToWrite = append(statesToWrite, op.states...)
+		nullifiers = append(nullifiers, op.nullifiers...)
+	}
 	var err error
-	log.L(ctx).Infof("SyncPoints flush-writer: domainStateWriters=%d finalizeOperations=%d dispatchOperations=%d",
-		len(domainStateWritersToFlush), len(finalizeOperations), len(dispatchOperations))
-	for _, dsw := range domainStateWritersToFlush {
-		err = dsw.Flush(ctx, dbTX) // err variable must not be re-allocated
+	log.L(ctx).Infof("SyncPoints flush-writer: statesToWrite=%d nullifiers=%d finalizeOperations=%d dispatchOperations=%d",
+		len(statesToWrite), len(nullifiers), len(finalizeOperations), len(dispatchOperations))
+	if len(statesToWrite) > 0 || len(nullifiers) > 0 {
+		err = s.stateMgr.WriteStateBatch(ctx, dbTX, statesToWrite, nullifiers...) // err variable must not be re-allocated
 		if err != nil {
 			return nil, err
 		}

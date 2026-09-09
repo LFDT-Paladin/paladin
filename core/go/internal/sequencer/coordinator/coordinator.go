@@ -128,6 +128,7 @@ type coordinator struct {
 	assembleErrorRetryThreshhold   int
 	signErrorRetryThreshhold       int
 	requestTimeout                 time.Duration
+	prepareErrorRetry              *retry.Retry
 	stateTimeout                   time.Duration
 	endorseErrorRetry              *retry.Retry
 	nodeName                       string
@@ -139,31 +140,28 @@ type coordinator struct {
 
 	/* Dependencies */
 	domainAPI             components.DomainSmartContract
-	dsw                   components.DomainStateWriter
 	components            components.AllComponents
 	transportWriter       transport.TransportWriter
 	clock                 common.Clock
 	engineIntegration     common.EngineIntegration
-	buildNullifiers       func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error)
 	newPrivateTransaction func(context.Context, []*components.ValidatedTransaction) error
 	syncPoints            syncpoints.SyncPoints
 	metrics               metrics.DistributedSequencerMetrics
 	notifyOriginator      func(ctx context.Context, event common.Event) // optional callback to push events to the co-located originator
 
 	/* Dispatch loop */
-	dispatchQueue      chan queuedDispatch
-	dispatchLoopCancel context.CancelFunc // non-nil iff this coordinator owns a running loop
-	dispatchLoopDone   chan struct{}      // per-run done channel; nil = never started / already stopped+waited
-	inFlightTxns       map[uuid.UUID]struct{}
-	inFlightMutex      *sync.Cond
+	dispatchQueue            chan queuedDispatch
+	dispatchLoopCancel       context.CancelFunc // non-nil iff this coordinator owns a running loop
+	dispatchLoopDone         chan struct{}      // per-run done channel; nil = never started / already stopped+waited
+	dispatchCommitErrorRetry *retry.Retry       // indefinite retry of the per-batch commit in the dispatch loop
+	inFlightTxns             map[uuid.UUID]struct{}
+	inFlightMutex            *sync.Cond
 }
 
 func NewCoordinator(
 	contractAddress *pldtypes.EthAddress,
 	domainAPI components.DomainSmartContract,
-	dsw components.DomainStateWriter,
 	allComponents components.AllComponents,
-	buildNullifiers func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error),
 	newPrivateTransaction func(context.Context, []*components.ValidatedTransaction) error,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
@@ -183,9 +181,7 @@ func NewCoordinator(
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]transaction.CoordinatorTransaction),
 		domainAPI:                          domainAPI,
-		dsw:                                dsw,
 		components:                         allComponents,
-		buildNullifiers:                    buildNullifiers,
 		newPrivateTransaction:              newPrivateTransaction,
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
@@ -216,8 +212,10 @@ func NewCoordinator(
 	c.baseLedgerRevertRetryThreshold = confutil.IntMin(configuration.BaseLedgerRevertRetryThreshold, pldconf.SequencerMinimum.BaseLedgerRevertRetryThreshold, *pldconf.SequencerDefaults.BaseLedgerRevertRetryThreshold)
 	c.assembleErrorRetryThreshhold = confutil.IntMin(configuration.AssembleErrorRetryThreshold, pldconf.SequencerMinimum.AssembleErrorRetryThreshold, *pldconf.SequencerDefaults.AssembleErrorRetryThreshold)
 	c.signErrorRetryThreshhold = confutil.IntMin(configuration.SignErrorRetryThreshold, pldconf.SequencerMinimum.SignErrorRetryThreshold, *pldconf.SequencerDefaults.SignErrorRetryThreshold)
+	c.prepareErrorRetry = retry.NewRetryLimited(&configuration.PrepareErrorRetry, pldconf.GenericRetryDefaults)
 	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
+	c.dispatchCommitErrorRetry = retry.NewRetryIndefinite(&configuration.DispatchCommitErrorRetry, &pldconf.GenericRetryDefaults.RetryConfig)
 
 	// Initialize coordinator selection state from pre-resolved config.
 	c.coordinatorSelection = selectionConfig.Mode

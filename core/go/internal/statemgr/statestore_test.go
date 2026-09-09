@@ -179,6 +179,56 @@ func TestGetTransactionStatesUnavailable(t *testing.T) {
 	require.Equal(t, []pldtypes.HexBytes{stateID4}, txStates.Unavailable.Info)
 }
 
+func TestGetTransactionStatesAvailable(t *testing.T) {
+
+	ctx, ss, m, done := newDBTestStateManager(t)
+	defer done()
+
+	_ = mockDomain(t, m, "domain1", false)
+	mockStateCallback(m)
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, widgetABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+
+	contractAddress := pldtypes.RandAddress()
+	widgets := makeWidgets(t, ctx, ss, "domain1", contractAddress, schema.ID(), []string{
+		`{"size": 11111, "color": "red",  "price": 100}`,
+		`{"size": 22222, "color": "red",  "price": 150}`,
+		`{"size": 33333, "color": "blue", "price": 199}`,
+		`{"size": 44444, "color": "pink", "price": 199}`,
+	})
+
+	txID := uuid.New()
+	err = ss.WriteStateFinalizations(ctx, ss.p.NOTX(),
+		[]*pldapi.StateSpendRecord{
+			{DomainName: "domain1", State: widgets[0].ID, Transaction: txID},
+		},
+		[]*pldapi.StateReadRecord{
+			{DomainName: "domain1", State: widgets[1].ID, Transaction: txID},
+		},
+		[]*pldapi.StateConfirmRecord{
+			{DomainName: "domain1", State: widgets[2].ID, Transaction: txID},
+		},
+		[]*pldapi.StateInfoRecord{
+			{DomainName: "domain1", State: widgets[3].ID, Transaction: txID},
+		})
+	require.NoError(t, err)
+
+	txStates, err := ss.GetTransactionStates(ctx, ss.p.NOTX(), txID)
+	require.NoError(t, err)
+	require.Nil(t, txStates.Unavailable)
+	require.Len(t, txStates.Spent, 1)
+	assert.Equal(t, widgets[0].ID, txStates.Spent[0].ID)
+	require.Len(t, txStates.Read, 1)
+	assert.Equal(t, widgets[1].ID, txStates.Read[0].ID)
+	require.Len(t, txStates.Confirmed, 1)
+	assert.Equal(t, widgets[2].ID, txStates.Confirmed[0].ID)
+	require.Len(t, txStates.Info, 1)
+	assert.Equal(t, widgets[3].ID, txStates.Info[0].ID)
+}
+
 func TestGetTransactionStatesReadInfoMultiTx(t *testing.T) {
 
 	ctx, ss, _, done := newDBTestStateManager(t)

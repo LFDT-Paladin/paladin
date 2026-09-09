@@ -241,17 +241,18 @@ func TestWriteNullifiersForReceivedStatesOkRealDB(t *testing.T) {
 	defer done()
 
 	md := componentsmocks.NewDomain(t)
-	md.On("Name").Return("domain1")
 	m.domainManager.On("GetDomainByName", mock.Anything, "domain1").Return(md, nil)
 
-	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*components.NullifierUpsert{
+	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*pldapi.StateNullifier{
 		{
-			ID:    pldtypes.HexBytes(pldtypes.RandHex(32)),
-			State: pldtypes.HexBytes(pldtypes.RandHex(32)),
+			DomainName: "domain1",
+			ID:         pldtypes.HexBytes(pldtypes.RandHex(32)),
+			State:      pldtypes.HexBytes(pldtypes.RandHex(32)),
 		},
 		{
-			ID:    pldtypes.HexBytes(pldtypes.RandHex(32)),
-			State: pldtypes.HexBytes(pldtypes.RandHex(32)),
+			DomainName: "domain1",
+			ID:         pldtypes.HexBytes(pldtypes.RandHex(32)),
+			State:      pldtypes.HexBytes(pldtypes.RandHex(32)),
 		},
 	})
 	require.NoError(t, err)
@@ -264,10 +265,11 @@ func TestWriteNullifiersForReceivedStatesBadDomain(t *testing.T) {
 
 	m.domainManager.On("GetDomainByName", mock.Anything, "domain1").Return(nil, fmt.Errorf("not found"))
 
-	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*components.NullifierUpsert{
+	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*pldapi.StateNullifier{
 		{
-			ID:    pldtypes.HexBytes(pldtypes.RandHex(32)),
-			State: pldtypes.HexBytes(pldtypes.RandHex(32)),
+			DomainName: "domain1",
+			ID:         pldtypes.HexBytes(pldtypes.RandHex(32)),
+			State:      pldtypes.HexBytes(pldtypes.RandHex(32)),
 		},
 	})
 	assert.Regexp(t, "not found", err)
@@ -470,6 +472,12 @@ func TestValidateStatesBadSchema(t *testing.T) {
 
 	contractAddress := *pldtypes.RandAddress()
 	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
+		SchemaId:      pldtypes.RandBytes32().String(),
+		StateDataJson: `{}`,
+	})
+	assert.Regexp(t, "PD010106", err) // unknown schema
+
+	_, err = ss.ValidateStatesWithLabels(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
 		SchemaId:      pldtypes.RandBytes32().String(),
 		StateDataJson: `{}`,
 	})
