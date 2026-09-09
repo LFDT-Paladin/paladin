@@ -1146,6 +1146,24 @@ func TestPrepareTransactionFail(t *testing.T) {
 	assert.Regexp(t, "pop", err)
 }
 
+func TestPrepareTransactionNilTransaction(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
+	defer done()
+
+	psc, tx := doDomainInitAssembleTransactionOK(t, td)
+	tx.Signer = "signer1"
+
+	// A domain plugin can return a nil error alongside a response that omits the
+	// (optional, per proto3) Transaction field - e.g. a buggy or partially-implemented
+	// PrepareTransaction handler. This must not panic when dereferenced.
+	td.tp.Functions.PrepareTransaction = func(ctx context.Context, ptr *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
+		return &prototk.PrepareTransactionResponse{}, nil
+	}
+
+	err := psc.PrepareTransaction(td.ctx, td.c.dqc, td.c.dbTX, tx)
+	assert.Regexp(t, "PD011668", err)
+}
+
 func TestPrepareTransactionABIInvalid(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
