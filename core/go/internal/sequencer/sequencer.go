@@ -762,9 +762,7 @@ func (sMgr *sequencerManager) HandleDirectTransactionRevert(ctx context.Context,
 }
 
 // BuildNullifiers builds the nullifier for each local state distribution that requires one. A state may
-// pick up a distribution per local recipient, so it enforces at most one nullifier per state, matching
-// the state_nullifiers unique index on (domain_name, state); failing here fails a bad build cleanly
-// instead of poisoning the dispatch flush.
+// pick up a distribution per local recipient.
 func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistributions []*components.StateDistributionWithData) (nullifiers []*pldapi.StateNullifier, err error) {
 	nullifierByState := make(map[string]pldtypes.HexBytes)
 	nullifiers = []*pldapi.StateNullifier{}
@@ -782,7 +780,10 @@ func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistribu
 
 			stateID := nullifier.State.String()
 			if existing, dup := nullifierByState[stateID]; dup {
-				return i18n.NewError(ctx, msgs.MsgStateNullifierConflict, nullifier.State, existing)
+				if !existing.Equals(nullifier.ID) {
+					return i18n.NewError(ctx, msgs.MsgStateNullifierConflict, nullifier.State, existing)
+				}
+				continue
 			}
 			nullifierByState[stateID] = nullifier.ID
 
