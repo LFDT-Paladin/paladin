@@ -106,10 +106,10 @@ var (
 	// PD010119 removed
 	MsgStateSpendConflictUnexpected   = pde("PD010120", "Pending spend for transaction %s found when attempting to spend from transaction %s")
 	MsgStateConfirmConflictUnexpected = pde("PD010121", "Pending confirmation for transaction %s found when attempting to confirm from transaction %s")
-	MsgStateDomainContextClosed       = pde("PD010122", "Domain context has been closed")
-	MsgStateDomainContextNotActive    = pde("PD010123", "There is no domain context with UUID %s active")
-	MsgStateLockNoTransaction         = pde("PD010124", "Transaction missing from state lock")
-	MsgStateLockNoState               = pde("PD010125", "State missing from state lock")
+	// PD010122 removed
+	// PD010123 removed
+	MsgStateLockNoTransaction = pde("PD010124", "Transaction missing from state lock")
+	MsgStateLockNoState       = pde("PD010125", "State missing from state lock")
 	// PD010126 removed
 	MsgStateNullifierConflict      = pde("PD010127", "State %s already has nullifier %s associated")
 	MsgStateInvalidCalculatingHash = pde("PD010128", "Failed to generate hash as state is invalid")

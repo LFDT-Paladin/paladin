@@ -278,7 +278,6 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 	// We have a domain context for queries, but we never flush it to DB - as the only updates
 	// we allow in this function are those performed within our dbTX.
 	dqc := d.dm.stateStore.NewDomainQueryContext(ctx, d, addr)
-	defer dqc.Close(ctx)
 	c := d.newInFlightDomainRequest(dbTX, dqc, false /* write enabled */)
 	defer c.close()
 

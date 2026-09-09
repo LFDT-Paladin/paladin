@@ -150,7 +150,6 @@ func TestStateLockingQuery(t *testing.T) {
 	schemaID := schema.ID()
 
 	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
-	seqQual := pldapi.StateStatusQualifier(dqc.ID().String())
 
 	widgets := makeWidgets(t, ctx, ss, "domain1", contractAddress, schemaID, []string{
 		`{"size": 11111, "color": "red",  "price": 100}`,
@@ -160,9 +159,7 @@ func TestStateLockingQuery(t *testing.T) {
 		`{"size": 55555, "color": "blue", "price": 500}`,
 	})
 
-	checkQuery := func(jq *query.QueryJSON, status pldapi.StateStatusQualifier, expected ...int) {
-		states, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, status)
-		require.NoError(t, err)
+	checkStates := func(states []*pldapi.State, expected ...int) {
 		assert.Len(t, states, len(expected))
 		for _, wIndex := range expected {
 			found := false
@@ -177,9 +174,24 @@ func TestStateLockingQuery(t *testing.T) {
 		}
 	}
 
+	// checkQuery asserts what the query API returns for a status qualifier.
+	checkQuery := func(jq *query.QueryJSON, status pldapi.StateStatusQualifier, expected ...int) {
+		_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, status)
+		require.NoError(t, err)
+		checkStates(states, expected...)
+	}
+
+	// checkContextQuery asserts what the current domain query context returns as available: the DB
+	// available states merged with the states its remote view serves.
+	checkContextQuery := func(jq *query.QueryJSON, expected ...int) {
+		_, states, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, jq)
+		require.NoError(t, err)
+		checkStates(states, expected...)
+	}
+
 	// setTestRemoteView closes the current context and opens a fresh one whose remote view serves
-	// the given ahead-of-chain candidates and spent-state exclusion set, updating dqc and its
-	// seqQual (a view is fixed for a context's life). Which states the coordinator serves as
+	// the given ahead-of-chain candidates and spent-state exclusion set, updating dqc (a view is
+	// fixed for a context's life). Which states the coordinator serves as
 	// candidates vs. exclusions is its business, not under test here — each call just states the
 	// response the view gives.
 	setTestRemoteView := func(candidateStates []*prototk.EndorsableState, spentStateIDs ...pldtypes.HexBytes) {
@@ -191,20 +203,19 @@ func TestStateLockingQuery(t *testing.T) {
 			require.NoError(t, err)
 			candidates = append(candidates, snapshotStateOf(sw, 0))
 		}
-		dqc.Close(ctx)
 		dqc = newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress,
 			&testRemoteView{ss: ss, domainName: "domain1", candidates: candidates, spentStateIDs: spentStateIDs})
-		seqQual = pldapi.StateStatusQualifier(dqc.ID().String())
 	}
 
 	all := query.NewQueryBuilder().Query()
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4)
+	// Confirmed is a synonym of available, so it must track it exactly throughout
 	checkQuery(all, pldapi.StateStatusAvailable)
 	checkQuery(all, pldapi.StateStatusConfirmed)
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 0, 1, 2, 3, 4)
 	checkQuery(all, pldapi.StateStatusSpent)
-	checkQuery(all, seqQual)
+	checkContextQuery(all)
 
 	// Mark them all confirmed apart from one
 	for i, w := range widgets {
@@ -222,7 +233,7 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusConfirmed, 0, 1, 2, 4) // added all but 3
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)        // added 3
 	checkQuery(all, pldapi.StateStatusSpent)                 // unchanged
-	checkQuery(all, seqQual, 0, 1, 2, 4)                     // added all but 3
+	checkContextQuery(all, 0, 1, 2, 4)                       // added all but 3
 
 	// Mark one spent
 	err = ss.WriteStateFinalizations(ss.bgCtx, ss.p.NOTX(),
@@ -236,10 +247,10 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4) // removed 0
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)     // unchanged
 	checkQuery(all, pldapi.StateStatusSpent, 0)           // added 0
-	checkQuery(all, seqQual, 1, 2, 4)                     // unchanged
+	checkContextQuery(all, 1, 2, 4)                       // unchanged
 
 	// Write widget[5] to DB (unconfirmed) via WritePreVerifiedStates, then serve it via a fresh
-	// DomainQueryContext remote view so the seqQual query can see the creating state.
+	// DomainQueryContext remote view so the context query can see the creating state.
 	// This mirrors what the coordinator does: the DSW flushes the state to DB, then the
 	// assembler opens an assembly context wired to the coordinator's remote state view.
 	widget5State := genWidget(t, schemaID, `{"size": 66666, "color": "blue", "price": 600}`)
@@ -261,7 +272,7 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3, 5)     // added 5
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
-	checkQuery(all, seqQual, 1, 2, 4, 5)                     // added 5 (via the remote view)
+	checkContextQuery(all, 1, 2, 4, 5)                       // added 5 (via the remote view)
 
 	// The coordinator spend-locks widget[5]: its view stops serving it as a candidate and its ID
 	// joins the spent exclusion set.
@@ -272,7 +283,7 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3, 5)     // unchanged
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
-	checkQuery(all, seqQual, 1, 2, 4)                        // removed 5
+	checkContextQuery(all, 1, 2, 4)                          // removed 5
 
 	// The spend lock is released: the new view serves widget[5] as a candidate again, with no
 	// exclusions.
@@ -283,7 +294,7 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3, 5)     // unchanged
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
-	checkQuery(all, seqQual, 1, 2, 4, 5)                     // added 5 back
+	checkContextQuery(all, 1, 2, 4, 5)                       // added 5 back
 
 	// Mark widget[5] confirmed in DB
 	err = ss.WriteStateFinalizations(ss.bgCtx, ss.p.NOTX(),
@@ -298,23 +309,20 @@ func TestStateLockingQuery(t *testing.T) {
 
 	// Close the old DQC and open a fresh one with no remote view.
 	// Widget[5] is now confirmed in DB so it is visible via DB-available queries without a remote view.
-	dqc.Close(ctx)
 	md2 := componentsmocks.NewDomain(t)
 	md2.On("Name").Return("domain1")
 	md2.On("CustomHashFunction").Return(false)
 	dqc = ss.NewDomainQueryContext(ctx, md2, *contractAddress).(*domainQueryContext)
-	defer dqc.Close(ctx)
-	seqQual = pldapi.StateStatusQualifier(dqc.ID().String())
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4, 5) // added 5
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4, 5) // added 5
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)        // removed 5
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
-	checkQuery(all, seqQual, 1, 2, 4, 5)                     // unchanged (5 now confirmed in DB)
+	checkContextQuery(all, 1, 2, 4, 5)                       // unchanged (5 now confirmed in DB)
 
 	// Serve widget[3] via a new remote view: it's unconfirmed in DB (never confirmed above) but
-	// the seqQual can see it once the coordinator's view serves it as a candidate.
+	// the context can see it once the coordinator's view serves it as a candidate.
 	setTestRemoteView([]*prototk.EndorsableState{{SchemaId: schemaID.String(), StateDataJson: string(widgets[3].Data), Id: widgets[3].ID.String()}})
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
@@ -322,10 +330,10 @@ func TestStateLockingQuery(t *testing.T) {
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)        // unchanged
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
-	checkQuery(all, seqQual, 1, 2, 3, 4, 5)                  // added 3 (via the remote view)
+	checkContextQuery(all, 1, 2, 3, 4, 5)                    // added 3 (via the remote view)
 
 	// check a sub-select
-	checkQuery(query.NewQueryBuilder().Equal("color", "pink").Query(), seqQual, 3)
+	checkContextQuery(query.NewQueryBuilder().Equal("color", "pink").Query(), 3)
 	checkQuery(query.NewQueryBuilder().Equal("color", "pink").Query(), pldapi.StateStatusAvailable)
 
 }
@@ -372,9 +380,9 @@ func TestAvailabilityFlagsReconcileOnLateArrival(t *testing.T) {
 	require.NoError(t, err)
 
 	findAvailable := func() []*pldapi.State {
-		s, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", schemaID,
+		_, s, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", nil, schemaID,
 			query.NewQueryBuilder().Query(),
-			&components.StateQueryOptions{StatusQualifier: pldapi.StateStatusAvailable})
+			pldapi.StateStatusAvailable)
 		require.NoError(t, err)
 		return s
 	}

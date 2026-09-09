@@ -169,6 +169,42 @@ func TestRPC(t *testing.T) {
 
 }
 
+// TestRPCQueryHandlersValidateQualifier calls each pstate query handler directly, checking an
+// unrecognised qualifier - including a transaction UUID - is rejected as the request is parsed,
+// before any query runs, so no DB interaction is mocked.
+func TestRPCQueryHandlersValidateQualifier(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	domain := pldtypes.JSONString("domain1")
+	schemaID := pldtypes.JSONString(pldtypes.RandBytes32())
+	contractAddress := pldtypes.JSONString(pldtypes.RandAddress())
+	emptyQuery := pldtypes.RawJSON(`{}`)
+
+	for _, qualifier := range []string{"wrong", uuid.NewString()} {
+		badQualifier := pldtypes.JSONString(qualifier)
+		for _, tc := range []struct {
+			method  string
+			handler rpcserver.RPCHandler
+			params  []pldtypes.RawJSON
+		}{
+			{"pstate_queryStates", ss.rpcQueryStates(), []pldtypes.RawJSON{domain, schemaID, emptyQuery, badQualifier}},
+			{"pstate_queryNullifiers", ss.rpcQueryNullifiers(), []pldtypes.RawJSON{domain, schemaID, emptyQuery, badQualifier}},
+			{"pstate_queryContractStates", ss.rpcQueryContractStates(), []pldtypes.RawJSON{domain, contractAddress, schemaID, emptyQuery, badQualifier}},
+			{"pstate_queryContractNullifiers", ss.rpcQueryContractNullifiers(), []pldtypes.RawJSON{domain, contractAddress, schemaID, emptyQuery, badQualifier}},
+		} {
+			resp := tc.handler.Handle(ctx, &rpcclient.RPCRequest{
+				JSONRpc: "2.0",
+				ID:      pldtypes.RawJSON(`"1"`),
+				Method:  tc.method,
+				Params:  tc.params,
+			})
+			require.NotNil(t, resp.Error, "%s accepted qualifier %q", tc.method, qualifier)
+			assert.Regexp(t, "PD020016", resp.Error.Message)
+		}
+	}
+}
+
 func TestRPCTransferState(t *testing.T) {
 	ctx, ss, c, m, done := newTestRPCServer(t)
 	defer done()
