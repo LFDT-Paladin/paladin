@@ -150,7 +150,7 @@ var _ = Describe(fmt.Sprintf("zeto - %s", tokenType), Ordered, func() {
 			var coins []*zetotypes.ZetoCoinState
 			err = rpc[node].CallRPC(ctx, &coins, method, "zeto", zetoContract, zetoCoinSchemaID,
 				query.NewQueryBuilder().Equal("owner", addr).Limit(100).Query(),
-				"available")
+				"confirmed")
 			Expect(err).To(BeNil())
 			balance := big.NewInt(0)
 			summary := make([]string, len(coins))
@@ -269,7 +269,7 @@ var _ = Describe(fmt.Sprintf("zeto - %s", tokenType), Ordered, func() {
 			var coins []*zetotypes.ZetoCoinState
 			err := rpc[paladinPrefix+"1"].CallRPC(ctx, &coins, "pstate_queryContractStates", "zeto", zetoContract, zetoCoinSchemaID,
 				query.NewQueryBuilder().Equal("locked", true).Limit(1).Query(),
-				"available")
+				"confirmed")
 			Expect(err).To(BeNil())
 			Expect(coins).To(HaveLen(1))
 

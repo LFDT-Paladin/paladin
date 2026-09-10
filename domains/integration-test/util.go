@@ -238,7 +238,7 @@ notReady:
 			address,
 			coinSchemaID,
 			jq,
-			"available")
+			"confirmed")
 		if rpcerr != nil {
 			require.NoError(t, rpcerr)
 		}

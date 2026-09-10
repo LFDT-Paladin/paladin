@@ -210,8 +210,6 @@ func TestStateLockingQuery(t *testing.T) {
 	all := query.NewQueryBuilder().Query()
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4)
-	// Confirmed is a synonym of available, so it must track it exactly throughout
-	checkQuery(all, pldapi.StateStatusAvailable)
 	checkQuery(all, pldapi.StateStatusConfirmed)
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 0, 1, 2, 3, 4)
 	checkQuery(all, pldapi.StateStatusSpent)
@@ -229,7 +227,6 @@ func TestStateLockingQuery(t *testing.T) {
 	}
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4)    // unchanged
-	checkQuery(all, pldapi.StateStatusAvailable, 0, 1, 2, 4) // added all but 3
 	checkQuery(all, pldapi.StateStatusConfirmed, 0, 1, 2, 4) // added all but 3
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)        // added 3
 	checkQuery(all, pldapi.StateStatusSpent)                 // unchanged
@@ -243,7 +240,6 @@ func TestStateLockingQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4) // unchanged
-	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4) // removed 0
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4) // removed 0
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)     // unchanged
 	checkQuery(all, pldapi.StateStatusSpent, 0)           // added 0
@@ -268,7 +264,6 @@ func TestStateLockingQuery(t *testing.T) {
 	setTestRemoteView([]*prototk.EndorsableState{widget5State})
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // added 5
-	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3, 5)     // added 5
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
@@ -279,7 +274,6 @@ func TestStateLockingQuery(t *testing.T) {
 	setTestRemoteView(nil, widgets[5].ID)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
-	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3, 5)     // unchanged
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
@@ -290,7 +284,6 @@ func TestStateLockingQuery(t *testing.T) {
 	setTestRemoteView([]*prototk.EndorsableState{widget5State})
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
-	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3, 5)     // unchanged
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
@@ -315,7 +308,6 @@ func TestStateLockingQuery(t *testing.T) {
 	dqc = ss.NewDomainQueryContext(ctx, md2, *contractAddress).(*domainQueryContext)
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
-	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4, 5) // added 5
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4, 5) // added 5
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)        // removed 5
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
@@ -326,7 +318,6 @@ func TestStateLockingQuery(t *testing.T) {
 	setTestRemoteView([]*prototk.EndorsableState{{SchemaId: schemaID.String(), StateDataJson: string(widgets[3].Data), Id: widgets[3].ID.String()}})
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4, 5) // unchanged
-	checkQuery(all, pldapi.StateStatusAvailable, 1, 2, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4, 5) // unchanged
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)        // unchanged
 	checkQuery(all, pldapi.StateStatusSpent, 0)              // unchanged
@@ -334,7 +325,7 @@ func TestStateLockingQuery(t *testing.T) {
 
 	// check a sub-select
 	checkContextQuery(query.NewQueryBuilder().Equal("color", "pink").Query(), 3)
-	checkQuery(query.NewQueryBuilder().Equal("color", "pink").Query(), pldapi.StateStatusAvailable)
+	checkQuery(query.NewQueryBuilder().Equal("color", "pink").Query(), pldapi.StateStatusConfirmed)
 
 }
 
@@ -382,7 +373,7 @@ func TestAvailabilityFlagsReconcileOnLateArrival(t *testing.T) {
 	findAvailable := func() []*pldapi.State {
 		_, s, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", nil, schemaID,
 			query.NewQueryBuilder().Query(),
-			pldapi.StateStatusAvailable)
+			pldapi.StateStatusConfirmed)
 		require.NoError(t, err)
 		return s
 	}

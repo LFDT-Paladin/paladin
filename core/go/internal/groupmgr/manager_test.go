@@ -714,7 +714,7 @@ func TestInvokeRPCGroupNotFound(t *testing.T) {
 
 	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnRows(sqlmock.NewRows([]string{}))
 
-	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", pldtypes.RandBytes(32), pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", pldtypes.RandBytes(32), pldapi.StateStatusConfirmed, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
 	require.Regexp(t, "PD012502", err)
 }
 
@@ -726,7 +726,7 @@ func TestInvokeRPCGroupNotReady(t *testing.T) {
 	groupID := pldtypes.RandBytes(32)
 	mockDBPrivacyGroup(mc, schemaID, groupID, nil)
 
-	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusConfirmed, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
 	require.Regexp(t, "PD012503", err)
 }
 
@@ -741,7 +741,7 @@ func TestInvokeRPCOK(t *testing.T) {
 
 	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)}).Return(pldtypes.RawJSON(`"0xdeadbeef"`), nil)
 
-	result, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	result, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusConfirmed, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
 	require.NoError(t, err)
 	assert.Equal(t, pldtypes.RawJSON(`"0xdeadbeef"`), result)
 }
@@ -757,7 +757,7 @@ func TestInvokeRPCError(t *testing.T) {
 
 	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)}).Return(nil, fmt.Errorf("pop"))
 
-	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, pldapi.StateStatusConfirmed, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
 	require.Regexp(t, "pop", err)
 }
 

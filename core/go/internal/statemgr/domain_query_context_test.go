@@ -954,13 +954,13 @@ func TestFindNullifiersSpendingExclusion(t *testing.T) {
 
 	// Both are visible without exclusions
 	_, found, err := ss.findNullifierBackedStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schema1.ID(),
-		query.NewQueryBuilder().Query(), pldapi.StateStatusAvailable, nil)
+		query.NewQueryBuilder().Query(), pldapi.StateStatusConfirmed, nil)
 	require.NoError(t, err)
 	assert.Len(t, found, 2)
 
 	// Exclude state[0] by state ID — only state[1] should appear
 	_, found, err = ss.findNullifierBackedStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schema1.ID(),
-		query.NewQueryBuilder().Query(), pldapi.StateStatusAvailable,
+		query.NewQueryBuilder().Query(), pldapi.StateStatusConfirmed,
 		[]pldtypes.HexBytes{states1[0].ID})
 	require.NoError(t, err)
 	assert.Len(t, found, 1)

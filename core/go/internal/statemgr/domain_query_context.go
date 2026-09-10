@@ -321,7 +321,7 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 	var err error
 	if dqc.remoteStateView == nil {
 		schema, states, err = dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-			pldapi.StateStatusAvailable)
+			pldapi.StateStatusConfirmed)
 	} else {
 		schema, states, err = dqc.availableStatesWithRemoteView(ctx, dbTX, schemaID, q)
 	}
@@ -354,7 +354,7 @@ func (dqc *domainQueryContext) availableStatesWithRemoteView(ctx context.Context
 
 	waitRemote := dqc.startRemoteViewFetch(ctx, schemaID, q)
 	schema, dbStates, dbErr := dqc.ss.findStatesForRemoteViewMerge(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-		pldapi.StateStatusAvailable, spentStateIDs)
+		pldapi.StateStatusConfirmed, spentStateIDs)
 	remoteStates, fetchErr := waitRemote()
 	if fetchErr != nil {
 		return nil, nil, fetchErr
@@ -383,7 +383,7 @@ func (dqc *domainQueryContext) FindAvailableNullifierBackedStates(ctx context.Co
 		return nil, nil, err
 	}
 	return dqc.ss.findNullifierBackedStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-		pldapi.StateStatusAvailable, spentStateIDs)
+		pldapi.StateStatusConfirmed, spentStateIDs)
 }
 
 // GetStatesByID retrieves states by ID regardless of confirmation/spend status,

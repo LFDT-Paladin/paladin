@@ -52,10 +52,8 @@ func (st SchemaType) Options() []string {
 // particular point in the history of the chain.
 type StateStatusQualifier string
 
-// States with a confirmation record, and no spend record
-const StateStatusAvailable StateStatusQualifier = "available"
-
-// Synonym for StateStatusAvailable - a state is confirmed for use only while it is also unspent
+// States with a confirmation record, and no spend record - a state is confirmed for
+// use only while it is also unspent
 const StateStatusConfirmed StateStatusQualifier = "confirmed"
 
 // States with no confirmation record
@@ -73,8 +71,7 @@ func (q *StateStatusQualifier) UnmarshalJSON(b []byte) error {
 	if err == nil {
 		qText := StateStatusQualifier(strings.ToLower(text))
 		switch qText {
-		case StateStatusAvailable,
-			StateStatusConfirmed,
+		case StateStatusConfirmed,
 			StateStatusUnconfirmed,
 			StateStatusSpent,
 			StateStatusAll:

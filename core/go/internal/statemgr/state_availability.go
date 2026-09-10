@@ -26,7 +26,7 @@ import (
 )
 
 // The confirmed/spent columns on the states table are denormalized from state_confirm_records/state_spend_records
-// so the "available" query can use the states_available partial index instead of anti-joining the
+// so the "confirmed" query can use the states_available partial index instead of anti-joining the
 // ever-growing record tables.
 //
 // Private state data are distibuted off chain via reliable messaging, whereas confirm/spend records

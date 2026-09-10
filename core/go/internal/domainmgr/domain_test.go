@@ -540,7 +540,7 @@ func storeTestState(t *testing.T, td *testDomainContext, txID uuid.UUID, amount 
 	require.NoError(t, err)
 
 	// Validate against the real statestore, write, then confirm so the state appears as
-	// "available" when queried by the domain context during assembly.
+	// "confirmed" when queried by the domain context during assembly.
 	schemaID := pldtypes.MustParseBytes32(td.tp.stateSchemas[0].Id)
 	states, err := td.dm.stateStore.ValidateStatesWithLabels(td.ctx, td.c.dbTX, td.d, td.contractAddress, &prototk.EndorsableState{
 		SchemaId:      schemaID.String(),

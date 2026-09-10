@@ -316,13 +316,13 @@ func (ss *stateManager) labelSetFor(schema components.Schema) *trackingLabelSet 
 }
 
 // statusScope returns the query modifier that scopes a states query to a status qualifier and
-// excludes the given state IDs. Available, and its synonym confirmed, are served from the maintained
-// confirmed/spent flags and the states_available partial index, so they need neither the
-// Confirmed/Spent joins nor whereClauseForQual. Every other qualifier expresses status via those joins.
+// excludes the given state IDs. The confirmed qualifier is served from the maintained confirmed/spent
+// flags and the states_available partial index, so it needs neither the Confirmed/Spent joins nor
+// whereClauseForQual. Every other qualifier expresses status via those joins.
 func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.StateStatusQualifier, excludedIDs []pldtypes.HexBytes) func(*gorm.DB) *gorm.DB {
 	var whereClause *gorm.DB
 	var needsStatusJoins bool
-	if status == pldapi.StateStatusAvailable || status == pldapi.StateStatusConfirmed {
+	if status == pldapi.StateStatusConfirmed {
 		whereClause = dbTX.DB(ctx).Where(`"states"."confirmed" AND NOT "states"."spent"`)
 	} else {
 		whereClause = whereClauseForQual(dbTX.DB(ctx), status, "Spent")

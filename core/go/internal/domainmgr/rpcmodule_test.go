@@ -932,7 +932,7 @@ func TestRPCInvokeRPC_Success(t *testing.T) {
 		Method:  "domain_invokeRPC",
 		Params: []pldtypes.RawJSON{
 			pldtypes.JSONString(contractAddr.String()),
-			pldtypes.JSONString(string(pldapi.StateStatusAvailable)),
+			pldtypes.JSONString(string(pldapi.StateStatusConfirmed)),
 			pldtypes.JSONString(pldapi.DomainInvokeRPC{Method: "someMethod", Params: pldtypes.RawJSON(`[]`)}),
 		},
 	}
@@ -993,7 +993,7 @@ func TestRPCInvokeRPC_ContractNotFound(t *testing.T) {
 		Method:  "domain_invokeRPC",
 		Params: []pldtypes.RawJSON{
 			pldtypes.JSONString(contractAddr.String()),
-			pldtypes.JSONString(string(pldapi.StateStatusAvailable)),
+			pldtypes.JSONString(string(pldapi.StateStatusConfirmed)),
 			pldtypes.JSONString(pldapi.DomainInvokeRPC{Method: "someMethod", Params: pldtypes.RawJSON(`[]`)}),
 		},
 	}
@@ -1032,7 +1032,7 @@ func TestRPCInvokeRPC_InvokeError(t *testing.T) {
 		Method:  "domain_invokeRPC",
 		Params: []pldtypes.RawJSON{
 			pldtypes.JSONString(contractAddr.String()),
-			pldtypes.JSONString(string(pldapi.StateStatusAvailable)),
+			pldtypes.JSONString(string(pldapi.StateStatusConfirmed)),
 			pldtypes.JSONString(pldapi.DomainInvokeRPC{Method: "someMethod", Params: pldtypes.RawJSON(`[]`)}),
 		},
 	}
