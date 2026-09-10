@@ -135,8 +135,11 @@ func (dqc *domainQueryContext) fetchRemoteViewStates(ctx context.Context, schema
 
 // startRemoteViewFetch launches the remote view query concurrently with the caller's local DB read,
 // and returns a wait function that blocks until the fetch completes and returns its results. All
-// failures — including a query that cannot be re-marshaled for the round-trip — are reported through
-// the wait function, so callers have a single error path. Only called where a remote view is attached.
+// failures are reported through the wait function, so callers have a single error path. Where statemgr
+// functions with remote view fetches are used for assembly by a domain, the domain should consider an error
+// from the remote fetch as an assemble error (as opposed to a revert), meaning that the coordinator
+// will repool the transaction for a further assemble  rather than finalising it as failed.
+// Only called where a remote view is attached.
 func (dqc *domainQueryContext) startRemoteViewFetch(ctx context.Context, schemaID pldtypes.Bytes32, q *query.QueryJSON) func() ([]*prototk.QueriedState, error) {
 	queryJSON, err := json.Marshal(q)
 	if err != nil {

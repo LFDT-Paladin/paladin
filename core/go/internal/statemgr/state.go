@@ -357,8 +357,8 @@ func (ss *stateManager) findStates(
 		func(_ persistence.DBTX, q *gorm.DB) *gorm.DB { return scope(q) })
 }
 
-// findStatesForRemoteViewMerge reads states for a domain context that has a remote view, ready to be
-// merged with the view's own matches. It excludes the states the view reports spent ahead of the
+// findStatesForRemoteViewMerge reads states from the local database in a way that they can be merged with the
+// states returned from querying a remote view. It excludes the states the view reports spent ahead of the
 // chain, and brings each state's persisted label rows with it, because the merge sorts DB states and
 // view states into a single order and needs label values for both sides.
 //
