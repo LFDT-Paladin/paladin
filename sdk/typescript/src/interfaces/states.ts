@@ -67,7 +67,6 @@ export interface IStateNullifier {
 }
 
 export type StateStatus =
-  | "available"
   | "confirmed"
   | "unconfirmed"
   | "spent"
