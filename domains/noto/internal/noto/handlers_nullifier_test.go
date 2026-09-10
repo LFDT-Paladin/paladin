@@ -259,6 +259,19 @@ func TestValidateDistinctNullifiers(t *testing.T) {
 		testCoinState("0x06", &types.NotoCoin{Salt: salt, Owner: owner}), // no amount
 	})
 	assert.Regexp(t, "PD200044", err)
+
+	// State data that does not parse is reported against the state, with the reason it
+	// would not parse kept - the sender needs to know which state and why
+	err = n.validateDistinctNullifiers(ctx, testNullifierContract, []*prototk.EndorsableState{
+		{
+			Id:            "0x0a",
+			SchemaId:      "coin",
+			StateDataJson: `{"salt": "0x0000000000000000000000000000000000000000000000000000000000000001", "owner": "0x1111111111111111111111111111111111111111", "amount": "not-a-number"}`,
+		},
+	})
+	assert.Regexp(t, "PD200006", err)
+	assert.Regexp(t, "0x0a", err)
+	assert.Regexp(t, "not-a-number", err)
 }
 
 // smtRootIndex is the tree root returned by the mocked merkle tree state below, so tests can
