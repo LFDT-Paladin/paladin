@@ -102,8 +102,8 @@ func (ss *stateManager) NewDomainQueryContextWithRemoteView(ctx context.Context,
 	}
 }
 
-// getSpentStateIDs returns the remote view's spend exclusion set. Returns nil for local-only contexts.
-func (dqc *domainQueryContext) getSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, error) {
+// getRemoteSpentStateIDs returns the remote view's spend exclusion set. Returns nil for local-only contexts.
+func (dqc *domainQueryContext) getRemoteSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, error) {
 	if dqc.remoteStateView == nil {
 		return nil, nil
 	}
@@ -344,7 +344,7 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 // availableStatesWithRemoteView reads available states alongside the attached remote view, running the
 // view query concurrently with the DB read and merging the two results.
 func (dqc *domainQueryContext) availableStatesWithRemoteView(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, q *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
-	spentStateIDs, err := dqc.getSpentStateIDs(ctx)
+	spentStateIDs, err := dqc.getRemoteSpentStateIDs(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -381,7 +381,7 @@ func (dqc *domainQueryContext) FindAvailableNullifierBackedStates(ctx context.Co
 	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, &schemaID)
 	log.L(ctx).Debugf("FindAvailableNullifierBackedStates query=%s", q)
 
-	spentStateIDs, err := dqc.getSpentStateIDs(ctx)
+	spentStateIDs, err := dqc.getRemoteSpentStateIDs(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

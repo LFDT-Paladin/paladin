@@ -1168,12 +1168,12 @@ func TestNewDomainQueryContextWithRemoteView_DelegatesSpentIDsToView(t *testing.
 	assert.Zero(t, view.spentCalls)
 
 	// getSpentStateIDs delegates straight to the view, so each call reaches it.
-	got, err := dqc.(*domainQueryContext).getSpentStateIDs(ctx)
+	got, err := dqc.(*domainQueryContext).getRemoteSpentStateIDs(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, spent, got)
 	assert.Equal(t, 1, view.spentCalls)
 
-	got, err = dqc.(*domainQueryContext).getSpentStateIDs(ctx)
+	got, err = dqc.(*domainQueryContext).getRemoteSpentStateIDs(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, spent, got)
 	assert.Equal(t, 2, view.spentCalls)
@@ -1193,12 +1193,12 @@ func TestNewDomainQueryContextWithRemoteView_SpentIDsFetchError(t *testing.T) {
 
 	// The fetch is lazy, so the error surfaces from the query rather than construction, and a
 	// failed fetch is not cached — the next call retries.
-	_, err := dqc.(*domainQueryContext).getSpentStateIDs(ctx)
+	_, err := dqc.(*domainQueryContext).getRemoteSpentStateIDs(ctx)
 	assert.Regexp(t, "PD010137", err)
 	assert.Regexp(t, "pop", err)
 	assert.Equal(t, 1, view.spentCalls)
 
-	_, err = dqc.(*domainQueryContext).getSpentStateIDs(ctx)
+	_, err = dqc.(*domainQueryContext).getRemoteSpentStateIDs(ctx)
 	assert.Regexp(t, "PD010137", err)
 	assert.Equal(t, 2, view.spentCalls)
 }
