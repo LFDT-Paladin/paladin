@@ -71,7 +71,7 @@ func (mb *manifestBuilder) addLockInfo(lockInfo *preparedLockInfo) *manifestBuil
 	return mb
 }
 
-func (mb *manifestBuilder) finalizeNewState(manifest *types.NotoManifest, newState *prototk.NewState, distribution identityList) error {
+func (mb *manifestBuilder) finalizeNewState(manifest *types.NotoManifest, newState *prototk.NewState, distribution identityList) NotoDomainError {
 	stateID, err := pldtypes.ParseBytes32(*newState.Id)
 	if err == nil {
 		manifest.States = append(manifest.States, &types.NotoManifestStateEntry{
@@ -79,10 +79,10 @@ func (mb *manifestBuilder) finalizeNewState(manifest *types.NotoManifest, newSta
 			Participants: distribution.addresses(),
 		})
 	}
-	return err
+	return internalErr(err)
 }
 
-func (mb *manifestBuilder) buildManifest(ctx context.Context, stateQueryContext string) (*prototk.NewState, error) {
+func (mb *manifestBuilder) buildManifest(ctx context.Context, stateQueryContext string) (*prototk.NewState, NotoDomainError) {
 
 	// Build a list of all the new states which do not have an ID allocated
 	totalStateCount := len(mb.infoStates) + len(mb.outputs.states) + len(mb.lockedOutputs.states) + 1

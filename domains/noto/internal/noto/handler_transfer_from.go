@@ -29,16 +29,18 @@ type transferFromHandler struct {
 	transferCommon
 }
 
-func (h *transferFromHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *transferFromHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, NotoDomainError) {
 	var transferFromParams types.TransferFromParams
-	err := json.Unmarshal([]byte(params), &transferFromParams)
-	if err == nil {
-		err = h.validateTransferParams(ctx, transferFromParams.To, transferFromParams.Amount)
-		if err == nil && transferFromParams.From == "" {
-			err = i18n.NewError(ctx, msgs.MsgParameterRequired, "from")
-		}
+	if err := json.Unmarshal([]byte(params), &transferFromParams); err != nil {
+		return nil, validationErr(err)
 	}
-	return &transferFromParams, err
+	if err := h.validateTransferParams(ctx, transferFromParams.To, transferFromParams.Amount); err != nil {
+		return &transferFromParams, err
+	}
+	if transferFromParams.From == "" {
+		return &transferFromParams, validationErr(i18n.NewError(ctx, msgs.MsgParameterRequired, "from"))
+	}
+	return &transferFromParams, nil
 }
 
 func (h *transferFromHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
@@ -49,12 +51,12 @@ func (h *transferFromHandler) Init(ctx context.Context, tx *types.ParsedTransact
 	return h.initTransfer(ctx, tx, params.From, params.To)
 }
 
-func (h *transferFromHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+func (h *transferFromHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.TransferFromParams)
 	return h.assembleTransfer(ctx, tx, req, params.From, params.To, params.Amount, params.Data)
 }
 
-func (h *transferFromHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *transferFromHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.TransferFromParams)
 	return h.endorseTransfer(ctx, tx, req, params.From)
 }

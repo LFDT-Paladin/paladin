@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -191,4 +192,11 @@ func TestBuildManifestFailValidateStates(t *testing.T) {
 		).
 		buildManifest(ctx, "state-query-context")
 	require.Regexp(t, "pop", err)
+}
+
+func TestFinalizeNewStateBadID(t *testing.T) {
+	mb := &manifestBuilder{}
+	badID := "not-a-state-id"
+	err := mb.finalizeNewState(&types.NotoManifest{}, &prototk.NewState{Id: &badID}, identityList{})
+	assertInternal(t, err, "PD020008|bad|invalid")
 }

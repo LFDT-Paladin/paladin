@@ -32,35 +32,35 @@ type prepareMintUnlockHandler struct {
 	lockCommon
 }
 
-func (h *prepareMintUnlockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *prepareMintUnlockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, NotoDomainError) {
 	if config.IsV0() {
-		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "prepareMintUnlock is not supported in Noto V0")
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "prepareMintUnlock is not supported in Noto V0"))
 	}
 
 	var mintLockParams types.PrepareMintUnlockParams
 	if err := json.Unmarshal([]byte(params), &mintLockParams); err != nil {
-		return nil, err
+		return nil, validationErr(err)
 	}
 	if len(mintLockParams.Recipients) == 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients"))
 	}
 	for _, entry := range mintLockParams.Recipients {
 		if entry.Amount == nil || entry.Amount.Int().Sign() != 1 {
-			return nil, i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")
+			return nil, validationErr(i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount"))
 		}
 	}
 	return &mintLockParams, nil
 }
 
-func (h *prepareMintUnlockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction, from string) error {
+func (h *prepareMintUnlockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction, from string) NotoDomainError {
 	if tx.DomainConfig.NotaryMode != types.NotaryModeBasic.Enum() {
 		return nil
 	}
 	if *tx.DomainConfig.Options.Basic.RestrictMint && from != tx.DomainConfig.NotaryLookup {
-		return i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from)
+		return validationErr(i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from))
 	}
 	if !*tx.DomainConfig.Options.Basic.AllowLock {
-		return i18n.NewError(ctx, msgs.MsgLockNotAllowed)
+		return validationErr(i18n.NewError(ctx, msgs.MsgLockNotAllowed))
 	}
 	return nil
 }
@@ -82,7 +82,7 @@ func (h *prepareMintUnlockHandler) Init(ctx context.Context, tx *types.ParsedTra
 	}, nil
 }
 
-func (h *prepareMintUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+func (h *prepareMintUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.PrepareMintUnlockParams)
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
 
@@ -93,9 +93,9 @@ func (h *prepareMintUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	notaryID, senderID := ids.notary, ids.sender
 
 	// Load the existing lock
-	existingLock, revert, err := h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	existingLock, err := h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Prepare the outputs to mint
@@ -181,7 +181,7 @@ func (h *prepareMintUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	}, nil
 }
 
-func (h *prepareMintUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *prepareMintUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.PrepareMintUnlockParams)
 
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
@@ -219,6 +219,7 @@ func (h *prepareMintUnlockHandler) Endorse(ctx context.Context, tx *types.Parsed
 }
 
 func (h *prepareMintUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+	var err error
 	params := tx.Params.(*types.PrepareMintUnlockParams)
 
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
@@ -251,6 +252,7 @@ func (h *prepareMintUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *typ
 }
 
 func (h *prepareMintUnlockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
+	var err error
 	params := tx.Params.(*types.PrepareMintUnlockParams)
 
 	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)

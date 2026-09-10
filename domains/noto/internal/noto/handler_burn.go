@@ -27,25 +27,24 @@ type burnHandler struct {
 	burnCommon
 }
 
-func (h *burnHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *burnHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, NotoDomainError) {
 	var burnParams types.BurnParams
-	err := json.Unmarshal([]byte(params), &burnParams)
-	if err == nil {
-		err = h.validateBurnParams(ctx, burnParams.Amount)
+	if err := json.Unmarshal([]byte(params), &burnParams); err != nil {
+		return nil, validationErr(err)
 	}
-	return &burnParams, err
+	return &burnParams, h.validateBurnParams(ctx, burnParams.Amount)
 }
 
 func (h *burnHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
 	return h.initBurn(ctx, tx, tx.Transaction.From)
 }
 
-func (h *burnHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+func (h *burnHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.BurnParams)
 	return h.assembleBurn(ctx, tx, req, tx.Transaction.From, params.Amount, params.Data)
 }
 
-func (h *burnHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *burnHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.BurnParams)
 	return h.endorseBurn(ctx, tx, req, tx.Transaction.From, params.Amount, params.Data)
 }

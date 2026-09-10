@@ -27,13 +27,12 @@ type transferHandler struct {
 	transferCommon
 }
 
-func (h *transferHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *transferHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, NotoDomainError) {
 	var transferParams types.TransferParams
-	err := json.Unmarshal([]byte(params), &transferParams)
-	if err == nil {
-		err = h.validateTransferParams(ctx, transferParams.To, transferParams.Amount)
+	if err := json.Unmarshal([]byte(params), &transferParams); err != nil {
+		return nil, validationErr(err)
 	}
-	return &transferParams, err
+	return &transferParams, h.validateTransferParams(ctx, transferParams.To, transferParams.Amount)
 }
 
 func (h *transferHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
@@ -41,12 +40,12 @@ func (h *transferHandler) Init(ctx context.Context, tx *types.ParsedTransaction,
 	return h.initTransfer(ctx, tx, tx.Transaction.From, params.To)
 }
 
-func (h *transferHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+func (h *transferHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.TransferParams)
 	return h.assembleTransfer(ctx, tx, req, tx.Transaction.From, params.To, params.Amount, params.Data)
 }
 
-func (h *transferHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *transferHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, NotoDomainError) {
 	return h.endorseTransfer(ctx, tx, req, tx.Transaction.From)
 }
 

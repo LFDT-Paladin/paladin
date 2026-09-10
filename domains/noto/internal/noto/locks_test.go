@@ -45,9 +45,8 @@ func TestLoadLockInfoOk(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	lock, revert, err := n.loadLockInfoV1(ctx, "query-context", lockID)
+	lock, err := n.loadLockInfoV1(ctx, "query-context", lockID)
 	require.NoError(t, err)
-	require.False(t, revert)
 	require.Equal(t, lockID, lock.lockInfo.LockID)
 	require.Equal(t, existingState.Id, lock.id.String())
 	require.Equal(t, existingState.Id, lock.stateRef.Id)
@@ -73,9 +72,10 @@ func TestLoadLockInfoBadData(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	_, revert, err := n.loadLockInfoV1(ctx, "query-context", lockID)
-	require.Regexp(t, "PD200040", err)
-	require.False(t, revert)
+	// A lock state read from this node's own store that will not parse is corruption
+	// in this node's DB
+	_, err := n.loadLockInfoV1(ctx, "query-context", lockID)
+	assertInternal(t, err, "PD200040")
 }
 
 func TestLoadLockInfoNotFound(t *testing.T) {
@@ -90,9 +90,9 @@ func TestLoadLockInfoNotFound(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	_, revert, err := n.loadLockInfoV1(ctx, "query-context", lockID)
-	require.Regexp(t, "PD200028", err)
-	require.True(t, revert)
+	// A lock the transaction named that does not exist makes the transaction invalid
+	_, err := n.loadLockInfoV1(ctx, "query-context", lockID)
+	assertRevert(t, err, "PD200028")
 }
 
 func TestLoadLockInfoLoadFail(t *testing.T) {
@@ -107,12 +107,12 @@ func TestLoadLockInfoLoadFail(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	_, revert, err := n.loadLockInfoV1(ctx, "query-context", lockID)
-	require.Regexp(t, "pop", err)
-	require.False(t, revert)
+	// The state query itself failing is retryable, not a reason to fail the transaction
+	_, err := n.loadLockInfoV1(ctx, "query-context", lockID)
+	assertInternal(t, err, "pop")
 }
 
-func newValidV1LockTransition(t *testing.T, transitionType lockTransitionType, mods ...func(sender *identityPair, in *types.NotoLockInfo_V1, out *types.NotoLockInfo_V1)) (*lockTransition, error) {
+func newValidV1LockTransition(t *testing.T, transitionType lockTransitionType, mods ...func(sender *identityPair, in *types.NotoLockInfo_V1, out *types.NotoLockInfo_V1)) (*lockTransition, NotoDomainError) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
@@ -193,7 +193,7 @@ func TestDecodeV1LockTransitionInvalidInputLock(t *testing.T) {
 		},
 		[]*prototk.EndorsableState{},
 	)
-	require.Regexp(t, "PD200040", err)
+	assertRevert(t, err, "PD200040")
 }
 
 func TestDecodeV1LockTransitionInvalidOutputLock(t *testing.T) {
@@ -211,7 +211,7 @@ func TestDecodeV1LockTransitionInvalidOutputLock(t *testing.T) {
 			},
 		},
 	)
-	require.Regexp(t, "PD200040", err)
+	assertRevert(t, err, "PD200040")
 }
 
 func TestMissingLockCreate(t *testing.T) {
@@ -223,7 +223,7 @@ func TestMissingLockCreate(t *testing.T) {
 		[]*prototk.EndorsableState{},
 		[]*prototk.EndorsableState{},
 	)
-	require.Regexp(t, "PD200041", err)
+	assertRevert(t, err, "PD200041")
 }
 
 func TestMissingLockSpend(t *testing.T) {
@@ -235,28 +235,40 @@ func TestMissingLockSpend(t *testing.T) {
 		[]*prototk.EndorsableState{},
 		[]*prototk.EndorsableState{},
 	)
-	require.Regexp(t, "PD200041", err)
+	assertRevert(t, err, "PD200041")
+}
+
+func TestMissingLockUpdate(t *testing.T) {
+	n := &Noto{lockInfoSchemaV1: testSchema("lockInfoV1")}
+	_, err := n.validateV1LockTransition(t.Context(),
+		LOCK_UPDATE,
+		&identityPair{address: pldtypes.RandAddress(), identifier: "user1"},
+		nil,
+		[]*prototk.EndorsableState{},
+		[]*prototk.EndorsableState{},
+	)
+	assertRevert(t, err, "PD200041")
 }
 
 func TestDecodeV1LockTransitionMissingSpendTxId(t *testing.T) {
 	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
 		out.SpendOutputs = []pldtypes.Bytes32{pldtypes.RandBytes32()}
 	})
-	require.Regexp(t, "PD200040", err)
+	assertRevert(t, err, "PD200040")
 }
 
 func TestDecodeV1LockTransitionBadLockID(t *testing.T) {
 	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
 		out.LockID = pldtypes.RandBytes32()
 	})
-	require.Regexp(t, "PD200039", err)
+	assertRevert(t, err, "PD200039")
 }
 
 func TestDecodeV1LockTransitionBadChain(t *testing.T) {
 	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
 		out.Replaces = pldtypes.RandBytes32()
 	})
-	require.Regexp(t, "PD200041", err)
+	assertRevert(t, err, "PD200041")
 }
 
 func TestDecodeV1LockTransitionSplitOutputsOk(t *testing.T) {
@@ -309,5 +321,12 @@ func TestDecodeV1LockTransitionSplitOutputsMissing(t *testing.T) {
 	require.NoError(t, err)
 
 	_, _, err = lt.splitOutputs(context.Background(), []*prototk.EndorsableState{cancelCoin})
-	require.Regexp(t, "PD200041", err)
+	assertRevert(t, err, "PD200041")
+}
+
+func TestDecodeV1LockTransitionWrongInputLockOwner(t *testing.T) {
+	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
+		sender.address = pldtypes.RandAddress()
+	})
+	assertRevert(t, err, "PD200018")
 }

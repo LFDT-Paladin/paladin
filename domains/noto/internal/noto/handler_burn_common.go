@@ -32,21 +32,21 @@ type burnCommon struct {
 	noto *Noto
 }
 
-func (h *burnCommon) validateBurnParams(ctx context.Context, amount *pldtypes.HexUint256) error {
+func (h *burnCommon) validateBurnParams(ctx context.Context, amount *pldtypes.HexUint256) NotoDomainError {
 	if amount == nil || amount.Int().Sign() != 1 {
-		return i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")
+		return validationErr(i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount"))
 	}
 	return nil
 }
 
-func (h *burnCommon) checkBurnAllowed(ctx context.Context, tx *types.ParsedTransaction) error {
+func (h *burnCommon) checkBurnAllowed(ctx context.Context, tx *types.ParsedTransaction) NotoDomainError {
 	if tx.DomainConfig.NotaryMode != types.NotaryModeBasic.Enum() {
 		return nil
 	}
 	if *tx.DomainConfig.Options.Basic.AllowBurn {
 		return nil
 	}
-	return i18n.NewError(ctx, msgs.MsgBurnNotAllowed)
+	return validationErr(i18n.NewError(ctx, msgs.MsgBurnNotAllowed))
 }
 
 func (h *burnCommon) initBurn(ctx context.Context, tx *types.ParsedTransaction, from string) (*prototk.InitTransactionResponse, error) {
@@ -60,7 +60,7 @@ func (h *burnCommon) initBurn(ctx context.Context, tx *types.ParsedTransaction, 
 	}, nil
 }
 
-func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, from string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.AssembleTransactionResponse, error) {
+func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, from string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.AssembleTransactionResponse, NotoDomainError) {
 	ids, err := resolveIdentities(ctx, h.noto, tx, req, from, "")
 	if err != nil {
 		return nil, err
@@ -68,9 +68,9 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 	notaryID, senderID, fromID := ids.notary, ids.sender, ids.from
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	inputStates, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
+	if err != nil {
+		return nil, err
 	}
 	infoDistribution := identityList{notaryID, senderID, fromID}
 	infoStates, err := h.noto.prepareDataInfo(ctx, data, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, req.ResolvedVerifiers)
@@ -118,7 +118,7 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 	}, nil
 }
 
-func (h *burnCommon) endorseBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest, from string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.EndorseTransactionResponse, error) {
+func (h *burnCommon) endorseBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest, from string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.EndorseTransactionResponse, NotoDomainError) {
 	if err := h.checkBurnAllowed(ctx, tx); err != nil {
 		return nil, err
 	}
@@ -154,6 +154,7 @@ func (h *burnCommon) endorseBurn(ctx context.Context, tx *types.ParsedTransactio
 }
 
 func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, useNullifier bool) (*TransactionWrapper, error) {
+	var err error
 	// Include the signature from the sender/notary
 	// This is not verified on the base ledger, but can be verified by anyone with the unmasked state data
 	sender := domain.FindAttestation("sender", req.AttestationResult)
@@ -209,6 +210,7 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 }
 
 func (h *burnCommon) hookInvokeBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper, from string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*TransactionWrapper, error) {
+	var err error
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err

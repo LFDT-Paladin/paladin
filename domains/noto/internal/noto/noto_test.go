@@ -1036,12 +1036,14 @@ func TestAssembleTransactionBadAbi(t *testing.T) {
 func TestEndorseTransactionBadAbi(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	_, err := n.EndorseTransaction(context.Background(), &prototk.EndorseTransactionRequest{
+	res, err := n.EndorseTransaction(t.Context(), &prototk.EndorseTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
 			FunctionAbiJson: "!!wrong",
 		},
 	})
-	assert.ErrorContains(t, err, "invalid character")
+	require.NoError(t, err)
+	assert.Equal(t, prototk.EndorseTransactionResponse_REVERT, res.EndorsementResult)
+	assert.Contains(t, *res.RevertReason, "invalid character")
 }
 
 func TestPrepareTransactionBadAbi(t *testing.T) {
@@ -1145,6 +1147,103 @@ func TestRecoverSignatureInvalid(t *testing.T) {
 	assert.ErrorContains(t, err, "FF22087")
 }
 
+func TestParseCoinListBadStates(t *testing.T) {
+	n := &Noto{
+		coinSchema:       testSchema("coin"),
+		lockedCoinSchema: testSchema("lockedCoin"),
+		lockInfoSchemaV1: testSchema("lockInfoV1"),
+	}
+	stateID := pldtypes.RandBytes32().String()
+	coin := mustParseJSON(&types.NotoCoin{
+		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.RandAddress(),
+		Amount: pldtypes.Int64ToInt256(100),
+	})
+
+	for _, tc := range []struct {
+		name   string
+		states []*prototk.EndorsableState
+		match  string
+	}{
+		{"the same state twice", []*prototk.EndorsableState{
+			{Id: stateID, SchemaId: hashName("coin"), StateDataJson: coin},
+			{Id: stateID, SchemaId: hashName("coin"), StateDataJson: coin},
+		}, "PD200020"},
+		{"coin data that will not parse", []*prototk.EndorsableState{
+			{Id: stateID, SchemaId: hashName("coin"), StateDataJson: `{"amount": "not-a-number"}`},
+		}, "PD200004"},
+		{"locked coin data that will not parse", []*prototk.EndorsableState{
+			{Id: stateID, SchemaId: hashName("lockedCoin"), StateDataJson: `{"amount": "not-a-number"}`},
+		}, "PD200004"},
+		{"a schema this domain does not use", []*prototk.EndorsableState{
+			{Id: stateID, SchemaId: hashName("somethingelse"), StateDataJson: `{}`},
+		}, "PD200003"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := n.parseCoinList(t.Context(), "inputs", tc.states)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestComputeLockIdBadTransactionID(t *testing.T) {
+	n := &Noto{}
+	_, err := n.computeLockId(t.Context(), pldtypes.RandAddress(), pldtypes.RandAddress(), "not-a-transaction-id")
+	assertEndorseOnlyRevert(t, err, "FF22047|PD020007|bad|invalid")
+}
+
+func TestEncodeTransactionDataV0BadInfoStateID(t *testing.T) {
+	goodTx := &prototk.TransactionSpecification{TransactionId: pldtypes.RandBytes32().String()}
+	_, err := (&Noto{}).encodeTransactionDataV0(t.Context(), goodTx, []*prototk.EndorsableState{{Id: "not-a-state-id"}})
+	assertEndorseOnlyRevert(t, err, "PD020008|bad|invalid")
+}
+
+func TestEncodeTransactionDataV0BadTransactionID(t *testing.T) {
+	badTx := &prototk.TransactionSpecification{TransactionId: "not-a-transaction-id"}
+	_, err := (&Noto{}).encodeTransactionDataV0(t.Context(), badTx, nil)
+	assertEndorseOnlyRevert(t, err, "PD020008|bad|invalid")
+}
+
+func TestEncodeTransactionDataV1BadInfoStateID(t *testing.T) {
+	_, err := (&Noto{}).encodeTransactionDataV1(t.Context(), []*prototk.EndorsableState{{Id: "not-a-state-id"}})
+	assertEndorseOnlyRevert(t, err, "PD020008|bad|invalid")
+}
+
+func TestValidateTransactionCommonBadFunctionABI(t *testing.T) {
+	spec := newValidTransferSpec()
+	spec.FunctionAbiJson = `{`
+	_, _, err := validateTransactionCommon(t.Context(), spec, (&Noto{}).GetHandler)
+	assertEndorseOnlyRevert(t, err, "unexpected end of JSON input")
+}
+
+func TestValidateTransactionCommonBadContractConfig(t *testing.T) {
+	spec := newValidTransferSpec()
+	spec.ContractInfo.ContractConfigJson = `{`
+	_, _, err := validateTransactionCommon(t.Context(), spec, (&Noto{}).GetHandler)
+	assertEndorseOnlyRevert(t, err, "unexpected end of JSON input")
+}
+
+func TestValidateTransactionCommonBadContractAddress(t *testing.T) {
+	spec := newValidTransferSpec()
+	spec.ContractInfo.ContractAddress = "not-an-address"
+	_, _, err := validateTransactionCommon(t.Context(), spec, (&Noto{}).GetHandler)
+	assertEndorseOnlyRevert(t, err, "bad address")
+}
+
+func TestValidateTransactionCommonUnknownFunction(t *testing.T) {
+	spec := newValidTransferSpec()
+	spec.FunctionAbiJson = `{"name": "notAFunction", "type": "function", "inputs": []}`
+	_, _, err := validateTransactionCommon(t.Context(), spec, (&Noto{}).GetHandler)
+	assertRevert(t, err, "PD200001.*notAFunction")
+}
+
+func TestValidateTransactionCommonWrongSignature(t *testing.T) {
+	spec := newValidTransferSpec()
+	spec.FunctionSignature = "transfer(uint256)"
+	_, _, err := validateTransactionCommon(t.Context(), spec, (&Noto{}).GetHandler)
+	assertRevert(t, err, "PD200002.*transfer")
+}
+
 func hashName(name string) string {
 	h := sha256.New()
 	_, _ = h.Write([]byte(name))
@@ -1156,5 +1255,18 @@ func testSchema(name string) *prototk.StateSchema {
 	nameHash := hashName(name)
 	return &prototk.StateSchema{
 		Id: nameHash,
+	}
+}
+
+func newValidTransferSpec() *prototk.TransactionSpecification {
+	fn := types.NotoABI.Functions()["transfer"]
+	return &prototk.TransactionSpecification{
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress:    pldtypes.RandAddress().String(),
+			ContractConfigJson: mustParseJSON(notoBasicConfigV1),
+		},
+		FunctionAbiJson:    mustParseJSON(fn),
+		FunctionSignature:  fn.SolString(),
+		FunctionParamsJson: `{"to": "receiver@node2", "amount": 1}`,
 	}
 }

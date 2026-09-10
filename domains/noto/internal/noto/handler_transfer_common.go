@@ -32,12 +32,12 @@ type transferCommon struct {
 	noto *Noto
 }
 
-func (h *transferCommon) validateTransferParams(ctx context.Context, to string, amount *pldtypes.HexUint256) error {
+func (h *transferCommon) validateTransferParams(ctx context.Context, to string, amount *pldtypes.HexUint256) NotoDomainError {
 	if to == "" {
-		return i18n.NewError(ctx, msgs.MsgParameterRequired, "to")
+		return validationErr(i18n.NewError(ctx, msgs.MsgParameterRequired, "to"))
 	}
 	if amount == nil || amount.Int().Sign() != 1 {
-		return i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")
+		return validationErr(i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount"))
 	}
 	return nil
 }
@@ -51,7 +51,7 @@ func (h *transferCommon) initTransfer(ctx context.Context, tx *types.ParsedTrans
 	}, nil
 }
 
-func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.AssembleTransactionResponse, error) {
+func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.AssembleTransactionResponse, NotoDomainError) {
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
 	ids, err := resolveIdentities(ctx, h.noto, tx, req, from, to)
@@ -60,9 +60,9 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	}
 	notaryID, senderID, fromID, toID := ids.notary, ids.sender, ids.from, ids.to
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	inputStates, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
+	if err != nil {
+		return nil, err
 	}
 
 	// Avoid duplicating the sender in distribution lists
@@ -122,7 +122,7 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	}, nil
 }
 
-func (h *transferCommon) endorseTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest, from string) (*prototk.EndorseTransactionResponse, error) {
+func (h *transferCommon) endorseTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest, from string) (*prototk.EndorseTransactionResponse, NotoDomainError) {
 	inputs, err := h.noto.parseCoinList(ctx, "input", req.Inputs)
 	if err != nil {
 		return nil, err
@@ -153,7 +153,8 @@ func (h *transferCommon) endorseTransfer(ctx context.Context, tx *types.ParsedTr
 	}, nil
 }
 
-func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, withApproval bool, useNullifier bool) (*TransactionWrapper, error) {
+func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+	var err error
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 	// Include the signature from the sender
 	// This is not verified on the base ledger, but can be verified by anyone with the unmasked state data
@@ -168,7 +169,7 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 	}
 
 	proof := signature.Payload
-	if useNullifier {
+	if useNullifiers {
 		encoded, encErr := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, proof)
 		if encErr != nil {
 			return nil, encErr
@@ -209,6 +210,7 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 }
 
 func (h *transferCommon) hookInvokeTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*TransactionWrapper, error) {
+	var err error
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", req.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
@@ -256,13 +258,12 @@ func (h *transferCommon) hookInvokeTransfer(ctx context.Context, tx *types.Parse
 }
 
 func (h *transferCommon) prepareTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.PrepareTransactionResponse, error) {
-	useNullifier := tx.DomainConfig.IsNullifierVariant()
 	endorsement := domain.FindAttestation("notary", req.AttestationResult)
 	if endorsement == nil || endorsement.Verifier.Lookup != tx.DomainConfig.NotaryLookup {
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "notary")
 	}
 
-	baseTransaction, err := h.baseLedgerInvokeTransfer(ctx, tx, req, false, useNullifier)
+	baseTransaction, err := h.baseLedgerInvokeTransfer(ctx, tx, req)
 	if err != nil {
 		return nil, err
 	}

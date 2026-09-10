@@ -494,6 +494,138 @@ func TestPrepareBurnUnlockCheckAllowedForFromLocalNodeNameFailed(t *testing.T) {
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node1"},
 		DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
 	}
-	err := h.checkAllowedForFrom(t.Context(), tx, "sender")
-	assert.ErrorContains(t, err, "pop")
+	// Reading this node's own name is a local call, so a failure there says nothing
+	// about the transaction and must stay retryable
+	assertInternal(t, h.checkAllowedForFrom(t.Context(), tx, "sender"), "pop")
+}
+
+func TestPrepareBurnUnlockValidateParamsRevert(t *testing.T) {
+	h := &prepareBurnUnlockHandler{}
+	lockID := pldtypes.RandBytes32()
+	for _, tc := range []struct {
+		name, params, match string
+		config              *types.NotoParsedConfig
+	}{
+		{"not supported in V0", `{}`, "PD200014", notoBasicConfigV0},
+		{"malformed JSON", `{"lockId":`, "unexpected end of JSON input", notoBasicConfigV1},
+		{"missing lockId", `{"from": "sender@node1", "amount": 1}`, "PD200007.*'lockId'", notoBasicConfigV1},
+		{"missing from", fmt.Sprintf(`{"lockId": "%s", "amount": 1}`, lockID), "PD200007.*'from'", notoBasicConfigV1},
+		{"zero amount", fmt.Sprintf(`{"lockId": "%s", "from": "sender@node1", "amount": 0}`, lockID), "PD200008.*'amount'", notoBasicConfigV1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), tc.config, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestPrepareBurnUnlockCheckAllowedRevertsWhenBurnDisabled(t *testing.T) {
+	allowBurn := false
+	h := &prepareBurnUnlockHandler{}
+	tx := &types.ParsedTransaction{
+		DomainConfig: &types.NotoParsedConfig{
+			NotaryMode: types.NotaryModeBasic.Enum(),
+			Options:    types.NotoOptions{Basic: &types.NotoBasicOptions{AllowBurn: &allowBurn}},
+		},
+	}
+	assertRevert(t, h.checkAllowed(t.Context(), tx), "PD200025")
+}
+
+func TestPrepareBurnUnlockCheckAllowedForFromUnparsableLocator(t *testing.T) {
+	h := &prepareBurnUnlockHandler{lockCommon{noto: &Noto{Callbacks: newMockCallbacks()}}}
+	tx := &types.ParsedTransaction{
+		Transaction:  &prototk.TransactionSpecification{From: "sender@node1"},
+		DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
+	}
+	assertRevert(t, h.checkAllowedForFrom(t.Context(), tx, "sender@node1@node2"), "PD020006")
+}
+
+func TestPrepareBurnUnlockCheckAllowedForFromNotTheLockCreator(t *testing.T) {
+	h := &prepareBurnUnlockHandler{lockCommon{noto: &Noto{Callbacks: newMockCallbacks()}}}
+	tx := &types.ParsedTransaction{
+		Transaction:  &prototk.TransactionSpecification{From: "someoneelse@node1"},
+		DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
+	}
+	assertRevert(t, h.checkAllowedForFrom(t.Context(), tx, "sender"), "PD200031")
+}
+
+// A burn consumes the whole lock, so the locked coins the endorser reads must total exactly
+// the amount being burned - not merely cover it.
+func TestPrepareBurnUnlockEndorseRevertsWhenLockedCoinsDoNotMatchTheBurnAmount(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	tx.Params = &types.PrepareBurnUnlockParams{
+		LockID: pldtypes.RandBytes32(),
+		From:   "sender@node1",
+		Amount: pldtypes.Int64ToInt256(100),
+	}
+	h := &prepareBurnUnlockHandler{lockCommon{noto: n}}
+
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Reads:             []*prototk.EndorsableState{newLockedCoinState(sender, 40)},
+	})
+	assertRevert(t, err, "PD200013.*prepareBurnUnlock")
+}
+
+// Assemble selects every coin held under the lock, so a lock holding more than the amount
+// asked for cannot be burned - the leftover would have nowhere to go.
+func TestPrepareBurnUnlockAssembleRevertsWhenTheLockDoesNotHoldTheBurnAmount(t *testing.T) {
+	ctx, mockCallbacks, n := newNotoFullSchemaSet(t)
+	sender := pldtypes.RandAddress()
+	lockID := pldtypes.RandBytes32()
+
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		switch req.SchemaId {
+		case n.lockInfoSchemaV1.Id:
+			return &prototk.FindAvailableStatesResponse{States: []*prototk.StoredState{{
+				Id:       pldtypes.RandBytes32().String(),
+				SchemaId: req.SchemaId,
+				DataJson: mustParseJSON(&types.NotoLockInfo_V1{
+					Salt: pldtypes.RandBytes32(), LockID: lockID, Owner: sender, Spender: sender,
+				}),
+			}}}, nil
+		case n.lockedCoinSchema.Id:
+			// 150 locked, against a burn of 100 - selectAll takes them all, so the
+			// totals must match exactly and this does not
+			return &prototk.FindAvailableStatesResponse{States: []*prototk.StoredState{{
+				Id:       pldtypes.RandBytes32().String(),
+				SchemaId: req.SchemaId,
+				DataJson: mustParseJSON(&types.NotoLockedCoin{
+					Salt: pldtypes.RandBytes32(), LockID: lockID, Owner: sender, Amount: pldtypes.Int64ToInt256(150),
+				}),
+			}}}, nil
+		}
+		return &prototk.FindAvailableStatesResponse{}, nil
+	}
+
+	h := &prepareBurnUnlockHandler{lockCommon{noto: n}}
+	tx := &types.ParsedTransaction{
+		Transaction:     &prototk.TransactionSpecification{From: "sender@node1"},
+		ContractAddress: ethtypes.MustNewAddress(pldtypes.RandAddress().String()),
+		DomainConfig:    notoBasicConfigV1,
+		Params: &types.PrepareBurnUnlockParams{
+			LockID: lockID,
+			From:   "sender@node1",
+			Amount: pldtypes.Int64ToInt256(100),
+		},
+	}
+	ethAddressVerifier := func(lookup string) *prototk.ResolvedVerifier {
+		return &prototk.ResolvedVerifier{
+			Lookup:       lookup,
+			Algorithm:    algorithms.ECDSA_SECP256K1,
+			VerifierType: verifiers.ETH_ADDRESS,
+			Verifier:     sender.String(),
+		}
+	}
+
+	_, err := h.Assemble(ctx, tx, &prototk.AssembleTransactionRequest{
+		Transaction:       tx.Transaction,
+		StateQueryContext: "query-context",
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			ethAddressVerifier("notary@node1"),
+			ethAddressVerifier("sender@node1"),
+		},
+	})
+	assertRevert(t, err, "PD200013.*prepareBurnUnlock")
 }

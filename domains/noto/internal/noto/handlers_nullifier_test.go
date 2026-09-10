@@ -136,8 +136,8 @@ func TestEndorseRejectsCollidingOutputNullifiers(t *testing.T) {
 		encodedTransfer, err := n.encodeTransferUnmasked(ctx, ethtypes.MustNewAddress(contractAddress),
 			[]*types.NotoCoin{inputCoin}, outputCoins)
 		require.NoError(t, err)
-		signature, err := senderKey.SignDirect(encodedTransfer)
-		require.NoError(t, err)
+		signature, signErr := senderKey.SignDirect(encodedTransfer)
+		require.NoError(t, signErr)
 
 		return n.EndorseTransaction(ctx, &prototk.EndorseTransactionRequest{
 			Transaction:       tx,
@@ -176,9 +176,12 @@ func TestEndorseRejectsCollidingOutputNullifiers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, prototk.EndorseTransactionResponse_ENDORSER_SUBMIT, endorseRes.EndorsementResult)
 
-	// A collision now requires a duplicate coin, which the notary rejects
-	_, err = endorse([]*types.NotoCoin{toRecipient, toRecipient})
-	assert.Regexp(t, "PD200045", err)
+	// A collision now requires a duplicate coin, which makes the transaction invalid - so the
+	// notary reverts it
+	endorseRes, err = endorse([]*types.NotoCoin{toRecipient, toRecipient})
+	require.NoError(t, err)
+	assert.Equal(t, prototk.EndorseTransactionResponse_REVERT, endorseRes.EndorsementResult)
+	assert.Regexp(t, "PD200045", *endorseRes.RevertReason)
 
 	// The guard only applies to the nullifier variants - other variants spend by state ID
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(notoBasicConfigV1)
@@ -216,7 +219,7 @@ func TestValidateDistinctNullifiers(t *testing.T) {
 		[]*prototk.EndorsableState{coinA},
 		[]*prototk.EndorsableState{coinCollidingWithA},
 	)
-	assert.Regexp(t, "PD200045", err)
+	assertRevert(t, err, "PD200045")
 	assert.Regexp(t, "0x01", err)
 	assert.Regexp(t, "0x03", err)
 
@@ -234,8 +237,8 @@ func TestValidateDistinctNullifiers(t *testing.T) {
 	// identical locked coins are rejected as duplicate states elsewhere, not here
 	lockID := pldtypes.RandBytes32()
 	lockedCoin := &types.NotoLockedCoin{Salt: salt, LockID: lockID, Owner: owner, Amount: amount}
-	lockedData, err := json.Marshal(lockedCoin)
-	require.NoError(t, err)
+	lockedData, marshalErr := json.Marshal(lockedCoin)
+	require.NoError(t, marshalErr)
 	require.NoError(t, n.validateDistinctNullifiers(ctx, testNullifierContract, []*prototk.EndorsableState{
 		{Id: "0x08", SchemaId: "lockedCoin", StateDataJson: string(lockedData)},
 		{Id: "0x09", SchemaId: "lockedCoin", StateDataJson: string(lockedData)},
@@ -258,7 +261,7 @@ func TestValidateDistinctNullifiers(t *testing.T) {
 	err = n.validateDistinctNullifiers(ctx, testNullifierContract, []*prototk.EndorsableState{
 		testCoinState("0x06", &types.NotoCoin{Salt: salt, Owner: owner}), // no amount
 	})
-	assert.Regexp(t, "PD200044", err)
+	assertRevert(t, err, "PD200044")
 
 	// State data that does not parse is reported against the state, with the reason it
 	// would not parse kept - the sender needs to know which state and why
@@ -269,7 +272,7 @@ func TestValidateDistinctNullifiers(t *testing.T) {
 			StateDataJson: `{"salt": "0x0000000000000000000000000000000000000000000000000000000000000001", "owner": "0x1111111111111111111111111111111111111111", "amount": "not-a-number"}`,
 		},
 	})
-	assert.Regexp(t, "PD200006", err)
+	assertRevert(t, err, "PD200006")
 	assert.Regexp(t, "0x0a", err)
 	assert.Regexp(t, "not-a-number", err)
 }
@@ -701,29 +704,37 @@ func TestValidateNullifierSpecs(t *testing.T) {
 	}
 
 	// A coin with a spec is fine, wherever it appears
-	require.NoError(t, n.validateNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
+	require.NoError(t, n.validateAssembledNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
 		OutputStates: []*prototk.NewState{withSpec("coin")},
 		InfoStates:   []*prototk.NewState{withSpec("coin")},
 	}))
 
 	// A coin without one is rejected, as an output...
-	err := n.validateNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
+	err := n.validateAssembledNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
 		OutputStates: []*prototk.NewState{{SchemaId: "coin", StateDataJson: coin}},
 	})
-	assert.Regexp(t, "PD200046", err)
+	assertInternal(t, err, "PD200046")
 
 	// ...and as an info state, which is where the prepared spend and cancel outputs of a lock live
-	err = n.validateNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
+	err = n.validateAssembledNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
 		OutputStates: []*prototk.NewState{withSpec("coin")},
 		InfoStates:   []*prototk.NewState{{SchemaId: "coin", StateDataJson: coin}},
 	})
-	assert.Regexp(t, "PD200046", err)
+	assertInternal(t, err, "PD200046")
 
 	// The error must not leak the coin data, which holds the owner and amount
 	assert.NotContains(t, err.Error(), "owner")
 
+	// A spec bound to a different contract means the spec has not been built correctly
+	wrongContract := &prototk.NewState{SchemaId: "coin", StateDataJson: coin}
+	n.addNullifierSpecs([]*prototk.NewState{wrongContract}, "recipient@node1", pldtypes.RandAddress())
+	err = n.validateAssembledNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
+		OutputStates: []*prototk.NewState{wrongContract},
+	})
+	assertInternal(t, err, "PD200048")
+
 	// Locked coins and lock info states are spent by ID, so they need no spec
-	require.NoError(t, n.validateNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
+	require.NoError(t, n.validateAssembledNullifierSpecs(ctx, testNullifierContract, &prototk.AssembledTransaction{
 		OutputStates: []*prototk.NewState{
 			{SchemaId: "lockedCoin", StateDataJson: coin},
 			{SchemaId: "lockInfo", StateDataJson: `{}`},
@@ -731,5 +742,5 @@ func TestValidateNullifierSpecs(t *testing.T) {
 	}))
 
 	// Nothing to check when assembly produced nothing
-	require.NoError(t, n.validateNullifierSpecs(ctx, testNullifierContract, nil))
+	require.NoError(t, n.validateAssembledNullifierSpecs(ctx, testNullifierContract, nil))
 }

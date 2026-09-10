@@ -27,7 +27,7 @@ type decimalsHandler struct {
 	noto *Noto
 }
 
-func (h *decimalsHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *decimalsHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, NotoDomainError) {
 	return nil, nil
 }
 

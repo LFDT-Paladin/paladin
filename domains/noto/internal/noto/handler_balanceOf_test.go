@@ -75,6 +75,8 @@ func TestBalanceOfValidateParams(t *testing.T) {
 
 			if tc.expectedErr != "" {
 				assert.EqualError(t, err, tc.expectedErr)
+				assert.True(t, err.IsAssembleRevert(), "expected a revert at assemble")
+				assert.True(t, err.IsEndorseRevert(), "expected a revert at endorse")
 			}
 
 			if tc.validate != nil {

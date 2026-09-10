@@ -33,25 +33,27 @@ type createMintLockHandler struct {
 	lockCommon
 }
 
-func (h *createMintLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *createMintLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, NotoDomainError) {
 	if config.IsV0() {
-		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createMintLock is not supported in Noto V0")
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createMintLock is not supported in Noto V0"))
 	}
 
 	var createMintLockParams types.CreateMintLockParams
-	err := json.Unmarshal([]byte(params), &createMintLockParams)
+	if err := json.Unmarshal([]byte(params), &createMintLockParams); err != nil {
+		return nil, validationErr(err)
+	}
 	if len(createMintLockParams.Recipients) == 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients"))
 	}
 	for _, entry := range createMintLockParams.Recipients {
 		if entry.Amount == nil || entry.Amount.Int().Sign() != 1 {
-			return nil, i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")
+			return nil, validationErr(i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount"))
 		}
 	}
-	return &createMintLockParams, err
+	return &createMintLockParams, nil
 }
 
-func (h *createMintLockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction, from string) error {
+func (h *createMintLockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction, from string) NotoDomainError {
 	if tx.DomainConfig.NotaryMode != types.NotaryModeBasic.Enum() {
 		return nil
 	}
@@ -61,7 +63,7 @@ func (h *createMintLockHandler) checkAllowed(ctx context.Context, tx *types.Pars
 	if from == tx.DomainConfig.NotaryLookup {
 		return nil
 	}
-	return i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from)
+	return validationErr(i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from))
 }
 
 func (h *createMintLockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
@@ -81,7 +83,7 @@ func (h *createMintLockHandler) Init(ctx context.Context, tx *types.ParsedTransa
 	}, nil
 }
 
-func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.CreateMintLockParams)
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
 
@@ -171,7 +173,7 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	}, nil
 }
 
-func (h *createMintLockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *createMintLockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.CreateMintLockParams)
 	if err := h.checkAllowed(ctx, tx, req.Transaction.From); err != nil {
 		return nil, err
@@ -206,10 +208,10 @@ func (h *createMintLockHandler) Endorse(ctx context.Context, tx *types.ParsedTra
 		requiredTotal = requiredTotal.Add(requiredTotal, entry.Amount.Int())
 	}
 	if len(inputs.coins) > 0 || len(outputs.lockedCoins) > 0 || len(outputs.coins) > 0 || len(parsedCancelOutputs.coins) > 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgInvalidInputs, "mint", inputs.coins)
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgInvalidInputs, "mint", inputs.coins))
 	}
 	if requiredTotal.Cmp(parsedSpendOutputs.total) != 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "mint", requiredTotal.Text(10), parsedSpendOutputs.total.Text(10))
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgInvalidAmount, "mint", requiredTotal.Text(10), parsedSpendOutputs.total.Text(10)))
 	}
 
 	// Notary checks the signature from the sender, then submits the transaction
@@ -265,6 +267,7 @@ func (h *createMintLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 }
 
 func (h *createMintLockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
+	var err error
 	inParams := tx.Params.(*types.CreateMintLockParams)
 
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)

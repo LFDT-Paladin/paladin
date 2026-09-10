@@ -33,21 +33,20 @@ type createBurnLockHandler struct {
 	lockCommon
 }
 
-func (h *createBurnLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, paramsJSON string) (interface{}, error) {
+func (h *createBurnLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, paramsJSON string) (any, NotoDomainError) {
 	if config.IsV0() {
-		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createBurnLock is not supported in Noto V0")
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createBurnLock is not supported in Noto V0"))
 	}
 
 	var params types.CreateBurnLockParams
-	err := json.Unmarshal([]byte(paramsJSON), &params)
-	if err != nil {
-		return nil, err
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, validationErr(err)
 	}
 	if params.Amount == nil || params.Amount.Int().Sign() != 1 {
-		return nil, i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount"))
 	}
 
-	return &params, err
+	return &params, nil
 }
 
 func (h *createBurnLockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
@@ -62,17 +61,17 @@ func (h *createBurnLockHandler) Init(ctx context.Context, tx *types.ParsedTransa
 	}, nil
 }
 
-func (h *createBurnLockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction) error {
+func (h *createBurnLockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction) NotoDomainError {
 	if tx.DomainConfig.NotaryMode != types.NotaryModeBasic.Enum() {
 		return nil
 	}
 	if *tx.DomainConfig.Options.Basic.AllowBurn {
 		return nil
 	}
-	return i18n.NewError(ctx, msgs.MsgBurnNotAllowed)
+	return validationErr(i18n.NewError(ctx, msgs.MsgBurnNotAllowed))
 }
 
-func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.CreateBurnLockParams)
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
@@ -84,9 +83,9 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	notaryID, senderID, fromID := ids.notary, ids.sender, ids.from
 
 	// Prepare the input coins
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(params.Amount), useNullifiers)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	inputStates, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(params.Amount), useNullifiers)
+	if err != nil {
+		return nil, err
 	}
 	remainder := new(big.Int).Sub(inputStates.total, (*big.Int)(params.Amount))
 
@@ -195,7 +194,7 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	}, nil
 }
 
-func (h *createBurnLockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *createBurnLockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, NotoDomainError) {
 	if err := h.checkAllowed(ctx, tx); err != nil {
 		return nil, err
 	}
@@ -231,13 +230,13 @@ func (h *createBurnLockHandler) Endorse(ctx context.Context, tx *types.ParsedTra
 	// Validate the amounts, and sender's ownership of the inputs
 	totalOutputs := new(big.Int).Add(outputs.lockedTotal, outputs.total)
 	if inputs.total.Cmp(totalOutputs) != 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "totalOutputs", inputs.total, totalOutputs)
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgInvalidAmount, "totalOutputs", inputs.total, totalOutputs))
 	}
 	if parsedSpendOutputs.total.Sign() != 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "spendOutputs", "0", parsedCancelOutputs.total)
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgInvalidAmount, "spendOutputs", "0", parsedSpendOutputs.total))
 	}
 	if outputs.lockedTotal.Cmp(parsedCancelOutputs.total) != 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "cancelOutputs", inputs.total, parsedCancelOutputs.total)
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgInvalidAmount, "cancelOutputs", inputs.total, parsedCancelOutputs.total))
 	}
 	if err := h.noto.validateOwners(ctx, senderID.identifier, req.ResolvedVerifiers, inputs.coins, inputs.states); err != nil {
 		return nil, err
@@ -304,6 +303,7 @@ func (h *createBurnLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 }
 
 func (h *createBurnLockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
+	var err error
 	inParams := tx.Params.(*types.CreateBurnLockParams)
 
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)

@@ -16,8 +16,10 @@
 package noto
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -206,4 +208,103 @@ func TestNullifierPayloadTypeRoundTrip(t *testing.T) {
 	assert.Error(t, err)
 	_, err = types.ParseNullifierPayloadType(types.PAYLOAD_DOMAIN_NOTO_NULLIFIER + ":not-an-address")
 	assert.Error(t, err)
+}
+
+func TestPrepareInputsInsufficientFunds(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{
+		Callbacks:  mockCallbacks,
+		coinSchema: testSchema("coin"),
+	}
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		return &prototk.FindAvailableStatesResponse{}, nil
+	}
+	owner := &identityPair{identifier: "sender@node1", address: pldtypes.RandAddress()}
+
+	_, err := n.prepareInputs(t.Context(), "query-context", owner, pldtypes.Int64ToInt256(100), false)
+	require.Regexp(t, "PD200005", err)
+	require.True(t, err.IsAssembleRevert())
+	require.True(t, err.IsEndorseRevert())
+}
+
+func TestPrepareInputsLoadFail(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{
+		Callbacks:  mockCallbacks,
+		coinSchema: testSchema("coin"),
+	}
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	owner := &identityPair{identifier: "sender@node1", address: pldtypes.RandAddress()}
+
+	_, err := n.prepareInputs(t.Context(), "query-context", owner, pldtypes.Int64ToInt256(100), false)
+	require.Regexp(t, "pop", err)
+	require.False(t, err.IsAssembleRevert())
+	require.False(t, err.IsEndorseRevert())
+}
+
+// notoForLockedInputs builds a Noto whose locked coin query answers with the given states.
+func notoForLockedInputs(states []*prototk.StoredState, queryErr error) *Noto {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		return &prototk.FindAvailableStatesResponse{States: states}, nil
+	}
+	return &Noto{Callbacks: mockCallbacks, lockedCoinSchema: testSchema("lockedCoin")}
+}
+
+// prepareLockedInputs mirrors prepareInputs: the amount available is about the transaction,
+// while reading and parsing this node's own stored states is about this node.
+
+func TestPrepareLockedInputsInsufficientFunds(t *testing.T) {
+	n := notoForLockedInputs(nil, nil)
+	_, err := n.prepareLockedInputs(t.Context(), "query-context", pldtypes.RandBytes32(), pldtypes.RandAddress(), big.NewInt(100), false)
+	assertRevert(t, err, "PD200005")
+}
+
+func TestPrepareLockedInputsLoadFail(t *testing.T) {
+	n := notoForLockedInputs(nil, fmt.Errorf("pop"))
+	_, err := n.prepareLockedInputs(t.Context(), "query-context", pldtypes.RandBytes32(), pldtypes.RandAddress(), big.NewInt(100), false)
+	assertInternal(t, err, "pop")
+}
+
+func TestPrepareLockedInputsBadStoredState(t *testing.T) {
+	n := notoForLockedInputs([]*prototk.StoredState{{
+		Id:       pldtypes.RandBytes32().String(),
+		SchemaId: hashName("lockedCoin"),
+		DataJson: `{"amount": "not-a-number"}`,
+	}}, nil)
+	_, err := n.prepareLockedInputs(t.Context(), "query-context", pldtypes.RandBytes32(), pldtypes.RandAddress(), big.NewInt(100), false)
+	assertInternal(t, err, "PD200006")
+}
+
+// A coin read back from this node's own store that will not parse is corruption here, not a
+// claim the originator made.
+func TestPrepareInputsBadStoredState(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		return &prototk.FindAvailableStatesResponse{States: []*prototk.StoredState{{
+			Id:       pldtypes.RandBytes32().String(),
+			SchemaId: hashName("coin"),
+			DataJson: `{"amount": "not-a-number"}`,
+		}}}, nil
+	}
+	n := &Noto{Callbacks: mockCallbacks, coinSchema: testSchema("coin")}
+	owner := &identityPair{identifier: "sender@node1", address: pldtypes.RandAddress()}
+
+	_, err := n.prepareInputs(t.Context(), "query-context", owner, pldtypes.Int64ToInt256(100), false)
+	assertInternal(t, err, "PD200006")
+}
+
+// Paladin allocating the state IDs is a call into this node, so a failure there is retryable.
+func TestAllocateStateIDsLoadFail(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockValidateStates = func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	n := &Noto{Callbacks: mockCallbacks}
+	assertInternal(t, n.allocateStateIDs(t.Context(), "query-context", []*prototk.NewState{{}}), "pop")
 }

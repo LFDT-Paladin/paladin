@@ -31,21 +31,21 @@ type mintHandler struct {
 	noto *Noto
 }
 
-func (h *mintHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *mintHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, NotoDomainError) {
 	var mintParams types.MintParams
 	if err := json.Unmarshal([]byte(params), &mintParams); err != nil {
-		return nil, err
+		return nil, validationErr(err)
 	}
 	if mintParams.To == "" {
-		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "to")
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgParameterRequired, "to"))
 	}
 	if mintParams.Amount == nil || mintParams.Amount.Int().Sign() != 1 {
-		return nil, i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")
+		return nil, validationErr(i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount"))
 	}
 	return &mintParams, nil
 }
 
-func (h *mintHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction, from string) error {
+func (h *mintHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction, from string) NotoDomainError {
 	if tx.DomainConfig.NotaryMode != types.NotaryModeBasic.Enum() {
 		return nil
 	}
@@ -55,7 +55,7 @@ func (h *mintHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransact
 	if from == tx.DomainConfig.NotaryLookup {
 		return nil
 	}
-	return i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from)
+	return validationErr(i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from))
 }
 
 func (h *mintHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
@@ -70,7 +70,7 @@ func (h *mintHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req
 	}, nil
 }
 
-func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.MintParams)
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
@@ -137,7 +137,7 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	}, nil
 }
 
-func (h *mintHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *mintHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, NotoDomainError) {
 	params := tx.Params.(*types.MintParams)
 	if err := h.checkAllowed(ctx, tx, req.Transaction.From); err != nil {
 		return nil, err
@@ -171,6 +171,7 @@ func (h *mintHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, 
 }
 
 func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+	var err error
 	// Include the signature from the sender/notary
 	// This is not verified on the base ledger, but can be verified by anyone with the unmasked state data
 	sender := domain.FindAttestation("sender", req.AttestationResult)
@@ -224,6 +225,7 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 }
 
 func (h *mintHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
+	var err error
 	inParams := tx.Params.(*types.MintParams)
 
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)

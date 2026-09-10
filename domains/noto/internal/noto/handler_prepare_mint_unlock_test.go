@@ -473,3 +473,42 @@ func TestPrepareMintUnlockBasicModeAllowLockDisabled(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Lock is not enabled")
 }
+
+func TestPrepareMintUnlockValidateParamsRevert(t *testing.T) {
+	h := &prepareMintUnlockHandler{}
+	for _, tc := range []struct {
+		name, params, match string
+		config              *types.NotoParsedConfig
+	}{
+		{"not supported in V0", `{}`, "PD200014", notoBasicConfigV0},
+		{"malformed JSON", `{"recipients":`, "unexpected end of JSON input", notoBasicConfigV1},
+		{"missing recipients", `{}`, "PD200007.*'recipients'", notoBasicConfigV1},
+		{"zero recipient amount", `{"recipients": [{"to": "receiver@node2", "amount": 0}]}`, "PD200008.*'recipient amount'", notoBasicConfigV1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), tc.config, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestPrepareMintUnlockCheckAllowedRevert(t *testing.T) {
+	allowLock := false
+	h := &prepareMintUnlockHandler{}
+	for _, tc := range []struct {
+		name, from, match string
+		config            *types.NotoParsedConfig
+	}{
+		{"minting restricted to the notary", "sender@node1", "PD200009", notoBasicConfigV1},
+		{"lock not enabled", "notary@node1", "PD200030", &types.NotoParsedConfig{
+			NotaryMode:   types.NotaryModeBasic.Enum(),
+			NotaryLookup: "notary@node1",
+			Options:      types.NotoOptions{Basic: &types.NotoBasicOptions{RestrictMint: &pTrue, AllowLock: &allowLock}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := &types.ParsedTransaction{DomainConfig: tc.config}
+			assertRevert(t, h.checkAllowed(t.Context(), tx, tc.from), tc.match)
+		})
+	}
+}
