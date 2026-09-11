@@ -30,10 +30,12 @@ dependencies {
     buildCommon project(path: ':examples:common', configuration: 'buildCommon')
 }
 
-task copyContracts(type: Copy, dependsOn: [":domains:zeto:extractZetoArtifacts"]) {
-    from fileTree("../../domains/zeto/zkp/artifacts/contracts") {
-        include '**/SampleERC20.json'
-        include '**/IZetoKyc.json'
+task copyContracts(type: Copy, dependsOn: [":domains:zeto:extractZetoPrimaryZkp"]) {
+    from {
+        fileTree("../../domains/zeto/zkp/${project(':domains:zeto').ext.zetoVersion}/artifacts/contracts") {
+            include '**/SampleERC20.json'
+            include '**/IZetoKyc.json'
+        }
     }
     into './src/zeto-abis'
 

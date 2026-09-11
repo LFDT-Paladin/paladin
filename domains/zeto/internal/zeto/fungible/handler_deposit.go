@@ -62,6 +62,17 @@ var depositABI = &abi.Entry{
 	},
 }
 
+var depositOnchainPackedABI = &abi.Entry{
+	Type: abi.Function,
+	Name: types.METHOD_DEPOSIT,
+	Inputs: abi.ParameterArray{
+		{Name: "amount", Type: "uint256"},
+		{Name: "outputs", Type: "uint256[]"},
+		{Name: "proof", Type: "bytes"},
+		{Name: "data", Type: "bytes"},
+	},
+}
+
 func (h *depositHandler) ValidateParams(ctx context.Context, config *types.DomainInstanceConfig, params string) (interface{}, error) {
 	var depositParams types.DepositParams
 	if err := json.Unmarshal([]byte(params), &depositParams); err != nil {
@@ -202,13 +213,28 @@ func (h *depositHandler) Prepare(ctx context.Context, tx *types.ParsedTransactio
 		return nil, i18n.NewError(ctx, msgs.MsgErrorEncodeTxData, err)
 	}
 	amount := pldtypes.MustParseHexUint256(*req.DomainData)
-	params := map[string]any{
-		"amount":  amount.Int().Text(10),
-		"outputs": outputs,
-		"proof":   common.EncodeProof(proofRes.Proof),
-		"data":    data,
-	}
 	depositFunction := depositABI
+	var params map[string]any
+	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(tx.DomainConfig.ZetoVariant)) {
+		depositFunction = depositOnchainPackedABI
+		proofBytes, err := common.EncodeZetoOnchainDepositProofBytes(ctx, proofRes.Proof)
+		if err != nil {
+			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorMarshalPrepedParams)
+		}
+		params = map[string]any{
+			"amount":  amount.Int().Text(10),
+			"outputs": outputs,
+			"proof":   pldtypes.HexBytes(proofBytes).HexString0xPrefix(),
+			"data":    data,
+		}
+	} else {
+		params = map[string]any{
+			"amount":  amount.Int().Text(10),
+			"outputs": outputs,
+			"proof":   common.EncodeProof(proofRes.Proof),
+			"data":    data,
+		}
+	}
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorMarshalPrepedParams, err)

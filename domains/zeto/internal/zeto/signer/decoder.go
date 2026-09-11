@@ -62,6 +62,14 @@ func decodeProvingRequest(ctx context.Context, payload []byte) (*pb.ProvingReque
 			return nil, nil, i18n.NewError(ctx, msgs.MsgErrorUnmarshalProvingReqExtras, inputs.Circuit.Name, err)
 		}
 		return &inputs, &nullifierExtras, nil
+	} else if inputs.Circuit.UsesKyc {
+		// v0.5 spendLock on KYC nullifier tokens: transferLocked circuit with disabled UTXO SMT, KYC proofs only.
+		var kycExtras pb.ProvingRequestExtras_NullifiersKyc
+		err := proto.Unmarshal(inputs.Extras, &kycExtras)
+		if err != nil {
+			return nil, nil, i18n.NewError(ctx, msgs.MsgErrorUnmarshalProvingReqExtras, inputs.Circuit.Name, err)
+		}
+		return &inputs, &kycExtras, nil
 	}
 	return &inputs, nil, nil
 }

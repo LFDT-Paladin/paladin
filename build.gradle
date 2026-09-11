@@ -241,7 +241,9 @@ task copyZetoZKPFiles(type: Copy) {
     // These can be very large binaries, so adding to this list in the base image should be done with care.
     // Likely if the range of circuits grows, a separate docker tag will be required for builds
     // of Paladin that have a wider range of pre-built circuits included.
-    from fileTree('domains/zeto/zkp') {
+    // Resolve version lazily: root script configures before :domains:zeto ext exists.
+    from {
+        fileTree("domains/zeto/zkp/${project(':domains:zeto').ext.zetoVersion}") {
         // anon
         include 'anon.zkey'
         include 'anon-vkey.json'
@@ -288,6 +290,7 @@ task copyZetoZKPFiles(type: Copy) {
         include 'withdraw_nullifier_batch.zkey'
         include 'withdraw_nullifier_batch-vkey.json'
         include 'withdraw_nullifier_batch_js/withdraw_nullifier_batch.wasm'
+        }
     }
     into zetoZkpDir
 

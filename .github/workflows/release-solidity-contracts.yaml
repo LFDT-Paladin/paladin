@@ -90,8 +90,8 @@ jobs:
       run: |
         mkdir -p tools/contracts
 
-        # Download zeto contracts (downloads to domains/zeto/tools/zeto-contracts-v0.2.0.tar.gz)
-        ../../gradlew downloadZetoCompiledContracts
+        # Download primary zeto contracts archive (see domains/zeto/build.gradle zetoVersions)
+        ../../gradlew :domains:zeto:downloadZetoContracts_v0_2_2
 
         # Unzip zeto contracts
         # TODO: remove hardcoded version from name (should be available after zeto release v0.3.0)
