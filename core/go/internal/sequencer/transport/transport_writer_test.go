@@ -421,12 +421,11 @@ func testHeartbeatMsg(from string, contractAddress *pldtypes.EthAddress, coordin
 	}, nil
 }
 
-func testPreDispatchRequestMsg(idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification, contractAddress *pldtypes.EthAddress, hash *pldtypes.Bytes32) *engineProto.PreDispatchRequest {
+func testPreDispatchRequestMsg(idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification, contractAddress *pldtypes.EthAddress) *engineProto.PreDispatchRequest {
 	return &engineProto.PreDispatchRequest{
-		Id:               idempotencyKey.String(),
-		TransactionId:    transactionSpecification.TransactionId,
-		ContractAddress:  contractAddress.HexString(),
-		PostAssembleHash: hash.Bytes(),
+		Id:              idempotencyKey.String(),
+		TransactionId:   transactionSpecification.TransactionId,
+		ContractAddress: contractAddress.HexString(),
 	}
 }
 
@@ -2820,8 +2819,6 @@ func TestSendPreDispatchRequest_Success(t *testing.T) {
 	transactionSpecification := &prototk.TransactionSpecification{
 		TransactionId: txID.String(),
 	}
-	hashVal := pldtypes.MustParseBytes32("0x00000000000000000000000000000000000000000000000000000000000000ab")
-	hash := &hashVal
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := sequencertransportmocks.NewLoopbackTransportManager(t)
@@ -2850,9 +2847,6 @@ func TestSendPreDispatchRequest_Success(t *testing.T) {
 		if dispatchRequest.ContractAddress != contractAddress.HexString() {
 			return false
 		}
-		if len(dispatchRequest.PostAssembleHash) != 32 {
-			return false
-		}
 		return true
 	})).Return(nil)
 
@@ -2863,7 +2857,7 @@ func TestSendPreDispatchRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchRequest(ctx, originatorNode, testPreDispatchRequestMsg(idempotencyKey, transactionSpecification, contractAddress, hash))
+	err := tw.SendPreDispatchRequest(ctx, originatorNode, testPreDispatchRequestMsg(idempotencyKey, transactionSpecification, contractAddress))
 	require.NoError(t, err)
 }
 
@@ -2876,8 +2870,6 @@ func TestSendPreDispatchRequest_SendError(t *testing.T) {
 	transactionSpecification := &prototk.TransactionSpecification{
 		TransactionId: txID.String(),
 	}
-	hashVal := pldtypes.MustParseBytes32("0x00000000000000000000000000000000000000000000000000000000000000ab")
-	hash := &hashVal
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := sequencertransportmocks.NewLoopbackTransportManager(t)
@@ -2891,7 +2883,7 @@ func TestSendPreDispatchRequest_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchRequest(ctx, originatorNode, testPreDispatchRequestMsg(idempotencyKey, transactionSpecification, contractAddress, hash))
+	err := tw.SendPreDispatchRequest(ctx, originatorNode, testPreDispatchRequestMsg(idempotencyKey, transactionSpecification, contractAddress))
 	require.NoError(t, err)
 }
 
@@ -2904,8 +2896,6 @@ func TestSendPreDispatchRequest_Loopback(t *testing.T) {
 	transactionSpecification := &prototk.TransactionSpecification{
 		TransactionId: txID.String(),
 	}
-	hashVal := pldtypes.MustParseBytes32("0x00000000000000000000000000000000000000000000000000000000000000ab")
-	hash := &hashVal
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := sequencertransportmocks.NewLoopbackTransportManager(t)
@@ -2921,7 +2911,7 @@ func TestSendPreDispatchRequest_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendPreDispatchRequest(ctx, originatorNode, testPreDispatchRequestMsg(idempotencyKey, transactionSpecification, contractAddress, hash))
+	err := tw.SendPreDispatchRequest(ctx, originatorNode, testPreDispatchRequestMsg(idempotencyKey, transactionSpecification, contractAddress))
 	require.NoError(t, err)
 
 	// Verify message was sent to loopback queue
@@ -2936,7 +2926,6 @@ func TestSendPreDispatchRequest_Loopback(t *testing.T) {
 		assert.Equal(t, idempotencyKey.String(), dispatchRequest.Id)
 		assert.Equal(t, transactionSpecification.TransactionId, dispatchRequest.TransactionId)
 		assert.Equal(t, contractAddress.HexString(), dispatchRequest.ContractAddress)
-		assert.Equal(t, hash.Bytes(), dispatchRequest.PostAssembleHash)
 	default:
 		t.Fatal("Expected message in loopback queue")
 	}
