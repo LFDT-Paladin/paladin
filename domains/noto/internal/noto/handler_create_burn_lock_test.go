@@ -513,3 +513,73 @@ func TestCreateBurnLockBasicModeRestriction(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Burn is not enabled")
 }
+
+func TestCreateBurnLockValidateParamsRevert(t *testing.T) {
+	h := &createBurnLockHandler{}
+	for _, tc := range []struct {
+		name, params, match string
+		config              *types.NotoParsedConfig
+	}{
+		{"not supported in V0", `{}`, "PD200014", notoBasicConfigV0},
+		{"malformed JSON", `{"amount":`, "unexpected end of JSON input", notoBasicConfigV1},
+		{"zero amount", `{"amount": 0}`, "PD200008.*'amount'", notoBasicConfigV1},
+		{"absent amount", `{}`, "PD200008.*'amount'", notoBasicConfigV1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), tc.config, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestCreateBurnLockCheckAllowedRevertsWhenBurnDisabled(t *testing.T) {
+	allowBurn := false
+	h := &createBurnLockHandler{}
+	tx := &types.ParsedTransaction{
+		DomainConfig: &types.NotoParsedConfig{
+			NotaryMode: types.NotaryModeBasic.Enum(),
+			Options:    types.NotoOptions{Basic: &types.NotoBasicOptions{AllowBurn: &allowBurn}},
+		},
+	}
+	assertRevert(t, h.checkAllowed(t.Context(), tx), "PD200025")
+}
+
+func TestCreateBurnLockEndorseRevertsWhenInputsDoNotCoverOutputs(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	h := &createBurnLockHandler{lockCommon{noto: n}}
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, nil, nil), newLockedCoinState(sender, 50)},
+	})
+	assertRevert(t, err, "PD200013.*totalOutputs")
+}
+
+func TestCreateBurnLockEndorseRevertsWhenTheSpendProducesOutputs(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	h := &createBurnLockHandler{lockCommon{noto: n}}
+	spend := newCoinState(sender, 100)
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, stateIDs(spend), nil), newLockedCoinState(sender, 100)},
+		Info:              []*prototk.EndorsableState{spend},
+	})
+	assertRevert(t, err, "PD200013.*spendOutputs.*expected=0 actual=100")
+}
+
+func TestCreateBurnLockEndorseRevertsWhenCancelDoesNotReturnWhatWasLocked(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	h := &createBurnLockHandler{lockCommon{noto: n}}
+	cancel := newCoinState(sender, 40)
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, nil, stateIDs(cancel)), newLockedCoinState(sender, 100)},
+		Info:              []*prototk.EndorsableState{cancel},
+	})
+	assertRevert(t, err, "PD200013.*cancelOutputs")
+}
