@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".mermaid", ".d2"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".d2", ".mermaid"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -1335,12 +1335,10 @@
 <h1>StateStatusQualifier</h1>
 <p>The following qualifiers can be used in queries to the state store:</p>
 <ul>
-<li><code>available</code> - states that have been confirmed by a blockchain transaction, and not yet been spent in a subsequent transaction</li>
 <li><code>unconfirmed</code> - states where no transaction has yet been processed from the blockchain to confirm the state</li>
-<li><code>confirmed</code> - states that have not been marked spent as a result of indexing a blockchain transaction</li>
-<li><code>spent</code> - states that have not been marked spent as a result of indexing a blockchain transaction</li>
+<li><code>confirmed</code> - states that have been confirmed by a blockchain transaction, and not yet been spent in a subsequent transaction. A state is only confirmed for use while it also remains unspent.</li>
+<li><code>spent</code> - states that have been marked spent as a result of indexing a blockchain transaction</li>
 <li><code>all</code> - all states stored in this node, regardless of status</li>
-<li><code>[uuid]</code> - any other value is parsed as the UUID, and if there is an in-memory domain context active for that UUID the query is executed within that domain context</li>
 </ul>
 <h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">¶</a></h3>
 <div class="highlight"><pre><span></span><code><a href="#__codelineno-0-1" id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="s2">""</span>
