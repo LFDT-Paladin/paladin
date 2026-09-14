@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
@@ -44,8 +43,6 @@ type stateManager struct {
 	abiSchemaCache      cache.Cache[string, components.Schema]
 	validatedStateCache cache.Cache[string, *components.StateWithLabels]
 	rpcModule           *rpcserver.RPCModule
-	domainContextLock   sync.Mutex
-	domainContexts      map[uuid.UUID]*domainQueryContext
 }
 
 type logStateSpendRecords []*pldapi.StateSpendRecord
@@ -95,7 +92,6 @@ func NewStateManager(ctx context.Context, conf *pldconf.StateStoreConfig, p pers
 		abiSchemaCache: cache.NewCache[string, components.Schema](&conf.SchemaCache, &pldconf.StateStoreConfigDefaults.SchemaCache),
 		validatedStateCache: cache.NewCache[string, *components.StateWithLabels](
 			&conf.ValidatedStateCache, &pldconf.StateStoreConfigDefaults.ValidatedStateCache),
-		domainContexts: make(map[uuid.UUID]*domainQueryContext),
 	}
 	ss.bgCtx, ss.cancelCtx = context.WithCancel(log.WithComponent(ctx, "statemanager"))
 	return ss

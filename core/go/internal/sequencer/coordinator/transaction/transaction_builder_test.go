@@ -605,7 +605,6 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	mocks.AllComponents.On("SequencerManager").Return(mocks.SequenceManager).Maybe()
 	mocks.AllComponents.On("Persistence").Return(mp.P).Maybe()
 	mocks.AllComponents.On("StateManager").Return(mocks.StateManager).Maybe()
-	mocks.DomainQueryContext.On("Close", mock.Anything).Return().Maybe()
 	mocks.StateManager.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mocks.DomainQueryContext).Maybe()
 	mocks.DomainAPI.On("Domain").Return(mocks.Domain).Maybe()
 	mocks.DomainAPI.On("Address").Return(*pldtypes.RandAddress()).Maybe()

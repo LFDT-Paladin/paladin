@@ -295,7 +295,7 @@ func TestRPCInvokeRPCError(t *testing.T) {
 	client := newTestRPCServer(t, ctx, gm)
 
 	var result pldtypes.RawJSON
-	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", pldtypes.HexBytes(pldtypes.RandBytes(32)), pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", pldtypes.HexBytes(pldtypes.RandBytes(32)), pldapi.StateStatusConfirmed, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
 	require.Regexp(t, "PD012502", rpcErr)
 }
 
@@ -312,7 +312,7 @@ func TestRPCInvokeRPCOK(t *testing.T) {
 	client := newTestRPCServer(t, ctx, gm)
 
 	var result pldtypes.RawJSON
-	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", groupID, pldapi.StateStatusConfirmed, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
 	require.NoError(t, rpcErr)
 	assert.Equal(t, pldtypes.RawJSON(`"0xdeadbeef"`), result)
 }

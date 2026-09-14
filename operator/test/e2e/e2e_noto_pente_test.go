@@ -243,7 +243,7 @@ var _ = Describe("noto/pente - simple", Ordered, func() {
 			var coins []*nototypes.NotoCoinState
 			err = rpc[node].CallRPC(ctx, &coins, "pstate_queryContractStates", "noto", notoContract, notoCoinSchemaID,
 				query.NewQueryBuilder().Equal("owner", addr).Limit(100).Query(),
-				"available")
+				"confirmed")
 			Expect(err).To(BeNil())
 			balance := big.NewInt(0)
 			summary := make([]string, len(coins))

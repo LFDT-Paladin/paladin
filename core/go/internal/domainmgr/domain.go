@@ -338,7 +338,7 @@ func (d *domain) FindAvailableStates(ctx context.Context, req *prototk.FindAvail
 
 	var states []*pldapi.State
 	if req.UseNullifiers != nil && *req.UseNullifiers {
-		_, states, err = c.dqc.FindAvailableNullifiers(ctx, c.dbTX, schemaID, &query)
+		_, states, err = c.dqc.FindAvailableNullifierBackedStates(ctx, c.dbTX, schemaID, &query)
 	} else {
 		_, states, err = c.dqc.FindAvailableStates(ctx, c.dbTX, schemaID, &query)
 	}

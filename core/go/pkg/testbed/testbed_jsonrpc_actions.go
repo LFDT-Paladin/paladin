@@ -272,7 +272,6 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 
 	// Testbed uses a domain context for queries; writes go directly to the state manager below.
 	dqc := tb.c.StateManager().NewDomainQueryContext(ctx, tx.psc.Domain(), tx.psc.Address())
-	defer dqc.Close(ctx)
 
 	// First we call init on the smart contract to:
 	// - validate the transaction ABI is understood by the contract
@@ -551,7 +550,6 @@ func (tb *testbed) rpcTestbedCall() rpcserver.RPCHandler {
 		}
 
 		dqc := tb.c.StateManager().NewDomainQueryContext(ctx, tx.psc.Domain(), tx.psc.Address())
-		defer dqc.Close(ctx)
 
 		cv, err := tx.psc.ExecCall(ctx, dqc, tb.c.Persistence().NOTX(), tx.localTx, resolvedVerifiers)
 		if err != nil {

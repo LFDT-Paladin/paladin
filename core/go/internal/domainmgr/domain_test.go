@@ -230,8 +230,6 @@ func newTestDomain(t *testing.T, realDB bool, domainConfig *prototk.DomainConfig
 		c = tp.d.newInFlightDomainRequest(dm.persistence.NOTX(), dqc, true /* readonly unless modified by test */)
 	} else {
 		mdc = componentsmocks.NewDomainQueryContext(t)
-		mdc.On("ID").Return(uuid.New()).Maybe()
-		mdc.On("Close", mock.Anything).Return()
 		c = tp.d.newInFlightDomainRequest(dm.persistence.NOTX(), mdc, true /* readonly unless modified by test */)
 		mc.stateStore.On("NewDomainQueryContext", mock.Anything, tp.d, mock.Anything, mock.Anything).Return(mdc).Maybe()
 	}
@@ -247,10 +245,6 @@ func newTestDomain(t *testing.T, realDB bool, domainConfig *prototk.DomainConfig
 			contractAddress: addr,
 		}, func() {
 			c.close()
-			c.dqc.Close(ctx)
-			if mdc != nil {
-				mdc.Close(ctx)
-			}
 			dmDone()
 		}
 }
@@ -546,7 +540,7 @@ func storeTestState(t *testing.T, td *testDomainContext, txID uuid.UUID, amount 
 	require.NoError(t, err)
 
 	// Validate against the real statestore, write, then confirm so the state appears as
-	// "available" when queried by the domain context during assembly.
+	// "confirmed" when queried by the domain context during assembly.
 	schemaID := pldtypes.MustParseBytes32(td.tp.stateSchemas[0].Id)
 	states, err := td.dm.stateStore.ValidateStatesWithLabels(td.ctx, td.c.dbTX, td.d, td.contractAddress, &prototk.EndorsableState{
 		SchemaId:      schemaID.String(),
