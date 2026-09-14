@@ -747,3 +747,9 @@ func TestPrepareUnlock_V0(t *testing.T) {
 func unlockHashFromStates_V0(ctx context.Context, n *Noto, contract *ethtypes.Address0xHex, lockedInputs, lockedOutputs, outputs []*prototk.EndorsableState, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {
 	return n.unlockHashFromIDs_V0(ctx, contract, n.endorsableStateIDs(ctx, nil, lockedInputs, false), n.endorsableStateIDs(ctx, nil, lockedOutputs, false), n.endorsableStateIDs(ctx, nil, outputs, false), data)
 }
+
+func TestPrepareUnlockValidateParamsRevert(t *testing.T) {
+	h := &prepareUnlockHandler{}
+	_, err := h.ValidateParams(t.Context(), notoBasicConfigV1, `{"lockId":`)
+	assertRevert(t, err, "unexpected end of JSON input")
+}

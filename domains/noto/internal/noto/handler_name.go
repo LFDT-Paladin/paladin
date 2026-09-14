@@ -27,7 +27,7 @@ type nameHandler struct {
 	noto *Noto
 }
 
-func (h *nameHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *nameHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, NotoDomainError) {
 	return nil, nil
 }
 
