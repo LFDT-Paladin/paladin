@@ -868,3 +868,32 @@ func TestLockEmpty(t *testing.T) {
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String())
 }
+
+func TestLockValidateParamsRevert(t *testing.T) {
+	h := &lockHandler{}
+	for _, tc := range []struct {
+		name, params, match string
+		config              *types.NotoParsedConfig
+	}{
+		{"malformed JSON", `{"amount":`, "unexpected end of JSON input", notoBasicConfigV1},
+		{"V0 rejects a zero amount", `{"amount": 0}`, "PD200008.*'amount'", notoBasicConfigV0},
+		{"V0 rejects an absent amount", `{}`, "PD200008.*'amount'", notoBasicConfigV0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), tc.config, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestLockCheckAllowedRevertsWhenDisabled(t *testing.T) {
+	allowLock := false
+	h := &lockHandler{}
+	tx := &types.ParsedTransaction{
+		DomainConfig: &types.NotoParsedConfig{
+			NotaryMode: types.NotaryModeBasic.Enum(),
+			Options:    types.NotoOptions{Basic: &types.NotoBasicOptions{AllowLock: &allowLock}},
+		},
+	}
+	assertRevert(t, h.checkAllowed(t.Context(), tx), "PD200030")
+}

@@ -650,3 +650,29 @@ func TestBurn_Nullifiers(t *testing.T) {
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 }
+
+func TestBurnValidateParamsRevert(t *testing.T) {
+	h := &burnHandler{}
+	for _, tc := range []struct{ name, params, match string }{
+		{"malformed JSON", `{"amount":`, "unexpected end of JSON input"},
+		{"zero amount", `{"amount": 0}`, "PD200008.*'amount'"},
+		{"absent amount", `{}`, "PD200008.*'amount'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), notoBasicConfigV1, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestBurnCheckAllowedRevertsWhenDisabled(t *testing.T) {
+	allowBurn := false
+	h := &burnHandler{}
+	tx := &types.ParsedTransaction{
+		DomainConfig: &types.NotoParsedConfig{
+			NotaryMode: types.NotaryModeBasic.Enum(),
+			Options:    types.NotoOptions{Basic: &types.NotoBasicOptions{AllowBurn: &allowBurn}},
+		},
+	}
+	assertRevert(t, h.checkBurnAllowed(t.Context(), tx), "PD200025")
+}
