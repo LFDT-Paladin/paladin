@@ -30,13 +30,15 @@ import (
 var grpcNewClient = grpc.NewClient
 
 type outboundConn struct {
-	t        *grpcTransport
-	nodeName string
-	conn     *grpc.ClientConn
-	client   proto.PaladinGRPCTransportClient
-	peerInfo PeerInfo
-	sendLock sync.Mutex
-	stream   grpc.ClientStreamingClient[proto.Message, proto.Empty]
+	t            *grpcTransport
+	nodeName     string
+	conn         *grpc.ClientConn
+	client       proto.PaladinGRPCTransportClient
+	peerInfo     PeerInfo
+	sendLock     sync.Mutex
+	stream       grpc.ClientStreamingClient[proto.Message, proto.Empty]
+	streamCtx    context.Context
+	streamCancel context.CancelFunc
 }
 
 func (t *grpcTransport) newConnection(ctx context.Context, nodeName string, transportDetailsJSON string) (oc *outboundConn, peerInfoJSON []byte, err error) {
@@ -87,23 +89,47 @@ func (oc *outboundConn) close(ctx context.Context) {
 
 	log.L(ctx).Debugf("cleaning up connection to %s", oc.nodeName)
 
-	if oc.stream != nil {
-		_ = oc.stream.CloseSend()
-		oc.stream = nil
-	}
+	oc.closeStream()
 	if oc.conn != nil {
 		_ = oc.conn.Close()
 		oc.conn = nil
 	}
 }
 
-func (oc *outboundConn) ensureStream() (err error) {
+// closeStream closes the current stream (if any). Must be called with sendLock held.
+func (oc *outboundConn) closeStream() {
+	if oc.stream == nil {
+		return
+	}
+	// CloseSend tells the server we have finished sending, but it does not finish the stream on
+	// our side. In grpc-go a client stream stays open until its context is cancelled, the
+	// ClientConn is closed, or the application reads an error from Recv. While it is open it
+	// counts as an active call (so the ClientConn never goes idle) and keeps a goroutine alive.
+	// We never read from the stream, so cancelling the context is what releases it.
+	_ = oc.stream.CloseSend()
+	oc.streamCancel()
+	oc.stream = nil
+	oc.streamCtx = nil
+	oc.streamCancel = nil
+}
+
+func (oc *outboundConn) ensureStream() error {
 	if oc.stream != nil {
 		return nil
 	}
 	log.L(oc.t.bgCtx).Infof("GRPC establishing new stream to peer %s (endpoint=%s)", oc.nodeName, oc.peerInfo.Endpoint)
-	oc.stream, err = oc.client.ConnectSendStream(oc.t.bgCtx)
-	return err
+	// Each stream gets its own context so that closeStream can cancel it without affecting the
+	// transport or the ClientConn
+	streamCtx, streamCancel := context.WithCancel(oc.t.bgCtx)
+	stream, err := oc.client.ConnectSendStream(streamCtx)
+	if err != nil {
+		streamCancel()
+		return err
+	}
+	oc.stream = stream
+	oc.streamCtx = streamCtx
+	oc.streamCancel = streamCancel
+	return nil
 }
 
 func (oc *outboundConn) send(message *proto.Message) error {
@@ -122,8 +148,7 @@ func (oc *outboundConn) send(message *proto.Message) error {
 		// send opens a new stream over it.
 		if oc.stream != nil {
 			log.L(oc.t.bgCtx).Warnf("closing stream")
-			_ = oc.stream.CloseSend()
-			oc.stream = nil
+			oc.closeStream()
 		} else {
 			log.L(oc.t.bgCtx).Tracef("no stream to close")
 		}

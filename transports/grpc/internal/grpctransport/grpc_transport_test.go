@@ -159,6 +159,11 @@ func TestConnectFail(t *testing.T) {
 	})
 	defer done()
 
+	oc := plugin1.getConnection("node2")
+	require.NotNil(t, oc)
+	streamCtx := oc.streamCtx
+	require.NotNil(t, streamCtx)
+
 	plugin2.grpcServer.Stop()
 
 	// gRPC does not guarantee we get the error immediately
@@ -172,6 +177,13 @@ func TestConnectFail(t *testing.T) {
 		})
 	}
 	assert.Error(t, err)
+
+	// The failed stream is finished (its context cancelled), but the ClientConn is kept
+	// so the next send can open a new stream over it once the peer is back
+	require.Error(t, streamCtx.Err())
+	require.Nil(t, oc.stream)
+	require.NotNil(t, oc.conn)
+	require.NotEqual(t, connectivity.Shutdown, oc.conn.GetState())
 
 }
 
@@ -289,17 +301,22 @@ func TestDeactivatePeerClosesClientConn(t *testing.T) {
 	})
 	defer done()
 
-	// The connection is live after activation
+	// The connection and its stream are live after activation
 	oc1 := plugin1.getConnection("node2")
 	require.NotNil(t, oc1)
 	conn1 := oc1.conn
 	require.NotNil(t, conn1)
 	require.NotEqual(t, connectivity.Shutdown, conn1.GetState())
+	streamCtx1 := oc1.streamCtx
+	require.NotNil(t, streamCtx1)
+	require.NoError(t, streamCtx1.Err())
 
-	// Deactivate: the entry goes away and the ClientConn is shut down
+	// Deactivate: the entry goes away, the stream is finished, and the ClientConn is shut down
 	_, err := plugin1.DeactivatePeer(ctx, &prototk.DeactivatePeerRequest{NodeName: "node2"})
 	require.NoError(t, err)
 	require.Nil(t, plugin1.getConnection("node2"))
+	require.Error(t, streamCtx1.Err())
+	require.Nil(t, oc1.stream)
 	require.Equal(t, connectivity.Shutdown, conn1.GetState())
 
 	// close is safe to call again on an already-closed connection
