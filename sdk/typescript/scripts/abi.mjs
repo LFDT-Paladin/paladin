@@ -8,7 +8,7 @@ await copyFile('../../solidity/artifacts/contracts/domains/interfaces/INoto.sol/
 
 await copyFile('../../solidity/artifacts/contracts/domains/interfaces/INotoPrivate.sol/INotoPrivate.json', 'src/domains/abis/INotoPrivate.json');
 
-await copyFile('../../solidity/artifacts/contracts/domains/interfaces/IZetoFungible.sol/IZetoFungible.json', 'src/domains/abis/IZetoFungible.json');
+await copyFile('../../solidity/artifacts/contracts/domains/interfaces/IZetoFungible_V0.sol/IZetoFungible_V0.json', 'src/domains/abis/IZetoFungible.json');
 
 // download the zeto anon contract ABI
 const tmpDir = await downloadZetoAbis();

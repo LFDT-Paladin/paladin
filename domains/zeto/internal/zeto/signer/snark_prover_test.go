@@ -518,6 +518,23 @@ func TestSerializeProofResponse(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 118, len(bytes))
 
+	var provingRes pb.ProvingResponse
+	require.NoError(t, proto.Unmarshal(bytes, &provingRes))
+	assert.Equal(t, "15", provingRes.PublicInputs["encryptionNonce"])
+
+	circuit = &zetosignerapi.Circuit{
+		Name:           "anon_enc",
+		Type:           zetosignerapi.TransferLocked,
+		UsesNullifiers: false,
+		UsesEncryption: true,
+	}
+	bytes, err = serializeProofResponse(circuit, &snark)
+	assert.NoError(t, err)
+	require.NoError(t, proto.Unmarshal(bytes, &provingRes))
+	assert.Equal(t, "15", provingRes.PublicInputs["encryptionNonce"])
+	assert.NotEmpty(t, provingRes.PublicInputs["ecdhPublicKey"])
+	assert.NotEmpty(t, provingRes.PublicInputs["encryptedValues"])
+
 	circuit = &zetosignerapi.Circuit{
 		Name:           "anon_nullifier",
 		Type:           zetosignerapi.Transfer,
@@ -703,6 +720,14 @@ func TestNewWitnessInputs(t *testing.T) {
 			expectErr:  false,
 		},
 		{
+			name:       "Valid fungible encryption transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_enc", Type: zetosignerapi.TransferLocked, UsesEncryption: true},
+			extras:     &pb.ProvingRequestExtras_Encryption{},
+			expectType: &wtns.FungibleEncWitnessInputs{},
+			expectErr:  false,
+		},
+		{
 			name:       "Valid fungible nullifier witness inputs",
 			tokenType:  pb.TokenType_fungible,
 			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier", Type: zetosignerapi.Transfer, UsesNullifiers: true},
@@ -756,6 +781,97 @@ func TestNewWitnessInputs(t *testing.T) {
 			circuit:     &zetosignerapi.Circuit{Name: "anon_nullifier", Type: zetosignerapi.Transfer, UsesNullifiers: true},
 			extras:      &pb.ProvingRequestExtras_Encryption{},
 			expectType:  nil,
+			expectErr:   true,
+			errContains: "unexpected extras type for anon nullifier circuit",
+		},
+		{
+			name:       "Valid fungible KYC transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier_kyc_transferLocked", Type: zetosignerapi.TransferLocked, UsesKyc: true},
+			extras:     &pb.ProvingRequestExtras_NullifiersKyc{},
+			expectType: &wtns.FungibleLockKycWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible KYC transferLocked without nullifiers",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_kyc_transferLocked", Type: zetosignerapi.TransferLocked, UsesKyc: true, UsesNullifiers: false},
+			extras:     &pb.ProvingRequestExtras_NullifiersKyc{},
+			expectType: &wtns.FungibleLockKycWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid withdraw non-nullifier witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "withdraw", Type: zetosignerapi.Withdraw},
+			expectType: &wtns.WithdrawWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid non-fungible transfer witness inputs",
+			tokenType:  pb.TokenType_nunFungible,
+			circuit:    &zetosignerapi.Circuit{Name: "nf_anon", Type: zetosignerapi.Transfer},
+			expectType: &wtns.NonFungibleWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid non-fungible transferLocked witness inputs",
+			tokenType:  pb.TokenType_nunFungible,
+			circuit:    &zetosignerapi.Circuit{Name: "nf_anon", Type: zetosignerapi.TransferLocked},
+			expectType: &wtns.NonFungibleWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible plain transfer witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon", Type: zetosignerapi.Transfer},
+			expectType: &wtns.FungibleWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible plain transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon", Type: zetosignerapi.TransferLocked},
+			expectType: &wtns.FungibleWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible nullifier kyc transfer witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier_kyc", Type: zetosignerapi.Transfer, UsesNullifiers: true, UsesKyc: true},
+			extras:     &pb.ProvingRequestExtras_NullifiersKyc{},
+			expectType: &wtns.FungibleNullifierKycWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible nullifier transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier", Type: zetosignerapi.TransferLocked, UsesNullifiers: true},
+			extras:     &pb.ProvingRequestExtras_Nullifiers{},
+			expectType: &wtns.FungibleNullifierWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible nullifier kyc transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier_kyc", Type: zetosignerapi.TransferLocked, UsesNullifiers: true, UsesKyc: true},
+			extras:     &pb.ProvingRequestExtras_NullifiersKyc{},
+			expectType: &wtns.FungibleNullifierKycWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:        "Invalid extras for transferLocked kyc without nullifiers",
+			tokenType:   pb.TokenType_fungible,
+			circuit:     &zetosignerapi.Circuit{Name: "anon_kyc", Type: zetosignerapi.TransferLocked, UsesKyc: true},
+			extras:      &pb.ProvingRequestExtras_Nullifiers{},
+			expectErr:   true,
+			errContains: "unexpected extras type for anon nullifier kyc transferLocked circuit",
+		},
+		{
+			name:        "Invalid extras for withdraw nullifier circuit",
+			tokenType:   pb.TokenType_fungible,
+			circuit:     &zetosignerapi.Circuit{Name: "withdraw_nullifier", Type: zetosignerapi.Withdraw, UsesNullifiers: true},
+			extras:      &pb.ProvingRequestExtras_Encryption{},
 			expectErr:   true,
 			errContains: "unexpected extras type for anon nullifier circuit",
 		},

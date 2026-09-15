@@ -19,6 +19,8 @@ import (
 	"context"
 	"encoding/json"
 	"math/big"
+	"slices"
+	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
@@ -101,6 +103,23 @@ func utxosFromOutputStates(ctx context.Context, states []*prototk.EndorsableStat
 	return utxosFromStates(ctx, states, desiredSize, false)
 }
 
+// utxosFromCoins builds on-chain output commitment strings from coin rows (e.g. createLock spend-pinned outputs).
+func utxosFromCoins(ctx context.Context, coins []*types.ZetoCoin, desiredSize int) ([]string, error) {
+	utxos := make([]string, desiredSize)
+	for i := 0; i < desiredSize; i++ {
+		if i < len(coins) {
+			hash, err := coins[i].Hash(ctx)
+			if err != nil {
+				return nil, i18n.NewError(ctx, msgs.MsgErrorParseOutputStates, err)
+			}
+			utxos[i] = hash.String()
+		} else {
+			utxos[i] = "0"
+		}
+	}
+	return utxos, nil
+}
+
 func utxosFromStates(ctx context.Context, states []*prototk.EndorsableState, desiredSize int, isInputs bool) ([]string, error) {
 	utxos := make([]string, desiredSize)
 	for i := 0; i < desiredSize; i++ {
@@ -164,6 +183,24 @@ func generateMerkleProofs(ctx context.Context, smtSpec *common.MerkleTreeSpec, i
 	}
 
 	return smtProof, nil
+}
+
+// paddedDisabledMerkleProof builds a fixed-size proof object with every slot disabled. v0.5 spendLock on
+// nullifier+KYC tokens spends locked inputs by commitment (lockVerifier / transferLocked circuit) without
+// nullifier SMT membership for those inputs.
+func paddedDisabledMerkleProof(ctx context.Context, smtSpec *common.MerkleTreeSpec, targetSize int) (*corepb.MerkleProofObject, error) {
+	mtRoot := smtSpec.Tree.Root()
+	mps := make([]*corepb.MerkleProof, targetSize)
+	enabled := make([]bool, targetSize)
+	for i := 0; i < targetSize; i++ {
+		mps[i] = smtSpec.EmptyProof
+		enabled[i] = false
+	}
+	return &corepb.MerkleProofObject{
+		Root:         mtRoot.BigInt().Text(16),
+		MerkleProofs: mps,
+		Enabled:      enabled,
+	}, nil
 }
 
 func makeLeafIndexesFromCoins(ctx context.Context, inputCoins []*types.ZetoCoin, mt core.SparseMerkleTree, hasher utxocore.Hasher) ([]*big.Int, error) {
@@ -236,10 +273,13 @@ func makeLeafIndexesFromCoinOwners(ctx context.Context, inputOwner string, outpu
 	return indexes, nil
 }
 
-// formatTransferProvingRequest formats the proving request for a transfer transaction.
-// the same function is used for both the transfer and lock transactions because they
-// both require the same proof from the transfer circuit
-func formatTransferProvingRequest(ctx context.Context, callbacks plugintk.DomainCallbacks, merkleTreeRootSchema *prototk.StateSchema, merkleTreeNodeSchema *prototk.StateSchema, hasher utxocore.Hasher, inputCoins, outputCoins []*types.ZetoCoin, circuit *zetosignerapi.Circuit, tokenName, stateQueryContext string, contractAddress *pldtypes.EthAddress, delegate ...string) ([]byte, error) {
+// formatTransferProvingRequest formats the proving request for a fungible transfer, lock (legacy), createLock,
+// transferLocked, or spendLock — use the domain circuit for the operation (e.g. transfer vs transferLocked).
+// smtFromLockedStatesTree selects the SMT used for nullifier Merkle proofs when UsesNullifiers is true:
+// false = unlocked UTXO tree (transfer, createLock, legacy lock, v0.5 spendLock), true = locked-output tree
+// (transferLocked with nullifier-based locked inputs). Optional delegate sets lockDelegate in nullifier extras
+// only when the target circuit expects it (not anon_nullifier_transfer createLock — see zeto_anon_nullifier.ts).
+func formatTransferProvingRequest(ctx context.Context, callbacks plugintk.DomainCallbacks, merkleTreeRootSchema *prototk.StateSchema, merkleTreeNodeSchema *prototk.StateSchema, hasher utxocore.Hasher, inputCoins, outputCoins []*types.ZetoCoin, circuit *zetosignerapi.Circuit, tokenName, stateQueryContext string, contractAddress *pldtypes.EthAddress, smtFromLockedStatesTree bool, delegate ...string) ([]byte, error) {
 	inputSize := common.GetInputSize(len(inputCoins))
 	inputCommitments := make([]string, inputSize)
 	inputValueInts := make([]uint64, inputSize)
@@ -272,14 +312,15 @@ func formatTransferProvingRequest(ctx context.Context, callbacks plugintk.Domain
 			outputOwners[i] = coin.Owner.String()
 		} else {
 			outputSalts[i] = "0"
+			// Match zeto-js prepareProof + inflateOwners: padded output slots reuse the first
+			// output owner's BabyJub key (not an empty string), so the witness matches on-chain padding.
+			outputOwners[i] = outputOwners[0]
 		}
 	}
 
 	var extras []byte
 	if circuit.UsesNullifiers {
-		forLockedStates := len(delegate) > 0
-
-		smtProof, err := smtProofForInputs(ctx, callbacks, merkleTreeRootSchema, merkleTreeNodeSchema, hasher, tokenName, stateQueryContext, contractAddress, inputCoins, forLockedStates, inputSize)
+		smtProof, err := smtProofForInputs(ctx, callbacks, merkleTreeRootSchema, merkleTreeNodeSchema, hasher, tokenName, stateQueryContext, contractAddress, inputCoins, smtFromLockedStatesTree, inputSize)
 		if err != nil {
 			return nil, i18n.NewError(ctx, msgs.MsgErrorGenerateMTP, err)
 		}
@@ -306,6 +347,32 @@ func formatTransferProvingRequest(ctx context.Context, callbacks plugintk.Domain
 			if len(delegate) > 0 {
 				extrasObj.(*corepb.ProvingRequestExtras_NullifiersKyc).Delegate = delegate[0]
 			}
+		}
+		protoExtras, err := proto.Marshal(extrasObj)
+		if err != nil {
+			return nil, i18n.NewError(ctx, msgs.MsgErrorMarshalExtraObj, err)
+		}
+		extras = protoExtras
+	} else if circuit.UsesKyc && !circuit.UsesNullifiers {
+		smtName := zetosmt.MerkleTreeName(tokenName, contractAddress)
+		mt, err := common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, callbacks, merkleTreeRootSchema.Id, merkleTreeNodeSchema.Id, stateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		smtProofUtxo, err := paddedDisabledMerkleProof(ctx, mt, inputSize)
+		if err != nil {
+			return nil, err
+		}
+		smtProofKyc, err := smtProofForOwners(ctx, callbacks, merkleTreeRootSchema, merkleTreeNodeSchema, tokenName, stateQueryContext, contractAddress, inputOwner, outputCoins, inputSize+1)
+		if err != nil {
+			return nil, i18n.NewError(ctx, msgs.MsgErrorGenerateMTP, err)
+		}
+		extrasObj := &corepb.ProvingRequestExtras_NullifiersKyc{
+			SmtUtxoProof: smtProofUtxo,
+			SmtKycProof:  smtProofKyc,
+		}
+		if len(delegate) > 0 {
+			extrasObj.Delegate = delegate[0]
 		}
 		protoExtras, err := proto.Marshal(extrasObj)
 		if err != nil {
@@ -383,6 +450,8 @@ func smtProofForOwners(ctx context.Context, callbacks plugintk.DomainCallbacks, 
 	return smtProof, nil
 }
 
+// trimZeroUtxos drops "0" padding from utxosFromOutputStates slices before on-chain lock/createLock/spendLock calldata.
+// The pool re-pads inside checkAndPadCommitments; raw array lengths must not force the batch verifier when the proof is 2×2 anon.
 func trimZeroUtxos(utxos []string) []string {
 	trimmed := make([]string, 0, len(utxos))
 	for _, utxo := range utxos {
@@ -393,8 +462,72 @@ func trimZeroUtxos(utxos []string) []string {
 	return trimmed
 }
 
+// lockTransitionOutputCoinsForProof orders change (unlocked) and locked mint outputs to match the on-chain vector passed
+// to verifyProof after concatenating lock() / createLock args (see types.LockTransitionVerifierOutputOrderLockedFirst).
+func lockTransitionOutputCoinsForProof(zetoVariant pldtypes.HexUint64, unlockedChange, locked []*types.ZetoCoin) []*types.ZetoCoin {
+	if types.LockTransitionVerifierOutputOrderLockedFirst(zetoVariant) {
+		return slices.Concat(locked, unlockedChange)
+	}
+	return slices.Concat(unlockedChange, locked)
+}
+
 func getAlgoZetoSnarkBJJ(name string) string {
 	return zetosignerapi.AlgoDomainZetoSnarkBJJ(name)
+}
+
+// qualifyPartyLookup maps a short Paladin identity (e.g. "controller") to the node-qualified form used in
+// ResolvedVerifiers (e.g. "controller@node1"), matching testbed_prepare and the private TX manager.
+func qualifyPartyLookup(lookup, txFrom string) string {
+	lookup = strings.TrimSpace(lookup)
+	if lookup == "" || strings.Contains(lookup, "@") {
+		return lookup
+	}
+	if at := strings.Index(txFrom, "@"); at > 0 {
+		return lookup + txFrom[at:]
+	}
+	return lookup
+}
+
+// cancelRecipientsFromLockInfo parses cancelData JSON pinned at createLock.
+func cancelRecipientsFromLockInfo(ctx context.Context, li *types.ZetoLockInfoState) ([]*types.FungibleTransferParamEntry, error) {
+	if len(li.CancelData) == 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoMissingCancelData, li.LockID.HexString0xPrefix())
+	}
+	var parsed []*types.FungibleTransferParamEntry
+	if err := json.Unmarshal(li.CancelData, &parsed); err != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid cancelData (recipients JSON) in lock info")
+	}
+	if len(parsed) == 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoMissingCancelData, li.LockID.HexString0xPrefix())
+	}
+	return parsed, nil
+}
+
+// cancelRecipientsForLockInfoJSON returns the single owner return entry for cancelLock (locked collateral total).
+func cancelRecipientsForLockInfoJSON(owner string, lockedTotal *pldtypes.HexUint256) ([]byte, error) {
+	entry := &types.FungibleTransferParamEntry{
+		To:     qualifyPartyLookup(owner, owner),
+		Amount: lockedTotal,
+	}
+	return json.Marshal([]*types.FungibleTransferParamEntry{entry})
+}
+
+// recipientsForLockInfoJSON returns createLock recipients with Paladin To lookups aligned to tx.Transaction.From
+// so spendLock assemble can resolve BJJ verifiers from Init.
+func recipientsForLockInfoJSON(params *types.CreateLockParams, txFrom string) ([]byte, error) {
+	if params == nil {
+		return json.Marshal([]*types.FungibleTransferParamEntry{})
+	}
+	out := make([]*types.FungibleTransferParamEntry, 0, len(params.Recipients))
+	for _, r := range params.Recipients {
+		if r == nil {
+			continue
+		}
+		entry := *r
+		entry.To = qualifyPartyLookup(entry.To, txFrom)
+		out = append(out, &entry)
+	}
+	return json.Marshal(out)
 }
 
 func marshalTokenSecrets(input, output []uint64) ([]byte, error) {

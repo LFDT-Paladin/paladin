@@ -18,6 +18,7 @@ package zeto
 import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 )
 
@@ -25,7 +26,7 @@ var _ Zeto = &zeto.Zeto{}
 
 type Zeto interface {
 	plugintk.DomainAPI
-	GetHandler(method, tokenName string) types.DomainHandler
+	GetHandler(method, tokenName string, zetoVariant pldtypes.HexUint64) types.DomainHandler
 	Name() string
 	CoinSchemaID() string
 	NFTSchemaID() string

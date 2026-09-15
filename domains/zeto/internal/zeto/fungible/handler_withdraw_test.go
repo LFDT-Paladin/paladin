@@ -2,7 +2,9 @@ package fungible
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
@@ -326,6 +328,48 @@ func TestWithdrawPrepare(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "{\"amount\":\"100\",\"data\":\"0x00010000123456789012345678901234567890123456789012345678901234567890123400000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000\",\"nullifiers\":[\"0x1234567890\",\"0x1234567890\"],\"output\":\"0x303eb034d22aacc5dff09647928d757017a35e64e696d48609a250a6505e5d5f\",\"proof\":{\"pA\":[\"0x1234567890\",\"0x1234567890\"],\"pB\":[[\"0x1234567890\",\"0x1234567890\"],[\"0x1234567890\",\"0x1234567890\"]],\"pC\":[\"0x1234567890\",\"0x1234567890\"]},\"root\":\"0x1234567890\"}", res.Transaction.ParamsJson)
 }
+func TestWithdrawPrepare_V1PackedProofCalldata(t *testing.T) {
+	ctx := context.Background()
+	h := withdrawHandler{baseHandler: baseHandler{name: "test1"}}
+	coinJSON := "{\"salt\":\"0x042fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec\",\"owner\":\"0x7cdd539f3ed6c283494f47d8481f84308a6d7043087fb6711c9f1df04e2b8025\",\"amount\":\"0x0f\"}"
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: "0x1234567890123456789012345678901234567890123456789012345678901234",
+		From:          "Bob",
+	}
+	tx := &types.ParsedTransaction{
+		Params:       pldtypes.MustParseHexUint256("100"),
+		Transaction:  txSpec,
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, ZetoVariant: types.ZetoFungibleV1ABI},
+	}
+	proofReq := corepb.ProvingResponse{
+		Proof: &corepb.SnarkProof{
+			A: []string{"0x01", "0x02"},
+			B: []*corepb.B_Item{{Items: []string{"0x03", "0x04"}}, {Items: []string{"0x05", "0x06"}}},
+			C: []string{"0x07", "0x08"},
+		},
+	}
+	payload, err := proto.Marshal(&proofReq)
+	require.NoError(t, err)
+	at := zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK
+	req := &prototk.PrepareTransactionRequest{
+		InputStates:  []*prototk.EndorsableState{{StateDataJson: coinJSON}},
+		OutputStates: []*prototk.EndorsableState{{StateDataJson: coinJSON}},
+		Transaction:  txSpec,
+		AttestationResult: []*prototk.AttestationResult{{
+			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE, PayloadType: &at, Payload: payload,
+		}},
+	}
+	res, err := h.Prepare(ctx, tx, req)
+	require.NoError(t, err)
+	var params map[string]any
+	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
+	proof, ok := params["proof"].(string)
+	require.True(t, ok)
+	assert.True(t, strings.HasPrefix(proof, "0x"))
+	_, isMap := params["proof"].(map[string]any)
+	assert.False(t, isMap)
+}
+
 func TestNewWithdrawHandler(t *testing.T) {
 	name := "testHandler"
 	callbacks := &testDomainCallbacks{}
