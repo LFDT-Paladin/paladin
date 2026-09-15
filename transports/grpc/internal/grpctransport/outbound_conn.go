@@ -27,9 +27,12 @@ import (
 	"google.golang.org/grpc"
 )
 
+var grpcNewClient = grpc.NewClient
+
 type outboundConn struct {
 	t        *grpcTransport
 	nodeName string
+	conn     *grpc.ClientConn
 	client   proto.PaladinGRPCTransportClient
 	peerInfo PeerInfo
 	sendLock sync.Mutex
@@ -58,12 +61,16 @@ func (t *grpcTransport) newConnection(ctx context.Context, nodeName string, tran
 	// Create the gRPC connection (it's not actually connected until we use it)
 	individualNodeVerifier := oc.t.peerVerifier.Clone().(*tlsVerifier)
 	individualNodeVerifier.expectedNode = oc.nodeName
-	grpcConn, err := grpc.NewClient(transportDetails.Endpoint,
+	oc.conn, err = grpcNewClient(transportDetails.Endpoint,
 		grpc.WithTransportCredentials(individualNodeVerifier),
 	)
 	if err == nil {
-		oc.client = proto.NewPaladinGRPCTransportClient(grpcConn)
-		err = oc.ensureStream()
+		oc.client = proto.NewPaladinGRPCTransportClient(oc.conn)
+		if err = oc.ensureStream(); err != nil {
+			// The ClientConn owns background goroutines and (once dialed) a TCP connection,
+			// so it must be released here or nothing else ever will.
+			oc.close(ctx)
+		}
 	}
 	if err != nil {
 		return nil, nil, i18n.WrapError(ctx, err, msgs.MsgConnectionFailed, transportDetails.Endpoint)
@@ -72,6 +79,8 @@ func (t *grpcTransport) newConnection(ctx context.Context, nodeName string, tran
 	return oc, peerInfoJSON, nil
 }
 
+// close tears down the stream and the underlying ClientConn. Safe to call more than once,
+// and with a nil ClientConn (which happens when grpc.NewClient itself failed).
 func (oc *outboundConn) close(ctx context.Context) {
 	oc.sendLock.Lock()
 	defer oc.sendLock.Unlock()
@@ -81,6 +90,10 @@ func (oc *outboundConn) close(ctx context.Context) {
 	if oc.stream != nil {
 		_ = oc.stream.CloseSend()
 		oc.stream = nil
+	}
+	if oc.conn != nil {
+		_ = oc.conn.Close()
+		oc.conn = nil
 	}
 }
 
@@ -105,7 +118,8 @@ func (oc *outboundConn) send(message *proto.Message) error {
 
 	if err != nil {
 		log.L(oc.t.bgCtx).Warnf("send failed, err %s", err)
-		// Clean up the stream - we'll create a new one on next send
+		// Clean up the stream only - the ClientConn reconnects on its own, and the next
+		// send opens a new stream over it.
 		if oc.stream != nil {
 			log.L(oc.t.bgCtx).Warnf("closing stream")
 			_ = oc.stream.CloseSend()

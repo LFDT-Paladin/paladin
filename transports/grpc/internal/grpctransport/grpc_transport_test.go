@@ -22,10 +22,12 @@ import (
 	"net"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/LFDT-Paladin/paladin/transports/grpc/pkg/proto"
@@ -275,4 +277,109 @@ func TestStopTransportIsIdempotentAndReleasesListener(t *testing.T) {
 	reboundListener, err := net.Listen("tcp", listenAddr)
 	require.NoError(t, err)
 	_ = reboundListener.Close()
+}
+
+func TestDeactivatePeerClosesClientConn(t *testing.T) {
+	ctx := context.Background()
+
+	plugin1, _, done := newSuccessfulVerifiedConnection(t, func(_, callbacks2 *testCallbacks) {
+		callbacks2.receiveMessage = func(ctx context.Context, rmr *prototk.ReceiveMessageRequest) (*prototk.ReceiveMessageResponse, error) {
+			return &prototk.ReceiveMessageResponse{}, nil
+		}
+	})
+	defer done()
+
+	// The connection is live after activation
+	oc1 := plugin1.getConnection("node2")
+	require.NotNil(t, oc1)
+	conn1 := oc1.conn
+	require.NotNil(t, conn1)
+	require.NotEqual(t, connectivity.Shutdown, conn1.GetState())
+
+	// Deactivate: the entry goes away and the ClientConn is shut down
+	_, err := plugin1.DeactivatePeer(ctx, &prototk.DeactivatePeerRequest{NodeName: "node2"})
+	require.NoError(t, err)
+	require.Nil(t, plugin1.getConnection("node2"))
+	require.Equal(t, connectivity.Shutdown, conn1.GetState())
+
+	// close is safe to call again on an already-closed connection
+	oc1.close(ctx)
+
+	// Deactivating a peer that is not active is a no-op
+	_, err = plugin1.DeactivatePeer(ctx, &prototk.DeactivatePeerRequest{NodeName: "node2"})
+	require.NoError(t, err)
+
+	// Re-activate: a fresh ClientConn that works
+	details := pldtypes.JSONString(&PublishedTransportDetails{Endpoint: oc1.peerInfo.Endpoint}).Pretty()
+	_, err = plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{NodeName: "node2", TransportDetails: details})
+	require.NoError(t, err)
+	oc2 := plugin1.getConnection("node2")
+	require.NotNil(t, oc2)
+	conn2 := oc2.conn
+	require.NotNil(t, conn2)
+	require.NotSame(t, conn1, conn2)
+	require.NotEqual(t, connectivity.Shutdown, conn2.GetState())
+	_, err = plugin1.SendMessage(ctx, &prototk.SendMessageRequest{
+		Node:    "node2",
+		Message: &prototk.PaladinMsg{Component: prototk.PaladinMsg_TRANSACTION_ENGINE},
+	})
+	require.NoError(t, err)
+
+	// Activate again while active: the replaced ClientConn is shut down, the new one is live
+	_, err = plugin1.ActivatePeer(ctx, &prototk.ActivatePeerRequest{NodeName: "node2", TransportDetails: details})
+	require.NoError(t, err)
+	oc3 := plugin1.getConnection("node2")
+	require.NotNil(t, oc3)
+	require.NotSame(t, oc2, oc3)
+	require.Equal(t, connectivity.Shutdown, conn2.GetState())
+	require.NotEqual(t, connectivity.Shutdown, oc3.conn.GetState())
+}
+
+func TestStopTransportClosesClientConns(t *testing.T) {
+	plugin1, _, done := newSuccessfulVerifiedConnection(t)
+	defer done()
+
+	oc := plugin1.getConnection("node2")
+	require.NotNil(t, oc)
+	conn := oc.conn
+	require.NotNil(t, conn)
+
+	_, err := plugin1.StopTransport(context.Background(), &prototk.StopTransportRequest{})
+	require.NoError(t, err)
+	require.Equal(t, connectivity.Shutdown, conn.GetState())
+}
+
+func TestActivatePeerStreamFailureClosesClientConn(t *testing.T) {
+	ctx := context.Background()
+
+	nodeCert, nodeKey := buildTestCertificate(t, pkix.Name{CommonName: "node1"}, nil, nil)
+	plugin, _, _, done := newTestGRPCTransport(t, nodeCert, nodeKey, &Config{})
+	defer done()
+
+	// Capture the ClientConn that newConnection builds
+	var captured *grpc.ClientConn
+	origNewClient := grpcNewClient
+	grpcNewClient = func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+		conn, err := origNewClient(target, opts...)
+		captured = conn
+		return conn, err
+	}
+	defer func() { grpcNewClient = origNewClient }()
+
+	// Point at a port nothing is listening on, so opening the stream fails
+	closedListener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	closedAddr := closedListener.Addr().String()
+	require.NoError(t, closedListener.Close())
+
+	_, err = plugin.ActivatePeer(ctx, &prototk.ActivatePeerRequest{
+		NodeName:         "node2",
+		TransportDetails: `{"endpoint":"dns:///` + closedAddr + `"}`,
+	})
+	require.Regexp(t, "PD030015", err)
+
+	// No entry is left behind, and the ClientConn was released
+	require.Nil(t, plugin.getConnection("node2"))
+	require.NotNil(t, captured)
+	require.Equal(t, connectivity.Shutdown, captured.GetState())
 }
