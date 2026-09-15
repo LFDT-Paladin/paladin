@@ -27,7 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"gorm.io/gorm/clause"
 )
 

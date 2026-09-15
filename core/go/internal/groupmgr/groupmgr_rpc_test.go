@@ -34,7 +34,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

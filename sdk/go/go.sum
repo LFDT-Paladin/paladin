@@ -30,10 +30,10 @@ github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 h1:JeSE6pjso5T
 github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674/go.mod h1:r4w70xmWCQKmi1ONH4KIaBptdivuRPyosB9RmPlGEwA=
 github.com/hashicorp/hcl v1.0.0 h1:0Anlzjpi4vEasTeNFn2mLJgTSwt0+6sfsiTG8qcWGx4=
 github.com/hashicorp/hcl v1.0.0/go.mod h1:E5yfLk+7swimpb2L/Alb/PJmXilQ/rhwaUYs4T20WEQ=
-github.com/hyperledger/firefly-common v1.5.9 h1:Z1+SuKNYJ8hPKQ5CvcsMg6r/E4RyW6wb08nGwtcc8Ww=
-github.com/hyperledger/firefly-common v1.5.9/go.mod h1:1Xawm5PUhxT7k+CL/Kr3i1LE3cTTzoQwZMLimvlW8rs=
-github.com/hyperledger/firefly-signer v1.1.22 h1:j0D9rmoJFCrtYyko3M4Wt6JQ2GNQtWL7WLSS8xKoW3g=
-github.com/hyperledger/firefly-signer v1.1.22/go.mod h1:hDYvfn8g0cEw0Tz1H7nmblj25D8ImytxIIqh7MMoiog=
+github.com/hyperledger-firefly/common v1.6.1 h1:LjePiqXLwLwFwadcXuQnwlwX606S7bCaZZza233nrfg=
+github.com/hyperledger-firefly/common v1.6.1/go.mod h1:TAcQ7lZ7iNRo5jxh4d4tt7M2NJ7eT6WAnkWqEvLdY+4=
+github.com/hyperledger-firefly/signer v1.2.0 h1:8/PSj1I6Mvffulj/As/No7cH6EnRuuYcZ6ZEskZ31ss=
+github.com/hyperledger-firefly/signer v1.2.0/go.mod h1:itDUFeTNFfrrYSvPgKokDlpDVD9N24WCGRzGGrEqWQQ=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/jarcoal/httpmock v1.2.0 h1:gSvTxxFR/MEMfsGrvRbdfpRUMBStovlSRLw0Ep1bwwc=

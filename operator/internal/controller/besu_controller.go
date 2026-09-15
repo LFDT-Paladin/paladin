@@ -45,7 +45,7 @@ import (
 
 	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
 	"github.com/LFDT-Paladin/paladin/operator/pkg/config"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/pelletier/go-toml/v2"
 )
 

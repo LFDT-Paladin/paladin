@@ -1,8 +1,6 @@
 module github.com/LFDT-Paladin/paladin/sdk/go
 
-go 1.25.0
-
-toolchain go1.25.11
+go 1.26.4
 
 require (
 	github.com/LFDT-Paladin/paladin/common/go v0.0.0-00010101000000-000000000000
@@ -11,7 +9,7 @@ require (
 	github.com/go-resty/resty/v2 v2.14.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/hyperledger/firefly-signer v1.1.22
+	github.com/hyperledger-firefly/signer v1.2.0
 	github.com/jarcoal/httpmock v1.2.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.53.0
@@ -22,7 +20,7 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/hyperledger/firefly-common v1.5.9 // indirect
+	github.com/hyperledger-firefly/common v1.6.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect

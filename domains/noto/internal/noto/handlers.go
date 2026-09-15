@@ -30,7 +30,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 func (n *Noto) GetHandler(method string) types.DomainHandler {
