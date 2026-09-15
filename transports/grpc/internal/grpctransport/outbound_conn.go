@@ -113,6 +113,8 @@ func (oc *outboundConn) closeStream() {
 	oc.streamCancel = nil
 }
 
+// ensureStream opens a stream if there is not one already. Must be called with sendLock held
+// after first creation
 func (oc *outboundConn) ensureStream() error {
 	if oc.stream != nil {
 		return nil
