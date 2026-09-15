@@ -274,8 +274,7 @@ func (t *grpcTransport) DeactivatePeer(ctx context.Context, req *prototk.Deactiv
 
 	existing := t.outboundConnections[req.NodeName]
 	if existing != nil {
-		// Replace an existing connection - unexpected as Paladin shouldn't do this
-		log.L(ctx).Warnf("replacing existing activation for node '%s'", req.NodeName)
+		log.L(ctx).Debugf("deactivating peer '%s'", req.NodeName)
 		existing.close(ctx)
 		delete(t.outboundConnections, req.NodeName)
 	}
