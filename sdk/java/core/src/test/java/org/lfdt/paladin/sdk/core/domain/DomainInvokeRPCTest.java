@@ -15,6 +15,7 @@
 package org.lfdt.paladin.sdk.core.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -48,5 +49,25 @@ class DomainInvokeRPCTest {
     assertEquals("{}", MAPPER.writeValueAsString(request));
     assertNull(request.method());
     assertNull(request.params());
+  }
+
+  @Test
+  void implementsValueEquality() throws Exception {
+    final DomainInvokeRPC request =
+        DomainInvokeRPC.builder("pente_getCodeHash")
+            .params(MAPPER.readTree("[\"0x1234\"]"))
+            .build();
+    final DomainInvokeRPC equal =
+        DomainInvokeRPC.builder("pente_getCodeHash")
+            .params(MAPPER.readTree("[\"0x1234\"]"))
+            .build();
+    final DomainInvokeRPC unequal = DomainInvokeRPC.builder("pente_getBalance").build();
+
+    assertEquals(request, request);
+    assertEquals(request, equal);
+    assertEquals(request.hashCode(), equal.hashCode());
+    assertNotEquals(request, unequal);
+    assertNotEquals(request, null);
+    assertNotEquals(request, "different type");
   }
 }

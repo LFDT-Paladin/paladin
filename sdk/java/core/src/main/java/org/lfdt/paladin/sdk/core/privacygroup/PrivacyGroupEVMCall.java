@@ -82,6 +82,22 @@ public final class PrivacyGroupEVMCall {
   }
 
   @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroupEVMCall other
+        && Objects.equals(input, other.input)
+        && Objects.equals(block, other.block)
+        && Objects.equals(dataFormat, other.dataFormat);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(input, block, dataFormat);
+  }
+
+  @Override
   public String toString() {
     return "PrivacyGroupEVMCall{input="
         + input

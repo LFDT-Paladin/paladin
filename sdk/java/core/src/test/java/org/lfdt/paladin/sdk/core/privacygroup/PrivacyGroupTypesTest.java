@@ -16,6 +16,7 @@ package org.lfdt.paladin.sdk.core.privacygroup;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -42,6 +43,16 @@ class PrivacyGroupTypesTest {
   private static final String ADDRESS = "0x" + "11".repeat(20);
   private static final String SALT = "0x" + "22".repeat(32);
   private static final String SCHEMA = "0x" + "33".repeat(32);
+
+  private static void assertValueEquality(
+      final Object first, final Object equal, final Object unequal) {
+    assertEquals(first, first);
+    assertEquals(first, equal);
+    assertEquals(first.hashCode(), equal.hashCode());
+    assertNotEquals(first, unequal);
+    assertNotEquals(first, null);
+    assertNotEquals(first, "different type");
+  }
 
   // ---- PrivacyGroup -------------------------------------------------------
 
@@ -452,5 +463,131 @@ class PrivacyGroupTypesTest {
     final PrivacyGroupMessageListener reparsed =
         MAPPER.readValue(MAPPER.writeValueAsString(listener), PrivacyGroupMessageListener.class);
     assertEquals(listener.created(), reparsed.created());
+  }
+
+  @Test
+  void privacyGroupValueObjectsImplementEquality() throws Exception {
+    final String groupJson = "{\"id\":\"" + GROUP_ID + "\",\"domain\":\"pente\",\"name\":\"g1\"}";
+    final PrivacyGroup group = MAPPER.readValue(groupJson, PrivacyGroup.class);
+    final PrivacyGroup equalGroup = MAPPER.readValue(groupJson, PrivacyGroup.class);
+    final PrivacyGroup otherGroup =
+        MAPPER.readValue(groupJson.replace("\"g1\"", "\"g2\""), PrivacyGroup.class);
+    assertValueEquality(group, equalGroup, otherGroup);
+
+    final PrivacyGroupTXOptions txOptions =
+        PrivacyGroupTXOptions.builder()
+            .idempotencyKey("idem")
+            .publicTxOptions(PublicTxOptions.builder().gas(HexUint64.of(21_000L)).build())
+            .build();
+    final PrivacyGroupTXOptions equalTxOptions =
+        PrivacyGroupTXOptions.builder()
+            .idempotencyKey("idem")
+            .publicTxOptions(PublicTxOptions.builder().gas(HexUint64.of(21_000L)).build())
+            .build();
+    assertValueEquality(
+        txOptions, equalTxOptions, PrivacyGroupTXOptions.builder().idempotencyKey("other").build());
+
+    final PrivacyGroupInput groupInput =
+        PrivacyGroupInput.builder("pente")
+            .name("g1")
+            .member("me@node1")
+            .transactionOptions(txOptions)
+            .build();
+    final PrivacyGroupInput equalGroupInput =
+        PrivacyGroupInput.builder("pente")
+            .name("g1")
+            .member("me@node1")
+            .transactionOptions(equalTxOptions)
+            .build();
+    assertValueEquality(groupInput, equalGroupInput, PrivacyGroupInput.builder("other").build());
+
+    final PrivacyGroupEVMTXInput evmInput =
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .from("me@node1")
+            .gas(HexUint64.of(50_000L))
+            .build();
+    final PrivacyGroupEVMTXInput equalEvmInput =
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .from("me@node1")
+            .gas(HexUint64.of(50_000L))
+            .build();
+    assertValueEquality(
+        evmInput,
+        equalEvmInput,
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString("0xbeef")).build());
+
+    final PrivacyGroupEVMCall evmCall =
+        PrivacyGroupEVMCall.builder(evmInput).block("latest").build();
+    final PrivacyGroupEVMCall equalEvmCall =
+        PrivacyGroupEVMCall.builder(equalEvmInput).block("latest").build();
+    assertValueEquality(
+        evmCall, equalEvmCall, PrivacyGroupEVMCall.builder(evmInput).block("pending").build());
+  }
+
+  @Test
+  void privacyGroupMessageValueObjectsImplementEquality() throws Exception {
+    final PrivacyGroupMessageInput messageInput =
+        PrivacyGroupMessageInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .topic("orders")
+            .data(MAPPER.readTree("{\"value\":1}"))
+            .build();
+    final PrivacyGroupMessageInput equalMessageInput =
+        PrivacyGroupMessageInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .topic("orders")
+            .data(MAPPER.readTree("{\"value\":1}"))
+            .build();
+    assertValueEquality(
+        messageInput,
+        equalMessageInput,
+        PrivacyGroupMessageInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .topic("other")
+            .build());
+
+    final String messageJson =
+        "{\"id\":\"00000000-0000-0000-0000-000000000001\",\"localSequence\":1,"
+            + "\"domain\":\"pente\",\"group\":\""
+            + GROUP_ID
+            + "\",\"topic\":\"orders\",\"data\":{\"value\":1}}";
+    final PrivacyGroupMessage message = MAPPER.readValue(messageJson, PrivacyGroupMessage.class);
+    final PrivacyGroupMessage equalMessage =
+        MAPPER.readValue(messageJson, PrivacyGroupMessage.class);
+    final PrivacyGroupMessage otherMessage =
+        MAPPER.readValue(
+            messageJson.replace("\"localSequence\":1", "\"localSequence\":2"),
+            PrivacyGroupMessage.class);
+    assertValueEquality(message, equalMessage, otherMessage);
+
+    final PrivacyGroupMessageListenerFilters filters =
+        PrivacyGroupMessageListenerFilters.builder().domain("pente").topic("orders").build();
+    final PrivacyGroupMessageListenerFilters equalFilters =
+        PrivacyGroupMessageListenerFilters.builder().domain("pente").topic("orders").build();
+    assertValueEquality(
+        filters,
+        equalFilters,
+        PrivacyGroupMessageListenerFilters.builder().domain("pente").topic("other").build());
+
+    final PrivacyGroupMessageListenerOptions options =
+        PrivacyGroupMessageListenerOptions.builder().excludeLocal(true).build();
+    final PrivacyGroupMessageListenerOptions equalOptions =
+        PrivacyGroupMessageListenerOptions.builder().excludeLocal(true).build();
+    assertValueEquality(
+        options,
+        equalOptions,
+        PrivacyGroupMessageListenerOptions.builder().excludeLocal(false).build());
+
+    final PrivacyGroupMessageListener listener =
+        PrivacyGroupMessageListener.builder("listener")
+            .started(true)
+            .filters(filters)
+            .options(options)
+            .build();
+    final PrivacyGroupMessageListener equalListener =
+        PrivacyGroupMessageListener.builder("listener")
+            .started(true)
+            .filters(equalFilters)
+            .options(equalOptions)
+            .build();
+    assertValueEquality(
+        listener, equalListener, PrivacyGroupMessageListener.builder("other-listener").build());
   }
 }

@@ -19,6 +19,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Objects;
 import java.util.UUID;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 
@@ -116,6 +117,24 @@ public final class PrivacyGroupMessageInput {
    */
   public static Builder builder(final String domain, final HexBytes group) {
     return new Builder(domain, group);
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroupMessageInput other
+        && Objects.equals(correlationId, other.correlationId)
+        && Objects.equals(domain, other.domain)
+        && Objects.equals(group, other.group)
+        && Objects.equals(topic, other.topic)
+        && Objects.equals(data, other.data);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(correlationId, domain, group, topic, data);
   }
 
   @Override

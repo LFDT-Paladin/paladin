@@ -18,6 +18,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import java.util.Objects;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
 
 /**
@@ -114,6 +115,24 @@ public final class PrivacyGroupMessageListener {
    */
   public static Builder builder(final String name) {
     return new Builder(name);
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroupMessageListener other
+        && Objects.equals(name, other.name)
+        && Objects.equals(created, other.created)
+        && Objects.equals(started, other.started)
+        && Objects.equals(filters, other.filters)
+        && Objects.equals(options, other.options);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(name, created, started, filters, options);
   }
 
   @Override

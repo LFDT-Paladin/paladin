@@ -19,6 +19,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Objects;
 
 /** A domain-specific RPC request evaluated in a privacy-group or smart-contract context. */
 @JsonPropertyOrder({"method", "params"})
@@ -64,6 +65,21 @@ public final class DomainInvokeRPC {
    */
   public static Builder builder(final String method) {
     return new Builder(method);
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof DomainInvokeRPC other
+        && Objects.equals(method, other.method)
+        && Objects.equals(params, other.params);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(method, params);
   }
 
   @Override

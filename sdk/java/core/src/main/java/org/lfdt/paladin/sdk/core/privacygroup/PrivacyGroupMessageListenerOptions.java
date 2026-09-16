@@ -52,6 +52,20 @@ public final class PrivacyGroupMessageListenerOptions {
   }
 
   @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroupMessageListenerOptions other
+        && excludeLocal == other.excludeLocal;
+  }
+
+  @Override
+  public int hashCode() {
+    return Boolean.hashCode(excludeLocal);
+  }
+
+  @Override
   public String toString() {
     return "PrivacyGroupMessageListenerOptions{excludeLocal=" + excludeLocal + "}";
   }

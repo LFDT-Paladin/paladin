@@ -20,6 +20,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.lfdt.paladin.sdk.core.types.Bytes32;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
@@ -205,6 +206,41 @@ public final class PrivacyGroup {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public EthAddress contractAddress() {
     return contractAddress;
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroup other
+        && Objects.equals(id, other.id)
+        && Objects.equals(domain, other.domain)
+        && Objects.equals(created, other.created)
+        && Objects.equals(name, other.name)
+        && Objects.equals(members, other.members)
+        && Objects.equals(properties, other.properties)
+        && Objects.equals(configuration, other.configuration)
+        && Objects.equals(genesisSalt, other.genesisSalt)
+        && Objects.equals(genesisSchema, other.genesisSchema)
+        && Objects.equals(genesisTransaction, other.genesisTransaction)
+        && Objects.equals(contractAddress, other.contractAddress);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(
+        id,
+        domain,
+        created,
+        name,
+        members,
+        properties,
+        configuration,
+        genesisSalt,
+        genesisSchema,
+        genesisTransaction,
+        contractAddress);
   }
 
   @Override

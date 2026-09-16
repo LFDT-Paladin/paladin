@@ -19,6 +19,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Objects;
 import org.lfdt.paladin.sdk.core.abi.AbiEntry;
 import org.lfdt.paladin.sdk.core.transaction.PublicTxOptions;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
@@ -222,6 +223,41 @@ public final class PrivacyGroupEVMTXInput {
    */
   public static Builder builder(final String domain, final HexBytes group) {
     return new Builder(domain, group);
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroupEVMTXInput other
+        && Objects.equals(idempotencyKey, other.idempotencyKey)
+        && Objects.equals(domain, other.domain)
+        && Objects.equals(group, other.group)
+        && Objects.equals(from, other.from)
+        && Objects.equals(to, other.to)
+        && Objects.equals(gas, other.gas)
+        && Objects.equals(value, other.value)
+        && Objects.equals(input, other.input)
+        && Objects.equals(function, other.function)
+        && Objects.equals(bytecode, other.bytecode)
+        && Objects.equals(publicTxOptions, other.publicTxOptions);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(
+        idempotencyKey,
+        domain,
+        group,
+        from,
+        to,
+        gas,
+        value,
+        input,
+        function,
+        bytecode,
+        publicTxOptions);
   }
 
   @Override

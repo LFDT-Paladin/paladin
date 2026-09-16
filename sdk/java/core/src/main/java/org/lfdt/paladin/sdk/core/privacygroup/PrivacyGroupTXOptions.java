@@ -19,6 +19,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import java.util.Objects;
 import org.lfdt.paladin.sdk.core.transaction.PublicTxOptions;
 import org.lfdt.paladin.sdk.core.types.HexUint256;
 import org.lfdt.paladin.sdk.core.types.HexUint64;
@@ -132,6 +133,21 @@ public final class PrivacyGroupTXOptions {
    */
   public static Builder builder() {
     return new Builder();
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroupTXOptions other
+        && Objects.equals(idempotencyKey, other.idempotencyKey)
+        && Objects.equals(publicTxOptions, other.publicTxOptions);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(idempotencyKey, publicTxOptions);
   }
 
   @Override
