@@ -33,6 +33,7 @@ import org.lfdt.paladin.sdk.client.config.RpcClientConfig;
 import org.lfdt.paladin.sdk.client.exception.PaladinRpcException;
 import org.lfdt.paladin.sdk.client.rpc.HttpRpcClient;
 import org.lfdt.paladin.sdk.client.rpc.MockJsonRpcServer;
+import org.lfdt.paladin.sdk.core.domain.DomainInvokeRPC;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroup;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroupEVMCall;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroupEVMTXInput;
@@ -43,6 +44,7 @@ import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroupMessageListener;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroupMessageListenerFilters;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroupMessageListenerOptions;
 import org.lfdt.paladin.sdk.core.query.QueryJSON;
+import org.lfdt.paladin.sdk.core.statestore.StateStatusQualifier;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 
@@ -221,6 +223,34 @@ class PrivacyGroupClientTest {
       final JsonNode req = server.requests().get(0);
       assertEquals("pgroup_call", req.get("method").asText());
       assertEquals("latest", req.get("params").get(0).get("block").asText());
+    }
+  }
+
+  @Test
+  void invokeRPCSendsParametersInServerOrder() throws IOException {
+    try (MockJsonRpcServer server = serverReturning("{\"codeHash\":\"0x1234\"}");
+        HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
+      final DomainInvokeRPC rpcCall =
+          DomainInvokeRPC.builder("pente_getCodeHash")
+              .params(MAPPER.readTree("[\"0xabcd\"]"))
+              .build();
+
+      final JsonNode result =
+          new PrivacyGroupClient(rpc)
+              .invokeRPC(
+                  "pente", HexBytes.fromString(GROUP_ID), StateStatusQualifier.AVAILABLE, rpcCall)
+              .join();
+
+      assertEquals("0x1234", result.get("codeHash").asText());
+      final JsonNode req = server.requests().get(0);
+      assertEquals("pgroup_invokeRPC", req.get("method").asText());
+      final JsonNode params = req.get("params");
+      assertEquals(4, params.size());
+      assertEquals("pente", params.get(0).asText());
+      assertEquals(GROUP_ID, params.get(1).asText());
+      assertEquals("available", params.get(2).asText());
+      assertEquals("pente_getCodeHash", params.get(3).get("method").asText());
+      assertEquals("0xabcd", params.get(3).get("params").get(0).asText());
     }
   }
 
