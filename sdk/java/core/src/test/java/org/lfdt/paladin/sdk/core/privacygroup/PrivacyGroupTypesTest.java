@@ -121,10 +121,13 @@ class PrivacyGroupTypesTest {
             .transactionOptions(
                 PrivacyGroupTXOptions.builder()
                     .idempotencyKey("idem-1")
-                    .gas(HexUint64.of(100_000L))
-                    .value(HexUint256.of(7L))
-                    .maxPriorityFeePerGas(HexUint256.of(1L))
-                    .maxFeePerGas(HexUint256.of(2L))
+                    .publicTxOptions(
+                        PublicTxOptions.builder()
+                            .gas(HexUint64.of(100_000L))
+                            .value(HexUint256.of(7L))
+                            .maxPriorityFeePerGas(HexUint256.of(1L))
+                            .maxFeePerGas(HexUint256.of(2L))
+                            .build())
                     .build())
             .build();
 
@@ -142,10 +145,10 @@ class PrivacyGroupTypesTest {
 
     final PrivacyGroupTXOptions options = parsed.transactionOptions();
     assertEquals("idem-1", options.idempotencyKey());
-    assertEquals(HexUint64.of(100_000L), options.gas());
-    assertEquals(HexUint256.of(7L), options.value());
-    assertEquals(HexUint256.of(1L), options.maxPriorityFeePerGas());
-    assertEquals(HexUint256.of(2L), options.maxFeePerGas());
+    assertEquals(HexUint64.of(100_000L), options.publicTxOptions().gas());
+    assertEquals(HexUint256.of(7L), options.publicTxOptions().value());
+    assertEquals(HexUint256.of(1L), options.publicTxOptions().maxPriorityFeePerGas());
+    assertEquals(HexUint256.of(2L), options.publicTxOptions().maxFeePerGas());
     assertTrue(options.toString().contains("idem-1"));
   }
 

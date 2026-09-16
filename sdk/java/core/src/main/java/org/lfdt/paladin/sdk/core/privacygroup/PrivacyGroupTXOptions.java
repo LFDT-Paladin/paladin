@@ -15,9 +15,11 @@
 package org.lfdt.paladin.sdk.core.privacygroup;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import org.lfdt.paladin.sdk.core.transaction.PublicTxOptions;
 import org.lfdt.paladin.sdk.core.types.HexUint256;
 import org.lfdt.paladin.sdk.core.types.HexUint64;
 
@@ -25,19 +27,14 @@ import org.lfdt.paladin.sdk.core.types.HexUint64;
  * The submission options applied to the genesis transaction of a new privacy group. Immutable;
  * build one with the {@linkplain #builder() fluent builder}.
  *
- * <p>The public-transaction options ({@link #gas()}, {@link #value()}, {@link
- * #maxPriorityFeePerGas()}, {@link #maxFeePerGas()}) are flattened onto the flat JSON wire form
- * alongside the idempotency key. Supplying either gas-pricing field fixes pricing for the
- * transaction, disabling the node's gas-pricing engine.
+ * <p>The {@link #publicTxOptions()} fields are flattened onto the flat JSON wire form alongside the
+ * idempotency key.
  */
 @JsonPropertyOrder({"idempotencyKey", "gas", "value", "maxPriorityFeePerGas", "maxFeePerGas"})
 public final class PrivacyGroupTXOptions {
 
   private final String idempotencyKey;
-  private final HexUint64 gas;
-  private final HexUint256 value;
-  private final HexUint256 maxPriorityFeePerGas;
-  private final HexUint256 maxFeePerGas;
+  private final PublicTxOptions publicTxOptions;
 
   @JsonCreator
   PrivacyGroupTXOptions(
@@ -46,11 +43,20 @@ public final class PrivacyGroupTXOptions {
       @JsonProperty("value") final HexUint256 value,
       @JsonProperty("maxPriorityFeePerGas") final HexUint256 maxPriorityFeePerGas,
       @JsonProperty("maxFeePerGas") final HexUint256 maxFeePerGas) {
+    this(
+        idempotencyKey,
+        PublicTxOptions.builder()
+            .gas(gas)
+            .value(value)
+            .maxPriorityFeePerGas(maxPriorityFeePerGas)
+            .maxFeePerGas(maxFeePerGas)
+            .build());
+  }
+
+  private PrivacyGroupTXOptions(
+      final String idempotencyKey, final PublicTxOptions publicTxOptions) {
     this.idempotencyKey = idempotencyKey;
-    this.gas = gas;
-    this.value = value;
-    this.maxPriorityFeePerGas = maxPriorityFeePerGas;
-    this.maxFeePerGas = maxFeePerGas;
+    this.publicTxOptions = publicTxOptions;
   }
 
   /**
@@ -66,6 +72,16 @@ public final class PrivacyGroupTXOptions {
   }
 
   /**
+   * The public-transaction options.
+   *
+   * @return the public-transaction options, or {@code null} when unset
+   */
+  @JsonIgnore
+  public PublicTxOptions publicTxOptions() {
+    return publicTxOptions;
+  }
+
+  /**
    * The gas limit for the genesis transaction.
    *
    * @return the gas limit, or {@code null} to let the node estimate
@@ -73,7 +89,7 @@ public final class PrivacyGroupTXOptions {
   @JsonProperty("gas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint64 gas() {
-    return gas;
+    return publicTxOptions == null ? null : publicTxOptions.gas();
   }
 
   /**
@@ -84,7 +100,7 @@ public final class PrivacyGroupTXOptions {
   @JsonProperty("value")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 value() {
-    return value;
+    return publicTxOptions == null ? null : publicTxOptions.value();
   }
 
   /**
@@ -95,7 +111,7 @@ public final class PrivacyGroupTXOptions {
   @JsonProperty("maxPriorityFeePerGas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 maxPriorityFeePerGas() {
-    return maxPriorityFeePerGas;
+    return publicTxOptions == null ? null : publicTxOptions.maxPriorityFeePerGas();
   }
 
   /**
@@ -106,7 +122,7 @@ public final class PrivacyGroupTXOptions {
   @JsonProperty("maxFeePerGas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 maxFeePerGas() {
-    return maxFeePerGas;
+    return publicTxOptions == null ? null : publicTxOptions.maxFeePerGas();
   }
 
   /**
@@ -120,16 +136,17 @@ public final class PrivacyGroupTXOptions {
 
   @Override
   public String toString() {
-    return "PrivacyGroupTXOptions{idempotencyKey=" + idempotencyKey + ", gas=" + gas + "}";
+    return "PrivacyGroupTXOptions{idempotencyKey="
+        + idempotencyKey
+        + ", publicTxOptions="
+        + publicTxOptions
+        + "}";
   }
 
   /** Fluent builder for {@link PrivacyGroupTXOptions}. */
   public static final class Builder {
     private String idempotencyKey;
-    private HexUint64 gas;
-    private HexUint256 value;
-    private HexUint256 maxPriorityFeePerGas;
-    private HexUint256 maxFeePerGas;
+    private PublicTxOptions publicTxOptions;
 
     private Builder() {}
 
@@ -145,46 +162,13 @@ public final class PrivacyGroupTXOptions {
     }
 
     /**
-     * Sets the gas limit.
+     * Sets the public-transaction options for the genesis transaction.
      *
-     * @param gas the gas limit, or {@code null} to let the node estimate
+     * @param publicTxOptions the public-transaction options
      * @return this builder
      */
-    public Builder gas(final HexUint64 gas) {
-      this.gas = gas;
-      return this;
-    }
-
-    /**
-     * Sets the native value to transfer.
-     *
-     * @param value the native value to transfer
-     * @return this builder
-     */
-    public Builder value(final HexUint256 value) {
-      this.value = value;
-      return this;
-    }
-
-    /**
-     * Sets the EIP-1559 max priority fee per gas.
-     *
-     * @param maxPriorityFeePerGas the max priority fee per gas; supplying it fixes gas pricing
-     * @return this builder
-     */
-    public Builder maxPriorityFeePerGas(final HexUint256 maxPriorityFeePerGas) {
-      this.maxPriorityFeePerGas = maxPriorityFeePerGas;
-      return this;
-    }
-
-    /**
-     * Sets the EIP-1559 max fee per gas.
-     *
-     * @param maxFeePerGas the max fee per gas; supplying it fixes gas pricing
-     * @return this builder
-     */
-    public Builder maxFeePerGas(final HexUint256 maxFeePerGas) {
-      this.maxFeePerGas = maxFeePerGas;
+    public Builder publicTxOptions(final PublicTxOptions publicTxOptions) {
+      this.publicTxOptions = publicTxOptions;
       return this;
     }
 
@@ -194,8 +178,7 @@ public final class PrivacyGroupTXOptions {
      * @return a new {@link PrivacyGroupTXOptions} with the configured values
      */
     public PrivacyGroupTXOptions build() {
-      return new PrivacyGroupTXOptions(
-          idempotencyKey, gas, value, maxPriorityFeePerGas, maxFeePerGas);
+      return new PrivacyGroupTXOptions(idempotencyKey, publicTxOptions);
     }
   }
 }
