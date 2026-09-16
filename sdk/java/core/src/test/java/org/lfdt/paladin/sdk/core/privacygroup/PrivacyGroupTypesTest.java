@@ -176,6 +176,21 @@ class PrivacyGroupTypesTest {
     assertEquals("{}", MAPPER.writeValueAsString(PrivacyGroupTXOptions.builder().build()));
   }
 
+  @Test
+  void emptyTransactionOptionsRetainValueEqualityAfterRoundTrip() throws Exception {
+    final PrivacyGroupTXOptions options = PrivacyGroupTXOptions.builder().build();
+    final PrivacyGroupTXOptions parsed =
+        MAPPER.readValue(MAPPER.writeValueAsString(options), PrivacyGroupTXOptions.class);
+    final PrivacyGroupTXOptions explicitlyEmpty =
+        PrivacyGroupTXOptions.builder().publicTxOptions(PublicTxOptions.builder().build()).build();
+
+    assertEquals(options, parsed);
+    assertEquals(options, explicitlyEmpty);
+    assertEquals(options.hashCode(), parsed.hashCode());
+    assertEquals(options.hashCode(), explicitlyEmpty.hashCode());
+    assertEquals(PublicTxOptions.builder().build(), options.publicTxOptions());
+  }
+
   // ---- PrivacyGroupEVMTXInput ---------------------------------------------
 
   @Test
@@ -254,10 +269,16 @@ class PrivacyGroupTypesTest {
     assertTrue(node.get("input").isArray());
     assertEquals("balanceOf", node.get("function").get("name").asText());
     assertEquals("0xbeef", node.get("bytecode").asText());
+    assertEquals("latest", node.get("block").asText());
+    assertEquals("mode=object,number=string", node.get("dataFormat").asText());
     assertEquals("latest", call.block());
     assertEquals("mode=object,number=string", call.dataFormat());
     assertEquals(input, call.input());
     assertTrue(call.toString().contains("domain=pente"));
+    final PrivacyGroupEVMCall parsed = MAPPER.treeToValue(node, PrivacyGroupEVMCall.class);
+    assertEquals(node, MAPPER.valueToTree(parsed));
+    assertEquals("latest", parsed.block());
+    assertEquals("mode=object,number=string", parsed.dataFormat());
   }
 
   @Test
@@ -270,11 +291,29 @@ class PrivacyGroupTypesTest {
         "{\"domain\":\"pente\",\"group\":\"" + GROUP_ID + "\"}", MAPPER.writeValueAsString(call));
     assertNull(call.block());
     assertNull(call.dataFormat());
+    final PrivacyGroupEVMCall parsed =
+        MAPPER.readValue(MAPPER.writeValueAsString(call), PrivacyGroupEVMCall.class);
+    assertEquals(MAPPER.valueToTree(call), MAPPER.valueToTree(parsed));
   }
 
   @Test
   void evmCallRejectsNullInput() {
     assertThrows(NullPointerException.class, () -> PrivacyGroupEVMCall.builder(null).build());
+  }
+
+  @Test
+  void evmCallDoesNotSendTransactionSubmissionOptions() {
+    final PrivacyGroupEVMTXInput input =
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .idempotencyKey("send-only")
+            .gas(HexUint64.of(50_000L))
+            .publicTxOptions(PublicTxOptions.builder().gas(HexUint64.of(21_000L)).build())
+            .build();
+    final var node = MAPPER.valueToTree(PrivacyGroupEVMCall.builder(input).build());
+    assertFalse(node.has("idempotencyKey"));
+    assertFalse(node.has("publicTxOptions"));
+    assertEquals("0xc350", node.get("gas").asText());
+    assertEquals("pente", node.get("domain").asText());
   }
 
   // ---- messages -----------------------------------------------------------

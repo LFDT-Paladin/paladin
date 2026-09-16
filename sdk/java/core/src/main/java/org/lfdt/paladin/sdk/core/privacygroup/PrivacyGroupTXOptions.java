@@ -57,7 +57,8 @@ public final class PrivacyGroupTXOptions {
   private PrivacyGroupTXOptions(
       final String idempotencyKey, final PublicTxOptions publicTxOptions) {
     this.idempotencyKey = idempotencyKey;
-    this.publicTxOptions = publicTxOptions;
+    this.publicTxOptions =
+        publicTxOptions == null ? PublicTxOptions.builder().build() : publicTxOptions;
   }
 
   /**
@@ -75,7 +76,7 @@ public final class PrivacyGroupTXOptions {
   /**
    * The public-transaction options.
    *
-   * @return the public-transaction options, or {@code null} when unset
+   * @return the public-transaction options; all fields are unset when no options were supplied
    */
   @JsonIgnore
   public PublicTxOptions publicTxOptions() {
@@ -90,7 +91,7 @@ public final class PrivacyGroupTXOptions {
   @JsonProperty("gas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint64 gas() {
-    return publicTxOptions == null ? null : publicTxOptions.gas();
+    return publicTxOptions.gas();
   }
 
   /**
@@ -101,7 +102,7 @@ public final class PrivacyGroupTXOptions {
   @JsonProperty("value")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 value() {
-    return publicTxOptions == null ? null : publicTxOptions.value();
+    return publicTxOptions.value();
   }
 
   /**
@@ -112,7 +113,7 @@ public final class PrivacyGroupTXOptions {
   @JsonProperty("maxPriorityFeePerGas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 maxPriorityFeePerGas() {
-    return publicTxOptions == null ? null : publicTxOptions.maxPriorityFeePerGas();
+    return publicTxOptions.maxPriorityFeePerGas();
   }
 
   /**
@@ -123,7 +124,7 @@ public final class PrivacyGroupTXOptions {
   @JsonProperty("maxFeePerGas")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public HexUint256 maxFeePerGas() {
-    return publicTxOptions == null ? null : publicTxOptions.maxFeePerGas();
+    return publicTxOptions.maxFeePerGas();
   }
 
   /**

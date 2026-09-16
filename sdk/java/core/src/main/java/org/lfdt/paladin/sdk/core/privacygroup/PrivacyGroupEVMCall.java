@@ -14,9 +14,12 @@
  */
 package org.lfdt.paladin.sdk.core.privacygroup;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 import java.util.Objects;
 
 /**
@@ -24,8 +27,11 @@ import java.util.Objects;
  * {@linkplain #builder(PrivacyGroupEVMTXInput) fluent builder}.
  *
  * <p>The {@link #input()} fields are unwrapped onto the flat JSON wire form, alongside the call
- * options {@link #block()} and {@link #dataFormat()}.
+ * options {@link #block()} and {@link #dataFormat()}. Submission-only fields ({@code
+ * idempotencyKey} and {@code publicTxOptions}) are omitted from calls. Supports deserialization of
+ * the flat wire form through its builder.
  */
+@JsonDeserialize(builder = PrivacyGroupEVMCall.Builder.class)
 public final class PrivacyGroupEVMCall {
 
   private final PrivacyGroupEVMTXInput input;
@@ -45,6 +51,7 @@ public final class PrivacyGroupEVMCall {
    * @return the call input
    */
   @JsonUnwrapped
+  @JsonIgnoreProperties({"idempotencyKey", "publicTxOptions"})
   public PrivacyGroupEVMTXInput input() {
     return input;
   }
@@ -109,13 +116,16 @@ public final class PrivacyGroupEVMCall {
   }
 
   /** Fluent builder for {@link PrivacyGroupEVMCall}. */
+  @JsonPOJOBuilder(withPrefix = "")
   public static final class Builder {
-    private final PrivacyGroupEVMTXInput input;
+    @JsonUnwrapped private PrivacyGroupEVMTXInput transaction;
     private String block;
     private String dataFormat;
 
+    private Builder() {}
+
     private Builder(final PrivacyGroupEVMTXInput input) {
-      this.input = input;
+      this.transaction = input;
     }
 
     /**
@@ -146,7 +156,7 @@ public final class PrivacyGroupEVMCall {
      * @return a new {@link PrivacyGroupEVMCall} with the configured values
      */
     public PrivacyGroupEVMCall build() {
-      return new PrivacyGroupEVMCall(input, block, dataFormat);
+      return new PrivacyGroupEVMCall(transaction, block, dataFormat);
     }
   }
 }
