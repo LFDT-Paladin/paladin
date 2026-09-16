@@ -730,7 +730,7 @@ class TxBuilderTest {
               "must wait out the full timeout, waited " + elapsed.toMillis() + "ms");
           // One send plus at least one poll. How many polls fit inside the timeout depends on
           // the machine, so repeated polling is asserted by
-          // waitForReceiptPollsUntilTheReceiptArrives instead.
+          // waitForReceiptPollsUntilTheReceiptLands instead.
           assertTrue(server.requestCount() >= 2, "should have polled at least once");
         });
   }
