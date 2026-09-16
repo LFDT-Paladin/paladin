@@ -17,6 +17,7 @@ package org.lfdt.paladin.sdk.core.privacygroup;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -213,8 +214,8 @@ class PrivacyGroupTypesTest {
 
   @Test
   void evmCallFlattensCallOptions() throws Exception {
-    final PrivacyGroupEVMCall call =
-        PrivacyGroupEVMCall.builder("pente", HexBytes.fromString(GROUP_ID))
+    final PrivacyGroupEVMTXInput input =
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID))
             .from("me@node1")
             .to(EthAddress.fromString(ADDRESS))
             .gas(HexUint64.of(50_000L))
@@ -222,34 +223,44 @@ class PrivacyGroupTypesTest {
             .input(MAPPER.readTree("[]"))
             .function(AbiEntry.function("balanceOf").build())
             .bytecode(HexBytes.fromString("0xbeef"))
+            .build();
+    final PrivacyGroupEVMCall call =
+        PrivacyGroupEVMCall.builder(input)
             .block("latest")
             .dataFormat("mode=object,number=string")
             .build();
 
-    final PrivacyGroupEVMCall parsed =
-        MAPPER.readValue(MAPPER.writeValueAsString(call), PrivacyGroupEVMCall.class);
-
-    assertEquals("pente", parsed.domain());
-    assertEquals(HexBytes.fromString(GROUP_ID), parsed.group());
-    assertEquals("me@node1", parsed.from());
-    assertEquals(EthAddress.fromString(ADDRESS), parsed.to());
-    assertEquals(HexUint64.of(50_000L), parsed.gas());
-    assertEquals(HexUint256.of(0L), parsed.value());
-    assertTrue(parsed.input().isArray());
-    assertEquals("balanceOf", parsed.function().name());
-    assertEquals(HexBytes.fromString("0xbeef"), parsed.bytecode());
-    assertEquals("latest", parsed.block());
-    assertEquals("mode=object,number=string", parsed.dataFormat());
-    assertTrue(parsed.toString().contains("domain=pente"));
+    final var node = MAPPER.valueToTree(call);
+    assertEquals("pente", node.get("domain").asText());
+    assertEquals(GROUP_ID, node.get("group").asText());
+    assertEquals("me@node1", node.get("from").asText());
+    assertEquals(ADDRESS, node.get("to").asText());
+    assertEquals("0xc350", node.get("gas").asText());
+    assertEquals("0x00", node.get("value").asText());
+    assertTrue(node.get("input").isArray());
+    assertEquals("balanceOf", node.get("function").get("name").asText());
+    assertEquals("0xbeef", node.get("bytecode").asText());
+    assertEquals("latest", call.block());
+    assertEquals("mode=object,number=string", call.dataFormat());
+    assertEquals(input, call.input());
+    assertTrue(call.toString().contains("domain=pente"));
   }
 
   @Test
   void evmCallOmitsUnsetFields() throws Exception {
-    final PrivacyGroupEVMCall call =
-        PrivacyGroupEVMCall.builder("pente", HexBytes.fromString(GROUP_ID)).build();
+    final PrivacyGroupEVMTXInput input =
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID)).build();
+    final PrivacyGroupEVMCall call = PrivacyGroupEVMCall.builder(input).build();
 
     assertEquals(
         "{\"domain\":\"pente\",\"group\":\"" + GROUP_ID + "\"}", MAPPER.writeValueAsString(call));
+    assertNull(call.block());
+    assertNull(call.dataFormat());
+  }
+
+  @Test
+  void evmCallRejectsNullInput() {
+    assertThrows(NullPointerException.class, () -> PrivacyGroupEVMCall.builder(null).build());
   }
 
   // ---- messages -----------------------------------------------------------

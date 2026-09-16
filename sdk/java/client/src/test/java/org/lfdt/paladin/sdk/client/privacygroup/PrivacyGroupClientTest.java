@@ -210,9 +210,11 @@ class PrivacyGroupClientTest {
     try (MockJsonRpcServer server = serverReturning("{\"balance\":\"100\"}");
         HttpRpcClient rpc = new HttpRpcClient(config(server.baseUrl()))) {
       final PrivacyGroupEVMCall evmCall =
-          PrivacyGroupEVMCall.builder("pente", HexBytes.fromString(GROUP_ID))
-              .from("me@node1")
-              .to(EthAddress.fromString(ADDRESS))
+          PrivacyGroupEVMCall.builder(
+                  PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID))
+                      .from("me@node1")
+                      .to(EthAddress.fromString(ADDRESS))
+                      .build())
               .block("latest")
               .build();
 
