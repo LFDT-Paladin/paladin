@@ -109,4 +109,5 @@ task assemble {
 
 task clean(type: Delete) {
     delete 'coverage'
+    delete 'internal/evmregistry/abis'
 }
