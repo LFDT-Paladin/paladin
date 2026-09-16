@@ -120,3 +120,17 @@ func TestBurnFromHooksModeAllowed(t *testing.T) {
 	assert.Equal(t, "sender@node1", initRes.RequiredVerifiers[1].Lookup)
 	assert.Equal(t, "from@node1", initRes.RequiredVerifiers[2].Lookup)
 }
+
+func TestBurnFromValidateParamsRevert(t *testing.T) {
+	h := &burnFromHandler{}
+	for _, tc := range []struct{ name, params, match string }{
+		{"malformed JSON", `{"amount":`, "unexpected end of JSON input"},
+		{"shared burn validation", `{"from": "sender@node1", "amount": 0}`, "PD200008.*'amount'"},
+		{"missing from", `{"amount": 1}`, "PD200007.*'from'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), notoBasicConfigV1, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}

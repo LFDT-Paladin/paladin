@@ -553,3 +553,23 @@ func TestMint_Nullifiers(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2)
 }
+
+func TestMintValidateParamsRevert(t *testing.T) {
+	h := &mintHandler{}
+	for _, tc := range []struct{ name, params, match string }{
+		{"malformed JSON", `{"amount":`, "unexpected end of JSON input"},
+		{"missing to", `{"amount": 1}`, "PD200007.*'to'"},
+		{"zero amount", `{"to": "receiver@node2", "amount": 0}`, "PD200008.*'amount'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), notoBasicConfigV1, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestMintCheckAllowedRevertsForNonNotary(t *testing.T) {
+	h := &mintHandler{}
+	tx := &types.ParsedTransaction{DomainConfig: notoBasicConfigV1}
+	assertRevert(t, h.checkAllowed(t.Context(), tx, "sender@node1"), "PD200009")
+}
