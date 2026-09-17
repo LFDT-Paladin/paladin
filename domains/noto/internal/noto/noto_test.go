@@ -751,6 +751,39 @@ func TestInitContractBadNotary(t *testing.T) {
 	require.ErrorContains(t, err, "PD020006")
 }
 
+func TestPrepareDeployLocalNodeNameFailed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockLocalNodeName = func() (*prototk.LocalNodeNameResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	n := &Noto{Callbacks: mockCallbacks}
+	_, err := n.PrepareDeploy(t.Context(), &prototk.PrepareDeployRequest{
+		Transaction: &prototk.DeployTransactionSpecification{
+			ConstructorParamsJson: `{
+				"notary": "notary@node1",
+				"notaryMode": "basic"
+			}`,
+		},
+	})
+	assert.ErrorContains(t, err, "pop")
+}
+
+func TestInitContractLocalNodeNameFailed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockLocalNodeName = func() (*prototk.LocalNodeNameResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	n := &Noto{Callbacks: mockCallbacks}
+	// The config decoded, so this is a failure of our own node - an error rather than a
+	// contract we report as invalid
+	res, err := n.InitContract(t.Context(), &prototk.InitContractRequest{
+		ContractAddress: pldtypes.RandAddress().String(),
+		ContractConfig:  encodedConfig(&types.NotoConfigData_V0{NotaryLookup: "notary@node1"}),
+	})
+	require.ErrorContains(t, err, "pop")
+	assert.Nil(t, res)
+}
+
 func TestInitTransactionBadAbi(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
