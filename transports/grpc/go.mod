@@ -1,6 +1,6 @@
 module github.com/LFDT-Paladin/paladin/transports/grpc
 
-go 1.26.4
+go 1.26.0
 
 toolchain go1.26.8
 
@@ -20,8 +20,8 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/hyperledger-firefly/common v1.6.1 // indirect
-	github.com/hyperledger-firefly/signer v1.2.0 // indirect
+	github.com/hyperledger-firefly/common v1.6.2 // indirect
+	github.com/hyperledger-firefly/signer v1.2.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect

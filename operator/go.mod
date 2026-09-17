@@ -1,6 +1,6 @@
 module github.com/LFDT-Paladin/paladin/operator
 
-go 1.26.4
+go 1.26.0
 
 toolchain go1.26.8
 
@@ -14,7 +14,7 @@ require (
 	github.com/LFDT-Paladin/paladin/toolkit v0.0.0-00010101000000-000000000000
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/google/uuid v1.6.0
-	github.com/hyperledger-firefly/signer v1.2.0
+	github.com/hyperledger-firefly/signer v1.2.1
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
 	github.com/pelletier/go-toml/v2 v2.2.3
@@ -65,7 +65,7 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
-	github.com/hyperledger-firefly/common v1.6.1 // indirect
+	github.com/hyperledger-firefly/common v1.6.2 // indirect
 	github.com/hyperledger-labs/zeto/go-sdk v0.0.0-20241004174307-aa3c1fdf0966 // indirect
 	github.com/hyperledger/firefly-common v1.5.9 // indirect
 	github.com/hyperledger/firefly-signer v1.1.22 // indirect

@@ -1,6 +1,6 @@
 module github.com/LFDT-Paladin/paladin/testinfra
 
-go 1.26.4
+go 1.26.0
 
 toolchain go1.26.8
 
@@ -8,7 +8,7 @@ require (
 	github.com/btcsuite/btcd v0.24.2
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/ethereum/go-ethereum v1.16.9
-	github.com/hyperledger-firefly/signer v1.2.0
+	github.com/hyperledger-firefly/signer v1.2.1
 	github.com/tyler-smith/go-bip39 v1.1.0
 )
 
@@ -20,7 +20,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
-	github.com/hyperledger-firefly/common v1.6.1 // indirect
+	github.com/hyperledger-firefly/common v1.6.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect

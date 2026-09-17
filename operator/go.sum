@@ -136,10 +136,10 @@ github.com/hashicorp/hcl v1.0.0/go.mod h1:E5yfLk+7swimpb2L/Alb/PJmXilQ/rhwaUYs4T
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/huandu/xstrings v1.5.0 h1:2ag3IFq9ZDANvthTwTiqSSZLjDc+BedvHPAp5tJy2TI=
 github.com/huandu/xstrings v1.5.0/go.mod h1:y5/lhBue+AyNmUVz9RLU9xbLR0o4KIIExikq4ovT0aE=
-github.com/hyperledger-firefly/common v1.6.1 h1:LjePiqXLwLwFwadcXuQnwlwX606S7bCaZZza233nrfg=
-github.com/hyperledger-firefly/common v1.6.1/go.mod h1:TAcQ7lZ7iNRo5jxh4d4tt7M2NJ7eT6WAnkWqEvLdY+4=
-github.com/hyperledger-firefly/signer v1.2.0 h1:8/PSj1I6Mvffulj/As/No7cH6EnRuuYcZ6ZEskZ31ss=
-github.com/hyperledger-firefly/signer v1.2.0/go.mod h1:itDUFeTNFfrrYSvPgKokDlpDVD9N24WCGRzGGrEqWQQ=
+github.com/hyperledger-firefly/common v1.6.2 h1:46i7Ypcin3tkenyt08g+FQJALO/9t0giZCNg8ZFsv88=
+github.com/hyperledger-firefly/common v1.6.2/go.mod h1:UiHXY2QdM8UUYHDpFpOAt2hwrVL559G8wZ3b68kAEx8=
+github.com/hyperledger-firefly/signer v1.2.1 h1:YmnCfiOPhrP/6WIGt5KwV3wiDEI61k7h282MpagSNnI=
+github.com/hyperledger-firefly/signer v1.2.1/go.mod h1:qLBLnXZZHk83x68WLvDjx8q80+6lQzx57FPeRyI6jmo=
 github.com/hyperledger-labs/zeto/go-sdk v0.0.0-20241004174307-aa3c1fdf0966 h1:J5ZVvMRxRlM1GLtUdPTCNNRpB4QpJij/+ndud1QU8WY=
 github.com/hyperledger-labs/zeto/go-sdk v0.0.0-20241004174307-aa3c1fdf0966/go.mod h1:WyUa1UIizlcBQnTEMK5tWWskFz2glSTm7S6HaJTarps=
 github.com/hyperledger/firefly-common v1.5.9 h1:Z1+SuKNYJ8hPKQ5CvcsMg6r/E4RyW6wb08nGwtcc8Ww=

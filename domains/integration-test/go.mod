@@ -1,6 +1,6 @@
 module github.com/LFDT-Paladin/paladin/domains/integration-test
 
-go 1.26.4
+go 1.26.0
 
 toolchain go1.26.8
 
