@@ -2,6 +2,8 @@ module github.com/LFDT-Paladin/paladin/test
 
 go 1.26.4
 
+toolchain go1.26.8
+
 require (
 	github.com/LFDT-Paladin/paladin/config v0.0.0-00010101000000-000000000000
 	github.com/LFDT-Paladin/paladin/sdk/go v0.0.0-00010101000000-000000000000
@@ -21,10 +23,9 @@ require (
 	github.com/go-resty/resty/v2 v2.14.0 // indirect
 	github.com/hyperledger-firefly/common v1.6.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/nxadm/tail v1.4.11 // indirect
-	github.com/onsi/gomega v1.36.1 // indirect
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2 // indirect
 	go.uber.org/zap v1.28.0 // indirect
+	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 )
 
 require (

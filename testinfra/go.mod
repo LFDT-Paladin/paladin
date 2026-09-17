@@ -2,6 +2,8 @@ module github.com/LFDT-Paladin/paladin/testinfra
 
 go 1.26.4
 
+toolchain go1.26.8
+
 require (
 	github.com/btcsuite/btcd v0.24.2
 	github.com/btcsuite/btcd/btcutil v1.1.6

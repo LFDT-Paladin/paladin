@@ -2,6 +2,8 @@ module github.com/LFDT-Paladin/paladin/toolkit
 
 go 1.26.4
 
+toolchain go1.26.8
+
 require (
 	github.com/Code-Hex/go-generics-cache v1.5.1
 	github.com/LFDT-Paladin/paladin/common/go v0.0.0-00010101000000-000000000000
