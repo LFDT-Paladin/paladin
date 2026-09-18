@@ -16,33 +16,43 @@ package org.lfdt.paladin.sdk.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.Test;
 import org.lfdt.paladin.sdk.client.config.RetryPolicy;
 import org.lfdt.paladin.sdk.client.config.RpcClientConfig;
+import org.lfdt.paladin.sdk.client.exception.PaladinConnectionException;
 import org.lfdt.paladin.sdk.client.rpc.MockJsonRpcServer;
 import org.lfdt.paladin.sdk.client.rpc.RpcClient;
 import org.lfdt.paladin.sdk.client.tx.TxBuilder;
 import org.lfdt.paladin.sdk.core.abi.AbiEntry;
 import org.lfdt.paladin.sdk.core.abi.AbiParameter;
 import org.lfdt.paladin.sdk.core.abi.EntryType;
+import org.lfdt.paladin.sdk.core.domain.DomainInvokeRPC;
+import org.lfdt.paladin.sdk.core.json.PaladinObjectMapper;
+import org.lfdt.paladin.sdk.core.statestore.StateStatusQualifier;
 import org.lfdt.paladin.sdk.core.transaction.TransactionInput;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
+import org.lfdt.paladin.sdk.core.types.HexBytes;
 
 class PaladinClientTest {
 
   private static final String GROUP_ADDRESS = "0x0102030405060708090a0b0c0d0e0f1011121314";
+  private static final UUID TX_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
 
   /** Replies to each method with the canned result the corresponding namespace client expects. */
   private static final Map<String, String> RESULTS =
@@ -54,7 +64,9 @@ class PaladinClientTest {
           "pstate_listSchemas",
               "[{\"id\":\"0x1111111111111111111111111111111111111111111111111111111111111111\",\"domain\":\"noto\",\"type\":\"abi\"}]",
           "transport_nodeName", "\"node1\"",
-          "pgroup_getGroupByAddress", "{\"domain\":\"pente\",\"name\":\"group-1\"}");
+          "pgroup_getGroupByAddress", "{\"domain\":\"pente\",\"name\":\"group-1\"}",
+          "pgroup_invokeRPC", "{\"codeHash\":\"0x1234\"}",
+          "ptx_sendTransaction", "\"" + TX_ID + "\"");
 
   private static MockJsonRpcServer serverForAllNamespaces() throws IOException {
     return new MockJsonRpcServer(
@@ -93,7 +105,7 @@ class PaladinClientTest {
         PaladinClient paladin = PaladinClient.http(config(server.baseUrl()))) {
 
       assertNotNull(
-          paladin.ptx().getTransaction(java.util.UUID.randomUUID()).join(),
+          paladin.ptx().getTransaction(TX_ID).join(),
           "ptx namespace should route through the shared transport");
       assertEquals("signer-1", paladin.keyManager().wallets().join().get(0).name());
       assertEquals(42L, paladin.blockIndex().getConfirmedBlockHeight().join().asUnsignedLong());
@@ -120,6 +132,32 @@ class PaladinClientTest {
               "transport_nodeName",
               "pgroup_getGroupByAddress"),
           methods);
+    }
+  }
+
+  @Test
+  void privacyGroupInvokeRpcIsReachableThroughTheFacade() throws IOException {
+    try (MockJsonRpcServer server = serverForAllNamespaces();
+        PaladinClient paladin = PaladinClient.http(config(server.baseUrl()))) {
+      final HexBytes groupId = HexBytes.fromString("0x" + "11".repeat(32));
+      final DomainInvokeRPC rpcCall =
+          DomainInvokeRPC.builder("pente_getCodeHash")
+              .params(PaladinObjectMapper.shared().readTree("[\"" + GROUP_ADDRESS + "\"]"))
+              .build();
+
+      final JsonNode result =
+          paladin
+              .privacyGroups()
+              .invokeRPC("pente", groupId, StateStatusQualifier.AVAILABLE, rpcCall)
+              .join();
+
+      assertEquals("0x1234", result.get("codeHash").asText());
+      final JsonNode request = server.requests().get(0);
+      assertEquals("pgroup_invokeRPC", request.get("method").asText());
+      assertEquals(
+          PaladinObjectMapper.shared()
+              .valueToTree(List.of("pente", groupId, StateStatusQualifier.AVAILABLE, rpcCall)),
+          request.get("params"));
     }
   }
 
@@ -158,7 +196,9 @@ class PaladinClientTest {
       paladin.close(); // idempotent
 
       // The transport is gone, so further calls fail rather than reaching the node.
-      assertThrows(Exception.class, () -> paladin.transport().nodeName().join());
+      final CompletionException error =
+          assertThrows(CompletionException.class, () -> paladin.transport().nodeName().join());
+      assertInstanceOf(PaladinConnectionException.class, error.getCause());
       assertEquals(1, server.requests().size());
     }
   }
@@ -179,14 +219,30 @@ class PaladinClientTest {
   }
 
   @Test
-  void newTxBuildsAgainstThisClient() {
-    final PaladinClient paladin = PaladinClient.wrap(new RecordingRpcClient());
+  void newTxSendsThroughThisClient() throws IOException {
+    try (MockJsonRpcServer server = serverForAllNamespaces();
+        PaladinClient paladin = PaladinClient.http(config(server.baseUrl()))) {
+      final UUID id =
+          paladin
+              .newTx()
+              .publicTx()
+              .from("alice")
+              .to(GROUP_ADDRESS)
+              .function("transfer")
+              .send()
+              .id()
+              .join();
 
-    final TransactionInput tx =
-        paladin.newTx().publicTx().from("alice").to(GROUP_ADDRESS).function("transfer").build();
-
-    assertEquals("alice", tx.from());
-    assertEquals(EthAddress.fromString(GROUP_ADDRESS), tx.to());
+      assertEquals(TX_ID, id);
+      final JsonNode request = server.requests().get(0);
+      assertEquals("ptx_sendTransaction", request.get("method").asText());
+      assertEquals(1, request.get("params").size());
+      final JsonNode tx = request.get("params").get(0);
+      assertEquals("public", tx.get("type").asText());
+      assertEquals("alice", tx.get("from").asText());
+      assertEquals(GROUP_ADDRESS, tx.get("to").asText());
+      assertEquals("transfer", tx.get("function").asText());
+    }
   }
 
   @Test
