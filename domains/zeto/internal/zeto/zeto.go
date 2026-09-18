@@ -43,8 +43,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/LFDT-Paladin/smt/pkg/utxo"
 	"github.com/LFDT-Paladin/smt/pkg/utxo/core"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 	"github.com/iden3/go-iden3-crypto/babyjub"
 )
 

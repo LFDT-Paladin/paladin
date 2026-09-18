@@ -24,7 +24,7 @@ import (
 
 	_ "embed"
 
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 

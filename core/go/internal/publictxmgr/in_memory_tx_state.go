@@ -23,7 +23,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
+	"github.com/hyperledger-firefly/signer/pkg/ethsigner"
 )
 
 type managedTx struct {

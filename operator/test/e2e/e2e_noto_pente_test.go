@@ -26,8 +26,8 @@ import (
 	_ "embed"
 
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 

@@ -18,7 +18,7 @@ package contracts
 
 import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 // NotaryMode is the operating mode of the Noto notary.

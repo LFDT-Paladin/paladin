@@ -15,7 +15,7 @@
 
 package common
 
-import "github.com/hyperledger/firefly-signer/pkg/abi"
+import "github.com/hyperledger-firefly/signer/pkg/abi"
 
 var ProofComponents = abi.ParameterArray{
 	{Name: "pA", Type: "uint256[2]"},

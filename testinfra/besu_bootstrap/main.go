@@ -29,8 +29,8 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/testinfra/pkg/besugenesis"
 	"github.com/LFDT-Paladin/paladin/testinfra/pkg/testutils"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 )
 
 func main() {

@@ -18,8 +18,8 @@ package besugenesis
 import (
 	"math/big"
 
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/rlp"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/rlp"
 )
 
 type GenesisJSON struct {
