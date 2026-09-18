@@ -30,8 +30,7 @@ import org.lfdt.paladin.sdk.client.tx.TxBuilder;
 import org.lfdt.paladin.sdk.core.abi.AbiEntry;
 
 /**
- * The front door to a Paladin node: one object owning the transport and exposing every RPC
- * namespace client, mirroring Go's {@code pldclient.PaladinClient}.
+ * The entry point to a Paladin node, exposing every RPC namespace client over a shared transport.
  *
  * <p>Point it at a node and reach any namespace from the same handle:
  *
@@ -42,7 +41,8 @@ import org.lfdt.paladin.sdk.core.abi.AbiEntry;
  *           .newTx()
  *           .publicTx()
  *           .from("alice")
- *           .to("0x...")
+ *           .to("0x0102030405060708090a0b0c0d0e0f1011121314")
+ *           .function("ping()")
  *           .send()
  *           .waitForReceipt()
  *           .join();
@@ -65,7 +65,9 @@ import org.lfdt.paladin.sdk.core.abi.AbiEntry;
  * <p>WebSocket connection and the subscription methods that need it are not part of this release;
  * only the HTTP transport is available today.
  *
- * <p>Immutable and thread-safe, and intended to be shared for the lifetime of the application.
+ * <p>Instances created with {@code http(...)} are thread-safe and intended to be shared for the
+ * lifetime of the application. A wrapped client is thread-safe if its supplied {@link RpcClient} is
+ * thread-safe. Transaction builders are mutable and should be used from a single thread.
  */
 public final class PaladinClient implements AutoCloseable {
 
@@ -179,7 +181,7 @@ public final class PaladinClient implements AutoCloseable {
   }
 
   /**
-   * The {@code statestore_*} namespace: schemas, states, and nullifiers.
+   * The {@code pstate_*} namespace: schemas, states, and nullifiers.
    *
    * @return the state store client
    */
@@ -215,8 +217,7 @@ public final class PaladinClient implements AutoCloseable {
   }
 
   /**
-   * Starts a transaction builder with the ABI already set, the equivalent of Go's {@code ForABI}.
-   * Shorthand for {@code newTx().abi(abi)}.
+   * Starts a transaction builder with the ABI already set. Shorthand for {@code newTx().abi(abi)}.
    *
    * @param abi the contract ABI the transaction is built against
    * @return a new builder bound to this client, carrying the given ABI
