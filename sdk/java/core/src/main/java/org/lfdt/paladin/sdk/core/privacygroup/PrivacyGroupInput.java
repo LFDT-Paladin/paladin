@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * The specification for a new privacy group. Immutable; build one with the {@linkplain
@@ -137,6 +138,25 @@ public final class PrivacyGroupInput {
    */
   public static Builder builder(final String domain) {
     return new Builder(domain);
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroupInput other
+        && Objects.equals(domain, other.domain)
+        && Objects.equals(members, other.members)
+        && Objects.equals(name, other.name)
+        && Objects.equals(properties, other.properties)
+        && Objects.equals(configuration, other.configuration)
+        && Objects.equals(transactionOptions, other.transactionOptions);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(domain, members, name, properties, configuration, transactionOptions);
   }
 
   @Override

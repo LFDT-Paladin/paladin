@@ -19,6 +19,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Objects;
 import java.util.UUID;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 import org.lfdt.paladin.sdk.core.types.Timestamp;
@@ -188,6 +189,30 @@ public final class PrivacyGroupMessage {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public JsonNode data() {
     return data;
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroupMessage other
+        && localSequence == other.localSequence
+        && Objects.equals(id, other.id)
+        && Objects.equals(sent, other.sent)
+        && Objects.equals(received, other.received)
+        && Objects.equals(node, other.node)
+        && Objects.equals(correlationId, other.correlationId)
+        && Objects.equals(domain, other.domain)
+        && Objects.equals(group, other.group)
+        && Objects.equals(topic, other.topic)
+        && Objects.equals(data, other.data);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(
+        id, localSequence, sent, received, node, correlationId, domain, group, topic, data);
   }
 
   @Override

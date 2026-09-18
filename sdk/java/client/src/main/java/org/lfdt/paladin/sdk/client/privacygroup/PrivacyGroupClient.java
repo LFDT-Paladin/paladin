@@ -21,6 +21,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.lfdt.paladin.sdk.client.rpc.RpcClient;
+import org.lfdt.paladin.sdk.core.domain.DomainInvokeRPC;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroup;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroupEVMCall;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroupEVMTXInput;
@@ -29,6 +30,7 @@ import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroupMessage;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroupMessageInput;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroupMessageListener;
 import org.lfdt.paladin.sdk.core.query.QueryJSON;
+import org.lfdt.paladin.sdk.core.statestore.StateStatusQualifier;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 
@@ -131,6 +133,24 @@ public final class PrivacyGroupClient {
    */
   public CompletableFuture<JsonNode> call(final PrivacyGroupEVMCall call) {
     return rpc.callRpc(JsonNode.class, "pgroup_call", call);
+  }
+
+  /**
+   * Invokes a domain-specific RPC method in a privacy-group context ({@code pgroup_invokeRPC}).
+   *
+   * @param domainName the domain the group belongs to
+   * @param groupId the identifier of the group to evaluate the request against
+   * @param stateQualifier the state context in which to evaluate the request
+   * @param rpcCall the domain-specific RPC request
+   * @return a future completing with the domain RPC result
+   */
+  public CompletableFuture<JsonNode> invokeRPC(
+      final String domainName,
+      final HexBytes groupId,
+      final StateStatusQualifier stateQualifier,
+      final DomainInvokeRPC rpcCall) {
+    return rpc.callRpc(
+        JsonNode.class, "pgroup_invokeRPC", domainName, groupId, stateQualifier, rpcCall);
   }
 
   /**

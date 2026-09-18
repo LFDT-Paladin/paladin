@@ -14,178 +14,46 @@
  */
 package org.lfdt.paladin.sdk.core.privacygroup;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import com.fasterxml.jackson.databind.JsonNode;
-import org.lfdt.paladin.sdk.core.abi.AbiEntry;
-import org.lfdt.paladin.sdk.core.types.EthAddress;
-import org.lfdt.paladin.sdk.core.types.HexBytes;
-import org.lfdt.paladin.sdk.core.types.HexUint256;
-import org.lfdt.paladin.sdk.core.types.HexUint64;
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
+import java.util.Objects;
 
 /**
  * A read-only Ethereum-style call executed inside a privacy group. Immutable; build one with the
- * {@linkplain #builder(String, HexBytes) fluent builder}.
+ * {@linkplain #builder(PrivacyGroupEVMTXInput) fluent builder}.
  *
- * <p>The EVM transaction fields ({@link #from()} through {@link #bytecode()}) are flattened onto
- * the flat JSON wire form, as are the call options {@link #block()} and {@link #dataFormat()}.
- *
- * <p>{@link #input()} may be hex-encoded calldata or a JSON object/array of argument values; {@link
- * #function()} is required in the latter case.
+ * <p>The {@link #input()} fields are unwrapped onto the flat JSON wire form, alongside the call
+ * options {@link #block()} and {@link #dataFormat()}. Submission-only fields ({@code
+ * idempotencyKey} and {@code publicTxOptions}) are omitted from calls. Supports deserialization of
+ * the flat wire form through its builder.
  */
-@JsonPropertyOrder({
-  "domain",
-  "group",
-  "from",
-  "to",
-  "gas",
-  "value",
-  "input",
-  "function",
-  "bytecode",
-  "block",
-  "dataFormat"
-})
+@JsonDeserialize(builder = PrivacyGroupEVMCall.Builder.class)
 public final class PrivacyGroupEVMCall {
 
-  private final String domain;
-  private final HexBytes group;
-  private final String from;
-  private final EthAddress to;
-  private final HexUint64 gas;
-  private final HexUint256 value;
-  private final JsonNode input;
-  private final AbiEntry function;
-  private final HexBytes bytecode;
+  private final PrivacyGroupEVMTXInput input;
   private final String block;
   private final String dataFormat;
 
-  @JsonCreator
-  PrivacyGroupEVMCall(
-      @JsonProperty("domain") final String domain,
-      @JsonProperty("group") final HexBytes group,
-      @JsonProperty("from") final String from,
-      @JsonProperty("to") final EthAddress to,
-      @JsonProperty("gas") final HexUint64 gas,
-      @JsonProperty("value") final HexUint256 value,
-      @JsonProperty("input") final JsonNode input,
-      @JsonProperty("function") final AbiEntry function,
-      @JsonProperty("bytecode") final HexBytes bytecode,
-      @JsonProperty("block") final String block,
-      @JsonProperty("dataFormat") final String dataFormat) {
-    this.domain = domain;
-    this.group = group;
-    this.from = from;
-    this.to = to;
-    this.gas = gas;
-    this.value = value;
-    this.input = input;
-    this.function = function;
-    this.bytecode = bytecode;
+  private PrivacyGroupEVMCall(
+      final PrivacyGroupEVMTXInput input, final String block, final String dataFormat) {
+    this.input = Objects.requireNonNull(input, "input");
     this.block = block;
     this.dataFormat = dataFormat;
   }
 
   /**
-   * The domain the target group belongs to.
+   * The privacy-group EVM input, unwrapped onto the flat JSON wire form.
    *
-   * @return the domain name, or an empty string when unset
+   * @return the call input
    */
-  @JsonProperty("domain")
-  @JsonInclude(JsonInclude.Include.NON_EMPTY)
-  public String domain() {
-    return domain;
-  }
-
-  /**
-   * The identifier of the group to execute the call in.
-   *
-   * @return the group id, or {@code null} if unset
-   */
-  @JsonProperty("group")
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public HexBytes group() {
-    return group;
-  }
-
-  /**
-   * The identity the call executes as.
-   *
-   * @return the identity locator, or an empty string when unset
-   */
-  @JsonProperty("from")
-  @JsonInclude(JsonInclude.Include.NON_EMPTY)
-  public String from() {
-    return from;
-  }
-
-  /**
-   * The target contract address inside the group.
-   *
-   * @return the target address, or {@code null} if unset
-   */
-  @JsonProperty("to")
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public EthAddress to() {
-    return to;
-  }
-
-  /**
-   * The gas limit applied while executing the call.
-   *
-   * @return the gas limit, or {@code null} to let the node decide
-   */
-  @JsonProperty("gas")
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public HexUint64 gas() {
-    return gas;
-  }
-
-  /**
-   * The native value the call is executed with.
-   *
-   * @return the native value, or {@code null} if unset
-   */
-  @JsonProperty("value")
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public HexUint256 value() {
-    return value;
-  }
-
-  /**
-   * The call inputs — hex-encoded calldata, or a JSON object/array of argument values.
-   *
-   * @return the call inputs, or {@code null} if unset
-   */
-  @JsonProperty("input")
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public JsonNode input() {
+  @JsonUnwrapped
+  @JsonIgnoreProperties({"idempotencyKey", "publicTxOptions"})
+  public PrivacyGroupEVMTXInput input() {
     return input;
-  }
-
-  /**
-   * The ABI entry for the function being called; required when {@link #input()} is a JSON
-   * object/array rather than pre-encoded calldata.
-   *
-   * @return the function ABI entry, or {@code null} if unset
-   */
-  @JsonProperty("function")
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public AbiEntry function() {
-    return function;
-  }
-
-  /**
-   * Deploy bytecode, prepended to the encoded inputs.
-   *
-   * @return the deploy bytecode, or {@code null} for an invoke
-   */
-  @JsonProperty("bytecode")
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public HexBytes bytecode() {
-    return bytecode;
   }
 
   /**
@@ -211,115 +79,53 @@ public final class PrivacyGroupEVMCall {
   }
 
   /**
-   * Starts a builder for a call in the given group.
+   * Starts a builder for the given privacy-group EVM input.
    *
-   * @param domain the domain the group belongs to
-   * @param group the identifier of the group to execute in
+   * @param input the EVM input to call
    * @return a new builder
    */
-  public static Builder builder(final String domain, final HexBytes group) {
-    return new Builder(domain, group);
+  public static Builder builder(final PrivacyGroupEVMTXInput input) {
+    return new Builder(input);
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroupEVMCall other
+        && Objects.equals(input, other.input)
+        && Objects.equals(block, other.block)
+        && Objects.equals(dataFormat, other.dataFormat);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(input, block, dataFormat);
   }
 
   @Override
   public String toString() {
-    return "PrivacyGroupEVMCall{domain=" + domain + ", group=" + group + ", to=" + to + "}";
+    return "PrivacyGroupEVMCall{input="
+        + input
+        + ", block="
+        + block
+        + ", dataFormat="
+        + dataFormat
+        + "}";
   }
 
   /** Fluent builder for {@link PrivacyGroupEVMCall}. */
+  @JsonPOJOBuilder(withPrefix = "")
   public static final class Builder {
-    private final String domain;
-    private final HexBytes group;
-    private String from;
-    private EthAddress to;
-    private HexUint64 gas;
-    private HexUint256 value;
-    private JsonNode input;
-    private AbiEntry function;
-    private HexBytes bytecode;
+    @JsonUnwrapped private PrivacyGroupEVMTXInput transaction;
     private String block;
     private String dataFormat;
 
-    private Builder(final String domain, final HexBytes group) {
-      this.domain = domain;
-      this.group = group;
-    }
+    private Builder() {}
 
-    /**
-     * Sets the identity the call executes as.
-     *
-     * @param from the identity locator
-     * @return this builder
-     */
-    public Builder from(final String from) {
-      this.from = from;
-      return this;
-    }
-
-    /**
-     * Sets the target contract address inside the group.
-     *
-     * @param to the target address
-     * @return this builder
-     */
-    public Builder to(final EthAddress to) {
-      this.to = to;
-      return this;
-    }
-
-    /**
-     * Sets the gas limit applied while executing the call.
-     *
-     * @param gas the gas limit, or {@code null} to let the node decide
-     * @return this builder
-     */
-    public Builder gas(final HexUint64 gas) {
-      this.gas = gas;
-      return this;
-    }
-
-    /**
-     * Sets the native value the call is executed with.
-     *
-     * @param value the native value
-     * @return this builder
-     */
-    public Builder value(final HexUint256 value) {
-      this.value = value;
-      return this;
-    }
-
-    /**
-     * Sets the call inputs.
-     *
-     * @param input hex-encoded calldata, or a JSON object/array of argument values
-     * @return this builder
-     */
-    public Builder input(final JsonNode input) {
-      this.input = input;
-      return this;
-    }
-
-    /**
-     * Sets the ABI entry for the function being called.
-     *
-     * @param function the function ABI entry; required for JSON object/array inputs
-     * @return this builder
-     */
-    public Builder function(final AbiEntry function) {
-      this.function = function;
-      return this;
-    }
-
-    /**
-     * Sets the deploy bytecode.
-     *
-     * @param bytecode the deploy bytecode, or {@code null} for an invoke
-     * @return this builder
-     */
-    public Builder bytecode(final HexBytes bytecode) {
-      this.bytecode = bytecode;
-      return this;
+    private Builder(final PrivacyGroupEVMTXInput input) {
+      this.transaction = input;
     }
 
     /**
@@ -350,8 +156,7 @@ public final class PrivacyGroupEVMCall {
      * @return a new {@link PrivacyGroupEVMCall} with the configured values
      */
     public PrivacyGroupEVMCall build() {
-      return new PrivacyGroupEVMCall(
-          domain, group, from, to, gas, value, input, function, bytecode, block, dataFormat);
+      return new PrivacyGroupEVMCall(transaction, block, dataFormat);
     }
   }
 }

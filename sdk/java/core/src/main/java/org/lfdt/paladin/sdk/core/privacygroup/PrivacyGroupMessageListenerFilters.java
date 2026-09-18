@@ -18,6 +18,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import java.util.Objects;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 
 /**
@@ -98,6 +99,23 @@ public final class PrivacyGroupMessageListenerFilters {
    */
   public static Builder builder() {
     return new Builder();
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    return o instanceof PrivacyGroupMessageListenerFilters other
+        && Objects.equals(sequenceAbove, other.sequenceAbove)
+        && Objects.equals(domain, other.domain)
+        && Objects.equals(group, other.group)
+        && Objects.equals(topic, other.topic);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(sequenceAbove, domain, group, topic);
   }
 
   @Override

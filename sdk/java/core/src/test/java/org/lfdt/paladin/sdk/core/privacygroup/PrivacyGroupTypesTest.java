@@ -16,7 +16,9 @@ package org.lfdt.paladin.sdk.core.privacygroup;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,6 +43,16 @@ class PrivacyGroupTypesTest {
   private static final String ADDRESS = "0x" + "11".repeat(20);
   private static final String SALT = "0x" + "22".repeat(32);
   private static final String SCHEMA = "0x" + "33".repeat(32);
+
+  private static void assertValueEquality(
+      final Object first, final Object equal, final Object unequal) {
+    assertEquals(first, first);
+    assertEquals(first, equal);
+    assertEquals(first.hashCode(), equal.hashCode());
+    assertNotEquals(first, unequal);
+    assertNotEquals(first, null);
+    assertNotEquals(first, "different type");
+  }
 
   // ---- PrivacyGroup -------------------------------------------------------
 
@@ -120,10 +132,13 @@ class PrivacyGroupTypesTest {
             .transactionOptions(
                 PrivacyGroupTXOptions.builder()
                     .idempotencyKey("idem-1")
-                    .gas(HexUint64.of(100_000L))
-                    .value(HexUint256.of(7L))
-                    .maxPriorityFeePerGas(HexUint256.of(1L))
-                    .maxFeePerGas(HexUint256.of(2L))
+                    .publicTxOptions(
+                        PublicTxOptions.builder()
+                            .gas(HexUint64.of(100_000L))
+                            .value(HexUint256.of(7L))
+                            .maxPriorityFeePerGas(HexUint256.of(1L))
+                            .maxFeePerGas(HexUint256.of(2L))
+                            .build())
                     .build())
             .build();
 
@@ -141,10 +156,10 @@ class PrivacyGroupTypesTest {
 
     final PrivacyGroupTXOptions options = parsed.transactionOptions();
     assertEquals("idem-1", options.idempotencyKey());
-    assertEquals(HexUint64.of(100_000L), options.gas());
-    assertEquals(HexUint256.of(7L), options.value());
-    assertEquals(HexUint256.of(1L), options.maxPriorityFeePerGas());
-    assertEquals(HexUint256.of(2L), options.maxFeePerGas());
+    assertEquals(HexUint64.of(100_000L), options.publicTxOptions().gas());
+    assertEquals(HexUint256.of(7L), options.publicTxOptions().value());
+    assertEquals(HexUint256.of(1L), options.publicTxOptions().maxPriorityFeePerGas());
+    assertEquals(HexUint256.of(2L), options.publicTxOptions().maxFeePerGas());
     assertTrue(options.toString().contains("idem-1"));
   }
 
@@ -159,6 +174,21 @@ class PrivacyGroupTypesTest {
   @Test
   void privacyGroupTxOptionsOmitsEverythingWhenEmpty() throws Exception {
     assertEquals("{}", MAPPER.writeValueAsString(PrivacyGroupTXOptions.builder().build()));
+  }
+
+  @Test
+  void emptyTransactionOptionsRetainValueEqualityAfterRoundTrip() throws Exception {
+    final PrivacyGroupTXOptions options = PrivacyGroupTXOptions.builder().build();
+    final PrivacyGroupTXOptions parsed =
+        MAPPER.readValue(MAPPER.writeValueAsString(options), PrivacyGroupTXOptions.class);
+    final PrivacyGroupTXOptions explicitlyEmpty =
+        PrivacyGroupTXOptions.builder().publicTxOptions(PublicTxOptions.builder().build()).build();
+
+    assertEquals(options, parsed);
+    assertEquals(options, explicitlyEmpty);
+    assertEquals(options.hashCode(), parsed.hashCode());
+    assertEquals(options.hashCode(), explicitlyEmpty.hashCode());
+    assertEquals(PublicTxOptions.builder().build(), options.publicTxOptions());
   }
 
   // ---- PrivacyGroupEVMTXInput ---------------------------------------------
@@ -213,8 +243,8 @@ class PrivacyGroupTypesTest {
 
   @Test
   void evmCallFlattensCallOptions() throws Exception {
-    final PrivacyGroupEVMCall call =
-        PrivacyGroupEVMCall.builder("pente", HexBytes.fromString(GROUP_ID))
+    final PrivacyGroupEVMTXInput input =
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID))
             .from("me@node1")
             .to(EthAddress.fromString(ADDRESS))
             .gas(HexUint64.of(50_000L))
@@ -222,34 +252,68 @@ class PrivacyGroupTypesTest {
             .input(MAPPER.readTree("[]"))
             .function(AbiEntry.function("balanceOf").build())
             .bytecode(HexBytes.fromString("0xbeef"))
+            .build();
+    final PrivacyGroupEVMCall call =
+        PrivacyGroupEVMCall.builder(input)
             .block("latest")
             .dataFormat("mode=object,number=string")
             .build();
 
-    final PrivacyGroupEVMCall parsed =
-        MAPPER.readValue(MAPPER.writeValueAsString(call), PrivacyGroupEVMCall.class);
-
-    assertEquals("pente", parsed.domain());
-    assertEquals(HexBytes.fromString(GROUP_ID), parsed.group());
-    assertEquals("me@node1", parsed.from());
-    assertEquals(EthAddress.fromString(ADDRESS), parsed.to());
-    assertEquals(HexUint64.of(50_000L), parsed.gas());
-    assertEquals(HexUint256.of(0L), parsed.value());
-    assertTrue(parsed.input().isArray());
-    assertEquals("balanceOf", parsed.function().name());
-    assertEquals(HexBytes.fromString("0xbeef"), parsed.bytecode());
+    final var node = MAPPER.valueToTree(call);
+    assertEquals("pente", node.get("domain").asText());
+    assertEquals(GROUP_ID, node.get("group").asText());
+    assertEquals("me@node1", node.get("from").asText());
+    assertEquals(ADDRESS, node.get("to").asText());
+    assertEquals("0xc350", node.get("gas").asText());
+    assertEquals("0x00", node.get("value").asText());
+    assertTrue(node.get("input").isArray());
+    assertEquals("balanceOf", node.get("function").get("name").asText());
+    assertEquals("0xbeef", node.get("bytecode").asText());
+    assertEquals("latest", node.get("block").asText());
+    assertEquals("mode=object,number=string", node.get("dataFormat").asText());
+    assertEquals("latest", call.block());
+    assertEquals("mode=object,number=string", call.dataFormat());
+    assertEquals(input, call.input());
+    assertTrue(call.toString().contains("domain=pente"));
+    final PrivacyGroupEVMCall parsed = MAPPER.treeToValue(node, PrivacyGroupEVMCall.class);
+    assertEquals(node, MAPPER.valueToTree(parsed));
     assertEquals("latest", parsed.block());
     assertEquals("mode=object,number=string", parsed.dataFormat());
-    assertTrue(parsed.toString().contains("domain=pente"));
   }
 
   @Test
   void evmCallOmitsUnsetFields() throws Exception {
-    final PrivacyGroupEVMCall call =
-        PrivacyGroupEVMCall.builder("pente", HexBytes.fromString(GROUP_ID)).build();
+    final PrivacyGroupEVMTXInput input =
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID)).build();
+    final PrivacyGroupEVMCall call = PrivacyGroupEVMCall.builder(input).build();
 
     assertEquals(
         "{\"domain\":\"pente\",\"group\":\"" + GROUP_ID + "\"}", MAPPER.writeValueAsString(call));
+    assertNull(call.block());
+    assertNull(call.dataFormat());
+    final PrivacyGroupEVMCall parsed =
+        MAPPER.readValue(MAPPER.writeValueAsString(call), PrivacyGroupEVMCall.class);
+    assertEquals(MAPPER.valueToTree(call), MAPPER.valueToTree(parsed));
+  }
+
+  @Test
+  void evmCallRejectsNullInput() {
+    assertThrows(NullPointerException.class, () -> PrivacyGroupEVMCall.builder(null).build());
+  }
+
+  @Test
+  void evmCallDoesNotSendTransactionSubmissionOptions() {
+    final PrivacyGroupEVMTXInput input =
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .idempotencyKey("send-only")
+            .gas(HexUint64.of(50_000L))
+            .publicTxOptions(PublicTxOptions.builder().gas(HexUint64.of(21_000L)).build())
+            .build();
+    final var node = MAPPER.valueToTree(PrivacyGroupEVMCall.builder(input).build());
+    assertFalse(node.has("idempotencyKey"));
+    assertFalse(node.has("publicTxOptions"));
+    assertEquals("0xc350", node.get("gas").asText());
+    assertEquals("pente", node.get("domain").asText());
   }
 
   // ---- messages -----------------------------------------------------------
@@ -438,5 +502,131 @@ class PrivacyGroupTypesTest {
     final PrivacyGroupMessageListener reparsed =
         MAPPER.readValue(MAPPER.writeValueAsString(listener), PrivacyGroupMessageListener.class);
     assertEquals(listener.created(), reparsed.created());
+  }
+
+  @Test
+  void privacyGroupValueObjectsImplementEquality() throws Exception {
+    final String groupJson = "{\"id\":\"" + GROUP_ID + "\",\"domain\":\"pente\",\"name\":\"g1\"}";
+    final PrivacyGroup group = MAPPER.readValue(groupJson, PrivacyGroup.class);
+    final PrivacyGroup equalGroup = MAPPER.readValue(groupJson, PrivacyGroup.class);
+    final PrivacyGroup otherGroup =
+        MAPPER.readValue(groupJson.replace("\"g1\"", "\"g2\""), PrivacyGroup.class);
+    assertValueEquality(group, equalGroup, otherGroup);
+
+    final PrivacyGroupTXOptions txOptions =
+        PrivacyGroupTXOptions.builder()
+            .idempotencyKey("idem")
+            .publicTxOptions(PublicTxOptions.builder().gas(HexUint64.of(21_000L)).build())
+            .build();
+    final PrivacyGroupTXOptions equalTxOptions =
+        PrivacyGroupTXOptions.builder()
+            .idempotencyKey("idem")
+            .publicTxOptions(PublicTxOptions.builder().gas(HexUint64.of(21_000L)).build())
+            .build();
+    assertValueEquality(
+        txOptions, equalTxOptions, PrivacyGroupTXOptions.builder().idempotencyKey("other").build());
+
+    final PrivacyGroupInput groupInput =
+        PrivacyGroupInput.builder("pente")
+            .name("g1")
+            .member("me@node1")
+            .transactionOptions(txOptions)
+            .build();
+    final PrivacyGroupInput equalGroupInput =
+        PrivacyGroupInput.builder("pente")
+            .name("g1")
+            .member("me@node1")
+            .transactionOptions(equalTxOptions)
+            .build();
+    assertValueEquality(groupInput, equalGroupInput, PrivacyGroupInput.builder("other").build());
+
+    final PrivacyGroupEVMTXInput evmInput =
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .from("me@node1")
+            .gas(HexUint64.of(50_000L))
+            .build();
+    final PrivacyGroupEVMTXInput equalEvmInput =
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .from("me@node1")
+            .gas(HexUint64.of(50_000L))
+            .build();
+    assertValueEquality(
+        evmInput,
+        equalEvmInput,
+        PrivacyGroupEVMTXInput.builder("pente", HexBytes.fromString("0xbeef")).build());
+
+    final PrivacyGroupEVMCall evmCall =
+        PrivacyGroupEVMCall.builder(evmInput).block("latest").build();
+    final PrivacyGroupEVMCall equalEvmCall =
+        PrivacyGroupEVMCall.builder(equalEvmInput).block("latest").build();
+    assertValueEquality(
+        evmCall, equalEvmCall, PrivacyGroupEVMCall.builder(evmInput).block("pending").build());
+  }
+
+  @Test
+  void privacyGroupMessageValueObjectsImplementEquality() throws Exception {
+    final PrivacyGroupMessageInput messageInput =
+        PrivacyGroupMessageInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .topic("orders")
+            .data(MAPPER.readTree("{\"value\":1}"))
+            .build();
+    final PrivacyGroupMessageInput equalMessageInput =
+        PrivacyGroupMessageInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .topic("orders")
+            .data(MAPPER.readTree("{\"value\":1}"))
+            .build();
+    assertValueEquality(
+        messageInput,
+        equalMessageInput,
+        PrivacyGroupMessageInput.builder("pente", HexBytes.fromString(GROUP_ID))
+            .topic("other")
+            .build());
+
+    final String messageJson =
+        "{\"id\":\"00000000-0000-0000-0000-000000000001\",\"localSequence\":1,"
+            + "\"domain\":\"pente\",\"group\":\""
+            + GROUP_ID
+            + "\",\"topic\":\"orders\",\"data\":{\"value\":1}}";
+    final PrivacyGroupMessage message = MAPPER.readValue(messageJson, PrivacyGroupMessage.class);
+    final PrivacyGroupMessage equalMessage =
+        MAPPER.readValue(messageJson, PrivacyGroupMessage.class);
+    final PrivacyGroupMessage otherMessage =
+        MAPPER.readValue(
+            messageJson.replace("\"localSequence\":1", "\"localSequence\":2"),
+            PrivacyGroupMessage.class);
+    assertValueEquality(message, equalMessage, otherMessage);
+
+    final PrivacyGroupMessageListenerFilters filters =
+        PrivacyGroupMessageListenerFilters.builder().domain("pente").topic("orders").build();
+    final PrivacyGroupMessageListenerFilters equalFilters =
+        PrivacyGroupMessageListenerFilters.builder().domain("pente").topic("orders").build();
+    assertValueEquality(
+        filters,
+        equalFilters,
+        PrivacyGroupMessageListenerFilters.builder().domain("pente").topic("other").build());
+
+    final PrivacyGroupMessageListenerOptions options =
+        PrivacyGroupMessageListenerOptions.builder().excludeLocal(true).build();
+    final PrivacyGroupMessageListenerOptions equalOptions =
+        PrivacyGroupMessageListenerOptions.builder().excludeLocal(true).build();
+    assertValueEquality(
+        options,
+        equalOptions,
+        PrivacyGroupMessageListenerOptions.builder().excludeLocal(false).build());
+
+    final PrivacyGroupMessageListener listener =
+        PrivacyGroupMessageListener.builder("listener")
+            .started(true)
+            .filters(filters)
+            .options(options)
+            .build();
+    final PrivacyGroupMessageListener equalListener =
+        PrivacyGroupMessageListener.builder("listener")
+            .started(true)
+            .filters(equalFilters)
+            .options(equalOptions)
+            .build();
+    assertValueEquality(
+        listener, equalListener, PrivacyGroupMessageListener.builder("other-listener").build());
   }
 }
