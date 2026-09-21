@@ -27,8 +27,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -299,17 +299,17 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
 	require.NoError(t, err)
 	notoParams := decodeSingleABITuple[types.NotoUpdateLockArgs](t, types.NotoUpdateLockArgsABI, fnParams.UpdateArgs)
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), endorsableStateIDs(ctx, readStates, false), []string{}, unlockTxData)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), n.endorsableStateIDs(ctx, nil, readStates, false), []string{}, unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), endorsableStateIDs(ctx, readStates, false), endorsableStateIDs(ctx, infoStates[1:2], false), cancelUnlockTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), n.endorsableStateIDs(ctx, nil, readStates, false), n.endorsableStateIDs(ctx, nil, infoStates[1:2], false), cancelUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
 
 	// Validate the encoded noto parameters passed in
 	require.Equal(t, &types.NotoUpdateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Contents:     endorsableStateIDs(ctx, readStates, false),
+		Contents:     n.endorsableStateIDs(ctx, nil, readStates, false),
 		OldLockState: pldtypes.MustParseBytes32(inputLockInfo.Id),
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
 		Options:      types.NotoLockOptions{SpendTxId: lockInfo.SpendTxId},
@@ -482,4 +482,18 @@ func TestPrepareBurnUnlockOnlyCreator(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Only the lock creator can perform unlock")
+}
+
+func TestPrepareBurnUnlockCheckAllowedForFromLocalNodeNameFailed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockLocalNodeName = func() (*prototk.LocalNodeNameResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	h := &prepareBurnUnlockHandler{lockCommon: lockCommon{noto: &Noto{Callbacks: mockCallbacks}}}
+	tx := &types.ParsedTransaction{
+		Transaction:  &prototk.TransactionSpecification{From: "sender@node1"},
+		DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
+	}
+	err := h.checkAllowedForFrom(t.Context(), tx, "sender")
+	assert.ErrorContains(t, err, "pop")
 }

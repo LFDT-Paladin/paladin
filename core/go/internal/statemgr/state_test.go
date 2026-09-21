@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
@@ -30,12 +29,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 func TestPersistStateMissingSchema(t *testing.T) {
@@ -105,7 +102,7 @@ func TestFindStatesMissingSchema(t *testing.T) {
 	db.ExpectQuery("SELECT").WillReturnRows(db.NewRows([]string{}))
 
 	contractAddress := pldtypes.RandAddress()
-	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, pldtypes.Bytes32Keccak(([]byte)("schema1")), &query.QueryJSON{}, "all")
+	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, pldtypes.Bytes32Keccak(([]byte)("schema1")), &query.QueryJSON{}, "all")
 	assert.Regexp(t, "PD010106", err)
 }
 
@@ -120,7 +117,7 @@ func TestFindStatesBadQuery(t *testing.T) {
 	})
 
 	contractAddress := pldtypes.RandAddress()
-	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
+	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
 		Statements: query.Statements{
 			Ops: query.Ops{
 				Equal: []*query.OpSingleVal{
@@ -147,7 +144,7 @@ func TestFindStatesFail(t *testing.T) {
 	db.ExpectQuery("SELECT.*created").WillReturnError(fmt.Errorf("pop"))
 
 	contractAddress := pldtypes.RandAddress()
-	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
+	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
 		Statements: query.Statements{
 			Ops: query.Ops{
 				GreaterThan: []*query.OpSingleVal{
@@ -159,27 +156,6 @@ func TestFindStatesFail(t *testing.T) {
 		},
 	}, "all")
 	assert.Regexp(t, "pop", err)
-
-}
-
-func TestFindStatesUnknownContext(t *testing.T) {
-	ctx, ss, _, _, done := newDBMockStateManager(t)
-	defer done()
-
-	schemaID := pldtypes.Bytes32Keccak(([]byte)("schema1"))
-	contractAddress := pldtypes.RandAddress()
-	_, err := ss.FindContractStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, &query.QueryJSON{
-		Statements: query.Statements{
-			Ops: query.Ops{
-				GreaterThan: []*query.OpSingleVal{
-					{Op: query.Op{
-						Field: ".created",
-					}, Value: pldtypes.RawJSON(fmt.Sprintf("%d", time.Now().UnixNano()))},
-				},
-			},
-		},
-	}, pldapi.StateStatusQualifier(uuid.NewString()))
-	assert.Regexp(t, "PD010123", err)
 
 }
 
@@ -241,17 +217,18 @@ func TestWriteNullifiersForReceivedStatesOkRealDB(t *testing.T) {
 	defer done()
 
 	md := componentsmocks.NewDomain(t)
-	md.On("Name").Return("domain1")
 	m.domainManager.On("GetDomainByName", mock.Anything, "domain1").Return(md, nil)
 
-	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*components.NullifierUpsert{
+	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*pldapi.StateNullifier{
 		{
-			ID:    pldtypes.HexBytes(pldtypes.RandHex(32)),
-			State: pldtypes.HexBytes(pldtypes.RandHex(32)),
+			DomainName: "domain1",
+			ID:         pldtypes.HexBytes(pldtypes.RandHex(32)),
+			State:      pldtypes.HexBytes(pldtypes.RandHex(32)),
 		},
 		{
-			ID:    pldtypes.HexBytes(pldtypes.RandHex(32)),
-			State: pldtypes.HexBytes(pldtypes.RandHex(32)),
+			DomainName: "domain1",
+			ID:         pldtypes.HexBytes(pldtypes.RandHex(32)),
+			State:      pldtypes.HexBytes(pldtypes.RandHex(32)),
 		},
 	})
 	require.NoError(t, err)
@@ -264,93 +241,14 @@ func TestWriteNullifiersForReceivedStatesBadDomain(t *testing.T) {
 
 	m.domainManager.On("GetDomainByName", mock.Anything, "domain1").Return(nil, fmt.Errorf("not found"))
 
-	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*components.NullifierUpsert{
+	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*pldapi.StateNullifier{
 		{
-			ID:    pldtypes.HexBytes(pldtypes.RandHex(32)),
-			State: pldtypes.HexBytes(pldtypes.RandHex(32)),
+			DomainName: "domain1",
+			ID:         pldtypes.HexBytes(pldtypes.RandHex(32)),
+			State:      pldtypes.HexBytes(pldtypes.RandHex(32)),
 		},
 	})
 	assert.Regexp(t, "not found", err)
-
-}
-
-func TestFindNullifiersInContext(t *testing.T) {
-	ctx, ss, db, _, done := newDBMockStateManager(t)
-	defer done()
-
-	db.ExpectQuery("SELECT.*states").WillReturnRows(sqlmock.NewRows([]string{}))
-
-	schemaID := pldtypes.Bytes32Keccak(([]byte)("schema1"))
-	cacheKey := schemaCacheKey("domain1", schemaID)
-	ss.abiSchemaCache.Set(cacheKey, &abiSchema{
-		definition: &abi.Parameter{},
-		Schema:     &pldapi.Schema{},
-	})
-
-	td := componentsmocks.NewDomain(t)
-	td.On("Name").Return("domain1")
-	td.On("CustomHashFunction").Return(false)
-
-	dqc := ss.NewDomainQueryContext(ctx, td, *pldtypes.RandAddress())
-	defer dqc.Close(ctx)
-
-	contractAddress := pldtypes.RandAddress()
-	results, err := ss.FindContractNullifiers(ctx, ss.p.NOTX(), "domain1", *contractAddress, schemaID,
-		query.NewQueryBuilder().Limit(1).Query(), pldapi.StateStatusQualifier(dqc.ID().String()))
-	require.NoError(t, err)
-	require.Empty(t, results)
-
-}
-
-func TestFindNullifiersUnknownContext(t *testing.T) {
-	ctx, ss, _, _, done := newDBMockStateManager(t)
-	defer done()
-
-	schemaID := pldtypes.Bytes32Keccak(([]byte)("schema1"))
-	contractAddress := pldtypes.RandAddress()
-	_, err := ss.FindContractNullifiers(ctx, ss.p.NOTX(), "domain1", *contractAddress, schemaID, &query.QueryJSON{
-		Statements: query.Statements{
-			Ops: query.Ops{
-				GreaterThan: []*query.OpSingleVal{
-					{Op: query.Op{
-						Field: ".created",
-					}, Value: pldtypes.RawJSON(fmt.Sprintf("%d", time.Now().UnixNano()))},
-				},
-			},
-		},
-	}, pldapi.StateStatusQualifier(uuid.NewString()))
-	assert.Regexp(t, "PD010123", err)
-
-}
-
-func TestFindStatesWithAdvancedDBQueryModifier(t *testing.T) {
-	ctx, ss, mdb, _, done := newDBMockStateManager(t)
-	defer done()
-
-	mockGetSchemaOK(mdb)
-	mdb.ExpectQuery(`SELECT.*FROM "states".*LEFT JOIN "another_table".*"j"."state_id" IS NOT NULL`).
-		WillReturnError(fmt.Errorf("called"))
-
-	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", pldtypes.RandBytes32(), query.NewQueryBuilder().Query(), &components.StateQueryOptions{
-		QueryModifier: func(db persistence.DBTX, query *gorm.DB) *gorm.DB {
-			return query.
-				Joins(`LEFT JOIN "another_table" AS "j" WHERE "j"."state_id" = "states"."id"`).
-				Where(`"j"."state_id" IS NOT NULL`)
-		},
-	})
-	assert.Regexp(t, "called", err)
-
-}
-
-func TestFindStatesWithNilOptions(t *testing.T) {
-	ctx, ss, mdb, _, done := newDBMockStateManager(t)
-	defer done()
-
-	mockGetSchemaOK(mdb)
-	mdb.ExpectQuery(`SELECT.*FROM`).WillReturnError(fmt.Errorf("called"))
-
-	_, err := ss.FindStates(ctx, ss.p.NOTX(), "domain1", pldtypes.RandBytes32(), query.NewQueryBuilder().Query(), nil)
-	assert.Regexp(t, "called", err)
 
 }
 
@@ -470,6 +368,12 @@ func TestValidateStatesBadSchema(t *testing.T) {
 
 	contractAddress := *pldtypes.RandAddress()
 	_, err := ss.ValidateStates(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
+		SchemaId:      pldtypes.RandBytes32().String(),
+		StateDataJson: `{}`,
+	})
+	assert.Regexp(t, "PD010106", err) // unknown schema
+
+	_, err = ss.ValidateStatesWithLabels(ctx, ss.p.NOTX(), validationDomain(t, "domain1", false), contractAddress, &prototk.EndorsableState{
 		SchemaId:      pldtypes.RandBytes32().String(),
 		StateDataJson: `{}`,
 	})

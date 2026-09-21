@@ -25,30 +25,27 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"gorm.io/gorm"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 type StateManager interface {
 	ManagerLifecycle
 
-	// Create a new domain query context - caller is responsible for closing it.
+	// Create a new domain query context.
 	NewDomainQueryContext(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress) DomainQueryContext
 
 	// Create a domain query context that answers queries by merging the local DB view with a
 	// remote in-memory view: view serves its matching unconfirmed states and spent state IDs on demand.
-	// Caller is responsible for closing it.
 	NewDomainQueryContextWithRemoteView(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress, view RemoteStateView) DomainQueryContext
 
 	// FindMatchingInMemoryStates evaluates a domain state query against caller-supplied snapshot
 	// candidates.
 	FindMatchingInMemoryStates(ctx context.Context, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, candidates []*prototk.SnapshotState) ([]*prototk.QueriedState, error)
 
-	// Create a new domain state writer
-	NewDomainStateWriter(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress) DomainStateWriter
-
-	// Get a previously created domain query context
-	GetDomainQueryContext(ctx context.Context, id uuid.UUID) DomainQueryContext
+	// WriteStateBatch writes fully-built states (with labels already extracted) and their pre-built
+	// nullifier records to the database within the given transaction. Nullifiers must be validated
+	// against and linked to their creating states by the caller.
+	WriteStateBatch(ctx context.Context, dbTX persistence.DBTX, states []*StateWithLabels, nullifiers ...*pldapi.StateNullifier) error
 
 	// Ensure ABI schemas upserts all the specified schemas, using the given DB transaction
 	EnsureABISchemas(ctx context.Context, dbTX persistence.DBTX, domainName string, defs []*abi.Parameter) ([]Schema, error)
@@ -74,10 +71,7 @@ type StateManager interface {
 	WriteReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, states []*StateUpsertOutsideContext) ([]*pldapi.State, error)
 
 	// Write a batch of nullifiers that correspond to states just received
-	WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*NullifierUpsert) error
-
-	// Find states from outside of a domain context (noting you can reference a domain context by ID)
-	FindStates(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, extQueryOptions *StateQueryOptions) (s []*pldapi.State, err error)
+	WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*pldapi.StateNullifier) error
 
 	// GetState returns state by ID, with optional labels
 	GetStatesByID(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, stateIDs []pldtypes.HexBytes, failNotFound, withLabels bool) ([]*pldapi.State, error)
@@ -106,47 +100,23 @@ type PendingPrivateStateDataEntry struct {
 	BlockNumber int64
 }
 
-type StateQueryOptions struct {
-	StatusQualifier      pldapi.StateStatusQualifier
-	ExcludedIDs          []pldtypes.HexBytes
-	ExcludedNullifierIDs []pldtypes.HexBytes
-	QueryModifier        func(db persistence.DBTX, query *gorm.DB) *gorm.DB
-}
-
-// DomainStateWriter is a long-lived write buffer used for flushing domain states and nullifiers to the DB.
-type DomainStateWriter interface {
-	// StageWrites validates the nullifiers against the supplied states and, only if the whole batch is
-	// consistent, atomically appends both the states and their nullifiers to the in-memory write buffer.
-	// The nullified state must be present in the states passed to this same call. Written on the next flush.
-	StageWrites(ctx context.Context, states []*StateWithLabels, nullifiers ...*NullifierUpsert) error
-
-	// Flush writes all pending states and nullifiers to the database within the given transaction.
-	// Must be called within an active DB transaction. Returns an error if a flush is already in
-	// progress or if the write fails.
-	Flush(ctx context.Context, dbTX persistence.DBTX) error
-
-	// Reset clears all un-flushed writes and in-memory locks, restoring to DB state.
-	// Used for error recovery after a failed flush.
-	Reset()
-}
-
 // DomainQueryContext is the state query interface exposed outside of the statestore package. It may
 // be backed by a remote view, in which case queries are executed against both the remote view and
 // the local persisted state store, with the results merged together.
 //
-// A DomainQueryContext is typically short-lived and must be closed by its consumer when no longer needed
-// to avoid leaking resources.
+// A DomainQueryContext is typically short-lived, holds no resources of its own, and is collected
+// once its consumer drops it.
 type DomainQueryContext interface {
-	// ID returns the UUID that identifies this context in the state manager registry.
-	ID() uuid.UUID
-
 	// FindAvailableStates is the primary query function, returning only available states.
 	// For contexts created with a remote view, results merge the view's matches and respect
 	// its spend exclusions.
 	FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
 
-	// FindAvailableNullifiers is similar to FindAvailableStates for nullifier-based domains.
-	FindAvailableNullifiers(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
+	// FindAvailableNullifierBackedStates returns available states for domains that spend via nullifiers,
+	// where availability is decided by the nullifier's spend record rather than the state's own. A remote
+	// view carries no nullifiers, so these queries are answered from the local persisted state store
+	// alone, though the view's spend exclusions still apply.
+	FindAvailableNullifierBackedStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
 
 	// GetStatesByID retrieves states by ID regardless of confirmation/spend status,
 	// including states pending in memory.
@@ -154,9 +124,6 @@ type DomainQueryContext interface {
 
 	// ContractAddress returns the contract address this context was opened for.
 	ContractAddress() pldtypes.EthAddress
-
-	// Close deregisters the context from the state manager and prevents further use.
-	Close(ctx context.Context)
 }
 
 type StateUpsertOutsideContext struct {
@@ -189,11 +156,6 @@ func (s *StateWithLabels) ProtoLabels() *prototk.StateLabels {
 		pl.Int64Labels[i] = &prototk.StateInt64Label{Label: l.Label, Value: l.Value}
 	}
 	return pl
-}
-
-type NullifierUpsert struct {
-	ID    pldtypes.HexBytes `json:"id"              gorm:"primaryKey"`
-	State pldtypes.HexBytes `json:"-"`
 }
 
 type Schema interface {

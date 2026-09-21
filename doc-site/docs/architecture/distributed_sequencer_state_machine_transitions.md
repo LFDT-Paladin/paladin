@@ -137,11 +137,13 @@ stateDiagram-v2
     Endorsement_Gathering --> Pooled : EndorseRequestRejected [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --> Pooled : StateTimeoutInterval
     Blocked --> Confirming_Dispatchable : DependencyReady [!HasDependenciesNotReady]
-    Confirming_Dispatchable --> Ready_For_Dispatch : DispatchRequestApproved
+    Confirming_Dispatchable --> Preparing : DispatchRequestApproved
     Confirming_Dispatchable --> Pooled : DispatchRequestRejected
     Confirming_Dispatchable --> Evicted : PreDispatchRequestRejected
     Confirming_Dispatchable --> Final : PreDispatchRequestRejected
     Confirming_Dispatchable --> Pooled : StateTimeoutInterval
+    Preparing --> Ready_For_Dispatch : PrepareSucceeded
+    Preparing --> Pooled : PrepareFailed
     Ready_For_Dispatch --> Dispatched : Dispatched
     Dispatched --> Confirmed : ConfirmedSuccess
     Dispatched --> PreAssembly_Blocked : ConfirmedReverted [CanRetryRevert && HasUnassembledDependencies]
@@ -182,6 +184,8 @@ stateDiagram-v2
 | **HeartbeatInterval** | |
 | **PreAssembleDependencyTerminated** | |
 | **PreDispatchRequestRejected** | |
+| **PrepareFailed** | |
+| **PrepareSucceeded** | |
 | **Selected** | |
 | **SignError** | |
 | **Signed** | |

@@ -691,7 +691,19 @@ func (it *inFlightTransactionStageController) executeAsync(funcToExecute func(),
 	if it.testOnlyNoActionMode {
 		return
 	}
+	// Tracked on the owning orchestrator's WaitGroup so Stop() can block until this goroutine finishes -
+	// see orchestrator.asyncWG. This prevents a new orchestrator being created for the same signing address
+	// (once this one is removed from the pool) from ever running concurrently with this stage action.
+	it.asyncWG.Add(1)
 	go func() {
+		defer it.asyncWG.Done()
+		if ctx.Err() != nil {
+			// The owning orchestrator was stopped (idle/stale eviction, or swapped out under load) before
+			// this goroutine got to run. Do not sign/submit/persist on its behalf - a new orchestrator for
+			// this signing address may already be processing the same transaction.
+			log.L(ctx).Debugf("Skipping in-flight stage action for %s: orchestrator context cancelled", it.stateManager.GetSignerNonce())
+			return
+		}
 		stage := generation.GetStage(ctx)
 		defer func() {
 			if err := recover(); err != nil {

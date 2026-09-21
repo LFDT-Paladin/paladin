@@ -509,18 +509,19 @@ func TestDeactivateFail(t *testing.T) {
 
 }
 
-func TestReapPeerDeactivateErrorWhileSenderStarted(t *testing.T) {
+func TestReapPeerDeactivateErrorWhileActivated(t *testing.T) {
 
 	ctx, tm, tp, done := newTestTransport(t, false)
 	defer done()
 
+	var deactivateCalls atomic.Int32
 	tp.Functions.DeactivatePeer = func(ctx context.Context, dnr *prototk.DeactivatePeerRequest) (*prototk.DeactivatePeerResponse, error) {
+		deactivateCalls.Add(1)
 		return nil, fmt.Errorf("deactivate error")
 	}
 
-	// Simulate the race window in reapPeer where senderDone has been closed (first defer)
-	// but senderStarted has not yet been set to false (second defer runs after).
-	// We achieve this deterministically by pre-closing senderDone while keeping senderStarted=true.
+	// The sender goroutine has already exited (senderDone closed, senderStarted false), but the
+	// plugin was activated and never deactivated. reapPeer must still deactivate it.
 	senderDone := make(chan struct{})
 	close(senderDone)
 
@@ -534,16 +535,83 @@ func TestReapPeerDeactivateErrorWhileSenderStarted(t *testing.T) {
 		persistedMsgsAvailable: make(chan struct{}, 1),
 		sendQueue:              make(chan *msgWithErrChan, 1),
 		PeerInfo:               pldapi.PeerInfo{Name: "node2"},
+		transportActivated:     true,
 	}
-	p.senderStarted.Store(true)
 
 	tm.peersLock.Lock()
 	tm.peers["node2"] = p
 	tm.peersLock.Unlock()
 
-	// reapPeer must enter the senderStarted branch and log the DeactivatePeer error
+	// reapPeer must call DeactivatePeer, log the error, and clear the activated flag
+	tm.reapPeer(p)
+	require.Equal(t, int32(1), deactivateCalls.Load())
+	require.False(t, p.transportActivated)
+
+	// A second reap must not deactivate again
+	tm.reapPeer(p)
+	require.Equal(t, int32(1), deactivateCalls.Load())
+
+}
+
+func TestReapPeerReceiveOnlyNotDeactivated(t *testing.T) {
+
+	ctx, tm, tp, done := newTestTransport(t, false)
+	defer done()
+
+	tp.Functions.DeactivatePeer = func(ctx context.Context, dnr *prototk.DeactivatePeerRequest) (*prototk.DeactivatePeerResponse, error) {
+		require.Fail(t, "DeactivatePeer must not be called for a peer that was never activated")
+		return nil, nil
+	}
+
+	// A receive-only peer never calls ActivatePeer on the plugin
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+	require.False(t, p.transportActivated)
+	require.False(t, p.senderStarted.Load())
+
 	tm.reapPeer(p)
 
+}
+
+func TestReapPeerAfterSenderStoppedDeactivates(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectQuery("SELECT.*reliable_msgs").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.Mock.MatchExpectationsInOrder(false)
+		},
+		mockGoodTransport)
+	defer done()
+
+	tm.sendShortRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		MaxAttempts: confutil.P(1),
+	})
+	tm.sendFailureResetThreshold = 1
+
+	tp.Functions.ActivatePeer = func(ctx context.Context, anr *prototk.ActivatePeerRequest) (*prototk.ActivatePeerResponse, error) {
+		return &prototk.ActivatePeerResponse{PeerInfoJson: `{"endpoint":"some.url"}`}, nil
+	}
+	var deactivateCalls atomic.Int32
+	tp.Functions.DeactivatePeer = func(ctx context.Context, dnr *prototk.DeactivatePeerRequest) (*prototk.DeactivatePeerResponse, error) {
+		deactivateCalls.Add(1)
+		return &prototk.DeactivatePeerResponse{}, nil
+	}
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		return nil, fmt.Errorf("send failed")
+	}
+
+	// The send fails and stops the sender loop at threshold=1, leaving the plugin activated
+	err := tm.Send(ctx, testMessage())
+	require.NoError(t, err)
+
+	// Send registers the peer and starts its sender before returning, so the peer is
+	// in the map now, and the sender loop closes senderDone when it gives up
+	p := tm.getActivePeer("node2")
+	require.NotNil(t, p)
+	<-p.senderDone
+
+	// Reaping the peer with its sender already stopped must still tell the plugin
+	tm.reapPeer(p)
+	require.Equal(t, int32(1), deactivateCalls.Load())
 }
 
 func TestGetReliableMessageByIDFail(t *testing.T) {

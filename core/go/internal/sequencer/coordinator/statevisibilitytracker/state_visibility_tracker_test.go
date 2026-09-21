@@ -47,7 +47,7 @@ func endorsableState(id pldtypes.HexBytes) *prototk.EndorsableState {
 	return &prototk.EndorsableState{Id: id.String(), SchemaId: testSchemaID.String()}
 }
 
-// resolvedState builds the StateWithLabels a DomainStateWriter would produce for a state,
+// resolvedState builds the StateWithLabels that state resolution would produce for a state,
 // carrying the given string and int64 labels.
 func resolvedState(id pldtypes.HexBytes, labels map[string]string, int64Labels map[string]int64) *components.StateWithLabels {
 	state := &pldapi.State{StateBase: pldapi.StateBase{ID: id}}

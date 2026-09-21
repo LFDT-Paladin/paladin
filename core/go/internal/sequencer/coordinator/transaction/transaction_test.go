@@ -25,11 +25,11 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -136,17 +136,19 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		NumberOfOutputStates(1).
 		NumberOfRequiredEndorsers(1).
 		AddPendingEndorsementRequest().
-		AddPendingPreDispatchRequest()
-	transaction1, _ := transaction1Builder.Build()
+		AddPendingPreDispatchRequest().
+		PreparesOnReadyForDispatch()
+	transaction1, transaction1Mocks := transaction1Builder.Build()
 
 	transaction2Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
 		NumberOfOutputStates(1).
 		NumberOfRequiredEndorsers(1).
 		AddPendingEndorsementRequest().
-		AddPendingPreDispatchRequest()
+		AddPendingPreDispatchRequest().
+		PreparesOnReadyForDispatch()
 
-	transaction2, _ := transaction2Builder.Build()
+	transaction2, transaction2Mocks := transaction2Builder.Build()
 
 	transaction3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
@@ -200,6 +202,13 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	//A transaction preparing its dispatch is still not ready from its dependents' perspective
+	assert.Equal(t, State_Preparing, transaction1.stateMachine.GetCurrentState())
+	assert.True(t, transaction3.hasDependenciesNotReady(ctx))
+
+	//deliver the async prepare result to complete the transition
+	deliverPrepareResult(t, ctx, transaction1, transaction1Mocks)
+
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
 	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
 	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.GetCurrentState())
@@ -213,6 +222,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		RequestID: transaction2.pendingPreDispatchRequest.IdempotencyKey(),
 	})
 	require.NoError(t, err)
+	deliverPrepareResult(t, ctx, transaction2, transaction2Mocks)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
 	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
@@ -254,6 +264,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		sequencertransportmocks.NewTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
+		func(context.Context, CoordinatorTransaction, *syncpoints.PendingDispatch) {},
 		func(uuid.UUID, bool) {},
 		nil,
 		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
@@ -265,13 +276,13 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		&syncpointsmocks.SyncPoints{},
 		allComponents,
 		domainAPI,
-		nil,
 		time.Duration(1000),
 		time.Duration(5000),
 		5,
 		0,
 		3,
 		3,
+		nil,
 		nil,
 		nil,
 		statevisibilitytracker.NewStore(),
@@ -309,6 +320,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		sequencertransportmocks.NewTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
+		func(context.Context, CoordinatorTransaction, *syncpoints.PendingDispatch) {},
 		func(uuid.UUID, bool) {},
 		nil,
 		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
@@ -320,13 +332,13 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		&syncpointsmocks.SyncPoints{},
 		allComponents,
 		domainAPI,
-		nil,
 		time.Duration(1000),
 		time.Duration(5000),
 		5,
 		0,
 		3,
 		3,
+		nil,
 		nil,
 		nil,
 		statevisibilitytracker.NewStore(),
@@ -349,42 +361,6 @@ func TestTransaction_GetCurrentState_ReturnsState(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	assert.Equal(t, State_Initial, txn.GetCurrentState())
-}
-
-func TestTransaction_HasDispatchedPublicTransaction_TrueWhenSetAndIntentIsSend(t *testing.T) {
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		PreparedPublicTransaction(&pldapi.TransactionInput{}).
-		PreAssembly(&prototk.TransactionPreAssembly{
-			TransactionSpecification: &prototk.TransactionSpecification{
-				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
-			},
-		}).
-		Build()
-	assert.True(t, guard_WillDispatchPublicTransaction(t.Context(), txn))
-}
-
-func TestTransaction_HasDispatchedPublicTransaction_FalseWhenSetAndIntentIsNotSend(t *testing.T) {
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		PreparedPublicTransaction(&pldapi.TransactionInput{}).
-		PreAssembly(&prototk.TransactionPreAssembly{
-			TransactionSpecification: &prototk.TransactionSpecification{
-				Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
-			},
-		}).
-		Build()
-	assert.False(t, guard_WillDispatchPublicTransaction(t.Context(), txn))
-}
-
-func TestTransaction_HasDispatchedPublicTransaction_FalseWhenNil(t *testing.T) {
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		PreAssembly(&prototk.TransactionPreAssembly{
-			TransactionSpecification: &prototk.TransactionSpecification{
-				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
-			},
-		}).
-		Build()
-
-	assert.False(t, guard_WillDispatchPublicTransaction(t.Context(), txn))
 }
 
 func TestDependsOn_InitializedFromPrivateTransaction(t *testing.T) {
@@ -509,6 +485,7 @@ func TestNewTransaction_ChainedDependsOn_InvalidUUIDIsSkipped(t *testing.T) {
 		sequencertransportmocks.NewTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
+		func(context.Context, CoordinatorTransaction, *syncpoints.PendingDispatch) {},
 		nil,
 		func(context.Context, uuid.UUID, common.Event) error { return nil },
 		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
@@ -520,13 +497,13 @@ func TestNewTransaction_ChainedDependsOn_InvalidUUIDIsSkipped(t *testing.T) {
 		&syncpointsmocks.SyncPoints{},
 		allComponents,
 		domainAPI,
-		nil,
 		time.Duration(1000),
 		time.Duration(5000),
 		5,
 		0,
 		3,
 		3,
+		nil,
 		nil,
 		nil,
 		statevisibilitytracker.NewStore(),

@@ -26,11 +26,20 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 )
 
-// queuedDispatch carries a transaction onto the dispatch queue along with the time it was enqueued,
-// so the dispatch loop can record a metric for how long it waited before being dequeued.
 type queuedDispatch struct {
 	txn        transaction.CoordinatorTransaction
-	enqueuedAt time.Time
+	prepared   *syncpoints.PendingDispatch
+	enqueuedAt time.Time // so the dispatch loop can report how long the dispatch waited before being dequeued.
+}
+
+// enqueueForDispatch is called on the coordinator event loop under the transaction lock, so transactions
+// are enqueued strictly in the order they become ready for dispatch - the order that ultimately drives
+// on-chain nonce order.
+func (c *coordinator) enqueueForDispatch(ctx context.Context, txn transaction.CoordinatorTransaction, prepared *syncpoints.PendingDispatch) {
+	select {
+	case c.dispatchQueue <- queuedDispatch{txn: txn, prepared: prepared, enqueuedAt: c.clock.Now()}:
+	case <-ctx.Done():
+	}
 }
 
 func (c *coordinator) dispatchLoop(ctx context.Context) {
@@ -41,7 +50,7 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 		case qd := <-c.dispatchQueue:
 			c.metrics.ObserveDispatchQueueWait(c.clock.Now().Sub(qd.enqueuedAt))
 			// Wait for dispatch-ahead capacity, then pull a batch (this tx plus any others already queued,
-			// capped to the capacity) and prepare, stage and commit them in a single flush.
+			// capped to the capacity) and commit them in a single flush.
 			capacity := c.awaitDispatchAheadCapacity(ctx)
 			if capacity <= 0 {
 				log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
@@ -50,7 +59,7 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			if capacity > c.dispatchMaxBatchSize {
 				capacity = c.dispatchMaxBatchSize
 			}
-			batch := c.pullDispatchBatch(qd.txn, capacity)
+			batch := c.pullDispatchBatch(qd, capacity)
 			c.dispatchBatch(ctx, batch)
 		case <-ctx.Done():
 			log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
@@ -79,17 +88,16 @@ func (c *coordinator) awaitDispatchAheadCapacity(ctx context.Context) int {
 	return c.maxDispatchAhead - len(c.inFlightTxns)
 }
 
-// pullDispatchBatch returns first plus up to capacity-1 further transactions already waiting on the queue,
-// without blocking for more, in the order they came off the queue. This pull order is significant: it
-// ultimately determines on-chain nonce order - see the staging loop in dispatchBatch for why.
-func (c *coordinator) pullDispatchBatch(first transaction.CoordinatorTransaction, capacity int) []transaction.CoordinatorTransaction {
-	batch := make([]transaction.CoordinatorTransaction, 1, capacity)
+// pullDispatchBatch returns first plus up to capacity-1 further queued dispatches already waiting on the
+// queue, without blocking for more, in the order they came off the queue.
+func (c *coordinator) pullDispatchBatch(first queuedDispatch, capacity int) []queuedDispatch {
+	batch := make([]queuedDispatch, 1, capacity)
 	batch[0] = first
 	for len(batch) < capacity {
 		select {
 		case qd := <-c.dispatchQueue:
 			c.metrics.ObserveDispatchQueueWait(c.clock.Now().Sub(qd.enqueuedAt))
-			batch = append(batch, qd.txn)
+			batch = append(batch, qd)
 		default:
 			return batch
 		}
@@ -97,10 +105,7 @@ func (c *coordinator) pullDispatchBatch(first transaction.CoordinatorTransaction
 	return batch
 }
 
-// dispatchBatch prepares each transaction, detaches and takes ownership of each prepared dispatch, appends
-// them all to a single DispatchBatch in pull order, commits the batch in one DB transaction, then hands off
-// chained children.
-func (c *coordinator) dispatchBatch(ctx context.Context, batch []transaction.CoordinatorTransaction) {
+func (c *coordinator) dispatchBatch(ctx context.Context, batch []queuedDispatch) {
 	// Append in pull order. This order is what makes the on-chain nonces follow the order transactions were
 	// selected for dispatch:
 	//  1. Every dispatch in the batch carries this coordinator's contract address as its flush-writer
@@ -110,42 +115,29 @@ func (c *coordinator) dispatchBatch(ctx context.Context, batch []transaction.Coo
 	//     auto-increment pub_txn_id is monotonic with our Append order.
 	//  3. Nonces are NOT assigned here. Later the per-signing-address public-tx orchestrator polls its
 	//     unprocessed rows ORDER BY pub_txn_id and assigns gapless sequential nonces in that order.
-	// So pull order -> Append order -> insert order -> pub_txn_id order -> nonce order. Appending in
-	// prepare-completion order instead (e.g. if prepare were ever parallelised) would let nonces follow
-	// completion order rather than selection order, so we must append strictly in pull order.
-	var dispatchBatch *syncpoints.DispatchBatch
-	// TODO: it should be safe to have transactions handle their dispatched event in parallel if needed
-	// to improve dispatch throughput
-	for _, tx := range batch {
-		log.L(ctx).Debugf("submitting transaction %s for dispatch", tx.GetID().String())
-		// HandleEvent transitions the transaction into State_Dispatched under its lock, synchronously adding
-		// it to inFlightTxns (via setDispatchedInFlight) when it sends a public transaction, so
-		// len(inFlightTxns) is accurate for the next capacity check.
-		if err := tx.HandleEvent(ctx, &transaction.DispatchedEvent{
+	// So pull order -> Append order -> insert order -> pub_txn_id order -> nonce order.
+	dispatchBatch := &syncpoints.DispatchBatch{
+		ContractAddress: *c.contractAddress,
+	}
+	for _, qd := range batch {
+		txID := qd.prepared.TransactionID
+		log.L(ctx).Debugf("submitting transaction %s for dispatch", txID.String())
+		// The point of no return is the transaction accepting this event, so we persist the dispatch only
+		// if it takes effect. Accepting it also updates the coordinator's in-flight count synchronously, so
+		// len(inFlightTxns) is accurate for the next capacity check. If a dependency reset or revert has
+		// already moved the transaction on, the event is a no-op and the dispatch is dropped.
+		if err := qd.txn.HandleEvent(ctx, &transaction.DispatchedEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-				TransactionID: tx.GetID(),
+				TransactionID: txID,
 			},
+			PublicTransaction: len(qd.prepared.Dispatch.PublicDispatches) > 0,
 		}); err != nil {
-			log.L(ctx).Errorf("error dispatching transaction %s: %v", tx.GetID().String(), err)
+			log.L(ctx).Errorf("error handling dispatched event for transaction %s: %v", txID.String(), err)
+		}
+		if qd.txn.GetCurrentState() != transaction.State_Dispatched {
 			continue
 		}
-		// Reading the pending dispatch after a successful HandleEvent is a point of no return: from here it
-		// will be persisted regardless of any later state change to the transaction. A nil result means the
-		// transaction was repooled before its DispatchedEvent was processed, so prepare never ran - skip it,
-		// it produces no dispatch and no nonce. The batch is created lazily on the first real dispatch so a
-		// batch of only-repooled transactions touches no syncPoints.
-		if pd := tx.PendingDispatch(ctx); pd != nil {
-			if dispatchBatch == nil {
-				dispatchBatch = &syncpoints.DispatchBatch{
-					DomainStateWriter: c.dsw,
-					ContractAddress:   *c.contractAddress,
-				}
-			}
-			dispatchBatch.Append(pd)
-		}
-	}
-	if dispatchBatch == nil {
-		return
+		dispatchBatch.Append(qd.prepared)
 	}
 
 	// Record the composition of the batch about to be persisted; the low end of the histogram
@@ -160,10 +152,18 @@ func (c *coordinator) dispatchBatch(ctx context.Context, batch []transaction.Coo
 	c.metrics.ObserveDispatchBatchSize("private", private)
 	c.metrics.ObserveDispatchBatchSize("prepared", prepared)
 
-	// Commit the whole batch in a single DB transaction. Persistence happens off the transaction lock so the
-	// DB commit does not block the coordinator event loop behind a tx lock.
-	if err := c.syncPoints.PersistDispatchBatch(ctx, dispatchBatch); err != nil {
-		log.L(ctx).Errorf("error persisting dispatch batch: %v", err)
+	// Commit the whole batch in a single DB transaction, including each dispatch's new states and
+	// nullifiers, which the pending dispatches carry in memory. Persistence happens off the transaction
+	// lock so the DB commit does not block the coordinator event loop behind a tx lock. A failed commit
+	// (typically transient DB unavailability) rolls back the whole DB transaction and the next attempt
+	// re-writes everything from the in-memory batch, retrying indefinitely with backoff. The batch's
+	// transactions stay dispatched throughout and are persisted when a retry succeeds.
+	err := c.dispatchCommitErrorRetry.Do(ctx, func(_ int) (bool, error) {
+		return true, c.syncPoints.PersistDispatchBatch(ctx, dispatchBatch)
+	})
+	if err != nil {
+		// The retry only returns an error when the context is cancelled, so the dispatch loop is shutting
+		// down; the batch is left unpersisted and is re-driven from persisted state on restart.
 		return
 	}
 

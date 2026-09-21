@@ -21,7 +21,7 @@ import (
 	"database/sql/driver"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 )
 
 type Int256Field string

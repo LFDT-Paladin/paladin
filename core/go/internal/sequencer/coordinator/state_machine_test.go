@@ -1766,27 +1766,6 @@ func TestCoordinator_WhenActive_TransactionStateTransition_AssemblingToPooled_Re
 	assert.Equal(t, txRepoolID, c.pooledTransactions[0].GetID())
 }
 
-func TestCoordinator_WhenActive_TransactionStateTransition_ToReadyForDispatch_QueuesForDispatch(t *testing.T) {
-	ctx := t.Context()
-	txReady := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	txID := uuid.New()
-	txReady.EXPECT().GetID().Return(txID).Maybe()
-	txReady.EXPECT().GetCurrentState().Return(transaction.State_Ready_For_Dispatch).Maybe()
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).
-		NodeName("node1").
-		CurrentActiveCoordinator("node1").
-		Transactions(txReady).
-		Build()
-	require.Equal(t, 0, len(c.dispatchQueue))
-	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.TransactionStateTransitionEvent[transaction.State]{
-		TransactionID: txID,
-		ToState:       transaction.State_Ready_For_Dispatch,
-	}))
-	// action_QueueTransactionForDispatch placed the tx on the dispatch channel.
-	assert.Equal(t, State_Active, c.GetCurrentState())
-	assert.Equal(t, 1, len(c.dispatchQueue), "transaction must be queued for dispatch")
-}
-
 func TestCoordinator_WhenActive_TransactionStateTransition_ToFinal_CleansUpAndStaysActive(t *testing.T) {
 	ctx := t.Context()
 	txFinal := coordinatortransactionmocks.NewCoordinatorTransaction(t)
@@ -2238,28 +2217,6 @@ func TestCoordinator_WhenActiveFLush_TransactionStateTransition_DispatchedToPool
 	}))
 	// txDispatched2 still in memory → guard_HasUnconfirmedDispatchedTransactions = true → stays Active_Flush.
 	assert.Equal(t, State_Active_Flush, c.GetCurrentState())
-}
-
-func TestCoordinator_WhenActiveFLush_TransactionStateTransition_ToReadyForDispatch_QueuesAndStaysActiveFLush(t *testing.T) {
-	ctx := t.Context()
-	txDispatched, _ := newDispatchedTxMock(t)
-	txReady := coordinatortransactionmocks.NewCoordinatorTransaction(t)
-	txReadyID := uuid.New()
-	txReady.EXPECT().GetID().Return(txReadyID).Maybe()
-	txReady.EXPECT().GetCurrentState().Return(transaction.State_Ready_For_Dispatch).Maybe()
-	c, _ := NewCoordinatorBuilderForTesting(t, State_Active_Flush).
-		NodeName("node1").
-		CurrentActiveCoordinator("node1").
-		Transactions(txDispatched, txReady).
-		Build()
-	require.Equal(t, 0, len(c.dispatchQueue))
-	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &common.TransactionStateTransitionEvent[transaction.State]{
-		TransactionID: txReadyID,
-		ToState:       transaction.State_Ready_For_Dispatch,
-	}))
-	// txDispatched still in memory → stays Active_Flush; txReady was queued for dispatch.
-	assert.Equal(t, State_Active_Flush, c.GetCurrentState())
-	assert.Equal(t, 1, len(c.dispatchQueue), "action_QueueTransactionForDispatch must enqueue the transaction")
 }
 
 func TestCoordinator_WhenActiveFLush_TransactionStateTransition_ToEvicted_CleansUpAndStaysActiveFLush(t *testing.T) {

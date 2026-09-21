@@ -33,7 +33,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"google.golang.org/protobuf/proto"
 )
 

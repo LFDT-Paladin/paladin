@@ -71,6 +71,7 @@ func TestCoordinatorTransactionState_String(t *testing.T) {
 	assert.Equal(t, "Endorsement_Gathering", CoordinatorTransactionState_Endorsement_Gathering.String())
 	assert.Equal(t, "Blocked", CoordinatorTransactionState_Blocked.String())
 	assert.Equal(t, "Confirming_Dispatchable", CoordinatorTransactionState_Confirming_Dispatchable.String())
+	assert.Equal(t, "Preparing", CoordinatorTransactionState_Preparing.String())
 	assert.Equal(t, "Ready_For_Dispatch", CoordinatorTransactionState_Ready_For_Dispatch.String())
 	assert.Equal(t, "Dispatched", CoordinatorTransactionState_Dispatched.String())
 	assert.Equal(t, "Confirmed", CoordinatorTransactionState_Confirmed.String())
