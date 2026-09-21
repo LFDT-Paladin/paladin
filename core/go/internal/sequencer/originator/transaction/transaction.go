@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -34,7 +35,7 @@ import (
 
 type assembleRequestFromCoordinator struct {
 	coordinatorsBlockHeight int64
-	stateSnapshot           *prototk.StateSnapshot
+	coordinator             string // the node the request came from; state view requests are answered by (and only by) this node
 	requestID               uuid.UUID
 	expiry                  time.Time
 }
@@ -59,6 +60,7 @@ type originatorTransaction struct {
 	nodeName                         string
 	engineIntegration                common.EngineIntegration
 	transportWriter                  transport.TransportWriter
+	stateViewReader                  stateview.Reader
 	queueEventForOriginator          func(context.Context, common.Event)
 	currentDelegate                  string
 	lastDelegatedTime                *time.Time
@@ -87,6 +89,7 @@ func NewTransaction(
 	localTx *components.ResolvedTransaction,
 	nodeName string,
 	transportWriter transport.TransportWriter,
+	stateViewReader stateview.Reader,
 	queueEventForOriginator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	metrics metrics.DistributedSequencerMetrics,
@@ -105,6 +108,7 @@ func NewTransaction(
 		nodeName,
 		engineIntegration,
 		transportWriter,
+		stateViewReader,
 		queueEventForOriginator,
 		metrics,
 		refreshBlockHeight,
@@ -120,6 +124,7 @@ func newTransaction(
 	nodeName string,
 	engineIntegration common.EngineIntegration,
 	transportWriter transport.TransportWriter,
+	stateViewReader stateview.Reader,
 	queueEventForOriginator func(context.Context, common.Event),
 	metrics metrics.DistributedSequencerMetrics,
 	refreshBlockHeight func(context.Context),
@@ -133,6 +138,7 @@ func newTransaction(
 		nodeName:                nodeName,
 		engineIntegration:       engineIntegration,
 		transportWriter:         transportWriter,
+		stateViewReader:         stateViewReader,
 		queueEventForOriginator: queueEventForOriginator,
 		metrics:                 metrics,
 		refreshBlockHeight:      refreshBlockHeight,

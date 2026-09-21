@@ -34,7 +34,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/test/internal/util"
 
 	nototypes "github.com/LFDT-Paladin/paladin/test/internal/contracts"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	log "github.com/sirupsen/logrus"
 )
 

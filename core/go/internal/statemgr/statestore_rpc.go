@@ -88,7 +88,8 @@ func (ss *stateManager) rpcQueryStates() rpcserver.RPCHandler {
 		status pldapi.StateStatusQualifier,
 	) ([]*pldapi.State, error) {
 		ctx = log.WithComponent(ctx, "statemanager")
-		return ss.FindStates(ctx, ss.p.NOTX(), domain, schema, &query, &components.StateQueryOptions{StatusQualifier: status})
+		_, states, err := ss.findStates(ctx, ss.p.NOTX(), domain, nil, schema, &query, status)
+		return states, err
 	})
 }
 
@@ -101,7 +102,8 @@ func (ss *stateManager) rpcQueryContractStates() rpcserver.RPCHandler {
 		status pldapi.StateStatusQualifier,
 	) ([]*pldapi.State, error) {
 		ctx = log.WithComponent(ctx, "statemanager")
-		return ss.FindContractStates(ctx, ss.p.NOTX(), domain, contractAddress, schema, &query, status)
+		_, states, err := ss.findStates(ctx, ss.p.NOTX(), domain, contractAddress, schema, &query, status)
+		return states, err
 	})
 }
 
@@ -113,7 +115,8 @@ func (ss *stateManager) rpcQueryNullifiers() rpcserver.RPCHandler {
 		status pldapi.StateStatusQualifier,
 	) ([]*pldapi.State, error) {
 		ctx = log.WithComponent(ctx, "statemanager")
-		return ss.FindNullifiers(ctx, ss.p.NOTX(), domain, schema, &query, status)
+		_, states, err := ss.findNullifierBackedStates(ctx, ss.p.NOTX(), domain, nil, schema, &query, status, nil)
+		return states, err
 	})
 }
 
@@ -126,7 +129,8 @@ func (ss *stateManager) rpcQueryContractNullifiers() rpcserver.RPCHandler {
 		status pldapi.StateStatusQualifier,
 	) ([]*pldapi.State, error) {
 		ctx = log.WithComponent(ctx, "statemanager")
-		return ss.FindContractNullifiers(ctx, ss.p.NOTX(), domain, contractAddress, schema, &query, status)
+		_, states, err := ss.findNullifierBackedStates(ctx, ss.p.NOTX(), domain, &contractAddress, schema, &query, status, nil)
+		return states, err
 	})
 }
 

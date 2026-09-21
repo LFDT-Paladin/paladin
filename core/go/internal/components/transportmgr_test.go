@@ -140,4 +140,3 @@ func TestTransportSendOptions_CanBeCreatedWithoutErrorHandler(t *testing.T) {
 
 	assert.Nil(t, options.ErrorHandler)
 }
-

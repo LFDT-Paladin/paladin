@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
@@ -47,6 +48,11 @@ type Originator interface {
 
 	GetTxStatus(ctx context.Context, txID uuid.UUID) (status components.PrivateTxStatus, err error)
 	GetCurrentState() State
+
+	// StateViewReader returns the reader that state view responses/errors from coordinators
+	// are routed to, directly from the transport handler (off the event loop).
+	// It is safe to call from any goroutine — the reader is immutable after construction and internally thread-safe.
+	StateViewReader() stateview.Reader
 
 	WaitForDone(ctx context.Context)
 }
@@ -96,6 +102,7 @@ type originator struct {
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
 	clock             common.Clock
+	stateViewReader   stateview.Reader
 }
 
 func NewOriginator(
@@ -107,6 +114,8 @@ func NewOriginator(
 	metrics metrics.DistributedSequencerMetrics,
 	selectionConfig *common.CoordinatorSelectionConfig,
 ) *originator {
+	requestTimeout := confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
+	clock := common.RealClock()
 	o := &originator{
 		nodeName:                nodeName,
 		transactionsByID:        make(map[uuid.UUID]transaction.OriginatorTransaction),
@@ -119,7 +128,8 @@ func NewOriginator(
 		resolveRetryBackoff:     confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout),
 		delegationBatchInterval: confutil.DurationMin(configuration.DelegationBatchInterval, pldconf.SequencerMinimum.DelegationBatchInterval, *pldconf.SequencerDefaults.DelegationBatchInterval),
 		heartbeatInterval:       confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
-		clock:                   common.RealClock(),
+		clock:                   clock,
+		stateViewReader:         stateview.NewReader(contractAddress.HexString(), transportWriter, requestTimeout, clock),
 	}
 
 	switch selectionConfig.Mode {
@@ -165,6 +175,10 @@ func (o *originator) GetCurrentState() State {
 	o.RLock()
 	defer o.RUnlock()
 	return o.stateMachineEventLoop.GetCurrentState()
+}
+
+func (o *originator) StateViewReader() stateview.Reader {
+	return o.stateViewReader
 }
 
 func (o *originator) QueueEvent(ctx context.Context, event common.Event) {

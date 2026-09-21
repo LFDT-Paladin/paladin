@@ -36,13 +36,16 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 )
 
-// ParamValidator defines the interface for validating transaction parameters
+// ParamValidator constrains the handler types validateTransactionCommon accepts. Each
+// validates its own parameters, and each is compared against its zero value to detect a
+// function with no handler. Both types.DomainHandler and types.DomainCallHandler satisfy it.
 type ParamValidator interface {
+	comparable
 	ValidateParams(ctx context.Context, domainConfig *types.NotoParsedConfig, paramsJson string) (any, error)
 }
 
@@ -607,7 +610,10 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, err
 	}
-	localNodeName, _ := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	localNodeName, err := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	if err != nil {
+		return nil, err
+	}
 	notaryQualified, err := pldtypes.PrivateIdentityLocator(params.Notary).FullyQualified(ctx, localNodeName.Name)
 	if err != nil {
 		return nil, err
@@ -721,7 +727,10 @@ func (n *Noto) InitContract(ctx context.Context, req *prototk.InitContractReques
 		return &prototk.InitContractResponse{Valid: false}, nil
 	}
 
-	localNodeName, _ := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	localNodeName, err := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	if err != nil {
+		return nil, err
+	}
 	_, notaryNodeName, err := pldtypes.PrivateIdentityLocator(decodedData.NotaryLookup).Validate(ctx, localNodeName.Name, true)
 	if err != nil {
 		return nil, err
@@ -777,13 +786,34 @@ func (n *Noto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTra
 	if err != nil {
 		return nil, err
 	}
-	return handler.Assemble(ctx, tx, req)
+	res, err := handler.Assemble(ctx, tx, req)
+	if err != nil {
+		return nil, err
+	}
+	// Every new unlocked coin in a nullifier variant must carry a nullifier spec, otherwise the
+	// owner's node never derives a nullifier for it and the coin can never be spent, even though
+	// the base ledger confirms it. Checked here rather than in each handler so that no assembly
+	// path - including any added later - can miss it.
+	if tx.DomainConfig.IsNullifierVariant() && res.AssemblyResult == prototk.AssembleTransactionResponse_OK {
+		if err := n.validateNullifierSpecs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), res.AssembledTransaction); err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
 }
 
 func (n *Noto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
 	ctx, tx, handler, err := n.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, err
+	}
+	// Defense in depth for the nullifier variants: catches invalid transactions that includes inputs/outputs states
+	// with colliding nullifiers. Applied to every handler here rather than per-handler, so no transaction
+	// type can be missed.
+	if tx.DomainConfig.IsNullifierVariant() {
+		if err := n.validateDistinctNullifiers(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.Inputs, req.Outputs); err != nil {
+			return nil, err
+		}
 	}
 	return handler.Endorse(ctx, tx, req)
 }
@@ -851,7 +881,7 @@ func (n *Noto) validateDeploy(ctx context.Context, tx *prototk.DeployTransaction
 	return &params, err
 }
 
-func validateTransactionCommon[T comparable](
+func validateTransactionCommon[T ParamValidator](
 	ctx context.Context,
 	tx *prototk.TransactionSpecification,
 	getHandler func(method string) T,
@@ -886,13 +916,7 @@ func validateTransactionCommon[T comparable](
 		return nil, unsetT, i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)
 	}
 
-	// check if the handler implements the ValidateParams method cause generic T
-	validator, ok := any(handler).(ParamValidator)
-	if !ok {
-		return nil, *new(T), i18n.NewError(ctx, msgs.MsgErrorHandlerImplementationNotFound)
-	}
-
-	params, err := validator.ValidateParams(ctx, &domainConfig, tx.FunctionParamsJson)
+	params, err := handler.ValidateParams(ctx, &domainConfig, tx.FunctionParamsJson)
 	if err != nil {
 		return nil, *new(T), err
 	}
@@ -1225,14 +1249,20 @@ func mapPrepareTransactionType(transactionType pldapi.TransactionType) prototk.P
 
 func (n *Noto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.SignResponse, error) {
 	log.L(ctx).Infof("generating nullifier for %s\n", req.Algorithm)
-	switch req.PayloadType {
-	case types.PAYLOAD_DOMAIN_NOTO_NULLIFIER:
+	if types.IsNullifierPayloadType(req.PayloadType) {
+		// The contract comes from the payload type: a sign request carries only the state
+		// data, and the nullifier must be bound to the contract that holds the coin
+		contract, err := types.ParseNullifierPayloadType(req.PayloadType)
 		var coin *types.NotoCoin
-		var hashBytes *pldtypes.Bytes32
-		err := json.Unmarshal(req.Payload, &coin)
-		log.L(ctx).Debugf("unmarshaled coin: %+v\n", coin)
 		if err == nil {
-			hashBytes, err = calculateNullifier(coin)
+			// Strict unmarshal - a NotoLockedCoin payload must not be nullified as an unlocked
+			// coin, as that would drop its lockId from the nullifier
+			coin, err = n.unmarshalCoinStrict(string(req.Payload))
+		}
+		var hashBytes *pldtypes.Bytes32
+		if err == nil {
+			log.L(ctx).Debugf("unmarshaled coin: %+v\n", coin)
+			hashBytes, err = calculateNullifier(ctx, contract, coin)
 		}
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgNullifierGenerationFailed)
@@ -1240,9 +1270,8 @@ func (n *Noto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.Sig
 		return &prototk.SignResponse{
 			Payload: hashBytes.Bytes(),
 		}, nil
-	default:
-		return nil, i18n.NewError(ctx, msgs.MsgUnknownSignPayload, req.PayloadType)
 	}
+	return nil, i18n.NewError(ctx, msgs.MsgUnknownSignPayload, req.PayloadType)
 }
 
 func (n *Noto) GetVerifier(ctx context.Context, req *prototk.GetVerifierRequest) (*prototk.GetVerifierResponse, error) {

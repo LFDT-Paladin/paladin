@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,14 +25,19 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -665,6 +671,97 @@ func TestCoordinatorTransaction_Assembling_ToPooled_OnAssembleError_IfBelowRetry
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_Pooled, txn.GetCurrentState())
+}
+
+// End-to-end protection: a state visible to the originator when the assemble request is sent must
+// stay visible to per-select assembly queries for the whole in-flight window, even when the
+// coordinator's block height advances past the tolerance window mid-assemble. The deferred forget
+// is applied as soon as the transaction leaves State_Assembling.
+func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFlightWindow(t *testing.T) {
+	ctx := context.Background()
+
+	depTracker := dependencytracker.NewDependencyTracker()
+	visibilityStore := statevisibilitytracker.NewStore()
+	g := grapher.NewGrapher(depTracker, visibilityStore, 5)
+
+	// Seed a confirmed create lock (confirmed at block 100, due to be forgotten at block 105)
+	// with private state data visible to node1
+	seedTxID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("42", 32))
+	state := &prototk.EndorsableState{Id: stateID.String(), StateDataJson: `{}`}
+	require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{state}, seedTxID))
+	visibilityStore.ImportIfAbsent(stateID.String(), &prototk.SnapshotState{State: state, AllowedNodes: []string{"node1"}, Labels: &prototk.StateLabels{}})
+	g.LockMintsOnCreate(ctx, []*prototk.EndorsableState{state}, seedTxID)
+	g.ForgetTransaction(ctx, seedTxID, 100)
+
+	// A real state view provider backed by the same grapher: entering State_Assembling captures a
+	// view that freezes the candidate snapshot, and per-select queries are answered from it.
+	recorder := testutil.NewSentMessageRecorder()
+	stateManager := componentsmocks.NewStateManager(t)
+	stateManager.EXPECT().FindMatchingInMemoryStates(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ string, _ pldtypes.Bytes32, _ *query.QueryJSON, candidates []*prototk.SnapshotState) ([]*prototk.QueriedState, error) {
+			out := make([]*prototk.QueriedState, len(candidates))
+			for i, c := range candidates {
+				out[i] = &prototk.QueriedState{State: c.GetState()}
+			}
+			return out, nil
+		}).Maybe()
+	provider := stateview.NewProvider("test-domain", "0x", recorder, g, stateManager)
+
+	txnBuilder := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(g).
+		StateViewProvider(provider).
+		DependencyTracker(depTracker).
+		StateVisibility(visibilityStore).
+		WithCurrentBlockHeight(100).
+		AssembleErrorRetryThreshold(3).
+		Originator("alice@node1")
+	txn, _ := txnBuilder.Build()
+
+	err := txn.HandleEvent(ctx, &SelectedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+	})
+	require.NoError(t, err)
+	require.Equal(t, State_Assembling, txn.GetCurrentState())
+	assembleRequestID := txn.assembleRequestID.String()
+	schemaID := pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32)).String()
+
+	runQuery := func() int {
+		recorder.Reset(ctx)
+		provider.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+			ContractAddress: "0x", RequestId: "q", SchemaId: schemaID, QueryJson: `{}`, AssembleRequestId: assembleRequestID,
+		})
+		require.Empty(t, recorder.SentStateViewErrors())
+		resps := recorder.SentQueryAvailableStatesResponses()
+		require.Len(t, resps, 1)
+		return len(resps[0].GetStates())
+	}
+
+	require.Equal(t, 1, runQuery(), "state must be visible to per-select queries at request time")
+
+	// The coordinator advances well past the tolerance window mid-assemble; the block-driven forget
+	// removes the state from the live grapher, but the frozen snapshot keeps serving it.
+	g.ForgetConfirmedLocks(ctx, 200)
+	liveCandidates, _ := g.SnapshotView(ctx, "node1")
+	require.Empty(t, liveCandidates, "the live grapher view forgets the confirmed lock")
+	require.Equal(t, 1, runQuery(), "state must stay visible to per-select queries while the assemble is in flight")
+
+	// Exit State_Assembling; the view is discarded and further queries are rejected.
+	err = txn.HandleEvent(ctx, &AssembleErrorEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+		RequestID:            txn.pendingAssembleRequest.IdempotencyKey(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, State_Pooled, txn.GetCurrentState())
+
+	recorder.Reset(ctx)
+	provider.HandleQueryAvailableStates(ctx, "node1", &engineProto.QueryAvailableStatesRequest{
+		ContractAddress: "0x", RequestId: "q", SchemaId: schemaID, QueryJson: `{}`, AssembleRequestId: assembleRequestID,
+	})
+	require.Empty(t, recorder.SentQueryAvailableStatesResponses())
+	errs := recorder.SentStateViewErrors()
+	require.Len(t, errs, 1, "the view must be discarded once the assemble is no longer in flight")
+	assert.Regexp(t, "PD012653", errs[0].GetErrorMessage())
 }
 
 func TestCoordinatorTransaction_Assembling_ToEvicted_OnAssembleError_IfAboveRetryThreshold(t *testing.T) {
@@ -1427,8 +1524,9 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 		Grapher(mockGrapher).
 		CoordinatorTransactions(sharedTransactions).
 		TransactionID(txCID).
-		AddPendingPreDispatchRequest()
-	txnC, _ := builderC.Build()
+		AddPendingPreDispatchRequest().
+		PreparesOnReadyForDispatch()
+	txnC, mocksC := builderC.Build()
 	sharedTransactions[txnC.pt.ID] = txnC
 
 	builderA := NewTransactionBuilderForTesting(t, State_Blocked).
@@ -1446,6 +1544,9 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 
 	err := txnC.HandleEvent(ctx, builderC.BuildDispatchRequestApprovedEvent())
 	require.NoError(t, err)
+	// C prepares asynchronously; deliver its prepare result to complete the transition into
+	// Ready_For_Dispatch, which notifies A
+	deliverPrepareResult(t, ctx, txnC, mocksC)
 	assert.Equal(t, State_Confirming_Dispatchable, txnA.GetCurrentState(), "current state is %s", txnA.GetCurrentState().String())
 }
 
@@ -1463,8 +1564,9 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 	builderB := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		Grapher(mockGrapher).
 		TransactionID(txBID).
-		AddPendingPreDispatchRequest()
-	txnB, _ := builderB.Build()
+		AddPendingPreDispatchRequest().
+		PreparesOnReadyForDispatch()
+	txnB, mocksB := builderB.Build()
 
 	_, _ = NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		Grapher(mockGrapher).
@@ -1485,6 +1587,7 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 
 	err := txnB.HandleEvent(ctx, builderB.BuildDispatchRequestApprovedEvent())
 	require.NoError(t, err)
+	deliverPrepareResult(t, ctx, txnB, mocksB)
 
 	assert.Equal(t, State_Blocked, txnA.GetCurrentState(), "current state is %s", txnA.GetCurrentState().String())
 }
@@ -1494,11 +1597,16 @@ func TestCoordinatorTransaction_ConfirmingDispatch_ToReadyForDispatch_OnDispatch
 	builder := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		AddPendingPreDispatchRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error {
 			return nil
-		})
-	txn, _ := builder.Build()
+		}).
+		PreparesOnReadyForDispatch()
+	txn, mocks := builder.Build()
 
 	err := txn.HandleEvent(ctx, builder.BuildDispatchRequestApprovedEvent())
 	require.NoError(t, err)
+	// Approval moves the transaction into Preparing while the prepare runs off the event loop;
+	// delivering the prepare result completes the transition into Ready_For_Dispatch
+	assert.Equal(t, State_Preparing, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	deliverPrepareResult(t, ctx, txn, mocks)
 	assert.Equal(t, State_Ready_For_Dispatch, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
@@ -1577,7 +1685,7 @@ func TestCoordinatorTransaction_ConfirmingDispatch_ToPooled_OnStateTimeout(t *te
 func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *testing.T) {
 	ctx := context.Background()
 	var inFlightCalls []bool
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Preparing).
 		PreAssembly(&prototk.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
 				Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
@@ -1587,13 +1695,23 @@ func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *te
 		PostAssembly(&components.TransactionPostAssembly{}).
 		SetDispatchedInFlight(func(_ uuid.UUID, inFlight bool) { inFlightCalls = append(inFlightCalls, inFlight) }).
 		Build()
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		tx := args.Get(3).(*components.PrivateTransaction)
-		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
-	}).Return(nil)
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.PrepareTransactionResult{PreparedPrivateTransaction: &pldapi.TransactionInput{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
 
-	err := txn.HandleEvent(ctx, &DispatchedEvent{
+	// The dispatch is built and enqueued when the prepare result is applied, ahead of the
+	// DispatchedEvent, so establish the enqueued dispatch before dispatching.
+	pd, err := txn.prepareAndBuildDispatch(ctx, txn.pt, 0)
+	require.NoError(t, err)
+	require.NoError(t, txn.HandleEvent(ctx, &PrepareSucceededEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+		PrepareID:            txn.inFlightPrepareID,
+		PendingDispatch:      pd,
+	}))
+	require.Equal(t, State_Ready_For_Dispatch, txn.GetCurrentState())
+	require.Len(t, mocks.EnqueuedDispatches, 1)
+
+	err = txn.HandleEvent(ctx, &DispatchedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txn.GetID(),
 		},
@@ -1601,51 +1719,36 @@ func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *te
 	require.NoError(t, err)
 	assert.Equal(t, State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 
-	// PREPARE_TRANSACTION intent produces no public transaction, so entering Dispatched must not mark in-flight.
+	// PREPARE_TRANSACTION intent produces no public transaction, so the DispatchedEvent carries
+	// PublicTransaction=false and entering Dispatched must not mark in-flight.
 	assert.Empty(t, inFlightCalls, "no public transaction dispatched, so setDispatchedInFlight must not be called")
 
-	// The prepared dispatch is committed off-lock by the dispatch loop after the transition to
-	// State_Dispatched, so preparing on entry to Dispatched must not itself persist. The transaction's
-	// only responsibility is to make the prepared dispatch available; the loop batches and commits it.
+	// The prepared dispatch is committed off-lock by the dispatch loop; entering State_Dispatched must not
+	// itself persist.
 	mocks.SyncPoints.AssertNotCalled(t, "PersistDispatchBatch")
-	require.NotNil(t, txn.PendingDispatch(ctx))
+	require.Len(t, mocks.EnqueuedDispatches, 1)
 }
 
 // TestCoordinatorTransaction_ToDispatched_WithPublicTx_MarksInFlight verifies that entering
-// State_Dispatched with a dispatched public transaction marks the transaction in-flight.
+// State_Dispatched with a DispatchedEvent reporting a public transaction marks the transaction in-flight.
 func TestCoordinatorTransaction_ToDispatched_WithPublicTx_MarksInFlight(t *testing.T) {
 	ctx := context.Background()
-	gasVal := pldtypes.HexUint64(21000)
 	var inFlightCalls []bool
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Signer("signer@node1").
-		NodeName("node1").
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		PreAssembly(&prototk.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
 				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
 				From:   "sender@node1",
 			},
 		}).
-		PostAssembly(&components.TransactionPostAssembly{}).
-		PreparedPublicTransaction(&pldapi.TransactionInput{
-			TransactionBase: pldapi.TransactionBase{
-				Data:            pldtypes.RawJSON("[]"),
-				PublicTxOptions: pldapi.PublicTxOptions{Gas: &gasVal},
-			},
-			ABI: abi.ABI{&abi.Entry{Type: abi.Function, Name: "test", Inputs: abi.ParameterArray{}}},
-		}).
 		SetDispatchedInFlight(func(_ uuid.UUID, inFlight bool) { inFlightCalls = append(inFlightCalls, inFlight) }).
 		Build()
-	// PrepareTransaction leaves the builder-set PreparedPublicTransaction in place (public SEND branch).
-	// dispatchPrepare (phase 1, in HandleEvent) builds and stashes the batch but does not persist it; the
-	// in-flight marking happens on the transition to State_Dispatched, so PersistDispatch is not needed here.
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mocks.KeyManager.On("ResolveEthAddressNewDatabaseTX", mock.Anything, "signer").Return(pldtypes.RandAddress(), nil)
-	mocks.PublicTxManager.On("ValidateTransaction", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
 
+	// The dispatch loop reports it persisted a public transaction via DispatchedEvent.PublicTransaction, so
+	// entering State_Dispatched must count the transaction against the dispatch-ahead limit.
 	err := txn.HandleEvent(ctx, &DispatchedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
+		PublicTransaction:    true,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_Dispatched, txn.GetCurrentState())
