@@ -27,7 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
-	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
+	"github.com/hyperledger-firefly/signer/pkg/ethsigner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -25,7 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"gorm.io/gorm/clause"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"

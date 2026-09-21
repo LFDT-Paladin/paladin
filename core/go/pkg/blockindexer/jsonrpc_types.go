@@ -17,7 +17,7 @@
 package blockindexer
 
 import (
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 )
 
 type BlockInfoJSONRPC struct {
