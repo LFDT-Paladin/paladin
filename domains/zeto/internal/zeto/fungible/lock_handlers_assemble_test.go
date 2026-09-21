@@ -316,7 +316,7 @@ func TestCancelLockAssemble_DelegateIdentityResolvedToEth(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction: &prototk.TransactionSpecification{
-			From: "spender@node",
+			From:         "spender@node",
 			ContractInfo: &prototk.ContractInfo{ContractAddress: "0x1234567890123456789012345678901234567890"},
 		},
 		DomainConfig: &types.DomainInstanceConfig{
@@ -656,7 +656,7 @@ func TestSpendLockPrepare_PinnedOutputsPath(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "spender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "spender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{

@@ -71,7 +71,7 @@ func TestZetoFactoryLegacyDeploySelectors(t *testing.T) {
 
 // TestZetoFactoryABIServesBothFactoryVersions asserts the single wrapper covers every factoryVersion the plugin accepts.
 func TestZetoFactoryABIServesBothFactoryVersions(t *testing.T) {
-	for _, fv := range []types.ZetoPaladinFactoryVersion{types.ZetoPaladinFactoryV0, types.ZetoPaladinFactoryV1} {
+	for _, fv := range []types.ZetoReleaseGeneration{types.ZetoRelease_V0, types.ZetoRelease_V1} {
 		entry, err := pickZetoFactoryDeploy7Arg(zetoFactoryBuild.ABI)
 		require.NoError(t, err, "factoryVersion %d", fv)
 		require.NotNil(t, entry)

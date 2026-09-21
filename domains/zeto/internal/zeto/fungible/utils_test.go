@@ -59,10 +59,10 @@ func TestTrimZeroUtxos(t *testing.T) {
 func TestLockTransitionOutputCoinsForProof(t *testing.T) {
 	unlocked, _ := makeCoin(testCoinStateJSON(false))
 	locked, _ := makeCoin(testCoinStateJSON(true))
-	v1 := lockTransitionOutputCoinsForProof(types.ZetoFungibleV1ABI, []*types.ZetoCoin{unlocked}, []*types.ZetoCoin{locked})
+	v1 := lockTransitionOutputCoinsForProof(pldtypes.HexUint64(types.ZetoFungibleABI_V1), []*types.ZetoCoin{unlocked}, []*types.ZetoCoin{locked})
 	require.Len(t, v1, 2)
 	assert.True(t, v1[0].Locked)
-	v0 := lockTransitionOutputCoinsForProof(types.ZetoFungibleV0ABI, []*types.ZetoCoin{unlocked}, []*types.ZetoCoin{locked})
+	v0 := lockTransitionOutputCoinsForProof(pldtypes.HexUint64(types.ZetoFungibleABI_V0), []*types.ZetoCoin{unlocked}, []*types.ZetoCoin{locked})
 	require.Len(t, v0, 2)
 	assert.False(t, v0[0].Locked)
 }

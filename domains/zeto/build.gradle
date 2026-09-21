@@ -39,13 +39,15 @@ ext {
     toolsOut = "${projectDir}/tools"
 
     // Each zeto release version: wasm + test proving keys + contracts downloaded into tools/ (distinct archiveFile names),
-    // merged extract under ${zkpOut}/${zkpRoot}. First entry is primary (Paladin default circuits path).
+    // merged extract under ${zkpOut}/${zkpRoot}. Entry order carries no meaning; the roles below are selected by id.
     //
     // copyRenamedAbiArtifacts: LFDT-style artifacts layout → flattened *_V1 JSON under internal/zeto/abis and pkg/types/abis.
-    // Primary (hyperledger-labs v0.2.x) uses legacy paths; copySolidity reads those from the extracted tree (no renamed ABI task).
+    // The hyperledger-labs v0.2.x layout uses legacy snake_case paths; copySolidity reads those directly from the
+    // extracted tree (no renamed ABI task).
     zetoVersions = [
         [
             id                     : 'v0_2_2',
+            generation             : 0,
             zkpRoot                : 'v0.2.2',
             wasmUrl                : 'https://github.com/LFDT-Paladin/zeto/releases/download/v0.2.2/zeto-wasm-v0.2.2.tar.gz',
             wasmFile               : 'zeto-wasm-v0.2.2.tar.gz',
@@ -57,6 +59,7 @@ ext {
         ],
         [
             id                     : 'v0_5_1',
+            generation             : 1,
             zkpRoot                : 'v0.5.1',
             wasmUrl                : 'https://github.com/LFDT-Paladin/zeto/releases/download/v0.5.1/zeto-wasm.tar.gz',
             wasmFile               : 'zeto-wasm-v0.5.1-lfdt.tar.gz',
@@ -69,11 +72,36 @@ ext {
         ],
     ]
 
-    zetoPrimaryVersionId = zetoVersions[0].id
-    zetoPrimaryZkpRoot = zetoVersions[0].zkpRoot
+    // generation is the Paladin-side ZetoReleaseGeneration ordinal for this release. It is the Gradle half of the
+    // mapping documented in domains/zeto/pkg/types/versions.go (V0 -> ~v0.2.x, V1 -> ~v0.5.x) and names the artifact
+    // subdirectory the prover reads from, so the two must be kept in step.
+    zetoVersionById = { String id ->
+        def v = zetoVersions.find { it.id == id }
+        if (v == null) {
+            throw new GradleException("no zetoVersions entry with id '${id}'")
+        }
+        return v
+    }
+
+    // The primary (default) zeto release. Its extracted zkp tree supplies the proving keys / wasm circuits baked into
+    // the Paladin base image (root build.gradle copyZetoZKPFiles), SampleERC20 for the examples and the integration
+    // tests, and zetoPrimaryArtifacts.
+    zetoPrimaryVersionId = 'v0_5_1'
+    zetoPrimaryZkpRoot = zetoVersionById(zetoPrimaryVersionId).zkpRoot
     // Same as zetoPrimaryZkpRoot; kept for root build.gradle / examples that key paths by release tag.
-    zetoVersion = zetoPrimaryZkpRoot // sync with domains/integration-test/helpers/zeto_zkp_versions.go ZetoZKArtifactRootLatest when running integration tests
-    zkpVersionRoot = "${zkpOut}/${zetoPrimaryZkpRoot}"
+    zetoVersion = zetoPrimaryZkpRoot
+
+    // Source of the V0 internal/zeto/abis/IZeto*_V0.json target-core ABIs (the release-generation axis in
+    // domains/zeto/pkg/types/versions.go). Pinned independently of the primary version and NOT movable to v0.5.x:
+    //  - these describe the ~v0.2.x on-chain generation, and pools already deployed from it emit those event shapes;
+    //  - v0.5.x renamed or removed the artifacts copySolidity reads (izeto_lockable.sol and the *_initializable.sol
+    //    interfaces no longer exist), so the v0.5.x equivalents are copied separately as *_V1 by copyZetoSolidityAbi_*.
+    // zetoGenerationDirName maps a variant id to its per-generation artifact directory ("V0", "V1"), matching
+    // ZetoReleaseGeneration.ArtifactDirName() in Go.
+    zetoGenerationDirName = { String id -> "V${zetoVersionById(id).generation}" }
+
+    zetoTargetAbiV0VersionId = 'v0_2_2'
+    zetoTargetAbiV0Root = "${zkpOut}/${zetoVersionById(zetoTargetAbiV0VersionId).zkpRoot}"
 
     // Consumable configuration name for a release tree under zkp/<zkpRoot>/ (e.g. zetoArtifacts_v0_2_2).
     zetoArtifactConfigurationName = { String zkpRoot -> "zetoArtifacts_${zkpRoot.replace('.', '_')}" }
@@ -207,22 +235,34 @@ task extractZetoPrimaryZkp {
     dependsOn tasks.getByName("extractZetoZkp_${zetoPrimaryVersionId}")
 }
 
-task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", extractZetoPrimaryZkp]) {
+// The target-core interface ABIs below are the V0 generation, so this reads the zetoTargetAbiV0VersionId tree rather
+// than the primary one — see the ext block for why the two are pinned separately.
+task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", "extractZetoZkp_${zetoTargetAbiV0VersionId}"]) {
     inputs.files(configurations.contractCompile)
     from fileTree(configurations.contractCompile.asPath) {
         include 'contracts/domains/zeto/ZetoFactory_V0.sol/ZetoFactory_V0.json'
     }
-    from fileTree("${zkpVersionRoot}/artifacts/contracts") {
+    from fileTree("${zetoTargetAbiV0Root}/artifacts/contracts") {
         include 'lib/interfaces/izeto.sol/IZeto.json'
         include 'lib/interfaces/izeto_kyc.sol/IZetoKyc.json'
         include 'lib/interfaces/izeto_lockable.sol/IZetoLockable.json'
-        include 'lib/interfaces/zeto_fungible_initializable.sol/IZetoFungibleInitializable.json'
-        include 'lib/interfaces/zeto_nf_initializable.sol/IZetoNonFungibleInitializable.json'
     }
     into 'internal/zeto/abis'
 
-    // Flatten all paths into the destination folder
-    eachFile { path = name }
+    // Flatten, and stamp the generation onto the upstream target-core ABIs. Upstream file names carry no generation,
+    // so the suffix is added here; IZetoLockable is the V0 spelling of the role that v0.5.x renamed to
+    // ILockableCapability, and copyZetoSolidityAbi_* maps that one onto IZetoLockable_V1.json.
+    eachFile { details ->
+        switch (details.name) {
+            case 'IZeto.json':
+            case 'IZetoKyc.json':
+            case 'IZetoLockable.json':
+                details.relativePath = new RelativePath(true, details.name.replace('.json', '_V0.json'))
+                break
+            default:
+                details.relativePath = new RelativePath(true, details.name)
+        }
+    }
     includeEmptyDirs = false
 }
 
@@ -261,10 +301,10 @@ zetoVersions.findAll { it.copyRenamedAbiArtifacts }.each { variant ->
                     details.relativePath = new RelativePath(true, "IZetoKyc${suf}.json")
                     break
                 case 'IZetoLockable.json':
-                    details.relativePath = new RelativePath(true, "IZetoLockable${suf}.json")
-                    break
                 case 'IZetoLockableCapability.json':
-                    details.relativePath = new RelativePath(true, "IZetoLockableCapability${suf}.json")
+                    // Both spellings of the same role across releases collapse onto one Paladin-side name so that
+                    // IZetoLockable_V0.json / IZetoLockable_V1.json form a matching pair.
+                    details.relativePath = new RelativePath(true, "IZetoLockable${suf}.json")
                     break
                 default:
                     throw new GradleException("Unexpected file in zeto Solidity ABI copy: ${details.name}")
@@ -288,7 +328,7 @@ task copyPkgSolidity(type: Copy) {
     from fileTree(configurations.contractCompile.asPath) {
         include 'contracts/domains/interfaces/IZetoFungible_V0.sol/IZetoFungible_V0.json'
         include 'contracts/domains/interfaces/IZetoFungible_V1.sol/IZetoFungible_V1.json'
-        include 'contracts/domains/interfaces/IZetoNonFungible.sol/IZetoNonFungible.json'
+        include 'contracts/domains/interfaces/IZetoNonFungible_V0.sol/IZetoNonFungible_V0.json'
     }
 
     // Flatten all paths into the destination folder

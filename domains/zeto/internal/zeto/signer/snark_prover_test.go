@@ -119,7 +119,7 @@ func TestConcurrentSnarkProofGeneration(t *testing.T) {
 	totalProvingRequestCount := 0
 	peakProverCountMutex := &sync.Mutex{}
 
-	testCircuitLoader := func(ctx context.Context, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		circuitLoadedTotalMutex.Lock()
 		defer circuitLoadedTotalMutex.Unlock()
 		circuitLoadedTotal++
@@ -303,7 +303,7 @@ func TestSnarkProveErrorLoadcircuits(t *testing.T) {
 	prover, err := newSnarkProver(config)
 	require.NoError(t, err)
 
-	testCircuitLoader := func(ctx context.Context, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		return nil, nil, fmt.Errorf("bang!")
 	}
 	prover.circuitLoader = testCircuitLoader
@@ -364,7 +364,7 @@ func TestSnarkProveErrorGenerateProof(t *testing.T) {
 	prover, err := newSnarkProver(config)
 	require.NoError(t, err)
 
-	testCircuitLoader := func(ctx context.Context, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		return &testWitnessCalculator{}, []byte("proving key"), nil
 	}
 	prover.circuitLoader = testCircuitLoader
@@ -421,7 +421,7 @@ func TestSnarkProveErrorGenerateProof2(t *testing.T) {
 	prover, err := newSnarkProver(config)
 	require.NoError(t, err)
 
-	testCircuitLoader := func(ctx context.Context, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		return &testWitnessCalculator{}, []byte("proving key"), nil
 	}
 	prover.circuitLoader = testCircuitLoader

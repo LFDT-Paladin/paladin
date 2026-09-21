@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"strings"
 	"testing"
 
@@ -38,21 +39,21 @@ func TestCheckStateCompletion(t *testing.T) {
 
 func balanceOfCallTxSpec(t *testing.T) *prototk.TransactionSpecification {
 	t.Helper()
-	fnABI := types.ZetoFungibleFunctionForVariant(types.ZetoFungibleV0ABI, types.METHOD_BALANCE_OF)
+	fnABI := types.ZetoFungibleFunctionForVariant(pldtypes.HexUint64(types.ZetoFungibleABI_V0), types.METHOD_BALANCE_OF)
 	require.NotNil(t, fnABI)
 	fnJSON, err := json.Marshal(fnABI)
 	require.NoError(t, err)
-	domainConfig := &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, ZetoVariant: types.ZetoFungibleV0ABI}
+	domainConfig := &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)}
 	dcJSON, err := json.Marshal(domainConfig)
 	require.NoError(t, err)
 	paramsJSON, err := json.Marshal(&types.FungibleBalanceOfParam{Account: "alice@node"})
 	require.NoError(t, err)
 	return &prototk.TransactionSpecification{
 		TransactionId:      "0x" + strings.Repeat("aa", 32),
-		From:                 "bob@node",
-		FunctionAbiJson:      string(fnJSON),
-		FunctionSignature:    fnABI.SolString(),
-		FunctionParamsJson:   string(paramsJSON),
+		From:               "bob@node",
+		FunctionAbiJson:    string(fnJSON),
+		FunctionSignature:  fnABI.SolString(),
+		FunctionParamsJson: string(paramsJSON),
 		ContractInfo: &prototk.ContractInfo{
 			ContractAddress:    "0x1234567890123456789012345678901234567890",
 			ContractConfigJson: string(dcJSON),

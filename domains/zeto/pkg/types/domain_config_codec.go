@@ -61,6 +61,9 @@ func decodeDomainInstanceConfigV0(ctx context.Context, domainConfig []byte) (*Do
 		return nil, err
 	}
 	cfg.ConfigSchema = DomainConfigSchemaV0
+	// Legacy configs predate the release-generation axis, so they are V0 by definition.
+	cfg.ReleaseGeneration = ZetoRelease_V0
+	cfg.stampCircuitGeneration()
 	return &cfg, nil
 }
 
@@ -78,14 +81,23 @@ func decodeDomainInstanceConfigV1(ctx context.Context, payload []byte) (*DomainI
 		return nil, err
 	}
 	cfg := &DomainInstanceConfig{
-		ConfigSchema:    DomainConfigSchemaV1,
-		TokenName:       wire.TokenName,
-		Circuits:        wire.Circuits,
-		ZetoVariant:     wire.ZetoVariant,
-		FactoryVersion:  int64(wire.FactoryVersion),
-		CircuitBundleId: wire.CircuitBundleId,
+		ConfigSchema:      DomainConfigSchemaV1,
+		TokenName:         wire.TokenName,
+		Circuits:          wire.Circuits,
+		ZetoVariant:       wire.ZetoVariant,
+		ReleaseGeneration: ZetoReleaseGeneration(wire.FactoryVersion),
+		CircuitBundleId:   wire.CircuitBundleId,
 	}
+	cfg.stampCircuitGeneration()
 	return cfg, nil
+}
+
+// stampCircuitGeneration propagates the pool's release generation onto its circuits, so the prover resolves .wasm and
+// .zkey from that generation's artifact tree rather than whichever tree happens to be mounted flat.
+func (c *DomainInstanceConfig) stampCircuitGeneration() {
+	if c.Circuits != nil {
+		c.Circuits.StampGeneration(uint64(c.ReleaseGeneration))
+	}
 }
 
 // EncodeDomainInstanceConfigV0 encodes legacy registration bytes (no prefix).
@@ -109,7 +121,7 @@ func EncodeDomainInstanceConfigV1(ctx context.Context, cfg *DomainInstanceConfig
 	wire := domainInstanceConfigV1Wire{
 		TokenName:       cfg.TokenName,
 		ZetoVariant:     cfg.ZetoVariant,
-		FactoryVersion:  pldtypes.HexUint64(cfg.FactoryVersion),
+		FactoryVersion:  pldtypes.HexUint64(cfg.ReleaseGeneration),
 		CircuitBundleId: cfg.CircuitBundleId,
 		Circuits:        cfg.Circuits,
 	}

@@ -132,8 +132,8 @@ func DeployZetoFungibleV1(ctx context.Context, t *testing.T, rpc rpcclient.Clien
 		Name:               "Test Zeto",
 		Symbol:             "ZETO",
 		DomainConfigSchema: types.DomainConfigSchemaV1,
-		ZetoVariant:        uint64(types.ZetoFungibleV1ABI),
-		FactoryVersion:     int64(types.ZetoPaladinFactoryV1),
+		ZetoVariant:        uint64(types.ZetoFungibleABI_V1),
+		ReleaseGeneration:  types.ZetoRelease_V1,
 	}
 	rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deploy", domainName, controllerName, init)
 	if rpcerr != nil {
@@ -312,7 +312,7 @@ func ComputeZetoFungibleV1LockID(pool *pldtypes.EthAddress, publicCreateLockMsgS
 // from is the Paladin identity that signs the private leg; to is the spend recipient pinned in lock info (Recipients[].To).
 // unlockData is application-specific opaque bytes stored on lock info and passed through to on-chain outer data.
 func (z *ZetoHelperFungible) CreateLock(ctx context.Context, from, to string, amount int, unlockData pldtypes.HexBytes) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABI_V1.Functions()[types.METHOD_CREATE_LOCK]
+	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V1).Functions()[types.METHOD_CREATE_LOCK]
 	emptyData := pldtypes.HexBytes{}
 	if unlockData == nil {
 		unlockData = emptyData
@@ -368,7 +368,7 @@ func (z *ZetoHelperFungible) PrepareCancelLock(ctx context.Context, tb testbed.T
 }
 
 func (z *ZetoHelperFungible) cancelLockDomainTransaction(ctx context.Context, req *CancelLockRequest) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABI_V1.Functions()[types.METHOD_CANCEL_LOCK]
+	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V1).Functions()[types.METHOD_CANCEL_LOCK]
 	emptyData := pldtypes.HexBytes{}
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.CancelLockParams{
 		LockId: req.LockId,
@@ -378,7 +378,7 @@ func (z *ZetoHelperFungible) cancelLockDomainTransaction(ctx context.Context, re
 }
 
 func (z *ZetoHelperFungible) spendLockDomainTransaction(ctx context.Context, req *SpendLockRequest) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABI_V1.Functions()[types.METHOD_SPEND_LOCK]
+	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V1).Functions()[types.METHOD_SPEND_LOCK]
 	emptyData := pldtypes.HexBytes{}
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.SpendLockParams{
 		LockId: req.LockId,
@@ -421,7 +421,7 @@ func (z *ZetoHelperFungible) Mint(ctx context.Context, to string, amounts []uint
 			Amount: pldtypes.Uint64ToUint256(amount),
 		}
 	}
-	fn := types.ZetoFungibleABI.Functions()["mint"]
+	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["mint"]
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.FungibleMintParams{
 		Mints: entries,
 	}))
@@ -435,21 +435,21 @@ func (z *ZetoHelperFungible) Transfer(ctx context.Context, to []string, amounts 
 			Amount: pldtypes.Uint64ToUint256(amount),
 		}
 	}
-	fn := types.ZetoFungibleABI.Functions()["transfer"]
+	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["transfer"]
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.FungibleTransferParams{
 		Transfers: entries,
 	}))
 }
 
 func (z *ZetoHelperFungible) BalanceOf(ctx context.Context, account string) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABI.Functions()["balanceOf"]
+	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["balanceOf"]
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.FungibleBalanceOfParam{
 		Account: account,
 	}))
 }
 
 func (z *ZetoHelper) TransferLocked(ctx context.Context, lockedUtxo *pldtypes.HexUint256, delegate, to string, amount uint64) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABI.Functions()["transferLocked"]
+	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["transferLocked"]
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.FungibleTransferLockedParams{
 		LockedInputs: []*pldtypes.HexUint256{lockedUtxo},
 		Delegate:     delegate,
@@ -491,7 +491,7 @@ func (z *ZetoHelper) SendSpendLock(ctx context.Context, tb testbed.Testbed, send
 }
 
 func (z *ZetoHelper) Lock(ctx context.Context, delegate *pldtypes.EthAddress, amount int) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABI.Functions()["lock"]
+	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["lock"]
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.LockParams{
 		Delegate: delegate,
 		Amount:   pldtypes.Uint64ToUint256(uint64(amount)),
@@ -584,7 +584,7 @@ func (z *ZetoHelper) Deposit(ctx context.Context, amount int64) *DomainTransacti
 	params := &types.DepositParams{
 		Amount: pldtypes.Int64ToInt256(amount),
 	}
-	fn := types.ZetoFungibleABI.Functions()["deposit"]
+	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["deposit"]
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &params))
 }
 
@@ -592,7 +592,7 @@ func (z *ZetoHelper) Withdraw(ctx context.Context, amount int64) *DomainTransact
 	params := &types.WithdrawParams{
 		Amount: pldtypes.Int64ToInt256(amount),
 	}
-	fn := types.ZetoFungibleABI.Functions()["withdraw"]
+	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["withdraw"]
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &params))
 }
 
@@ -655,14 +655,14 @@ func (n *ZetoHelperNonFungible) Mint(ctx context.Context, to, uri []string) *Dom
 			URI: u,
 		}
 	}
-	fn := types.ZetoNonFungibleABI.Functions()["mint"]
+	fn := types.ZetoNonFungibleABI_V0.Functions()["mint"]
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, &types.NonFungibleMintParams{
 		Mints: entries,
 	}))
 }
 
 func (n *ZetoHelperNonFungible) Transfer(ctx context.Context, to string, tokenID *pldtypes.HexUint256) *DomainTransactionHelper {
-	fn := types.ZetoNonFungibleABI.Functions()["transfer"]
+	fn := types.ZetoNonFungibleABI_V0.Functions()["transfer"]
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, &types.NonFungibleTransferParams{
 		Transfers: []*types.NonFungibleTransferParamEntry{
 			{

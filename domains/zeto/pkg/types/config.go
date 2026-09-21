@@ -34,20 +34,15 @@ const (
 	DomainConfigSchemaV1 = "v1"
 )
 
-// ZetoVariantV0 / ZetoVariantV1 are legacy names for the on-chain zetoVariant field; see ZetoFungibleABIVersion (axis 1 in versions.go).
-var (
-	ZetoVariantV0 = ZetoFungibleV0ABI
-	ZetoVariantV1 = ZetoFungibleV1ABI
-)
-
 // DomainFactoryConfig is the configuration for a Zeto domain
 // to provision new domain instances based on a factory contract
 // and avalable implementation contracts
 type DomainFactoryConfig struct {
 	DomainContracts DomainConfigContracts           `json:"domainContracts"`
 	SnarkProver     zetosignerapi.SnarkProverConfig `json:"snarkProver"`
-	// FactoryVersion selects ZetoPaladinFactoryVersion (zeto-contracts ~v0.2.x vs ~v0.5.x factory generation); see versions.go.
-	FactoryVersion int64 `json:"factoryVersion,omitempty"`
+	// ReleaseGeneration selects the upstream zeto-contracts generation this domain deploys against; see versions.go.
+	// The wire/JSON name stays "factoryVersion": the axis was introduced under that name and configs carry it.
+	ReleaseGeneration ZetoReleaseGeneration `json:"factoryVersion,omitempty"`
 }
 
 type DomainConfigContracts struct {
@@ -138,10 +133,12 @@ type DomainInstanceConfig struct {
 	Circuits  *zetosignerapi.Circuits `json:"circuits"`
 	// ConfigSchema is "v0" (legacy ABI-only bytes) or "v1" (prefixed encoding); set when decoding on-chain config.
 	ConfigSchema string `json:"configSchema,omitempty"`
-	// ZetoVariant is ZetoFungibleABIVersion (Paladin IZetoFungible_V*.json axis); see versions.go.
+	// ZetoVariant is ZetoFungibleABIVersion (Paladin IZetoFungible_V*.json axis); see versions.go. Kept as the raw
+	// persisted numeric type at the wire boundary; convert with FungibleABIVersion() before dispatching on it.
 	ZetoVariant pldtypes.HexUint64 `json:"zetoVariant,omitempty"`
-	// FactoryVersion is ZetoPaladinFactoryVersion at deploy; see versions.go.
-	FactoryVersion int64 `json:"factoryVersion,omitempty"`
+	// ReleaseGeneration is the upstream zeto-contracts generation recorded at deploy; see versions.go. It selects the
+	// target-core event ABIs, the factory generation, and the proving-artifact tree. Wire name stays "factoryVersion".
+	ReleaseGeneration ZetoReleaseGeneration `json:"factoryVersion,omitempty"`
 	// CircuitBundleId references DomainContract.BundleID when circuits are resolved by opaque id.
 	CircuitBundleId string `json:"circuitBundleId,omitempty"`
 }

@@ -91,7 +91,7 @@ func TestSpendLockPrepare_V1EncodesZetoSpendLockArgs(t *testing.T) {
 		},
 		DomainConfig: &types.DomainInstanceConfig{
 			TokenName:   "Zeto_AnonNullifier",
-			ZetoVariant: types.ZetoFungibleV1ABI,
+			ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1),
 			Circuits: &zetosignerapi.Circuits{
 				// v0.5 Zeto_AnonNullifier: lock spend uses the plain "anon" circuit + Groth16Verifier_Anon (see zeto ignition zeto_anon_nullifier).
 				"transferLocked": {Name: "anon", UsesNullifiers: false},
@@ -299,13 +299,13 @@ func TestSpendLockPrepare_V0UsesDiscreteProofParams(t *testing.T) {
 		Transaction: &prototk.TransactionSpecification{From: "sender@node"},
 		DomainConfig: &types.DomainInstanceConfig{
 			TokenName:   constants.TOKEN_ANON,
-			ZetoVariant: types.ZetoFungibleV0ABI,
+			ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0),
 		},
 		Params: &types.SpendLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("66", 32)},
-		InputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
+		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("66", 32)},
+		InputStates:  []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
 		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
 		AttestationResult: []*prototk.AttestationResult{{
 			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
@@ -350,12 +350,12 @@ func TestSpendLockPrepare_NullifierV0UsesPublicInputs(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: types.ZetoFungibleV0ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("44", 32)},
-		InputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
+		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("44", 32)},
+		InputStates:  []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
 		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
 		AttestationResult: []*prototk.AttestationResult{{
 			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
@@ -375,7 +375,7 @@ func TestSpendLockLoadLockInfoByLockID_NilSchema(t *testing.T) {
 	ctx := context.Background()
 	h := spendLockHandler{
 		baseHandler: baseHandler{
-			name: "zeto",
+			name:         "zeto",
 			stateSchemas: &common.StateSchemas{CoinSchema: &prototk.StateSchema{Id: "coin"}},
 		},
 	}

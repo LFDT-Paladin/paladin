@@ -2,11 +2,11 @@
 pragma solidity ^0.8.20;
 
 /**
- * @title IZetoNonFungible
+ * @title IZetoNonFungible_V0
  * @dev ABI for the Zeto domain transaction interface, specifically implemented in Go.
  *      Note: This interface is not intended for direct implementation in smart contracts.
  */
-interface IZetoNonFungible {
+interface IZetoNonFungible_V0 {
     struct MintParam {
         string to;
         string uri;

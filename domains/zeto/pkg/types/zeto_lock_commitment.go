@@ -16,12 +16,12 @@ import (
 
 // Domain tags match ZetoLockable._SPEND_HASH_DOMAIN / _CANCEL_HASH_DOMAIN in zeto_lockable.sol.
 var (
-	ZetoSpendCommitmentDomain = pldtypes.Bytes32Keccak([]byte("Zeto.spendCommitment.v1"))
+	ZetoSpendCommitmentDomain  = pldtypes.Bytes32Keccak([]byte("Zeto.spendCommitment.v1"))
 	ZetoCancelCommitmentDomain = pldtypes.Bytes32Keccak([]byte("Zeto.cancelCommitment.v1"))
 )
 
 var (
-	zetoUint256ArrayABI = abi.ParameterArray{{Type: "uint256[]"}}
+	zetoUint256ArrayABI    = abi.ParameterArray{{Type: "uint256[]"}}
 	zetoUnlockHashTupleABI = abi.ParameterArray{
 		{Type: "bytes32"},
 		{Type: "bytes32"},

@@ -164,7 +164,7 @@ func TestCreateLockPrepare_EncodesCreateArgs(t *testing.T) {
 		Transaction: &prototk.TransactionSpecification{From: "sender@node"},
 		DomainConfig: &types.DomainInstanceConfig{
 			TokenName:   "Zeto_AnonNullifier",
-			ZetoVariant: types.ZetoFungibleV1ABI,
+			ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1),
 		},
 		Params: &types.CreateLockParams{From: "sender@node", UnlockData: []byte{0x01}},
 	}
@@ -204,11 +204,11 @@ func TestCreateLockPrepare_BadOutputCoinJSON(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CreateLockParams{From: "sender@node", UnlockData: []byte{0x01}},
 	}
 	req := &prototk.PrepareTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("77", 32)},
+		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("77", 32)},
 		OutputStates: []*prototk.EndorsableState{{StateDataJson: "not-json"}},
 		AttestationResult: []*prototk.AttestationResult{{
 			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
@@ -235,7 +235,7 @@ func TestCreateLockPrepare_InvalidTxID(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CreateLockParams{From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -267,11 +267,11 @@ func TestCreateLockPrepare_MissingLockInfoOutput(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CreateLockParams{From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("55", 32)},
+		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("55", 32)},
 		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
 		AttestationResult: []*prototk.AttestationResult{{
 			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,

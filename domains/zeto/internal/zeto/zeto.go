@@ -55,7 +55,7 @@ var _ plugintk.DomainAPI = &Zeto{}
 // A single Paladin factory wrapper serves every supported factoryVersion. solidity/contracts/domains/zeto/ZetoFactory_V0.sol
 // is built against zeto-contracts 0.5.1, whose factory is selector- and behaviour-identical to 0.2.2's, so the same ABI
 // encodes valid calls against factories deployed from either generation — including legacy non-upgradeable deployments.
-// factoryVersion itself is still validated and recorded (see types.ZetoPaladinFactoryVersion): it is persisted on chain
+// factoryVersion itself is still validated and recorded (see types.ZetoReleaseGeneration): it is persisted on chain
 // in DomainInstanceConfig and selects the target token generation, not the wrapper ABI.
 //
 //go:embed factoryabis/ZetoFactory_V0.json
@@ -211,8 +211,8 @@ func (z *Zeto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 		return nil, i18n.NewError(ctx, msgs.MsgErrorMarshalZetoEventAbis, err)
 	}
 
-	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V0), &z.events)
-	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V1), &z.eventsV1)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoRelease_V0), &z.events)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoRelease_V1), &z.eventsV1)
 
 	var signingAlgos map[string]int32
 	if config.SnarkProver.CircuitsDir != "" {
@@ -276,19 +276,19 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 		return nil, i18n.NewError(ctx, msgs.MsgZetoV1SchemaRequired)
 	}
 
-	effectiveFV := z.config.FactoryVersion
-	if initParams.FactoryVersion != 0 {
-		if z.config.FactoryVersion != 0 && initParams.FactoryVersion != z.config.FactoryVersion {
-			return nil, i18n.NewError(ctx, msgs.MsgZetoFactoryVersionConflict, initParams.FactoryVersion, z.config.FactoryVersion)
+	// The release generation may come from the domain config or the deploy params; they must agree when both are set.
+	generation := z.config.ReleaseGeneration
+	if initParams.ReleaseGeneration != 0 {
+		if z.config.ReleaseGeneration != 0 && initParams.ReleaseGeneration != z.config.ReleaseGeneration {
+			return nil, i18n.NewError(ctx, msgs.MsgZetoReleaseGenerationConflict, initParams.ReleaseGeneration, z.config.ReleaseGeneration)
 		}
-		effectiveFV = initParams.FactoryVersion
+		generation = initParams.ReleaseGeneration
 	}
-	switch effectiveFV {
-	case int64(types.ZetoPaladinFactoryV0), int64(types.ZetoPaladinFactoryV1):
-		// both versions are served by the one consolidated ZetoFactory_V0 ABI
-	default:
-		return nil, i18n.NewError(ctx, msgs.MsgUnsupportedZetoFactoryVersion, effectiveFV)
+	if err := types.ValidateZetoReleaseGeneration(ctx, generation); err != nil {
+		return nil, err
 	}
+	// One consolidated ZetoFactory_V0 ABI serves every generation; the generation is recorded on chain because it
+	// selects the target-core event ABIs and the proving-artifact tree for this pool.
 	factoryABI := zetoFactoryBuild.ABI
 	deployFn, err := pickZetoFactoryDeploy7Arg(factoryABI)
 	if err != nil {
@@ -301,11 +301,11 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	}
 
 	config := &types.DomainInstanceConfig{
-		Circuits:        circuits,
-		TokenName:       initParams.TokenName,
-		ZetoVariant:     pldtypes.HexUint64(initParams.ZetoVariant),
-		FactoryVersion:  effectiveFV,
-		CircuitBundleId: initParams.CircuitBundleId,
+		Circuits:          circuits,
+		TokenName:         initParams.TokenName,
+		ZetoVariant:       pldtypes.HexUint64(initParams.ZetoVariant),
+		ReleaseGeneration: generation,
+		CircuitBundleId:   initParams.CircuitBundleId,
 	}
 
 	var encoded pldtypes.HexBytes
@@ -403,7 +403,7 @@ func (z *Zeto) PrepareTransaction(ctx context.Context, req *prototk.PrepareTrans
 }
 
 func (z *Zeto) GetHandler(method, tokenName string, zetoVariant pldtypes.HexUint64) types.DomainHandler {
-	fungibleV0 := zetoVariant == types.ZetoFungibleV0ABI
+	fungibleV0 := types.FungibleABIVersion(zetoVariant) == types.ZetoFungibleABI_V0
 	if common.IsNonFungibleToken(tokenName) {
 		switch method {
 		case types.METHOD_MINT:
@@ -504,7 +504,7 @@ func validateTransactionCommon[T any](
 
 	var fnEntry *abi.Entry
 	if common.IsNonFungibleToken(domainConfig.TokenName) {
-		fnEntry = types.ZetoNonFungibleABI.Functions()[functionABI.Name]
+		fnEntry = types.ZetoNonFungibleABI_V0.Functions()[functionABI.Name]
 	} else {
 		fnEntry = types.ZetoFungibleFunctionForVariant(domainConfig.ZetoVariant, functionABI.Name)
 	}

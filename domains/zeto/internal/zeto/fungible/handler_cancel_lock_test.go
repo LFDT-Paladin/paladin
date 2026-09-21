@@ -83,11 +83,11 @@ func TestCancelLockPrepare_EncodesCancelArgs(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("99", 32)},
+		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("99", 32)},
 		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
 		AttestationResult: []*prototk.AttestationResult{{
 			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
@@ -126,12 +126,12 @@ func TestCancelLockPrepare_V0DiscreteProofParams(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, ZetoVariant: types.ZetoFungibleV0ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("88", 32)},
-		InputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
+		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("88", 32)},
+		InputStates:  []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
 		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
 		AttestationResult: []*prototk.AttestationResult{{
 			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
@@ -175,7 +175,7 @@ func TestCancelLockPrepare_V1PinnedCancelOutputs(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -212,12 +212,12 @@ func TestCancelLockPrepare_NullifierTokenUsesPublicInputs(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: types.ZetoFungibleV0ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("bb", 32)},
-		InputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
+		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("bb", 32)},
+		InputStates:  []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
 		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
 		AttestationResult: []*prototk.AttestationResult{{
 			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,

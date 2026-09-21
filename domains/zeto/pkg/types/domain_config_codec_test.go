@@ -28,10 +28,10 @@ import (
 func testCircuits(t *testing.T) *zetosignerapi.Circuits {
 	t.Helper()
 	c := zetosignerapi.Circuits{
-		"deposit":         {Name: "d", Type: "deposit"},
-		"withdraw":        {Name: "w", Type: "withdraw"},
-		"transfer":        {Name: "tr", Type: "transfer"},
-		"transferLocked":  {Name: "tl", Type: "transferLocked"},
+		"deposit":        {Name: "d", Type: "deposit"},
+		"withdraw":       {Name: "w", Type: "withdraw"},
+		"transfer":       {Name: "tr", Type: "transfer"},
+		"transferLocked": {Name: "tl", Type: "transferLocked"},
 	}
 	return &c
 }
@@ -57,11 +57,11 @@ func TestEncodeDecodeDomainInstanceConfigV0(t *testing.T) {
 func TestEncodeDecodeDomainInstanceConfigV1(t *testing.T) {
 	ctx := context.Background()
 	cfg := &DomainInstanceConfig{
-		TokenName:       "anon_nullifier",
-		Circuits:        testCircuits(t),
-		ZetoVariant:     7,
-		FactoryVersion:  2,
-		CircuitBundleId: "bundle-a",
+		TokenName:         "anon_nullifier",
+		Circuits:          testCircuits(t),
+		ZetoVariant:       7,
+		ReleaseGeneration: 1,
+		CircuitBundleId:   "bundle-a",
 	}
 	encoded, err := EncodeDomainInstanceConfigV1(ctx, cfg)
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestEncodeDecodeDomainInstanceConfigV1(t *testing.T) {
 	assert.Equal(t, DomainConfigSchemaV1, decoded.ConfigSchema)
 	assert.Equal(t, "anon_nullifier", decoded.TokenName)
 	assert.Equal(t, pldtypes.HexUint64(7), decoded.ZetoVariant)
-	assert.Equal(t, int64(2), decoded.FactoryVersion)
+	assert.Equal(t, ZetoRelease_V1, decoded.ReleaseGeneration)
 	assert.Equal(t, "bundle-a", decoded.CircuitBundleId)
 	require.NotNil(t, decoded.Circuits)
 	assert.Equal(t, "tr", (*decoded.Circuits)["transfer"].Name)
@@ -125,4 +125,43 @@ func TestGetCircuitsForDeploy_DuplicateBundleID(t *testing.T) {
 	}
 	_, err := d.GetCircuitsForDeploy(ctx, "", 0, "dup")
 	require.Error(t, err)
+}
+
+// The prover selects its artifact tree from the circuit's generation, so decoding must stamp the pool's generation
+// onto every circuit. Without this a V1 pool would silently prove against V0 artifacts.
+func TestDecodeStampsCircuitGeneration(t *testing.T) {
+	ctx := context.Background()
+	cfg := &DomainInstanceConfig{
+		TokenName:         "anon_nullifier",
+		Circuits:          testCircuits(t),
+		ReleaseGeneration: ZetoRelease_V1,
+	}
+	encoded, err := EncodeDomainInstanceConfigV1(ctx, cfg)
+	require.NoError(t, err)
+
+	decoded, err := DecodeDomainInstanceConfig(ctx, encoded)
+	require.NoError(t, err)
+	assert.Equal(t, ZetoRelease_V1, decoded.ReleaseGeneration)
+	require.NotNil(t, decoded.Circuits)
+	for name, circuit := range *decoded.Circuits {
+		assert.Equal(t, uint64(ZetoRelease_V1), circuit.Generation, "circuit %s not stamped", name)
+	}
+}
+
+// Legacy (v0-schema) registration bytes predate the axis, so they decode as generation V0 and their circuits are
+// stamped accordingly rather than left at an ambiguous zero-with-no-meaning.
+func TestDecodeLegacyConfigStampsGenerationV0(t *testing.T) {
+	ctx := context.Background()
+	cfg := &DomainInstanceConfig{TokenName: "anon", Circuits: testCircuits(t)}
+	encoded, err := EncodeDomainInstanceConfigV0(ctx, cfg)
+	require.NoError(t, err)
+
+	decoded, err := DecodeDomainInstanceConfig(ctx, encoded)
+	require.NoError(t, err)
+	assert.Equal(t, DomainConfigSchemaV0, decoded.ConfigSchema)
+	assert.Equal(t, ZetoRelease_V0, decoded.ReleaseGeneration)
+	require.NotNil(t, decoded.Circuits)
+	for _, circuit := range *decoded.Circuits {
+		assert.Equal(t, uint64(ZetoRelease_V0), circuit.Generation)
+	}
 }

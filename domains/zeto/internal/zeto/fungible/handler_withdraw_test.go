@@ -339,7 +339,7 @@ func TestWithdrawPrepare_V1PackedProofCalldata(t *testing.T) {
 	tx := &types.ParsedTransaction{
 		Params:       pldtypes.MustParseHexUint256("100"),
 		Transaction:  txSpec,
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 	}
 	proofReq := corepb.ProvingResponse{
 		Proof: &corepb.SnarkProof{

@@ -55,7 +55,7 @@ type snarkProver struct {
 	workerPerCircuit              int
 	circuitsWorkerIndexChanRWLock sync.RWMutex
 	circuitsWorkerIndexChan       map[string]chan *int
-	circuitLoader                 func(ctx context.Context, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error)
+	circuitLoader                 func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error)
 	proofGenerator                func(ctx context.Context, witness []byte, provingKey []byte) (*types.ZKProof, error)
 }
 
@@ -136,16 +136,20 @@ func (sp *snarkProver) Sign(ctx context.Context, algorithm, payloadType string, 
 	// obtain a slot for the proof generation for this specific circuit
 	// check whether this is a controlling channel
 	sp.circuitsWorkerIndexChanRWLock.RLock()
+	// Circuit names are not unique across release generations, so every cache and worker-pool key is scoped by the
+	// pool's generation. Without this a V1 pool could be served a V0 proving key that happens to share a name.
+	generation := inputs.Circuit.GetGeneration()
 	circuitId := circuit.Name
-	ccChan, chanelFound := sp.circuitsWorkerIndexChan[circuitId]
+	circuitKey := fmt.Sprintf("%s/%s", generationDirName(generation), circuitId)
+	ccChan, chanelFound := sp.circuitsWorkerIndexChan[circuitKey]
 	sp.circuitsWorkerIndexChanRWLock.RUnlock()
 	if !chanelFound {
 		// if not found, obtain the W&R lock and check again before initializing
 		sp.circuitsWorkerIndexChanRWLock.Lock()
-		ccChan, chanelFound = sp.circuitsWorkerIndexChan[circuitId]
+		ccChan, chanelFound = sp.circuitsWorkerIndexChan[circuitKey]
 		if !chanelFound {
 			ccChan = make(chan *int, sp.workerPerCircuit) // init token channel
-			sp.circuitsWorkerIndexChan[circuitId] = ccChan
+			sp.circuitsWorkerIndexChan[circuitKey] = ccChan
 			for i := 0; i < sp.workerPerCircuit; i++ {
 				ccChan <- confutil.P(i) // add all tokens
 			}
@@ -164,7 +168,7 @@ func (sp *snarkProver) Sign(ctx context.Context, algorithm, payloadType string, 
 		return nil, errors.New("context cancelled")
 	}
 
-	workerID := fmt.Sprintf("%s-%d", circuitId, workerIndex)
+	workerID := fmt.Sprintf("%s-%d", circuitKey, workerIndex)
 	// Perform proof generation
 	// Read lock to check the cache
 	sp.proverCacheRWLock.RLock()
@@ -179,7 +183,7 @@ func (sp *snarkProver) Sign(ctx context.Context, algorithm, payloadType string, 
 		if witnessCalculator == nil || provingKey == nil {
 			// the generated WASM instance can only generate one proof at a time, circuitsWorkerIndexChan is used to ensure only 1 proof request
 			// is served per WASM instance at any given time
-			c, p, err := sp.circuitLoader(ctx, circuitId, sp.zkpProverConfig)
+			c, p, err := sp.circuitLoader(ctx, generation, circuitId, sp.zkpProverConfig)
 			if err != nil {
 				return nil, err
 			}

@@ -465,7 +465,7 @@ func trimZeroUtxos(utxos []string) []string {
 // lockTransitionOutputCoinsForProof orders change (unlocked) and locked mint outputs to match the on-chain vector passed
 // to verifyProof after concatenating lock() / createLock args (see types.LockTransitionVerifierOutputOrderLockedFirst).
 func lockTransitionOutputCoinsForProof(zetoVariant pldtypes.HexUint64, unlockedChange, locked []*types.ZetoCoin) []*types.ZetoCoin {
-	if types.LockTransitionVerifierOutputOrderLockedFirst(zetoVariant) {
+	if types.LockTransitionVerifierOutputOrderLockedFirst(types.FungibleABIVersion(zetoVariant)) {
 		return slices.Concat(locked, unlockedChange)
 	}
 	return slices.Concat(unlockedChange, locked)

@@ -285,7 +285,7 @@ func TestPrepareDeploy_V1Schema(t *testing.T) {
 	}
 	z := New(testCallbacks)
 	z.config = &types.DomainFactoryConfig{
-		FactoryVersion: int64(types.ZetoPaladinFactoryV1),
+		ReleaseGeneration: types.ZetoRelease_V1,
 		DomainContracts: types.DomainConfigContracts{
 			Implementations: []*types.DomainContract{{Name: constants.TOKEN_ANON, Circuits: circuits}},
 		},
@@ -295,7 +295,7 @@ func TestPrepareDeploy_V1Schema(t *testing.T) {
 			TransactionId: "0x1234",
 			ConstructorParamsJson: fmt.Sprintf(
 				`{"tokenName":"%s","domainConfigSchema":"v1","zetoVariant":%d}`,
-				constants.TOKEN_ANON, types.ZetoFungibleV1ABI.Uint64(),
+				constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1).Uint64(),
 			),
 		},
 		ResolvedVerifiers: []*pb.ResolvedVerifier{{Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019"}},
@@ -313,9 +313,9 @@ func TestPrepareDeployFactoryVersionErrors(t *testing.T) {
 		"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
 		"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
 	}
-	factoryCfg := func(factoryVersion int64) *types.DomainFactoryConfig {
+	factoryCfg := func(generation types.ZetoReleaseGeneration) *types.DomainFactoryConfig {
 		return &types.DomainFactoryConfig{
-			FactoryVersion: factoryVersion,
+			ReleaseGeneration: generation,
 			DomainContracts: types.DomainConfigContracts{
 				Implementations: []*types.DomainContract{
 					{Name: constants.TOKEN_ANON, Circuits: circuits},
@@ -601,8 +601,8 @@ func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	z.dataSchema = &pb.StateSchema{
 		Id: "data",
 	}
-	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V0), &z.events)
-	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V1), &z.eventsV1)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoRelease_V0), &z.events)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoRelease_V1), &z.eventsV1)
 	return z, testCallbacks
 }
 
@@ -971,26 +971,26 @@ func TestGetHandler(t *testing.T) {
 		expectedNil bool
 	}{
 		// Tests for TOKEN_ANON
-		{"Valid mint handler for TOKEN_ANON", "mint", constants.TOKEN_ANON, types.ZetoVariantV0, false},
-		{"Valid transfer handler for TOKEN_ANON", "transfer", constants.TOKEN_ANON, types.ZetoVariantV0, false},
-		{"Valid transferLocked handler for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, types.ZetoVariantV0, false},
-		{"Valid lock handler for TOKEN_ANON", "lock", constants.TOKEN_ANON, types.ZetoVariantV0, false},
-		{"Valid deposit handler for TOKEN_ANON", "deposit", constants.TOKEN_ANON, types.ZetoVariantV0, false},
-		{"Valid withdraw handler for TOKEN_ANON", "withdraw", constants.TOKEN_ANON, types.ZetoVariantV0, false},
-		{"Invalid handler for TOKEN_ANON", "bad", constants.TOKEN_ANON, types.ZetoVariantV0, true},
-		{"V1 createLock handler for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
-		{"V1 spendLock handler for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
-		{"V1 cancelLock handler for TOKEN_ANON", types.METHOD_CANCEL_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
-		{"V0 createLock nil for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
-		{"V0 spendLock nil for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
-		{"V0 cancelLock nil for TOKEN_ANON", types.METHOD_CANCEL_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
-		{"V1 lock nil for TOKEN_ANON", "lock", constants.TOKEN_ANON, types.ZetoVariantV1, true},
-		{"V1 transferLocked nil for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, types.ZetoVariantV1, true},
+		{"Valid mint handler for TOKEN_ANON", "mint", constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), false},
+		{"Valid transfer handler for TOKEN_ANON", "transfer", constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), false},
+		{"Valid transferLocked handler for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), false},
+		{"Valid lock handler for TOKEN_ANON", "lock", constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), false},
+		{"Valid deposit handler for TOKEN_ANON", "deposit", constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), false},
+		{"Valid withdraw handler for TOKEN_ANON", "withdraw", constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), false},
+		{"Invalid handler for TOKEN_ANON", "bad", constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), true},
+		{"V1 createLock handler for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1), false},
+		{"V1 spendLock handler for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1), false},
+		{"V1 cancelLock handler for TOKEN_ANON", types.METHOD_CANCEL_LOCK, constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1), false},
+		{"V0 createLock nil for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), true},
+		{"V0 spendLock nil for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), true},
+		{"V0 cancelLock nil for TOKEN_ANON", types.METHOD_CANCEL_LOCK, constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), true},
+		{"V1 lock nil for TOKEN_ANON", "lock", constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1), true},
+		{"V1 transferLocked nil for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1), true},
 
 		// Tests for TOKEN_NF_ANON
-		{"Valid mint handler for TOKEN_NF_ANON", "mint", constants.TOKEN_NF_ANON, types.ZetoVariantV0, false},
-		{"Valid transfer handler for TOKEN_NF_ANON", "transfer", constants.TOKEN_NF_ANON, types.ZetoVariantV0, false},
-		{"Invalid handler for TOKEN_NF_ANON", "bad", constants.TOKEN_NF_ANON, types.ZetoVariantV0, true},
+		{"Valid mint handler for TOKEN_NF_ANON", "mint", constants.TOKEN_NF_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), false},
+		{"Valid transfer handler for TOKEN_NF_ANON", "transfer", constants.TOKEN_NF_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), false},
+		{"Invalid handler for TOKEN_NF_ANON", "bad", constants.TOKEN_NF_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0), true},
 	}
 
 	for _, tt := range tests {

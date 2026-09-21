@@ -40,14 +40,14 @@ type ZetoLockInfoState struct {
 	LockedOutputs []string `json:"lockedOutputs"`
 
 	// Preimage for spend commitment (see _buildUnlockHash with _SPEND_HASH_DOMAIN).
-	SpendOutputs     []string          `json:"spendOutputs"`
-	SpendData        pldtypes.HexBytes `json:"spendData"`
-	SpendCommitment  pldtypes.Bytes32  `json:"spendCommitment"`
+	SpendOutputs    []string          `json:"spendOutputs"`
+	SpendData       pldtypes.HexBytes `json:"spendData"`
+	SpendCommitment pldtypes.Bytes32  `json:"spendCommitment"`
 
 	// Preimage for cancel commitment (see _buildUnlockHash with _CANCEL_HASH_DOMAIN).
-	CancelOutputs     []string          `json:"cancelOutputs"`
-	CancelData        pldtypes.HexBytes `json:"cancelData"`
-	CancelCommitment  pldtypes.Bytes32  `json:"cancelCommitment"`
+	CancelOutputs    []string          `json:"cancelOutputs"`
+	CancelData       pldtypes.HexBytes `json:"cancelData"`
+	CancelCommitment pldtypes.Bytes32  `json:"cancelCommitment"`
 
 	// Opaque copy of IZetoFungible_V1.createLock unlockData from the createLock request.
 	// No omitempty: ZetoLockInfoState AbiStateSchema validation requires this key (bytes may be empty "0x").

@@ -507,7 +507,7 @@ func TestCancelLockPrepare_V0WithPinnedCancelOutputs(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV0ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -534,7 +534,7 @@ func TestCancelLockPrepare_BadProofUnmarshal(t *testing.T) {
 		&prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -567,7 +567,7 @@ func TestCancelLockPrepare_InvalidCancelOutputID(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -605,7 +605,7 @@ func TestCancelLockPrepare_V0NullifierPublicInputs(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: types.ZetoFungibleV0ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -630,7 +630,7 @@ func TestSpendLockPrepare_BadProofUnmarshal(t *testing.T) {
 	h := NewSpendLockHandler("zeto", nil, &prototk.StateSchema{Id: "coin"}, nil, nil, nil, nil)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -658,7 +658,7 @@ func TestSpendLockPrepare_LockNotFound(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -694,7 +694,7 @@ func TestSpendLockPrepare_V1WithOutputStatesInRequest(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "spender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "spender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -729,7 +729,7 @@ func TestSpendLockPrepare_BadTxID(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "spender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "spender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -770,7 +770,7 @@ func TestSpendLockPrepare_V1NullifierEncodesSpendArgs(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "spender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "spender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -811,7 +811,7 @@ func TestCancelLockPrepare_V1NullifierEncodesCancelArgs(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -843,7 +843,7 @@ func TestCancelLockPrepare_InvalidCancelOutputIDInLockInfo(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -875,7 +875,7 @@ func TestCancelLockPrepare_BadTxID(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -918,7 +918,7 @@ func TestSpendLockPrepare_V0NullifierPublicInputs(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "spender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", ZetoVariant: types.ZetoFungibleV0ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "spender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -952,7 +952,7 @@ func TestCancelLockPrepare_LockNotFound(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -986,7 +986,7 @@ func TestCancelLockPrepare_PinnedCoinsRevert(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -1023,7 +1023,7 @@ func TestSpendLockPrepare_SpendPinnedCoinsRevert(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "spender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: types.ZetoFungibleV1ABI},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "spender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
