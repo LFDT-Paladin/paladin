@@ -150,6 +150,7 @@ const (
 	CoordinatorTransactionState_Endorsement_Gathering
 	CoordinatorTransactionState_Blocked
 	CoordinatorTransactionState_Confirming_Dispatchable
+	CoordinatorTransactionState_Preparing
 	CoordinatorTransactionState_Ready_For_Dispatch
 	CoordinatorTransactionState_Dispatched
 	CoordinatorTransactionState_Confirmed
@@ -177,6 +178,8 @@ func (s CoordinatorTransactionState) String() string {
 		return "Blocked"
 	case CoordinatorTransactionState_Confirming_Dispatchable:
 		return "Confirming_Dispatchable"
+	case CoordinatorTransactionState_Preparing:
+		return "Preparing"
 	case CoordinatorTransactionState_Ready_For_Dispatch:
 		return "Ready_For_Dispatch"
 	case CoordinatorTransactionState_Dispatched:

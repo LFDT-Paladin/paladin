@@ -35,9 +35,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/ethclientmocks"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethsigner"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
@@ -1833,7 +1833,12 @@ func TestRunTransactionQueryError(t *testing.T) {
 
 func TestRunTransactionQueryGetSubmissionsError(t *testing.T) {
 	ctx := context.Background()
-	_, ptm, m, done := newTestPublicTxManager(t, false)
+	// Keep the manager stopped. Its engine loop polls "public_txns" on startup, which also
+	// matches the first expectation below - if it consumes that expectation our own query
+	// falls through to the second one, and we never reach the getTransactionSubmissions call.
+	_, ptm, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		mocks.disableManagerStart = true
+	})
 	defer done()
 
 	// Mock successful query but error on getting submissions
@@ -1845,6 +1850,7 @@ func TestRunTransactionQueryGetSubmissionsError(t *testing.T) {
 	results, err := ptm.runTransactionQuery(ctx, dbTX, true, nil, dbTX.DB(ctx))
 	assert.Error(t, err)
 	assert.Nil(t, results)
+	require.ErrorContains(t, err, "submission error")
 }
 
 func TestUpdateTransactionGasEstimateNonRejectedError(t *testing.T) {

@@ -100,6 +100,17 @@ var AllOrchestratorStates = []string{
 type orchestrator struct {
 	*pubTxManager
 
+	// ctx/ctxCancel are scoped to this orchestrator instance (a child of pubTxManager.ctx), and shadow the
+	// embedded pubTxManager's ctx for all oc.ctx reads in this file. Stop() cancels ctxCancel so that any
+	// in-flight stage action (sign/submit/gas-price/persist) already running in a goroutine started via
+	// executeAsync observes cancellation, and asyncWG lets orchestratorLoop block until such goroutines have
+	// actually finished before the orchestrator is removed from the pool. Without this, a new orchestrator
+	// created for the same signing address (once this one is removed) can run concurrently with a zombie
+	// goroutine from this one, both driving signing/submission for the same nonce.
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+	asyncWG   sync.WaitGroup
+
 	// in-flight transaction config
 	resubmitInterval        time.Duration
 	stageRetryTimeout       time.Duration
@@ -124,9 +135,6 @@ type orchestrator struct {
 	inFlightTxsMux       sync.Mutex
 	orchestratorLoopDone chan struct{}
 	InFlightTxsStale     chan bool
-
-	// input channels
-	stopProcess chan bool // a channel to tell the current transaction orchestrator to stop processing all events and mark itself as to be deleted
 
 	// Metrics provided for fairness control in the controler
 	totalCompleted int64 // total number of transaction completed since birth time
@@ -159,9 +167,12 @@ func NewOrchestrator(
 	conf *pldconf.PublicTxManagerConfig,
 ) *orchestrator {
 	ctx := ptm.ctx
+	ocCtx, ocCtxCancel := context.WithCancel(ctx)
 
 	newOrchestrator := &orchestrator{
 		pubTxManager:                ptm,
+		ctx:                         ocCtx,
+		ctxCancel:                   ocCtxCancel,
 		orchestratorBirthTime:       time.Now(),
 		orchestratorPollingInterval: confutil.DurationMin(conf.Orchestrator.Interval, veryShortMinimum, *pldconf.PublicTxManagerDefaults.Orchestrator.Interval),
 		maxInFlightTxs:              confutil.IntMin(conf.Orchestrator.MaxInFlight, 1, *pldconf.PublicTxManagerDefaults.Orchestrator.MaxInFlight),
@@ -181,7 +192,6 @@ func NewOrchestrator(
 		staleTimeout:               confutil.DurationMin(conf.Orchestrator.StaleTimeout, 0, *pldconf.PublicTxManagerDefaults.Orchestrator.StaleTimeout),
 		hasZeroGasPrice:            ptm.gasPriceClient.HasZeroGasPrice(ctx),
 		InFlightTxsStale:           make(chan bool, 1),
-		stopProcess:                make(chan bool, 1),
 		ethClient:                  ptm.ethClient,
 		bIndexer:                   ptm.bIndexer,
 		timeLineLoggingMaxEntries:  conf.Orchestrator.TimeLineLoggingMaxEntries,
@@ -221,6 +231,14 @@ func (oc *orchestrator) orchestratorLoop() {
 
 	if err := oc.initNextNonceFromDBRetry(ctx); err != nil {
 		log.L(ctx).Warnf("Context cancelled while obtaining highest nonce for %s: %s", oc.signingAddress, err)
+		// initNextNonceFromDBRetry uses an indefinite retry, so it only returns an error when a context was
+		// cancelled - either ours (Stop() was called before we even got here) or our parent's (manager
+		// shutdown). Either way we must still reach OrchestratorStateStopped, the same as the main loop's
+		// ctx.Done() exit below, so the engine loop's fairness/eviction bookkeeping and any
+		// caller waiting on our state (e.g. via poll()) see us as stopped rather than stuck in our prior state.
+		oc.asyncWG.Wait()
+		oc.setState(OrchestratorStateStopped)
+		oc.MarkInFlightOrchestratorsStale() // trigger engine loop for removal
 		return
 	}
 
@@ -232,10 +250,14 @@ func (oc *orchestrator) orchestratorLoop() {
 		case <-oc.InFlightTxsStale:
 		case <-ticker.C:
 		case <-ctx.Done():
+			// This is our only exit: either Stop() cancelled oc.ctx (idle/stale timeout, or a pool-fairness
+			// swap) or our parent's context was cancelled (manager shutdown). Before we let the engine loop
+			// remove us from the pool we must wait for any stage actions already launched via executeAsync
+			// (sign/submit/gas-price/persist) to finish, then reach OrchestratorStateStopped - otherwise a
+			// new orchestrator for this signing address could start while a zombie goroutine from this one
+			// is still signing/submitting, racing a resubmission for the same nonce.
 			log.L(ctx).Infof("Orchestrator loop exit due to canceled context, it processed %d transaction during its lifetime.", oc.totalCompleted)
-			return
-		case <-oc.stopProcess:
-			log.L(ctx).Infof("Orchestrator loop process stopped, it processed %d transaction during its lifetime.", oc.totalCompleted)
+			oc.asyncWG.Wait()
 			oc.setState(OrchestratorStateStopped)
 			oc.MarkInFlightOrchestratorsStale() // trigger engine loop for removal
 			return
@@ -403,7 +425,9 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 			oc.totalCompleted = oc.totalCompleted + 1
 			queueUpdated = true
 			log.L(ctx).Debugf("Orchestrator poll and process, marking %s as complete after: %s", p.stateManager.GetSignerNonce(), time.Since(p.stateManager.GetCreatedTime().Time()))
-			p.PrintTimeline()
+			if p.timeLineLoggingMaxEntries > 0 && log.IsInfoEnabled() {
+				log.L(ctx).Infof("Timeline for %s: %s", p.stateManager.GetSignerNonce(), p.PrintTimeline())
+			}
 		} else {
 			log.L(ctx).Debugf("Orchestrator poll and process, continuing tx %s after: %s", p.stateManager.GetSignerNonce(), time.Since(p.stateManager.GetCreatedTime().Time()))
 			newInFlight = append(newInFlight, p)
@@ -553,11 +577,10 @@ func (oc *orchestrator) ProcessInFlightTransactions(ctx context.Context, its []*
 	waitingForBalance = false
 	var addressAccount *AddressAccount
 	skipBalanceCheck := oc.hasZeroGasPrice
-	now := time.Now()
-	log.L(ctx).Debugf("%s ProcessInFlightTransaction entry for signing address %s", now.String(), oc.signingAddress)
+	log.L(ctx).Debugf("ProcessInFlightTransaction entry for signing address %s", oc.signingAddress)
 
 	if !skipBalanceCheck {
-		log.L(ctx).Debugf("%s: ProcessInFlightTransaction checking balance for %s", now.String(), oc.signingAddress)
+		log.L(ctx).Debugf("ProcessInFlightTransaction checking balance for %s", oc.signingAddress)
 
 		addressAccount, err = oc.balanceManager.GetAddressBalance(oc.ctx, oc.signingAddress)
 		if err != nil {
@@ -579,7 +602,7 @@ func (oc *orchestrator) ProcessInFlightTransactions(ctx context.Context, its []*
 
 	previousNonceCostUnknown := false
 	for i, it := range its {
-		log.L(ctx).Debugf("%s ProcessInFlightTransaction for signing address %s processing transaction with ID: %s, index: %d", now.String(), oc.signingAddress, it.stateManager.GetSignerNonce(), i)
+		log.L(ctx).Debugf("ProcessInFlightTransaction for signing address %s processing transaction with ID: %s, index: %d", oc.signingAddress, it.stateManager.GetSignerNonce(), i)
 		var availableToSpend *big.Int
 		if !skipBalanceCheck {
 			availableToSpend = addressAccount.GetAvailableToSpend(ctx)
@@ -603,7 +626,7 @@ func (oc *orchestrator) ProcessInFlightTransactions(ctx context.Context, its []*
 		}
 	}
 
-	log.L(ctx).Debugf("%s ProcessInFlightTransaction exit for signing address: %s", now.String(), oc.signingAddress)
+	log.L(ctx).Debugf("ProcessInFlightTransaction exit for signing address: %s", oc.signingAddress)
 	log.L(ctx).Debugf("Orchestrator process loop took %s", time.Since(processStart))
 	return waitingForBalance, nil
 }
@@ -617,12 +640,12 @@ func (oc *orchestrator) Start(ctx context.Context) (done <-chan struct{}, err er
 
 // Stop the InFlight transaction process.
 func (oc *orchestrator) Stop() {
-	// try to send an item in `stopProcess` channel, which has a buffer of 1
-	// if it already has an item in the channel, this function does nothing
-	select {
-	case oc.stopProcess <- true:
-	default:
-	}
+	// Cancelling our scoped context both breaks orchestratorLoop out of its select and makes any stage
+	// action already running in a goroutine started via executeAsync (for any of our in-flight
+	// transactions) observe cancellation as soon as possible - which bounds how long the loop's
+	// asyncWG.Wait() blocks before it marks us stopped and removable.
+	// Safe to call multiple times (e.g. idle/stale timeout followed by a later explicit stop).
+	oc.ctxCancel()
 }
 
 func (oc *orchestrator) MarkInFlightTxStale() {

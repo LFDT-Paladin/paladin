@@ -128,7 +128,7 @@ func (ptm *pubTxManager) poll(ctx context.Context) (polled int, total int) {
 		// Note not controlled by mutex, as only modified on this routine.
 		for signingAddress, pausedUntil := range ptm.signingAddressesPausedUntil {
 			if time.Now().Before(pausedUntil) {
-				log.L(ctx).Debugf("Engine excluded orchestrator for signing address %s from polling as it's paused util %s", signingAddress, pausedUntil.String())
+				log.L(ctx).Debugf("Engine excluded orchestrator for signing address %s from polling as it's paused util %s", signingAddress, pausedUntil)
 				stateCounts[string(OrchestratorStatePaused)] = stateCounts[string(OrchestratorStatePaused)] + 1
 				inFlightSigningAddresses = append(inFlightSigningAddresses, signingAddress)
 			}

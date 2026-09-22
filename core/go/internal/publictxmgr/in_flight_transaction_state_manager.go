@@ -77,23 +77,23 @@ func (iftxs *inFlightTransactionState) CanBeRemoved(ctx context.Context) bool {
 }
 
 func (iftxs *inFlightTransactionState) CanSubmit(ctx context.Context, cost *big.Int, signerNonce string) bool {
-	log.L(ctx).Tracef("ProcessInFlightTransaction transaction entry, transaction orchestrator context: %+v, cost: %s", iftxs.orchestratorContext, cost.String())
+	log.L(ctx).Tracef("ProcessInFlightTransaction transaction entry, transaction orchestrator context: %+v, cost: %s", iftxs.orchestratorContext, cost)
 	if iftxs.orchestratorContext.AvailableToSpend == nil {
 		log.L(ctx).Tracef("ProcessInFlightTransaction transaction can be submitted for zero gas price chain, orchestrator context: %+v", iftxs.orchestratorContext)
 		return true
 	}
 	if cost != nil {
 		if iftxs.orchestratorContext.PreviousNonceCostUnknown {
-			log.L(ctx).Warnf("ProcessInFlightTransaction cannot submit transaction %s, transaction orchestrator context: %+v, cost: %s, previous nonce cost unknown", signerNonce, iftxs.orchestratorContext, cost.String())
+			log.L(ctx).Warnf("ProcessInFlightTransaction cannot submit transaction %s, transaction orchestrator context: %+v, cost: %s, previous nonce cost unknown", signerNonce, iftxs.orchestratorContext, cost)
 			return false
 		}
 		sufficientFunds := iftxs.orchestratorContext.AvailableToSpend.Cmp(cost) != -1
 		if !sufficientFunds {
-			log.L(ctx).Warnf("ProcessInFlightTransaction cannot submit transaction %s, transaction orchestrator context: %+v, cost: %s, insufficient funds", signerNonce, iftxs.orchestratorContext, cost.String())
+			log.L(ctx).Warnf("ProcessInFlightTransaction cannot submit transaction %s, transaction orchestrator context: %+v, cost: %s, insufficient funds", signerNonce, iftxs.orchestratorContext, cost)
 		}
 		return sufficientFunds
 	}
-	log.L(ctx).Debugf("ProcessInFlightTransaction cannot submit transaction %s, transaction orchestrator context: %+v, cost: %s", signerNonce, iftxs.orchestratorContext, cost.String())
+	log.L(ctx).Debugf("ProcessInFlightTransaction cannot submit transaction %s, transaction orchestrator context: %+v, cost: %s", signerNonce, iftxs.orchestratorContext, cost)
 	return false
 }
 

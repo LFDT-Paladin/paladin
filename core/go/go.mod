@@ -1,8 +1,8 @@
 module github.com/LFDT-Paladin/paladin/core
 
-go 1.25.0
+go 1.26.0
 
-toolchain go1.25.11
+toolchain go1.26.8
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
@@ -15,7 +15,7 @@ require (
 	github.com/go-resty/resty/v2 v2.14.0
 	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/google/uuid v1.6.0
-	github.com/hyperledger/firefly-signer v1.1.22
+	github.com/hyperledger-firefly/signer v1.2.1
 	github.com/jarcoal/httpmock v1.2.0
 	github.com/lib/pq v1.10.9
 	github.com/prometheus/client_golang v1.22.0
@@ -23,6 +23,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/tyler-smith/go-bip39 v1.1.0
 	golang.org/x/crypto v0.53.0
+	golang.org/x/sync v0.22.0
 	golang.org/x/text v0.40.0
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
@@ -32,19 +33,14 @@ require (
 	sigs.k8s.io/yaml v1.6.0
 )
 
-require (
-	github.com/aidarkhanov/nanoid v1.0.8 // indirect
-	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
-	github.com/rs/cors v1.11.1 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
-)
+require gopkg.in/yaml.v3 v3.0.1 // indirect
 
 require (
 	github.com/Code-Hex/go-generics-cache v1.5.1 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/aidarkhanov/nanoid v1.0.8 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.24.2 // indirect
-	github.com/btcsuite/btcd/btcec/v2 v2.3.2 // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.3.5 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -52,9 +48,10 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
-	github.com/hyperledger/firefly-common v1.5.9 // indirect
+	github.com/hyperledger-firefly/common v1.6.2 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.9.2 // indirect
@@ -70,6 +67,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
+	github.com/rs/cors v1.11.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
@@ -80,7 +78,6 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/term v0.44.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect

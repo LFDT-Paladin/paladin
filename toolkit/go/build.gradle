@@ -89,7 +89,6 @@ task clean(type: Delete, dependsOn: ':testinfra:stopTestInfra') {
         include "**/*.pb.go"
     }
     delete 'coverage'
-    delete 'componenttest/abis'
 }
 
 task goGet(type:Exec, dependsOn: protoc) {

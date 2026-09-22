@@ -32,7 +32,35 @@ message StateSnapshot {
 
 message SnapshotState {
   EndorsableState state = 1;         // id / schema_id / state_data_json
-  repeated string allowed_nodes = 2; // nodes permitted to hold this state's private data (handover only; empty on assemble path)
+  repeated string allowed_nodes = 2; // nodes permitted to hold this state's private data (handover only)
+  StateLabels labels = 3;            // indexed label values for in-memory query evaluation
+  int64 created = 4;                 // coordinator resolve-time (unix-nano); authoritative ordering value
+}
+
+message StateLabel {
+  string label = 1;
+  string value = 2;
+}
+
+message StateInt64Label {
+  string label = 1;
+  int64 value = 2;
+}
+
+// StateLabels carries the indexed label values of a state, split by storage type exactly as they
+// are persisted to the state_labels/state_int64_labels tables, so that in-memory query evaluation
+// against them is equivalent to a SQL query against the label tables.
+message StateLabels {
+  repeated StateLabel labels = 1;
+  repeated StateInt64Label int64_labels = 2;
+}
+
+// QueriedState is one match from a coordinator-side ahead-of-chain state query: the full state
+// data plus the coordinator's created ordering time. The receiver must validate the data against
+// the claimed id (and re-derive the labels) on receipt — the sender is not trusted.
+message QueriedState {
+  EndorsableState state = 1;
+  int64 created = 2; // coordinator resolve-time (unix-nano); drives the receiver's ".created" eval and sort
 }
 
 message SnapshotStateLock {

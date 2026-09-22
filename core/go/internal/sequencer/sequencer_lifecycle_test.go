@@ -241,7 +241,6 @@ func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	mockDomainSmartContract.EXPECT().Domain().Return(mockDomain)
 	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("test-identity@test-coordinator")}).Maybe()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mockDomainSmartContract, nil)
-	mocks.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 
 	// Setup transport writer creation
 	mocks.transportWriter.EXPECT().SendDispatched(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -936,6 +935,7 @@ func TestSequencerManager_PostInit_Success(t *testing.T) {
 	persistence := persistencemocks.NewPersistence(t)
 	txManager := componentsmocks.NewTXManager(t)
 	publicTxManager := componentsmocks.NewPublicTxManager(t)
+	stateManager := componentsmocks.NewStateManager(t)
 
 	// Setup expectations
 	allComponents.EXPECT().TransportManager().Return(transportManager).Twice() // Called once for nodeName, once for NewSyncPoints
@@ -943,6 +943,7 @@ func TestSequencerManager_PostInit_Success(t *testing.T) {
 	allComponents.EXPECT().Persistence().Return(persistence).Once()
 	allComponents.EXPECT().TxManager().Return(txManager).Once()
 	allComponents.EXPECT().PublicTxManager().Return(publicTxManager).Once()
+	allComponents.EXPECT().StateManager().Return(stateManager).Once()
 
 	// Call PostInit
 	err := sMgr.PostInit(allComponents)
@@ -968,6 +969,7 @@ func TestSequencerManager_Start_Success(t *testing.T) {
 	persistence := persistencemocks.NewPersistence(t)
 	txManager := componentsmocks.NewTXManager(t)
 	publicTxManager := componentsmocks.NewPublicTxManager(t)
+	stateManager := componentsmocks.NewStateManager(t)
 	blockIndexer := blockindexermocks.NewBlockIndexer(t)
 
 	// Setup PostInit first
@@ -976,6 +978,7 @@ func TestSequencerManager_Start_Success(t *testing.T) {
 	allComponents.EXPECT().Persistence().Return(persistence).Once()
 	allComponents.EXPECT().TxManager().Return(txManager).Once()
 	allComponents.EXPECT().PublicTxManager().Return(publicTxManager).Once()
+	allComponents.EXPECT().StateManager().Return(stateManager).Once()
 
 	err := sMgr.PostInit(allComponents)
 	require.NoError(t, err)
@@ -1011,6 +1014,7 @@ func TestSequencerManager_Start_ZeroPollInterval(t *testing.T) {
 	persistence := persistencemocks.NewPersistence(t)
 	txManager := componentsmocks.NewTXManager(t)
 	publicTxManager := componentsmocks.NewPublicTxManager(t)
+	stateManager := componentsmocks.NewStateManager(t)
 
 	// Setup PostInit first
 	allComponents.EXPECT().TransportManager().Return(transportManager).Times(2) // Called twice: once for nodeName, once for NewSyncPoints
@@ -1018,6 +1022,7 @@ func TestSequencerManager_Start_ZeroPollInterval(t *testing.T) {
 	allComponents.EXPECT().Persistence().Return(persistence).Once()
 	allComponents.EXPECT().TxManager().Return(txManager).Once()
 	allComponents.EXPECT().PublicTxManager().Return(publicTxManager).Once()
+	allComponents.EXPECT().StateManager().Return(stateManager).Once()
 
 	err := sMgr.PostInit(allComponents)
 	require.NoError(t, err)
@@ -1043,6 +1048,7 @@ func TestSequencerManager_Stop_Success(t *testing.T) {
 	persistence := persistencemocks.NewPersistence(t)
 	txManager := componentsmocks.NewTXManager(t)
 	publicTxManager := componentsmocks.NewPublicTxManager(t)
+	stateManager := componentsmocks.NewStateManager(t)
 
 	// Setup PostInit
 	allComponents.EXPECT().TransportManager().Return(transportManager).Twice()
@@ -1050,6 +1056,7 @@ func TestSequencerManager_Stop_Success(t *testing.T) {
 	allComponents.EXPECT().Persistence().Return(persistence).Once()
 	allComponents.EXPECT().TxManager().Return(txManager).Once()
 	allComponents.EXPECT().PublicTxManager().Return(publicTxManager).Once()
+	allComponents.EXPECT().StateManager().Return(stateManager).Once()
 
 	err := sMgr.PostInit(allComponents)
 	require.NoError(t, err)
@@ -1087,6 +1094,7 @@ func TestSequencerManager_Stop_NoSequencers(t *testing.T) {
 	persistence := persistencemocks.NewPersistence(t)
 	txManager := componentsmocks.NewTXManager(t)
 	publicTxManager := componentsmocks.NewPublicTxManager(t)
+	stateManager := componentsmocks.NewStateManager(t)
 
 	// Setup PostInit
 	allComponents.EXPECT().TransportManager().Return(transportManager).Twice()
@@ -1094,6 +1102,7 @@ func TestSequencerManager_Stop_NoSequencers(t *testing.T) {
 	allComponents.EXPECT().Persistence().Return(persistence).Once()
 	allComponents.EXPECT().TxManager().Return(txManager).Once()
 	allComponents.EXPECT().PublicTxManager().Return(publicTxManager).Once()
+	allComponents.EXPECT().StateManager().Return(stateManager).Once()
 
 	err := sMgr.PostInit(allComponents)
 	require.NoError(t, err)
@@ -1643,7 +1652,6 @@ func TestSequencerManager_LoadSequencer_WithProvidedDomainAPI(t *testing.T) {
 	mocks.components.EXPECT().TransportManager().Return(mocks.transportManager).Maybe()
 	mocks.transportManager.EXPECT().LocalNodeName().Return("test-node").Maybe()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, nil, *contractAddr).Return(mockDomainSmartContract, nil).Once()
-	mocks.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 	mocks.metrics.EXPECT().SetActiveSequencers(0).Once()
 	mocks.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()
 	mocks.metrics.EXPECT().ObserveEventProcessing(mock.Anything, mock.Anything, mock.Anything).Maybe()
@@ -1687,7 +1695,6 @@ func TestSequencerManager_LoadSequencer_InvalidSelectionConfig(t *testing.T) {
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
 	mocks.metrics.EXPECT().SetActiveSequencers(0).Once()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, nil, *contractAddr).Return(mockDomainSmartContract, nil).Once()
-	mocks.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 	mocks.transportManager.EXPECT().LocalNodeName().Return("test-node").Maybe()
 
 	result, err := sm.LoadSequencer(ctx, nil, *contractAddr, nil, nil)
@@ -1725,7 +1732,6 @@ func TestSequencerManager_LoadSequencer_ReachesTargetLimit(t *testing.T) {
 	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("test-identity@test-coordinator")}).Maybe()
 	mocks1.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr3).Return(mocks1.domainAPI, nil).Once()
 	mocks1.domainManager.EXPECT().GetSmartContractByAddress(ctx, nil, *contractAddr3).Return(mockDomainSmartContract, nil).Once()
-	mocks1.stateManager.EXPECT().NewDomainStateWriter(mock.Anything, mockDomain, *contractAddr3).Return(componentsmocks.NewDomainStateWriter(t)).Once()
 	mocks1.transportManager.EXPECT().LocalNodeName().Return("test-node").Maybe()
 	mocks1.metrics.EXPECT().SetActiveSequencers(1).Once()
 	mocks1.metrics.EXPECT().SetEventQueueDepth(mock.Anything, mock.Anything, mock.Anything).Maybe()

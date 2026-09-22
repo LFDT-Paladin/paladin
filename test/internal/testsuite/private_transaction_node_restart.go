@@ -36,7 +36,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/test/internal/contracts"
 	"github.com/LFDT-Paladin/paladin/test/internal/util"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	log "github.com/sirupsen/logrus"
 )
 

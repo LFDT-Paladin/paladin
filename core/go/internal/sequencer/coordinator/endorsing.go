@@ -261,7 +261,6 @@ func (c *coordinator) endorse(ctx context.Context, e *EndorsementRequestReceived
 	}
 
 	dc := c.components.StateManager().NewDomainQueryContext(ctx, c.domainAPI.Domain(), c.domainAPI.Address())
-	defer dc.Close(ctx)
 
 	endorsementResult, err := c.domainAPI.EndorseTransaction(ctx, dc, c.components.Persistence().NOTX(), endorsementRequest)
 	if err != nil {

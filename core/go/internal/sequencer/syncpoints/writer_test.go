@@ -62,73 +62,81 @@ func TestRunBatch_EmptyBatch(t *testing.T) {
 	assert.Equal(t, 0, len(results))
 }
 
-func TestRunBatch_OnlyDomainStateWriters(t *testing.T) {
+// TestRunBatch_StateWritesAggregatedAcrossOperations verifies that the states and nullifiers carried on
+// every dispatch operation in the batch are written in a single WriteStateBatch call, ahead of the
+// dispatch records that may reference them.
+func TestRunBatch_StateWritesAggregatedAcrossOperations(t *testing.T) {
 	ctx := context.Background()
+	stateMgr := componentsmocks.NewStateManager(t)
 	s := &syncPoints{
 		txMgr:        componentsmocks.NewTXManager(t),
 		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
 		transportMgr: componentsmocks.NewTransportManager(t),
+		stateMgr:     stateMgr,
 	}
 	dbTX := persistencemocks.NewDBTX(t)
 
-	// Create mock domain contexts
-	dc1 := componentsmocks.NewDomainStateWriter(t)
-	dc1.On("Flush", mock.Anything, dbTX).Return(nil)
-
-	dc2 := componentsmocks.NewDomainStateWriter(t)
-	dc2.On("Flush", mock.Anything, dbTX).Return(nil)
+	state1 := &components.StateWithLabels{}
+	state2 := &components.StateWithLabels{}
+	nullifier := &pldapi.StateNullifier{}
+	stateMgr.On("WriteStateBatch", mock.Anything, dbTX, mock.MatchedBy(func(states []*components.StateWithLabels) bool {
+		return len(states) == 2 && states[0] == state1 && states[1] == state2
+	}), []*pldapi.StateNullifier{nullifier}).Return(nil).Once()
 
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
 		{
-			contractAddress:   *contractAddr,
-			domainStateWriter: dc1,
+			contractAddress: *contractAddr,
+			dispatchOperations: []*dispatchOperation{{
+				states: []*components.StateWithLabels{state1},
+			}},
 		},
 		{
-			contractAddress:   *contractAddr,
-			domainStateWriter: dc2,
-		},
-		{
-			contractAddress:   *contractAddr,
-			domainStateWriter: dc1, // Duplicate - should be deduplicated
+			contractAddress: *contractAddr,
+			dispatchOperations: []*dispatchOperation{{
+				states:     []*components.StateWithLabels{state2},
+				nullifiers: []*pldapi.StateNullifier{nullifier},
+			}},
 		},
 	}
 
 	results, err := s.runBatch(ctx, dbTX, values)
 
 	require.NoError(t, err)
-	assert.Equal(t, 3, len(results))
-	dc1.AssertExpectations(t)
-	dc2.AssertExpectations(t)
+	assert.Equal(t, 2, len(results))
+	stateMgr.AssertExpectations(t)
 }
 
-func TestRunBatch_DomainStateWriterFlushError(t *testing.T) {
+func TestRunBatch_StateWriteError(t *testing.T) {
 	ctx := context.Background()
+	stateMgr := componentsmocks.NewStateManager(t)
 	s := &syncPoints{
 		txMgr:        componentsmocks.NewTXManager(t),
 		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
 		transportMgr: componentsmocks.NewTransportManager(t),
+		stateMgr:     stateMgr,
 	}
 	dbTX := persistencemocks.NewDBTX(t)
 
-	dc := componentsmocks.NewDomainStateWriter(t)
-	flushErr := errors.New("flush error")
-	dc.On("Flush", mock.Anything, dbTX).Return(flushErr)
+	writeErr := errors.New("write error")
+	stateMgr.On("WriteStateBatch", mock.Anything, dbTX, mock.Anything).Return(writeErr)
 
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
 		{
-			contractAddress:   *contractAddr,
-			domainStateWriter: dc,
+			contractAddress: *contractAddr,
+			dispatchOperations: []*dispatchOperation{{
+				states: []*components.StateWithLabels{{}},
+			}},
 		},
 	}
 
 	results, err := s.runBatch(ctx, dbTX, values)
 
 	assert.Error(t, err)
-	assert.Equal(t, flushErr, err)
+	assert.Equal(t, writeErr, err)
 	assert.Nil(t, results)
-	dc.AssertExpectations(t)
+	stateMgr.AssertExpectations(t)
 }
 
 func TestRunBatch_OnlyFinalizeOperations(t *testing.T) {
@@ -232,10 +240,6 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 	}
 	dbTX := persistencemocks.NewDBTX(t)
 
-	// Setup domain context
-	dc := componentsmocks.NewDomainStateWriter(t)
-	dc.On("Flush", mock.Anything, dbTX).Return(nil)
-
 	// Setup finalize operation mocks
 	// Since originator is on the same node as LocalNodeName, receipt goes to FinalizeTransactions
 	mockTXMgr.On("FinalizeTransactions", ctx, dbTX, mock.MatchedBy(func(receipts []*components.ReceiptInput) bool {
@@ -250,8 +254,7 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 
 	values := []*syncPointOperation{
 		{
-			contractAddress:   *contractAddr,
-			domainStateWriter: dc,
+			contractAddress: *contractAddr,
 			finalizeOperation: &finalizeOperation{
 				TransactionFinalizeRequest: TransactionFinalizeRequest{
 					Domain:         "domain1",
@@ -262,8 +265,7 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 			},
 		},
 		{
-			contractAddress:   *contractAddr,
-			domainStateWriter: dc,
+			contractAddress: *contractAddr,
 			dispatchOperations: []*dispatchOperation{{
 				publicDispatches: []*PublicDispatch{
 					{
@@ -279,7 +281,6 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, len(results))
-	dc.AssertExpectations(t)
 	mockTXMgr.AssertExpectations(t)
 }
 
@@ -387,40 +388,6 @@ func TestRunBatch_NoOperations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, len(results))
 	assert.IsType(t, flushwriter.Result[*noResult]{}, results[0])
-}
-
-func TestRunBatch_MultipleDomainStateWritersDedup(t *testing.T) {
-	ctx := context.Background()
-	s := &syncPoints{
-		txMgr:        componentsmocks.NewTXManager(t),
-		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
-		transportMgr: componentsmocks.NewTransportManager(t),
-	}
-	dbTX := persistencemocks.NewDBTX(t)
-
-	// Deduplication is by pointer identity (interface value), so two different DomainStateWriter
-	// instances are two different map keys. Both will be flushed.
-	dc1 := componentsmocks.NewDomainStateWriter(t)
-	dc1.On("Flush", mock.Anything, dbTX).Return(nil)
-
-	dc2 := componentsmocks.NewDomainStateWriter(t)
-	dc2.On("Flush", mock.Anything, dbTX).Return(nil)
-
-	// Adding the same writer twice deduplicates it to one flush.
-	contractAddr := pldtypes.RandAddress()
-	values := []*syncPointOperation{
-		{contractAddress: *contractAddr, domainStateWriter: dc1},
-		{contractAddress: *contractAddr, domainStateWriter: dc2},
-		{contractAddress: *contractAddr, domainStateWriter: dc1}, // duplicate of dc1
-	}
-
-	results, err := s.runBatch(ctx, dbTX, values)
-
-	require.NoError(t, err)
-	assert.Equal(t, 3, len(results))
-	// dc1 and dc2 each flushed exactly once despite dc1 appearing twice
-	dc1.AssertNumberOfCalls(t, "Flush", 1)
-	dc2.AssertNumberOfCalls(t, "Flush", 1)
 }
 
 func TestRunBatch_FinalizeOperationsWithEmptyFailureMessage(t *testing.T) {
@@ -678,8 +645,9 @@ func TestQueueTransactionFinalize_OnCommit(t *testing.T) {
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
 	transportMgr.On("LocalNodeName").Return("node1").Maybe()
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, mp.P, txMgr, pubTxMgr, transportMgr).(*syncPoints)
+	sp := NewSyncPoints(ctx, conf, mp.P, txMgr, pubTxMgr, transportMgr, stateMgr).(*syncPoints)
 	sp.Start()
 	defer sp.Close()
 
@@ -721,8 +689,9 @@ func TestQueueTransactionFinalize_OnRollback(t *testing.T) {
 	pubTxMgr := componentsmocks.NewPublicTxManager(t)
 	transportMgr := componentsmocks.NewTransportManager(t)
 	transportMgr.On("LocalNodeName").Return("node1").Maybe()
+	stateMgr := componentsmocks.NewStateManager(t)
 
-	sp := NewSyncPoints(ctx, conf, mp.P, txMgr, pubTxMgr, transportMgr).(*syncPoints)
+	sp := NewSyncPoints(ctx, conf, mp.P, txMgr, pubTxMgr, transportMgr, stateMgr).(*syncPoints)
 	sp.Start()
 	defer sp.Close()
 

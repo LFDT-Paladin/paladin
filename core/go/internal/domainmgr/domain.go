@@ -30,11 +30,11 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/eip712"
-	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/eip712"
+	"github.com/hyperledger-firefly/signer/pkg/ethsigner"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"golang.org/x/crypto/sha3"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -338,7 +338,7 @@ func (d *domain) FindAvailableStates(ctx context.Context, req *prototk.FindAvail
 
 	var states []*pldapi.State
 	if req.UseNullifiers != nil && *req.UseNullifiers {
-		_, states, err = c.dqc.FindAvailableNullifiers(ctx, c.dbTX, schemaID, &query)
+		_, states, err = c.dqc.FindAvailableNullifierBackedStates(ctx, c.dbTX, schemaID, &query)
 	} else {
 		_, states, err = c.dqc.FindAvailableStates(ctx, c.dbTX, schemaID, &query)
 	}

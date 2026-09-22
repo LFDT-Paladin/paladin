@@ -34,7 +34,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -295,7 +295,7 @@ func TestRPCInvokeRPCError(t *testing.T) {
 	client := newTestRPCServer(t, ctx, gm)
 
 	var result pldtypes.RawJSON
-	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", pldtypes.HexBytes(pldtypes.RandBytes(32)), pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
+	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", pldtypes.HexBytes(pldtypes.RandBytes(32)), pldapi.StateStatusConfirmed, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
 	require.Regexp(t, "PD012502", rpcErr)
 }
 
@@ -312,7 +312,7 @@ func TestRPCInvokeRPCOK(t *testing.T) {
 	client := newTestRPCServer(t, ctx, gm)
 
 	var result pldtypes.RawJSON
-	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", groupID, pldapi.StateStatusAvailable, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
+	rpcErr := client.CallRPC(ctx, &result, "pgroup_invokeRPC", "domain1", groupID, pldapi.StateStatusConfirmed, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`["0x1234"]`)})
 	require.NoError(t, rpcErr)
 	assert.Equal(t, pldtypes.RawJSON(`"0xdeadbeef"`), result)
 }

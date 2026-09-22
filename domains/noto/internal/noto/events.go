@@ -107,6 +107,14 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockCreated.TxId, lockCreated.Outputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockCreated.TxId, lockCreated.Contents)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockCreated.TxId, []pldtypes.Bytes32{lockCreated.NewLockState})...)
+			if useNullifier {
+				// Only the unlocked outputs join the commitment tree - the locked contents are
+				// tracked by lock id and the lock state via the base unspent tracking, so they
+				// are excluded here to match NotoNullifiers._createLock
+				if err := n.updateMerkleTree(ctx, smtForStates.Tree, smtForStates.Storage, lockCreated.TxId, convertToUint256(lockCreated.Outputs)); err != nil {
+					return err
+				}
+			}
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed LockCreated event in batch %s: %s", req.BatchId, err)
 		}
@@ -139,6 +147,14 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockSpent.TxId, lockSpent.Inputs)...)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockSpent.TxId, []pldtypes.Bytes32{lockSpent.OldLockState})...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockSpent.TxId, lockSpent.Outputs)...)
+			if useNullifier {
+				// Unlocking returns value to unlocked coins, which join the commitment tree -
+				// see Noto._spendLock, which processes the outputs through the same virtual
+				// _processOutput that NotoNullifiers overrides
+				if err := n.updateMerkleTree(ctx, smtForStates.Tree, smtForStates.Storage, lockSpent.TxId, convertToUint256(lockSpent.Outputs)); err != nil {
+					return err
+				}
+			}
 
 			if req.ContractInfo != nil {
 				var domainConfig *types.NotoParsedConfig

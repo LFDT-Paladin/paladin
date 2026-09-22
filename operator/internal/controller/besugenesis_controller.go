@@ -37,7 +37,7 @@ import (
 
 	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
 	"github.com/LFDT-Paladin/paladin/testinfra/pkg/besugenesis"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 )
 
 // BesuGenesisReconciler reconciles a BesuGenesis object

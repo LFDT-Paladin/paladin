@@ -77,7 +77,6 @@ type CoordinatorDependencyMocks struct {
 	AllComponents       *componentsmocks.AllComponents
 	Domain              *componentsmocks.Domain
 	DomainAPI           *componentsmocks.DomainSmartContract
-	DomainStateWriter   *componentsmocks.DomainStateWriter
 	StateManager        *componentsmocks.StateManager
 	DomainQueryContext  *componentsmocks.DomainQueryContext
 	TXManager           *componentsmocks.TXManager
@@ -341,7 +340,6 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 		AllComponents:       componentsmocks.NewAllComponents(b.t),
 		Domain:              componentsmocks.NewDomain(b.t),
 		DomainAPI:           componentsmocks.NewDomainSmartContract(b.t),
-		DomainStateWriter:   componentsmocks.NewDomainStateWriter(b.t),
 		StateManager:        componentsmocks.NewStateManager(b.t),
 		DomainQueryContext:  componentsmocks.NewDomainQueryContext(b.t),
 		TXManager:           componentsmocks.NewTXManager(b.t),
@@ -349,8 +347,8 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 	}
 
 	mocks.DomainAPI.On("Domain").Return(mocks.Domain).Maybe()
+	mocks.Domain.On("Name").Return("test-domain").Maybe()
 	mocks.DomainAPI.On("Address").Return(*b.contractAddress).Maybe()
-	mocks.DomainQueryContext.On("Close", mock.Anything).Return().Maybe()
 	mocks.StateManager.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mocks.DomainQueryContext).Maybe()
 
 	if b.useMockTransportWriter {
@@ -400,9 +398,7 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 	coordinator := NewCoordinator(
 		b.contractAddress,
 		mocks.DomainAPI,
-		mocks.DomainStateWriter,
 		mocks.AllComponents,
-		nil,
 		nil,
 		transportWriter,
 		clock,

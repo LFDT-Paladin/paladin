@@ -382,13 +382,16 @@ func TestHeartbeatSendFailed(t *testing.T) {
 	err = wsc.Connect()
 	assert.NoError(t, err)
 
-	// Close and use the underlying wsconn to drive a failure to send a heartbeat
-	wsc.(*wsClient).wsconn.Close()
+	// Close and use the underlying wsconn to drive a failure to send a heartbeat.
+	// Grab the connection before closing it - closing makes the client's receive loop
+	// error out, and its reconnect loop then races to set wsc.wsconn to nil.
+	wsconn := wsc.(*wsClient).wsconn
+	wsconn.Close()
 	w := &wsClient{
 		ctx:               context.Background(),
 		sendDone:          make(chan []byte),
 		heartbeatInterval: 1 * time.Microsecond,
-		wsconn:            wsc.(*wsClient).wsconn,
+		wsconn:            wsconn,
 	}
 
 	w.sendLoop(make(chan struct{}))
