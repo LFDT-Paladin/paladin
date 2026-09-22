@@ -6,7 +6,7 @@
 
 package types
 
-import "github.com/hyperledger/firefly-signer/pkg/abi"
+import "github.com/hyperledger-firefly/signer/pkg/abi"
 
 // LockableCapabilityCreateLockABI is ILockableCapability / ZetoLockable.createLock on the deployed pool
 // (bytes createArgs, bytes32 spendCommitment, bytes32 cancelCommitment, bytes data) — not IZetoFungible_V1,

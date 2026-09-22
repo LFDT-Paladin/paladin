@@ -13,7 +13,7 @@ import (
 	"math/big"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 // ZetoLockInfoState is persisted off-chain (Paladin state DB). The Paladin state row id equals lockId (unique per pool

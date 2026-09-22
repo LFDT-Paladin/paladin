@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

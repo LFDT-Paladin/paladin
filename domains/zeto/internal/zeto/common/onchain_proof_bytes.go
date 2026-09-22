@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 // EncodeZetoOnchainTransferProofBytes ABI-encodes the `proof` bytes passed to ZetoFungible.transfer when

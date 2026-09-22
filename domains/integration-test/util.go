@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"testing"
 	"time"
 
@@ -238,7 +239,7 @@ notReady:
 			address,
 			coinSchemaID,
 			jq,
-			"confirmed")
+			pldapi.StateStatusConfirmed)
 		if rpcerr != nil {
 			require.NoError(t, rpcerr)
 		}
@@ -284,9 +285,11 @@ func findAvailableZetoCoinsUnlockedAndLocked(
 notReady:
 	for {
 		var unlocked, locked []*zetotypes.ZetoCoinState
-		rpcerr := rpc.CallRPC(ctx, &unlocked, unlockedMethod, domainName, address, coinSchemaID, jqUnlocked, "available")
+		// "confirmed" replaced the removed "available" qualifier; the two always selected the same states
+		// (a confirm record and no spend record). Use the typed constant so a future rename fails to compile.
+		rpcerr := rpc.CallRPC(ctx, &unlocked, unlockedMethod, domainName, address, coinSchemaID, jqUnlocked, pldapi.StateStatusConfirmed)
 		require.NoError(t, rpcerr)
-		rpcerr = rpc.CallRPC(ctx, &locked, lockedMethod, domainName, address, coinSchemaID, jqLocked, "available")
+		rpcerr = rpc.CallRPC(ctx, &locked, lockedMethod, domainName, address, coinSchemaID, jqLocked, pldapi.StateStatusConfirmed)
 		require.NoError(t, rpcerr)
 		merged = append(unlocked, locked...)
 		for _, fn := range readiness {

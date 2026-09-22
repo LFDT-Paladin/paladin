@@ -18,7 +18,7 @@ package zeto
 import (
 	"fmt"
 
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 // pickZetoFactoryDeploy7Arg selects deploy(bytes32,string,string,string,address,bytes,bool) from a factory ABI.

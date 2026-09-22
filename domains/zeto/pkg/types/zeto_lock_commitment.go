@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 // Domain tags match ZetoLockable._SPEND_HASH_DOMAIN / _CANCEL_HASH_DOMAIN in zeto_lockable.sol.
