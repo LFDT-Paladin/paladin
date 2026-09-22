@@ -88,7 +88,7 @@ func (ss *stateManager) rpcQueryStates() rpcserver.RPCHandler {
 		status pldapi.StateStatusQualifier,
 	) ([]*pldapi.State, error) {
 		ctx = log.WithComponent(ctx, "statemanager")
-		_, states, err := ss.findStates(ctx, ss.p.NOTX(), domain, nil, schema, &query, status)
+		_, states, err := ss.findStates(ctx, ss.p.NOTX(), domain, nil, schema, &query, status, nil)
 		return states, err
 	})
 }
@@ -102,7 +102,7 @@ func (ss *stateManager) rpcQueryContractStates() rpcserver.RPCHandler {
 		status pldapi.StateStatusQualifier,
 	) ([]*pldapi.State, error) {
 		ctx = log.WithComponent(ctx, "statemanager")
-		_, states, err := ss.findStates(ctx, ss.p.NOTX(), domain, contractAddress, schema, &query, status)
+		_, states, err := ss.findStates(ctx, ss.p.NOTX(), domain, contractAddress, schema, &query, status, nil)
 		return states, err
 	})
 }

@@ -176,7 +176,7 @@ func TestStateLockingQuery(t *testing.T) {
 
 	// checkQuery asserts what the query API returns for a status qualifier.
 	checkQuery := func(jq *query.QueryJSON, status pldapi.StateStatusQualifier, expected ...int) {
-		_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, status)
+		_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, status, nil)
 		require.NoError(t, err)
 		checkStates(states, expected...)
 	}
@@ -373,7 +373,7 @@ func TestAvailabilityFlagsReconcileOnLateArrival(t *testing.T) {
 	findAvailable := func() []*pldapi.State {
 		_, s, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", nil, schemaID,
 			query.NewQueryBuilder().Query(),
-			pldapi.StateStatusConfirmed)
+			pldapi.StateStatusConfirmed, nil)
 		require.NoError(t, err)
 		return s
 	}

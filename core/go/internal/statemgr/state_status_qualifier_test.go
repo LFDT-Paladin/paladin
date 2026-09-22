@@ -85,6 +85,6 @@ func TestFindStatesUnsetQualifier(t *testing.T) {
 	mdb.ExpectQuery(`SELECT.*FROM "states".*WHERE.*TRUE`).WillReturnError(fmt.Errorf("called"))
 
 	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", nil, pldtypes.RandBytes32(),
-		query.NewQueryBuilder().Query(), "")
+		query.NewQueryBuilder().Query(), "", nil)
 	assert.Regexp(t, "called", err)
 }
