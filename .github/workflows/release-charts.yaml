@@ -1,9 +1,7 @@
 name: Helm Chart release
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 on:
   workflow_call:
@@ -64,6 +62,8 @@ on:
 jobs:
   helm-chart-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # chart-releaser publishes the chart release and updates the index
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
