@@ -233,6 +233,7 @@ func TestSettingTraceLevel(t *testing.T) {
 func TestSettingInfoLevel(t *testing.T) {
 	SetLevel("info")
 	assert.False(t, IsDebugEnabled())
+	assert.True(t, IsInfoEnabled())
 	assert.Equal(t, "info", GetLevel())
 }
 
