@@ -1,8 +1,6 @@
 name: Build docker image
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
   
 on:
   workflow_call:

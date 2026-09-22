@@ -8,9 +8,7 @@
 name: Release Entry Point
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 on:
   workflow_dispatch:
@@ -47,6 +45,10 @@ on:
 jobs:
   release-candidate:
     if: inputs.release_type == 'rc'
+    permissions:
+      contents: write # release branches and GitHub releases
+      packages: write # container images in ghcr.io
+      id-token: write # npm provenance and artifact upload
     uses: ./.github/workflows/release-candidate.yaml
     with:
       tag: ${{ inputs.tag }}
@@ -54,6 +56,10 @@ jobs:
 
   release-final:
     if: inputs.release_type == 'final'
+    permissions:
+      contents: write # release branches and GitHub releases
+      packages: write # container images in ghcr.io
+      id-token: write # npm provenance and artifact upload
     uses: ./.github/workflows/release.yaml
     with:
       tag: ${{ inputs.tag }}
@@ -63,6 +69,9 @@ jobs:
 
   release-sdk:
     if: inputs.release_type == 'sdk'
+    permissions:
+      contents: read
+      id-token: write # npm publish --provenance
     uses: ./.github/workflows/release-typescript-sdk.yaml
     with:
       sdk_version: ${{ inputs.tag }}

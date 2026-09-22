@@ -1,9 +1,7 @@
 name: Image Release
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 on:
   workflow_call:
@@ -71,6 +69,9 @@ jobs:
   # Build images once to GHCR
   push-to-ghcr:
     needs: image-tags
+    permissions:
+      contents: read
+      packages: write # GITHUB_TOKEN is passed below as the ghcr.io push credential
     uses: ./.github/workflows/cross-build-images.yaml
     with:
       registry: ghcr.io
@@ -83,6 +84,9 @@ jobs:
   # Copy the built images from GHCR to DockerHub (no rebuild)
   copy-to-dockerhub:
     needs: [image-tags, push-to-ghcr]
+    permissions:
+      contents: read
+      packages: read # ghcr.io is the copy source only
     uses: ./.github/workflows/copy-images.yaml
     with:
       source_tag: ${{ inputs.tag }}

@@ -1,5 +1,8 @@
 name: Docs Site
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
