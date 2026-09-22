@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	statemetrics "github.com/LFDT-Paladin/paladin/core/internal/statemgr/metrics"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
@@ -42,6 +43,7 @@ type stateManager struct {
 	transportManager    components.TransportManager
 	abiSchemaCache      cache.Cache[string, components.Schema]
 	validatedStateCache cache.Cache[string, *components.StateWithLabels]
+	metrics             statemetrics.StateManagerMetrics
 	rpcModule           *rpcserver.RPCModule
 }
 
@@ -98,6 +100,7 @@ func NewStateManager(ctx context.Context, conf *pldconf.StateStoreConfig, p pers
 }
 
 func (ss *stateManager) PreInit(c components.PreInitComponents) (*components.ManagerInitResult, error) {
+	ss.metrics = statemetrics.InitMetrics(ss.bgCtx, c.MetricsManager().Registry())
 	ss.initRPC()
 	return &components.ManagerInitResult{
 		RPCModules: []*rpcserver.RPCModule{ss.rpcModule},
