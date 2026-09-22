@@ -40,6 +40,9 @@ func (h *createTransferLockHandler) ValidateParams(ctx context.Context, config *
 
 	var createTransferLockParams types.CreateTransferLockParams
 	err := json.Unmarshal([]byte(params), &createTransferLockParams)
+	if err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
+	}
 	if len(createTransferLockParams.From) == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "from")
 	}
@@ -89,9 +92,9 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 	}
 
 	// Prepare the input coins
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(requiredTotal), useNullifiers)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	inputStates, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(requiredTotal), useNullifiers)
+	if err != nil {
+		return nil, err
 	}
 	remainder := new(big.Int).Sub(inputStates.total, requiredTotal)
 

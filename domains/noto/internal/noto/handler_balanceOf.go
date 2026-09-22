@@ -33,7 +33,7 @@ type balanceOfHandler struct {
 func (h *balanceOfHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
 	var balanceOfParam types.BalanceOfParam
 	if err := json.Unmarshal([]byte(params), &balanceOfParam); err != nil {
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
 	if balanceOfParam.Account == "" {
 		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "Account")
@@ -52,7 +52,6 @@ func (h *balanceOfHandler) InitCall(ctx context.Context, tx *types.ParsedTransac
 }
 
 func (h *balanceOfHandler) ExecCall(ctx context.Context, tx *types.ParsedTransaction, req *prototk.ExecCallRequest) (*prototk.ExecCallResponse, error) {
-
 	param := tx.Params.(*types.BalanceOfParam)
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
@@ -60,7 +59,7 @@ func (h *balanceOfHandler) ExecCall(ctx context.Context, tx *types.ParsedTransac
 	if err != nil {
 		return nil, err
 	}
-	totalStates, totalBalance, overflow, _, err := h.noto.getAccountBalance(ctx, req.StateQueryContext, accountID.address, useNullifiers)
+	totalStates, totalBalance, overflow, err := h.noto.getAccountBalance(ctx, req.StateQueryContext, accountID.address, useNullifiers)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgErrorGetAccountBalance, param.Account)
 	}

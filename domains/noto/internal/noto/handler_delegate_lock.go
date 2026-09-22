@@ -36,7 +36,7 @@ type delegateLockHandler struct {
 func (h *delegateLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
 	var delegateParams types.DelegateLockParams
 	if err := json.Unmarshal([]byte(params), &delegateParams); err != nil {
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
 	if delegateParams.LockID.IsZero() {
 		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId")
@@ -71,16 +71,15 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	var existingLock *loadedLockInfo
 	if tx.DomainConfig.IsV0() {
 		// In V0 at least one locked input was always present here, to confirm lock ownership - not required in V1 due to lock state check.
-		lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, senderID.address, big.NewInt(1), false)
-		if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-			return res, err
+		lockedInputs, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, senderID.address, big.NewInt(1), false)
+		if err != nil {
+			return nil, err
 		}
 		lockedInputStates = lockedInputs.states
 	} else {
-		var revert bool
-		existingLock, revert, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
-		if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-			return res, err
+		existingLock, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
+		if err != nil {
+			return nil, err
 		}
 	}
 

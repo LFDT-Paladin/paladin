@@ -318,7 +318,7 @@ skipDuplicate:
 	return al
 }
 
-func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *identityPair, amount *pldtypes.HexUint256, useNullifiers bool) (inputs *preparedInputs, revert bool, err error) {
+func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *identityPair, amount *pldtypes.HexUint256, useNullifiers bool) (inputs *preparedInputs, err error) {
 	var lastStateTimestamp int64
 	total := big.NewInt(0)
 	stateRefs := []*prototk.StateRef{}
@@ -338,16 +338,16 @@ func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owne
 		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
 		states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String(), useNullifiers)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		if len(states) == 0 {
-			return nil, true, i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))
+			return nil, i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))
 		}
 		for _, state := range states {
 			lastStateTimestamp = state.CreatedAt
 			coin, err := n.unmarshalCoin(state.DataJson)
 			if err != nil {
-				return nil, false, i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)
+				return nil, i18n.NewError(ctx, msgs.MsgInvalidStoredStateData, state.Id, err)
 			}
 			total = total.Add(total, coin.Amount.Int())
 			stateRefs = append(stateRefs, &prototk.StateRef{
@@ -362,13 +362,13 @@ func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owne
 		coins:  coins,
 		states: stateRefs,
 		total:  total,
-	}, false, nil
+	}, nil
 }
 
 // Select from available locked states for a given lock ID and owner,
 // ensuring the total amount is at least the specified amount.
 // If selectAll is true, ALL available states will be found selected.
-func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32, owner *pldtypes.EthAddress, amount *big.Int, selectAll bool) (inputs *preparedLockedInputs, revert bool, err error) {
+func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32, owner *pldtypes.EthAddress, amount *big.Int, selectAll bool) (inputs *preparedLockedInputs, err error) {
 	var lastStateTimestamp int64
 	total := big.NewInt(0)
 	stateRefs := []*prototk.StateRef{}
@@ -389,13 +389,13 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
 		states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockedCoinSchema.Id, queryBuilder.Query().String(), false)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		for _, state := range states {
 			lastStateTimestamp = state.CreatedAt
 			coin, err := n.unmarshalLockedCoin(state.DataJson)
 			if err != nil {
-				return nil, false, i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)
+				return nil, i18n.NewError(ctx, msgs.MsgInvalidStoredStateData, state.Id, err)
 			}
 			total = total.Add(total, coin.Amount.Int())
 			stateRefs = append(stateRefs, &prototk.StateRef{
@@ -420,9 +420,9 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 			coins:  coins,
 			states: stateRefs,
 			total:  total,
-		}, false, nil
+		}, nil
 	}
-	return nil, true, i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))
+	return nil, i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))
 }
 
 func (n *Noto) prepareOutputs(owner *identityPair, amount *pldtypes.HexUint256, distributionList identityList) (*preparedOutputs, error) {
@@ -502,9 +502,10 @@ func (n *Noto) prepareDataInfo(ctx context.Context, data pldtypes.HexBytes, vari
 		Variant: variant,
 	}
 	fromAddr, err := n.findEthAddressVerifier(ctx, "from", transaction.From, verifiers)
-	if err == nil && fromAddr != nil {
-		newData.From = fromAddr.address
+	if err != nil {
+		return nil, err
 	}
+	newData.From = fromAddr.address
 	newState, err := n.makeNewInfoState(newData, variant, distributionList)
 	return []*prototk.NewState{newState}, err
 }
@@ -809,7 +810,7 @@ func (n *Noto) encodeDelegateLock(ctx context.Context, contract *ethtypes.Addres
 	})
 }
 
-func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress, useNullifiers bool) (totalStates int, totalBalance *big.Int, overflow, revert bool, err error) {
+func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress, useNullifiers bool) (totalStates int, totalBalance *big.Int, overflow bool, err error) {
 	totalBalance = big.NewInt(0)
 	queryBuilder := query.NewQueryBuilder().
 		Limit(1000).
@@ -818,21 +819,21 @@ func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, 
 	log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
 	states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String(), useNullifiers)
 	if err != nil {
-		return 0, nil, false, false, err
+		return 0, nil, false, err
 	}
 	for _, state := range states {
 		coin, err := n.unmarshalCoin(state.DataJson)
 		if err != nil {
-			return 0, nil, false, false, i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)
+			return 0, nil, false, i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)
 		}
 		totalBalance = totalBalance.Add(totalBalance, coin.Amount.Int())
 	}
 	if len(states) == 1000 {
 		// We only return the first 1000 coins, so we warn that the balance may be higher
-		return len(states), totalBalance, true, false, nil
+		return len(states), totalBalance, true, nil
 	}
 
-	return len(states), totalBalance, false, false, nil
+	return len(states), totalBalance, false, nil
 }
 
 func (n *Noto) encodeRootAndSignature(ctx context.Context, txContractAddress, stateQueryContext string, payload []byte) ([]byte, error) {

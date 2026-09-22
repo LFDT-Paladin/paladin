@@ -211,7 +211,7 @@ func (n *Noto) validateNullifierSpecs(ctx context.Context, contract *pldtypes.Et
 	return nil
 }
 
-// Check that the sender of a transaction provided a signature on the input details
+// Check that the originator of a transaction provided a signature on the input details
 func (n *Noto) validateSignature(ctx context.Context, name string, attestations []*prototk.AttestationResult, encodedMessage []byte) error {
 	signature := domain.FindAttestation(name, attestations)
 	if signature == nil {
@@ -219,7 +219,7 @@ func (n *Noto) validateSignature(ctx context.Context, name string, attestations 
 	}
 	recoveredSignature, err := n.recoverSignature(ctx, encodedMessage, signature.Payload)
 	if err != nil {
-		return err
+		return i18n.WrapError(ctx, err, msgs.MsgInvalidSignature, name)
 	}
 	if recoveredSignature.String() != signature.Verifier.Verifier {
 		return i18n.NewError(ctx, msgs.MsgSignatureDoesNotMatch, name, signature.Verifier.Verifier, recoveredSignature.String())
@@ -256,7 +256,7 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 	return nil
 }
 
-// Parse a resolved verifier as an eth address
+// findEthAddressVerifier parses a resolved verifier as an eth address.
 func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, lookup string, verifierList []*prototk.ResolvedVerifier) (*identityPair, error) {
 	verifier := domain.FindVerifier(lookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, verifierList)
 	if verifier == nil {
@@ -264,7 +264,7 @@ func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, loo
 	}
 	address, err := pldtypes.ParseEthAddress(verifier.Verifier)
 	if err != nil {
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgErrorVerifyingAddress, errorDescription)
 	}
 	return &identityPair{identifier: lookup, address: address}, nil
 }
@@ -355,19 +355,4 @@ func buildEndorsePlan(notaryParty, senderParty string, signPayload []byte) []*pr
 			Parties:         []string{notaryParty},
 		},
 	}
-}
-
-// assembleRevertOrError returns a revert Assemble response when revert is true, otherwise the original error.
-func assembleRevertOrError(revert bool, err error) (*prototk.AssembleTransactionResponse, error) {
-	if err == nil {
-		return nil, nil
-	}
-	if revert {
-		reason := err.Error()
-		return &prototk.AssembleTransactionResponse{
-			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-			RevertReason:   &reason,
-		}, nil
-	}
-	return nil, err
 }

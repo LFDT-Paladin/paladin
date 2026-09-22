@@ -32,11 +32,12 @@ type burnFromHandler struct {
 func (h *burnFromHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
 	var burnFromParams types.BurnFromParams
 	err := json.Unmarshal([]byte(params), &burnFromParams)
-	if err == nil {
-		err = h.validateBurnParams(ctx, burnFromParams.Amount)
-		if err == nil && burnFromParams.From == "" {
-			err = i18n.NewError(ctx, msgs.MsgParameterRequired, "from")
-		}
+	if err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
+	}
+	err = h.validateBurnParams(ctx, burnFromParams.Amount)
+	if err == nil && burnFromParams.From == "" {
+		err = i18n.NewError(ctx, msgs.MsgParameterRequired, "from")
 	}
 	return &burnFromParams, err
 }

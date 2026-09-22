@@ -526,3 +526,70 @@ func TestCreateTransferLockInsufficientFunds(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, prototk.AssembleTransactionResponse_REVERT, assembleRes.AssemblyResult)
 }
+
+func TestCreateTransferLockValidateParamsRevert(t *testing.T) {
+	h := &createTransferLockHandler{}
+	for _, tc := range []struct {
+		name, params, match string
+		config              *types.NotoParsedConfig
+	}{
+		{"not supported in V0", `{}`, "PD200014", notoBasicConfigV0},
+		{"malformed JSON", `{"from":`, "unexpected end of JSON input", notoBasicConfigV1},
+		{"missing from", `{"recipients": [{"to": "receiver@node2", "amount": 1}]}`, "PD200007.*'from'", notoBasicConfigV1},
+		{"missing recipients", `{"from": "sender@node1"}`, "PD200007.*'recipients'", notoBasicConfigV1},
+		{"zero recipient amount", `{"from": "sender@node1", "recipients": [{"to": "receiver@node2", "amount": 0}]}`, "PD200008.*'recipient amount'", notoBasicConfigV1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), tc.config, tc.params)
+			assertRevertAssemble(t, err, tc.match)
+			assertRevertEndorse(t, err, tc.match)
+		})
+	}
+}
+
+func TestCreateTransferLockEndorseRevertsWhenInputsDoNotCoverOutputs(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	tx.Params = &types.CreateTransferLockParams{From: "sender@node1"}
+	h := &createTransferLockHandler{lockCommon{noto: n}}
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, nil, nil), newLockedCoinState(sender, 50)},
+	})
+	assertRevertAssemble(t, err, "PD200013.*totalOutputs")
+	assertRevertEndorse(t, err, "PD200013.*totalOutputs")
+}
+
+func TestCreateTransferLockEndorseRevertsWhenSpendDoesNotMatchWhatWasLocked(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	tx.Params = &types.CreateTransferLockParams{From: "sender@node1"}
+	h := &createTransferLockHandler{lockCommon{noto: n}}
+	spend := newCoinState(sender, 40)
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, stateIDs(spend), nil), newLockedCoinState(sender, 100)},
+		Info:              []*prototk.EndorsableState{spend},
+	})
+	assertRevertAssemble(t, err, "PD200013.*spendOutputs")
+	assertRevertEndorse(t, err, "PD200013.*spendOutputs")
+}
+
+func TestCreateTransferLockEndorseRevertsWhenCancelDoesNotReturnWhatWasLocked(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	tx.Params = &types.CreateTransferLockParams{From: "sender@node1"}
+	h := &createTransferLockHandler{lockCommon{noto: n}}
+	spend := newCoinState(sender, 100)
+	cancel := newCoinState(sender, 40)
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, stateIDs(spend), stateIDs(cancel)), newLockedCoinState(sender, 100)},
+		Info:              []*prototk.EndorsableState{spend, cancel},
+	})
+	assertRevertAssemble(t, err, "PD200013.*cancelOutputs")
+	assertRevertEndorse(t, err, "PD200013.*cancelOutputs")
+}

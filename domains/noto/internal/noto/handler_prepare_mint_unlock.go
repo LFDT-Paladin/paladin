@@ -39,7 +39,7 @@ func (h *prepareMintUnlockHandler) ValidateParams(ctx context.Context, config *t
 
 	var mintLockParams types.PrepareMintUnlockParams
 	if err := json.Unmarshal([]byte(params), &mintLockParams); err != nil {
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
 	if len(mintLockParams.Recipients) == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")
@@ -93,9 +93,9 @@ func (h *prepareMintUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	notaryID, senderID := ids.notary, ids.sender
 
 	// Load the existing lock
-	existingLock, revert, err := h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	existingLock, err := h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Prepare the outputs to mint

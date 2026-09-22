@@ -61,12 +61,12 @@ func (h *lockCommon) checkAllowed(ctx context.Context, tx *types.ParsedTransacti
 	}
 	fromQualified, err := pldtypes.PrivateIdentityLocator(from).FullyQualified(ctx, localNodeName.Name)
 	if err != nil {
-		return err
+		return i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
-	if tx.Transaction.From == fromQualified.String() {
-		return nil
+	if tx.Transaction.From != fromQualified.String() {
+		return i18n.NewError(ctx, msgs.MsgUnlockOnlyCreator, tx.Transaction.From, from)
 	}
-	return i18n.NewError(ctx, msgs.MsgUnlockOnlyCreator, tx.Transaction.From, from)
+	return nil
 }
 
 // buildUnlockOperationData builds a manifest for one operation (spend or cancel) and encodes

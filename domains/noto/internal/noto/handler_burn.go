@@ -19,6 +19,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
@@ -30,10 +32,10 @@ type burnHandler struct {
 func (h *burnHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
 	var burnParams types.BurnParams
 	err := json.Unmarshal([]byte(params), &burnParams)
-	if err == nil {
-		err = h.validateBurnParams(ctx, burnParams.Amount)
+	if err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
-	return &burnParams, err
+	return &burnParams, h.validateBurnParams(ctx, burnParams.Amount)
 }
 
 func (h *burnHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {

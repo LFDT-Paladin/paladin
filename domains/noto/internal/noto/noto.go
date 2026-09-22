@@ -784,11 +784,11 @@ func (n *Noto) InitTransaction(ctx context.Context, req *prototk.InitTransaction
 func (n *Noto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	ctx, tx, handler, err := n.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
-		return nil, err
+		return assembleRevertOrError(err)
 	}
 	res, err := handler.Assemble(ctx, tx, req)
 	if err != nil {
-		return nil, err
+		return assembleRevertOrError(err)
 	}
 	// Every new unlocked coin in a nullifier variant must carry a nullifier spec, otherwise the
 	// owner's node never derives a nullifier for it and the coin can never be spent, even though
@@ -796,7 +796,7 @@ func (n *Noto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTra
 	// path - including any added later - can miss it.
 	if tx.DomainConfig.IsNullifierVariant() && res.AssemblyResult == prototk.AssembleTransactionResponse_OK {
 		if err := n.validateNullifierSpecs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), res.AssembledTransaction); err != nil {
-			return nil, err
+			return assembleRevertOrError(err)
 		}
 	}
 	return res, nil
@@ -805,17 +805,21 @@ func (n *Noto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTra
 func (n *Noto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
 	ctx, tx, handler, err := n.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
-		return nil, err
+		return endorseRevertOrError(err)
 	}
 	// Defense in depth for the nullifier variants: catches invalid transactions that includes inputs/outputs states
 	// with colliding nullifiers. Applied to every handler here rather than per-handler, so no transaction
 	// type can be missed.
 	if tx.DomainConfig.IsNullifierVariant() {
 		if err := n.validateDistinctNullifiers(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.Inputs, req.Outputs); err != nil {
-			return nil, err
+			return endorseRevertOrError(err)
 		}
 	}
-	return handler.Endorse(ctx, tx, req)
+	res, err := handler.Endorse(ctx, tx, req)
+	if err != nil {
+		return endorseRevertOrError(err)
+	}
+	return res, nil
 }
 
 func (n *Noto) PrepareTransaction(ctx context.Context, req *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
@@ -889,13 +893,13 @@ func validateTransactionCommon[T ParamValidator](
 	var functionABI abi.Entry
 	err := json.Unmarshal([]byte(tx.FunctionAbiJson), &functionABI)
 	if err != nil {
-		return nil, *new(T), err
+		return nil, *new(T), i18n.WrapError(ctx, err, msgs.MsgInvalidTransactionSpec, "functionAbiJson")
 	}
 
 	var domainConfig types.NotoParsedConfig
 	err = json.Unmarshal([]byte(tx.ContractInfo.ContractConfigJson), &domainConfig)
 	if err != nil {
-		return nil, *new(T), err
+		return nil, *new(T), i18n.WrapError(ctx, err, msgs.MsgInvalidTransactionSpec, "contractConfigJson")
 	}
 
 	// Lookup the function by signature. Noting below we're even more precise and throw
@@ -936,7 +940,7 @@ func validateTransactionCommon[T ParamValidator](
 
 	contractAddress, err := ethtypes.NewAddress(tx.ContractInfo.ContractAddress)
 	if err != nil {
-		return nil, *new(T), err
+		return nil, *new(T), i18n.WrapError(ctx, err, msgs.MsgInvalidTransactionSpec, "contractAddress")
 	}
 
 	return &types.ParsedTransaction{
@@ -1115,13 +1119,13 @@ func (n *Noto) encodeTransactionDataV0(ctx context.Context, transaction *prototk
 	for i, state := range infoStates {
 		stateIDs[i], err = pldtypes.ParseBytes32Ctx(ctx, state.Id)
 		if err != nil {
-			return nil, err
+			return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidTransactionData, "info state ID")
 		}
 	}
 
 	transactionID, err := pldtypes.ParseBytes32Ctx(ctx, transaction.TransactionId)
 	if err != nil {
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidTransactionData, "transaction ID")
 	}
 	dataValues := &types.NotoTransactionData_V0{
 		TransactionID: transactionID,
@@ -1148,7 +1152,7 @@ func (n *Noto) encodeTransactionDataV1(ctx context.Context, infoStates []*protot
 	for i, state := range infoStates {
 		stateIDs[i], err = pldtypes.ParseBytes32Ctx(ctx, state.Id)
 		if err != nil {
-			return nil, err
+			return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidTransactionData, "info state ID")
 		}
 	}
 
@@ -1442,7 +1446,8 @@ func (n *Noto) computeLockId(ctx context.Context, contractAddress *pldtypes.EthA
 
 	encoded, err := params.EncodeABIDataJSONCtx(ctx, jsonData)
 	if err != nil {
-		return pldtypes.Bytes32{}, err
+		// Only txId can fail this encode - the two addresses are already-parsed EthAddress values.
+		return pldtypes.Bytes32{}, i18n.WrapError(ctx, err, msgs.MsgInvalidTransactionData, "transaction ID")
 	}
 
 	return pldtypes.Bytes32Keccak(encoded), nil

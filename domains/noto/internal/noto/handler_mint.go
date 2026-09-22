@@ -34,7 +34,7 @@ type mintHandler struct {
 func (h *mintHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
 	var mintParams types.MintParams
 	if err := json.Unmarshal([]byte(params), &mintParams); err != nil {
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
 	if mintParams.To == "" {
 		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "to")

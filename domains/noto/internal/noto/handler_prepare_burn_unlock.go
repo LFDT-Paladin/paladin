@@ -39,7 +39,7 @@ func (h *prepareBurnUnlockHandler) ValidateParams(ctx context.Context, config *t
 
 	var burnLockParams types.PrepareBurnUnlockParams
 	if err := json.Unmarshal([]byte(params), &burnLockParams); err != nil {
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
 	if burnLockParams.LockID.IsZero() {
 		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId")
@@ -74,7 +74,7 @@ func (h *prepareBurnUnlockHandler) checkAllowedForFrom(ctx context.Context, tx *
 	}
 	fromQualified, err := pldtypes.PrivateIdentityLocator(from).FullyQualified(ctx, localNodeName.Name)
 	if err != nil {
-		return err
+		return i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
 	if tx.Transaction.From == fromQualified.String() {
 		return nil
@@ -109,15 +109,15 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	notaryID, senderID, fromID := ids.notary, ids.sender, ids.from
 
 	// Load the existing lock
-	existingLock, revert, err := h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	existingLock, err := h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Read the locked inputs for the existing lock
-	lockedInputStates, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, fromID.address, params.Amount.Int(), true)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	lockedInputStates, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, fromID.address, params.Amount.Int(), true)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate the amount matches exactly (no remainder for burn)

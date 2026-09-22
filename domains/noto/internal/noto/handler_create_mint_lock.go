@@ -40,6 +40,9 @@ func (h *createMintLockHandler) ValidateParams(ctx context.Context, config *type
 
 	var createMintLockParams types.CreateMintLockParams
 	err := json.Unmarshal([]byte(params), &createMintLockParams)
+	if err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
+	}
 	if len(createMintLockParams.Recipients) == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")
 	}

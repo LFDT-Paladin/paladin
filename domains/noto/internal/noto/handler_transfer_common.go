@@ -60,9 +60,9 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	}
 	notaryID, senderID, fromID, toID := ids.notary, ids.sender, ids.from, ids.to
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	inputStates, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
+	if err != nil {
+		return nil, err
 	}
 
 	// Avoid duplicating the sender in distribution lists

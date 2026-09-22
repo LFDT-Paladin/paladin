@@ -68,9 +68,9 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 	notaryID, senderID, fromID := ids.notary, ids.sender, ids.from
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	inputStates, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
+	if err != nil {
+		return nil, err
 	}
 	infoDistribution := identityList{notaryID, senderID, fromID}
 	infoStates, err := h.noto.prepareDataInfo(ctx, data, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, req.ResolvedVerifiers)

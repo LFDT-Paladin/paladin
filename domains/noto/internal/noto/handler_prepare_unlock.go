@@ -37,10 +37,10 @@ type prepareUnlockHandler struct {
 func (h *prepareUnlockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
 	var unlockParams types.PrepareUnlockParams
 	err := json.Unmarshal([]byte(params), &unlockParams)
-	if err == nil {
-		err = h.validateParams(ctx, &unlockParams.UnlockParams)
+	if err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
-	return &unlockParams, err
+	return &unlockParams, h.validateParams(ctx, &unlockParams.UnlockParams)
 }
 
 func (h *prepareUnlockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
@@ -66,10 +66,9 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 
 	var existingLock *loadedLockInfo
 	if !tx.DomainConfig.IsV0() {
-		var revert bool
-		existingLock, revert, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, unlockParams.LockID)
-		if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-			return res, err
+		existingLock, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, unlockParams.LockID)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -78,9 +77,9 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		requiredTotal = requiredTotal.Add(requiredTotal, entry.Amount.Int())
 	}
 
-	lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, unlockParams.LockID, fromID.address, requiredTotal, true)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	lockedInputs, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, unlockParams.LockID, fromID.address, requiredTotal, true)
+	if err != nil {
+		return nil, err
 	}
 
 	remainder := big.NewInt(0).Sub(lockedInputs.total, requiredTotal)

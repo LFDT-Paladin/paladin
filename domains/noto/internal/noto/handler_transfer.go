@@ -19,6 +19,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
@@ -30,10 +32,10 @@ type transferHandler struct {
 func (h *transferHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
 	var transferParams types.TransferParams
 	err := json.Unmarshal([]byte(params), &transferParams)
-	if err == nil {
-		err = h.validateTransferParams(ctx, transferParams.To, transferParams.Amount)
+	if err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
-	return &transferParams, err
+	return &transferParams, h.validateTransferParams(ctx, transferParams.To, transferParams.Amount)
 }
 
 func (h *transferHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {

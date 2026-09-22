@@ -50,7 +50,7 @@ func TestBalanceOfValidateParams(t *testing.T) {
 		{
 			name:        "Invalid JSON",
 			input:       "bad json",
-			expectedErr: "invalid character 'b' looking for beginning of value",
+			expectedErr: "PD200049: Invalid function parameters: invalid character 'b' looking for beginning of value",
 		},
 		{
 			name:        "No parameters",
@@ -75,6 +75,8 @@ func TestBalanceOfValidateParams(t *testing.T) {
 
 			if tc.expectedErr != "" {
 				assert.EqualError(t, err, tc.expectedErr)
+				assert.True(t, isAssembleRevert(err), "expected a revert at assemble")
+				assert.True(t, isEndorseRevert(err), "expected a revert at endorse")
 			}
 
 			if tc.validate != nil {

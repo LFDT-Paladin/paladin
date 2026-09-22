@@ -41,7 +41,7 @@ func (h *createBurnLockHandler) ValidateParams(ctx context.Context, config *type
 	var params types.CreateBurnLockParams
 	err := json.Unmarshal([]byte(paramsJSON), &params)
 	if err != nil {
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
 	if params.Amount == nil || params.Amount.Int().Sign() != 1 {
 		return nil, i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")
@@ -84,9 +84,9 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	notaryID, senderID, fromID := ids.notary, ids.sender, ids.from
 
 	// Prepare the input coins
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(params.Amount), useNullifiers)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	inputStates, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(params.Amount), useNullifiers)
+	if err != nil {
+		return nil, err
 	}
 	remainder := new(big.Int).Sub(inputStates.total, (*big.Int)(params.Amount))
 
@@ -234,7 +234,7 @@ func (h *createBurnLockHandler) Endorse(ctx context.Context, tx *types.ParsedTra
 		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "totalOutputs", inputs.total, totalOutputs)
 	}
 	if parsedSpendOutputs.total.Sign() != 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "spendOutputs", "0", parsedCancelOutputs.total)
+		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "spendOutputs", "0", parsedSpendOutputs.total)
 	}
 	if outputs.lockedTotal.Cmp(parsedCancelOutputs.total) != 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "cancelOutputs", inputs.total, parsedCancelOutputs.total)

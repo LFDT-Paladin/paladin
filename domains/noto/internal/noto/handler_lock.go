@@ -35,7 +35,7 @@ type lockHandler struct {
 func (h *lockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
 	var lockParams types.LockParams
 	if err := json.Unmarshal([]byte(params), &lockParams); err != nil {
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidParams)
 	}
 	if config.IsV0() {
 		// V0 did not support empty locks
@@ -101,9 +101,9 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	}
 	notaryID, senderID := ids.notary, ids.sender
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, params.Amount, useNullifiers)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	inputStates, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, params.Amount, useNullifiers)
+	if err != nil {
+		return nil, err
 	}
 
 	// Pre-compute the lockId as it will be generated on the smart contract

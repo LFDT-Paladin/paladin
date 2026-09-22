@@ -1,0 +1,9 @@
+---
+description: Attaches the Noto error classification skill when Noto domain Go files are in context.
+globs: **/domains/noto/internal/noto/**/*.go
+alwaysApply: false
+---
+
+Noto distinguishes reverts from internal errors at assemble and endorse, and the right answer depends on who supplied the rejected data in each phase.
+
+Before adding, moving or changing any error return, validation check or helper on the ValidateParams, Assemble or Endorse paths, read `domains/noto/.claude/skills/noto-error-classification/SKILL.md` and follow its procedure and reporting requirement.
