@@ -64,13 +64,13 @@ type ZetoHelper struct {
 	implABI abi.ABI
 }
 
-// ZetoVersionLatest is the default primary zkp tree (see ZetoZKArtifactRootLatest).
-const ZetoVersionLatest = ZetoZKArtifactRootLatest
+// ZetoVersionDefault is the zkp tree used when a caller names none (see ZetoZKArtifactRootDefault).
+const ZetoVersionDefault = ZetoZKArtifactRootDefault
 
 // ZetoZKArtifactsDir returns the circuits/proving-keys root for integration tests (cwd = domains/integration-test).
 func ZetoZKArtifactsDir(version string) string {
 	if version == "" || strings.EqualFold(strings.TrimSpace(version), "latest") {
-		version = ZetoZKArtifactRootLatest
+		version = ZetoZKArtifactRootDefault
 	}
 	return filepath.Join("..", "zeto", "zkp", version)
 }
@@ -375,6 +375,15 @@ func (z *ZetoHelperFungible) cancelLockDomainTransaction(ctx context.Context, re
 		From:   req.From,
 		Data:   emptyData,
 	}))
+}
+
+// SpendLockTransaction returns the spendLock domain transaction so a caller can Prepare(signer) it and use the
+// resulting EncodedCall / InputStates / OutputStates directly — the shape an Atom operation and a swap proposal need.
+// PrepareSpendLock wraps the same transaction for the simpler "prepare then submit it myself" path.
+func (z *ZetoHelperFungible) SpendLockTransaction(ctx context.Context, req *SpendLockRequest) *DomainTransactionHelper {
+	require.NotNil(z.t, req)
+	require.NotEmpty(z.t, req.From, "SpendLockRequest.From is required")
+	return z.spendLockDomainTransaction(ctx, req)
 }
 
 func (z *ZetoHelperFungible) spendLockDomainTransaction(ctx context.Context, req *SpendLockRequest) *DomainTransactionHelper {

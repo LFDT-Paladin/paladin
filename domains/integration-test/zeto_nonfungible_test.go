@@ -17,7 +17,7 @@ import (
 )
 
 func TestNonFungibleZetoSuite(t *testing.T) {
-	for _, root := range helpers.ZetoZKArtifactRootsForTestRun() {
+	for _, root := range helpers.ZetoV0ZKArtifactRootsForTestRun() {
 		root := root
 		t.Run(root, func(t *testing.T) {
 			if !helpers.ZetoZKArtifactsRootPresent(root) {

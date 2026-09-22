@@ -23,12 +23,24 @@ import (
 )
 
 // ZKP artifact directory names under domains/zeto/zkp/ — keep aligned with domains/zeto/build.gradle zetoVersions[].zkpRoot.
+// Named by release so neither reads as "the newest one": these identify generations, and both stay in use.
 const (
-	ZetoZKArtifactRootLatest = "v0.2.2"
-	ZetoZKArtifactRootV051   = "v0.5.1"
+	// ZetoZKArtifactRootV022 is the V0 generation (ZetoRelease_V0 in domains/zeto/pkg/types/versions.go).
+	ZetoZKArtifactRootV022 = "v0.2.2"
+	// ZetoZKArtifactRootV051 is the V1 generation (ZetoRelease_V1).
+	ZetoZKArtifactRootV051 = "v0.5.1"
 )
 
-// EnvZetoZKPVersion selects a single zkp root (e.g. "v0.5.1"). Empty uses ZetoZKArtifactRootLatest.
+// ZetoZKArtifactRootDefault is the root used when a suite pins none and no env override is set.
+//
+// A suite that exists to exercise a specific generation must pin its root rather than inherit this one: the generation
+// decides the handler axis (packed vs discrete proof calldata, lock-output ordering) and which implementation ABIs the
+// deploy config loads, so a suite silently following a moved default would run V0 handlers against V1 contracts.
+// zeto_fungible_test.go and zeto_nonfungible_test.go pin V022 for that reason; the dual-version suite names both roots.
+const ZetoZKArtifactRootDefault = ZetoZKArtifactRootV051
+
+// EnvZetoZKPVersion selects a single zkp root (e.g. "v0.5.1"). Empty, or the legacy value "latest", uses
+// ZetoZKArtifactRootDefault.
 const EnvZetoZKPVersion = "PALADIN_ZETO_ZKP_VERSION"
 
 // EnvZetoZKPMatrix when set to "all" runs integration suites once per SupportedZetoZKArtifactRoots (skipping roots with missing artifacts).
@@ -36,14 +48,16 @@ const EnvZetoZKPMatrix = "PALADIN_ZETO_ZKP_MATRIX"
 
 // SupportedZetoZKArtifactRoots lists every zeto-contracts / wasm / proving-keys tree Gradle may extract.
 func SupportedZetoZKArtifactRoots() []string {
-	return []string{ZetoZKArtifactRootLatest, ZetoZKArtifactRootV051}
+	return []string{ZetoZKArtifactRootV022, ZetoZKArtifactRootV051}
 }
 
 // EffectiveZetoZKArtifactRoot returns the zkp subdirectory name for a single-version test run.
 func EffectiveZetoZKArtifactRoot() string {
 	v := strings.TrimSpace(os.Getenv(EnvZetoZKPVersion))
-	if v == "" || strings.EqualFold(v, "latest") {
-		return ZetoZKArtifactRootLatest
+	// "latest" is kept as an accepted input for existing CI/developer envs; it means the default root, which is
+	// not necessarily the newest release — see ZetoZKArtifactRootDefault.
+	if v == "" || strings.EqualFold(v, "latest") || strings.EqualFold(v, "default") {
+		return ZetoZKArtifactRootDefault
 	}
 	if err := validateZetoZKArtifactRoot(v); err != nil {
 		panic(err) // misconfigured CI / developer env
@@ -65,6 +79,19 @@ func ZetoZKArtifactRootsForTestRun() []string {
 // Paladin fungible V1 (IZetoFungible_V1) uses upstream artifacts under ZetoZKArtifactRootV051 ("v0.5.1").
 func ZetoFungibleV1ZKArtifactRootsForTestRun() []string {
 	return []string{ZetoZKArtifactRootV051}
+}
+
+// ZetoV0ZKArtifactRootsForTestRun returns the zkp root for suites that exercise the V0 handler axis. They are pinned
+// rather than following ZetoZKArtifactRootDefault, whose value tracks the newest generation: their deploy configs load
+// V0 implementation ABIs, so running them against a newer contract generation would mismatch the calldata shape.
+// PALADIN_ZETO_ZKP_MATRIX=all still widens them, for deliberately checking a V0 domain against every artifact tree.
+func ZetoV0ZKArtifactRootsForTestRun() []string {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv(EnvZetoZKPMatrix)), "all") {
+		out := make([]string, len(SupportedZetoZKArtifactRoots()))
+		copy(out, SupportedZetoZKArtifactRoots())
+		return out
+	}
+	return []string{ZetoZKArtifactRootV022}
 }
 
 func validateZetoZKArtifactRoot(v string) error {

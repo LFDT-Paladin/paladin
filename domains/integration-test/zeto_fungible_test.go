@@ -39,7 +39,7 @@ import (
 )
 
 func TestFungibleZetoSuite(t *testing.T) {
-	for _, root := range helpers.ZetoZKArtifactRootsForTestRun() {
+	for _, root := range helpers.ZetoV0ZKArtifactRootsForTestRun() {
 		t.Run(root, func(t *testing.T) {
 			if !helpers.ZetoZKArtifactsRootPresent(root) {
 				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)

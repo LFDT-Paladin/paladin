@@ -25,8 +25,8 @@ import (
 )
 
 func TestZetoZKArtifactsDir_latestAndEmpty(t *testing.T) {
-	assert.Contains(t, ZetoZKArtifactsDir("latest"), ZetoZKArtifactRootLatest)
-	assert.Contains(t, ZetoZKArtifactsDir(""), ZetoZKArtifactRootLatest)
+	assert.Contains(t, ZetoZKArtifactsDir("latest"), ZetoZKArtifactRootDefault)
+	assert.Contains(t, ZetoZKArtifactsDir(""), ZetoZKArtifactRootDefault)
 	assert.Contains(t, ZetoZKArtifactsDir("v0.5.1"), "v0.5.1")
 }
 

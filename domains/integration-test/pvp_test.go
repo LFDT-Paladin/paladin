@@ -353,7 +353,9 @@ func (s *pvpTestSuite) TestNotoForZeto() {
 
 	log.L(ctx).Infof("Deploying Noto and Zeto")
 	noto := helpers.DeployNoto(ctx, t, rpc, s.notoDomainName, "", notary, nil)
-	zeto := helpers.DeployZetoFungible(ctx, t, rpc, s.zetoDomainName, notary, tokenName, s.zkpArtifactRoot)
+	// V1 axis: the pool runs against v0.5.1 contracts (ZetoZKArtifactRootDefault), whose packed-proof calldata and
+	// lock-output ordering only match the V1 handlers.
+	zeto := helpers.DeployZetoFungibleV1(ctx, t, rpc, s.zetoDomainName, notary, tokenName, s.zkpArtifactRoot)
 	log.L(ctx).Infof("Noto deployed to %s", noto.Address)
 	log.L(ctx).Infof("Zeto deployed to %s", zeto.Address)
 
@@ -420,10 +422,21 @@ func (s *pvpTestSuite) TestNotoForZeto() {
 	require.NoError(t, err)
 
 	log.L(ctx).Infof("Prepare the Zeto transfer")
-	zeto.Lock(ctx, pldtypes.MustEthAddress(bobKey.Verifier.Verifier), 1).SignAndSend(bob).Wait()
+	// Fungible V1 (v0.5.x) replaces the V0 lock/transferLocked pair with the createLock/spendLock lifecycle. The
+	// recipient is pinned when the lock is created rather than when it is spent, so bob names alice here; spendLock
+	// then pays out whatever the persisted lock info says, which is what makes the atom's call safe to pre-encode.
+	createLockResult := zeto.CreateLock(ctx, bob, alice, 1, nil).SignAndSend(bob, true).Wait()
+	createLockTx := helpers.DecodeTransactionInvokeResult(t, createLockResult)
+	require.NotNil(t, createLockTx.PreparedTransaction)
+	chainLockID, calculatedLockID := helpers.ZetoLockIDsFromCreateLockReceipt(ctx, t, rpc, tb, &zeto.ZetoHelper, createLockTx)
+	require.Equal(t, calculatedLockID, chainLockID, "on-chain lockId must match keccak256(pool, createLock msg.sender, txId)")
+	lockID := chainLockID
+	// createLock sets lock.spender to the msg.sender of the public leg, and only that identity may delegate the lock on.
+	lockSpender := createLockTx.PreparedTransaction.From
+	log.L(ctx).Infof("Created Zeto lock %s (spender %s)", lockID, lockSpender)
 
 	jq := query.NewQueryBuilder().Limit(100).Equal("locked", true).Query()
-	lockedZetoCoins := findAvailableCoins(t, ctx, rpc, zetoDomain.Name(), zetoDomain.CoinSchemaID(), "pstate_queryContractStates", zeto.Address, jq, func(coins []*zetotypes.ZetoCoinState) bool {
+	findAvailableCoins(t, ctx, rpc, zetoDomain.Name(), zetoDomain.CoinSchemaID(), "pstate_queryContractStates", zeto.Address, jq, func(coins []*zetotypes.ZetoCoinState) bool {
 		locked := len(coins) >= 1
 		if locked {
 			log.L(ctx).Infof("Found %d locked Zeto coins", len(coins))
@@ -435,9 +448,12 @@ func (s *pvpTestSuite) TestNotoForZeto() {
 		}
 		return locked
 	})
-	lockedZeto, _ := lockedZetoCoins[0].Data.Hash(ctx)
 
-	transferZeto := zeto.TransferLocked(ctx, lockedZeto, bobKey.Verifier.Verifier, alice, 1).Prepare(bob)
+	// The atom executes this prepared spendLock, so it is encoded now and authorised later by delegating the lock.
+	transferZeto := zeto.SpendLockTransaction(ctx, &helpers.SpendLockRequest{
+		From:   bob,
+		LockId: lockID,
+	}).Prepare(bob)
 
 	log.L(ctx).Infof("Prepare the trade execute")
 	encodedExecute := swap.Execute(ctx).Prepare()
@@ -494,7 +510,7 @@ func (s *pvpTestSuite) TestNotoForZeto() {
 		LockID:   notoUnlockReceipt.LockInfo.LockID,
 		Delegate: transferAtom.Address,
 	}).SignAndSend(alice).Wait()
-	zeto.DelegateLock(ctx, tb, lockedZeto, transferAtom.Address, bobKey.Identifier)
+	zeto.DelegateLockV1(ctx, tb, lockID, transferAtom.Address, lockSpender)
 
 	log.L(ctx).Infof("Execute the atomic operation")
 	sent = transferAtom.Execute(ctx).SignAndSend(alice).Wait(5 * time.Second)

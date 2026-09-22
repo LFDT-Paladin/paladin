@@ -35,8 +35,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/crypto"
 	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-labs/zeto/go-sdk/pkg/crypto"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -147,7 +147,11 @@ func (h *createLockHandler) Init(ctx context.Context, tx *types.ParsedTransactio
 	params := tx.Params.(*types.CreateLockParams)
 	for _, recipient := range params.Recipients {
 		rv = append(rv, &prototk.ResolveVerifierRequest{
-			Lookup:       recipient.To,
+			// Qualified with the sender's node, exactly as Assemble does before looking the recipient up in
+			// ResolvedVerifiers. Registering the bare form here would leave the resolved set keyed on "alice"
+			// while Assemble searches for "alice@node1", so a createLock from a node-qualified sender to an
+			// unqualified recipient could never resolve.
+			Lookup:       qualifyPartyLookup(recipient.To, tx.Transaction.From),
 			Algorithm:    h.getAlgoZetoSnarkBJJ(),
 			VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X,
 		})
