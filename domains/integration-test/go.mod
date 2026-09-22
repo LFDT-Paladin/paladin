@@ -1,8 +1,8 @@
 module github.com/LFDT-Paladin/paladin/domains/integration-test
 
-go 1.25.0
+go 1.26.0
 
-toolchain go1.25.11
+toolchain go1.26.8
 
 require (
 	github.com/LFDT-Paladin/paladin/common/go v0.0.0-00010101000000-000000000000
@@ -14,7 +14,7 @@ require (
 	github.com/LFDT-Paladin/paladin/toolkit v0.0.0-00010101000000-000000000000
 	github.com/go-resty/resty/v2 v2.14.0
 	github.com/google/uuid v1.6.0
-	github.com/hyperledger/firefly-signer v1.1.22
+	github.com/hyperledger-firefly/signer v1.2.1
 	github.com/stretchr/testify v1.11.1
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -25,7 +25,7 @@ require (
 	github.com/aidarkhanov/nanoid v1.0.8 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.24.2 // indirect
-	github.com/btcsuite/btcd/btcec/v2 v2.3.2 // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.3.5 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -38,8 +38,10 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	github.com/hyperledger-firefly/common v1.6.2 // indirect
 	github.com/hyperledger-labs/zeto/go-sdk v0.0.0-20241004174307-aa3c1fdf0966 // indirect
 	github.com/hyperledger/firefly-common v1.5.9 // indirect
+	github.com/hyperledger/firefly-signer v1.1.22 // indirect
 	github.com/iden3/go-iden3-crypto v0.0.17 // indirect
 	github.com/iden3/go-rapidsnark/prover v0.0.15 // indirect
 	github.com/iden3/go-rapidsnark/types v0.0.3 // indirect

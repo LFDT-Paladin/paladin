@@ -35,4 +35,6 @@ interface INotoErrors {
     error NotoInvalidOptions(bytes options);
 
     error NotoInvalidTransaction(bytes32 txId);
+
+    error NotoNullifierIsCommitment(bytes32 nullifier);
 }

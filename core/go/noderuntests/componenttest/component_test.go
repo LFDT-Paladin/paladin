@@ -31,7 +31,7 @@ import (
 	testutils "github.com/LFDT-Paladin/paladin/core/noderuntests/pkg"
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -1502,7 +1502,7 @@ func TestPrivacyGroupEndorsement(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, bobSchemas, 1)
 
-	bobStates, err := bob.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, bobSchemas[0].ID, &query.QueryJSON{}, "available")
+	bobStates, err := bob.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, bobSchemas[0].ID, &query.QueryJSON{}, "confirmed")
 	require.NoError(t, err)
 	require.Len(t, bobStates, 1)
 	stateData := make(map[string]string)
@@ -1521,7 +1521,7 @@ func TestPrivacyGroupEndorsement(t *testing.T) {
 	require.Len(t, aliceSchemas, 1)
 	assert.Equal(t, bobSchemas[0].ID, aliceSchemas[0].ID)
 
-	aliceStates, err := alice.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, aliceSchemas[0].ID, &query.QueryJSON{}, "available")
+	aliceStates, err := alice.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, aliceSchemas[0].ID, &query.QueryJSON{}, "confirmed")
 
 	require.NoError(t, err)
 	require.Len(t, aliceStates, 1)
@@ -1662,16 +1662,16 @@ func TestPrivacyGroupEndorsementConcurrent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, schemas, 1)
 
-	aliceStates, err := alice.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "available")
+	aliceStates, err := alice.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "confirmed")
 	require.NoError(t, err)
 	require.Len(t, aliceStates, 1)
 
-	bobStates, err := bob.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "available")
+	bobStates, err := bob.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "confirmed")
 	require.NoError(t, err)
 	require.Len(t, bobStates, 1)
 	assert.Equal(t, aliceStates[0].Data, bobStates[0].Data)
 
-	carolStates, err := carol.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "available")
+	carolStates, err := carol.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "confirmed")
 	require.NoError(t, err)
 	require.Len(t, carolStates, 1)
 	assert.Equal(t, aliceStates[0].Data, carolStates[0].Data)

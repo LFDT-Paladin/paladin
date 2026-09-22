@@ -31,8 +31,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -175,7 +175,6 @@ type testDomainContext struct {
 	d               *domain
 	tp              *testPlugin
 	c               *inFlightDomainRequest
-	dsw             components.DomainStateWriter
 	contractAddress pldtypes.EthAddress
 }
 
@@ -225,16 +224,12 @@ func newTestDomain(t *testing.T, realDB bool, domainConfig *prototk.DomainConfig
 
 	var c *inFlightDomainRequest
 	var mdc *componentsmocks.DomainQueryContext
-	var dsw components.DomainStateWriter
 	addr := *pldtypes.RandAddress()
 	if realDB {
 		dqc := dm.stateStore.NewDomainQueryContext(ctx, tp.d, addr)
-		dsw = dm.stateStore.NewDomainStateWriter(ctx, tp.d, addr)
 		c = tp.d.newInFlightDomainRequest(dm.persistence.NOTX(), dqc, true /* readonly unless modified by test */)
 	} else {
 		mdc = componentsmocks.NewDomainQueryContext(t)
-		mdc.On("ID").Return(uuid.New()).Maybe()
-		mdc.On("Close", mock.Anything).Return()
 		c = tp.d.newInFlightDomainRequest(dm.persistence.NOTX(), mdc, true /* readonly unless modified by test */)
 		mc.stateStore.On("NewDomainQueryContext", mock.Anything, tp.d, mock.Anything, mock.Anything).Return(mdc).Maybe()
 	}
@@ -246,15 +241,10 @@ func newTestDomain(t *testing.T, realDB bool, domainConfig *prototk.DomainConfig
 			d:               tp.d,
 			tp:              tp,
 			c:               c,
-			dsw:             dsw,
 			mdc:             mdc,
 			contractAddress: addr,
 		}, func() {
 			c.close()
-			c.dqc.Close(ctx)
-			if mdc != nil {
-				mdc.Close(ctx)
-			}
 			dmDone()
 		}
 }
@@ -549,8 +539,8 @@ func storeTestState(t *testing.T, td *testDomainContext, txID uuid.UUID, amount 
 	stateJSON, err := json.Marshal(state)
 	require.NoError(t, err)
 
-	// Validate against the real statestore, stage into the DomainStateWriter, flush, then confirm
-	// so the state appears as "available" when queried by the domain context during assembly.
+	// Validate against the real statestore, write, then confirm so the state appears as
+	// "confirmed" when queried by the domain context during assembly.
 	schemaID := pldtypes.MustParseBytes32(td.tp.stateSchemas[0].Id)
 	states, err := td.dm.stateStore.ValidateStatesWithLabels(td.ctx, td.c.dbTX, td.d, td.contractAddress, &prototk.EndorsableState{
 		SchemaId:      schemaID.String(),
@@ -558,9 +548,8 @@ func storeTestState(t *testing.T, td *testDomainContext, txID uuid.UUID, amount 
 	})
 	require.NoError(t, err)
 	require.Len(t, states, 1)
-	require.NoError(t, td.dsw.StageWrites(td.ctx, states))
 	err = td.dm.persistence.Transaction(td.ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		return td.dsw.Flush(ctx, dbTX)
+		return td.dm.stateStore.WriteStateBatch(ctx, dbTX, states)
 	})
 	require.NoError(t, err)
 	err = td.dm.stateStore.WriteStateFinalizations(td.ctx, td.dm.persistence.NOTX(),

@@ -26,7 +26,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
@@ -73,10 +72,8 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		tx := args.Get(3).(*components.PrivateTransaction)
-		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
-	}).Return(nil).Once()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.PrepareTransactionResult{PreparedPrivateTransaction: &pldapi.TransactionInput{}}, nil).Once()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	c.Start(ctx)
@@ -84,7 +81,6 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		cancel()
 		c.WaitForDone(t.Context())
 	}()
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything).Return(nil).Once()
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -182,25 +178,19 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 			snapshot.DispatchedTransactions[0].Id == txn.ID.String()
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain exactly one dispatched transaction")
 
-	// Simulate the dispatcher thread collecting the transaction and dispatching it to a public transaction manager
+	// Simulate the dispatcher thread collecting the transaction and dispatching it to a public transaction
+	// manager. The dispatch loop is disabled for this test (MaxDispatchAhead=-1) so it does not drive this
+	// transition itself; the transaction's built dispatch was already handed to the dispatch queue when it
+	// entered State_Ready_For_Dispatch, so the commit is exercised by the dispatch-loop tests rather than
+	// re-simulated here.
 	c.QueueEvent(ctx, &transaction.DispatchedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 	})
-
-	// Committing the dispatch runs off-lock; the real dispatchLoop drives it after the transition to
-	// State_Dispatched. The loop is disabled for this test (MaxDispatchAhead=-1), so drive it manually:
-	// detach the prepared dispatch, append it to a batch and commit.
 	require.Eventually(t, func() bool {
 		return len(c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})) == 1
 	}, 100*time.Millisecond, 1*time.Millisecond, "transaction should reach State_Dispatched")
-	dispatched := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})
-	pd := dispatched[0].PendingDispatch(ctx)
-	require.NotNil(t, pd)
-	batch := &syncpoints.DispatchBatch{DomainStateWriter: c.dsw, ContractAddress: *c.contractAddress}
-	batch.Append(pd)
-	require.NoError(t, c.syncPoints.PersistDispatchBatch(ctx, batch))
 
 	// Simulate the public transaction manager collecting the dispatched transaction and associating a signing address with it
 	signerAddress := pldtypes.RandAddress()
@@ -843,14 +833,28 @@ func TestCoordinator_WaitForDone_CtxCancelledWhileDispatchLoopRunning_ReturnsEar
 	}
 }
 
+// mockDomainSmartContractForConstructor satisfies the domain lookups NewCoordinator performs when
+// wiring the state view provider.
+func mockDomainSmartContractForConstructor(t *testing.T) *componentsmocks.DomainSmartContract {
+	domainAPI := componentsmocks.NewDomainSmartContract(t)
+	domain := componentsmocks.NewDomain(t)
+	domain.On("Name").Return("test-domain").Maybe()
+	domainAPI.On("Domain").Return(domain).Maybe()
+	return domainAPI
+}
+
+func mockAllComponentsForConstructor(t *testing.T) *componentsmocks.AllComponents {
+	allComponents := componentsmocks.NewAllComponents(t)
+	allComponents.On("StateManager").Return(componentsmocks.NewStateManager(t)).Maybe()
+	return allComponents
+}
+
 func TestNewCoordinator_SenderMode_SetsCurrentActiveCoordinatorToNodeName(t *testing.T) {
 	const nodeName = "senderNode"
 	c := NewCoordinator(
 		pldtypes.RandAddress(),
-		componentsmocks.NewDomainSmartContract(t),
-		nil,
-		componentsmocks.NewAllComponents(t),
-		nil,
+		mockDomainSmartContractForConstructor(t),
+		mockAllComponentsForConstructor(t),
 		nil,
 		testutil.NewSentMessageRecorder(),
 		common.RealClock(),
@@ -871,10 +875,8 @@ func TestNewCoordinator_EndorserMode_SetsEndorserCandidates(t *testing.T) {
 	endorsers := []string{"endorser1@node1", "endorser2@node2"}
 	c := NewCoordinator(
 		pldtypes.RandAddress(),
-		componentsmocks.NewDomainSmartContract(t),
-		nil,
-		componentsmocks.NewAllComponents(t),
-		nil,
+		mockDomainSmartContractForConstructor(t),
+		mockAllComponentsForConstructor(t),
 		nil,
 		testutil.NewSentMessageRecorder(),
 		common.RealClock(),
