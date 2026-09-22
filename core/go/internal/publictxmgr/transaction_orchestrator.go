@@ -425,7 +425,9 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 			oc.totalCompleted = oc.totalCompleted + 1
 			queueUpdated = true
 			log.L(ctx).Debugf("Orchestrator poll and process, marking %s as complete after: %s", p.stateManager.GetSignerNonce(), time.Since(p.stateManager.GetCreatedTime().Time()))
-			p.PrintTimeline()
+			if p.timeLineLoggingMaxEntries > 0 && log.IsInfoEnabled() {
+				log.L(ctx).Infof("Timeline for %s: %s", p.stateManager.GetSignerNonce(), p.PrintTimeline())
+			}
 		} else {
 			log.L(ctx).Debugf("Orchestrator poll and process, continuing tx %s after: %s", p.stateManager.GetSignerNonce(), time.Since(p.stateManager.GetCreatedTime().Time()))
 			newInFlight = append(newInFlight, p)
@@ -575,11 +577,10 @@ func (oc *orchestrator) ProcessInFlightTransactions(ctx context.Context, its []*
 	waitingForBalance = false
 	var addressAccount *AddressAccount
 	skipBalanceCheck := oc.hasZeroGasPrice
-	now := time.Now()
-	log.L(ctx).Debugf("%s ProcessInFlightTransaction entry for signing address %s", now.String(), oc.signingAddress)
+	log.L(ctx).Debugf("ProcessInFlightTransaction entry for signing address %s", oc.signingAddress)
 
 	if !skipBalanceCheck {
-		log.L(ctx).Debugf("%s: ProcessInFlightTransaction checking balance for %s", now.String(), oc.signingAddress)
+		log.L(ctx).Debugf("ProcessInFlightTransaction checking balance for %s", oc.signingAddress)
 
 		addressAccount, err = oc.balanceManager.GetAddressBalance(oc.ctx, oc.signingAddress)
 		if err != nil {
@@ -601,7 +602,7 @@ func (oc *orchestrator) ProcessInFlightTransactions(ctx context.Context, its []*
 
 	previousNonceCostUnknown := false
 	for i, it := range its {
-		log.L(ctx).Debugf("%s ProcessInFlightTransaction for signing address %s processing transaction with ID: %s, index: %d", now.String(), oc.signingAddress, it.stateManager.GetSignerNonce(), i)
+		log.L(ctx).Debugf("ProcessInFlightTransaction for signing address %s processing transaction with ID: %s, index: %d", oc.signingAddress, it.stateManager.GetSignerNonce(), i)
 		var availableToSpend *big.Int
 		if !skipBalanceCheck {
 			availableToSpend = addressAccount.GetAvailableToSpend(ctx)
@@ -625,7 +626,7 @@ func (oc *orchestrator) ProcessInFlightTransactions(ctx context.Context, its []*
 		}
 	}
 
-	log.L(ctx).Debugf("%s ProcessInFlightTransaction exit for signing address: %s", now.String(), oc.signingAddress)
+	log.L(ctx).Debugf("ProcessInFlightTransaction exit for signing address: %s", oc.signingAddress)
 	log.L(ctx).Debugf("Orchestrator process loop took %s", time.Since(processStart))
 	return waitingForBalance, nil
 }

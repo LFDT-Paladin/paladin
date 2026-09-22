@@ -324,13 +324,13 @@ func (ss *stateManager) labelSetFor(schema components.Schema) *trackingLabelSet 
 }
 
 // statusScope returns the query modifier that scopes a states query to a status qualifier and
-// excludes the given state IDs. Available, and its synonym confirmed, are served from the maintained
-// confirmed/spent flags and the states_available partial index, so they need neither the
-// Confirmed/Spent joins nor whereClauseForQual. Every other qualifier expresses status via those joins.
+// excludes the given state IDs. The confirmed qualifier is served from the maintained confirmed/spent
+// flags and the states_available partial index, so it needs neither the Confirmed/Spent joins nor
+// whereClauseForQual. Every other qualifier expresses status via those joins.
 func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.StateStatusQualifier, excludedIDs []pldtypes.HexBytes) func(*gorm.DB) *gorm.DB {
 	var whereClause *gorm.DB
 	var needsStatusJoins bool
-	if status == pldapi.StateStatusAvailable || status == pldapi.StateStatusConfirmed {
+	if status == pldapi.StateStatusConfirmed {
 		whereClause = dbTX.DB(ctx).Where(`"states"."confirmed" AND NOT "states"."spent"`)
 	} else {
 		whereClause = whereClauseForQual(dbTX.DB(ctx), status, "Spent")
@@ -348,26 +348,9 @@ func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.State
 	}
 }
 
-// findStates reads states from the local DB alone, scoped by the given status qualifier and
-// provided query. It serves the query API, which passes whatever qualifier its
-// caller asked for, and domain query contexts with no remote view, which have nothing to merge against.
+// findStates reads states from the local DB, scoped by the given status qualifier and query,
+// excluding any of the given state IDs.
 func (ss *stateManager) findStates(
-	ctx context.Context,
-	dbTX persistence.DBTX,
-	domainName string,
-	contractAddress *pldtypes.EthAddress,
-	schemaID pldtypes.Bytes32,
-	jq *query.QueryJSON,
-	status pldapi.StateStatusQualifier,
-) (components.Schema, []*pldapi.State, error) {
-	scope := statusScope(ctx, dbTX, status, nil)
-	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq,
-		func(_ persistence.DBTX, q *gorm.DB) *gorm.DB { return scope(q) })
-}
-
-// findStatesForRemoteViewMerge reads states for a domain context that has a remote view, ready to be
-// merged with the view's own matches. It excludes the states the view reports spent ahead of the chain.
-func (ss *stateManager) findStatesForRemoteViewMerge(
 	ctx context.Context,
 	dbTX persistence.DBTX,
 	domainName string,

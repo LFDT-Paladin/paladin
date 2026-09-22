@@ -34,9 +34,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/smt/pkg/utxo"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/eip712"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/eip712"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 )
 
 var EIP712DomainName = "noto"
@@ -676,7 +676,7 @@ func (n *Noto) stateNullifier(ctx context.Context, contract *pldtypes.EthAddress
 	}
 	coin, err := n.unmarshalCoinStrict(state.StateDataJson)
 	if err != nil {
-		return "", false, err
+		return "", false, i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)
 	}
 	hash, err := calculateNullifier(ctx, contract, coin)
 	if err != nil {

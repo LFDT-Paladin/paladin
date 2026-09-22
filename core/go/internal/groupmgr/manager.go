@@ -28,7 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -573,7 +573,7 @@ func (gm *groupManager) invokeRPC(ctx context.Context, dbTX persistence.DBTX, do
 	if err != nil {
 		return nil, err
 	}
-	if stateQualifier != "" && stateQualifier != pldapi.StateStatusAvailable {
+	if stateQualifier != "" && stateQualifier != pldapi.StateStatusConfirmed {
 		return nil, i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
 	}
 	dqc := gm.stateManager.NewDomainQueryContext(ctx, psc.Domain(), *pg.ContractAddress)

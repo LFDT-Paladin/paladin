@@ -103,8 +103,8 @@ func (ss *stateManager) NewDomainQueryContextWithRemoteView(ctx context.Context,
 	}
 }
 
-// getSpentStateIDs returns the remote view's spend exclusion set. Returns nil for local-only contexts.
-func (dqc *domainQueryContext) getSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, error) {
+// getRemoteSpentStateIDs returns the remote view's spend exclusion set. Returns nil for local-only contexts.
+func (dqc *domainQueryContext) getRemoteSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, error) {
 	if dqc.remoteStateView == nil {
 		return nil, nil
 	}
@@ -136,8 +136,11 @@ func (dqc *domainQueryContext) fetchRemoteViewStates(ctx context.Context, schema
 
 // startRemoteViewFetch launches the remote view query concurrently with the caller's local DB read,
 // and returns a wait function that blocks until the fetch completes and returns its results. All
-// failures — including a query that cannot be re-marshaled for the round-trip — are reported through
-// the wait function, so callers have a single error path. Only called where a remote view is attached.
+// failures are reported through the wait function, so callers have a single error path. Where statemgr
+// functions with remote view fetches are used for assembly by a domain, the domain should consider an error
+// from the remote fetch as an assemble error (as opposed to a revert), meaning that the coordinator
+// will repool the transaction for a further assemble  rather than finalising it as failed.
+// Only called where a remote view is attached.
 func (dqc *domainQueryContext) startRemoteViewFetch(ctx context.Context, schemaID pldtypes.Bytes32, q *query.QueryJSON) func() ([]*prototk.QueriedState, error) {
 	queryJSON, err := json.Marshal(q)
 	if err != nil {
@@ -345,7 +348,7 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 	var err error
 	if dqc.remoteStateView == nil {
 		schema, states, err = dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-			pldapi.StateStatusAvailable)
+			pldapi.StateStatusConfirmed, nil)
 	} else {
 		schema, states, err = dqc.availableStatesWithRemoteView(ctx, dbTX, schemaID, q)
 	}
@@ -365,7 +368,7 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 // availableStatesWithRemoteView reads available states alongside the attached remote view, running the
 // view query concurrently with the DB read and merging the two results.
 func (dqc *domainQueryContext) availableStatesWithRemoteView(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, q *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
-	spentStateIDs, err := dqc.getSpentStateIDs(ctx)
+	spentStateIDs, err := dqc.getRemoteSpentStateIDs(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -377,8 +380,8 @@ func (dqc *domainQueryContext) availableStatesWithRemoteView(ctx context.Context
 	}
 
 	waitRemote := dqc.startRemoteViewFetch(ctx, schemaID, q)
-	schema, dbStates, dbErr := dqc.ss.findStatesForRemoteViewMerge(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-		pldapi.StateStatusAvailable, spentStateIDs)
+	schema, dbStates, dbErr := dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
+		pldapi.StateStatusConfirmed, spentStateIDs)
 	remoteStates, fetchErr := waitRemote()
 	if fetchErr != nil {
 		return nil, nil, fetchErr
@@ -402,12 +405,12 @@ func (dqc *domainQueryContext) FindAvailableNullifierBackedStates(ctx context.Co
 	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, &schemaID)
 	log.L(ctx).Debugf("FindAvailableNullifierBackedStates query=%s", q)
 
-	spentStateIDs, err := dqc.getSpentStateIDs(ctx)
+	spentStateIDs, err := dqc.getRemoteSpentStateIDs(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	return dqc.ss.findNullifierBackedStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-		pldapi.StateStatusAvailable, spentStateIDs)
+		pldapi.StateStatusConfirmed, spentStateIDs)
 }
 
 // GetStatesByID retrieves states by ID regardless of confirmation/spend status,
@@ -422,11 +425,11 @@ func (dqc *domainQueryContext) GetStatesByID(ctx context.Context, dbTX persisten
 
 	if dqc.remoteStateView == nil {
 		return dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-			pldapi.StateStatusAll)
+			pldapi.StateStatusAll, nil)
 	}
 
 	waitRemote := dqc.startRemoteViewFetch(ctx, schemaID, q)
-	schema, dbStates, dbErr := dqc.ss.findStatesForRemoteViewMerge(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
+	schema, dbStates, dbErr := dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
 		pldapi.StateStatusAll, nil)
 	remoteStates, fetchErr := waitRemote()
 	if fetchErr != nil {

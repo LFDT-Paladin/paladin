@@ -27,8 +27,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -482,4 +482,18 @@ func TestPrepareBurnUnlockOnlyCreator(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Only the lock creator can perform unlock")
+}
+
+func TestPrepareBurnUnlockCheckAllowedForFromLocalNodeNameFailed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockLocalNodeName = func() (*prototk.LocalNodeNameResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	h := &prepareBurnUnlockHandler{lockCommon: lockCommon{noto: &Noto{Callbacks: mockCallbacks}}}
+	tx := &types.ParsedTransaction{
+		Transaction:  &prototk.TransactionSpecification{From: "sender@node1"},
+		DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
+	}
+	err := h.checkAllowedForFrom(t.Context(), tx, "sender")
+	assert.ErrorContains(t, err, "pop")
 }

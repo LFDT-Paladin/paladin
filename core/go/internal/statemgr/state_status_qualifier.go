@@ -24,11 +24,11 @@ import (
 )
 
 // whereClauseForQual scopes a query to the states matching a status qualifier, expressed through the
-// Confirmed join and the given spend join. Confirmed is a synonym of available - a state is
-// confirmed for use only while it is also unspent - so both select the same states.
+// Confirmed join and the given spend join. A state is confirmed for use only while it is also
+// unspent, so the confirmed qualifier requires a confirm record and no spend record.
 func whereClauseForQual(db *gorm.DB /* must be the DB not the query */, q pldapi.StateStatusQualifier, spentColumn string) *gorm.DB {
 	switch q {
-	case pldapi.StateStatusAvailable, pldapi.StateStatusConfirmed:
+	case pldapi.StateStatusConfirmed:
 		return db.
 			Where(fmt.Sprintf(`"%s"."transaction" IS NULL`, spentColumn)).
 			Where(`"Confirmed"."transaction" IS NOT NULL`)

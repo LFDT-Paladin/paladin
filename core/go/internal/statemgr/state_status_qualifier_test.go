@@ -44,14 +44,9 @@ func qualifierSQL(t *testing.T, q pldapi.StateStatusQualifier, spentColumn strin
 }
 
 func TestWhereClauseForQual(t *testing.T) {
-	// Available requires a confirm record and no spend record
+	// Confirmed requires a confirm record and no spend record
 	require.Equal(t,
 		`SELECT count(*) FROM "states" WHERE "Spent"."transaction" IS NULL AND "Confirmed"."transaction" IS NOT NULL`,
-		qualifierSQL(t, pldapi.StateStatusAvailable, "Spent"))
-
-	// Confirmed is a synonym of available, selecting via the identical clause
-	require.Equal(t,
-		qualifierSQL(t, pldapi.StateStatusAvailable, "Spent"),
 		qualifierSQL(t, pldapi.StateStatusConfirmed, "Spent"))
 
 	// Unconfirmed requires no confirm record, and says nothing about spending
@@ -72,7 +67,7 @@ func TestWhereClauseForQual(t *testing.T) {
 	// The spend column is a parameter, so nullifier queries scope on the nullifier's spend record
 	require.Equal(t,
 		`SELECT count(*) FROM "states" WHERE "Nullifier__Spent"."transaction" IS NULL AND "Confirmed"."transaction" IS NOT NULL`,
-		qualifierSQL(t, pldapi.StateStatusAvailable, "Nullifier__Spent"))
+		qualifierSQL(t, pldapi.StateStatusConfirmed, "Nullifier__Spent"))
 
 	// An empty qualifier means all, matching the default the reader applies before calling here
 	require.Equal(t,
@@ -90,6 +85,6 @@ func TestFindStatesUnsetQualifier(t *testing.T) {
 	mdb.ExpectQuery(`SELECT.*FROM "states".*WHERE.*TRUE`).WillReturnError(fmt.Errorf("called"))
 
 	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", nil, pldtypes.RandBytes32(),
-		query.NewQueryBuilder().Query(), "")
+		query.NewQueryBuilder().Query(), "", nil)
 	assert.Regexp(t, "called", err)
 }
