@@ -113,6 +113,7 @@ type blockIndexer struct {
 	dispatcherDone             chan struct{}
 	rpcModule                  *rpcserver.RPCModule
 	ignoredTransactionTypes    []int64
+	eventStreamsStarted        chan struct{} // Notified each time the event streams have been (re)started
 }
 
 func NewBlockIndexer(ctx context.Context, config *pldconf.BlockIndexerConfig, wsConfig *pldconf.WSClientConfig, persistence persistence.Persistence) (_ BlockIndexer, err error) {
@@ -143,6 +144,7 @@ func newBlockIndexer(ctx context.Context, conf *pldconf.BlockIndexerConfig, pers
 		esBlockDispatchQueueLength: confutil.IntMin(conf.EventStreams.BlockDispatchQueueLength, 0, *pldconf.BlockIndexerDefaults.EventStreams.BlockDispatchQueueLength),
 		esCatchUpQueryPageSize:     confutil.IntMin(conf.EventStreams.CatchUpQueryPageSize, 0, *pldconf.BlockIndexerDefaults.EventStreams.CatchUpQueryPageSize),
 		dispatcherTap:              make(chan struct{}, 1),
+		eventStreamsStarted:        make(chan struct{}, 1),
 		ignoredTransactionTypes:    confutil.Int64Slice(conf.IgnoredTransactionTypes, pldconf.BlockIndexerDefaults.IgnoredTransactionTypes),
 	}
 	bi.highestConfirmedBlock.Store(&ConfirmedBlockMetadata{Number: -1, Timestamp: -1})
