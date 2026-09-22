@@ -241,6 +241,10 @@ func IsDebugEnabled() bool {
 	return atomLevel.Enabled(zapcore.DebugLevel)
 }
 
+func IsInfoEnabled() bool {
+	return atomLevel.Enabled(zapcore.InfoLevel)
+}
+
 func IsTraceEnabled() bool {
 	return atomLevel.Enabled(LevelTrace)
 }
