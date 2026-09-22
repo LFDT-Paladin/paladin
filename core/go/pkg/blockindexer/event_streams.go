@@ -396,7 +396,7 @@ func (bi *blockIndexer) startEventStreams() {
 	}
 	select {
 	case bi.eventStreamsStarted <- struct{}{}:
-	default: // nobody is listening, or a previous start is still unread
+	default: // a previous start is still unread
 	}
 }
 
@@ -780,7 +780,7 @@ func (es *eventStream) updateCheckpoint(ctx context.Context, dbTX persistence.DB
 func (es *eventStream) notifyCheckpointCommitted(blockNumber int64) {
 	select {
 	case es.checkpointCommitted <- blockNumber:
-	default: // nobody is listening, or a previous update is still unread
+	default: // a previous update is still unread
 	}
 }
 
