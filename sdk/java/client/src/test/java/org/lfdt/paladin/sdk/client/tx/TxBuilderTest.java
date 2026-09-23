@@ -970,6 +970,7 @@ class TxBuilderTest {
                   .to(CONTRACT)
                   .function("set")
                   .abiEntry(uintFn)
+                  .abiEntry(AbiEntry.event("set").build())
                   .inputs(List.of(42));
           assertEquals(uintFn, builder.buildPrivacyGroup().function());
           builder.abiEntry(addressFn);

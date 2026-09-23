@@ -63,7 +63,7 @@ Output: `core/build/docs/javadoc/index.html`.
 ```
 
 Report: `core/build/reports/jacoco/test/html/index.html`.
-The build fails if instruction coverage drops below the configured minimum (currently 78%).
+The build fails if instruction coverage drops below the configured minimum (currently 96%).
 
 ## Privacy-group transactions
 
