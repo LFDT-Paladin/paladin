@@ -101,6 +101,11 @@ async function main(): Promise<boolean> {
   const zetoCash = await zetoFactory
     .newZeto(cashIssuer, {
       tokenName: "Zeto_Anon",
+      // V1 axis: the deployed zeto-contracts are ~v0.5.x, whose proving calls take a packed `bytes proof`.
+      // A pool left on the V0 axis reverts on the first proof (deposit) with no decodable revert data.
+      domainConfigSchema: "v1",
+      zetoVariant: 1,
+      factoryVersion: 1,
     })
     .waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(zetoCash)) return false;
