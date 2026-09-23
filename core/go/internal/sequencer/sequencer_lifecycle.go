@@ -30,6 +30,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 )
 
 // Components needing to interact with the sequencer can make certain calls into
@@ -302,6 +303,28 @@ func (sMgr *sequencerManager) cleanupIdleSequencers(ctx context.Context, interva
 			}
 		}
 	}()
+}
+
+// HandleContractConfigChanged tears down the sequencer built against the superseded configuration and
+// resumes the contract's incomplete transactions, which re-initialise against the committed configuration
+// and load a fresh sequencer on first use.
+func (sMgr *sequencerManager) HandleContractConfigChanged(ctx context.Context, contractAddress pldtypes.EthAddress) {
+	sMgr.sequencersLock.Lock()
+	seq := sMgr.sequencers[contractAddress.String()]
+	if seq != nil {
+		log.L(ctx).Infof("configuration changed: stopping sequencer %s", contractAddress)
+		delete(sMgr.sequencers, contractAddress.String())
+		sMgr.metrics.SetActiveSequencers(len(sMgr.sequencers))
+	}
+	sMgr.sequencersLock.Unlock()
+	if seq == nil {
+		return
+	}
+
+	seq.shutdown(ctx)
+	sMgr.resumeIncompleteTransactionsMatching(ctx, func(qb query.QueryBuilder) {
+		qb.Equal("to", contractAddress)
+	})
 }
 
 func (sMgr *sequencerManager) removeIdleSequencers(ctx context.Context) {

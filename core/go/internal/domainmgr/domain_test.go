@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/hyperledger-firefly/signer/pkg/abi"
@@ -1876,4 +1877,37 @@ func TestEnqueueCompletionsContextDone(t *testing.T) {
 
 	// This should take the ctx.Done() path and log a warning instead of blocking
 	d.enqueueCompletions([]*components.TxCompletion{{}})
+}
+
+func TestDomainInitStream(t *testing.T) {
+	var stream *blockindexer.InternalEventStream
+	td, done := newTestDomain(t, false, &prototk.DomainConfig{
+		AbiStateSchemasJson: []string{},
+		AbiEventsJson:       fakeCoinEventsABI,
+	}, mockBegin, mockUpsertABIOk, func(mc *mockComponents) {
+		mc.db.ExpectCommit()
+		mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+			stream = args[2].(*blockindexer.InternalEventStream)
+		}).Return(nil, nil)
+	})
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	require.NotNil(t, stream)
+	sources := stream.Definition.Sources
+	require.Len(t, sources, 3)
+
+	// Registration is only trusted from the registry
+	require.Len(t, sources[0].ABI, 1)
+	assert.Equal(t, "PaladinRegisterSmartContract_V0", sources[0].ABI[0].Name)
+	assert.Equal(t, td.d.registryAddress, sources[0].Address)
+
+	// Upgrades are announced by the instances themselves as well as the registry
+	require.Len(t, sources[1].ABI, 1)
+	assert.Equal(t, "PaladinUpgradeSmartContract_V0", sources[1].ABI[0].Name)
+	assert.Nil(t, sources[1].Address)
+
+	// Domain events from any address
+	assert.Nil(t, sources[2].Address)
+	assert.NotEmpty(t, sources[2].ABI)
 }

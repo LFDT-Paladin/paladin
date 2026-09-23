@@ -19,4 +19,12 @@ interface IPaladinContractRegistry_V0 {
         bytes config
     );
 
+    /// The event emitted when a previously registered smart contract instance changes its public
+    /// configuration, for example after an on-chain upgrade of the instance.
+    /// May only be emitted by the contract which has been upgraded.
+    /// @param config encoded parameters that all nodes functioning against this smart contact instance need to know
+    event PaladinUpgradeSmartContract_V0(
+        bytes config
+    );
+
 }

@@ -80,6 +80,10 @@ type SequencerManager interface {
 	// Called from per-domain worker goroutines to preserve ordering within each domain's event stream.
 	PrivateTransactionsConfirmed(ctx context.Context, completions []*TxCompletion)
 
+	// HandleContractConfigChanged stops the sequencer for the contract, if loaded, then resumes that
+	// contract's incomplete transactions so they are re-initialised against the new configuration.
+	HandleContractConfigChanged(ctx context.Context, contractAddress pldtypes.EthAddress)
+
 	// Synchronous functions to build state distributions and nullifiers
 	BuildStateDistributions(ctx context.Context, tx *PrivateTransaction) (*StateDistributionSet, error)
 	BuildNullifier(ctx context.Context, kr KeyResolver, s *StateDistributionWithData) (*pldapi.StateNullifier, error)
