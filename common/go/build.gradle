@@ -73,6 +73,19 @@ task test(type: Exec, dependsOn: [goGet]) {
     inputs.files(getProject().goFiles)
     outputs.dir('coverage')
 
+    // -test.gocoverdir ACCUMULATES: each run adds covcounters/covmeta files without removing earlier ones, and
+    // buildCoverageTxt merges everything it finds. Left alone, a profile keeps reporting statements from source that
+    // has since been deleted — those blocks merge in as uncovered and sink the percentage for code that no longer
+    // exists. Clear the previous run's data first, matching setupCoverage in core/go/build.gradle.
+    doFirst {
+        delete fileTree(project.mkdir('coverage')) {
+            include "coverage.txt"
+            include "coverage_unfiltered.txt"
+            include "covcounters.*"
+            include "covmeta.*"
+        }
+    }
+
     workingDir '.'
     executable 'go'
     args 'test'

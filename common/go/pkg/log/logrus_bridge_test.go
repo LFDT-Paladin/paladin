@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -115,4 +116,68 @@ func TestLogrusBridgeFatalDoesNotExit(t *testing.T) {
 
 func TestLogrusBridgeHookCoversAllLevels(t *testing.T) {
 	assert.ElementsMatch(t, logrus.AllLevels, (&logrusBridgeHook{}).Levels())
+}
+
+// Every logrus level must reach Paladin's logger. Trace and Warn are otherwise only exercised through dependencies
+// that use them, so they are asserted explicitly here alongside the levels the other tests cover.
+func TestLogrusBridgeMapsEveryLevel(t *testing.T) {
+	for _, tc := range []struct {
+		level logrus.Level
+		emit  func(msg string)
+	}{
+		{logrus.TraceLevel, func(m string) { logrus.Trace(m) }},
+		{logrus.DebugLevel, func(m string) { logrus.Debug(m) }},
+		{logrus.InfoLevel, func(m string) { logrus.Info(m) }},
+		{logrus.WarnLevel, func(m string) { logrus.Warn(m) }},
+		{logrus.ErrorLevel, func(m string) { logrus.Error(m) }},
+	} {
+		t.Run(tc.level.String(), func(t *testing.T) {
+			msg := "level-marker-" + tc.level.String()
+			// Paladin at trace level so nothing is gated out before the assertion.
+			out := captureViaBridge(t, "trace", func() { tc.emit(msg) })
+			assert.Contains(t, out, msg)
+		})
+	}
+}
+
+// Fatal and Panic are driven through the hook directly: logrus would exit or panic the test process if emitted
+// through its own entry points, which is exactly why Fire maps them to Error rather than Paladin's Fatal/Panic.
+func TestLogrusBridgeMapsFatalAndPanicLevels(t *testing.T) {
+	for _, level := range []logrus.Level{logrus.FatalLevel, logrus.PanicLevel} {
+		t.Run(level.String(), func(t *testing.T) {
+			msg := "level-marker-" + level.String()
+			out := captureViaBridge(t, "trace", func() {
+				require.NoError(t, (&logrusBridgeHook{}).Fire(&logrus.Entry{Level: level, Message: msg}))
+			})
+			assert.Contains(t, out, msg)
+			assert.Contains(t, out, "logrusLevel")
+			assert.Contains(t, out, level.String())
+		})
+	}
+}
+
+// A dependency that enables logrus.SetReportCaller gives entries a Caller frame. Paladin's own caller field would
+// point at the hook, so the original function is carried across as a field instead.
+func TestLogrusBridgeCarriesReportedCaller(t *testing.T) {
+	out := captureViaBridge(t, "info", func() {
+		require.NoError(t, (&logrusBridgeHook{}).Fire(&logrus.Entry{
+			Level:   logrus.InfoLevel,
+			Message: "line with a caller",
+			Caller:  &runtime.Frame{Function: "github.com/example/smt.(*MerkleTree).AddLeaf"},
+		}))
+	})
+	assert.Contains(t, out, "line with a caller")
+	assert.Contains(t, out, "logrusCaller")
+	assert.Contains(t, out, "github.com/example/smt.(*MerkleTree).AddLeaf")
+}
+
+// An unknown level must not emit or panic — logrus could add one, and Fire has no default branch.
+func TestLogrusBridgeIgnoresUnknownLevel(t *testing.T) {
+	out := captureViaBridge(t, "trace", func() {
+		require.NoError(t, (&logrusBridgeHook{}).Fire(&logrus.Entry{
+			Level:   logrus.Level(99),
+			Message: "unknown-level-marker",
+		}))
+	})
+	assert.NotContains(t, out, "unknown-level-marker")
 }
