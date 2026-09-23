@@ -483,7 +483,7 @@ task ci(dependsOn: [ciOperatorDevnet]) {
 
 // The 'e2e' task runs the whole flow.
 // It depends on both 'ci' and 'deploy' to ensure they are part of the execution plan.
-task e2e(type: Exec, dependsOn: [ci, deploy]) {
+task e2e(type: Exec, dependsOn: [ci, deploy, ':sdk:java:integration-test:operatorE2E']) {
 
     inputs.files(configurations.toolkitGo)
     inputs.files(configurations.notoGo)

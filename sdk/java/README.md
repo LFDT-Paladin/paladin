@@ -64,3 +64,42 @@ Output: `core/build/docs/javadoc/index.html`.
 
 Report: `core/build/reports/jacoco/test/html/index.html`.
 The build fails if instruction coverage drops below the configured minimum (currently 78%).
+
+## Privacy-group transactions
+
+Select a group returned by `client.privacyGroups()` and use the transaction builder
+for deployments, invocations, and read-only calls:
+
+```java
+var sent = client.newTx()
+    .privacyGroup(group)
+    .from("alice@node1")
+    .to(contractAddress)
+    .abi(erc20Abi)
+    .function("transfer(address,uint256)")
+    .inputs(Map.of("to", recipientAddress, "value", 25))
+    .send();
+var receipt = sent.waitForReceipt().join(); // inspect receipt.success()
+
+var balance = client.newTx()
+    .privacyGroupId(group.id())
+    .domain(group.domain())
+    .from("alice@node1")
+    .to(contractAddress)
+    .abi(erc20Abi)
+    .function("balanceOf")
+    .inputs(Map.of("account", recipientAddress))
+    .dataFormat("mode=array&number=string")
+    .call().join();
+```
+
+For deployments, use `.constructor().bytecode(bytecode)` and supply the constructor
+arguments with `.inputs(...)`. Group transactions are implicitly private. Function
+invocations require an inline ABI; overloaded names must use a full signature.
+`buildPrivacyGroup()` returns the privacy-group RPC body; `build()` remains the
+ordinary transaction body builder. Gas, value, and fee setters configure the
+base-ledger submission options. ABI references and dependencies are not supported
+by the privacy-group RPC and are rejected by the builder.
+
+The [operator E2E suite](../../operator/README.md#java-sdk-privacy-group-e2e-coverage)
+exercises this API against a live three-node installation.
