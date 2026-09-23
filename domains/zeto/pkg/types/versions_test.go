@@ -8,6 +8,7 @@ package types
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,4 +91,52 @@ func TestFungibleABIVersionRoundTrip(t *testing.T) {
 	assert.Equal(t, uint64(1), ZetoFungibleABI_V1.Uint64())
 	assert.Equal(t, "V1", ZetoFungibleABI_V1.String())
 	assert.Equal(t, "V0", ZetoRelease_V0.String())
+}
+
+// The deploy constructor and the persisted domain config declare both axes as uint256, and the ABI serializer renders
+// uint256 as a decimal string — so a deploy arriving through the ABI path presents "1", not 1. Both forms must decode,
+// or the operator's zeto deploy fails with "cannot unmarshal string into Go struct field".
+func TestVersionAxesDecodeNumberOrString(t *testing.T) {
+	for _, encoded := range []string{`1`, `"1"`, `"0x1"`} {
+		t.Run(encoded, func(t *testing.T) {
+			var v ZetoFungibleABIVersion
+			require.NoError(t, json.Unmarshal([]byte(encoded), &v))
+			assert.Equal(t, ZetoFungibleABI_V1, v)
+
+			var g ZetoReleaseGeneration
+			require.NoError(t, json.Unmarshal([]byte(encoded), &g))
+			assert.Equal(t, ZetoRelease_V1, g)
+		})
+	}
+}
+
+func TestVersionAxesRejectNonNumeric(t *testing.T) {
+	var v ZetoFungibleABIVersion
+	assert.Error(t, json.Unmarshal([]byte(`"not-a-number"`), &v))
+	assert.Error(t, json.Unmarshal([]byte(`{}`), &v))
+
+	var g ZetoReleaseGeneration
+	assert.Error(t, json.Unmarshal([]byte(`"v1"`), &g))
+	assert.Error(t, json.Unmarshal([]byte(`[]`), &g))
+}
+
+// A deploy's InitializerParams must survive the exact JSON the ABI path produces.
+func TestInitializerParamsDecodeFromABIEncodedDeploy(t *testing.T) {
+	var p InitializerParams
+	require.NoError(t, json.Unmarshal([]byte(
+		`{"domainConfigSchema":"v1","factoryVersion":"1","tokenName":"Zeto_Anon","zetoVariant":"1"}`), &p))
+	assert.Equal(t, "Zeto_Anon", p.TokenName)
+	assert.Equal(t, DomainConfigSchemaV1, p.DomainConfigSchema)
+	assert.Equal(t, ZetoFungibleABI_V1, p.ZetoVariant)
+	assert.Equal(t, ZetoRelease_V1, p.ReleaseGeneration)
+}
+
+// Round-tripping must stay numeric so Go-side configs (domain YAML, testbed deploys) read naturally.
+func TestVersionAxesMarshalAsNumbers(t *testing.T) {
+	b, err := json.Marshal(ZetoFungibleABI_V1)
+	require.NoError(t, err)
+	assert.Equal(t, "1", string(b))
+	b, err = json.Marshal(ZetoRelease_V1)
+	require.NoError(t, err)
+	assert.Equal(t, "1", string(b))
 }

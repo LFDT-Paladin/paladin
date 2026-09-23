@@ -132,7 +132,7 @@ func DeployZetoFungibleV1(ctx context.Context, t *testing.T, rpc rpcclient.Clien
 		Name:               "Test Zeto",
 		Symbol:             "ZETO",
 		DomainConfigSchema: types.DomainConfigSchemaV1,
-		ZetoVariant:        uint64(types.ZetoFungibleABI_V1),
+		ZetoVariant:        types.ZetoFungibleABI_V1,
 		ReleaseGeneration:  types.ZetoRelease_V1,
 	}
 	rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deploy", domainName, controllerName, init)

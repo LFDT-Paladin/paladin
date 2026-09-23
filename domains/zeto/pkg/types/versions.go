@@ -17,7 +17,10 @@ package types
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
@@ -151,3 +154,53 @@ func ValidateZetoReleaseGeneration(ctx context.Context, g ZetoReleaseGeneration)
 	}
 	return i18n.NewError(ctx, msgs.MsgUnsupportedZetoReleaseGeneration, int64(g))
 }
+
+// parseVersionOrdinal accepts either a JSON number or a string. Both axes are declared as uint256 wherever they cross
+// an ABI boundary (the deploy constructor, the persisted domain config), and the ABI serializer renders uint256 as a
+// decimal string — so a plain numeric Go field silently fails to decode a deploy that came through that path.
+func parseVersionOrdinal(b []byte, field string) (uint64, error) {
+	var n uint64
+	if err := json.Unmarshal(b, &n); err == nil {
+		return n, nil
+	}
+	var text string
+	if err := json.Unmarshal(b, &text); err != nil {
+		return 0, fmt.Errorf("%s must be a number or a numeric string: %s", field, string(b))
+	}
+	text = strings.TrimSpace(text)
+	base := 10
+	if lower := strings.ToLower(text); strings.HasPrefix(lower, "0x") {
+		text, base = lower[2:], 16
+	}
+	v, err := strconv.ParseUint(text, base, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s is not a valid version ordinal: %q", field, text)
+	}
+	return v, nil
+}
+
+// UnmarshalJSON accepts a number or a numeric string — see parseVersionOrdinal.
+func (v *ZetoFungibleABIVersion) UnmarshalJSON(b []byte) error {
+	n, err := parseVersionOrdinal(b, "zetoVariant")
+	if err != nil {
+		return err
+	}
+	*v = ZetoFungibleABIVersion(n)
+	return nil
+}
+
+// MarshalJSON emits a number, matching how the axis is declared in Go-side configs.
+func (v ZetoFungibleABIVersion) MarshalJSON() ([]byte, error) { return json.Marshal(uint64(v)) }
+
+// UnmarshalJSON accepts a number or a numeric string — see parseVersionOrdinal.
+func (g *ZetoReleaseGeneration) UnmarshalJSON(b []byte) error {
+	n, err := parseVersionOrdinal(b, "factoryVersion")
+	if err != nil {
+		return err
+	}
+	*g = ZetoReleaseGeneration(n)
+	return nil
+}
+
+// MarshalJSON emits a number, matching how the axis is declared in Go-side configs.
+func (g ZetoReleaseGeneration) MarshalJSON() ([]byte, error) { return json.Marshal(int64(g)) }

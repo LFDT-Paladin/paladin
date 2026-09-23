@@ -79,8 +79,9 @@ type InitializerParams struct {
 	// DomainConfigSchema "v1" opts into prefixed on-chain config encoding (see types.DecodeDomainInstanceConfig).
 	// Empty or "v0" keeps legacy encoding for registration bytes.
 	DomainConfigSchema string `json:"domainConfigSchema,omitempty"`
-	// ZetoVariant is ZetoFungibleABIVersion persisted for v1 configs (see versions.go).
-	ZetoVariant uint64 `json:"zetoVariant,omitempty"`
+	// ZetoVariant is ZetoFungibleABIVersion persisted for v1 configs (see versions.go). Typed rather than a bare
+	// uint64 so it decodes a deploy that arrived through the ABI path, where uint256 renders as a decimal string.
+	ZetoVariant ZetoFungibleABIVersion `json:"zetoVariant,omitempty"`
 	// ReleaseGeneration is ZetoReleaseGeneration (see versions.go); wire name stays "factoryVersion".
 	ReleaseGeneration ZetoReleaseGeneration `json:"factoryVersion,omitempty"`
 	// CircuitBundleId selects DomainContract.bundleId for circuit resolution when non-empty.
