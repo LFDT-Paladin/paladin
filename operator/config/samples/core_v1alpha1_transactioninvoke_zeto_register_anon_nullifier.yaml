@@ -18,6 +18,8 @@ spec:
     - 'zeto-g16-withdraw-nullifier-batch'
     - 'zeto-g16-anon-nullifier-transfer'
     - 'zeto-g16-anon-nullifier-transfer-batch'
+    - 'zeto-g16-anon'
+    - 'zeto-g16-anon-batch'
   function: registerImplementation
   paramsJSONTemplate: |
     {
@@ -28,11 +30,11 @@ spec:
           "verifier":              "{{ index .status.resolvedContractAddresses "zeto-g16-anon-nullifier-transfer" }}",
           "depositVerifier":       "{{ index .status.resolvedContractAddresses "zeto-g16-deposit" }}",
           "withdrawVerifier":      "{{ index .status.resolvedContractAddresses "zeto-g16-withdraw-nullifier" }}",
-          "lockVerifier":          "0x0000000000000000000000000000000000000000",
+          "lockVerifier":          "{{ index .status.resolvedContractAddresses "zeto-g16-anon" }}",
           "burnVerifier":          "0x0000000000000000000000000000000000000000",
           "batchVerifier":         "{{ index .status.resolvedContractAddresses "zeto-g16-anon-nullifier-transfer-batch" }}",
           "batchWithdrawVerifier": "{{ index .status.resolvedContractAddresses "zeto-g16-withdraw-nullifier-batch" }}",
-          "batchLockVerifier":     "0x0000000000000000000000000000000000000000",
+          "batchLockVerifier":     "{{ index .status.resolvedContractAddresses "zeto-g16-anon-batch" }}",
           "batchBurnVerifier":     "0x0000000000000000000000000000000000000000"
         }
       }

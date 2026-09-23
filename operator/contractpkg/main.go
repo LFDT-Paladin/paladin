@@ -71,6 +71,7 @@ var snakeToCamelMap = map[string]string{
 	"zeto_poseidon_unit2l":              "zetoPoseidonUnit2l",
 	"zeto_poseidon_unit3l":              "zetoPoseidonUnit3l",
 	"zeto_smt_lib":                      "zetoSmtLib",
+	"zeto_lockable_lib":                 "zetoLockableLib",
 	"zeto_impl_anon":                    "zetoImplAnon",
 	"zeto_impl_anon_enc":                "zetoImplAnonEnc",
 	"zeto_impl_anon_nullifier":          "zetoImplAnonNullifier",

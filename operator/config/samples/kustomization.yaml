@@ -50,4 +50,5 @@ resources:
   - core_v1alpha1_smartcontractdeployment_zeto_poseidon_unit2l.yaml
   - core_v1alpha1_smartcontractdeployment_zeto_poseidon_unit3l.yaml
   - core_v1alpha1_smartcontractdeployment_zeto_smt_lib.yaml
+  - core_v1alpha1_smartcontractdeployment_zeto_lockable_lib.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples
