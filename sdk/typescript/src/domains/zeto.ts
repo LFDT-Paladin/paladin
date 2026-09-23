@@ -19,8 +19,25 @@ export const zetoConstructorABI = {
   inputs: [{ name: "tokenName", type: "string" }],
 };
 
+// Opts a pool into the V1 transaction axis. The generation decides the on-chain calldata shape — zeto-contracts
+// ~v0.5.x takes a single packed `bytes proof` where ~v0.2.x took a discrete proof tuple — so a pool deployed without
+// these against v0.5.x implementations reverts on the first proving call (deposit) with no decodable revert data.
+export const zetoConstructorABI_V1 = {
+  type: "constructor",
+  inputs: [
+    { name: "tokenName", type: "string" },
+    { name: "domainConfigSchema", type: "string" },
+    { name: "zetoVariant", type: "uint256" },
+    { name: "factoryVersion", type: "uint256" },
+  ],
+};
+
 export interface ZetoConstructorParams {
   tokenName: string;
+  // Supply all three together to deploy on the V1 axis; omit them all for the legacy V0 axis.
+  domainConfigSchema?: string;
+  zetoVariant?: number;
+  factoryVersion?: number;
 }
 
 export interface ZetoMintParams {
@@ -93,12 +110,19 @@ export class ZetoFactory {
   }
 
   newZeto(from: PaladinVerifier, data: ZetoConstructorParams) {
+    // The V1 constructor carries three extra params, so the ABI has to match what is actually being sent.
+    const abi =
+      data.domainConfigSchema !== undefined ||
+      data.zetoVariant !== undefined ||
+      data.factoryVersion !== undefined
+        ? zetoConstructorABI_V1
+        : zetoConstructorABI;
     return new ZetoFuture(
       this.paladin,
       this.paladin.sendTransaction({
         type: TransactionType.PRIVATE,
         domain: this.domain,
-        abi: [zetoConstructorABI],
+        abi: [abi],
         function: "",
         from: from.lookup,
         data,
