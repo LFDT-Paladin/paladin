@@ -33,19 +33,19 @@ type delegateLockHandler struct {
 	noto *Noto
 }
 
-func (h *delegateLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *delegateLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var delegateParams types.DelegateLockParams
 	if err := json.Unmarshal([]byte(params), &delegateParams); err != nil {
-		return nil, err
+		return nil, assembleOrEndorseError{err, true, true}
 	}
 	if delegateParams.LockID.IsZero() {
-		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId")
+		return nil, assembleOrEndorseError{i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId"), true, true}
 	}
 	if config.IsV0() && delegateParams.Unlock == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "unlock")
+		return nil, assembleOrEndorseError{i18n.NewError(ctx, msgs.MsgParameterRequired, "unlock"), true, true}
 	}
 	if delegateParams.Delegate.IsZero() {
-		return nil, i18n.NewError(ctx, msgs.MsgInvalidDelegate, delegateParams.Delegate)
+		return nil, assembleOrEndorseError{i18n.NewError(ctx, msgs.MsgInvalidDelegate, delegateParams.Delegate), true, true}
 	}
 	return &delegateParams, nil
 }
@@ -57,7 +57,7 @@ func (h *delegateLockHandler) Init(ctx context.Context, tx *types.ParsedTransact
 	}, nil
 }
 
-func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, AssembleError) {
 	params := tx.Params.(*types.DelegateLockParams)
 
 	ids, err := resolveIdentities(ctx, h.noto, tx, req, "", "")
@@ -71,16 +71,15 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	var existingLock *loadedLockInfo
 	if tx.DomainConfig.IsV0() {
 		// In V0 at least one locked input was always present here, to confirm lock ownership - not required in V1 due to lock state check.
-		lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, senderID.address, big.NewInt(1), false)
-		if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-			return res, err
+		lockedInputs, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, senderID.address, big.NewInt(1), false)
+		if err != nil {
+			return nil, err
 		}
 		lockedInputStates = lockedInputs.states
 	} else {
-		var revert bool
-		existingLock, revert, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
-		if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-			return res, err
+		existingLock, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -144,7 +143,7 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	}, nil
 }
 
-func (h *delegateLockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *delegateLockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, EndorseError) {
 	params := tx.Params.(*types.DelegateLockParams)
 	inputs, err := h.noto.parseCoinList(ctx, "read", req.Reads)
 	if err != nil {
@@ -154,9 +153,10 @@ func (h *delegateLockHandler) Endorse(ctx context.Context, tx *types.ParsedTrans
 	if tx.DomainConfig.IsV0() {
 		// Sender must specify at least one locked state, to show that they own the lock
 		if len(inputs.lockedCoins) == 0 {
-			return nil, i18n.NewError(ctx, msgs.MsgNoStatesSpecified)
+			return nil, endorseError{i18n.NewError(ctx, msgs.MsgNoStatesSpecified), true}
 		}
 	} else {
+		var err EndorseError
 		senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 		if err != nil {
 			return nil, err
@@ -187,6 +187,7 @@ func (h *delegateLockHandler) Endorse(ctx context.Context, tx *types.ParsedTrans
 }
 
 func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+	var err error
 	inParams := tx.Params.(*types.DelegateLockParams)
 
 	signature := domain.FindAttestation("sender", req.AttestationResult)
@@ -201,7 +202,8 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 
 	var lt *lockTransition // v1 only
 	if !tx.DomainConfig.IsV0() {
-		senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+		var senderID *identityPair
+		senderID, err = h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 		if err != nil {
 			return nil, err
 		}
@@ -260,6 +262,7 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 }
 
 func (h *delegateLockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
+	var err error
 	inParams := tx.Params.(*types.DelegateLockParams)
 
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)

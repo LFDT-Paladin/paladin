@@ -17,13 +17,12 @@ package noto
 
 import (
 	internal "github.com/LFDT-Paladin/paladin/domains/noto/internal/noto"
-	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 )
 
 type Noto interface {
 	plugintk.DomainAPI
-	GetHandler(method string) types.DomainHandler
+	GetHandler(method string) internal.NotoDomainHandler
 	Name() string
 	CoinSchemaID() string
 	LockedCoinSchemaID() string
