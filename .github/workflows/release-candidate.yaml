@@ -6,9 +6,7 @@
 name: Release Candidate
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 on:
   workflow_call:
@@ -92,6 +90,9 @@ jobs:
   # Build and publish RC images
   release-images:
     needs: setup
+    permissions:
+      contents: read
+      packages: write # pushes images to ghcr.io
     uses: ./.github/workflows/release-images.yaml
     with:
       tag: ${{ needs.setup.outputs.tag }}
@@ -103,6 +104,8 @@ jobs:
   # Test and release RC Helm charts
   release-charts:
     needs: [setup, release-images]
+    permissions:
+      contents: write # chart-releaser publishes the chart release
     uses: ./.github/workflows/release-charts.yaml
     with:
       chart_tag: ${{ needs.setup.outputs.tag }}
@@ -122,6 +125,9 @@ jobs:
   # Upload Solidity contracts
   release-solidity-contracts:
     needs: [setup, test-examples]
+    permissions:
+      contents: read
+      id-token: write # required by the called workflow's upload job
     uses: ./.github/workflows/release-solidity-contracts.yaml
     with:
       tag: ${{ needs.setup.outputs.tag }}
@@ -129,6 +135,9 @@ jobs:
   # Release TypeScript SDK
   release-typescript-sdk:
     needs: [setup, test-examples]
+    permissions:
+      contents: read
+      id-token: write # npm publish --provenance
     uses: ./.github/workflows/release-typescript-sdk.yaml
     with:
       sdk_version: ${{ needs.setup.outputs.tag }}
@@ -151,6 +160,8 @@ jobs:
   prepare-release:
     needs: [setup, test-rollout-compatibility]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # pushes the release branch
     outputs:
       new_sha: ${{ steps.commit.outputs.NEW_SHA }}
 
@@ -182,6 +193,8 @@ jobs:
   create-rc-release:
     needs: [setup, prepare-release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # creates the GitHub release
     steps:
       - name: Checkout repository code
         uses: actions/checkout@v4

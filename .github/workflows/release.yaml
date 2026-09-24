@@ -6,9 +6,7 @@
 name: Release
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
   
 on:
   workflow_call:
@@ -153,6 +151,9 @@ jobs:
   # Retag RC images with final release tags (much faster than rebuilding)
   release-images:
     needs: setup
+    permissions:
+      contents: read
+      packages: write # retags images within ghcr.io
     uses: ./.github/workflows/retag-images.yaml
     with:
       ref: ${{ needs.setup.outputs.rc_tag }}
@@ -166,6 +167,8 @@ jobs:
   # Test and release final Helm charts
   release-charts:
     needs: [setup, release-images]
+    permissions:
+      contents: write # chart-releaser publishes the chart release
     uses: ./.github/workflows/release-charts.yaml
     with:
       ref: ${{ needs.setup.outputs.rc_tag }}
@@ -188,6 +191,9 @@ jobs:
   # Upload final Solidity contracts
   release-solidity-contracts:
     needs: [setup, test-examples]
+    permissions:
+      contents: read
+      id-token: write # required by the called workflow's upload job
     uses: ./.github/workflows/release-solidity-contracts.yaml
     with:
       ref: ${{ needs.setup.outputs.rc_tag }}
@@ -196,6 +202,9 @@ jobs:
   # Release final TypeScript SDK
   release-typescript-sdk:
     needs: [setup, test-examples]
+    permissions:
+      contents: read
+      id-token: write # npm publish --provenance
     uses: ./.github/workflows/release-typescript-sdk.yaml
     with:
       ref: ${{ needs.setup.outputs.rc_tag }}
@@ -207,6 +216,8 @@ jobs:
   prepare-release:
     needs: [setup, release-solidity-contracts, release-typescript-sdk]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # pushes the release branch
     outputs:
       new_sha: ${{ steps.commit.outputs.NEW_SHA }}
 
@@ -238,6 +249,8 @@ jobs:
   create-final-release:
     needs: [setup, prepare-release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # creates the GitHub release
     steps:
       - name: Checkout repository code
         uses: actions/checkout@v4

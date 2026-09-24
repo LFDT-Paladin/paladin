@@ -1,8 +1,8 @@
 name: Paladin Buildx
+# packages:write access needed for pushing images and manifests
 permissions:
-  contents: write
+  contents: read
   packages: write
-  id-token: write
   
 on:
   workflow_call:

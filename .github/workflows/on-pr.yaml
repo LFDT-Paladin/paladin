@@ -1,8 +1,6 @@
 name: Build (PR)
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 on:
   pull_request:
