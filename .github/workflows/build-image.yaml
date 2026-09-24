@@ -1,52 +1,51 @@
 name: Build docker image
-permissions:
-  contents: read
-  
+# No permissions block because this would limit permissions for any sub-workflows
+
 on:
   workflow_call:
     inputs:
       dockerfile:
-        description: 'Path to the Dockerfile'
+        description: "Path to the Dockerfile"
         required: true
         type: string
       registry:
-        description: 'Docker registry to push to'
+        description: "Docker registry to push to"
         required: true
         type: string
       image:
-        description: 'Name of the image'
+        description: "Name of the image"
         required: true
         type: string
       image_tag:
-        description: 'Tag of the image'
+        description: "Tag of the image"
         required: true
         type: string
       push:
-        description: 'Push the image to the registry'
+        description: "Push the image to the registry"
         required: false
         type: boolean
         default: true
       upload-artifact:
-        description: 'Upload the image as an artifact'
+        description: "Upload the image as an artifact"
         required: false
         type: boolean
         default: false
       platforms:
-        description: 'Platforms to build for'
+        description: "Platforms to build for"
         required: false
-        default: 'linux/amd64'
+        default: "linux/amd64"
         type: string
       runs-on:
-        description: 'The type of machine to run the job on'
+        description: "The type of machine to run the job on"
         required: false
-        default: 'ubuntu-latest'
+        default: "ubuntu-latest"
         type: string
     secrets:
-      username: 
-        description: 'Docker registry username'
+      username:
+        description: "Docker registry username"
         required: false
       password:
-        description: 'Docker registry token (password)'
+        description: "Docker registry token (password)"
         required: false
 
 jobs:
@@ -87,7 +86,7 @@ jobs:
           registry: ${{ inputs.registry }}
           username: ${{ secrets.username }}
           password: ${{ secrets.password }}
-      
+
       - name: Set build tag
         id: build_tag_generator
         run: |
@@ -100,7 +99,7 @@ jobs:
           echo "IMAGE_NAME_SANITIZED=${IMAGE//\//-}" >> $GITHUB_OUTPUT
         env:
           IMAGE: ${{ inputs.image }}
-          
+
       - name: cache image
         id: image-cache
         run: |
