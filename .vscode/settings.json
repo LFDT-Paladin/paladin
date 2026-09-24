@@ -1,17 +1,11 @@
 {
-    "go.formatFlags": ["-s"],
-    "go.lintTool": "golangci-lint",
-    "go.lintFlags": ["--fast", "--allow-parallel-runners"],
-    "cSpell.words": [
-      "Finalizers",
-      "idempotency",
-      "Noto",
-      "remoting",
-      "Upsert"
-    ],
-    "go.testTimeout": "30s",
-    "java.configuration.updateBuildConfiguration": "disabled",
-    "go.testTags": "testdbpostgres",
-    "go.buildTags": "testdbpostgres"
-  }
-  
+  "go.formatFlags": ["-s"],
+  "go.lintTool": "golangci-lint",
+  "go.lintFlags": ["--fast", "--allow-parallel-runners"],
+  "cSpell.words": ["Finalizers", "idempotency", "Noto", "remoting", "Upsert"],
+  "go.testTimeout": "30s",
+  "java.configuration.updateBuildConfiguration": "disabled",
+  "go.testTags": "testdbpostgres",
+  "go.buildTags": "testdbpostgres",
+  "java.compile.nullAnalysis.mode": "automatic"
+}

@@ -294,3 +294,21 @@ For questions or support, please contact the maintainers of this project.
 
 ---
  
+
+## Java SDK privacy-group E2E coverage
+
+The repository-root command `./gradlew :operator:e2e` also runs the Java SDK's
+privacy-group transaction-builder test after deploying the default three-node
+installation. JDK 21 is required. The test creates a group on nodes 1 and 2,
+deploys ERC20Simple with the builder, mints and transfers tokens, checks balances
+through builder calls on both members, and checks that node 3 does not receive the group.
+
+To run only this Java scenario against an already deployed default installation:
+
+```sh
+./gradlew :sdk:java:integration-test:operatorE2E
+```
+
+This task prepares the ERC20Simple artifact and connects to the same localhost
+ports as the Go operator tests (31548, 31648, and 31748). It fails if the nodes
+are unavailable. Ordinary Java SDK `test` and `check` tasks exclude live E2E tests.
