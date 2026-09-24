@@ -32,28 +32,28 @@ type lockHandler struct {
 	noto *Noto
 }
 
-func (h *lockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *lockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var lockParams types.LockParams
 	if err := json.Unmarshal([]byte(params), &lockParams); err != nil {
-		return nil, err
+		return nil, invalidParams{err}
 	}
 	if config.IsV0() {
 		// V0 did not support empty locks
 		if lockParams.Amount == nil || lockParams.Amount.Int().Sign() != 1 {
-			return nil, i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")
+			return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
 		}
 	}
 	return &lockParams, nil
 }
 
-func (h *lockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction) error {
+func (h *lockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction) EndorseError {
 	if tx.DomainConfig.NotaryMode != types.NotaryModeBasic.Enum() {
 		return nil
 	}
 	if *tx.DomainConfig.Options.Basic.AllowLock {
 		return nil
 	}
-	return i18n.NewError(ctx, msgs.MsgLockNotAllowed)
+	return operationNotAllowed{i18n.NewError(ctx, msgs.MsgLockNotAllowed)}
 }
 
 func (h *lockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
@@ -85,7 +85,7 @@ func (h *lockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req
 	}, nil
 }
 
-func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, AssembleError) {
 	params := tx.Params.(*types.LockParams)
 
 	// there are special handling in terms of using nullifiers in transactions involving locks.
@@ -101,9 +101,9 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	}
 	notaryID, senderID := ids.notary, ids.sender
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, params.Amount, useNullifiers)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	inputStates, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, params.Amount, useNullifiers)
+	if err != nil {
+		return nil, err
 	}
 
 	// Pre-compute the lockId as it will be generated on the smart contract
@@ -200,13 +200,14 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	}, nil
 }
 
-func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, EndorseError) {
 	notary := tx.DomainConfig.NotaryLookup
 
 	if err := h.checkAllowed(ctx, tx); err != nil {
 		return nil, err
 	}
 
+	var err EndorseError
 	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
@@ -226,6 +227,7 @@ func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, 
 	}
 
 	if !tx.DomainConfig.IsV0() {
+		var err EndorseError
 		lockID, err := h.noto.computeLockIDForLockTX(ctx, tx, notaryID)
 		if err == nil {
 			_, _, _, err = h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_CREATE, senderID, &lockID, req.Inputs, req.Outputs, req.Info)
@@ -259,7 +261,8 @@ func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, 
 	}, nil
 }
 
-func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, lockID pldtypes.Bytes32, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+	var err error
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 	inputs := req.InputStates
 	outputs, lockedOutputs := h.noto.splitStates(req.OutputStates)
@@ -278,7 +281,8 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 
 	var lt *lockTransition // v1 only
 	if !tx.DomainConfig.IsV0() {
-		senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+		var senderID *identityPair
+		senderID, err = h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 		if err != nil {
 			return nil, err
 		}
@@ -376,6 +380,7 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 }
 
 func (h *lockHandler) hookInvoke(ctx context.Context, lockID pldtypes.Bytes32, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
+	var err error
 	inParams := tx.Params.(*types.LockParams)
 
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
@@ -437,7 +442,7 @@ func (h *lockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction, 
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "notary")
 	}
 
-	baseTransaction, err := h.baseLedgerInvoke(ctx, tx, *lockID, req)
+	baseTransaction, err := h.baseLedgerInvoke(ctx, tx, req)
 	if err != nil {
 		return nil, err
 	}

@@ -960,3 +960,18 @@ func TestTransferAssembleMissingTo(t *testing.T) {
 	_, err := handler.Assemble(ctx, parsedTx, req)
 	assert.Regexp(t, "PD200011.*'to'", err)
 }
+
+func TestTransferValidateParamsRevert(t *testing.T) {
+	h := &transferHandler{}
+	for _, tc := range []struct{ name, params, match string }{
+		{"malformed JSON", `{"amount":`, "unexpected end of JSON input"},
+		{"missing to", `{"amount": 1}`, "PD200007.*'to'"},
+		{"zero amount", `{"to": "receiver@node2", "amount": 0}`, "PD200008.*'amount'"},
+		{"absent amount", `{"to": "receiver@node2"}`, "PD200008.*'amount'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), notoBasicConfigV1, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}

@@ -71,18 +71,19 @@ func (mb *manifestBuilder) addLockInfo(lockInfo *preparedLockInfo) *manifestBuil
 	return mb
 }
 
-func (mb *manifestBuilder) finalizeNewState(manifest *types.NotoManifest, newState *prototk.NewState, distribution identityList) error {
+func (mb *manifestBuilder) finalizeNewState(manifest *types.NotoManifest, newState *prototk.NewState, distribution identityList) AssembleError {
 	stateID, err := pldtypes.ParseBytes32(*newState.Id)
-	if err == nil {
-		manifest.States = append(manifest.States, &types.NotoManifestStateEntry{
-			ID:           stateID,
-			Participants: distribution.addresses(),
-		})
+	if err != nil {
+		return invalidAssembledState{err}
 	}
-	return err
+	manifest.States = append(manifest.States, &types.NotoManifestStateEntry{
+		ID:           stateID,
+		Participants: distribution.addresses(),
+	})
+	return nil
 }
 
-func (mb *manifestBuilder) buildManifest(ctx context.Context, stateQueryContext string) (*prototk.NewState, error) {
+func (mb *manifestBuilder) buildManifest(ctx context.Context, stateQueryContext string) (*prototk.NewState, AssembleError) {
 
 	// Build a list of all the new states which do not have an ID allocated
 	totalStateCount := len(mb.infoStates) + len(mb.outputs.states) + len(mb.lockedOutputs.states) + 1

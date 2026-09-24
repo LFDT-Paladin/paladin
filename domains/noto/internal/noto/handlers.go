@@ -33,7 +33,31 @@ import (
 	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
-func (n *Noto) GetHandler(method string) types.DomainHandler {
+// NotoDomainHandler is Noto's transaction handler contract. It narrows the toolkit's
+// domain.DomainHandler[types.NotoParsedConfig] in one respect: the stages whose proto
+// response can carry a revert return AssembleError or EndorseError instead of error, so a handler cannot
+// compile without saying whose fault each of its failures is. Init and Prepare have no
+// revert in their proto responses, so they return a plain error and any classification
+// their callees made is deliberately dropped.
+type NotoDomainHandler interface {
+	ValidateParams(ctx context.Context, domainConfig *types.NotoParsedConfig, paramsJson string) (any, AssembleOrEndorseError)
+	Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error)
+	Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, AssembleError)
+	Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, EndorseError)
+	Prepare(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error)
+}
+
+// NotoDomainCallHandler is Noto's read-only call handler contract. Calls have no revert in their proto
+// responses but ValidateParams needs to match ValidateParams on NotoDomainHandler so that they can both implement
+// ParamValidator, so call handler ValidateParams functions do classify errors, even if the result is discarded.
+// TODO: why doesn't Paladin accept a revert response for calls?
+type NotoDomainCallHandler interface {
+	ValidateParams(ctx context.Context, domainConfig *types.NotoParsedConfig, paramsJson string) (any, AssembleOrEndorseError)
+	InitCall(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitCallRequest) (*prototk.InitCallResponse, error)
+	ExecCall(ctx context.Context, tx *types.ParsedTransaction, req *prototk.ExecCallRequest) (*prototk.ExecCallResponse, error)
+}
+
+func (n *Noto) GetHandler(method string) NotoDomainHandler {
 	switch method {
 	case "mint":
 		return &mintHandler{noto: n}
@@ -68,7 +92,7 @@ func (n *Noto) GetHandler(method string) types.DomainHandler {
 	}
 }
 
-func (n *Noto) GetCallHandler(method string) types.DomainCallHandler {
+func (n *Noto) GetCallHandler(method string) NotoDomainCallHandler {
 	switch method {
 	case "name":
 		return &nameHandler{noto: n}
@@ -84,62 +108,62 @@ func (n *Noto) GetCallHandler(method string) types.DomainCallHandler {
 }
 
 // Check that a mint has no inputs, and an output matching the requested amount
-func (n *Noto) validateMintAmounts(ctx context.Context, params *types.MintParams, inputs, outputs *parsedCoins) error {
+func (n *Noto) validateMintAmounts(ctx context.Context, params *types.MintParams, inputs, outputs *parsedCoins) EndorseError {
 	if len(inputs.coins) > 0 {
-		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "mint", inputs.coins)
+		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "mint", inputs.coins)}
 	}
 	if outputs.total.Cmp(params.Amount.Int()) != 0 {
-		return i18n.NewError(ctx, msgs.MsgInvalidAmount, "mint", params.Amount.Int().Text(10), outputs.total.Text(10))
+		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "mint", params.Amount.Int().Text(10), outputs.total.Text(10))}
 	}
 	return nil
 }
 
 // Check that a transfer has at least one input and output, and they net out to zero
-func (n *Noto) validateTransferAmounts(ctx context.Context, inputs, outputs *parsedCoins) error {
+func (n *Noto) validateTransferAmounts(ctx context.Context, inputs, outputs *parsedCoins) EndorseError {
 	if len(inputs.coins) == 0 {
-		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "transfer", inputs.coins)
+		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "transfer", inputs.coins)}
 	}
 	if inputs.total.Cmp(outputs.total) != 0 {
-		return i18n.NewError(ctx, msgs.MsgInvalidAmount, "transfer", inputs.total, outputs.total)
+		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "transfer", inputs.total, outputs.total)}
 	}
 	return nil
 }
 
 // Check that a burn has at least one input, and a net output matching the requested amount
-func (n *Noto) validateBurnAmounts(ctx context.Context, params *types.BurnParams, inputs, outputs *parsedCoins) error {
+func (n *Noto) validateBurnAmounts(ctx context.Context, params *types.BurnParams, inputs, outputs *parsedCoins) EndorseError {
 	if len(inputs.coins) == 0 {
-		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "burn", inputs.coins)
+		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "burn", inputs.coins)}
 	}
 	amount := big.NewInt(0).Sub(inputs.total, outputs.total)
 	if amount.Cmp(params.Amount.Int()) != 0 {
-		return i18n.NewError(ctx, msgs.MsgInvalidAmount, "burn", params.Amount.Int().Text(10), amount.Text(10))
+		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "burn", params.Amount.Int().Text(10), amount.Text(10))}
 	}
 	return nil
 }
 
 // Check that a lock produces locked coins matching the difference between the inputs and outputs
-func (n *Noto) validateLockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) error {
+func (n *Noto) validateLockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) EndorseError {
 	if tx.DomainConfig.IsV0() && len(inputs.coins) == 0 {
 		// V0 did not support empty locks
-		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "lock", inputs.coins)
+		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "lock", inputs.coins)}
 	}
 	amount := big.NewInt(0).Sub(inputs.total, outputs.total)
 	if amount.Cmp(outputs.lockedTotal) != 0 {
-		return i18n.NewError(ctx, msgs.MsgInvalidAmount, "lock", outputs.lockedTotal.Text(10), amount.Text(10))
+		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "lock", outputs.lockedTotal.Text(10), amount.Text(10))}
 	}
 	return nil
 }
 
 // Check that an unlock produces unlocked coins matching the difference between the locked inputs and outputs
 // Note that mint & burn uses a different function (this is only used for transfers)
-func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) error {
+func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) EndorseError {
 	if tx.DomainConfig.IsV0() && len(inputs.lockedCoins) == 0 {
 		// In V0 there was no lock object to check
-		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "unlock", inputs.lockedCoins)
+		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "unlock", inputs.lockedCoins)}
 	}
 	amount := big.NewInt(0).Sub(inputs.lockedTotal, outputs.lockedTotal)
 	if amount.Cmp(outputs.total) != 0 {
-		return i18n.NewError(ctx, msgs.MsgInvalidAmount, "unlock", outputs.total.Text(10), amount.Text(10))
+		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "unlock", outputs.total.Text(10), amount.Text(10))}
 	}
 	return nil
 }
@@ -153,7 +177,7 @@ func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransa
 //
 // Both inputs and outputs are checked as one set, because an output that collides with an
 // input is nullified by the very transaction that creates it.
-func (n *Noto) validateDistinctNullifiers(ctx context.Context, contract *pldtypes.EthAddress, stateLists ...[]*prototk.EndorsableState) error {
+func (n *Noto) validateDistinctNullifiers(ctx context.Context, contract *pldtypes.EthAddress, stateLists ...[]*prototk.EndorsableState) EndorseError {
 	nullifiers := make(map[string]string) // nullifier -> first state ID that derived it
 	seenStates := make(map[string]bool)
 	for _, states := range stateLists {
@@ -166,14 +190,14 @@ func (n *Noto) validateDistinctNullifiers(ctx context.Context, contract *pldtype
 
 			nullifier, isCoin, err := n.stateNullifier(ctx, contract, state)
 			if err != nil {
-				return err
+				return invalidStateList{err}
 			}
 			if !isCoin {
 				// Identified on-chain by ID, so it has no nullifier
 				continue
 			}
 			if existing, found := nullifiers[nullifier]; found {
-				return i18n.NewError(ctx, msgs.MsgDuplicateNullifierInList, existing, state.Id, nullifier)
+				return invalidStateList{i18n.NewError(ctx, msgs.MsgDuplicateNullifierInList, existing, state.Id, nullifier)}
 			}
 			nullifiers[nullifier] = state.Id
 		}
@@ -186,7 +210,7 @@ func (n *Noto) validateDistinctNullifiers(ctx context.Context, contract *pldtype
 // Only unlocked coins are nullified: locked coins and lock info states are spent by ID, so they
 // are skipped. Note the state data is deliberately not included in the error - it holds the
 // owner and amount.
-func (n *Noto) validateNullifierSpecs(ctx context.Context, contract *pldtypes.EthAddress, assembled *prototk.AssembledTransaction) error {
+func (n *Noto) validateNullifierSpecs(ctx context.Context, contract *pldtypes.EthAddress, assembled *prototk.AssembledTransaction) AssembleError {
 	if assembled == nil || n.coinSchema == nil {
 		return nil
 	}
@@ -197,13 +221,13 @@ func (n *Noto) validateNullifierSpecs(ctx context.Context, contract *pldtypes.Et
 				continue
 			}
 			if len(state.NullifierSpecs) == 0 {
-				return i18n.NewError(ctx, msgs.MsgMissingNullifierSpec, i)
+				return invalidAssembledState{i18n.NewError(ctx, msgs.MsgMissingNullifierSpec, i)}
 			}
 			// The spec must name this contract, or the owner's node would derive a nullifier
 			// bound to a different one - which the base ledger here would never recognise
 			for _, spec := range state.NullifierSpecs {
 				if spec.PayloadType != expectedPayloadType {
-					return i18n.NewError(ctx, msgs.MsgNullifierWrongContract, i, expectedPayloadType, spec.PayloadType)
+					return invalidAssembledState{i18n.NewError(ctx, msgs.MsgNullifierWrongContract, i, expectedPayloadType, spec.PayloadType)}
 				}
 			}
 		}
@@ -211,24 +235,26 @@ func (n *Noto) validateNullifierSpecs(ctx context.Context, contract *pldtypes.Et
 	return nil
 }
 
-// Check that the sender of a transaction provided a signature on the input details
-func (n *Noto) validateSignature(ctx context.Context, name string, attestations []*prototk.AttestationResult, encodedMessage []byte) error {
+// Check that the originator of a transaction provided a signature on the input details
+func (n *Noto) validateSignature(ctx context.Context, name string, attestations []*prototk.AttestationResult, encodedMessage []byte) EndorseError {
 	signature := domain.FindAttestation(name, attestations)
 	if signature == nil {
-		return i18n.NewError(ctx, msgs.MsgAttestationNotFound, name)
+		return invalidSignature{i18n.NewError(ctx, msgs.MsgAttestationNotFound, name)}
 	}
 	recoveredSignature, err := n.recoverSignature(ctx, encodedMessage, signature.Payload)
 	if err != nil {
-		return err
+		// The signature was supplied by the originator, so one that will not recover is
+		// a revert
+		return invalidSignature{err}
 	}
 	if recoveredSignature.String() != signature.Verifier.Verifier {
-		return i18n.NewError(ctx, msgs.MsgSignatureDoesNotMatch, name, signature.Verifier.Verifier, recoveredSignature.String())
+		return invalidSignature{i18n.NewError(ctx, msgs.MsgSignatureDoesNotMatch, name, signature.Verifier.Verifier, recoveredSignature.String())}
 	}
 	return nil
 }
 
 // Check that all coins are owned by the transaction sender
-func (n *Noto) validateOwners(ctx context.Context, owner string, verifiers []*prototk.ResolvedVerifier, coins []*types.NotoCoin, states []*prototk.StateRef) error {
+func (n *Noto) validateOwners(ctx context.Context, owner string, verifiers []*prototk.ResolvedVerifier, coins []*types.NotoCoin, states []*prototk.StateRef) EndorseError {
 	fromAddress, err := n.findEthAddressVerifier(ctx, "from", owner, verifiers)
 	if err != nil {
 		return err
@@ -236,35 +262,35 @@ func (n *Noto) validateOwners(ctx context.Context, owner string, verifiers []*pr
 
 	for i, coin := range coins {
 		if !coin.Owner.Equals(fromAddress.address) {
-			return i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)
+			return wrongOwner{i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)}
 		}
 	}
 	return nil
 }
 
 // Check that all locked coins are owned by the transaction sender
-func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers []*prototk.ResolvedVerifier, coins []*types.NotoLockedCoin, states []*prototk.StateRef) error {
+func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers []*prototk.ResolvedVerifier, coins []*types.NotoLockedCoin, states []*prototk.StateRef) EndorseError {
 	fromAddress, err := n.findEthAddressVerifier(ctx, "from", owner, verifiers)
 	if err != nil {
 		return err
 	}
 	for i, coin := range coins {
 		if !coin.Owner.Equals(fromAddress.address) {
-			return i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)
+			return wrongOwner{i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)}
 		}
 	}
 	return nil
 }
 
-// Parse a resolved verifier as an eth address
-func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, lookup string, verifierList []*prototk.ResolvedVerifier) (*identityPair, error) {
+// findEthAddressVerifier parses a resolved verifier as an eth address.
+func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, lookup string, verifierList []*prototk.ResolvedVerifier) (*identityPair, AssembleOrEndorseError) {
 	verifier := domain.FindVerifier(lookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, verifierList)
 	if verifier == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, errorDescription)
+		return nil, invalidVerifier{i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, errorDescription)}
 	}
 	address, err := pldtypes.ParseEthAddress(verifier.Verifier)
 	if err != nil {
-		return nil, err
+		return nil, invalidVerifier{err}
 	}
 	return &identityPair{identifier: lookup, address: address}, nil
 }
@@ -309,7 +335,7 @@ type resolvedIdentities struct {
 }
 
 // resolveIdentities resolves notary and sender from the transaction, plus optional from/to lookups.
-func resolveIdentities(ctx context.Context, n *Noto, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, fromLookup, toLookup string) (*resolvedIdentities, error) {
+func resolveIdentities(ctx context.Context, n *Noto, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, fromLookup, toLookup string) (*resolvedIdentities, AssembleError) {
 	notaryID, err := n.findEthAddressVerifier(ctx, "notary", tx.DomainConfig.NotaryLookup, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
@@ -357,16 +383,33 @@ func buildEndorsePlan(notaryParty, senderParty string, signPayload []byte) []*pr
 	}
 }
 
-// assembleRevertOrError returns a revert Assemble response when revert is true, otherwise the original error.
-func assembleRevertOrError(revert bool, err error) (*prototk.AssembleTransactionResponse, error) {
+// assembleRevertOrError turns a classified assemble failure into either a terminal REVERT response
+// carrying the reason, or an error for the platform to retry.
+func assembleRevertOrError(err AssembleError) (*prototk.AssembleTransactionResponse, error) {
 	if err == nil {
 		return nil, nil
 	}
-	if revert {
+	if err.IsAssembleRevert() {
 		reason := err.Error()
 		return &prototk.AssembleTransactionResponse{
 			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 			RevertReason:   &reason,
+		}, nil
+	}
+	return nil, err
+}
+
+// endorseRevertOrError turns a classified endorse failure into either a terminal REVERT response
+// carrying the reason, or an error for the platform to retry.
+func endorseRevertOrError(err EndorseError) (*prototk.EndorseTransactionResponse, error) {
+	if err == nil {
+		return nil, nil
+	}
+	if err.IsEndorseRevert() {
+		reason := err.Error()
+		return &prototk.EndorseTransactionResponse{
+			EndorsementResult: prototk.EndorseTransactionResponse_REVERT,
+			RevertReason:      &reason,
 		}, nil
 	}
 	return nil, err
