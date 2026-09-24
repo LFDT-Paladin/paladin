@@ -1835,3 +1835,120 @@ func TestBaseLedgerRevertNonRetryable_FailsImmediately(t *testing.T) {
 	// Should only have 1 public transaction since it failed immediately without retry
 	assert.Len(t, txFull.Public, 1)
 }
+
+func TestUpgradeSmartContractConfig(t *testing.T) {
+	// A self-endorsed token is upgraded on chain to require notary endorsement. Both nodes must pick up the
+	// new configuration from the upgrade event, and the next transfer must be coordinated and submitted by
+	// the notary rather than the sender.
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "node1")
+
+	alice := testutils.NewPartyForTestingWithNodeName(t, "alice", "node1", domainRegistryAddress)
+	notary := testutils.NewPartyForTestingWithNodeName(t, "notary", "node2", domainRegistryAddress)
+
+	alice.AddPeer(notary.GetNodeConfig())
+	notary.AddPeer(alice.GetNodeConfig())
+
+	startNode(t, alice, nil)
+	startNode(t, notary, nil)
+
+	ensurePeerConnections(t, ctx, alice, notary)
+
+	deployTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenConstructorABI(domains.SelfEndorsement)).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("deploy1").
+		From(alice.GetIdentityLocator()).
+		Inputs(pldtypes.RawJSON(`{
+			"from": "` + alice.GetIdentityLocator() + `",
+			"name": "FakeToken1",
+			"symbol": "FT1",
+			"endorsementMode": "` + domains.SelfEndorsement + `",
+			"hookAddress": "",
+			"amountVisible": false
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.NoError(t, deployTx.Error())
+	contractAddress := deployTx.Receipt().ContractAddress
+
+	// The endorsement mode in the configuration a node currently holds for the contract
+	endorsementMode := func(client pldclient.PaladinClient) string {
+		var sc pldapi.DomainSmartContract
+		require.NoError(t, client.CallRPC(ctx, &sc, "domain_getSmartContractByAddress", contractAddress))
+		var config struct {
+			EndorsementMode string `json:"endorsementMode"`
+		}
+		require.NoError(t, json.Unmarshal(sc.Config.ContractConfig, &config))
+		return config.EndorsementMode
+	}
+	// The node that submitted the base ledger transaction behind a receipt
+	dispatcher := func(receipt *pldapi.TransactionReceipt) string {
+		require.NotNil(t, receipt.TransactionHash)
+		var pubTx *pldapi.PublicTxWithBinding
+		require.NoError(t, alice.GetClient().CallRPC(ctx, &pubTx, "ptx_getPublicTransactionByHash", receipt.TransactionHash))
+		return pubTx.Dispatcher
+	}
+
+	// Self-endorsed: alice mints to herself and her own node submits
+	mintTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("mint1").
+		From(alice.GetIdentityLocator()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + alice.GetIdentityLocator() + `",
+			"amount": "100"
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.NoError(t, mintTx.Error())
+	assert.Equal(t, "node1", dispatcher(mintTx.Receipt()))
+	assert.Equal(t, domains.SelfEndorsement, endorsementMode(alice.GetClient()))
+
+	// The instance is upgraded to notary endorsement by a public transaction
+	newConfig, err := domains.SimpleTokenConfigABI().EncodeABIDataJSONCtx(ctx, []byte(`{
+		"endorsementMode": "`+domains.NotaryEndorsement+`",
+		"notaryLocator": "`+notary.GetIdentityLocator()+`",
+		"endorsementSetLocators": [],
+		"hookAddress": "",
+		"amountVisible": false,
+		"endorsementThreshold": 0
+	}`))
+	require.NoError(t, err)
+	upgradeTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenUpgradeConfigABI()).
+		Public().
+		IdempotencyKey("upgrade1").
+		From("alice").
+		To(contractAddress).
+		Function("upgradeConfig").
+		Inputs(pldtypes.RawJSON(`{"config": "` + pldtypes.HexBytes(newConfig).HexString0xPrefix() + `"}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.NoError(t, upgradeTx.Error())
+	require.True(t, upgradeTx.Receipt().Success)
+
+	// Each node indexes the upgrade event independently of the public receipt
+	for _, party := range []testutils.Party{alice, notary} {
+		assert.Eventually(t, func() bool {
+			return endorsementMode(party.GetClient()) == domains.NotaryEndorsement
+		}, transactionLatencyThreshold(t), 100*time.Millisecond)
+	}
+
+	// Notary-endorsed: the notary's node coordinates and submits alice's transfer
+	transferTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("transfer1").
+		From(alice.GetIdentityLocator()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "` + alice.GetIdentityLocator() + `",
+			"to": "` + notary.GetIdentityLocator() + `",
+			"amount": "50"
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.NoError(t, transferTx.Error())
+	assert.Equal(t, "node2", dispatcher(transferTx.Receipt()))
+}

@@ -2026,3 +2026,21 @@ func TestPublicTxOptionsFromProto_Nil(t *testing.T) {
 	assert.Nil(t, opts.MaxFeePerGas)
 	assert.Nil(t, opts.MaxPriorityFeePerGas)
 }
+
+func TestContractConfigChangedEvictsAndNotifiesSequencer(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
+		mc.sequencerManager.On("HandleContractConfigChanged", mock.Anything, mock.Anything).Return()
+	})
+	defer done()
+	ctx := td.ctx
+
+	psc := goodPSC(t, td)
+	_, cached := td.dm.contractCache.Get(psc.info.Address)
+	require.True(t, cached)
+
+	td.dm.contractConfigChanged(ctx, psc.info.Address)
+
+	_, cached = td.dm.contractCache.Get(psc.info.Address)
+	assert.False(t, cached)
+	td.mc.sequencerManager.AssertCalled(t, "HandleContractConfigChanged", mock.Anything, psc.info.Address)
+}

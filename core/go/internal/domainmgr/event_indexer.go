@@ -18,6 +18,8 @@ package domainmgr
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"sort"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -122,6 +124,24 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 	return nonRegisterEvents, txCompletions, nil
 }
 
+// applyUpgrade replaces the stored configuration of a contract registered under this domain's registry with
+// that announced by the contract. Returns false when the contract is not registered here.
+func (d *domain) applyUpgrade(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress, upgrade *event_PaladinUpgradeSmartContract_V0) (bool, error) {
+	res := dbTX.DB(ctx).
+		Table("private_smart_contracts").
+		Where("address = ? AND domain_address = ?", addr, d.registryAddress).
+		Update("config_bytes", upgrade.Config)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	if res.RowsAffected == 0 {
+		log.L(ctx).Debugf("Discarding upgrade of %s that is not registered under domain %s", addr, d.name)
+		return false, nil
+	}
+	log.L(ctx).Infof("Configuration of smart contract %s upgraded", addr)
+	return true, nil
+}
+
 // Direct waiters are only used by the testbed
 func (dm *domainManager) notifyWaiters(txCompletions txCompletionsOrdered) {
 	for _, completion := range txCompletions {
@@ -133,19 +153,46 @@ func (dm *domainManager) notifyWaiters(txCompletions txCompletionsOrdered) {
 	}
 }
 
-func (d *domain) batchEventsByAddress(ctx context.Context, dbTX persistence.DBTX, batchID string, events []*pldapi.EventWithData) (map[pldtypes.EthAddress]*pscEventBatch, error) {
+// Splits each contract's events into batches at its upgrades, keeping event order. Upgraded config is persisted
+// here in between batches, so that the next batch of events can be dispatched with the contract config that was
+// in place at the time the events were emitted.
+func (d *domain) batchEventsByContractConfig(ctx context.Context, dbTX persistence.DBTX, batchID string, events []*pldapi.EventWithData) ([]*pscEventBatch, []pldtypes.EthAddress, error) {
 
-	batches := make(map[pldtypes.EthAddress]*pscEventBatch)
+	var batches []*pscEventBatch
+	configChanged := make(map[pldtypes.EthAddress]bool)
+	current := make(map[pldtypes.EthAddress]*pscEventBatch)
 
 	for _, ev := range events {
-		batch := batches[ev.Address]
+		if ev.SoliditySignature == eventSolSig_PaladinUpgradeSmartContract_V0 {
+			var upgrade event_PaladinUpgradeSmartContract_V0
+			if err := json.Unmarshal(ev.Data, &upgrade); err != nil {
+				log.L(ctx).Errorf("Failed to parse domain event (%s): %s", err, pldtypes.JSONString(ev))
+				continue
+			}
+			upgraded, err := d.applyUpgrade(ctx, dbTX, ev.Address, &upgrade)
+			if err != nil {
+				return nil, nil, err
+			}
+			if upgraded {
+				d.dm.contractCache.Delete(ev.Address)
+				// any batches created before the upgrade still exist in the batches slice but deleting
+				// the reference to it from current will force the next event for this contract to
+				// start a new batch which will be initialised with the new confix
+				delete(current, ev.Address)
+				// record which contracts have changed config so their sequencers can be restarted
+				// once the DB TX is committed
+				configChanged[ev.Address] = true
+			}
+			continue
+		}
+		batch := current[ev.Address]
 		if batch == nil {
 			// Note: hits will be cached, but events from unrecognized contracts will always
 			// result in a cache miss and a database lookup
 			// TODO: revisit if we should optimize this
 			_, psc, err := d.dm.getSmartContractCached(ctx, dbTX, ev.Address)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if psc == nil {
 				log.L(ctx).Debugf("Discarding %s event for unregistered address %s", ev.SoliditySignature, ev.Address)
@@ -161,7 +208,8 @@ func (d *domain) batchEventsByAddress(ctx context.Context, dbTX persistence.DBTX
 					},
 				},
 			}
-			batches[ev.Address] = batch
+			batches = append(batches, batch)
+			current[ev.Address] = batch
 		}
 		batch.Events = append(batch.Events, &prototk.OnChainEvent{
 			Location: &prototk.OnChainEventLocation{
@@ -176,7 +224,7 @@ func (d *domain) batchEventsByAddress(ctx context.Context, dbTX persistence.DBTX
 		})
 	}
 
-	return batches, nil
+	return batches, slices.Collect(maps.Keys(configChanged)), nil
 }
 
 func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, batch *blockindexer.EventDeliveryBatch) error {
@@ -187,12 +235,13 @@ func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, ba
 		return err
 	}
 
-	// Then divide remaining events by contract address and dispatch to the appropriate domain context
-	batchesByAddress, err := d.batchEventsByAddress(ctx, dbTX, batch.BatchID.String(), nonDeployEvents)
+	// Then divide remaining events by contract and configuration, and dispatch to the appropriate domain context
+	batches, configChanged, err := d.batchEventsByContractConfig(ctx, dbTX, batch.BatchID.String(), nonDeployEvents)
 	if err != nil {
 		return err
 	}
-	for addr, batch := range batchesByAddress {
+	for _, batch := range batches {
+		addr := batch.psc.Address()
 		res, err := d.handleEventBatchForContract(ctx, dbTX, addr, batch)
 		if err != nil {
 			return err
@@ -254,6 +303,12 @@ func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, ba
 	}
 
 	dbTX.AddPostCommit(func(txCtx context.Context) {
+		// Consumers holding the old configuration are refreshed here, before the indexer moves on, so no work
+		// started after this batch is indexed can run against it. The cache is evicted again because a contract
+		// with no events after its upgrade in this batch was never reloaded.
+		for _, addr := range configChanged {
+			d.dm.contractConfigChanged(txCtx, addr)
+		}
 		// Enqueue the full sorted batch to the sequencer for ordered background processing.
 		// Handling of the completions on the queue must happen outside of this goroutine, which is critical path for the
 		// event indexer of the Paladin node.

@@ -55,6 +55,10 @@ var iPaladinContractRegistryABI = mustParseEmbeddedBuildABI(iPaladinContractRegi
 var eventSig_PaladinRegisterSmartContract_V0 = mustParseEventSignatureHash(iPaladinContractRegistryABI, "PaladinRegisterSmartContract_V0")
 var eventSolSig_PaladinRegisterSmartContract_V0 = mustParseEventSoliditySignature(iPaladinContractRegistryABI, "PaladinRegisterSmartContract_V0")
 
+//nolint:unused // Used in tests
+var eventSig_PaladinUpgradeSmartContract_V0 = mustParseEventSignatureHash(iPaladinContractRegistryABI, "PaladinUpgradeSmartContract_V0")
+var eventSolSig_PaladinUpgradeSmartContract_V0 = mustParseEventSoliditySignature(iPaladinContractRegistryABI, "PaladinUpgradeSmartContract_V0")
+
 // var eventSig_PaladinPrivateTransaction_V0 = mustParseEventSignature(iPaladinContractABI, "PaladinPrivateTransaction_V0")
 
 var smartContractFilters = filters.FieldMap{
@@ -110,6 +114,10 @@ type event_PaladinRegisterSmartContract_V0 struct {
 	Domain   pldtypes.EthAddress `json:"domain"`
 	Instance pldtypes.EthAddress `json:"instance"`
 	Config   pldtypes.HexBytes   `json:"config"`
+}
+
+type event_PaladinUpgradeSmartContract_V0 struct {
+	Config pldtypes.HexBytes `json:"config"`
 }
 
 func (dm *domainManager) PreInit(c components.PreInitComponents) (*components.ManagerInitResult, error) {
@@ -334,6 +342,12 @@ func (dm *domainManager) getSmartContractCached(ctx context.Context, dbTX persis
 	}
 	// Updating the cache deferred down to initSmartContract (under enrichContractWithDomain)
 	return dm.dbGetSmartContract(ctx, dbTX, func(db *gorm.DB) *gorm.DB { return db.Where("address = ?", addr) })
+}
+
+func (dm *domainManager) contractConfigChanged(ctx context.Context, addr pldtypes.EthAddress) {
+	dm.contractCache.Delete(addr)
+	// A sequencer is the only component which holds a contract beyond a single request
+	dm.sequencerManager.HandleContractConfigChanged(ctx, addr)
 }
 
 func (dm *domainManager) populateContractConfig(result *pldapi.DomainSmartContract, config *prototk.ContractConfig) {

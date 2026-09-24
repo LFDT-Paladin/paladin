@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
+import {IPaladinContractRegistry_V0} from "../interfaces/IPaladinContractRegistry.sol";
+
 // SIMDomain is an un-optimized, simplistic test tool that is used in the unit tests of the test bed
 // PLEASE REFER TO ZETO, NOTO AND PENTE FOR REAL EXAMPLES OF ACTUAL IMPLEMENTED DOMAINS
 contract SimpleToken {
@@ -75,6 +77,12 @@ contract SimpleToken {
         // domain wouldn't validate the inputs and outputs but we're just testing TX chaining here, not domain functionality.
         emit UTXOTransfer(txId, inputs, outputs, abi.encodePacked(signature));
         emit UTXOTransfer(originTxId, inputs, outputs, abi.encodePacked(signature));
+    }
+
+    // Announces a new configuration for this instance, as an upgraded instance would after
+    // changing the parameters the off-chain domain needs
+    function upgradeConfig(bytes calldata config) public {
+        emit IPaladinContractRegistry_V0.PaladinUpgradeSmartContract_V0(config);
     }
 
 }

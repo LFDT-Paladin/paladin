@@ -144,10 +144,14 @@ func (d *domain) processDomainConfig(dbTX persistence.DBTX, confRes *prototk.Con
 		}
 	}
 
+	// Registration is only trusted from the registry, but an upgrade may be announced by any registered
+	// instance as well as the registry, so it is matched from any address and the emitter is checked
+	// against the registered contracts when the event is handled.
 	stream := &blockindexer.EventStreamDefinition{
 		Type: blockindexer.EventStreamTypeInternal.Enum(),
 		Sources: []blockindexer.EventStreamSource{
-			{ABI: iPaladinContractRegistryABI, Address: d.registryAddress},
+			{ABI: registryEventABI("PaladinRegisterSmartContract_V0"), Address: d.registryAddress},
+			{ABI: registryEventABI("PaladinUpgradeSmartContract_V0")},
 		},
 	}
 
@@ -185,6 +189,10 @@ func (d *domain) processDomainConfig(dbTX persistence.DBTX, confRes *prototk.Con
 	return &prototk.InitDomainRequest{
 		AbiStateSchemas: schemasProto,
 	}, nil
+}
+
+func registryEventABI(eventName string) abi.ABI {
+	return abi.ABI{iPaladinContractRegistryABI.Events()[eventName]}
 }
 
 func (d *domain) init() {

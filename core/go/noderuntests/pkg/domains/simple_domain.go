@@ -231,6 +231,10 @@ func SimpleTokenTransferWithOriginTXABI() *abi.ABI {
 	return &abi.ABI{mustParseABIEntry(simpleTokenTransferWithOriginTXABI)}
 }
 
+func SimpleTokenUpgradeConfigABI() *abi.ABI {
+	return &abi.ABI{mustParseBuildABI(simpleTokenBuild).Functions()["upgradeConfig"]}
+}
+
 // ABI used by paladin to parse the constructor parameters
 // different for each endorsement mode
 const simpleTokenSelfEndorsementConstructorABI = `{
@@ -401,6 +405,10 @@ var contractDataABI = &abi.ParameterArray{
 	{Name: "hookAddress", Type: "string"},
 	{Name: "amountVisible", Type: "bool"},
 	{Name: "endorsementThreshold", Type: "uint32"},
+}
+
+func SimpleTokenConfigABI() *abi.ParameterArray {
+	return contractDataABI
 }
 
 // golang struct to parse and serialize the data received from the block indexer when the base ledger factor contract
