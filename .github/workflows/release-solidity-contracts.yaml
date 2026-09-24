@@ -1,6 +1,7 @@
 name: Upload Solidity Artifacts
 permissions:
   contents: read
+  id-token: write
 
 on:
   workflow_call:

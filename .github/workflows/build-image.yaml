@@ -1,6 +1,5 @@
 name: Build docker image
-permissions:
-  contents: read
+# No permissions block because this would limit permissions for any sub-workflows
   
 on:
   workflow_call:

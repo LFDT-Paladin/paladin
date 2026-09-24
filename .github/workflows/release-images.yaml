@@ -2,6 +2,7 @@ name: Image Release
 
 permissions:
   contents: read
+  packages: write
 
 on:
   workflow_call:

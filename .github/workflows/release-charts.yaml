@@ -1,7 +1,7 @@
 name: Helm Chart release
 
 permissions:
-  contents: read
+  contents: write
 
 on:
   workflow_call:

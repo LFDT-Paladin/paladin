@@ -6,7 +6,9 @@
 name: Release Candidate
 
 permissions:
-  contents: read
+  contents: write
+  packages: write
+  id-token: write
 
 on:
   workflow_call:
@@ -116,6 +118,8 @@ jobs:
   
   test-examples:
     needs: [setup, release-charts]
+    permissions:
+      contents: read
     uses: ./.github/workflows/test-examples.yaml
     with:
       build_local_abi: true
@@ -151,6 +155,8 @@ jobs:
     
   test-rollout-compatibility:
     needs: [setup, release-solidity-contracts, release-typescript-sdk]
+    permissions:
+      contents: read
     uses: ./.github/workflows/test-rollout-compatibility.yaml
     with:
       new_tag: ${{ needs.setup.outputs.tag }}
