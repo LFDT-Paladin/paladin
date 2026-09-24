@@ -26,5 +26,14 @@
     "ethers": "^6.13.1",
     "hardhat": "^2.19.4",
     "ts-node": "^10.9.2"
+  },
+  "overrides": {
+    "lodash": "^4.18.1",
+    "solc": {
+      "tmp": "^0.2.7"
+    },
+    "@ethersproject/providers": {
+      "ws": "^8.21.0"
+    }
   }
 }
