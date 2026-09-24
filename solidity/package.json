@@ -27,5 +27,14 @@
     "ts-node": "^10.9.2",
     "zeto-contracts-0.2.2": "npm:@lfdecentralizedtrust/zeto-contracts@0.2.2",
     "zeto-contracts-0.5.1": "npm:@lfdecentralizedtrust/zeto-contracts@0.5.1"
+  },
+  "overrides": {
+    "lodash": "^4.18.1",
+    "solc": {
+      "tmp": "^0.2.7"
+    },
+    "@ethersproject/providers": {
+      "ws": "^8.21.0"
+    }
   }
 }
