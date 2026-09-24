@@ -20,7 +20,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/require"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -28,7 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 )
 
 func testCoins(owner *pldtypes.EthAddress, amounts ...int64) *parsedCoins {
