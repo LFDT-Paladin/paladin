@@ -66,12 +66,12 @@ async function main(): Promise<boolean> {
         throw new Error("Failed to get stored ABI for prepared transaction");
       }
       
+      // V1 spends a lock rather than transferring locked UTXOs: spendLock(bytes32 lockId, bytes spendArgs, bytes data).
       const encodedData = new ethers.Interface(zetoTransferAbi.abi).encodeFunctionData(
-        "transferLocked",
+        "spendLock",
         [
-          preparedCashTransfer.transaction.data.inputs,
-          preparedCashTransfer.transaction.data.outputs,
-          preparedCashTransfer.transaction.data.proof,
+          preparedCashTransfer.transaction.data.lockId,
+          preparedCashTransfer.transaction.data.spendArgs,
           preparedCashTransfer.transaction.data.data,
         ]
       );
@@ -217,61 +217,64 @@ async function main(): Promise<boolean> {
     return false;
   }
 
-  // Lock the cash for the swap
+  // Lock the cash for the swap.
+  // V1 pins the spend recipient at lock time, so investor1 is named here rather than at spend time.
   logger.log("Locking cash amount from investor2...");
-  const investor2Address = await investor2.address();
   receipt = await zetoCash
     .using(paladin3)
-    .lock(investor2, {
-      amount: cashAmount,
-      delegate: investor2Address,
+    .createLock(investor2, {
+      from: investor2.lookup,
+      recipients: [
+        {
+          to: investor1,
+          amount: cashAmount,
+          data: "0x",
+        },
+      ],
+      unlockData: "0x",
+      data: "0x",
     })
     .waitForReceipt(DEFAULT_POLL_TIMEOUT);
   if (!checkReceipt(receipt)) return false;
-  
-  // Poll for the lock operation to be fully settled
+
+  // The lock id is carried on the persisted lock-info state produced by createLock.
   logger.log("Waiting for lock operation to settle...");
-  let lockedStateId: string | undefined;
+  let cashLockId: string | undefined;
   const pollStartTime = Date.now();
   while (Date.now() - pollStartTime < LONG_POLL_TIMEOUT) {
-    const lockedStates = await paladin3.ptx.getStateReceipt(receipt.id);
-    const confirmedLockedState = lockedStates?.confirmed?.find(
-      (state) => state.data["locked"]
-    );
-    if (confirmedLockedState) {
-      lockedStateId = confirmedLockedState.id;
+    const lockStates = await paladin3.ptx.getStateReceipt(receipt.id);
+    const lockInfoState = [
+      ...(lockStates?.confirmed ?? []),
+      ...(lockStates?.info ?? []),
+    ].find((state) => state.data["lockId"]);
+    if (lockInfoState) {
+      cashLockId = lockInfoState.data["lockId"];
       break;
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  if (lockedStateId === undefined) {
-    logger.error(`Timed out after ${LONG_POLL_TIMEOUT / 1000}s waiting for locked state in state receipt`);
+  if (cashLockId === undefined) {
+    logger.error(`Timed out after ${LONG_POLL_TIMEOUT / 1000}s waiting for lock info state in state receipt`);
     return false;
   }
-  logger.log(`Locked state ID: ${lockedStateId}`);
+  logger.log(`Cash lock ID: ${cashLockId}`);
 
-  // Prepare cash transfer
+  // Prepare the spend that the atom will execute once the lock has been delegated to it.
   logger.log("Preparing cash transfer...");
-  const txID = await zetoCash.using(paladin3).prepareTransferLocked(investor2, {
-    lockedInputs: [lockedStateId],
-    delegate: investor2.lookup,
-    transfers: [
-      {
-        to: investor1,
-        amount: cashAmount,
-        data: "0x",
-      },
-    ],
+  const txID = await zetoCash.using(paladin3).prepareSpendLock(investor2, {
+    lockId: cashLockId,
+    from: investor2.lookup,
+    data: "0x",
   }).id;
-  
+
   logger.log(`Prepared transaction ID: ${txID}`);
   const preparedCashTransfer = await paladin3.pollForPreparedTransaction(txID, LONG_POLL_TIMEOUT);
   if (!preparedCashTransfer) {
     logger.error(`Failed to get prepared transaction for ID: ${txID}`);
     return false;
   }
-  
+
   logger.log("Cash transfer preparation successful!");
 
   const encodedCashTransfer = await encodeZetoTransfer(preparedCashTransfer);
@@ -310,11 +313,18 @@ async function main(): Promise<boolean> {
 
   // Approve cash transfer operation
   logger.log("Approving cash leg...");
+  const cashDelegateArgs = new ethers.AbiCoder().encode(
+    // IZetoLockableCapability.ZetoDelegateLockArgs
+    ["tuple(bytes32 txId)"],
+    [[ethers.hexlify(ethers.randomBytes(32))]]
+  );
   receipt = await zetoCash
     .using(paladin3)
-    .delegateLock(investor2, {
-      utxos: [lockedStateId],
-      delegate: atom.address,
+    .delegateLockV1(investor2, {
+      lockId: cashLockId,
+      delegateArgs: cashDelegateArgs,
+      newSpender: atom.address,
+      data: "0x",
     })
     .waitForReceipt(DEFAULT_POLL_TIMEOUT);
   if (!checkReceipt(receipt)) return false;
@@ -373,7 +383,7 @@ async function main(): Promise<boolean> {
       assetAmount: assetAmount,
       cashAmount: cashAmount,
       lockId: lockId,
-      lockedStateId: lockedStateId,
+      cashLockId: cashLockId,
       assetUnlockCall: assetUnlockCall,
       encodedCashTransfer: encodedCashTransfer
     },
