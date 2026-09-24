@@ -713,7 +713,7 @@ func TestParseCoinListUnexpectedSchema(t *testing.T) {
 	_, err := z.parseCoinList(context.Background(), "inputs", []*prototk.EndorsableState{
 		{Id: stateID1, SchemaId: unknownSchemaID, StateDataJson: `{}`},
 	})
-	assert.Regexp(t, "PD210145", err)
+	assert.Regexp(t, "PD210158", err)
 }
 
 func TestParseCoinListDuplicateStates(t *testing.T) {
@@ -722,7 +722,7 @@ func TestParseCoinListDuplicateStates(t *testing.T) {
 		coinState(stateID1, owner1, 100, false),
 		coinState(stateID1, owner1, 50, false),
 	})
-	assert.Regexp(t, "PD210143", err)
+	assert.Regexp(t, "PD210156", err)
 }
 
 func TestParseCoinListInvalidJSON(t *testing.T) {
@@ -730,5 +730,5 @@ func TestParseCoinListInvalidJSON(t *testing.T) {
 	_, err := z.parseCoinList(context.Background(), "inputs", []*prototk.EndorsableState{
 		{Id: stateID1, SchemaId: coinSchemaID, StateDataJson: `{invalid json}`},
 	})
-	assert.Regexp(t, "PD210144", err)
+	assert.Regexp(t, "PD210157", err)
 }

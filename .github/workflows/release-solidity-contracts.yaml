@@ -90,13 +90,12 @@ jobs:
       run: |
         mkdir -p tools/contracts
 
-        # Download zeto contracts (downloads to domains/zeto/tools/zeto-contracts-v0.2.0.tar.gz)
-        ../../gradlew downloadZetoCompiledContracts
+        # Download the zeto contracts archive (see the v0_5_1 entry in domains/zeto/build.gradle zetoVersions)
+        ../../gradlew :domains:zeto:downloadZetoContracts_v0_5_1
 
-        # Unzip zeto contracts
-        # TODO: remove hardcoded version from name (should be available after zeto release v0.3.0)
-        # issue: https://github.com/hyperledger-labs/zeto/issues/158
-        tar -xzf tools/zeto-contracts-v0.2.2.tar.gz -C tools/contracts
+        # Unzip zeto contracts. The archive published upstream is unversioned (zeto-contracts.tar.gz); the download
+        # task renames it locally to the variant's contractsFile, so keep this path in sync with that entry.
+        tar -xzf tools/zeto-contracts-v0.5.1-lfdt.tar.gz -C tools/contracts
 
     - name: Copy Zeto Solidity artifacts to zeto-contracts directory
       shell: bash

@@ -170,6 +170,8 @@ smartContractDeployments:
     from: ""
   zetoSmtLib:
     from: ""
+  zetoLockableLib:
+    from: ""
   zetoImplAnon:
     from: ""
   zetoImplAnonEnc:

@@ -57,6 +57,11 @@ async function main(): Promise<boolean> {
   const zetoCBDC1 = await zetoFactory
     .newZeto(cbdcIssuer, {
       tokenName: "Zeto_AnonNullifier",
+      // V1 axis: the deployed zeto-contracts are ~v0.5.x, whose proving calls take a packed `bytes proof`.
+      // A pool left on the V0 axis reverts on the first proof (deposit) with no decodable revert data.
+      domainConfigSchema: "v1",
+      zetoVariant: 1,
+      factoryVersion: 1,
     })
     .waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(zetoCBDC1)) return false;
@@ -138,6 +143,11 @@ async function main(): Promise<boolean> {
   const zetoCBDC2 = await zetoFactory
     .newZeto(cbdcIssuer, {
       tokenName: "Zeto_AnonNullifier",
+      // V1 axis: the deployed zeto-contracts are ~v0.5.x, whose proving calls take a packed `bytes proof`.
+      // A pool left on the V0 axis reverts on the first proof (deposit) with no decodable revert data.
+      domainConfigSchema: "v1",
+      zetoVariant: 1,
+      factoryVersion: 1,
     })
     .waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(zetoCBDC2)) return false;

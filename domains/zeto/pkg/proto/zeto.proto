@@ -24,6 +24,11 @@ message Circuit {
   bool usesNullifiers = 3;
   bool usesEncryption = 4;
   bool usesKyc = 5;
+  // generation is the pool's ZetoReleaseGeneration (see domains/zeto/pkg/types/versions.go). Circuit names are not
+  // unique across upstream releases -- the KYC family in particular kept its names while the proving keys changed --
+  // so the prover resolves artifacts under a per-generation subdirectory and caches them per generation.
+  // Absent (0) means generation V0, which is also the legacy flat-directory layout.
+  uint64 generation = 6;
 }
 
 message ProvingRequest {

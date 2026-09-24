@@ -194,6 +194,10 @@ func (e *Entry) WithFields(fields map[string]any) *Entry {
 func InitConfig(conf *pldconf.LogConfig) {
 	initAtLeastOnce.Store(true) // must store before SetLevel
 
+	// Capture dependencies that still log through the global logrus logger, so their records land
+	// in the destination configured below rather than going straight to stderr.
+	InstallLogrusBridge()
+
 	level := confutil.StringNotEmpty(conf.Level, *pldconf.LogDefaults.Level)
 	SetLevel(level)
 
