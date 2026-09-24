@@ -642,6 +642,20 @@ func TestGetReliableMessageScanNoAction(t *testing.T) {
 
 }
 
+func TestReliableMessageScanSkipsConsumedNotification(t *testing.T) {
+	ctx, tm, _, done := newTestTransport(t, false)
+	defer done()
+
+	p := &peer{
+		ctx:              ctx,
+		tm:               tm,
+		PeerInfo:         pldapi.PeerInfo{Name: "node2"},
+		lowestPendingSeq: ^uint64(0),
+	}
+
+	require.NoError(t, p.reliableMessageScan(true))
+}
+
 func TestProcessReliableMsgPageFullScanIgnoreRecent(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false)

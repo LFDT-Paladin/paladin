@@ -30,6 +30,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -483,18 +484,36 @@ func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.Paladin
 	return *conf, wsConfig
 }
 
-// getFreePort finds an available TCP port and returns it.
-func getFreePort() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0") // localhost so we're not opening ports on the machine that need firewall approval
-	if err != nil {
-		return 0, err
-	}
-	defer func() {
-		_ = listener.Close()
-	}()
+var allocatedPorts = struct {
+	sync.Mutex
+	ports map[int]struct{}
+}{ports: make(map[int]struct{})}
 
-	port := listener.Addr().(*net.TCPAddr).Port
-	return port, nil
+// getFreePort finds an available TCP port that has not been assigned to another
+// test listener in this process. The listener is closed before the port is used.
+func getFreePort() (int, error) {
+	allocatedPorts.Lock()
+	defer allocatedPorts.Unlock()
+	var previouslyAssignedListeners []net.Listener
+	defer func() {
+		for _, listener := range previouslyAssignedListeners {
+			_ = listener.Close()
+		}
+	}()
+	for {
+		listener, err := net.Listen("tcp", "127.0.0.1:0") // localhost so we're not opening ports on the machine that need firewall approval
+		if err != nil {
+			return 0, err
+		}
+		port := listener.Addr().(*net.TCPAddr).Port
+		if _, used := allocatedPorts.ports[port]; used {
+			previouslyAssignedListeners = append(previouslyAssignedListeners, listener)
+			continue
+		}
+		allocatedPorts.ports[port] = struct{}{}
+		_ = listener.Close()
+		return port, nil
+	}
 }
 
 func buildTestCertificate(t *testing.T, subject pkix.Name, ca *x509.Certificate, caKey *rsa.PrivateKey) (string, string) {
