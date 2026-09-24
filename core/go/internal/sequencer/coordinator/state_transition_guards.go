@@ -39,22 +39,21 @@ func guard_HasTransactionsInflight(_ context.Context, c *coordinator) bool {
 }
 
 func guard_ClosingGracePeriodExpired(_ context.Context, c *coordinator) bool {
-	return c.heartbeatIntervalsSinceStateChange >= c.closingGracePeriod
+	// measure number of complete heartbeat interval periods - e.g. count of 2 means
+	// 1 full heartbeat interval has elapsed, hence use of > not >=
+	return c.heartbeatIntervalsSinceStateChange > c.closingGracePeriod
 }
 
-func guard_HasTransactionAssembling(ctx context.Context, c *coordinator) bool {
-	//TODO this could be optimized by keeping track of a boolean that is switched from the onStateChange handler
-	return len(
-		c.getTransactionsInStates(ctx, []transaction.State{
-			transaction.State_Assembling,
-		}),
-	) > 0
+func guard_HasTransactionAssembling(_ context.Context, c *coordinator) bool {
+	return c.assemblyInFlight
 }
 
 // guard_InactiveGracePeriodExceeded returns true when no heartbeat has been received for at least
 // inactiveGracePeriod heartbeat intervals.
 func guard_InactiveGracePeriodExceeded(_ context.Context, c *coordinator) bool {
-	return c.heartbeatIntervalsSinceLastReceive >= c.inactiveGracePeriod
+	// measure number of complete heartbeat interval periods - e.g. count of 2 means
+	// 1 full heartbeat interval has elapsed, hence use of > not >=
+	return c.heartbeatIntervalsSinceLastReceive > c.inactiveGracePeriod
 }
 
 // guard_IsHigherPriorityThanCurrentActive returns true when this node has a strictly higher
@@ -68,5 +67,8 @@ func guard_IsHigherPriorityThanCurrentActive(_ context.Context, c *coordinator) 
 // can read like a spec; however, this particular check self describes better by being combined
 // into a new single guard function.
 func guard_MustFlushToRotateSigningIdentity(ctx context.Context, c *coordinator) bool {
-	return c.signingIdentity.used && guard_HasUnconfirmedDispatchedTransactions(ctx, c)
+	c.signingIdentity.mu.Lock()
+	used := c.signingIdentity.used
+	c.signingIdentity.mu.Unlock()
+	return used && guard_HasUnconfirmedDispatchedTransactions(ctx, c)
 }

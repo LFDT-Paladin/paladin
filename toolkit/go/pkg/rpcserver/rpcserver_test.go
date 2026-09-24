@@ -18,6 +18,7 @@ package rpcserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,6 +31,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -276,7 +280,47 @@ func TestHTTPHandler(t *testing.T) {
 	req := httptest.NewRequest("POST", "/", nil)
 	res := httptest.NewRecorder()
 	rpcServer.HTTPHandler(res, req)
+	// Empty body is a parse error → valid JSON/RPC error response → HTTP 200
+	assert.Equal(t, http.StatusOK, res.Code)
+	var jsonResponse rpcclient.RPCResponse
+	err = json.NewDecoder(res.Body).Decode(&jsonResponse)
+	require.NoError(t, err)
+	assert.NotNil(t, jsonResponse.Error)
+	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), jsonResponse.Error.Code)
+}
+
+func TestHTTPHandler_PanicRecovery(t *testing.T) {
+	rpcServer, err := NewRPCServer(context.Background(), &pldconf.RPCServerConfig{
+		HTTP: pldconf.RPCServerConfigHTTP{
+			Disabled: false,
+			HTTPServerConfig: pldconf.HTTPServerConfig{
+				Address: confutil.P("127.0.0.1"),
+				Port:    confutil.P(0),
+			},
+		},
+		WS: pldconf.RPCServerConfigWS{Disabled: true},
+	})
+	require.NoError(t, err)
+	defer rpcServer.Stop()
+
+	regTestRPC(rpcServer, "test_panic", RPCMethod0(func(ctx context.Context) (string, error) {
+		panic("something went very wrong")
+	}))
+
+	body := strings.NewReader(`{"jsonrpc":"2.0","method":"test_panic","id":1,"params":[]}`)
+	req := httptest.NewRequest("POST", "/", body)
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+
+	rpcServer.HTTPHandler(res, req)
+
 	assert.Equal(t, http.StatusInternalServerError, res.Code)
+	var jsonResponse rpcclient.RPCResponse
+	err = json.NewDecoder(res.Body).Decode(&jsonResponse)
+	require.NoError(t, err)
+	assert.NotNil(t, jsonResponse.Error)
+	assert.Equal(t, int64(rpcclient.RPCCodeInternalError), jsonResponse.Error.Code)
+	assert.Contains(t, jsonResponse.Error.Message, "something went very wrong")
 }
 
 func TestHTTPHandler_AuthenticationFailure(t *testing.T) {
@@ -571,4 +615,153 @@ func TestNewRPCServerWithStaticServerDisabled(t *testing.T) {
 
 	// Verify the status code
 	require.Equal(t, http.StatusNotFound, res.StatusCode)
+}
+
+func newTestServerHTTPLegacy(t *testing.T) (string, *rpcServer, func()) {
+	return newTestServerHTTP(t, &pldconf.RPCServerConfig{
+		LegacyReturnCodes: true,
+	})
+}
+
+func TestLegacyReturnCodes_RPCError_Returns500(t *testing.T) {
+	url, s, done := newTestServerHTTPLegacy(t)
+	defer done()
+
+	regTestRPC(s, "ut_fail", RPCMethod0(func(ctx context.Context) (string, error) {
+		return "", fmt.Errorf("something went wrong")
+	}))
+
+	var errResponse rpcclient.RPCResponse
+	res, err := resty.New().R().
+		SetBody(`{"jsonrpc":"2.0","id":"1","method":"ut_fail","params":[]}`).
+		SetResult(&errResponse).
+		SetError(&errResponse).
+		Post(url)
+	require.NoError(t, err)
+	assert.False(t, res.IsSuccess())
+	assert.Equal(t, http.StatusInternalServerError, res.StatusCode())
+	assert.NotNil(t, errResponse.Error)
+	assert.Contains(t, errResponse.Error.Message, "something went wrong")
+}
+
+
+func TestLegacyReturnCodes_RPCSuccess_Returns200(t *testing.T) {
+	url, s, done := newTestServerHTTPLegacy(t)
+	defer done()
+
+	regTestRPC(s, "ut_ok", RPCMethod0(func(ctx context.Context) (string, error) {
+		return "hello", nil
+	}))
+
+	var jsonResponse pldtypes.RawJSON
+	res, err := resty.New().R().
+		SetBody(`{"jsonrpc":"2.0","id":"1","method":"ut_ok","params":[]}`).
+		SetResult(&jsonResponse).
+		Post(url)
+	require.NoError(t, err)
+	assert.True(t, res.IsSuccess())
+	assert.Equal(t, http.StatusOK, res.StatusCode())
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"1","result":"hello"}`, string(jsonResponse))
+}
+
+func TestLegacyReturnCodes_AuthFailure_Remains401(t *testing.T) {
+	_, s, done := newTestServerHTTPLegacy(t)
+	defer done()
+
+	s.SetAuthorizers([]Authorizer{&mockAuthorizer{
+		authenticateFunc: func(ctx context.Context, headers map[string]string) (string, error) {
+			return "", fmt.Errorf("bad credentials")
+		},
+	}})
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(`{"jsonrpc":"2.0","id":"1","method":"ut_ok","params":[]}`))
+	rec := httptest.NewRecorder()
+	s.HTTPHandler(rec, req)
+
+	// HTTP-level auth failure stays 401 even in legacy mode
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Empty(t, rec.Body.String())
+}
+
+func TestLegacyReturnCodes_AuthorizeDenied_Returns500(t *testing.T) {
+	url, s, done := newTestServerHTTPLegacy(t)
+	defer done()
+
+	s.SetAuthorizers([]Authorizer{&mockAuthorizer{
+		authenticateFunc: func(ctx context.Context, headers map[string]string) (string, error) {
+			return `{"user":"test"}`, nil
+		},
+		authorizeFunc: func(ctx context.Context, result string, method string, payload []byte) bool {
+			return false
+		},
+	}})
+
+	var errResponse rpcclient.RPCResponse
+	res, err := resty.New().R().
+		SetBody(`{"jsonrpc":"2.0","id":"1","method":"ut_ok"}`).
+		SetResult(&errResponse).
+		SetError(&errResponse).
+		Post(url)
+	require.NoError(t, err)
+	assert.False(t, res.IsSuccess())
+	// Authorization failure becomes 500 in legacy mode (not 403)
+	assert.Equal(t, http.StatusInternalServerError, res.StatusCode())
+}
+
+func TestLegacyReturnCodes_BatchAllFail_Returns500(t *testing.T) {
+	url, s, done := newTestServerHTTPLegacy(t)
+	defer done()
+
+	regTestRPC(s, "ut_fail", RPCMethod0(func(ctx context.Context) (string, error) {
+		return "", fmt.Errorf("boom")
+	}))
+
+	var jsonResponse pldtypes.RawJSON
+	res, err := resty.New().R().
+		SetBody(`[
+			{"jsonrpc":"2.0","id":"1","method":"ut_fail","params":[]},
+			{"jsonrpc":"2.0","id":"2","method":"ut_fail","params":[]}
+		]`).
+		SetResult(&jsonResponse).
+		SetError(&jsonResponse).
+		Post(url)
+	require.NoError(t, err)
+	assert.False(t, res.IsSuccess())
+	assert.Equal(t, http.StatusInternalServerError, res.StatusCode())
+}
+
+func TestLegacyReturnCodes_BatchPartialFail_Returns200(t *testing.T) {
+	url, s, done := newTestServerHTTPLegacy(t)
+	defer done()
+
+	regTestRPC(s, "ut_ok", RPCMethod0(func(ctx context.Context) (string, error) {
+		return "ok", nil
+	}))
+	regTestRPC(s, "ut_fail", RPCMethod0(func(ctx context.Context) (string, error) {
+		return "", fmt.Errorf("boom")
+	}))
+
+	var jsonResponse pldtypes.RawJSON
+	res, err := resty.New().R().
+		SetBody(`[
+			{"jsonrpc":"2.0","id":"1","method":"ut_ok","params":[]},
+			{"jsonrpc":"2.0","id":"2","method":"ut_fail","params":[]}
+		]`).
+		SetResult(&jsonResponse).
+		SetError(&jsonResponse).
+		Post(url)
+	require.NoError(t, err)
+	// At least one succeeded → 200, even in legacy mode
+	assert.True(t, res.IsSuccess())
+	assert.Equal(t, http.StatusOK, res.StatusCode())
+}
+
+func TestRPCResponseHasError_EmptyBatch(t *testing.T) {
+	// An empty batch slice is not considered an error
+	assert.False(t, rpcResponseHasError([]*rpcclient.RPCResponse{}))
+}
+
+func TestRPCResponseHasError_UnknownType(t *testing.T) {
+	// An unrecognised type is not considered an error
+	assert.False(t, rpcResponseHasError("unexpected"))
 }

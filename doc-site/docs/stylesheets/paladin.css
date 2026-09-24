@@ -42,3 +42,22 @@
 [data-md-color-scheme="paladin-dark"] img[src$="#only-light"] {
     display: none;
 }
+
+/* Diagrams embedded in doc content (docs/images/*.svg, and the
+   diagrams/light|dark pairs) are drawn with a light canvas and dark text.
+   The dedicated dark-mode diagram variants were low-contrast and hard to
+   read, so in dark mode we always show the light-colored version on a
+   white card instead, for every image inside the page content. The
+   header logo is excluded since it lives outside .md-typeset and already
+   has a proper dark-mode variant. */
+[data-md-color-scheme="paladin-dark"] .md-typeset img {
+    background-color: #ffffff;
+    border-radius: 6px;
+    padding: 0.5rem;
+}
+[data-md-color-scheme="paladin-dark"] .md-typeset img[src$="#only-light"] {
+    display: revert;
+}
+[data-md-color-scheme="paladin-dark"] .md-typeset img[src$="#only-dark"] {
+    display: none;
+}

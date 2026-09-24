@@ -23,22 +23,29 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"gorm.io/gorm"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 type StateManager interface {
 	ManagerLifecycle
 
-	// Get a list of all active domain contexts
-	ListDomainContexts() []DomainContextInfo
+	// Create a new domain query context.
+	NewDomainQueryContext(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress) DomainQueryContext
 
-	// Create a new domain context - caller is responsible for closing it
-	NewDomainContext(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress) DomainContext
+	// Create a domain query context that answers queries by merging the local DB view with a
+	// remote in-memory view: view serves its matching unconfirmed states and spent state IDs on demand.
+	NewDomainQueryContextWithRemoteView(ctx context.Context, domain Domain, contractAddress pldtypes.EthAddress, view RemoteStateView) DomainQueryContext
 
-	// Get a previously created domain context
-	GetDomainContext(ctx context.Context, id uuid.UUID) DomainContext
+	// FindMatchingInMemoryStates evaluates a domain state query against caller-supplied snapshot
+	// candidates.
+	FindMatchingInMemoryStates(ctx context.Context, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, candidates []*prototk.SnapshotState) ([]*prototk.QueriedState, error)
+
+	// WriteStateBatch writes fully-built states (with labels already extracted) and their pre-built
+	// nullifier records to the database within the given transaction. Nullifiers must be validated
+	// against and linked to their creating states by the caller.
+	WriteStateBatch(ctx context.Context, dbTX persistence.DBTX, states []*StateWithLabels, nullifiers ...*pldapi.StateNullifier) error
 
 	// Ensure ABI schemas upserts all the specified schemas, using the given DB transaction
 	EnsureABISchemas(ctx context.Context, dbTX persistence.DBTX, domainName string, defs []*abi.Parameter) ([]Schema, error)
@@ -49,6 +56,13 @@ type StateManager interface {
 	// State finalizations are written on the DB context of the block indexer, by the domain manager.
 	WriteStateFinalizations(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord, reads []*pldapi.StateReadRecord, confirms []*pldapi.StateConfirmRecord, infoRecords []*pldapi.StateInfoRecord) (err error)
 
+	// ValidateStates validates and normalizes each state's data against its schema, and calculates its state ID.
+	ValidateStates(ctx context.Context, dbTX persistence.DBTX, domain Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*pldapi.State, error)
+
+	// ValidateStatesWithLabels performs the same validation and normalization as ValidateStates, additionally
+	// extracting the state's label values.
+	ValidateStatesWithLabels(ctx context.Context, dbTX persistence.DBTX, domain Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*StateWithLabels, error)
+
 	// MUST NOT be called for states received over a network from another node.
 	// Writes a batch of states that have been pre-verified BY THIS NODE so can bypass domain hash verification.
 	WritePreVerifiedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, states []*StateUpsertOutsideContext) ([]*pldapi.State, error)
@@ -57,10 +71,7 @@ type StateManager interface {
 	WriteReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, states []*StateUpsertOutsideContext) ([]*pldapi.State, error)
 
 	// Write a batch of nullifiers that correspond to states just received
-	WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*NullifierUpsert) error
-
-	// Find states from outside of a domain context (noting you can reference a domain context by ID)
-	FindStates(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, extQueryOptions *StateQueryOptions) (s []*pldapi.State, err error)
+	WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*pldapi.StateNullifier) error
 
 	// GetState returns state by ID, with optional labels
 	GetStatesByID(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, stateIDs []pldtypes.HexBytes, failNotFound, withLabels bool) ([]*pldapi.State, error)
@@ -75,145 +86,44 @@ type StateManager interface {
 	CheckPendingPrivateStateDataForContract(ctx context.Context, dbTX persistence.DBTX, contract string, block int64) (complete bool, err error)
 }
 
+// RemoteStateView is on-demand read access to a remote view of available and spent states. Implementations
+// block until the response arrives (or ctx expires). Callers are responsible for validating data
+// returned by QueryAvailableStates against the claimed state IDs — the source is not trusted.
+type RemoteStateView interface {
+	QueryAvailableStates(ctx context.Context, schemaID string, queryJSON string) ([]*prototk.QueriedState, error)
+	GetSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, error)
+}
+
 type PendingPrivateStateDataEntry struct {
 	StateID     pldtypes.HexBytes
 	Contract    pldtypes.EthAddress
 	BlockNumber int64
 }
 
-type StateQueryOptions struct {
-	StatusQualifier pldapi.StateStatusQualifier
-	ExcludedIDs     []pldtypes.HexBytes
-	QueryModifier   func(db persistence.DBTX, query *gorm.DB) *gorm.DB
-}
-
-type DomainContextInfo struct {
-	ID              uuid.UUID           `json:"id"`
-	DomainName      string              `json:"domain"`
-	ContractAddress pldtypes.EthAddress `json:"contractAddress"`
-}
-
-// The DSI is the state interface that is exposed outside of the statestore package, for the
-// transaction engine to use to safely query and update the state in the context of a particular
-// domain.
+// DomainQueryContext is the state query interface exposed outside of the statestore package. It may
+// be backed by a remote view, in which case queries are executed against both the remote view and
+// the local persisted state store, with the results merged together.
 //
-// A single locked execution context is available per domain private contract, per paladin runtime.
-// In the future we may consider more granular execution contexts to increase parallelism.
-//
-// The locked execution context works only in-memory until explicitly committed, at which point
-// all the operations queued up are flushed to the DB asynchronously.
-//
-// We can then continue to build the next set of flushable operations, while the first set is
-// still flushing (a simple pipeline approach).
-type DomainContext interface {
-	Ctx() context.Context // easier to mock than embedding the context.Context interface
-
-	// Get the ID, domain and address of this domain context
-	Info() DomainContextInfo
-
-	// FindAvailableStates is the main query function, only returning states that are available.
-	// Note this does not lock these states in any way, you must call that afterwards as:
-	// 1) We don't know which will be selected as important by the domain - some might be un-used
-	// 2) We deliberately return states that are locked to a transaction (but not spent yet) - which means the
-	//    result of the any assemble that uses those states, will be a transaction that must
-	//    be on the same transaction where those states are locked.
-	//
-	// The dbTX is passed in to allow re-use of a connection during read operations.
+// A DomainQueryContext is typically short-lived, holds no resources of its own, and is collected
+// once its consumer drops it.
+type DomainQueryContext interface {
+	// FindAvailableStates is the primary query function, returning only available states.
+	// For contexts created with a remote view, results merge the view's matches and respect
+	// its spend exclusions.
 	FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
 
-	// GetStatesByID retrieves a set of states by ID - regardless of whether they are:
-	// - Written to the DB or not (or just pending in the domain context)
-	// - Confirmed or not
-	// - Spent or not
+	// FindAvailableNullifierBackedStates returns available states for domains that spend via nullifiers,
+	// where availability is decided by the nullifier's spend record rather than the state's own. A remote
+	// view carries no nullifiers, so these queries are answered from the local persisted state store
+	// alone, though the view's spend exclusions still apply.
+	FindAvailableNullifierBackedStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
+
+	// GetStatesByID retrieves states by ID regardless of confirmation/spend status,
+	// including states pending in memory.
 	GetStatesByID(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, ids []string) (Schema, []*pldapi.State, error)
 
-	// Return a snapshot of all currently known state locks
-	ExportSnapshot(ctx context.Context) ([]byte, error)
-
-	// ImportSnapshot is used to restore the state of the domain context, by adding a set of locks
-	ImportSnapshot(ctx context.Context, stateLocksJSON []byte) error
-
-	// FindAvailableNullifiers is similar to FindAvailableStates, but for domains that leverage
-	// nullifiers to record spending.
-	//
-	// The dbTX is passed in to allow re-use of a connection during read operations.
-	FindAvailableNullifiers(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
-
-	// AddStateLocks updates the in-memory state of the domain context, to record a set of locks
-	// that affect queries on available states and nullifiers.
-	//
-	// - Spend locks mark the states unavailable
-	// - Create locks make un-confirmed states available for selection (also automatically added in UpsertStates with non-nil transaction)
-	// - Read locks just mark the relationship for later processing
-	//
-	// This is an in-memory record that will be lost on Reset, and can be deleted using ClearTransaction
-	AddStateLocks(locks ...*pldapi.StateLock) (err error)
-
-	// ValidateStates performs the processing to verify states against their schema, without inserting them into the database.
-	//
-	// In the common case that a domain delegates hash generation to the server, this allows a domain to
-	// request early generation of the ID from the server in-line in processing.
-	//
-	// The dbTX is passed in to allow re-use of a connection during read operations.
-	ValidateStates(dbTX persistence.DBTX, stateUpserts ...*StateUpsert) (states []*pldapi.StateBase, err error)
-
-	// UpsertStates creates or updates states.
-	// They are available immediately within the domain for return in FindAvailableStates
-	// on the domain (even before the flush).
-	// If a non-nil transaction ID is supplied, then the states are marked as being created by
-	// the specified transaction using an in-memory lock.
-	//
-	// States will be written to the DB on the next flush (the associated lock is not)
-	// The dbTX is passed in to allow re-use of a connection during read operations.
-	UpsertStates(dbTX persistence.DBTX, states ...*StateUpsert) (s []*pldapi.State, err error)
-
-	// UpsertNullifiers creates nullifier records associated with states.
-	// Nullifiers are an alternate state identifier (separate from the state ID) that can be used
-	// when recording spent states.
-	//
-	// Nullifiers will be written to the DB on the next flush
-	UpsertNullifiers(nullifiers ...*NullifierUpsert) error
-
-	// Call this to remove all locks associated with individual transactions without clearing the whole state.
-	// For example if a notification has been received that the transaction is either confirmed, or rejected.
-	//
-	// This only affects in memory state.
-	//
-	// No dependency analysis is done by this function call - that is the responsibility of the caller.
-	ResetTransactions(transactionID ...uuid.UUID)
-
-	// Return a complete copy of the current set of locks being managed in this context
-	// Mainly for debugging (lots of memory is copied) so any case this function is used on a critical path
-	// should be considered as a requirement for a new function on this interface that can be performed
-	// safely under the mutex of the domain context.
-	StateLocksByTransaction() map[uuid.UUID][]pldapi.StateLock
-
-	// Reset restores the world to the current state of the database, clearing any errors
-	// from failed flush, all un-flushed writes, and all in-memory state locks.
-	// It does not wait for an in-progress flush to complete
-	Reset()
-
-	// Flush moves the un-flushed set into flushing status, queueing to a DB writer to batch write
-	// to the database.
-	//
-	// The domain context needs to know when the flush has completed for success or failure, as it needs to
-	// clear the flushing state from the in-memory context. This can only be done after the DB transaction
-	// commits, as only then is it assured that the states will be returned by the DB and do not need
-	// to be held in memory any longer. So the returned callback function must be called on commit OR ROLLBACK
-	// of the database transaction.
-	//
-	// If an error is returned by this function, then the postDBTx callback will be nil
-	Flush(dbTX persistence.DBTX) error
-
-	// Removes the domain context from the state manager, and prevents any further use
-	Close()
-}
-
-type StateUpsert struct {
-	ID        pldtypes.HexBytes `json:"id"`
-	Schema    pldtypes.Bytes32  `json:"schema"`
-	Data      pldtypes.RawJSON  `json:"data"`
-	CreatedBy *uuid.UUID        `json:"createdBy,omitempty"` // not exported
+	// ContractAddress returns the contract address this context was opened for.
+	ContractAddress() pldtypes.EthAddress
 }
 
 type StateUpsertOutsideContext struct {
@@ -233,9 +143,19 @@ func (s *StateWithLabels) ValueSet() filters.ValueSet {
 	return s.LabelValues
 }
 
-type NullifierUpsert struct {
-	ID    pldtypes.HexBytes `json:"id"              gorm:"primaryKey"`
-	State pldtypes.HexBytes `json:"-"`
+// ProtoLabels converts the resolved label values to their proto wire form.
+func (s *StateWithLabels) ProtoLabels() *prototk.StateLabels {
+	pl := &prototk.StateLabels{
+		Labels:      make([]*prototk.StateLabel, len(s.Labels)),
+		Int64Labels: make([]*prototk.StateInt64Label, len(s.Int64Labels)),
+	}
+	for i, l := range s.Labels {
+		pl.Labels[i] = &prototk.StateLabel{Label: l.Label, Value: l.Value}
+	}
+	for i, l := range s.Int64Labels {
+		pl.Int64Labels[i] = &prototk.StateInt64Label{Label: l.Label, Value: l.Value}
+	}
+	return pl
 }
 
 type Schema interface {
@@ -243,6 +163,7 @@ type Schema interface {
 	ID() pldtypes.Bytes32
 	Signature() string
 	Persisted() *pldapi.Schema
-	ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool) (*StateWithLabels, error)
+	ProcessState(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool) (*pldapi.State, error)
+	ProcessStateWithLabels(ctx context.Context, contractAddress *pldtypes.EthAddress, data pldtypes.RawJSON, id pldtypes.HexBytes, customHash bool) (*StateWithLabels, error)
 	RecoverLabels(ctx context.Context, s *pldapi.State) (*StateWithLabels, error)
 }

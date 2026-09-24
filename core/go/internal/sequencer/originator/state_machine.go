@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/google/uuid"
@@ -30,8 +31,6 @@ import (
 type State = common.OriginatorState
 type EventType = common.EventType
 
-// Note: inline comments on State_* constants are used in auto-generated documentation.
-// Keep them accurate and human-readable - see scripts/generate_state_machine_docs.py
 const (
 	State_Initial   = common.OriginatorState_Initial   // Waiting for initial coordinator selection
 	State_Idle      = common.OriginatorState_Idle      // Not acting as an originator and not aware of any active coordinators
@@ -43,6 +42,7 @@ const (
 	Event_OriginatorCreated         EventType = iota + 300 // fired once by Start to drive the initial coordinator selection
 	Event_TransactionCreated                               // a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?
 	Event_DelegationRequestRejected                        // pushed by transport_client when a DelegationResponse arrives with Accepted == false
+	Event_DelegateSendBatch                                    // fired by the delegation batching goroutine when the batch timer coalesces one or more delegation requests
 )
 
 // Type aliases for the generic statemachine types, specialized for originator
@@ -188,11 +188,16 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Sending: {
 		OnTransitionTo: []ActionRule{
-			// Delegate immediately to the current active coordinator on entering Sending.
-			// If the coordinator is still in Elect or Prepared it will accept the delegation
-			// and manage the handover itself.
-			{Action: action_RefreshBlockHeight},
-			{Action: action_SendDelegationRequest},
+			// Start the delegation batching goroutine, then raise a full delegation signal so the
+			// first flush (on the next batch tick) delegates everything to the current active
+			// coordinator. If the coordinator is still in Elect or Prepared it will accept the
+			// delegation and manage the handover itself.
+			{Action: action_StartDelegationLoop},
+			{Action: action_NotifyFullDelegation},
+		},
+		OnTransitionFrom: []ActionRule{
+			// Stop the batching goroutine when leaving Sending (all transactions confirmed/reverted).
+			{Action: action_StopDelegationLoop},
 		},
 		Events: map[EventType]EventHandlers{
 			Event_TransactionCreated: {
@@ -201,9 +206,16 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_TransactionDoesNotExist,
 					Actions: []ActionRule{
 						{Action: action_TransactionCreated},
-						{Action: action_RefreshBlockHeight},
-						{Action: action_SendDelegationRequest},
+						{Action: action_NotifyPartialDelegation},
 					},
+				}},
+			},
+			Event_DelegateSendBatch: {
+				Match: statemachine.MatchFirst,
+				Handlers: []EventHandler{{
+					// The batching goroutine has coalesced one or more delegation requests; send the
+					// single (full or partial) delegation now.
+					Actions: []ActionRule{{Action: action_SendDelegation}},
 				}},
 			},
 			common.Event_HeartbeatReceived: {
@@ -213,6 +225,10 @@ var stateDefinitionsMap = StateDefinitions{
 				}, {
 					// Process confirmed transactions from every heartbeat regardless of sender state or identity.
 					Actions: []ActionRule{{Action: action_ProcessConfirmedTransactions}},
+				}, {
+					// Process reverted transactions from the current coordinator only.
+					Validator: validator_IsFromCurrentCoordinator,
+					Actions:   []ActionRule{{Action: action_ProcessRevertedTransactions}},
 				}, {
 					// Higher-priority coordinator announced; redirect and reset liveness timer.
 					Validator: statemachine.ValidatorAnd(
@@ -242,8 +258,7 @@ var stateDefinitionsMap = StateDefinitions{
 						validator_HasDroppedTransactions,
 					),
 					Actions: []ActionRule{
-						{Action: action_RefreshBlockHeight},
-						{Action: action_SendDelegationRequest},
+						{Action: action_NotifyFullDelegation},
 					},
 				}},
 			},
@@ -251,17 +266,17 @@ var stateDefinitionsMap = StateDefinitions{
 				Match: statemachine.MatchFirst,
 				Handlers: []EventHandler{{
 					Actions: []ActionRule{
-					{Action: action_IncrementHeartbeatIntervalCounts},
-					// When the active coordinator has been silent too long, failover to the next
-					// highest-priority candidate if one is available. Otherwise redelegate to the same node.
-					{
-						If:     guard_InactiveGracePeriodExceeded,
-						Action: action_RefreshBlockHeight,
-					},
-					{
-						If:     guard_InactiveGracePeriodExceeded,
-						Action: action_FailoverToNextCoordinator,
-					},
+						{Action: action_IncrementHeartbeatIntervalCounts},
+						// When the active coordinator has been silent too long, failover to the next
+						// highest-priority candidate if one is available. Otherwise redelegate to the same node.
+						{
+							If:     guard_InactiveGracePeriodExceeded,
+							Action: action_RefreshBlockHeight,
+						},
+						{
+							If:     guard_InactiveGracePeriodExceeded,
+							Action: action_FailoverToNextCoordinator,
+						},
 					},
 				}},
 			},
@@ -276,9 +291,9 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_IsDelegationNotActiveCoordinatorRejection,
 					Actions: []ActionRule{
 						{Action: action_HandleDelegationRejected},
-						// We always redelegate immediately, regardless of whether the current active coordinator has changed
-						{Action: action_RefreshBlockHeight},
-						{Action: action_SendDelegationRequest},
+						// We always redelegate, regardless of whether the current active coordinator has changed.
+						// Full resend: a redirect to a (possibly new) coordinator may need the complete backlog.
+						{Action: action_NotifyFullDelegation},
 					},
 				}},
 			},
@@ -296,6 +311,12 @@ var stateDefinitionsMap = StateDefinitions{
 						validator_OriginatorTransactionStateTransitionToReverted,
 					),
 					Actions: []ActionRule{{Action: action_FinalizeTransaction}},
+				}, {
+					// A transaction has finished resolving its verifiers and is now eligible for delegation.
+					Validator: validator_OriginatorTransactionStateTransitionFromResolving,
+					Actions: []ActionRule{
+						{Action: action_NotifyPartialDelegation},
+					},
 				}},
 			},
 			common.Event_EndorserNodesDiscovered: {
@@ -320,6 +341,7 @@ func (o *originator) initializeStateMachineEventLoop(initialState State, eventQu
 		PriorityEventQueueSize: priorityEventQueueSize,
 		Name:                   fmt.Sprintf("originator-%s", o.contractAddress.String()[0:8]),
 		PreProcess:             o.preProcessEvent,
+		Metrics:                metrics.NewEventLoopMetrics(o.metrics, "originator"),
 	})
 }
 

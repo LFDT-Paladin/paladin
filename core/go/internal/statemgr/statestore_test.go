@@ -27,15 +27,45 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm/clause"
 )
+
+// countingStateCache wraps the validated-state cache so tests can assert hit/miss behavior.
+type countingStateCache struct {
+	cache.Cache[string, *components.StateWithLabels]
+	hits, misses int
+}
+
+func (c *countingStateCache) Get(key string) (*components.StateWithLabels, bool) {
+	v, ok := c.Cache.Get(key)
+	if ok {
+		c.hits++
+	} else {
+		c.misses++
+	}
+	return v, ok
+}
+
+// cacheCounts returns the validated-state cache hit/miss tallies recorded so far.
+func cacheCounts(ss *stateManager) (hits, misses int) {
+	cc := ss.validatedStateCache.(*countingStateCache)
+	return cc.hits, cc.misses
+}
+
+// peekCache inspects the validated-state cache without disturbing the hit/miss tallies.
+func peekCache(ss *stateManager, key string) (*components.StateWithLabels, bool) {
+	return ss.validatedStateCache.(*countingStateCache).Cache.Get(key)
+}
 
 type mockComponents struct {
 	domainManager    *componentsmocks.DomainManager
@@ -53,6 +83,7 @@ func newMockComponents(t *testing.T) *mockComponents {
 	m.allComponents.On("DomainManager").Return(m.domainManager)
 	m.allComponents.On("TxManager").Return(m.txManager)
 	m.allComponents.On("TransportManager").Return(m.transportManager)
+	m.allComponents.On("MetricsManager").Return(metrics.NewMetricsManager(context.Background())).Maybe()
 	return m
 }
 
@@ -66,6 +97,8 @@ func newDBTestStateManager(t *testing.T) (context.Context, *stateManager, *mockC
 	p, pDone, err := persistence.NewUnitTestPersistence(ctx, "statemgr")
 	require.NoError(t, err)
 	ss := NewStateManager(ctx, &pldconf.StateStoreConfig{}, p)
+	ssm := ss.(*stateManager)
+	ssm.validatedStateCache = &countingStateCache{Cache: ssm.validatedStateCache}
 
 	m := newMockComponents(t)
 
@@ -91,6 +124,8 @@ func newDBMockStateManager(t *testing.T) (context.Context, *stateManager, sqlmoc
 	p, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
 	ss := NewStateManager(ctx, &pldconf.StateStoreConfig{}, p.P)
+	ssm := ss.(*stateManager)
+	ssm.validatedStateCache = &countingStateCache{Cache: ssm.validatedStateCache}
 
 	m := newMockComponents(t)
 
@@ -144,6 +179,56 @@ func TestGetTransactionStatesUnavailable(t *testing.T) {
 	require.Equal(t, []pldtypes.HexBytes{stateID2}, txStates.Unavailable.Read)
 	require.Equal(t, []pldtypes.HexBytes{stateID3}, txStates.Unavailable.Confirmed)
 	require.Equal(t, []pldtypes.HexBytes{stateID4}, txStates.Unavailable.Info)
+}
+
+func TestGetTransactionStatesAvailable(t *testing.T) {
+
+	ctx, ss, m, done := newDBTestStateManager(t)
+	defer done()
+
+	_ = mockDomain(t, m, "domain1", false)
+	mockStateCallback(m)
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, widgetABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+
+	contractAddress := pldtypes.RandAddress()
+	widgets := makeWidgets(t, ctx, ss, "domain1", contractAddress, schema.ID(), []string{
+		`{"size": 11111, "color": "red",  "price": 100}`,
+		`{"size": 22222, "color": "red",  "price": 150}`,
+		`{"size": 33333, "color": "blue", "price": 199}`,
+		`{"size": 44444, "color": "pink", "price": 199}`,
+	})
+
+	txID := uuid.New()
+	err = ss.WriteStateFinalizations(ctx, ss.p.NOTX(),
+		[]*pldapi.StateSpendRecord{
+			{DomainName: "domain1", State: widgets[0].ID, Transaction: txID},
+		},
+		[]*pldapi.StateReadRecord{
+			{DomainName: "domain1", State: widgets[1].ID, Transaction: txID},
+		},
+		[]*pldapi.StateConfirmRecord{
+			{DomainName: "domain1", State: widgets[2].ID, Transaction: txID},
+		},
+		[]*pldapi.StateInfoRecord{
+			{DomainName: "domain1", State: widgets[3].ID, Transaction: txID},
+		})
+	require.NoError(t, err)
+
+	txStates, err := ss.GetTransactionStates(ctx, ss.p.NOTX(), txID)
+	require.NoError(t, err)
+	require.Nil(t, txStates.Unavailable)
+	require.Len(t, txStates.Spent, 1)
+	assert.Equal(t, widgets[0].ID, txStates.Spent[0].ID)
+	require.Len(t, txStates.Read, 1)
+	assert.Equal(t, widgets[1].ID, txStates.Read[0].ID)
+	require.Len(t, txStates.Confirmed, 1)
+	assert.Equal(t, widgets[2].ID, txStates.Confirmed[0].ID)
+	require.Len(t, txStates.Info, 1)
+	assert.Equal(t, widgets[3].ID, txStates.Info[0].ID)
 }
 
 func TestGetTransactionStatesReadInfoMultiTx(t *testing.T) {
@@ -209,7 +294,7 @@ func TestGetTransactionStatesFail(t *testing.T) {
 func insertTestState(t *testing.T, ss *stateManager, domainName string, id pldtypes.HexBytes) {
 	t.Helper()
 	schemaHash := pldtypes.Bytes32Keccak([]byte("test"))
-	err := ss.p.DB().
+	err := ss.p.DB(context.Background()).
 		Clauses(clause.OnConflict{DoNothing: true}).
 		Create(&pldapi.Schema{
 			ID:         schemaHash,
@@ -217,7 +302,7 @@ func insertTestState(t *testing.T, ss *stateManager, domainName string, id pldty
 			Type:       pldapi.SchemaTypeABI.Enum(),
 		}).Error
 	require.NoError(t, err)
-	err = ss.p.DB().
+	err = ss.p.DB(context.Background()).
 		Table("states").
 		Create(&pldapi.StateBase{
 			ID:         id,

@@ -56,13 +56,17 @@ type StaticServerConfig struct {
 }
 
 type DebugServerConfig struct {
-	Enabled *bool `json:"enabled"`
+	Enabled              *bool `json:"enabled"`
+	BlockProfileRate     *int  `json:"blockProfileRate"`     // BlockProfileRate sets runtime.SetBlockProfileRate; 0 disables block profiling, 1 records every event, N samples 1/N.
+	MutexProfileFraction *int  `json:"mutexProfileFraction"` // MutexProfileFraction sets runtime.SetMutexProfileFraction; 0 disables mutex profiling, 1 records every event, N samples 1/N.
 	HTTPServerConfig
 }
 
 var DebugServerDefaults = DebugServerConfig{
-	Enabled:          confutil.P(false),
-	HTTPServerConfig: HTTPDefaults,
+	Enabled:              confutil.P(false),
+	BlockProfileRate:     confutil.P(0),
+	MutexProfileFraction: confutil.P(0),
+	HTTPServerConfig:     HTTPDefaults,
 }
 
 type MetricsServerConfig struct {

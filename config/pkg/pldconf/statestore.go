@@ -21,11 +21,15 @@ import (
 )
 
 type StateStoreConfig struct {
-	SchemaCache CacheConfig `json:"schemaCache"`
+	SchemaCache         CacheConfig `json:"schemaCache"`
+	ValidatedStateCache CacheConfig `json:"validatedStateCache"`
 }
 
 var StateStoreConfigDefaults = StateStoreConfig{
 	SchemaCache: CacheConfig{
+		Capacity: confutil.P(1000),
+	},
+	ValidatedStateCache: CacheConfig{
 		Capacity: confutil.P(1000),
 	},
 }

@@ -1,0 +1,3 @@
+[[IgnoredVulns]]
+id = "GHSA-848j-6mx2-7j84"
+reason = "elliptic is pulled in transitively via circomlibjs's ethers@5.8.0 dependency, but circomlibjs only calls ethers.utils.keccak256/toUtf8Bytes/hexlify/arrayify (hashing/encoding helpers) and never touches @ethersproject/signing-key's ECDSA signing, where elliptic's vulnerable code runs. No fixed version exists upstream for this advisory (affects all published elliptic versions)."

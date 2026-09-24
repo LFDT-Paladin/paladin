@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -87,8 +87,8 @@ func newMockComponents(t *testing.T, realDB bool) *mockComponents {
 
 func newTestTransportManager(t *testing.T, realDB bool, conf *pldconf.TransportManagerInlineConfig, extraSetup ...func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig)) (context.Context, *transportManager, *mockComponents, func()) {
 	ctx, cancelCtx := context.WithCancel(context.Background())
-	oldLevel := logrus.GetLevel()
-	logrus.SetLevel(logrus.TraceLevel)
+	oldLevel := log.GetLevel()
+	log.SetLevel("trace")
 
 	mc := newMockComponents(t, realDB)
 	for _, fn := range extraSetup {
@@ -111,7 +111,7 @@ func newTestTransportManager(t *testing.T, realDB bool, conf *pldconf.TransportM
 
 	return ctx, tm.(*transportManager), mc, func() {
 		if !t.Failed() {
-			logrus.SetLevel(oldLevel)
+			log.SetLevel(oldLevel)
 			cancelCtx()
 			tm.Stop()
 		}

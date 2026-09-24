@@ -396,7 +396,7 @@ public class DomainIntegrationTests {
                     notoInstanceAddress,
                     notoSchema.id,
                     null,
-                    "available");
+                    "confirmed");
             assertEquals(1, notoStates.size());
             var notoCoin = mapper.convertValue(notoStates.getFirst(), NotoCoin.class);
             assertEquals("1000000", notoCoin.data.amount);

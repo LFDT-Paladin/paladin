@@ -28,7 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -192,8 +192,7 @@ func (gm *groupManager) insertGroup(ctx context.Context, dbTX persistence.DBTX, 
 		Configuration: pldtypes.JSONString(pgGenesis.Configuration.Map()),
 		GenesisTX:     genesisTx,
 	}
-	err := dbTX.DB().
-		WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "domain"}, {Name: "id"}},
 			DoNothing: true,
@@ -209,7 +208,7 @@ func (gm *groupManager) insertGroup(ctx context.Context, dbTX persistence.DBTX, 
 				Identity: identity,
 			}
 		}
-		err = dbTX.DB().WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "domain"}, {Name: "group"}, {Name: "idx"}},
 				DoNothing: true,
@@ -386,7 +385,7 @@ func (gm *groupManager) enrichMembers(ctx context.Context, dbTX persistence.DBTX
 		groupIDs[i] = pg.ID
 	}
 	var dbMembers []*persistedGroupMember
-	err := dbTX.DB().WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Where(`"group" IN ?`, groupIDs).
 		Order("domain").
 		Order(`"group"`).
@@ -574,10 +573,9 @@ func (gm *groupManager) invokeRPC(ctx context.Context, dbTX persistence.DBTX, do
 	if err != nil {
 		return nil, err
 	}
-	if stateQualifier != "" && stateQualifier != pldapi.StateStatusAvailable {
+	if stateQualifier != "" && stateQualifier != pldapi.StateStatusConfirmed {
 		return nil, i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
 	}
-	dCtx := gm.stateManager.NewDomainContext(ctx, psc.Domain(), *pg.ContractAddress)
-	defer dCtx.Close()
-	return psc.InvokeRPC(ctx, dCtx, dbTX, rpcCall)
+	dqc := gm.stateManager.NewDomainQueryContext(ctx, psc.Domain(), *pg.ContractAddress)
+	return psc.InvokeRPC(ctx, dqc, dbTX, rpcCall)
 }

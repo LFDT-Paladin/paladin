@@ -23,6 +23,9 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/originatorstateviewmocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -30,8 +33,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAction_AssembleAndSign_NoAssembleRequest(t *testing.T) {
-	// Test that action_AssembleAndSign returns error when latestAssembleRequest is nil
+func TestAction_Assemble_NoAssembleRequest(t *testing.T) {
+	// Test that action_Assemble returns error when latestAssembleRequest is nil
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, _ := builder.BuildWithMocks()
@@ -40,15 +43,15 @@ func TestAction_AssembleAndSign_NoAssembleRequest(t *testing.T) {
 	txn.latestAssembleRequest = nil
 
 	// Execute the action
-	err := action_AssembleAndSign(ctx, txn, nil)
+	err := action_Assemble(ctx, txn, nil)
 
 	// Verify error is returned
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "No assemble request found")
 }
 
-func Test_handleAssembleAndSign_EngineIntegrationError(t *testing.T) {
-	// Test that handleAssembleAndSign queues AssembleErrorEvent when AssembleAndSign fails
+func Test_handleAssemble_EngineIntegrationError(t *testing.T) {
+	// Test that handleAssemble queues AssembleErrorEvent when Assemble fails
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, mocks := builder.BuildWithMocks()
@@ -58,22 +61,24 @@ func Test_handleAssembleAndSign_EngineIntegrationError(t *testing.T) {
 	req := *txn.latestAssembleRequest
 
 	// Set up PreAssembly
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 	txn.pt.PreAssembly = preAssembly
 
-	// Mock AssembleAndSign to return an error
+	// Mock Assemble to return an error
 	expectedError := errors.New("assembly failed")
 	mocks.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything,
 		txn.pt.ID,
 		preAssembly,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
+		mock.Anything,
 	).Return(nil, expectedError)
 
 	// Execute the method
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
 
 	// Verify AssembleErrorEvent was emitted so coordinator can park or discard the transaction
 	event := <-mocks.Events
@@ -83,8 +88,8 @@ func Test_handleAssembleAndSign_EngineIntegrationError(t *testing.T) {
 	assert.Equal(t, req.requestID, errorEvent.RequestID)
 }
 
-func Test_handleAssembleAndSign_Success_OK(t *testing.T) {
-	// Test that handleAssembleAndSign emits AssembleAndSignSuccessEvent when AssembleAndSign returns OK
+func Test_handleAssemble_Success_OK(t *testing.T) {
+	// Test that handleAssemble emits AssembleSuccessEvent when Assemble returns OK
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, mocks := builder.BuildWithMocks()
@@ -94,38 +99,40 @@ func Test_handleAssembleAndSign_Success_OK(t *testing.T) {
 	req := *txn.latestAssembleRequest
 
 	// Set up PreAssembly
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
-	// Create expected post assembly with OK result
-	expectedPostAssembly := &components.TransactionPostAssembly{
+	// Create expected assembly response with OK result
+	expectedResponse := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}
 
-	// Mock AssembleAndSign to return OK
+	// Mock Assemble to return OK
 	mocks.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything,
 		txn.pt.ID,
 		preAssembly,
 		mock.Anything,
 		mock.Anything,
-	).Return(expectedPostAssembly, nil)
+		mock.Anything,
+		mock.Anything,
+	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
 
-	// Verify AssembleAndSignSuccessEvent was emitted
+	// Verify AssembleSuccessEvent was emitted
 	event := <-mocks.Events
 
-	successEvent, ok := event.(*AssembleAndSignSuccessEvent)
-	require.True(t, ok, "Event should be AssembleAndSignSuccessEvent")
+	successEvent, ok := event.(*AssembleSuccessEvent)
+	require.True(t, ok, "Event should be AssembleSuccessEvent")
 	assert.Equal(t, txn.pt.ID, successEvent.TransactionID)
 	assert.Equal(t, req.requestID, successEvent.RequestID)
-	assert.Equal(t, expectedPostAssembly, successEvent.PostAssembly)
+	assert.Equal(t, expectedResponse, successEvent.PostAssembly.AssembleResponse)
 }
 
-func Test_handleAssembleAndSign_Success_REVERT(t *testing.T) {
-	// Test that handleAssembleAndSign emits AssembleRevertEvent when AssembleAndSign returns REVERT
+func Test_handleAssemble_Success_REVERT(t *testing.T) {
+	// Test that handleAssemble emits AssembleRevertEvent when Assemble returns REVERT
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, mocks := builder.BuildWithMocks()
@@ -135,27 +142,29 @@ func Test_handleAssembleAndSign_Success_REVERT(t *testing.T) {
 	req := *txn.latestAssembleRequest
 
 	// Set up PreAssembly
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
-	// Create expected post assembly with REVERT result
+	// Create expected assembly response with REVERT result
 	revertReason := "transaction reverted"
-	expectedPostAssembly := &components.TransactionPostAssembly{
+	expectedResponse := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 		RevertReason:   &revertReason,
 	}
 
-	// Mock AssembleAndSign to return REVERT
+	// Mock Assemble to return REVERT
 	mocks.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything,
 		txn.pt.ID,
 		preAssembly,
 		mock.Anything,
 		mock.Anything,
-	).Return(expectedPostAssembly, nil)
+		mock.Anything,
+		mock.Anything,
+	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
 
 	// Verify AssembleRevertEvent was emitted
 	event := <-mocks.Events
@@ -164,11 +173,11 @@ func Test_handleAssembleAndSign_Success_REVERT(t *testing.T) {
 	require.True(t, ok, "Event should be AssembleRevertEvent")
 	assert.Equal(t, txn.pt.ID, revertEvent.TransactionID)
 	assert.Equal(t, req.requestID, revertEvent.RequestID)
-	assert.Equal(t, expectedPostAssembly, revertEvent.PostAssembly)
+	assert.Equal(t, expectedResponse, revertEvent.PostAssembly.AssembleResponse)
 }
 
-func Test_handleAssembleAndSign_PARK(t *testing.T) {
-	// Test that handleAssembleAndSign emits AssembleParkEvent when AssembleAndSign returns PARK
+func Test_handleAssemble_PARK(t *testing.T) {
+	// Test that handleAssemble emits AssembleParkEvent when Assemble returns PARK
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, mocks := builder.BuildWithMocks()
@@ -178,25 +187,27 @@ func Test_handleAssembleAndSign_PARK(t *testing.T) {
 	req := *txn.latestAssembleRequest
 
 	// Set up PreAssembly
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
-	// Create expected post assembly with PARK result
-	expectedPostAssembly := &components.TransactionPostAssembly{
+	// Create expected assembly response with PARK result
+	expectedResponse := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_PARK,
 	}
 
-	// Mock AssembleAndSign to return PARK
+	// Mock Assemble to return PARK
 	mocks.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything,
 		txn.pt.ID,
 		preAssembly,
 		mock.Anything,
 		mock.Anything,
-	).Return(expectedPostAssembly, nil)
+		mock.Anything,
+		mock.Anything,
+	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
 
 	// Verify AssembleParkEvent was emitted
 	event := <-mocks.Events
@@ -205,11 +216,11 @@ func Test_handleAssembleAndSign_PARK(t *testing.T) {
 	require.True(t, ok, "Event should be AssembleParkEvent")
 	assert.Equal(t, txn.pt.ID, parkEvent.TransactionID)
 	assert.Equal(t, req.requestID, parkEvent.RequestID)
-	assert.Equal(t, expectedPostAssembly, parkEvent.PostAssembly)
+	assert.Equal(t, expectedResponse, parkEvent.PostAssembly.AssembleResponse)
 }
 
-func Test_handleAssembleAndSign_CalledWithCorrectParameters(t *testing.T) {
-	// Test that AssembleAndSign is called with correct parameters
+func Test_handleAssemble_CalledWithCorrectParameters(t *testing.T) {
+	// Test that Assemble is called with correct parameters
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, mocks := builder.BuildWithMocks()
@@ -219,41 +230,46 @@ func Test_handleAssembleAndSign_CalledWithCorrectParameters(t *testing.T) {
 	req := *txn.latestAssembleRequest
 
 	// Set up PreAssembly
-	preAssembly := &components.TransactionPreAssembly{
+	preAssembly := &prototk.TransactionPreAssembly{
 		TransactionSpecification: &prototk.TransactionSpecification{
 			TransactionId: txn.pt.ID.String(),
 		},
 	}
 
-	// Create expected post assembly
-	expectedPostAssembly := &components.TransactionPostAssembly{
+	resolvedVerifiers := []*prototk.ResolvedVerifier{{Lookup: "alice@node1"}}
+
+	// Create expected assembly response
+	expectedResponse := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}
 
-	// Mock AssembleAndSign with specific parameter expectations
+	// Mock Assemble with specific parameter expectations. The view is bound to the requesting
+	// coordinator by handleAssemble for the duration of the assembly.
 	mocks.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		ctx,
 		txn.pt.ID,
 		preAssembly,
-		req.stateLocksJSON,
+		resolvedVerifiers,
+		mock.MatchedBy(func(view components.RemoteStateView) bool { return view != nil }),
 		req.coordinatorsBlockHeight,
-	).Return(expectedPostAssembly, nil)
+		mock.Anything,
+	).Return(expectedResponse, nil)
 
 	// Execute the method
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, resolvedVerifiers, nil)
 
-	// Verify AssembleAndSign was called with correct parameters
+	// Verify Assemble was called with correct parameters
 	mocks.EngineIntegration.AssertExpectations(t)
 
 	// Verify event was emitted with correct request ID
 	event := <-mocks.Events
-	successEvent, ok := event.(*AssembleAndSignSuccessEvent)
-	require.True(t, ok, "Event should be AssembleAndSignSuccessEvent")
+	successEvent, ok := event.(*AssembleSuccessEvent)
+	require.True(t, ok, "Event should be AssembleSuccessEvent")
 	assert.Equal(t, req.requestID, successEvent.RequestID)
 }
 
-func Test_action_AssembleAndSign_SpawnsGoroutineThatQueuesEvent(t *testing.T) {
+func Test_action_Assemble_SpawnsGoroutineThatQueuesEvent(t *testing.T) {
 	ctx := t.Context()
 
 	done := make(chan struct{})
@@ -262,17 +278,20 @@ func Test_action_AssembleAndSign_SpawnsGoroutineThatQueuesEvent(t *testing.T) {
 	txn := builder.Build()
 
 	builder.fakeEngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything,
 		txn.pt.ID,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
-	).Return(&components.TransactionPostAssembly{
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+	).Return(&prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}, nil)
 
-	err := action_AssembleAndSign(ctx, txn, nil)
+	err := action_Assemble(ctx, txn, nil)
 	require.NoError(t, err)
 
 	select {
@@ -288,14 +307,11 @@ func Test_action_AssembleRequestReceived_SetsDelegateAndLatestRequest(t *testing
 	txn, _ := builder.BuildWithMocks()
 	requestID := uuid.New()
 	coordinator := "coord@node1"
-	preAssembly := []byte("pre")
 	event := &AssembleRequestReceivedEvent{
 		BaseEvent:              BaseEvent{TransactionID: txn.pt.ID},
 		RequestID:              requestID,
 		Coordinator:            coordinator,
 		CoordinatorBlockHeight: 100,
-		StateLocksJSON:         []byte("{}"),
-		PreAssembly:            preAssembly,
 	}
 	err := action_AssembleRequestReceived(ctx, txn, event)
 	require.NoError(t, err)
@@ -303,21 +319,20 @@ func Test_action_AssembleRequestReceived_SetsDelegateAndLatestRequest(t *testing
 	require.NotNil(t, txn.latestAssembleRequest)
 	assert.Equal(t, requestID, txn.latestAssembleRequest.requestID)
 	assert.Equal(t, int64(100), txn.latestAssembleRequest.coordinatorsBlockHeight)
-	assert.Equal(t, preAssembly, txn.latestAssembleRequest.preAssembly)
 }
 
-func Test_action_AssembleAndSignSuccess_SetsPostAssemblyAndRequestID(t *testing.T) {
+func Test_action_AssembleSuccess_SetsPostAssemblyAndRequestID(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, _ := builder.BuildWithMocks()
 	requestID := uuid.New()
-	postAssembly := &components.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_OK}
-	event := &AssembleAndSignSuccessEvent{
+	postAssembly := &components.TransactionPostAssembly{AssembleResponse: &prototk.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_OK}}
+	event := &AssembleSuccessEvent{
 		BaseEvent:    BaseEvent{TransactionID: txn.pt.ID},
 		RequestID:    requestID,
 		PostAssembly: postAssembly,
 	}
-	err := action_AssembleAndSignSuccess(ctx, txn, event)
+	err := action_AssembleSuccess(ctx, txn, event)
 	require.NoError(t, err)
 	assert.Same(t, postAssembly, txn.pt.PostAssembly)
 	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
@@ -328,7 +343,7 @@ func Test_action_AssembleRevert_SetsPostAssemblyAndRequestID(t *testing.T) {
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, _ := builder.BuildWithMocks()
 	requestID := uuid.New()
-	postAssembly := &components.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_REVERT}
+	postAssembly := &components.TransactionPostAssembly{AssembleResponse: &prototk.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_REVERT}}
 	event := &AssembleRevertEvent{
 		BaseEvent:    BaseEvent{TransactionID: txn.pt.ID},
 		RequestID:    requestID,
@@ -345,7 +360,7 @@ func Test_action_AssemblePark_SetsPostAssemblyAndRequestID(t *testing.T) {
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, _ := builder.BuildWithMocks()
 	requestID := uuid.New()
-	postAssembly := &components.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_PARK}
+	postAssembly := &components.TransactionPostAssembly{AssembleResponse: &prototk.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_PARK}}
 	event := &AssembleParkEvent{
 		BaseEvent:    BaseEvent{TransactionID: txn.pt.ID},
 		RequestID:    requestID,
@@ -401,9 +416,10 @@ func Test_action_SendAssembleError_TransportError(t *testing.T) {
 	expectedError := errors.New("transport error")
 	mocks.TransportWriter.EXPECT().SendAssembleError(
 		mock.Anything,
-		txn.GetID(),
-		requestID,
 		coordinator,
+		mock.MatchedBy(func(msg *engineProto.AssembleError) bool {
+			return msg.TransactionId == txn.GetID().String() && msg.AssembleRequestId == requestID.String()
+		}),
 	).Return(expectedError)
 
 	err := action_SendAssembleError(ctx, txn, nil)
@@ -411,8 +427,8 @@ func Test_action_SendAssembleError_TransportError(t *testing.T) {
 	assert.Equal(t, expectedError, err)
 }
 
-func Test_handleAssembleAndSign_AbandonsSilently_WhenContextExpired(t *testing.T) {
-	// When the context is already expired (deadline elapsed), handleAssembleAndSign must not
+func Test_handleAssemble_AbandonsSilently_WhenContextExpired(t *testing.T) {
+	// When the context is already expired (deadline elapsed), handleAssemble must not
 	// queue any event back to the originator.  The coordinator that sent the request will have
 	// timed out and discarded it, so sending an error event would be spurious.
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
@@ -420,23 +436,25 @@ func Test_handleAssembleAndSign_AbandonsSilently_WhenContextExpired(t *testing.T
 
 	require.NotNil(t, txn.latestAssembleRequest)
 	req := *txn.latestAssembleRequest
-	preAssembly := &components.TransactionPreAssembly{}
+	preAssembly := &prototk.TransactionPreAssembly{}
 
 	// Context that is already cancelled
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// Mock AssembleAndSign to return an error (as would happen when ctx is cancelled)
+	// Mock Assemble to return an error (as would happen when ctx is cancelled)
 	mocks.EngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything,
 		txn.pt.ID,
 		preAssembly,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
+		mock.Anything,
 	).Return(nil, context.Canceled)
 
-	txn.handleAssembleAndSign(ctx, txn.pt.ID, req, preAssembly)
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
 
 	// No event should have been queued — the mock will fail if any unexpected call happens
 	select {
@@ -446,10 +464,10 @@ func Test_handleAssembleAndSign_AbandonsSilently_WhenContextExpired(t *testing.T
 	}
 }
 
-func Test_action_AssembleAndSign_UsesDeadlineContext_WhenExpirySet(t *testing.T) {
-	// When the assemble request carries a non-zero expiry, action_AssembleAndSign must pass a
+func Test_action_Assemble_UsesDeadlineContext_WhenExpirySet(t *testing.T) {
+	// When the assemble request carries a non-zero expiry, action_Assemble must pass a
 	// context with that deadline to the goroutine.  Verify this by setting an already-elapsed
-	// expiry: the goroutine's AssembleAndSign call will see a cancelled context.
+	// expiry: the goroutine's Assemble call will see a cancelled context.
 	ctx := t.Context()
 
 	expiry := time.Now().Add(-time.Second) // already expired
@@ -461,15 +479,18 @@ func Test_action_AssembleAndSign_UsesDeadlineContext_WhenExpirySet(t *testing.T)
 	txn.latestAssembleRequest.expiry = expiry
 
 	builder.fakeEngineIntegration.On(
-		"AssembleAndSign",
+		"Assemble",
 		mock.Anything,
 		txn.pt.ID,
 		mock.Anything,
 		mock.Anything,
 		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
 	).Return(nil, context.DeadlineExceeded)
 
-	err := action_AssembleAndSign(ctx, txn, nil)
+	err := action_Assemble(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// The goroutine should exit without queuing any event (no close(done) call).
@@ -527,6 +548,250 @@ func Test_validator_IsPrivateStateDataPendingForAssembly_Error_Propagates(t *tes
 	assert.ErrorIs(t, err, dbErr)
 }
 
+func Test_action_Assemble_NilCancelIsNoOp(t *testing.T) {
+	// Calling action_Assemble when cancelCurrentAssembly is nil (first call) must not
+	// panic and must start the goroutine normally.
+	ctx := t.Context()
+
+	done := make(chan struct{})
+	builder := NewTransactionBuilderForTesting(t, State_Assembling).
+		QueueEventsTo(func(_ context.Context, _ common.Event) { close(done) })
+	txn := builder.Build()
+
+	txn.cancelCurrentAssembly = nil // explicit nil to document intent
+
+	builder.fakeEngineIntegration.On(
+		"Assemble",
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything,
+	).Return(&prototk.TransactionPostAssembly{
+		AssemblyResult: prototk.AssembleTransactionResponse_OK,
+	}, nil)
+
+	err := action_Assemble(ctx, txn, nil)
+	require.NoError(t, err)
+
+	// cancelCurrentAssembly and currentAssemblyRequestID must be populated after the call
+	assert.NotNil(t, txn.cancelCurrentAssembly)
+	assert.Equal(t, txn.latestAssembleRequest.requestID, txn.currentAssemblyRequestID)
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for assemble goroutine")
+	}
+}
+
+func Test_action_Assemble_CancelsPreviousGoroutine(t *testing.T) {
+	// A second call to action_Assemble must cancel the first goroutine's context so
+	// that the stale goroutine exits without queuing an event. Only the second goroutine's
+	// success event should appear.
+	ctx := t.Context()
+
+	eventCh := make(chan common.Event, 2) // buffer 2 so a spurious second event is detectable
+	builder := NewTransactionBuilderForTesting(t, State_Assembling).
+		QueueEventsTo(func(_ context.Context, e common.Event) { eventCh <- e })
+	txn := builder.Build()
+
+	firstReqID := txn.latestAssembleRequest.requestID
+
+	// firstGoroutineDone is closed once the first goroutine's Assemble observes
+	// context cancellation and the mock call returns.
+	firstGoroutineDone := make(chan struct{})
+	blocked := make(chan struct{})
+
+	builder.fakeEngineIntegration.On(
+		"Assemble",
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything,
+	).Once().Run(func(args mock.Arguments) {
+		assembleCtx := args.Get(0).(context.Context)
+		close(blocked)
+		<-assembleCtx.Done() // block until action_Assemble cancels us
+		close(firstGoroutineDone)
+	}).Return(nil, context.Canceled)
+
+	secondReqID := uuid.New()
+
+	builder.fakeEngineIntegration.On(
+		"Assemble",
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything,
+	).Once().Return(&prototk.TransactionPostAssembly{
+		AssemblyResult: prototk.AssembleTransactionResponse_OK,
+	}, nil)
+
+	err := action_Assemble(ctx, txn, nil)
+	require.NoError(t, err)
+
+	// Wait until the first goroutine is actually blocked inside Assemble
+	<-blocked
+
+	// Spawn second goroutine with a new request ID — this must cancel the first
+	txn.latestAssembleRequest = &assembleRequestFromCoordinator{requestID: secondReqID}
+	err = action_Assemble(ctx, txn, nil)
+	require.NoError(t, err)
+
+	// Wait for first goroutine to observe cancellation (Assemble returned)
+	<-firstGoroutineDone
+
+	// The only event in the channel must be from the second goroutine
+	event := <-eventCh
+	successEvent, ok := event.(*AssembleSuccessEvent)
+	require.True(t, ok, "expected AssembleSuccessEvent from second goroutine, got %T", event)
+	assert.Equal(t, secondReqID, successEvent.RequestID)
+	assert.NotEqual(t, firstReqID, successEvent.RequestID, "event must not be from the cancelled first goroutine")
+
+	// No second event should have been queued
+	select {
+	case e := <-eventCh:
+		t.Fatalf("unexpected second event queued: %T", e)
+	default:
+	}
+}
+
+func Test_action_Assemble_SetsCurrentAssemblyRequestID(t *testing.T) {
+	// action_Assemble must record the in-flight request ID so that a coordinator nudge
+	// carrying the same idempotency key can be detected by validator_AssembleRequestMatchesInProgressAssembly.
+	ctx := t.Context()
+
+	done := make(chan struct{})
+	builder := NewTransactionBuilderForTesting(t, State_Assembling).
+		QueueEventsTo(func(_ context.Context, _ common.Event) { close(done) })
+	txn := builder.Build()
+
+	expectedRequestID := txn.latestAssembleRequest.requestID
+
+	builder.fakeEngineIntegration.On(
+		"Assemble",
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything,
+	).Return(&prototk.TransactionPostAssembly{
+		AssemblyResult: prototk.AssembleTransactionResponse_OK,
+	}, nil)
+
+	err := action_Assemble(ctx, txn, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, expectedRequestID, txn.currentAssemblyRequestID)
+
+	<-done
+}
+
+func Test_action_Assemble_NudgeDoesNotCancelInFlightAssembly(t *testing.T) {
+	// When a coordinator nudge arrives (same idempotency key) while the originator is still
+	// assembling, validator_AssembleRequestMatchesInProgressAssembly must return true so that the state
+	// machine skips action_Assemble.  This test verifies the validator directly and also
+	// confirms that the in-flight goroutine is not interrupted.
+	ctx := t.Context()
+
+	eventCh := make(chan common.Event, 2)
+	builder := NewTransactionBuilderForTesting(t, State_Assembling).
+		QueueEventsTo(func(_ context.Context, e common.Event) { eventCh <- e })
+	txn := builder.Build()
+
+	firstReqID := txn.latestAssembleRequest.requestID
+
+	blocked := make(chan struct{})
+	unblock := make(chan struct{})
+
+	var firstCancelCalled bool
+	builder.fakeEngineIntegration.On(
+		"Assemble",
+		mock.Anything, txn.pt.ID, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything,
+	).Once().Run(func(_ mock.Arguments) {
+		close(blocked)
+		<-unblock
+	}).Return(&prototk.TransactionPostAssembly{
+		AssemblyResult: prototk.AssembleTransactionResponse_OK,
+	}, nil)
+
+	// Start first goroutine
+	err := action_Assemble(ctx, txn, nil)
+	require.NoError(t, err)
+
+	// Wrap the real cancel so we can detect if it gets called prematurely
+	realCancel := txn.cancelCurrentAssembly
+	txn.cancelCurrentAssembly = func() {
+		firstCancelCalled = true
+		realCancel()
+	}
+
+	// Wait until the goroutine is inside Assemble
+	<-blocked
+
+	// The validator must recognise this as a nudge (same request ID, cancel func set)
+	nudgeMatches, err := validator_AssembleRequestMatchesInProgressAssembly(ctx, txn, &AssembleRequestReceivedEvent{RequestID: firstReqID})
+	require.NoError(t, err)
+	assert.True(t, nudgeMatches,
+		"validator must return true for a nudge with the same request ID while assembly is in flight")
+	assert.Equal(t, firstReqID, txn.currentAssemblyRequestID,
+		"currentAssemblyRequestID must not have changed")
+
+	// The original goroutine must NOT have been cancelled by the nudge
+	assert.False(t, firstCancelCalled, "in-flight assembly must not be cancelled by a nudge")
+
+	// Let the first goroutine finish normally
+	close(unblock)
+
+	event := <-eventCh
+	successEvent, ok := event.(*AssembleSuccessEvent)
+	require.True(t, ok)
+	assert.Equal(t, firstReqID, successEvent.RequestID)
+
+	// No second event
+	select {
+	case e := <-eventCh:
+		t.Fatalf("unexpected second event: %T", e)
+	default:
+	}
+}
+
+func Test_validator_AssembleSuccessMatchesCurrentRequest_Match(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+
+	requestID := txn.latestAssembleRequest.requestID
+	event := &AssembleSuccessEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.pt.ID},
+		RequestID: requestID,
+	}
+	ok, err := validator_AssembleSuccessMatchesCurrentRequest(ctx, txn, event)
+	require.NoError(t, err)
+	assert.True(t, ok)
+}
+
+func Test_validator_AssembleSuccessMatchesCurrentRequest_Mismatch(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+
+	event := &AssembleSuccessEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.pt.ID},
+		RequestID: uuid.New(), // different ID
+	}
+	ok, err := validator_AssembleSuccessMatchesCurrentRequest(ctx, txn, event)
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+func Test_validator_AssembleSuccessMatchesCurrentRequest_NilRequest(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+
+	txn.latestAssembleRequest = nil
+	event := &AssembleSuccessEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.pt.ID},
+		RequestID: uuid.New(),
+	}
+	ok, err := validator_AssembleSuccessMatchesCurrentRequest(ctx, txn, event)
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
 func Test_action_RejectAssemblyPrivateStateDataPending_SendsRejection(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Delegated).BuildWithMocks()
@@ -544,4 +809,80 @@ func Test_action_RejectAssemblyPrivateStateDataPending_SendsRejection(t *testing
 	err := action_RejectAssemblyPrivateStateDataPending(ctx, txn, event)
 	require.NoError(t, err)
 	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "expected assemble rejection to be sent")
+}
+
+func TestValidator_AssembleRequestMatchesCurrentAssembly_Matches(t *testing.T) {
+	// Returns true when the event's request ID matches the in-flight assembly request ID and a cancel func is set.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+
+	requestID := uuid.New()
+	txn.currentAssemblyRequestID = requestID
+	txn.cancelCurrentAssembly = func() {}
+
+	matches, err := validator_AssembleRequestMatchesInProgressAssembly(ctx, txn, &AssembleRequestReceivedEvent{RequestID: requestID})
+	require.NoError(t, err)
+	assert.True(t, matches)
+}
+
+func TestValidator_AssembleRequestMatchesCurrentAssembly_DoesNotMatch(t *testing.T) {
+	// Returns false when the event's request ID differs from the in-flight one.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+
+	txn.currentAssemblyRequestID = uuid.New()
+	txn.cancelCurrentAssembly = func() {}
+
+	matches, err := validator_AssembleRequestMatchesInProgressAssembly(ctx, txn, &AssembleRequestReceivedEvent{RequestID: uuid.New()})
+	require.NoError(t, err)
+	assert.False(t, matches)
+}
+
+func TestValidator_AssembleRequestMatchesCurrentAssembly_NoCancelFunc(t *testing.T) {
+	// Returns false when there is no in-flight goroutine (cancelCurrentAssembly is nil), even if
+	// the request IDs happen to match, because there is nothing currently being assembled.
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+
+	requestID := uuid.New()
+	txn.currentAssemblyRequestID = requestID
+	txn.cancelCurrentAssembly = nil
+
+	matches, err := validator_AssembleRequestMatchesInProgressAssembly(ctx, txn, &AssembleRequestReceivedEvent{RequestID: requestID})
+	require.NoError(t, err)
+	assert.False(t, matches)
+}
+
+func Test_handleAssemble_BindsQuerierToRequestingCoordinator(t *testing.T) {
+	ctx := context.Background()
+	mockReader := originatorstateviewmocks.NewReader(t)
+	mockView := componentsmocks.NewRemoteStateView(t)
+	builder := NewTransactionBuilderForTesting(t, State_Assembling).WithStateViewReader(mockReader)
+	txn, mocks := builder.BuildWithMocks()
+
+	require.NotNil(t, txn.latestAssembleRequest)
+	txn.latestAssembleRequest.coordinator = "coordinator-node"
+	req := *txn.latestAssembleRequest
+
+	// The view is bound to the node the assemble request came from — state view requests are
+	// answered by (and only by) that coordinator.
+	mockReader.EXPECT().ForCoordinator("coordinator-node", req.requestID.String()).Return(mockView).Once()
+
+	preAssembly := &prototk.TransactionPreAssembly{}
+	mocks.EngineIntegration.On(
+		"Assemble",
+		mock.Anything,
+		txn.pt.ID,
+		preAssembly,
+		mock.Anything,
+		mockView, // the bound view IS the one handed to assembly
+		mock.Anything,
+		mock.Anything,
+	).Return(&prototk.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_OK}, nil)
+
+	txn.handleAssemble(ctx, txn.pt.ID, req, preAssembly, nil, nil)
+	<-mocks.Events
 }

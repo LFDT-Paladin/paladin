@@ -31,6 +31,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -41,6 +42,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// getSnapshotUnderLock reads a coordinator snapshot while holding the coordinator's read lock.
+// In production getSnapshot is only ever called from within the state machine event loop, which
+// holds the coordinator's write lock for the duration of each event; tests inspecting the snapshot
+// from a separate goroutine must take the read lock to serialize against that loop. This matters in
+// tests if we want to run with the -race option and not get false positives from tests
+func getSnapshotUnderLock(ctx context.Context, c *coordinator) *engineProto.CoordinatorSnapshot {
+	c.RLock()
+	defer c.RUnlock()
+	return c.getSnapshot(ctx)
+}
+
 func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	// Test the progression of a single transaction through the coordinator's lifecycle
 	// Simulating originator node, endorser node and the public transaction manager (submitter)
@@ -48,40 +60,34 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	// At each stage, we inspect the state of the coordinator by checking the snapshot it produces on heartbeat messages
 
 	originator := "sender@senderNode"
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	mockDomain := componentsmocks.NewDomain(t)
-	mockDomain.On("FixedSigningIdentity").Return("")
-	builder.GetDomainAPI().On("Domain").Return(mockDomain)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
-	})
-	builder.GetDomainAPI().On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		tx := args.Get(2).(*components.PrivateTransaction)
-		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
-	}).Return(nil).Once()
-	builder.GetSequencerManager().On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil).Once()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle).CurrentActiveCoordinator("node1")
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
 	builder.OverrideSequencerConfig(config)
-	builder.CurrentActiveCoordinator("node1")
 	c, mocks := builder.Build()
 	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(0))
-	mocks.EngineIntegration.On("WriteStatesForTransaction", mock.Anything, mock.Anything).Return(nil)
-	mocks.EngineIntegration.On("MapPotentialStates", mock.Anything, mock.Anything, mock.Anything).Return(([]*components.StateUpsert)(nil), nil)
+	mocks.EngineIntegration.On("ResolveStatesForTransaction", mock.Anything, mock.Anything).Return(nil)
+	mocks.SequencerManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil).Once()
+	mocks.Domain.On("FixedSigningIdentity").Return("")
+	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.PrepareTransactionResult{PreparedPrivateTransaction: &pldapi.TransactionInput{}}, nil).Once()
+
 	ctx, cancel := context.WithCancel(t.Context())
-	require.NoError(t, c.Start(ctx))
+	c.Start(ctx)
 	defer func() {
 		cancel()
 		c.WaitForDone(t.Context())
 	}()
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
 		Address(builder.GetContractAddress()).
 		Originator(originator).
 		NumberOfRequiredEndorsers(1).
-		PreAssembly(&components.TransactionPreAssembly{
+		PreAssembly(&prototk.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
 				From:   originator,
 				Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
@@ -94,15 +100,15 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		Transactions: []*components.PrivateTransaction{txn},
 	})
 
-	var snapshot *common.CoordinatorSnapshot
+	var snapshot *engineProto.CoordinatorSnapshot
 
 	// Assert that snapshot contains a transaction with matching ID
 	require.Eventually(t, func() bool {
-		snapshot = c.getSnapshot(ctx)
+		snapshot = getSnapshotUnderLock(ctx, c)
 		return snapshot != nil && len(snapshot.PooledTransactions) == 1
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain one pooled transaction")
 
-	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
+	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].Id, "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
 
 	// Assert that a request has been sent to the originator and respond with an assembled transaction
 	assert.Eventually(t, func() bool {
@@ -113,7 +119,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 			TransactionID: txn.ID,
 		},
 		RequestID:    mocks.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
-		PostAssembly: transactionBuilder.BuildPostAssembly(),
+		PostAssembly: transactionBuilder.BuildPostAssembly().AssembleResponse,
 	})
 
 	// Assert that the coordinator has sent an endorsement request to the endorser
@@ -122,10 +128,10 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	}, 100*time.Millisecond, 1*time.Millisecond, "Endorsement request should be sent")
 
 	// Assert that snapshot still contains the same single transaction in the pooled transactions
-	snapshot = c.getSnapshot(ctx)
+	snapshot = getSnapshotUnderLock(ctx, c)
 	require.NotNil(t, snapshot)
 	require.Equal(t, 1, len(snapshot.PooledTransactions))
-	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
+	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].Id, "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
 
 	// now respond with an endorsement
 	c.QueueEvent(ctx, &transaction.EndorsedEvent{
@@ -142,10 +148,10 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	}, 100*time.Millisecond, 1*time.Millisecond, "Dispatch confirmation request should be sent")
 
 	// Assert that snapshot still contains the same single transaction in the pooled transactions
-	snapshot = c.getSnapshot(ctx)
+	snapshot = getSnapshotUnderLock(ctx, c)
 	require.NotNil(t, snapshot)
 	require.Equal(t, 1, len(snapshot.PooledTransactions))
-	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
+	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].Id, "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
 
 	// now respond with a dispatch confirmation
 	c.QueueEvent(ctx, &transaction.DispatchRequestApprovedEvent{
@@ -165,19 +171,26 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	// Assert that snapshot no longer contains that transaction in the pooled transactions but does contain it in the dispatched transactions
 	//NOTE: This is a key design point.  When a transaction is ready to be dispatched, we communicate to other nodes, via the heartbeat snapshot, that the transaction is dispatched.
 	assert.Eventually(t, func() bool {
-		snapshot := c.getSnapshot(ctx)
+		snapshot := getSnapshotUnderLock(ctx, c)
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
-			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String()
+			snapshot.DispatchedTransactions[0].Id == txn.ID.String()
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain exactly one dispatched transaction")
 
-	// Simulate the dispatcher thread collecting the transaction and dispatching it to a public transaction manager
+	// Simulate the dispatcher thread collecting the transaction and dispatching it to a public transaction
+	// manager. The dispatch loop is disabled for this test (MaxDispatchAhead=-1) so it does not drive this
+	// transition itself; the transaction's built dispatch was already handed to the dispatch queue when it
+	// entered State_Ready_For_Dispatch, so the commit is exercised by the dispatch-loop tests rather than
+	// re-simulated here.
 	c.QueueEvent(ctx, &transaction.DispatchedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 	})
+	require.Eventually(t, func() bool {
+		return len(c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})) == 1
+	}, 100*time.Millisecond, 1*time.Millisecond, "transaction should reach State_Dispatched")
 
 	// Simulate the public transaction manager collecting the dispatched transaction and associating a signing address with it
 	signerAddress := pldtypes.RandAddress()
@@ -190,12 +203,12 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that we now have a signer address in the snapshot
 	assert.Eventually(t, func() bool {
-		snapshot := c.getSnapshot(ctx)
+		snapshot := getSnapshotUnderLock(ctx, c)
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
-			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String() &&
-			snapshot.DispatchedTransactions[0].Signer.String() == signerAddress.String()
+			snapshot.DispatchedTransactions[0].Id == txn.ID.String() &&
+			snapshot.DispatchedTransactions[0].Signer == signerAddress.String()
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain dispatched transaction with signer address")
 
 	// Simulate the dispatcher thread allocating a nonce for the transaction
@@ -208,11 +221,11 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that the nonce is now included in the snapshot
 	assert.Eventually(t, func() bool {
-		snapshot := c.getSnapshot(ctx)
+		snapshot := getSnapshotUnderLock(ctx, c)
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
-			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String() &&
+			snapshot.DispatchedTransactions[0].Id == txn.ID.String() &&
 			snapshot.DispatchedTransactions[0].Nonce != nil &&
 			*snapshot.DispatchedTransactions[0].Nonce == uint64(42)
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain dispatched transaction with nonce 42")
@@ -228,13 +241,13 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that the hash is now included in the snapshot
 	assert.Eventually(t, func() bool {
-		snapshot := c.getSnapshot(ctx)
+		snapshot := getSnapshotUnderLock(ctx, c)
 		return snapshot != nil &&
 			len(snapshot.PooledTransactions) == 0 &&
 			len(snapshot.DispatchedTransactions) == 1 &&
-			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String() &&
+			snapshot.DispatchedTransactions[0].Id == txn.ID.String() &&
 			snapshot.DispatchedTransactions[0].LatestSubmissionHash != nil &&
-			*snapshot.DispatchedTransactions[0].LatestSubmissionHash == submissionHash
+			*snapshot.DispatchedTransactions[0].LatestSubmissionHash == submissionHash.String()
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain dispatched transaction with a submission hash")
 
 	// Simulate the block indexer confirming the transaction
@@ -249,10 +262,10 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that snapshot contains a confirmed transaction with matching ID
 	assert.Eventually(t, func() bool {
-		snapshot := c.getSnapshot(ctx)
+		snapshot := getSnapshotUnderLock(ctx, c)
 		return snapshot != nil &&
 			len(snapshot.ConfirmedTransactions) == 1 &&
-			snapshot.ConfirmedTransactions[0].ID.String() == txn.ID.String()
+			snapshot.ConfirmedTransactions[0].Id == txn.ID.String()
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain exactly one confirmed transaction")
 
 }
@@ -263,13 +276,11 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	config := builder.GetSequencerConfig()
 	config.MaxInflightTransactions = confutil.P(5)
-	mockDomain := componentsmocks.NewDomain(t)
-	mockDomain.On("FixedSigningIdentity").Return("")
-	builder.GetDomainAPI().On("Domain").Return(mockDomain)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+	c, mocks := builder.Build()
+	mocks.Domain.On("FixedSigningIdentity").Return("")
+	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	c, _ := builder.Build()
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	for i := range 100 {
@@ -483,7 +494,7 @@ func TestCoordinator_CancelContext_StopsEventLoopAndDispatchLoop(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, mocks := builder.Build()
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
-	require.NoError(t, c.Start(ctx))
+	c.Start(ctx)
 
 	// Verify event loop is running
 	require.False(t, c.stateMachineEventLoop.IsStopped(), "event loop should not be stopped initially")
@@ -515,7 +526,7 @@ func TestCoordinator_CancelContext_WaitsForTransportShutdown(t *testing.T) {
 		c.WaitForDone(t.Context())
 	}()
 
-	require.NoError(t, c.Start(ctx))
+	c.Start(ctx)
 }
 
 func TestCoordinator_CancelContext_CompletesSuccessfullyWhenCalledOnce(t *testing.T) {
@@ -523,7 +534,7 @@ func TestCoordinator_CancelContext_CompletesSuccessfullyWhenCalledOnce(t *testin
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, mocks := builder.Build()
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
-	require.NoError(t, c.Start(ctx))
+	c.Start(ctx)
 
 	cancel()
 	c.WaitForDone(t.Context())
@@ -538,7 +549,7 @@ func TestCoordinator_CancelContext_StopsLoopsEvenWhenProcessingEvents(t *testing
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, mocks := builder.Build()
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
-	require.NoError(t, c.Start(ctx))
+	c.Start(ctx)
 
 	// Queue some events to ensure loops are busy
 	for i := 0; i < 10; i++ {
@@ -558,7 +569,7 @@ func TestCoordinator_CancelContext_WhenAlreadyCancelled_ReturnsImmediately(t *te
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, mocks := builder.Build()
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
-	require.NoError(t, c.Start(ctx))
+	c.Start(ctx)
 
 	cancel()
 	c.WaitForDone(t.Context())
@@ -754,8 +765,7 @@ func TestStart_Idempotent_SecondCallReturnsNil(t *testing.T) {
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build()
 	// Mark as already started without launching goroutines
 	c.started = true
-	err := c.Start(ctx)
-	require.NoError(t, err)
+	c.Start(ctx)
 	// Confirm no goroutines were started by verifying the dispatch loop is not running
 	require.Nil(t, c.dispatchLoopDone, "dispatch loop should not be running after idempotent Start()")
 }
@@ -783,7 +793,7 @@ func TestCoordinator_WaitForDone_ReturnsEarlyWhenContextCancelled(t *testing.T) 
 
 	c, mocks := builder.Build()
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
-	require.NoError(t, c.Start(ctx))
+	c.Start(ctx)
 
 	defer func() {
 		cancel()
@@ -823,14 +833,28 @@ func TestCoordinator_WaitForDone_CtxCancelledWhileDispatchLoopRunning_ReturnsEar
 	}
 }
 
+// mockDomainSmartContractForConstructor satisfies the domain lookups NewCoordinator performs when
+// wiring the state view provider.
+func mockDomainSmartContractForConstructor(t *testing.T) *componentsmocks.DomainSmartContract {
+	domainAPI := componentsmocks.NewDomainSmartContract(t)
+	domain := componentsmocks.NewDomain(t)
+	domain.On("Name").Return("test-domain").Maybe()
+	domainAPI.On("Domain").Return(domain).Maybe()
+	return domainAPI
+}
+
+func mockAllComponentsForConstructor(t *testing.T) *componentsmocks.AllComponents {
+	allComponents := componentsmocks.NewAllComponents(t)
+	allComponents.On("StateManager").Return(componentsmocks.NewStateManager(t)).Maybe()
+	return allComponents
+}
+
 func TestNewCoordinator_SenderMode_SetsCurrentActiveCoordinatorToNodeName(t *testing.T) {
 	const nodeName = "senderNode"
 	c := NewCoordinator(
 		pldtypes.RandAddress(),
-		componentsmocks.NewDomainSmartContract(t),
-		nil,
-		componentsmocks.NewAllComponents(t),
-		nil,
+		mockDomainSmartContractForConstructor(t),
+		mockAllComponentsForConstructor(t),
 		nil,
 		testutil.NewSentMessageRecorder(),
 		common.RealClock(),
@@ -851,10 +875,8 @@ func TestNewCoordinator_EndorserMode_SetsEndorserCandidates(t *testing.T) {
 	endorsers := []string{"endorser1@node1", "endorser2@node2"}
 	c := NewCoordinator(
 		pldtypes.RandAddress(),
-		componentsmocks.NewDomainSmartContract(t),
-		nil,
-		componentsmocks.NewAllComponents(t),
-		nil,
+		mockDomainSmartContractForConstructor(t),
+		mockAllComponentsForConstructor(t),
 		nil,
 		testutil.NewSentMessageRecorder(),
 		common.RealClock(),

@@ -72,6 +72,7 @@ func (h *mintHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req
 
 func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.MintParams)
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
 	ids, err := resolveIdentities(ctx, h.noto, tx, req, "", params.To)
 	if err != nil {
@@ -82,6 +83,27 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	outputStates, err := h.noto.prepareOutputs(toID, params.Amount, identityList{notaryID, toID})
 	if err != nil {
 		return nil, err
+	}
+	if useNullifiers {
+		// for new output states, while we create them, we add the corresponding nullifier to the new state,
+		// which will be persisted in the state DB. This allows us to track which states have been spent,
+		// because the spending transactions will include the nullifier IDs, rather than the state IDs, in
+		// the receipt.
+		contract := (*pldtypes.EthAddress)(tx.ContractAddress)
+		for _, newState := range outputStates.states {
+			// Here the new output state could be for the minter (notaryID) or the receiver (toID).
+			// regardless of the owner, the notary always knows about the nullifier. So we always
+			// add the nullifier spec for the notary.
+			newState.NullifierSpecs = []*prototk.NullifierSpec{
+				h.noto.nullifierSpec(notaryID.identifier, contract),
+			}
+			// In addition, Paladin also puts the responsibility to generate the nullifier for the states
+			// to be owned by the receiver, on the minter. So if the receiver is not the notary, we add
+			// another nullifier spec with the distribution to the receiver.
+			if toID.identifier != notaryID.identifier {
+				newState.NullifierSpecs = append(newState.NullifierSpecs, h.noto.nullifierSpec(toID.identifier, contract))
+			}
+		}
 	}
 	infoDistribution := identityList{notaryID, senderID, toID}
 	infoStates, err := h.noto.prepareDataInfo(ctx, params.Data, tx.DomainConfig.Variant, infoDistribution.identities(), tx.Transaction, req.ResolvedVerifiers)
@@ -161,6 +183,15 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		return nil, err
 	}
 
+	payload := sender.Payload
+	if tx.DomainConfig.IsNullifierVariant() {
+		encoded, encErr := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
+		if encErr != nil {
+			return nil, encErr
+		}
+		payload = encoded
+	}
+
 	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
 	functionName := "mint"
 	var paramsJSON []byte
@@ -168,17 +199,19 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 	if tx.DomainConfig.IsV0() {
 		paramsJSON, err = json.Marshal(&NotoMint_V0_Params{
 			TxId:      req.Transaction.TransactionId,
-			Outputs:   endorsableStateIDs(req.OutputStates),
+			Outputs:   h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.OutputStates, false),
 			Signature: sender.Payload,
 			Data:      data,
 		})
-	} else {
+	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		paramsJSON, err = json.Marshal(&NotoMintParams{
 			TxId:    req.Transaction.TransactionId,
-			Outputs: endorsableStateIDs(req.OutputStates),
-			Proof:   sender.Payload,
+			Outputs: h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.OutputStates, false),
+			Proof:   payload,
 			Data:    data,
 		})
+	} else {
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, tx.DomainConfig.Variant)
 	}
 	if err != nil {
 		return nil, err

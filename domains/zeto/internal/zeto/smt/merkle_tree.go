@@ -16,10 +16,13 @@
 package smt
 
 import (
+	"context"
+
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/smt"
+	pldsmt "github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/smt"
 )
 
 const SMT_HEIGHT_UTXO = 64
@@ -45,8 +48,8 @@ func init() {
 	}
 }
 
-func NewSmt(storage StatesStorage, levels int) (core.SparseMerkleTree, error) {
-	mt, err := smt.NewMerkleTree(storage, levels)
+func NewSmt(ctx context.Context, storage pldsmt.StatesStorage, levels int) (core.SparseMerkleTree, error) {
+	mt, err := smt.NewMerkleTree(ctx, storage, levels)
 	return mt, err
 }
 

@@ -15,7 +15,6 @@ export interface IPeerStats {
   lastSend?: string;
   lastReceive?: string;
   reliableHighestSent: number;
-  reliableAckBase: number;
 }
 
 export interface IReliableMessage {

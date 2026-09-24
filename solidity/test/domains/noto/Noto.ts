@@ -4,6 +4,7 @@ import { ZeroHash } from "ethers";
 import { ethers } from "hardhat";
 import { Noto, NotoFactory } from "../../../typechain-types";
 import {
+  deployNotoFactory,
   deployNotoInstance,
   doDelegateLock,
   doLock,

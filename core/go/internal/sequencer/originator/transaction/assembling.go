@@ -34,16 +34,15 @@ func action_AssembleRequestReceived(ctx context.Context, t *originatorTransactio
 	t.currentDelegate = e.Coordinator
 	t.latestAssembleRequest = &assembleRequestFromCoordinator{
 		coordinatorsBlockHeight: e.CoordinatorBlockHeight,
-		stateLocksJSON:          e.StateLocksJSON,
+		coordinator:             e.Coordinator,
 		requestID:               e.RequestID,
-		preAssembly:             e.PreAssembly,
 		expiry:                  e.Expiry,
 	}
 	return nil
 }
 
-func action_AssembleAndSignSuccess(_ context.Context, t *originatorTransaction, event common.Event) error {
-	e := event.(*AssembleAndSignSuccessEvent)
+func action_AssembleSuccess(_ context.Context, t *originatorTransaction, event common.Event) error {
+	e := event.(*AssembleSuccessEvent)
 	t.pt.PostAssembly = e.PostAssembly
 	t.latestFulfilledAssembleRequestID = e.RequestID
 	return nil
@@ -69,39 +68,65 @@ func action_AssembleError(ctx context.Context, t *originatorTransaction, event c
 	return nil
 }
 
-// action_AssembleAndSign spawns a background goroutine to perform the domain-level
+func action_CancelCurrentAssembly(_ context.Context, txn *originatorTransaction, _ common.Event) error {
+	if txn.cancelCurrentAssembly != nil {
+		txn.cancelCurrentAssembly()
+		txn.cancelCurrentAssembly = nil
+	}
+	return nil
+}
+
+// action_Assemble spawns a background goroutine to perform the domain-level
 // assembly work and queue the result event back to the originator. This keeps the
-// transaction event loop unblocked while allowing the potentially slow AssembleAndSign
+// transaction event loop unblocked while allowing the potentially slow Assemble
 // call to run concurrently.
 //
-// handleAssembleAndSign does not modify the private transaction or the latest assembly
+// If a previous assembly goroutine is still in flight (from a superseded request), its
+// context is cancelled before the new goroutine is started.
+//
+// handleAssemble does not modify the private transaction or the latest assembly
 // request, making it safe to call in a separate goroutine. This is enforced via unit tests
 // in the engine integration component.
-func action_AssembleAndSign(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
+func action_Assemble(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
 	if txn.latestAssembleRequest == nil {
 		//This should never happen unless there is a bug in the state machine logic
 		log.L(ctx).Errorf("no assemble request found")
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "No assemble request found")
 	}
 
+	// Cancel any previously in-flight assembly goroutine for a superseded request
+	if txn.cancelCurrentAssembly != nil {
+		txn.cancelCurrentAssembly()
+	}
+
 	req := *txn.latestAssembleRequest
 	preAssembly := txn.pt.PreAssembly
+	resolvedVerifiers := txn.pt.ResolvedVerifiers
 	txID := txn.pt.ID
+	localTx := txn.localTx
 
-	assembleCtx := ctx
-	cancel := func() {}
+	// Always create a cancellable context so a superseding request can abort this goroutine
+	assembleCtx, cancel := context.WithCancel(ctx)
 	if !req.expiry.IsZero() {
-		assembleCtx, cancel = context.WithDeadline(ctx, req.expiry)
+		assembleCtx, cancel = context.WithDeadline(assembleCtx, req.expiry)
 	}
+	txn.cancelCurrentAssembly = cancel
+	txn.currentAssemblyRequestID = req.requestID
+
 	go func() {
 		defer cancel()
-		txn.handleAssembleAndSign(assembleCtx, txID, req, preAssembly)
+		txn.handleAssemble(assembleCtx, txID, req, preAssembly, resolvedVerifiers, localTx)
 	}()
 	return nil
 }
 
-func (txn *originatorTransaction) handleAssembleAndSign(ctx context.Context, txID uuid.UUID, req assembleRequestFromCoordinator, preAssembly *components.TransactionPreAssembly) {
-	postAssembly, err := txn.engineIntegration.AssembleAndSign(ctx, txID, preAssembly, req.stateLocksJSON, req.coordinatorsBlockHeight)
+func (txn *originatorTransaction) handleAssemble(ctx context.Context, txID uuid.UUID, req assembleRequestFromCoordinator, preAssembly *prototk.TransactionPreAssembly, resolvedVerifiers []*prototk.ResolvedVerifier, localTx *components.ResolvedTransaction) {
+	// The domain query context answers each FindAvailableStates callback the domain makes by querying
+	// the coordinator's ahead-of-chain view through this remote view (bound to the node the request came from) and
+	// merging the matches with its own DB results.
+	view := txn.stateViewReader.ForCoordinator(req.coordinator, req.requestID.String())
+
+	assembleResponse, err := txn.engineIntegration.Assemble(ctx, txID, preAssembly, resolvedVerifiers, view, req.coordinatorsBlockHeight, localTx)
 	if err != nil {
 		if ctx.Err() != nil {
 			log.L(ctx).Debugf("abandoning assembly for transaction %s: request expired", txID)
@@ -119,10 +144,11 @@ func (txn *originatorTransaction) handleAssembleAndSign(ctx context.Context, txI
 		return
 	}
 
-	switch postAssembly.AssemblyResult {
+	postAssembly := &components.TransactionPostAssembly{AssembleResponse: assembleResponse}
+	switch assembleResponse.GetAssemblyResult() {
 	case prototk.AssembleTransactionResponse_OK:
-		log.L(ctx).Debugf("emitting AssembleAndSignSuccessEvent: %s", txID.String())
-		txn.queueEventForOriginator(ctx, &AssembleAndSignSuccessEvent{
+		log.L(ctx).Debugf("emitting AssembleSuccessEvent: %s", txID.String())
+		txn.queueEventForOriginator(ctx, &AssembleSuccessEvent{
 			BaseEvent: BaseEvent{
 				TransactionID: txID,
 			},
@@ -150,20 +176,33 @@ func (txn *originatorTransaction) handleAssembleAndSign(ctx context.Context, txI
 	}
 }
 
+func buildAssembleResponse(txn *originatorTransaction) *engineProto.AssembleResponse {
+	return &engineProto.AssembleResponse{
+		TransactionId:     txn.pt.ID.String(),
+		AssembleRequestId: txn.latestFulfilledAssembleRequestID.String(),
+		ContractAddress:   txn.pt.Address.HexString(),
+		PostAssembly:      txn.pt.PostAssembly.AssembleResponse,
+	}
+}
+
 func action_SendAssembleRevertResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
-	return txn.transportWriter.SendAssembleResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.pt.PostAssembly, txn.pt.PreAssembly, txn.currentDelegate)
+	return txn.transportWriter.SendAssembleResponse(ctx, txn.currentDelegate, buildAssembleResponse(txn))
 }
 
 func action_SendAssembleParkResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
-	return txn.transportWriter.SendAssembleResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.pt.PostAssembly, txn.pt.PreAssembly, txn.currentDelegate)
+	return txn.transportWriter.SendAssembleResponse(ctx, txn.currentDelegate, buildAssembleResponse(txn))
 }
 
 func action_SendAssembleSuccessResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
-	return txn.transportWriter.SendAssembleResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.pt.PostAssembly, txn.pt.PreAssembly, txn.currentDelegate)
+	return txn.transportWriter.SendAssembleResponse(ctx, txn.currentDelegate, buildAssembleResponse(txn))
 }
 
 func action_SendAssembleError(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
-	return txn.transportWriter.SendAssembleError(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.currentDelegate)
+	return txn.transportWriter.SendAssembleError(ctx, txn.currentDelegate, &engineProto.AssembleError{
+		TransactionId:     txn.pt.ID.String(),
+		AssembleRequestId: txn.latestFulfilledAssembleRequestID.String(),
+		ContractAddress:   txn.pt.Address.HexString(),
+	})
 }
 
 func action_RefreshBlockHeight(ctx context.Context, t *originatorTransaction, _ common.Event) error {
@@ -187,15 +226,14 @@ func action_RejectAssemblyPrivateStateDataPending(ctx context.Context, t *origin
 	receiverBlockHeight := t.getBlockHeight()
 	log.L(ctx).Warnf("rejecting assemble request from coordinator due to pending private state data (coordinator=%d, assembler=%d, tolerance=%d)",
 		e.CoordinatorBlockHeight, receiverBlockHeight, e.BlockHeightTolerance)
-	return t.transportWriter.SendAssembleRejection(
-		ctx,
-		t.pt.ID,
-		e.RequestID,
-		e.Coordinator,
-		engineProto.RejectionReason_PRIVATE_STATE_DATA_PENDING,
-		e.CoordinatorBlockHeight,
-		receiverBlockHeight,
-	)
+	return t.transportWriter.SendAssembleRejection(ctx, e.Coordinator, &engineProto.AssembleRejection{
+		TransactionId:          t.pt.ID.String(),
+		AssembleRequestId:      e.RequestID.String(),
+		ContractAddress:        t.pt.Address.HexString(),
+		RejectionReason:        engineProto.RejectionReason_PRIVATE_STATE_DATA_PENDING,
+		CoordinatorBlockHeight: e.CoordinatorBlockHeight,
+		AssemblerBlockHeight:   receiverBlockHeight,
+	})
 }
 
 // validator_AssembleBlockHeightToleranceExceeded returns true when the absolute difference between
@@ -216,15 +254,31 @@ func action_SendAssembleBlockHeightRejection(ctx context.Context, t *originatorT
 	receiverBlockHeight := t.getBlockHeight()
 	log.L(ctx).Warnf("rejecting assemble request from coordinator due to block height tolerance (coordinator=%d, assembler=%d, tolerance=%d)",
 		e.CoordinatorBlockHeight, receiverBlockHeight, e.BlockHeightTolerance)
-	return t.transportWriter.SendAssembleRejection(
-		ctx,
-		t.pt.ID,
-		e.RequestID,
-		e.Coordinator,
-		engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
-		e.CoordinatorBlockHeight,
-		receiverBlockHeight,
-	)
+	return t.transportWriter.SendAssembleRejection(ctx, e.Coordinator, &engineProto.AssembleRejection{
+		TransactionId:          t.pt.ID.String(),
+		AssembleRequestId:      e.RequestID.String(),
+		ContractAddress:        t.pt.Address.HexString(),
+		RejectionReason:        engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
+		CoordinatorBlockHeight: e.CoordinatorBlockHeight,
+		AssemblerBlockHeight:   receiverBlockHeight,
+	})
+}
+
+func validator_AssembleSuccessMatchesCurrentRequest(_ context.Context, t *originatorTransaction, event common.Event) (bool, error) {
+	e := event.(*AssembleSuccessEvent)
+	if t.latestAssembleRequest == nil {
+		return false, nil
+	}
+	return t.latestAssembleRequest.requestID == e.RequestID, nil
+}
+
+// validator_AssembleRequestMatchesInProgressAssembly returns true when the incoming assemble request
+// has the same idempotency key as the assembly goroutine currently in flight.
+// This detects a coordinator nudge arriving while the originator is still assembling the original
+// request: the nudge carries the same idempotency key, so there is no need to cancel and restart.
+func validator_AssembleRequestMatchesInProgressAssembly(_ context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
+	e := event.(*AssembleRequestReceivedEvent)
+	return txn.cancelCurrentAssembly != nil && e.RequestID == txn.currentAssemblyRequestID, nil
 }
 
 // action_SendAssembleRejectionNotCurrentDelegate sends an AssembleRejection indicating the
@@ -232,14 +286,12 @@ func action_SendAssembleBlockHeightRejection(ctx context.Context, t *originatorT
 func action_SendAssembleRejectionNotCurrentDelegate(ctx context.Context, txn *originatorTransaction, event common.Event) error {
 	assembleRequestEvent := event.(*AssembleRequestReceivedEvent)
 	log.L(ctx).Debugf("rejecting assemble request from %s: not current delegate (current=%s)", assembleRequestEvent.Coordinator, txn.currentDelegate)
-	if err := txn.transportWriter.SendAssembleRejection(
-		ctx,
-		txn.pt.ID,
-		assembleRequestEvent.RequestID,
-		assembleRequestEvent.Coordinator,
-		engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
-		0, 0,
-	); err != nil {
+	if err := txn.transportWriter.SendAssembleRejection(ctx, assembleRequestEvent.Coordinator, &engineProto.AssembleRejection{
+		TransactionId:     txn.pt.ID.String(),
+		AssembleRequestId: assembleRequestEvent.RequestID.String(),
+		ContractAddress:   txn.pt.Address.HexString(),
+		RejectionReason:   engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
+	}); err != nil {
 		log.L(ctx).Warnf("failed to send assemble rejection (not-current-delegate) to %s: %s", assembleRequestEvent.Coordinator, err)
 	}
 	return nil

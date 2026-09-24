@@ -36,7 +36,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/tlsconf"
 	"github.com/go-resty/resty/v2"
-	"github.com/sirupsen/logrus"
 )
 
 type retryCtxKey struct{}
@@ -67,12 +66,12 @@ func OnAfterResponse(c *resty.Client, resp *resty.Response) {
 	}
 	rCtx := resp.Request.Context()
 	rc := rCtx.Value(retryCtxKey{}).(*retryCtx)
-	level := logrus.DebugLevel
 	status := resp.StatusCode()
 	if status >= 300 {
-		level = logrus.ErrorLevel
+		log.L(rCtx).Errorf("<== %s %s [%d] (%dms)", resp.Request.Method, resp.Request.URL, status, time.Since(rc.start).Milliseconds())
+	} else {
+		log.L(rCtx).Debugf("<== %s %s [%d] (%dms)", resp.Request.Method, resp.Request.URL, status, time.Since(rc.start).Milliseconds())
 	}
-	log.L(rCtx).Logf(level, "<== %s %s [%d] (%dms)", resp.Request.Method, resp.Request.URL, status, time.Since(rc.start).Milliseconds())
 	// TODO use req.TraceInfo() for richer metrics at the DNS and transport layer
 }
 

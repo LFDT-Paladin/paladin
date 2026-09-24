@@ -1,0 +1,96 @@
+// Copyright contributors to Paladin, an LFDT project
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import { Box } from "@mui/material"
+import { useMutation } from "@tanstack/react-query";
+import { startPrivacyGroupListener, stopPrivacyGroupListener } from "../queries/privacyGroups";
+import { useTranslation } from "react-i18next";
+import { IPrivacyGroupListener } from "../interfaces";
+import { DeletePrivacyGroupListenerDialog } from "../dialogs/DeletePrivacyGroupListener";
+import { useState } from "react";
+import { useApplicationContext } from "../contexts/ApplicationContext";
+import { ActionButton } from "./ActionButton";
+
+type Props = {
+  privacyGroupListener: IPrivacyGroupListener
+  refetch: () => any
+  deleteRefetch?: () => any
+};
+
+export const PrivacyGroupListenerActions: React.FC<Props> = ({
+  privacyGroupListener,
+  refetch,
+  deleteRefetch
+}) => {
+
+  const { readOnly } = useApplicationContext();
+  const [deletePrivacyGroupListenerDialogOpen, setDeletePrivacyGroupDialogOpen] = useState(false);
+  const { t } = useTranslation();
+
+  const { mutate: startListener } = useMutation({
+    mutationFn: (listenerName: string) => startPrivacyGroupListener(listenerName),
+    onSuccess: () => refetch()
+  });
+
+  const { mutate: stopListener } = useMutation({
+    mutationFn: (listenerName: string) => stopPrivacyGroupListener(listenerName),
+    onSuccess: () => refetch()
+  });
+
+  if(readOnly) {
+    return <></>;
+  }
+
+  return (
+    <>
+      <Box sx={{
+        display: 'flex',
+        gap: '10px'
+      }}>
+        <ActionButton
+          disabled={privacyGroupListener.started === true}
+          onClick={() => {
+            startListener(privacyGroupListener.name)
+          }}
+        >
+          {t('start')}
+        </ActionButton>
+        <ActionButton
+          disabled={privacyGroupListener.started !== true}
+          onClick={() => {
+            stopListener(privacyGroupListener.name)
+          }}
+        >{t('stop')}
+        </ActionButton>
+        <ActionButton
+          color="error"
+          onClick={() => {
+            setDeletePrivacyGroupDialogOpen(true);
+          }}
+        >{t('delete')}
+        </ActionButton>
+      </Box>
+      {deletePrivacyGroupListenerDialogOpen && (
+        <DeletePrivacyGroupListenerDialog
+          listenerName={privacyGroupListener.name}
+          refetch={deleteRefetch ?? refetch}
+          onClose={() => setDeletePrivacyGroupDialogOpen(false)}
+        />
+      )}
+    </>
+  )
+
+}

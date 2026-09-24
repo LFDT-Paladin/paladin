@@ -31,8 +31,9 @@ import (
 	testutils "github.com/LFDT-Paladin/paladin/core/noderuntests/pkg"
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -41,7 +42,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -79,7 +79,7 @@ func newSingleNodePartyForComponentTestingWithSequencerConfig(t *testing.T, node
 func TestRunSimpleStorageEthTransaction(t *testing.T) {
 	ctx := t.Context()
 
-	logrus.SetLevel(logrus.DebugLevel)
+	log.SetLevel("debug")
 
 	instance := newInstanceForComponentTestingWithDomainRegistry(t)
 	c := instance.GetClient()
@@ -154,7 +154,7 @@ func TestRunSimpleStorageEthTransaction(t *testing.T) {
 func TestBlockchainEventListeners(t *testing.T) {
 	ctx := t.Context()
 
-	logrus.SetLevel(logrus.DebugLevel)
+	log.SetLevel("debug")
 
 	instance := newInstanceForComponentTestingWithDomainRegistry(t)
 	c := instance.GetClient()
@@ -345,7 +345,7 @@ func subscribeAndSendDataToChannel(ctx context.Context, t *testing.T, wsClient p
 
 func TestUpdatePublicTransaction(t *testing.T) {
 	ctx := t.Context()
-	logrus.SetLevel(logrus.DebugLevel)
+	log.SetLevel("debug")
 
 	instance := newInstanceForComponentTestingWithDomainRegistry(t)
 	c := instance.GetClient()
@@ -412,6 +412,7 @@ func TestUpdatePublicTransaction(t *testing.T) {
 		tx, err = c.PTX().GetTransactionFull(ctx, *setRes.ID())
 		require.NoError(ct, err)
 		require.Len(ct, tx.Public, 1)
+		require.NotEmpty(ct, tx.Public[0].Activity, "Activity array should not be empty")
 		require.NotNil(ct, tx.Public[0].Activity[0])
 		assert.Regexp(ct, "ERROR.*Intrinsic", tx.Public[0].Activity[0])
 	}, 10*time.Second, 100*time.Millisecond, "Transaction was not processed with error in time (txID: %s)", setRes.ID())
@@ -1501,7 +1502,7 @@ func TestPrivacyGroupEndorsement(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, bobSchemas, 1)
 
-	bobStates, err := bob.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, bobSchemas[0].ID, &query.QueryJSON{}, "available")
+	bobStates, err := bob.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, bobSchemas[0].ID, &query.QueryJSON{}, "confirmed")
 	require.NoError(t, err)
 	require.Len(t, bobStates, 1)
 	stateData := make(map[string]string)
@@ -1520,7 +1521,7 @@ func TestPrivacyGroupEndorsement(t *testing.T) {
 	require.Len(t, aliceSchemas, 1)
 	assert.Equal(t, bobSchemas[0].ID, aliceSchemas[0].ID)
 
-	aliceStates, err := alice.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, aliceSchemas[0].ID, &query.QueryJSON{}, "available")
+	aliceStates, err := alice.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, aliceSchemas[0].ID, &query.QueryJSON{}, "confirmed")
 
 	require.NoError(t, err)
 	require.Len(t, aliceStates, 1)
@@ -1661,16 +1662,16 @@ func TestPrivacyGroupEndorsementConcurrent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, schemas, 1)
 
-	aliceStates, err := alice.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "available")
+	aliceStates, err := alice.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "confirmed")
 	require.NoError(t, err)
 	require.Len(t, aliceStates, 1)
 
-	bobStates, err := bob.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "available")
+	bobStates, err := bob.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "confirmed")
 	require.NoError(t, err)
 	require.Len(t, bobStates, 1)
 	assert.Equal(t, aliceStates[0].Data, bobStates[0].Data)
 
-	carolStates, err := carol.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "available")
+	carolStates, err := carol.GetClient().StateStore().QueryContractStates(ctx, "simpleStorageDomain", *contractAddress, schemas[0].ID, &query.QueryJSON{}, "confirmed")
 	require.NoError(t, err)
 	require.Len(t, carolStates, 1)
 	assert.Equal(t, aliceStates[0].Data, carolStates[0].Data)

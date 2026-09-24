@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Box, Button } from '@mui/material';
+import { Box } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotoMintDialog } from '../dialogs/domains/noto/NotoMint';
@@ -24,6 +24,8 @@ import { ZetoTransferDialog } from '../dialogs/domains/zeto/ZetoTransfer';
 import { NotoCheckBalanceDialog } from '../dialogs/domains/noto/NotoCheckBalance';
 import { ZetoCheckBalanceDialog } from '../dialogs/domains/zeto/ZetoCheckBalance';
 import { NotoBurnDialog } from '../dialogs/domains/noto/NotoBurn';
+import { useApplicationContext } from '../contexts/ApplicationContext';
+import { ActionButton } from './ActionButton';
 
 type Props = {
   domainName: string;
@@ -39,6 +41,7 @@ export const DomainButtons: React.FC<Props> = ({
   domainName,
   contractAddress,
 }) => {
+  const { readOnly } = useApplicationContext();
   const { t } = useTranslation();
   const [buttons, setButtons] = useState<DomainButton[]>([]);
   const [notoMintDialogOpen, setNotoMintDialogOpen] = useState(false);
@@ -59,97 +62,106 @@ export const DomainButtons: React.FC<Props> = ({
           name: 'balance',
           action: () => setNotoCheckBalanceDialogOpen(true),
         });
-        tmpButtons.push({
-          name: 'mint',
-          action: () => setNotoMintDialogOpen(true),
-        });
-        tmpButtons.push({
-          name: 'transfer',
-          action: () => setNotoTransferDialogOpen(true),
-        });
-        tmpButtons.push({
-          name: 'burn',
-          action: () => setNotoBurnDialogOpen(true),
-        });
+        if (!readOnly) {
+          tmpButtons.push({
+            name: 'mint',
+            action: () => setNotoMintDialogOpen(true),
+          });
+          tmpButtons.push({
+            name: 'transfer',
+            action: () => setNotoTransferDialogOpen(true),
+          });
+          tmpButtons.push({
+            name: 'burn',
+            action: () => setNotoBurnDialogOpen(true),
+          });
+        }
         break;
       }
       case 'zeto': {
         tmpButtons.push({
-          name: 'checkBalance',
+          name: 'balance',
           action: () => setZetoCheckBalanceDialogOpen(true),
         });
-        tmpButtons.push({
-          name: 'mint',
-          action: () => setZetoMintDialogOpen(true),
-        });
-        tmpButtons.push({
-          name: 'transfer',
-          action: () => setZetoTransferDialogOpen(true),
-        });
+        if (!readOnly) {
+          tmpButtons.push({
+            name: 'mint',
+            action: () => setZetoMintDialogOpen(true),
+          });
+          tmpButtons.push({
+            name: 'transfer',
+            action: () => setZetoTransferDialogOpen(true),
+          });
+        }
         break;
       }
     }
 
     setButtons(tmpButtons);
-  }, [domainName]);
+  }, [domainName, readOnly]);
 
   return (
     <>
-      <Box sx={{ display: 'flex', gap: '20px' }}>
+      <Box sx={{ display: 'flex', gap: '10px' }}>
         {buttons.map((button) => (
-          <Button
+          <ActionButton
             key={button.name}
-            sx={{ fontWeight: '400' }}
-            size="small"
             onClick={button.action}
           >
             {t(button.name)}
-          </Button>
+          </ActionButton>
         ))}
         {buttons.length === 0 && t('noActions')}
       </Box>
 
-      <NotoMintDialog
-        dialogOpen={notoMintDialogOpen}
-        setDialogOpen={setNotoMintDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoMintDialogOpen && (
+        <NotoMintDialog
+          onClose={() => setNotoMintDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <NotoTransferDialog
-        dialogOpen={notoTransferDialogOpen}
-        setDialogOpen={setNotoTransferDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoTransferDialogOpen && (
+        <NotoTransferDialog
+          onClose={() => setNotoTransferDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <NotoBurnDialog
-        dialogOpen={notoBurnDialogOpen}
-        setDialogOpen={setNotoBurnDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoBurnDialogOpen && (
+        <NotoBurnDialog
+          onClose={() => setNotoBurnDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <ZetoMintDialog
-        dialogOpen={zetoMintDialogOpen}
-        setDialogOpen={setZetoMintDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {zetoMintDialogOpen && (
+        <ZetoMintDialog
+          onClose={() => setZetoMintDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <ZetoTransferDialog
-        dialogOpen={zetoTransferDialogOpen}
-        setDialogOpen={setZetoTransferDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {zetoTransferDialogOpen && (
+        <ZetoTransferDialog
+          onClose={() => setZetoTransferDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <NotoCheckBalanceDialog
-        dialogOpen={notoCheckBalanceDialogOpen}
-        setDialogOpen={setNotoCheckBalanceDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {notoCheckBalanceDialogOpen && (
+        <NotoCheckBalanceDialog
+          onClose={() => setNotoCheckBalanceDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
-      <ZetoCheckBalanceDialog
-        dialogOpen={zetoCheckBalanceDialogOpen}
-        setDialogOpen={setZetoCheckBalanceDialogOpen}
-        contractAddress={contractAddress}
-      />
+      {zetoCheckBalanceDialogOpen && (
+        <ZetoCheckBalanceDialog
+          onClose={() => setZetoCheckBalanceDialogOpen(false)}
+          contractAddress={contractAddress}
+        />
+      )}
 
     </>
   );

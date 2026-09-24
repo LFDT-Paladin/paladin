@@ -18,6 +18,11 @@ import { PaletteMode, ThemeOptions } from '@mui/material';
 
 const commonThemeOptions: ThemeOptions = {
   components: {
+    MuiPaper: {
+      defaultProps: {
+        elevation: 0
+      }
+    },
     MuiTextField: {
       defaultProps: {
         slotProps: {
@@ -48,7 +53,7 @@ const commonThemeOptions: ThemeOptions = {
         }
       }
     },
-        MuiListItemButton: {
+    MuiListItemButton: {
       styleOverrides: {
         root: {
           borderRadius: '4px',
@@ -80,6 +85,15 @@ export const darkThemeOptions: ThemeOptions = {
   },
   components: {
     ...commonThemeOptions.components,
+    MuiFormHelperText: {
+      styleOverrides: {
+        root: {
+          '&.Mui-error': {
+            color: "#fcaeae"
+          }
+        }
+      }
+    },
     MuiAlert: {
       styleOverrides: {
         filledSuccess: {

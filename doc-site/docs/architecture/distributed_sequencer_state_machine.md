@@ -22,10 +22,11 @@ stateDiagram-v2
     Elect --> Observing
     Elect --> Closing_Flush
     Elect --> Closing
+    Elect --> Prepared
     Prepared --> Active
+    Prepared --> Observing
     Prepared --> Closing_Flush
     Prepared --> Closing
-    Prepared --> Observing
     Active --> Idle
     Active --> Closing_Flush
     Active --> Closing
@@ -79,29 +80,32 @@ stateDiagram-v2
     Pooled --> PreAssembly_Blocked
     Pooled --> Reverted
     Pooled --> Evicted
+    Assembling --> Signing
     Assembling --> Endorsement_Gathering
     Assembling --> Confirming_Dispatchable
     Assembling --> Blocked
     Assembling --> Pooled
-    Assembling --> Reverted
     Assembling --> Evicted
+    Assembling --> Reverted
+    Assembling --> Final
     Assembling --> PreAssembly_Blocked
+    Signing --> Endorsement_Gathering
+    Signing --> Confirming_Dispatchable
+    Signing --> Blocked
+    Signing --> Pooled
+    Signing --> Evicted
     Endorsement_Gathering --> Confirming_Dispatchable
     Endorsement_Gathering --> Blocked
-    Endorsement_Gathering --> Pooled
-    Endorsement_Gathering --> PreAssembly_Blocked
     Endorsement_Gathering --> Reverted
+    Endorsement_Gathering --> Pooled
     Blocked --> Confirming_Dispatchable
-    Blocked --> PreAssembly_Blocked
-    Blocked --> Reverted
-    Confirming_Dispatchable --> Ready_For_Dispatch
+    Confirming_Dispatchable --> Preparing
     Confirming_Dispatchable --> Pooled
     Confirming_Dispatchable --> Evicted
-    Confirming_Dispatchable --> PreAssembly_Blocked
-    Confirming_Dispatchable --> Reverted
+    Confirming_Dispatchable --> Final
+    Preparing --> Ready_For_Dispatch
+    Preparing --> Pooled
     Ready_For_Dispatch --> Dispatched
-    Ready_For_Dispatch --> PreAssembly_Blocked
-    Ready_For_Dispatch --> Reverted
     Dispatched --> Confirmed
     Dispatched --> PreAssembly_Blocked
     Dispatched --> Pooled
@@ -120,11 +124,13 @@ stateDiagram-v2
 | **Pooled** | The transaction is waiting in the pool to be selected and sent for assembly to the its originator |
 | **PreAssembly Blocked** | The transaction cannot yet be put in the pool to be selected for assembly because a dependency must be assembled first |
 | **Assembling** | An assemble request has been sent to the originator and we are waiting for the response |
+| **Signing** |  |
 | **Reverted** | The transaction has been reverted, either at assembly time by the originator or on the base ledger |
 | **Endorsement Gathering** | The transaction has been successfully assembled and endorsement requests have been sent |
 | **Blocked** | All endorsements have been received but the transaction cannot proceed due to dependencies not being ready for dispatch |
 | **Confirming Dispatchable** | The transaction has been endorsed. Confirmation from the originator is required before the transaction can be dispatched. The originator may still request not to proceed at this point. |
-| **Ready For Dispatch** | Dispatch confirmation has been received from the originator and the transaction is waiting to be collected by the dispatch goroutine |
+| **Preparing** | Dispatch confirmation has been received from the originator and the transaction is being prepared and its dispatch built, with bounded retries, off the coordinator event loop |
+| **Ready For Dispatch** | The transaction's dispatch has been built and queued, and is waiting to be collected by the dispatch goroutine |
 | **Dispatched** | Collected by the dispatcher thread and submitted by the public TX manager to the base ledger |
 | **Confirmed** | The transaction has been confirmed on the base ledger. It will remain in this state for a number heartbeat intervals before moving to State_Final to removed from memory. |
 | **Final** | The transaction will be removed from memory upon entry to this state |
@@ -167,7 +173,10 @@ stateDiagram-v2
     state "Endorsement Gathering" as Endorsement_Gathering
     [*] --> Initial
     Initial --> Confirmed
+    Initial --> Resolving
     Initial --> Pending
+    Resolving --> Confirmed
+    Resolving --> Pending
     Pending --> Confirmed
     Pending --> Delegated
     Delegated --> Confirmed
@@ -175,9 +184,14 @@ stateDiagram-v2
     Delegated --> Dispatched
     Assembling --> Confirmed
     Assembling --> Delegated
+    Assembling --> Signing
     Assembling --> Endorsement_Gathering
     Assembling --> Reverted
     Assembling --> Parked
+    Signing --> Confirmed
+    Signing --> Delegated
+    Signing --> Endorsement_Gathering
+    Signing --> Assembling
     Endorsement_Gathering --> Confirmed
     Endorsement_Gathering --> Delegated
     Endorsement_Gathering --> Assembling
@@ -211,9 +225,11 @@ stateDiagram-v2
 | State | Description |
 | --- | --- |
 | **Initial** | Transaction state machine created |
+| **Resolving** |  |
 | **Pending** | The transaction has not yet been delegated to a coordinator |
 | **Delegated** | The transaction has been sent to the current active coordinator |
 | **Assembling** | The coordinator has sent an assemble request to us and we have not yet sent the assembled transaction back to the coordinator |
+| **Signing** |  |
 | **Endorsement Gathering** | An assemble response has been sent to the active coordinator, who should now be gathering endorsements for the transaction. A dispatch confirmation request is expected in this state. |
 | **Prepared** | We know that the coordinator has got as far as preparing a public transaction for this transaction |
 | **Dispatched** | The active coordinator that this transaction was delegated to has dispatched the transaction to a public transaction manager for submission to the base ledger |

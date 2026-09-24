@@ -86,7 +86,7 @@ func (km *keyManager) rpcQueryKeys() rpcserver.RPCHandler {
 		jq query.QueryJSON,
 	) ([]*pldapi.KeyQueryEntry, error) {
 		ctx = log.WithComponent(ctx, "keymanager")
-		return km.QueryKeys(ctx, km.p.DB(), &jq)
+		return km.QueryKeys(ctx, km.p.NOTX(), &jq)
 	})
 }
 

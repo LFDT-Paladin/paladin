@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -58,7 +59,10 @@ func action_NudgeHandoverRequest(ctx context.Context, c *coordinator, _ common.E
 func (c *coordinator) sendHandoverRequest(ctx context.Context) error {
 	if c.pendingHandoverRequest == nil {
 		c.pendingHandoverRequest = common.NewIdempotentRequest(ctx, c.clock, c.requestTimeout, func(ctx context.Context, _ uuid.UUID) error {
-			return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, c.contractAddress)
+			return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, &engineProto.CoordinatorHandoverRequest{
+				FromNode:        c.nodeName,
+				ContractAddress: c.contractAddress.HexString(),
+			})
 		})
 		c.scheduleRequestTimeout(ctx)
 	}
@@ -136,12 +140,41 @@ func action_ProcessConfirmedTransactionsFromSnapshot(ctx context.Context, c *coo
 // Triggered as a transition action on State_Prepared → State_Active when the closing heartbeat arrives.
 func action_ImportStatesAndLocks(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.HeartbeatReceivedEvent)
-	snapshot := e.CoordinatorSnapshot
-	if len(snapshot.Locks) > 0 || len(snapshot.OutputStates) > 0 {
-		log.L(ctx).Debugf("action_ImportStatesAndLocks: importing %d output states and %d locks from previous coordinator snapshot", len(snapshot.OutputStates), len(snapshot.Locks))
-		c.grapher.ImportStatesAndLocks(ctx, snapshot.OutputStates, snapshot.Locks)
+	if e.CoordinatorSnapshot == nil {
+		return nil
+	}
+	stateSnapshot := e.CoordinatorSnapshot.StateSnapshot
+	if stateSnapshot != nil && (len(stateSnapshot.GetLocks()) > 0 || len(stateSnapshot.GetStates()) > 0) {
+		log.L(ctx).Debugf("action_ImportStatesAndLocks: importing %d output states and %d locks from previous coordinator snapshot", len(stateSnapshot.GetStates()), len(stateSnapshot.GetLocks()))
+		c.dropUnlabelledHandoverStates(ctx, stateSnapshot)
+		c.grapher.ImportStatesAndLocks(ctx, stateSnapshot)
 	}
 	return nil
+}
+
+// dropUnlabelledHandoverStates removes handover snapshot states that arrive without labels since
+// they cannot be exported as refs in an assemble request. This will have the effect of making the state
+// unavailable for selection at assembly time. In reality this should never occur as all Paladin nodes post
+// v1.1 should include labels in their handover snapshots, and there are other documented interface differences
+// which would stop v1.0 and v1.1+ nodes from participating in sequencing for the same contract.
+//
+// The labels of states that DO carry them are trusted as sent — we deliberately do not validate them
+// here. Validation will happen on the originator at the point a state is actually used to assemble a
+// transaction (ID recompute + label equality against the fetched data).
+func (c *coordinator) dropUnlabelledHandoverStates(ctx context.Context, stateSnapshot *prototk.StateSnapshot) {
+	kept := make([]*prototk.SnapshotState, 0, len(stateSnapshot.GetStates()))
+	var dropped []string
+	for _, snapState := range stateSnapshot.GetStates() {
+		if snapState.GetLabels() == nil {
+			dropped = append(dropped, snapState.GetState().GetId())
+			continue
+		}
+		kept = append(kept, snapState)
+	}
+	if len(dropped) > 0 {
+		log.L(ctx).Warnf("dropUnlabelledHandoverStates: dropping %d handover states without labels: %v", len(dropped), dropped)
+	}
+	stateSnapshot.States = kept
 }
 
 // Originators send only the delegated transactions that they believe the coordinator needs to know/be reminded about. Which transactions are
@@ -219,6 +252,8 @@ func (c *coordinator) getCoordinatorTransactionState(ctx context.Context, id uui
 }
 
 func (c *coordinator) getCoordinatorSigningIdentity() string {
+	c.signingIdentity.mu.Lock()
+	defer c.signingIdentity.mu.Unlock()
 	c.signingIdentity.used = true
 	return c.signingIdentity.value
 }
@@ -229,12 +264,12 @@ func action_RefreshBlockHeight(ctx context.Context, c *coordinator, _ common.Eve
 }
 
 // refreshBlockHeight queries the live block height, caches it in c.currentBlockHeight,
-// calls grapher.ForgetLocks, recomputes the priority list, and queues an internal
+// calls grapher.ForgetConfirmedLocks, recomputes the priority list, and queues an internal
 // EpochBoundaryReachedEvent when the effective block height advances to a new epoch.
 func (c *coordinator) refreshBlockHeight(ctx context.Context) {
 	liveHeight := c.engineIntegration.GetBlockHeight(ctx)
 	c.currentBlockHeight = liveHeight
-	c.grapher.ForgetLocks(ctx, uint64(liveHeight))
+	c.grapher.ForgetConfirmedLocks(ctx, uint64(liveHeight))
 	c.calculateCoordinatorPriorities(ctx)
 	newEffective := common.ComputeEffectiveBlockHeight(uint64(liveHeight), c.coordinatorSelectionBlockRange)
 	if newEffective != c.effectiveBlockHeight {
@@ -254,23 +289,27 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.transportWriter,
 		c.clock,
 		c.queueEventInternal,
+		c.enqueueForDispatch,
+		c.setDispatchedInFlight,
 		c.coordinatorTransactionHandleEvent,
 		c.getCoordinatorTransactionState,
 		func(ctx context.Context, nodes ...string) { c.updateEndorserCandidates(ctx, nodes...) },
 		c.engineIntegration,
-		c.refreshBlockHeight,                         
-		func() int64 { return c.currentBlockHeight }, 
+		c.refreshBlockHeight,
+		func() int64 { return c.currentBlockHeight },
 		c.blockHeightTolerance,
 		c.syncPoints,
 		c.components,
 		c.domainAPI,
-		c.dCtx,
 		c.requestTimeout,
 		c.stateTimeout,
 		c.closingGracePeriod,
 		c.baseLedgerRevertRetryThreshold,
 		c.assembleErrorRetryThreshhold,
+		c.signErrorRetryThreshhold,
+		c.prepareErrorRetry,
 		c.grapher,
+		c.stateViewProvider,
 		c.stateVisibilityTracker,
 		c.dependencyTracker,
 		c.metrics,
@@ -321,7 +360,7 @@ func (c *coordinator) addToDelegatedTransactions(
 		if c.transactionsByID[txn.ID] != nil {
 			inProgressTransactions++
 			previousTransaction = c.transactionsByID[txn.ID]
-			log.L(ctx).Debugf("transaction %s already being coordinated", txn.ID.String())
+			log.L(ctx).Tracef("transaction %s already being coordinated", txn.ID.String())
 			continue
 		}
 
@@ -390,7 +429,13 @@ func (c *coordinator) addToDelegatedTransactions(
 	}
 
 	// Acknowledge the delegate request. Optionally errors can be returned which the originator may use to base re-delegate decisions on
-	err = c.transportWriter.SendDelegationResponse(ctx, originatorNode, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementErrors, uint64(c.currentBlockHeight))
+	err = c.transportWriter.SendDelegationResponse(ctx, originatorNode, &engineProto.DelegationResponse{
+		DelegationId:    delegationID,
+		TransactionIds:  delegateAcknowledgementIDs,
+		DelegateNodeId:  originatorNode,
+		ContractAddress: c.contractAddress.HexString(),
+		Errors:          delegateAcknowledgementErrors,
+	})
 	if err != nil {
 		return err
 	}
@@ -408,9 +453,12 @@ func (c *coordinator) addToDelegatedTransactions(
 }
 
 func action_NewSigningIdentity(ctx context.Context, c *coordinator, _ common.Event) error {
+	c.signingIdentity.mu.Lock()
 	c.signingIdentity.value = fmt.Sprintf("domains.%s.submit.%s", c.contractAddress.String(), uuid.New())
 	c.signingIdentity.used = false
-	log.L(ctx).Debugf("new signing identity: %s", c.signingIdentity.value)
+	value := c.signingIdentity.value
+	c.signingIdentity.mu.Unlock()
+	log.L(ctx).Debugf("new signing identity: %s", value)
 	return nil
 }
 
@@ -429,9 +477,14 @@ func (c *coordinator) selectNextTransactionToAssemble(ctx context.Context) error
 
 	transactionSelectedEvent := &transaction.SelectedEvent{}
 	transactionSelectedEvent.TransactionID = txn.GetID()
-	err := txn.HandleEvent(ctx, transactionSelectedEvent)
-	return err
-
+	if err := txn.HandleEvent(ctx, transactionSelectedEvent); err != nil {
+		return err
+	}
+	// The transaction's Event_Selected handler synchronously transitions it to State_Assembling,
+	// so the slot is authoritatively occupied at this point.
+	c.assemblyInFlight = true
+	c.assemblingTxID = txn.GetID()
+	return nil
 }
 
 func (c *coordinator) addTransactionToBackOfPool(txn transaction.CoordinatorTransaction) {
@@ -443,6 +496,7 @@ func (c *coordinator) addTransactionToBackOfPool(txn transaction.CoordinatorTran
 		}
 	}
 	c.pooledTransactions = append(c.pooledTransactions, txn)
+	c.metrics.SetPooledTxns(len(c.pooledTransactions))
 }
 
 func (c *coordinator) popNextPooledTransaction() transaction.CoordinatorTransaction {
@@ -452,6 +506,7 @@ func (c *coordinator) popNextPooledTransaction() transaction.CoordinatorTransact
 	nextPooledTx := c.pooledTransactions[0]
 	c.pooledTransactions[0] = nil // clear reference so the backing array doesn't pin the transaction from GC
 	c.pooledTransactions = c.pooledTransactions[1:]
+	c.metrics.SetPooledTxns(len(c.pooledTransactions))
 	return nextPooledTx
 }
 
@@ -460,6 +515,7 @@ func (c *coordinator) removeTransactionFromPool(id uuid.UUID) {
 		if txn.GetID() == id {
 			c.pooledTransactions[i] = nil
 			c.pooledTransactions = append(c.pooledTransactions[:i], c.pooledTransactions[i+1:]...)
+			c.metrics.SetPooledTxns(len(c.pooledTransactions))
 			return
 		}
 	}
@@ -502,18 +558,6 @@ func action_PoolTransaction(ctx context.Context, c *coordinator, event common.Ev
 	return nil
 }
 
-func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, event common.Event) error {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	txn := c.transactionsByID[e.TransactionID]
-	if txn != nil {
-		select {
-		case c.dispatchQueue <- txn:
-		case <-ctx.Done():
-		}
-	}
-	return nil
-}
-
 func action_CleanUpTransactionsNotYetDispatched(ctx context.Context, c *coordinator, _ common.Event) error {
 	txns := c.getTransactionsNotInStates(ctx, []transaction.State{
 		transaction.State_Dispatched,
@@ -523,6 +567,10 @@ func action_CleanUpTransactionsNotYetDispatched(ctx context.Context, c *coordina
 	for _, txn := range txns {
 		c.cleanUpTransaction(ctx, txn.GetID())
 	}
+	// cleanUpTransaction deletes the assembling tx without a state transition so we
+	// need to reset the in flight flag here
+	c.assemblyInFlight = false
+	c.assemblingTxID = uuid.Nil
 	// Drain any Ready_For_Dispatch items still sitting in the dispatch channel.
 	// The dispatch loop is guaranteed to be stopped before this action runs (either by an
 	// explicit action_StopDispatchLoop earlier in the same sequence, or by State_Active's
@@ -557,21 +605,27 @@ func (c *coordinator) cleanUpTransaction(ctx context.Context, txID uuid.UUID) {
 	}
 }
 
+func action_ClearAssemblyInFlight(_ context.Context, c *coordinator, _ common.Event) error {
+	c.assemblyInFlight = false
+	c.assemblingTxID = uuid.Nil
+	return nil
+}
+
 func action_cancelCurrentlyAssemblingTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
 	log.L(ctx).Debug("cancelling any transaction currently being assembled")
-	assemblingTransactions := c.getTransactionsInStates(ctx, []transaction.State{
-		transaction.State_Assembling,
-	})
-	if len(assemblingTransactions) > 0 {
-		log.L(ctx).Debugf("cancelling assembling transaction: %s", assemblingTransactions[0].GetID().String())
-		err := assemblingTransactions[0].HandleEvent(ctx, &transaction.AssembleCancelledEvent{
-			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-				TransactionID: assemblingTransactions[0].GetID(),
-			},
-		})
-		return err
+	if !c.assemblyInFlight {
+		return nil
 	}
-	return nil
+	txn := c.transactionsByID[c.assemblingTxID]
+	if txn == nil {
+		return nil
+	}
+	log.L(ctx).Debugf("cancelling assembling transaction: %s", c.assemblingTxID.String())
+	return txn.HandleEvent(ctx, &transaction.AssembleCancelledEvent{
+		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+			TransactionID: c.assemblingTxID,
+		},
+	})
 }
 
 func validator_HeartBeatState(state ...common.CoordinatorState) statemachine.Validator[*coordinator] {

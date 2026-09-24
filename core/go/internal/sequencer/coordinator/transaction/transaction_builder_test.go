@@ -26,25 +26,32 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/stateview"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/statevisibilitytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatorstateviewmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,6 +69,7 @@ type TransactionBuilderForTesting struct {
 	originator                         string
 	originatorNode                     string
 	queueEventForCoordinator           func(context.Context, common.Event)
+	setDispatchedInFlight              func(txID uuid.UUID, inFlight bool)
 	domainSigningIdentity              string
 	coordinatorSigningIdentity         string
 	signerAddress                      *pldtypes.EthAddress
@@ -73,6 +81,7 @@ type TransactionBuilderForTesting struct {
 	useMockTransportWriter             bool
 	useMockClock                       bool
 	grapher                            grapher.Grapher
+	stateViewProvider                  stateview.Provider
 	stateVisibilityTracker             statevisibilitytracker.StateVisibilityStore
 	dependencyTracker                  dependencytracker.DependencyTracker
 	txn                                *coordinatorTransaction
@@ -90,10 +99,14 @@ type TransactionBuilderForTesting struct {
 	baseLedgerRevertRetryThreshold     int
 	assembleErrorCount                 int
 	assembleErrorRetryThreshhold       int
+	signErrorCount                     int
+	signErrorRetryThreshhold           int
+	prepareErrorRetry                  *retry.Retry
 	endorseToleranceByRequirement      map[string]int
 	revertCount                        int
 	currentBlockHeight                 int64
 	blockHeightTolerance               uint64
+	preparesOnReadyForDispatch         bool
 }
 
 // Function NewTransactionBuilderForTesting creates a TransactionBuilderForTesting with random values for all fields
@@ -103,7 +116,7 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		t:                         t,
 		originator:                "sender@node1",
 		originatorNode:            "node1",
-		queueEventForCoordinator:  func(context.Context, common.Event) {},
+		setDispatchedInFlight:     func(uuid.UUID, bool) {},
 		signerAddress:             nil,
 		latestSubmissionHash:      nil,
 		state:                     state,
@@ -125,7 +138,7 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		builder.privateTransactionBuilder.EndorsementComplete()
 	case State_Endorsement_Gathering:
 		//fine grained detail in this state needed to emulate what has already happened wrt endorsement requests and responses so far
-	case State_Blocked, State_Confirming_Dispatchable, State_Ready_For_Dispatch, State_Confirmed:
+	case State_Blocked, State_Confirming_Dispatchable, State_Preparing, State_Ready_For_Dispatch, State_Confirmed:
 		//we are emulating a transaction that has been passed State_Endorsement_Gathering so default to complete attestation plan
 		builder.privateTransactionBuilder.EndorsementComplete()
 	}
@@ -194,12 +207,12 @@ func (b *TransactionBuilderForTesting) NumberOfOutputStates(num int) *Transactio
 	return b
 }
 
-func (b *TransactionBuilderForTesting) InputStateIDs(stateIDs ...pldtypes.HexBytes) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) InputStateIDs(stateIDs ...string) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.InputStateIDs(stateIDs...)
 	return b
 }
 
-func (b *TransactionBuilderForTesting) ReadStateIDs(stateIDs ...pldtypes.HexBytes) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) ReadStateIDs(stateIDs ...string) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.ReadStateIDs(stateIDs...)
 	return b
 }
@@ -216,6 +229,11 @@ func (b *TransactionBuilderForTesting) Reverts(revertReason string) *Transaction
 
 func (b *TransactionBuilderForTesting) Grapher(grapher grapher.Grapher) *TransactionBuilderForTesting {
 	b.grapher = grapher
+	return b
+}
+
+func (b *TransactionBuilderForTesting) StateViewProvider(stateViewProvider stateview.Provider) *TransactionBuilderForTesting {
+	b.stateViewProvider = stateViewProvider
 	return b
 }
 
@@ -256,6 +274,11 @@ func (b *TransactionBuilderForTesting) CoordinatorSigningIdentity(identity strin
 
 func (b *TransactionBuilderForTesting) QueueEventForCoordinator(queueFn func(context.Context, common.Event)) *TransactionBuilderForTesting {
 	b.queueEventForCoordinator = queueFn
+	return b
+}
+
+func (b *TransactionBuilderForTesting) SetDispatchedInFlight(fn func(txID uuid.UUID, inFlight bool)) *TransactionBuilderForTesting {
+	b.setDispatchedInFlight = fn
 	return b
 }
 
@@ -374,6 +397,21 @@ func (b *TransactionBuilderForTesting) AssembleErrorRetryThreshold(threshold int
 	return b
 }
 
+func (b *TransactionBuilderForTesting) SignErrorCount(count int) *TransactionBuilderForTesting {
+	b.signErrorCount = count
+	return b
+}
+
+func (b *TransactionBuilderForTesting) SignErrorRetryThreshold(threshold int) *TransactionBuilderForTesting {
+	b.signErrorRetryThreshhold = threshold
+	return b
+}
+
+func (b *TransactionBuilderForTesting) PrepareErrorRetry(prepareErrorRetry *retry.Retry) *TransactionBuilderForTesting {
+	b.prepareErrorRetry = prepareErrorRetry
+	return b
+}
+
 func (b *TransactionBuilderForTesting) EndorseTolerance(tolerance int) *TransactionBuilderForTesting {
 	b.endorseToleranceByRequirement = map[string]int{"endorse-0": tolerance}
 	return b
@@ -404,7 +442,7 @@ func (b *TransactionBuilderForTesting) Address(address pldtypes.EthAddress) *Tra
 	return b
 }
 
-func (b *TransactionBuilderForTesting) PreAssembly(preAssembly *components.TransactionPreAssembly) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) PreAssembly(preAssembly *prototk.TransactionPreAssembly) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.PreAssembly(preAssembly)
 	return b
 }
@@ -454,12 +492,77 @@ type transactionDependencyMocks struct {
 	AllComponents       *componentsmocks.AllComponents
 	DomainAPI           *componentsmocks.DomainSmartContract
 	Domain              *componentsmocks.Domain
-	DomainContext       *componentsmocks.DomainContext
+	StateManager        *componentsmocks.StateManager
+	DomainQueryContext  *componentsmocks.DomainQueryContext
 	KeyManager          *componentsmocks.KeyManager
 	PublicTxManager     *componentsmocks.PublicTxManager
 	TXManager           *componentsmocks.TXManager
 	SequenceManager     *componentsmocks.SequencerManager
+	StateViewProvider   *coordinatorstateviewmocks.Provider
 	DB                  sqlmock.Sqlmock
+
+	// EnqueuedDispatches captures every dispatch the transaction places onto the coordinator's dispatch
+	// queue via enqueueForDispatch, so tests can assert on what the prepare built without a stored field.
+	EnqueuedDispatches []*syncpoints.PendingDispatch
+
+	// CoordinatorQueuedEvents receives every event the transaction queues for the coordinator (unless the
+	// test overrode QueueEventForCoordinator), most importantly the async prepare results. Tests drive the
+	// state machine forward by receiving from it and passing the event to HandleEvent; see
+	// deliverPrepareResult.
+	CoordinatorQueuedEvents chan common.Event
+}
+
+// deliverPrepareResult blocks until the transaction's prepare goroutine queues its result and
+// processes it via HandleEvent, mimicking the coordinator event loop. Other queued events (state
+// transitions, timeout intervals) are discarded — they are coordinator bookkeeping, not state
+// machine input for this transaction.
+func deliverPrepareResult(t *testing.T, ctx context.Context, txn *coordinatorTransaction, mocks *transactionDependencyMocks) common.Event {
+	for event := range mocks.CoordinatorQueuedEvents {
+		switch event.(type) {
+		case *PrepareSucceededEvent, *PrepareFailedEvent:
+			require.NoError(t, txn.HandleEvent(ctx, event))
+			return event
+		}
+	}
+	return nil
+}
+
+// PreparesOnReadyForDispatch makes the prepare spawned on the transition into State_Preparing succeed.
+// The prepare goroutine always calls PrepareTransaction and BuildNullifiers exactly once, so any test
+// that drives the transaction into State_Preparing must set this, then deliver the queued
+// Event_PrepareSucceeded (see deliverPrepareResult) to complete the transition into
+// State_Ready_For_Dispatch. It steers the PREPARE_TRANSACTION path, which builds a dispatch from the
+// transaction refs without further domain interaction. Tests that assert on the built dispatch itself
+// should set up their own mocks instead.
+func (b *TransactionBuilderForTesting) PreparesOnReadyForDispatch() *TransactionBuilderForTesting {
+	b.preparesOnReadyForDispatch = true
+	return b
+}
+
+func stubReadyForDispatchPrepare(txn *coordinatorTransaction, mocks *transactionDependencyMocks) {
+	txn.pt.PreAssembly.TransactionSpecification = &prototk.TransactionSpecification{
+		Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
+		From:   "sender@node1",
+	}
+	// State distribution during prepare requires each resolved output/info state to have a matching
+	// potential-state entry, so align them for whatever states the builder produced.
+	if pa := txn.pt.PostAssembly; pa != nil && pa.AssembleResponse != nil {
+		if len(pa.AssembleResponse.OutputStatesPotential) != len(pa.OutputStates) {
+			pa.AssembleResponse.OutputStatesPotential = make([]*prototk.NewState, len(pa.OutputStates))
+			for i := range pa.AssembleResponse.OutputStatesPotential {
+				pa.AssembleResponse.OutputStatesPotential[i] = &prototk.NewState{}
+			}
+		}
+		if len(pa.AssembleResponse.InfoStatesPotential) != len(pa.InfoStates) {
+			pa.AssembleResponse.InfoStatesPotential = make([]*prototk.NewState, len(pa.InfoStates))
+			for i := range pa.AssembleResponse.InfoStatesPotential {
+				pa.AssembleResponse.InfoStatesPotential[i] = &prototk.NewState{}
+			}
+		}
+	}
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.PrepareTransactionResult{PreparedPublicTransaction: &pldapi.TransactionInput{}}, nil).Once()
+	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil).Once()
 }
 
 func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transactionDependencyMocks) {
@@ -488,9 +591,10 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		PublicTxManager:     componentsmocks.NewPublicTxManager(b.t),
 		TXManager:           componentsmocks.NewTXManager(b.t),
 		SequenceManager:     componentsmocks.NewSequencerManager(b.t),
+		StateManager:        componentsmocks.NewStateManager(b.t),
+		DomainQueryContext:  componentsmocks.NewDomainQueryContext(b.t),
 		DomainAPI:           componentsmocks.NewDomainSmartContract(b.t),
 		Domain:              componentsmocks.NewDomain(b.t),
-		DomainContext:       componentsmocks.NewDomainContext(b.t),
 		DB:                  mp.Mock,
 	}
 
@@ -500,16 +604,36 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	mocks.AllComponents.On("TxManager").Return(mocks.TXManager).Maybe()
 	mocks.AllComponents.On("SequencerManager").Return(mocks.SequenceManager).Maybe()
 	mocks.AllComponents.On("Persistence").Return(mp.P).Maybe()
+	mocks.AllComponents.On("StateManager").Return(mocks.StateManager).Maybe()
+	mocks.StateManager.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mocks.DomainQueryContext).Maybe()
 	mocks.DomainAPI.On("Domain").Return(mocks.Domain).Maybe()
+	mocks.DomainAPI.On("Address").Return(*pldtypes.RandAddress()).Maybe()
 
 	// create the mocks needed for the NewTransaction call below
 	// the return values of these can be set by builder methods if needed
 	mocks.Domain.On("FixedSigningIdentity").Return("")
+	mocks.Domain.On("Name").Return("domain1").Maybe()
 	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		SubmitterSelection: b.submitterSelection,
 	})
 
 	privateTransaction := b.privateTransactionBuilder.Build()
+
+	mocks.CoordinatorQueuedEvents = make(chan common.Event, 100)
+	queueEventForCoordinator := b.queueEventForCoordinator
+	if queueEventForCoordinator == nil {
+		queueEventForCoordinator = func(_ context.Context, event common.Event) {
+			mocks.CoordinatorQueuedEvents <- event
+		}
+	}
+
+	if b.prepareErrorRetry == nil {
+		// Fast bounded retry so tests exercising prepare failures complete promptly.
+		b.prepareErrorRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+			RetryConfig: pldconf.RetryConfig{InitialDelay: confutil.P("1ms"), MaxDelay: confutil.P("2ms"), Factor: confutil.P(1.1)},
+			MaxAttempts: confutil.P(2),
+		})
+	}
 
 	var transportWriter transport.TransportWriter
 	if b.useMockTransportWriter {
@@ -527,6 +651,17 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		clock = common.RealClock()
 	}
 
+	// Default the stateview provider to a permissive mock: view open/close fire on every
+	// entry/exit of State_Assembling, and most tests do not assert on them. Tests that do can inject
+	// a strict mock via StateViewProvider(...).
+	stateViewProvider := b.stateViewProvider
+	if stateViewProvider == nil {
+		mocks.StateViewProvider = coordinatorstateviewmocks.NewProvider(b.t)
+		mocks.StateViewProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mocks.StateViewProvider.EXPECT().DeleteSnapshot(mock.Anything, mock.Anything).Return().Maybe()
+		stateViewProvider = mocks.StateViewProvider
+	}
+
 	txn := newTransaction(
 		ctx,
 		b.originator,
@@ -536,7 +671,11 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		func() string { return b.coordinatorSigningIdentity },
 		transportWriter,
 		clock,
-		b.queueEventForCoordinator,
+		queueEventForCoordinator,
+		func(_ context.Context, _ CoordinatorTransaction, pd *syncpoints.PendingDispatch) {
+			mocks.EnqueuedDispatches = append(mocks.EnqueuedDispatches, pd)
+		},
+		b.setDispatchedInFlight,
 		coordinatorTransactionHandleEvent(b.coordinatorTransactions),
 		coordinatorTransactionStateLookup(b.coordinatorTransactions),
 		func(context.Context, ...string) {}, // notifyEndorserCandidates
@@ -547,13 +686,15 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		mocks.SyncPoints,
 		mocks.AllComponents,
 		mocks.DomainAPI,
-		mocks.DomainContext,
 		time.Duration(b.requestTimeout),
 		time.Duration(b.stateTimeout),
 		b.finalizingGracePeriod,
 		b.baseLedgerRevertRetryThreshold,
 		b.assembleErrorRetryThreshhold,
+		b.signErrorRetryThreshhold,
+		b.prepareErrorRetry,
 		b.grapher,
+		stateViewProvider,
 		b.stateVisibilityTracker,
 		b.dependencyTracker,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
@@ -571,6 +712,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.revertReason = b.revertReason
 	txn.revertCount = b.revertCount
 	txn.assembleErrorCount = b.assembleErrorCount
+	txn.signErrorCount = b.signErrorCount
 	if b.endorseToleranceByRequirement != nil {
 		txn.endorseToleranceByRequirement = b.endorseToleranceByRequirement
 	}
@@ -595,9 +737,13 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 
 	if privateTransaction.PostAssembly != nil {
 		for _, state := range privateTransaction.PostAssembly.OutputStates {
-			err := b.grapher.AddMinter(ctx, []*components.FullState{state}, txn.pt.ID)
+			err := b.grapher.AddMinter(ctx, []*prototk.EndorsableState{state}, txn.pt.ID)
 			require.NoError(b.t, err)
 		}
+	}
+
+	if b.preparesOnReadyForDispatch {
+		stubReadyForDispatchPrepare(txn, mocks)
 	}
 
 	b.txn = txn
@@ -611,7 +757,7 @@ func (b *TransactionBuilderForTesting) BuildAssembleSuccessEvent() *AssembleSucc
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: b.txn.pt.ID,
 		},
-		PostAssembly: b.BuildPostAssembly(),
+		PostAssembly: b.BuildPostAssembly().AssembleResponse,
 		RequestID:    b.txn.pendingAssembleRequest.IdempotencyKey(),
 	}
 }
@@ -621,7 +767,7 @@ func (b *TransactionBuilderForTesting) BuildAssembleRevertEvent() *AssembleRever
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: b.txn.pt.ID,
 		},
-		PostAssembly: b.BuildPostAssembly(),
+		PostAssembly: b.BuildPostAssembly().AssembleResponse,
 		RequestID:    b.txn.pendingAssembleRequest.IdempotencyKey(),
 	}
 }
@@ -684,6 +830,6 @@ func (b *TransactionBuilderForTesting) BuildPostAssembly() *components.Transacti
 	return b.privateTransactionBuilder.BuildPostAssembly()
 }
 
-func (b *TransactionBuilderForTesting) BuildPreAssembly() *components.TransactionPreAssembly {
+func (b *TransactionBuilderForTesting) BuildPreAssembly() *prototk.TransactionPreAssembly {
 	return b.privateTransactionBuilder.BuildPreAssembly()
 }

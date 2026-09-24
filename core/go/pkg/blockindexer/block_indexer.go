@@ -43,8 +43,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/inflight"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 )
 
 type BlockIndexer interface {
@@ -113,6 +113,7 @@ type blockIndexer struct {
 	dispatcherDone             chan struct{}
 	rpcModule                  *rpcserver.RPCModule
 	ignoredTransactionTypes    []int64
+	eventStreamsStarted        chan struct{} // Notified each time the event streams have been (re)started
 }
 
 func NewBlockIndexer(ctx context.Context, config *pldconf.BlockIndexerConfig, wsConfig *pldconf.WSClientConfig, persistence persistence.Persistence) (_ BlockIndexer, err error) {
@@ -143,6 +144,7 @@ func newBlockIndexer(ctx context.Context, conf *pldconf.BlockIndexerConfig, pers
 		esBlockDispatchQueueLength: confutil.IntMin(conf.EventStreams.BlockDispatchQueueLength, 0, *pldconf.BlockIndexerDefaults.EventStreams.BlockDispatchQueueLength),
 		esCatchUpQueryPageSize:     confutil.IntMin(conf.EventStreams.CatchUpQueryPageSize, 0, *pldconf.BlockIndexerDefaults.EventStreams.CatchUpQueryPageSize),
 		dispatcherTap:              make(chan struct{}, 1),
+		eventStreamsStarted:        make(chan struct{}, 1),
 		ignoredTransactionTypes:    confutil.Int64Slice(conf.IgnoredTransactionTypes, pldconf.BlockIndexerDefaults.IgnoredTransactionTypes),
 	}
 	bi.highestConfirmedBlock.Store(&ConfirmedBlockMetadata{Number: -1, Timestamp: -1})
@@ -313,7 +315,7 @@ func (bi *blockIndexer) restoreCheckpoint() error {
 	// 2) We have a non-nil fromBlock - that is our checkpoint
 	// 3) We have a nil ("latest") fromBlock - we just need to wait for the next block
 	var blocks []*pldapi.IndexedBlock
-	err := bi.persistence.DB().
+	err := bi.persistence.DB(bi.parentCtxForReset).
 		Table("indexed_blocks").
 		Order("number DESC").
 		Limit(1).
@@ -678,22 +680,19 @@ func (bi *blockIndexer) writeBatch(ctx context.Context, batch *blockWriterBatch)
 			}
 
 			if err == nil && len(blocks) > 0 {
-				err = dbTX.DB().
-					WithContext(ctx).
+				err = dbTX.DB(ctx).
 					Table("indexed_blocks").
 					Create(blocks).
 					Error
 			}
 			if err == nil && len(transactions) > 0 {
-				err = dbTX.DB().
-					WithContext(ctx).
+				err = dbTX.DB(ctx).
 					Table("indexed_transactions").
 					CreateInBatches(transactions, bi.insertDBBatchSize).
 					Error
 			}
 			if err == nil && len(events) > 0 {
-				err = dbTX.DB().
-					WithContext(ctx).
+				err = dbTX.DB(ctx).
 					Table("indexed_events").
 					Omit("Transaction").
 					Omit("Event").
@@ -893,9 +892,8 @@ func (bi *blockIndexer) getReceiptRevertError(ctx context.Context, hash pldtypes
 func (bi *blockIndexer) GetIndexedBlockByNumber(ctx context.Context, number uint64) (*pldapi.IndexedBlock, error) {
 	ctx = log.WithComponent(ctx, "blockindexer")
 	var blocks []*pldapi.IndexedBlock
-	db := bi.persistence.DB()
+	db := bi.persistence.DB(ctx)
 	err := db.
-		WithContext(ctx).
 		Table("indexed_blocks").
 		Where("number = ?", number).
 		Find(&blocks).
@@ -913,9 +911,8 @@ func (bi *blockIndexer) GetIndexedTransactionByHash(ctx context.Context, hash pl
 
 func (bi *blockIndexer) getIndexedTransactionByHash(ctx context.Context, hashID pldtypes.Bytes32) (*pldapi.IndexedTransaction, error) {
 	var txns []*pldapi.IndexedTransaction
-	db := bi.persistence.DB()
+	db := bi.persistence.DB(ctx)
 	err := db.
-		WithContext(ctx).
 		Table("indexed_transactions").
 		Where("hash = ?", hashID).
 		Find(&txns).
@@ -929,9 +926,8 @@ func (bi *blockIndexer) getIndexedTransactionByHash(ctx context.Context, hashID 
 func (bi *blockIndexer) GetIndexedTransactionByNonce(ctx context.Context, from pldtypes.EthAddress, nonce uint64) (*pldapi.IndexedTransaction, error) {
 	ctx = log.WithComponent(ctx, "blockindexer")
 	var txns []*pldapi.IndexedTransaction
-	db := bi.persistence.DB()
+	db := bi.persistence.DB(ctx)
 	err := db.
-		WithContext(ctx).
 		Table("indexed_transactions").
 		Where(`"from" = ?`, from).
 		Where("nonce = ?", nonce).
@@ -946,9 +942,8 @@ func (bi *blockIndexer) GetIndexedTransactionByNonce(ctx context.Context, from p
 func (bi *blockIndexer) GetBlockTransactionsByNumber(ctx context.Context, blockNumber int64) ([]*pldapi.IndexedTransaction, error) {
 	ctx = log.WithComponent(ctx, "blockindexer")
 	var txns []*pldapi.IndexedTransaction
-	db := bi.persistence.DB()
+	db := bi.persistence.DB(ctx)
 	err := db.
-		WithContext(ctx).
 		Table("indexed_transactions").
 		Order("block_number").
 		Order("transaction_index").
@@ -961,9 +956,8 @@ func (bi *blockIndexer) GetBlockTransactionsByNumber(ctx context.Context, blockN
 func (bi *blockIndexer) GetTransactionEventsByHash(ctx context.Context, hash pldtypes.Bytes32) ([]*pldapi.IndexedEvent, error) {
 	ctx = log.WithComponent(ctx, "blockindexer")
 	var events []*pldapi.IndexedEvent
-	db := bi.persistence.DB()
+	db := bi.persistence.DB(ctx)
 	err := db.
-		WithContext(ctx).
 		Table("indexed_events").
 		Where("transaction_hash = ?", hash).
 		Order("log_index").
@@ -975,9 +969,8 @@ func (bi *blockIndexer) GetTransactionEventsByHash(ctx context.Context, hash pld
 func (bi *blockIndexer) ListTransactionEvents(ctx context.Context, lastBlock int64, lastIndex, limit int) ([]*pldapi.IndexedEvent, error) {
 	ctx = log.WithComponent(ctx, "blockindexer")
 	var events []*pldapi.IndexedEvent
-	db := bi.persistence.DB()
+	db := bi.persistence.DB(ctx)
 	q := db.
-		WithContext(ctx).
 		Table("indexed_events").
 		Joins("Block").
 		Where("indexed_events.block_number > ?", lastBlock).
@@ -1077,8 +1070,8 @@ func (bi *blockIndexer) QueryIndexedBlocks(ctx context.Context, jq *query.QueryJ
 	if jq.Limit == nil || *jq.Limit == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgBlockIndexerLimitRequired)
 	}
-	db := bi.persistence.DB()
-	q := db.Table("indexed_blocks").WithContext(ctx)
+	db := bi.persistence.DB(ctx)
+	q := db.Table("indexed_blocks")
 	if jq != nil {
 		q = filters.BuildGORM(ctx, jq, q, IndexedBlockFilters)
 	}
@@ -1092,8 +1085,8 @@ func (bi *blockIndexer) QueryIndexedTransactions(ctx context.Context, jq *query.
 	if jq.Limit == nil || *jq.Limit == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgBlockIndexerLimitRequired)
 	}
-	db := bi.persistence.DB()
-	q := db.Table("indexed_transactions").Joins("Block").WithContext(ctx)
+	db := bi.persistence.DB(ctx)
+	q := db.Table("indexed_transactions").Joins("Block")
 	if hasPaladinReceipt {
 		q = q.Where(`EXISTS (SELECT 1 FROM transaction_receipts WHERE "transaction_receipts"."tx_hash" = "indexed_transactions"."hash")`)
 	}
@@ -1110,8 +1103,8 @@ func (bi *blockIndexer) QueryIndexedEvents(ctx context.Context, jq *query.QueryJ
 	if jq.Limit == nil || *jq.Limit == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgBlockIndexerLimitRequired)
 	}
-	db := bi.persistence.DB()
-	q := db.Table("indexed_events").Joins("Block").WithContext(ctx)
+	db := bi.persistence.DB(ctx)
+	q := db.Table("indexed_events").Joins("Block")
 	if jq != nil {
 		q = filters.BuildGORM(ctx, jq, q, IndexedEventFilters)
 	}

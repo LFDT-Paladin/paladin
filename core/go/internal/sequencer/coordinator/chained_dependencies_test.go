@@ -17,15 +17,14 @@ package coordinator
 
 import (
 	"context"
+	"runtime"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
-	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -55,23 +54,7 @@ func (s *ChainedDependenciesSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.originator = "sender@senderNode"
 
-	s.builder = NewCoordinatorBuilderForTesting(s.T(), State_Idle)
-	mockDomain := componentsmocks.NewDomain(s.T())
-	mockDomain.On("FixedSigningIdentity").Return("")
-	s.builder.GetDomainAPI().On("Domain").Return(mockDomain)
-	s.builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
-	})
-	s.builder.GetDomainAPI().On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		tx := args.Get(2).(*components.PrivateTransaction)
-		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
-	}).Return(nil).Maybe()
-	s.builder.GetSequencerManager().On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
-
-	config := s.builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(-1)
-	s.builder.OverrideSequencerConfig(config)
-	s.builder.CurrentActiveCoordinator("node1")
+	s.builder = NewCoordinatorBuilderForTesting(s.T(), State_Idle).CurrentActiveCoordinator("node1")
 
 	s.txBuilders = make(map[uuid.UUID]*testutil.PrivateTransactionBuilderForTesting)
 	s.txns = make(map[uuid.UUID]*components.PrivateTransaction)
@@ -80,10 +63,16 @@ func (s *ChainedDependenciesSuite) SetupTest() {
 func (s *ChainedDependenciesSuite) buildCoordinator() {
 	s.c, s.mocks = s.builder.Build()
 	s.mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
-	s.mocks.EngineIntegration.On("WriteStatesForTransaction", mock.Anything, mock.Anything).Return(nil).Maybe()
-	s.mocks.EngineIntegration.On("MapPotentialStates", mock.Anything, mock.Anything, mock.Anything).Return(([]*components.StateUpsert)(nil), nil).Maybe()
-	s.mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	s.mocks.EngineIntegration.On("ResolveStatesForTransaction", mock.Anything, mock.Anything).Return(nil).Maybe()
+	s.mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything).Return(nil).Maybe()
 	s.mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+	s.mocks.SequencerManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	s.mocks.Domain.On("FixedSigningIdentity").Return("")
+	s.mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
+	s.mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.PrepareTransactionResult{PreparedPrivateTransaction: &pldapi.TransactionInput{}}, nil).Maybe()
 }
 
 // ---------- helpers ----------
@@ -94,7 +83,7 @@ func (s *ChainedDependenciesSuite) newTx(chainedDeps ...uuid.UUID) uuid.UUID {
 		Address(s.builder.GetContractAddress()).
 		Originator(s.originator).
 		NumberOfRequiredEndorsers(1)
-	pa := &components.TransactionPreAssembly{
+	pa := &prototk.TransactionPreAssembly{
 		TransactionSpecification: &prototk.TransactionSpecification{
 			From:   s.originator,
 			Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
@@ -102,7 +91,11 @@ func (s *ChainedDependenciesSuite) newTx(chainedDeps ...uuid.UUID) uuid.UUID {
 	}
 	if len(chainedDeps) > 0 {
 		b.ChainedDependencies(chainedDeps...)
-		pa.ChainedDependsOn = chainedDeps
+		chainedDependsOn := make([]string, len(chainedDeps))
+		for i, id := range chainedDeps {
+			chainedDependsOn[i] = id.String()
+		}
+		pa.ChainedDependsOn = chainedDependsOn
 	}
 	b.PreAssembly(pa)
 	txn := b.BuildSparse()
@@ -141,7 +134,7 @@ func (s *ChainedDependenciesSuite) progressToReadyForDispatch(txIDs ...uuid.UUID
 		s.handleEvent(&transaction.AssembleSuccessEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: id},
 			RequestID:            rec.AssembleKeyForTx(id),
-			PostAssembly:         b.BuildPostAssembly(),
+			PostAssembly:         b.BuildPostAssembly().AssembleResponse,
 		})
 
 		endorser := b.GetEndorserIdentityLocator(0)
@@ -156,7 +149,23 @@ func (s *ChainedDependenciesSuite) progressToReadyForDispatch(txIDs ...uuid.UUID
 			RequestID:            rec.DispatchConfirmKeyForTx(id),
 		})
 
-		s.assertInState(transaction.State_Ready_For_Dispatch, id)
+		// Approval moves the transaction into Preparing and spawns the prepare goroutine; keep
+		// draining the coordinator queue until the prepare result lands and completes the
+		// transition. The suite-level test timeout bounds this loop.
+		s.waitForState(transaction.State_Ready_For_Dispatch, id)
+	}
+}
+
+func (s *ChainedDependenciesSuite) waitForState(state transaction.State, txID uuid.UUID) {
+	s.T().Helper()
+	for {
+		for _, tx := range s.c.getTransactionsInStates(s.ctx, []transaction.State{state}) {
+			if tx.GetID() == txID {
+				return
+			}
+		}
+		s.Require().NoError(s.c.stateMachineEventLoop.DrainPendingEvents(s.ctx))
+		runtime.Gosched()
 	}
 }
 
@@ -178,7 +187,7 @@ func (s *ChainedDependenciesSuite) injectRevert(txID uuid.UUID, retriable bool) 
 	if retriable {
 		msg = "retriable"
 	}
-	s.builder.GetDomainAPI().On("IsBaseLedgerRevertRetryable", mock.Anything, []byte(revertReason)).
+	s.mocks.DomainAPI.On("IsBaseLedgerRevertRetryable", mock.Anything, []byte(revertReason)).
 		Return(retriable, msg, nil).Maybe()
 
 	nonce := pldtypes.HexUint64(42)
@@ -188,6 +197,7 @@ func (s *ChainedDependenciesSuite) injectRevert(txID uuid.UUID, retriable bool) 
 		Hash:                 pldtypes.Bytes32(pldtypes.RandBytes(32)),
 		RevertReason:         revertReason,
 		FailureMessage:       msg,
+		OnChain:              pldtypes.OnChainLocation{Type: pldtypes.OnChainTransaction},
 	})
 }
 
@@ -297,6 +307,7 @@ func (s *ChainedDependenciesSuite) TestEvictionCascade() {
 	s.buildCoordinator()
 	a := s.newTx()
 	b := s.newTx(a)
+	// Both A and B are evicted and cleaned up; ResetTransactions is called once per eviction.
 
 	s.delegate(a, b)
 	s.assertInState(transaction.State_Assembling, a)

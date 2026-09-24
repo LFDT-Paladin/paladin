@@ -30,7 +30,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 const (
@@ -88,7 +88,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 	var acksToSend []*ackInfo
 	statesToAdd := make(map[string][]*stateAndAck)
 	domainsWithPrivacyGroups := make(map[string]bool)
-	nullifierUpserts := make(map[string][]*components.NullifierUpsert)
+	nullifiersToWrite := make(map[string][]*pldapi.StateNullifier)
 	var preparedTxnToAdd []*components.PreparedTransactionWithRefs
 	var txReceiptsToFinalize []*components.ReceiptInput
 	var txPublicTXSubmissionsToPersist []*pldapi.PublicTxWithBinding // public transaction submissions
@@ -116,10 +116,10 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 				log.L(ctx).Debugf("Received state distribution domain=%s stateId=%s contract=%s msgId=%s", sd.Domain, sd.StateID, sd.ContractAddress, v.msg.MessageID)
 				if sd.NullifierAlgorithm != nil && sd.NullifierVerifierType != nil && sd.NullifierPayloadType != nil {
 					// We need to build any nullifiers that are required, before we dispatch to persistence
-					var nullifier *components.NullifierUpsert
+					var nullifier *pldapi.StateNullifier
 					nullifier, err = tm.sequencerManager.BuildNullifier(ctx, tm.keyManager.KeyResolverForDBTX(dbTX), sd)
 					if err == nil {
-						nullifierUpserts[sd.Domain] = append(nullifierUpserts[sd.Domain], nullifier)
+						nullifiersToWrite[sd.Domain] = append(nullifiersToWrite[sd.Domain], nullifier)
 					}
 				}
 			}
@@ -272,7 +272,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			ackQuery[i] = a.MessageID
 		}
 		var matchedMsgs []*pldapi.ReliableMessage
-		err := dbTX.DB().WithContext(ctx).
+		err := dbTX.DB(ctx).
 			Model(&pldapi.ReliableMessage{}).
 			Select("id").
 			Where("id IN ?", ackQuery).
@@ -322,7 +322,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 	}
 
 	// Write any nullifiers we generated
-	for domain, nullifiers := range nullifierUpserts {
+	for domain, nullifiers := range nullifiersToWrite {
 		if err := tm.stateManager.WriteNullifiersForReceivedStates(ctx, dbTX, domain, nullifiers); err != nil {
 			return nil, err
 		}

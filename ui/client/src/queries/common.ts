@@ -34,5 +34,9 @@ export const returnResponse = async (
   if (!res.ok && !ignoreStatuses.includes(res.status)) {
     throw new Error(errorMsg);
   }
-  return (await res.json()).result;
+  const body = await res.json();
+  if (body.error) {
+    throw new Error(body.error.message || errorMsg);
+  }
+  return body.result;
 };

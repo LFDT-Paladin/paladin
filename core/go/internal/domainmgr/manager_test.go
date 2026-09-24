@@ -24,12 +24,13 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/statemgr"
 	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/ethclientmocks"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
@@ -90,6 +91,7 @@ func newTestDomainManager(t *testing.T, realDB bool, conf *pldconf.DomainManager
 	allComponents.On("GroupManager").Maybe().Return(mc.groupManager)
 	mc.groupManager.On("QueryGroups", mock.Anything, mock.Anything, mock.Anything).Maybe().Return([]*pldapi.PrivacyGroup{}, nil)
 	mc.transportMgr.On("LocalNodeName").Return("node1").Maybe()
+	allComponents.On("MetricsManager").Return(metrics.NewMetricsManager(ctx)).Maybe()
 
 	var p persistence.Persistence
 	var err error

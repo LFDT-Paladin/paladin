@@ -24,7 +24,9 @@ import (
 func guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx context.Context, txn *coordinatorTransaction) bool {
 	// Has this transaction been in the same state for longer than the finalizing grace period?
 	// most useful to know this once we have reached one of the terminal states - Reverted or Committed
-	return txn.heartbeatIntervalsSinceStateChange >= txn.finalizingGracePeriod
+	// measure number of complete heartbeat interval periods - e.g. count of 2 means
+	// 1 full heartbeat interval has elapsed, hence use of > not >=
+	return txn.heartbeatIntervalsSinceStateChange > txn.finalizingGracePeriod
 }
 
 // action_FinalizeAsUnknownByOriginator is called when the originator reports that it doesn't recognize
@@ -38,10 +40,5 @@ func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *coordinatorT
 
 func (t *coordinatorTransaction) finalizeAsUnknownByOriginator(_ context.Context) error {
 	t.clearTimeoutSchedules()
-	// Note: ResetTransactions is not called here because Event_TransactionUnknownByOriginator
-	// is only handled in State_Assembling, which is before WriteLockStatesForTransaction has
-	// been called -- so no creatingStates or txLocks exist in the domain context for this
-	// transaction's current assembly attempt. If the state machine is ever extended to handle
-	// this event in post-assembly states, ResetTransactions must be added here.
 	return nil
 }

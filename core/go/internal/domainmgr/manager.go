@@ -29,7 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
@@ -366,7 +366,6 @@ func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persisten
 				}
 			}
 			return result, err
-
 		},
 	}
 	return qw.Run(ctx, dbTX)
@@ -374,10 +373,9 @@ func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persisten
 
 func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistence.DBTX, setWhere func(db *gorm.DB) *gorm.DB) (pscLoadResult, *domainContract, error) {
 	var contracts []*PrivateSmartContract
-	query := dbTX.DB().Table("private_smart_contracts")
+	query := dbTX.DB(ctx).Table("private_smart_contracts")
 	query = setWhere(query)
 	err := query.
-		WithContext(ctx).
 		Limit(1).
 		Find(&contracts).
 		Error

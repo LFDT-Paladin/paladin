@@ -107,6 +107,10 @@ func TestHexUint256(t *testing.T) {
 	err = v.Scan("wrong000000000000000000000000000000000000000000007fffffffffffffff")
 	assert.Regexp(t, "PD020013", err)
 
+	// Negative values are serialized using their absolute value
+	assert.Equal(t, "0x01", MustParseHexUint256("-1").HexString0xPrefix())
+	assert.Equal(t, "0xff", MustParseHexUint256("-255").HexString0xPrefix())
+
 	assert.True(t, ((*HexUint256)(nil)).NilOrZero())
 
 	dbv, err = ((*HexUint256)(nil)).Value()

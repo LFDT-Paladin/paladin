@@ -68,7 +68,10 @@ func (h *prepareBurnUnlockHandler) checkAllowedForFrom(ctx context.Context, tx *
 		return nil
 	}
 
-	localNodeName, _ := h.noto.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	localNodeName, err := h.noto.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	if err != nil {
+		return err
+	}
 	fromQualified, err := pldtypes.PrivateIdentityLocator(from).FullyQualified(ctx, localNodeName.Name)
 	if err != nil {
 		return err
@@ -126,6 +129,11 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(lockedInputStates.total), identityList{notaryID, fromID})
 	if err != nil {
 		return nil, err
+	}
+	// The cancel outputs are returned to the lock owner if the lock is cancelled, so like any
+	// other unlocked coin they need a nullifier to be spendable
+	if tx.DomainConfig.IsNullifierVariant() {
+		h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
 	}
 
 	// Build and encode the unlock data (separate to the data for this TX)
@@ -267,7 +275,7 @@ func (h *prepareBurnUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *typ
 	}
 
 	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
-	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
+	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, req.StateQueryContext, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}

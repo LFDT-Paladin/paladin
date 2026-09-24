@@ -23,7 +23,7 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"golang.org/x/crypto/sha3"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"

@@ -52,16 +52,33 @@ jobs:
       paladin-image-tag: ${{ github.sha }}
       operator-image: paladin.io/paladin-operator
       operator-image-tag: ${{ github.sha }}
-  
+
+  validate-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check all examples have a verify script
+        run: |
+          failed=0
+          for pkg in examples/*/package.json; do
+            example=$(dirname "$pkg" | xargs basename)
+            [ "$example" = "common" ] && continue
+            if ! jq -e '.scripts.verify' "$pkg" > /dev/null 2>&1; then
+              echo "ERROR: examples/$example is missing a 'verify' script in package.json"
+              failed=1
+            fi
+          done
+          [ $failed -eq 0 ] || exit 1
+
   # Mock job to ensure PR restriction on "build" passes
   build:
-    needs: [build-project, coordination-and-component-tests, chart-build]
+    needs: [build-project, coordination-and-component-tests, chart-build, validate-examples]
     runs-on: ubuntu-latest
     if: always()  # This ensures the job runs even if previous jobs fail
     steps:
       - name: Check if all dependencies succeeded
         run: |
-          if [[ "${{ needs.build-project.result }}" != "success" || "${{ needs.coordination-and-component-tests.result }}" != "success" || "${{ needs.chart-build.result }}" != "success" ]]; then
+          if [[ "${{ needs.build-project.result }}" != "success" || "${{ needs.coordination-and-component-tests.result }}" != "success" || "${{ needs.chart-build.result }}" != "success" || "${{ needs.validate-examples.result }}" != "success" ]]; then
             echo "A dependent job has failed. Marking this job as failed."
             exit 1
           fi

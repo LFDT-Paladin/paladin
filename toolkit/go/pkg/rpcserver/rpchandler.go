@@ -31,10 +31,10 @@ import (
 )
 
 type handlerResult struct {
-	sendRes bool
-	isOK    bool
-	res     any
-	postSend func()
+	sendRes    bool
+	httpStatus int // 0 or 200 = return 200 OK. Use 401/403 for auth failures and 500 only for genuine internal errors
+	res        any
+	postSend   func()
 }
 
 func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketConnection) handlerResult {
@@ -55,8 +55,8 @@ func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketC
 			log.L(ctx).Errorf("Bad RPC array received %s", b)
 			return s.replyRPCParseError(ctx, b, err)
 		}
-		batchRes, isOK, postSend := s.handleRPCBatch(ctx, rpcArray, wsc)
-		return handlerResult{isOK: isOK, sendRes: true, res: batchRes, postSend: postSend}
+		batchRes, postSend := s.handleRPCBatch(ctx, rpcArray, wsc)
+		return handlerResult{sendRes: true, res: batchRes, postSend: postSend}
 	}
 
 	var rpcRequest rpcclient.RPCRequest
@@ -66,7 +66,7 @@ func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketC
 	}
 	startTime := time.Now()
 	log.L(ctx).Debugf("RPC-server[%s] --> %s", rpcRequest.ID, rpcRequest.Method)
-	res, isOK, postSend := s.processRPC(ctx, &rpcRequest, wsc)
+	res, httpStatus, postSend := s.processRPC(ctx, &rpcRequest, wsc)
 	durationMS := float64(time.Since(startTime)) / float64(time.Millisecond)
 	if res != nil && res.Error != nil {
 		log.L(ctx).Errorf("RPC-server[%s] <-- %s [%.2fms]: %s", rpcRequest.ID.StringValue(), rpcRequest.Method, durationMS, res.Error.Message)
@@ -76,14 +76,13 @@ func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketC
 	if log.IsTraceEnabled() {
 		log.L(ctx).Tracef("RPC-server[%s] <-- %s", rpcRequest.ID.StringValue(), pldtypes.JSONString(res))
 	}
-	return handlerResult{isOK: isOK, sendRes: res != nil, res: res, postSend: postSend}
+	return handlerResult{httpStatus: httpStatus, sendRes: res != nil, res: res, postSend: postSend}
 
 }
 
 func (s *rpcServer) replyRPCParseError(ctx context.Context, b []byte, err error) handlerResult {
 	log.L(ctx).Errorf("Request could not be parsed (err=%v): %s", err, b)
 	return handlerResult{
-		isOK:    false,
 		sendRes: true,
 		res: rpcclient.NewRPCErrorResponse(
 			i18n.NewError(ctx, pldmsgs.MsgJSONRPCInvalidRequest),
@@ -106,20 +105,19 @@ func (s *rpcServer) sniffFirstByte(data []byte) byte {
 	return 0x00
 }
 
-func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RPCRequest, wsc *webSocketConnection) ([]*rpcclient.RPCResponse, bool, func()) {
+func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RPCRequest, wsc *webSocketConnection) ([]*rpcclient.RPCResponse, func()) {
 
 	// Kick off a routine to fill in each
 	rpcResponses := make([]*rpcclient.RPCResponse, len(rpcArray))
 	postSends := make([]func(), len(rpcArray))
-	results := make(chan bool)
+	done := make(chan struct{})
 	for i, r := range rpcArray {
 		responseNumber := i
 		rpcRequest := r
 		go func() {
-			var ok bool
 			startTime := time.Now()
 			log.L(ctx).Debugf("RPC-server[%v] (b=%d) --> %s", rpcRequest.ID.StringValue(), i, rpcRequest.Method)
-			res, ok, postSend := s.processRPC(ctx, rpcRequest, wsc)
+			res, _, postSend := s.processRPC(ctx, rpcRequest, wsc)
 			durationMS := float64(time.Since(startTime)) / float64(time.Millisecond)
 			if res != nil && res.Error != nil {
 				log.L(ctx).Errorf("RPC-server[%s] (b=%d) <-- %s [%.2fms]: %s", rpcRequest.ID.StringValue(), i, rpcRequest.Method, durationMS, res.Error.Message)
@@ -131,18 +129,14 @@ func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RP
 			}
 			rpcResponses[responseNumber] = res
 			postSends[responseNumber] = postSend
-			results <- ok
+			done <- struct{}{}
 		}()
 	}
-	failCount := 0
 	for range rpcResponses {
-		ok := <-results
-		if !ok {
-			failCount++
-		}
+		<-done
 	}
-	// Only return a failure response code if all the requests in the batch failed
-	return rpcResponses, failCount != len(rpcArray), func() {
+	// Batches always use HTTP 200 regardless of individual response success/failure
+	return rpcResponses, func() {
 		for _, postSend := range postSends {
 			if postSend != nil {
 				postSend()

@@ -32,15 +32,14 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenLessThan
 	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenEqual(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		FinalizingGracePeriod(5).
 		HeartbeatIntervalsSinceStateChange(5).
 		Build()
 
-	// Should return true when heartbeat intervals equals grace period
-	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
@@ -58,10 +57,9 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroGracePeriod(t
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		FinalizingGracePeriod(0).
-		HeartbeatIntervalsSinceStateChange(0).
+		HeartbeatIntervalsSinceStateChange(1).
 		Build()
 
-	// Should return true when both are zero (0 >= 0)
 	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
@@ -90,4 +88,3 @@ func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedul
 	// Verify the cancel function was called
 	assert.True(t, cancelCalled, "assemble request timeout cancel should have been called")
 }
-

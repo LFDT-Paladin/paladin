@@ -29,11 +29,24 @@ import (
 
 const testDomain = "domain1"
 
+// lockControlledPersistence wraps a real Persistence and allows tests to control the
+// outcome of TakeNamedLock without touching the underlying DB connection.
+type lockControlledPersistence struct {
+	persistence.Persistence
+	lockErr   error
+	lockCalls int
+}
+
+func (p *lockControlledPersistence) TakeNamedLock(_ context.Context, _ persistence.DBTX, _ string) error {
+	p.lockCalls++
+	return p.lockErr
+}
+
 // queryAllPendingRows fetches every row from pending_private_state_data.
 func queryAllPendingRows(t *testing.T, ss *stateManager) []pendingPrivateStateData {
 	t.Helper()
 	var rows []pendingPrivateStateData
-	err := ss.p.DB().Find(&rows).Error
+	err := ss.p.DB(context.Background()).Find(&rows).Error
 	require.NoError(t, err)
 	return rows
 }
@@ -41,7 +54,7 @@ func queryAllPendingRows(t *testing.T, ss *stateManager) []pendingPrivateStateDa
 // seedPendingRow inserts a row directly, bypassing business logic.
 func seedPendingRow(t *testing.T, ss *stateManager, contract string, stateID pldtypes.HexBytes, blockNumber int64) {
 	t.Helper()
-	err := ss.p.DB().Create(&pendingPrivateStateData{
+	err := ss.p.DB(context.Background()).Create(&pendingPrivateStateData{
 		StateID:     stateID.String(),
 		Contract:    contract,
 		BlockNumber: blockNumber,
@@ -222,6 +235,35 @@ func TestWritePendingPrivateStateDataBatch_MultipleContracts(t *testing.T) {
 	assert.Equal(t, int64(51), rowByID[id2.String()].BlockNumber)
 }
 
+func TestWritePendingPrivateStateDataBatch_LockAcquisitionError(t *testing.T) {
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	wrapper := &lockControlledPersistence{Persistence: ss.p, lockErr: fmt.Errorf("lock error")}
+	ss.p = wrapper
+
+	contractAddr := *pldtypes.RandAddress()
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	entries := []components.PendingPrivateStateDataEntry{makePendingEntry(stateID, contractAddr, 10)}
+
+	err := ss.WritePendingPrivateStateDataBatch(ctx, ss.p.NOTX(), testDomain, entries)
+	require.ErrorContains(t, err, "lock error")
+	assert.Equal(t, 1, wrapper.lockCalls)
+	assert.Empty(t, queryAllPendingRows(t, ss))
+}
+
+func TestWritePendingPrivateStateDataBatch_EmptyBatch_SkipsLock(t *testing.T) {
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	wrapper := &lockControlledPersistence{Persistence: ss.p}
+	ss.p = wrapper
+
+	err := ss.WritePendingPrivateStateDataBatch(ctx, ss.p.NOTX(), testDomain, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, wrapper.lockCalls)
+}
+
 // ─── updatePendingPrivateStateData ─────────────────────────────────────────────────────
 
 func TestUpdatePendingPrivateStateData_EmptyList(t *testing.T) {
@@ -315,6 +357,36 @@ func TestUpdatePendingPrivateStateData_PartialArrivals(t *testing.T) {
 	assert.Equal(t, id2.String(), rows[0].StateID)
 }
 
+func TestUpdatePendingPrivateStateData_LockAcquisitionError(t *testing.T) {
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	contractAddr := *pldtypes.RandAddress()
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	seedPendingRow(t, ss, contractAddr.String(), stateID, 10)
+
+	wrapper := &lockControlledPersistence{Persistence: ss.p, lockErr: fmt.Errorf("lock error")}
+	ss.p = wrapper
+
+	err := ss.updatePendingPrivateStateData(ctx, ss.p.NOTX(), []pldtypes.HexBytes{stateID})
+	require.ErrorContains(t, err, "lock error")
+	assert.Equal(t, 1, wrapper.lockCalls)
+	// Row must still be present — the delete did not run.
+	assert.Len(t, queryAllPendingRows(t, ss), 1)
+}
+
+func TestUpdatePendingPrivateStateData_EmptyList_SkipsLock(t *testing.T) {
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	wrapper := &lockControlledPersistence{Persistence: ss.p}
+	ss.p = wrapper
+
+	err := ss.updatePendingPrivateStateData(ctx, ss.p.NOTX(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, wrapper.lockCalls)
+}
+
 // ─── CheckPendingPrivateStateDataForContract ──────────────────────────────────────────
 
 func TestCheckPendingPrivateStateDataForContract_NoRows_Complete(t *testing.T) {
@@ -374,5 +446,17 @@ func TestCheckPendingPrivateStateDataForContract_MultipleRows_Incomplete(t *test
 
 	complete, err := ss.CheckPendingPrivateStateDataForContract(ctx, ss.p.NOTX(), contractAddr.String(), 100)
 	require.NoError(t, err)
+	assert.False(t, complete)
+}
+
+func TestCheckPendingPrivateStateDataForContract_DBError(t *testing.T) {
+	ctx, ss, db, _, done := newDBMockStateManager(t)
+	defer done()
+
+	db.ExpectQuery("SELECT.*count.*pending_private_state_data").WillReturnError(fmt.Errorf("db count error"))
+
+	contractAddr := *pldtypes.RandAddress()
+	complete, err := ss.CheckPendingPrivateStateDataForContract(ctx, ss.p.NOTX(), contractAddr.String(), 100)
+	require.ErrorContains(t, err, "db count error")
 	assert.False(t, complete)
 }

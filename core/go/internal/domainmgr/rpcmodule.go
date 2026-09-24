@@ -143,12 +143,11 @@ func (dm *domainManager) rpcInvokeRPC() rpcserver.RPCHandler {
 			if err != nil {
 				return err
 			}
-			if stateQualifier != "" && stateQualifier != pldapi.StateStatusAvailable {
+			if stateQualifier != "" && stateQualifier != pldapi.StateStatusConfirmed {
 				return i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
 			}
-			dCtx := dm.stateStore.NewDomainContext(ctx, sc.Domain(), address)
-			defer dCtx.Close()
-			resultJSON, err = sc.InvokeRPC(ctx, dCtx, dbTX, rpcCall)
+			dqc := dm.stateStore.NewDomainQueryContext(ctx, sc.Domain(), address)
+			resultJSON, err = sc.InvokeRPC(ctx, dqc, dbTX, rpcCall)
 			return err
 		})
 		if err != nil {

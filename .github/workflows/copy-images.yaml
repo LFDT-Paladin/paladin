@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: [paladin, paladin-operator]
+        image: [paladin, paladin-operator, paladin-test-cli]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

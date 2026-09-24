@@ -155,7 +155,9 @@ func generateRunnerConfigFromInstance(instance *conf.InstanceConfig, perfConfig 
 	runnerConfig.RampLength = instance.RampLength
 	runnerConfig.CompletionTimeout = instance.CompletionTimeout
 	runnerConfig.NoWaitSubmission = instance.NoWaitSubmission
+	runnerConfig.RollingCheckBatchSize = instance.RollingCheckBatchSize
 	runnerConfig.NodeKillConfig = instance.NodeKillConfig
+	runnerConfig.Diagnostics = instance.Diagnostics
 	runnerConfig.Nodes = perfConfig.Nodes
 
 	setDefaults(runnerConfig)
@@ -174,5 +176,9 @@ func setDefaults(runnerConfig *conf.RunnerConfig) {
 
 	if runnerConfig.NodeKillConfig != nil && runnerConfig.NodeKillConfig.RestartTimeout == 0 {
 		runnerConfig.NodeKillConfig.RestartTimeout = 2 * time.Minute
+	}
+
+	if runnerConfig.RollingCheckBatchSize <= 0 {
+		runnerConfig.RollingCheckBatchSize = 100
 	}
 }

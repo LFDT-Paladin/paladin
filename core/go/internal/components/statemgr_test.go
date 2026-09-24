@@ -66,6 +66,31 @@ func TestStateWithLabels_ValueSet_Nil(t *testing.T) {
 	assert.Nil(t, result)
 }
 
+func TestStateWithLabels_ProtoLabels_ConvertsAllLabelTypes(t *testing.T) {
+	state := &StateWithLabels{State: &pldapi.State{
+		Labels:      []*pldapi.StateLabel{{Label: "owner", Value: "0xfeed"}},
+		Int64Labels: []*pldapi.StateInt64Label{{Label: "amount", Value: 42}, {Label: "flag", Value: 1}},
+	}}
+
+	pl := state.ProtoLabels()
+	assert.Len(t, pl.GetLabels(), 1)
+	assert.Equal(t, "owner", pl.GetLabels()[0].GetLabel())
+	assert.Equal(t, "0xfeed", pl.GetLabels()[0].GetValue())
+	byName := map[string]int64{}
+	for _, l := range pl.GetInt64Labels() {
+		byName[l.GetLabel()] = l.GetValue()
+	}
+	assert.Equal(t, map[string]int64{"amount": 42, "flag": 1}, byName)
+}
+
+func TestStateWithLabels_ProtoLabels_Empty(t *testing.T) {
+	state := &StateWithLabels{State: &pldapi.State{}}
+	pl := state.ProtoLabels()
+	assert.NotNil(t, pl)
+	assert.Empty(t, pl.GetLabels())
+	assert.Empty(t, pl.GetInt64Labels())
+}
+
 func TestStateWithLabels_ValueSet_WithResolvingValueSet(t *testing.T) {
 	// Test with a different ValueSet implementation (ResolvingValueSet)
 	labelValues := filters.ResolvingValueSet{

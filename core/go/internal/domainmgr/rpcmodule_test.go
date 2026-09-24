@@ -23,7 +23,6 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -913,11 +912,8 @@ func TestRPCInvokeRPC_Success(t *testing.T) {
 		return &prototk.InvokeRPCResponse{ResultJson: `"ok"`}, nil
 	}
 
-	mdc := componentsmocks.NewDomainContext(t)
-	mdc.On("Close").Return()
-	mdc.On("Ctx").Return(ctx).Maybe()
-	mdc.On("Info").Return(components.DomainContextInfo{ID: uuid.New()}).Maybe()
-	mc.stateStore.On("NewDomainContext", mock.Anything, mock.Anything, mock.Anything).Return(mdc)
+	mdc := componentsmocks.NewDomainQueryContext(t)
+	mc.stateStore.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mdc)
 
 	contractAddr := pldtypes.RandAddress()
 	domainAddr := *tp.d.RegistryAddress()
@@ -936,7 +932,7 @@ func TestRPCInvokeRPC_Success(t *testing.T) {
 		Method:  "domain_invokeRPC",
 		Params: []pldtypes.RawJSON{
 			pldtypes.JSONString(contractAddr.String()),
-			pldtypes.JSONString(string(pldapi.StateStatusAvailable)),
+			pldtypes.JSONString(string(pldapi.StateStatusConfirmed)),
 			pldtypes.JSONString(pldapi.DomainInvokeRPC{Method: "someMethod", Params: pldtypes.RawJSON(`[]`)}),
 		},
 	}
@@ -997,7 +993,7 @@ func TestRPCInvokeRPC_ContractNotFound(t *testing.T) {
 		Method:  "domain_invokeRPC",
 		Params: []pldtypes.RawJSON{
 			pldtypes.JSONString(contractAddr.String()),
-			pldtypes.JSONString(string(pldapi.StateStatusAvailable)),
+			pldtypes.JSONString(string(pldapi.StateStatusConfirmed)),
 			pldtypes.JSONString(pldapi.DomainInvokeRPC{Method: "someMethod", Params: pldtypes.RawJSON(`[]`)}),
 		},
 	}
@@ -1016,11 +1012,8 @@ func TestRPCInvokeRPC_InvokeError(t *testing.T) {
 		return nil, fmt.Errorf("invoke failed")
 	}
 
-	mdc := componentsmocks.NewDomainContext(t)
-	mdc.On("Close").Return()
-	mdc.On("Ctx").Return(ctx).Maybe()
-	mdc.On("Info").Return(components.DomainContextInfo{ID: uuid.New()}).Maybe()
-	mc.stateStore.On("NewDomainContext", mock.Anything, mock.Anything, mock.Anything).Return(mdc)
+	mdc := componentsmocks.NewDomainQueryContext(t)
+	mc.stateStore.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mdc)
 
 	contractAddr := pldtypes.RandAddress()
 	domainAddr := *tp.d.RegistryAddress()
@@ -1039,7 +1032,7 @@ func TestRPCInvokeRPC_InvokeError(t *testing.T) {
 		Method:  "domain_invokeRPC",
 		Params: []pldtypes.RawJSON{
 			pldtypes.JSONString(contractAddr.String()),
-			pldtypes.JSONString(string(pldapi.StateStatusAvailable)),
+			pldtypes.JSONString(string(pldapi.StateStatusConfirmed)),
 			pldtypes.JSONString(pldapi.DomainInvokeRPC{Method: "someMethod", Params: pldtypes.RawJSON(`[]`)}),
 		},
 	}

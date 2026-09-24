@@ -35,7 +35,7 @@ func TestMigrateUpDown(t *testing.T) {
 	// Up runs as part of the init
 	p, done, err := NewUnitTestPersistence(ctx, "persistence")
 	require.NoError(t, err)
-	assert.NotNil(t, p.DB())
+	assert.NotNil(t, p.DB(ctx))
 	defer done()
 
 	// Get the migration drive directly using the internal function, to run Down()

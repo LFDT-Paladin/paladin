@@ -19,9 +19,11 @@ package rpcserver
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/go-resty/resty/v2"
@@ -37,10 +39,11 @@ func TestRCPMissingID(t *testing.T) {
 	var errResponse rpcclient.RPCResponse
 	res, err := resty.New().R().
 		SetBody(`{}`).
+		SetResult(&errResponse).
 		SetError(&errResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), errResponse.Error.Code)
 	assert.Regexp(t, "PD020701", errResponse.Error.Message)
 
@@ -57,10 +60,11 @@ func TestRCPUnknownMethod(t *testing.T) {
 		  "id": 12345,
 		  "method": "wrong"
 		}`).
+		SetResult(&errResponse).
 		SetError(&errResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), errResponse.Error.Code)
 	assert.Regexp(t, "PD020702", errResponse.Error.Message)
 
@@ -183,7 +187,8 @@ func TestProcessRPC_AuthorizerDeniesAccess(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.False(t, res.IsSuccess())
-	assert.Equal(t, int64(rpcclient.RPCCodeUnauthorized), errResponse.Error.Code)
+	assert.Equal(t, http.StatusForbidden, res.StatusCode())
+	assert.Equal(t, int64(pldclient.RPCCodeUnauthorized), errResponse.Error.Code)
 	assert.Contains(t, errResponse.Error.Message, "Unauthorized")
 }
 
@@ -318,9 +323,10 @@ func TestRPCProcessor_ChainAuthorize_Fails(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.False(t, res.IsSuccess())
+	assert.Equal(t, http.StatusForbidden, res.StatusCode())
 	assert.True(t, auth1Called)
 	assert.False(t, auth2Called) // Should not be called after first authorization failure
-	assert.Equal(t, int64(rpcclient.RPCCodeUnauthorized), errResponse.Error.Code)
+	assert.Equal(t, int64(pldclient.RPCCodeUnauthorized), errResponse.Error.Code)
 	assert.Contains(t, errResponse.Error.Message, "Unauthorized")
 }
 
@@ -378,12 +384,13 @@ func TestRPCProcessor_ChainAuthorize_MiddleFails(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.False(t, res.IsSuccess())
+	assert.Equal(t, http.StatusForbidden, res.StatusCode())
 	assert.True(t, auth1AuthCalled)
 	assert.True(t, auth1AuthzCalled)
 	assert.True(t, auth2AuthCalled)
 	assert.True(t, auth2AuthzCalled)
 	assert.False(t, auth3AuthzCalled) // Should not be called after auth2 authorization failure
-	assert.Equal(t, int64(rpcclient.RPCCodeUnauthorized), errResponse.Error.Code)
+	assert.Equal(t, int64(pldclient.RPCCodeUnauthorized), errResponse.Error.Code)
 	assert.Contains(t, errResponse.Error.Message, "Unauthorized")
 }
 
@@ -441,12 +448,13 @@ func TestRPCProcessor_ChainAuthorize_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.False(t, res.IsSuccess())
+	assert.Equal(t, http.StatusForbidden, res.StatusCode())
 	assert.True(t, auth1AuthCalled)
 	assert.True(t, auth1AuthzCalled)
 	assert.True(t, auth2AuthCalled)
 	assert.True(t, auth2AuthzCalled)
 	assert.False(t, auth3AuthzCalled) // Should not be called after auth2 returns error
-	assert.Equal(t, int64(rpcclient.RPCCodeUnauthorized), errResponse.Error.Code)
+	assert.Equal(t, int64(pldclient.RPCCodeUnauthorized), errResponse.Error.Code)
 }
 
 func TestRPCProcessor_HTTP_NoStoredAuthenticationResults(t *testing.T) {
@@ -478,12 +486,12 @@ func TestRPCProcessor_HTTP_NoStoredAuthenticationResults(t *testing.T) {
 	}
 
 	// Call processRPC directly with HTTP context (wsc == nil) that has no authentication results
-	response, isOK, _ := server.processRPC(ctx, rpcReq, nil /* HTTP request, no WebSocket connection */)
+	response, httpStatus, _ := server.processRPC(ctx, rpcReq, nil /* HTTP request, no WebSocket connection */)
 
-	assert.False(t, isOK)
+	assert.Equal(t, http.StatusForbidden, httpStatus)
 	assert.NotNil(t, response)
 	assert.NotNil(t, response.Error)
-	assert.Equal(t, int64(rpcclient.RPCCodeUnauthorized), response.Error.Code)
+	assert.Equal(t, int64(pldclient.RPCCodeUnauthorized), response.Error.Code)
 	assert.Contains(t, response.Error.Message, "Unauthorized")
 }
 
@@ -518,12 +526,12 @@ func TestRPCProcessor_WebSocket_NoStoredIdentities(t *testing.T) {
 	}
 
 	// Call processRPC directly with WebSocket connection that has no identities
-	response, isOK, _ := server.processRPC(ctx, rpcReq, wsc)
+	response, httpStatus, _ := server.processRPC(ctx, rpcReq, wsc)
 
-	assert.False(t, isOK)
+	assert.Equal(t, http.StatusForbidden, httpStatus)
 	assert.NotNil(t, response)
 	assert.NotNil(t, response.Error)
-	assert.Equal(t, int64(rpcclient.RPCCodeUnauthorized), response.Error.Code)
+	assert.Equal(t, int64(pldclient.RPCCodeUnauthorized), response.Error.Code)
 	assert.Contains(t, response.Error.Message, "Unauthorized")
 }
 
@@ -566,11 +574,11 @@ func TestRPCProcessor_AuthenticationResultMismatch(t *testing.T) {
 	}
 
 	// Call processRPC directly with WebSocket connection that has authentication result mismatch
-	response, isOK, _ := server.processRPC(ctx, rpcReq, wsc)
+	response, httpStatus, _ := server.processRPC(ctx, rpcReq, wsc)
 
-	assert.False(t, isOK)
+	assert.Equal(t, http.StatusForbidden, httpStatus)
 	assert.NotNil(t, response)
 	assert.NotNil(t, response.Error)
-	assert.Equal(t, int64(rpcclient.RPCCodeUnauthorized), response.Error.Code)
+	assert.Equal(t, int64(pldclient.RPCCodeUnauthorized), response.Error.Code)
 	assert.Contains(t, response.Error.Message, "Unauthorized")
 }

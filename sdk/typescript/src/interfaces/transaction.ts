@@ -81,7 +81,7 @@ export interface ITransactionReceipt {
   domain?: string;
   contractAddress?: string;
   states?: ITransactionStates;
-  domainReceipt?: IPenteDomainReceipt | INotoDomainReceipt;
+  domainReceipt?: IPenteDomainReceipt | INotoDomainReceipt | IZetoDomainReceipt;
   domainReceiptError?: string
   failureMessage?: string;
 }
@@ -191,6 +191,49 @@ export interface INotoLockedCoin {
   salt: string;
   owner: string;
   amount: string;
+}
+
+export interface IZetoDomainReceipt {
+  states: {
+    // Zeto holds locked and unlocked coins in one schema, distinguished by their "locked" flag, but
+    // reports them separately here. Non-fungible tokens have no locked form.
+    inputs?: IReceiptState<IZetoCoin | IZetoNFToken>[];
+    outputs?: IReceiptState<IZetoCoin | IZetoNFToken>[];
+    lockedInputs?: IReceiptState<IZetoCoin>[];
+    lockedOutputs?: IReceiptState<IZetoCoin>[];
+  };
+  // No top-level data: none of Zeto's methods take a top-level data parameter. Data is supplied per
+  // transfer entry, so it is reported on the individual transfers.
+  transfers?: IZetoReceiptTransfer[];
+}
+
+// One transfer is reported per transfer entry rather than per recipient, so a recipient named by
+// several entries appears several times, each carrying its own data.
+//
+// Owners are Baby Jubjub public keys rather than Ethereum addresses. An absent "from" is a mint and
+// an absent "to" is a burn, which includes withdrawing back to the ERC-20 balance.
+export interface IZetoReceiptTransfer {
+  from?: string;
+  to?: string;
+  amount?: string; // fungible tokens only
+  tokenId?: string; // non-fungible tokens only
+  // The data supplied on the transfer entry that produced this transfer. Absent for outputs with no
+  // entry behind them, such as those of methods that take no data at all.
+  data?: string;
+}
+
+export interface IZetoCoin {
+  salt: string;
+  owner: string;
+  amount: string;
+  locked: boolean;
+}
+
+export interface IZetoNFToken {
+  salt: string;
+  uri: string;
+  owner: string;
+  tokenID: string;
 }
 
 export interface ITransactionStates {

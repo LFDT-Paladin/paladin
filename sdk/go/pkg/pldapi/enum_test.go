@@ -20,8 +20,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +29,6 @@ func TestEnums(t *testing.T) {
 	assert.NotEmpty(t, TransactionType("").Enum().Options())
 	assert.NotEmpty(t, ActiveFilter("").Enum().Options())
 	assert.NotEmpty(t, SchemaType("").Enum().Options())
-	assert.NotEmpty(t, StateLockType("").Enum().Options())
 	assert.NotEmpty(t, SubmitMode("").Enum().Options())
 	assert.NotEmpty(t, SubmitMode("").Default())
 	assert.NotEmpty(t, PTXEventType("").Enum().Options())
@@ -50,9 +47,4 @@ func TestStateStatusQualifierJSON(t *testing.T) {
 	err = json.Unmarshal(([]byte)(`"ALL"`), &q)
 	require.NoError(t, err)
 	require.Equal(t, StateStatusAll, q)
-
-	u := uuid.New().String()
-	err = json.Unmarshal(pldtypes.JSONString(u), &q)
-	require.NoError(t, err)
-	assert.Equal(t, u, (string)(q))
 }

@@ -24,7 +24,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 )
 
 // EthAddress is an SQL serializable version of ethtypes.Address0xHex
@@ -78,7 +78,10 @@ func (a *EthAddress) IsZero() bool {
 }
 
 func (a EthAddress) String() string {
-	return a.Address0xHex().String()
+	var buf [42]byte
+	buf[0], buf[1] = '0', 'x'
+	hex.Encode(buf[2:], a[:])
+	return string(buf[:])
 }
 
 func (a EthAddress) HexString() string {

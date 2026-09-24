@@ -223,7 +223,7 @@ func TestMissingLockCreate(t *testing.T) {
 		[]*prototk.EndorsableState{},
 		[]*prototk.EndorsableState{},
 	)
-	require.Regexp(t, "PD200042", err)
+	require.Regexp(t, "PD200041", err)
 }
 
 func TestMissingLockSpend(t *testing.T) {
@@ -235,7 +235,7 @@ func TestMissingLockSpend(t *testing.T) {
 		[]*prototk.EndorsableState{},
 		[]*prototk.EndorsableState{},
 	)
-	require.Regexp(t, "PD200042", err)
+	require.Regexp(t, "PD200041", err)
 }
 
 func TestDecodeV1LockTransitionMissingSpendTxId(t *testing.T) {
@@ -256,7 +256,7 @@ func TestDecodeV1LockTransitionBadChain(t *testing.T) {
 	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
 		out.Replaces = pldtypes.RandBytes32()
 	})
-	require.Regexp(t, "PD200042", err)
+	require.Regexp(t, "PD200041", err)
 }
 
 func TestDecodeV1LockTransitionSplitOutputsOk(t *testing.T) {
@@ -309,5 +309,5 @@ func TestDecodeV1LockTransitionSplitOutputsMissing(t *testing.T) {
 	require.NoError(t, err)
 
 	_, _, err = lt.splitOutputs(context.Background(), []*prototk.EndorsableState{cancelCoin})
-	require.Regexp(t, "PD200042", err)
+	require.Regexp(t, "PD200041", err)
 }

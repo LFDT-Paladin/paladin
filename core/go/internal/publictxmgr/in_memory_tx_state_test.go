@@ -67,6 +67,15 @@ func NewTestInMemoryTxState(t *testing.T) InMemoryTxStateManager {
 
 }
 
+func TestGetSignerNonce(t *testing.T) {
+	from := pldtypes.MustEthAddress("0x4e598f6e918321dd47c86e7a077b4ab0e7414846")
+
+	nonce := uint64(42)
+	imtxs := NewInMemoryTxStateManager(context.Background(), &DBPublicTxn{From: *from, Nonce: &nonce}, nil).(*inMemoryTxState)
+	assert.Equal(t, from.String()+":42", imtxs.GetSignerNonce())
+	assert.Equal(t, fmt.Sprintf("%s:%d", from, nonce), imtxs.GetSignerNonce())
+}
+
 func TestSettersAndGetters(t *testing.T) {
 	oldTime := pldtypes.TimestampNow()
 	oldFrom := pldtypes.MustEthAddress("0xb3d9cf8e163bbc840195a97e81f8a34e295b8f39")

@@ -20,7 +20,6 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/hex"
-	"fmt"
 	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -119,7 +118,10 @@ func (id *Bytes32) UnmarshalText(text []byte) error {
 
 // Get string with 0x prefix - nil is all zeros
 func (id Bytes32) HexString0xPrefix() string {
-	return fmt.Sprintf("0x%s", hex.EncodeToString(id[:]))
+	var buf [66]byte
+	buf[0], buf[1] = '0', 'x'
+	hex.Encode(buf[2:], id[:])
+	return string(buf[:])
 }
 
 // Get string (without 0x prefix) - nil is all zeros

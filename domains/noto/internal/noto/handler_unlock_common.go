@@ -55,7 +55,10 @@ func (h *lockCommon) checkAllowed(ctx context.Context, tx *types.ParsedTransacti
 		return nil
 	}
 
-	localNodeName, _ := h.noto.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	localNodeName, err := h.noto.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	if err != nil {
+		return err
+	}
 	fromQualified, err := pldtypes.PrivateIdentityLocator(from).FullyQualified(ctx, localNodeName.Name)
 	if err != nil {
 		return err
@@ -189,6 +192,9 @@ func (h *lockCommon) assembleUnlockOutputs_V1(ctx context.Context, tx *types.Par
 		if err != nil {
 			return nil, err
 		}
+		if tx.DomainConfig.IsNullifierVariant() {
+			h.noto.addNullifierSpecs(outputs.states, toID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
+		}
 		unlockedOutputs.distributions = append(unlockedOutputs.distributions, outputs.distributions...)
 		unlockedOutputs.coins = append(unlockedOutputs.coins, outputs.coins...)
 		unlockedOutputs.states = append(unlockedOutputs.states, outputs.states...)
@@ -200,6 +206,9 @@ func (h *lockCommon) assembleUnlockOutputs_V1(ctx context.Context, tx *types.Par
 		if err != nil {
 			return nil, err
 		}
+		if tx.DomainConfig.IsNullifierVariant() {
+			h.noto.addNullifierSpecs(remainderOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
+		}
 		unlockedOutputs.distributions = append(unlockedOutputs.distributions, remainderOutputs.distributions...)
 		unlockedOutputs.coins = append(unlockedOutputs.coins, remainderOutputs.coins...)
 		unlockedOutputs.states = append(unlockedOutputs.states, remainderOutputs.states...)
@@ -208,7 +217,18 @@ func (h *lockCommon) assembleUnlockOutputs_V1(ctx context.Context, tx *types.Par
 	return unlockedOutputs, nil
 }
 
-func (h *lockCommon) buildPrepareUnlockParams(ctx context.Context, tx *types.ParsedTransaction, lt *lockTransition, proof pldtypes.HexBytes, lockedInputs, spendOutputs, cancelOutputs, infoStates []*prototk.EndorsableState) (_ []byte, err error) {
+// Note the locked inputs are always identified by ID here, never by nullifier. Nullifiers
+// are only used to consume the unlocked inputs when a lock is created (see
+// buildCreateLockParams) - the locked states themselves are spent by ID throughout their
+// lifecycle. This also keeps the spend and cancel commitments consistent with the ones
+// computed at lock creation time, which cover the locked outputs by ID.
+func (h *lockCommon) buildPrepareUnlockParams(ctx context.Context, tx *types.ParsedTransaction, stateQueryContext string, lt *lockTransition, signature pldtypes.HexBytes, lockedInputs, spendOutputs, cancelOutputs, infoStates []*prototk.EndorsableState) (_ []byte, err error) {
+	// updateLock checks the commitment tree root for the nullifier variants
+	proof, err := h.noto.lockProof(ctx, tx, stateQueryContext, signature)
+	if err != nil {
+		return nil, err
+	}
+
 	lockID := lt.prevLockInfo.LockID
 	spendData := lt.newLockInfo.SpendData
 	cancelData := lt.newLockInfo.CancelData
@@ -221,29 +241,34 @@ func (h *lockCommon) buildPrepareUnlockParams(ctx context.Context, tx *types.Par
 	var spendCommitment pldtypes.Bytes32
 	var cancelCommitment pldtypes.Bytes32
 	var updateLockArgs []byte
-	spendCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(spendOutputs), spendData)
-	if err == nil {
-		cancelCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(cancelOutputs), cancelData)
+
+	spendCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), spendOutputs, false), spendData)
+	if err != nil {
+		return nil, err
 	}
-	if err == nil {
-		// The noto lock operation here is empty, as we are just modifying the lock
-		if tx.DomainConfig.IsV1() {
-			updateLockArgs, err = h.noto.encodeNotoUpdateLockArgsV1(ctx, &types.NotoUpdateLockArgs_V1{
-				TxId:         tx.Transaction.TransactionId,
-				OldLockState: lt.prevLockStateID,
-				NewLockState: lt.newLockStateID,
-				Proof:        proof,
-			})
-		} else {
-			updateLockArgs, err = h.noto.encodeNotoUpdateLockArgs(ctx, &types.NotoUpdateLockArgs{
-				TxId:         tx.Transaction.TransactionId,
-				Contents:     endorsableStateIDs(lockedInputs),
-				OldLockState: lt.prevLockStateID,
-				NewLockState: lt.newLockStateID,
-				Options:      options,
-				Proof:        proof,
-			})
-		}
+	cancelCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), cancelOutputs, false), cancelData)
+	if err != nil {
+		return nil, err
+	}
+
+	if tx.DomainConfig.IsV1() {
+		updateLockArgs, err = h.noto.encodeNotoUpdateLockArgsV1(ctx, &types.NotoUpdateLockArgs_V1{
+			TxId:         tx.Transaction.TransactionId,
+			OldLockState: lt.prevLockStateID,
+			NewLockState: lt.newLockStateID,
+			Proof:        proof,
+		})
+	} else if tx.DomainConfig.IsV2() {
+		updateLockArgs, err = h.noto.encodeNotoUpdateLockArgs(ctx, &types.NotoUpdateLockArgs{
+			TxId:         tx.Transaction.TransactionId,
+			Contents:     h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false),
+			OldLockState: lt.prevLockStateID,
+			NewLockState: lt.newLockStateID,
+			Options:      options,
+			Proof:        proof,
+		})
+	} else {
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, tx.DomainConfig.Variant)
 	}
 	if err != nil {
 		return nil, err
@@ -255,11 +280,11 @@ func (h *lockCommon) buildPrepareUnlockParams(ctx context.Context, tx *types.Par
 	}
 
 	if tx.DomainConfig.IsV1() {
-		optionsEncoded, err := h.noto.encodeNotoLockOptions(ctx, &types.NotoLockOptions{
+		optionsEncoded, encErr := h.noto.encodeNotoLockOptions(ctx, &types.NotoLockOptions{
 			SpendTxId: lt.newLockInfo.SpendTxId,
 		})
-		if err != nil {
-			return nil, err
+		if encErr != nil {
+			return nil, encErr
 		}
 		return json.Marshal(&UpdateLockParams_V1{
 			LockID:     lockID,
@@ -271,19 +296,27 @@ func (h *lockCommon) buildPrepareUnlockParams(ctx context.Context, tx *types.Par
 			},
 			Data: txData,
 		})
+	} else if tx.DomainConfig.IsV2() {
+		return json.Marshal(&UpdateLockParams{
+			LockID:           lockID,
+			UpdateArgs:       updateLockArgs,
+			SpendCommitment:  spendCommitment,
+			CancelCommitment: cancelCommitment,
+			Data:             txData,
+		})
 	}
-
-	return json.Marshal(&UpdateLockParams{
-		LockID:           lockID,
-		UpdateArgs:       updateLockArgs,
-		SpendCommitment:  spendCommitment,
-		CancelCommitment: cancelCommitment,
-		Data:             txData,
-	})
-
+	return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, tx.DomainConfig.Variant)
 }
 
-func (h *lockCommon) buildCreateLockParams(ctx context.Context, tx *types.ParsedTransaction, lockTransition *lockTransition, proof pldtypes.HexBytes, inputs, lockedOutputs, additionalOutputs, spendOutputs, cancelOutputs, infoStates []*prototk.EndorsableState) (_ []byte, err error) {
+func (h *lockCommon) buildCreateLockParams(ctx context.Context, tx *types.ParsedTransaction, stateQueryContext string, lockTransition *lockTransition, signature pldtypes.HexBytes, inputs, lockedOutputs, additionalOutputs, spendOutputs, cancelOutputs, infoStates []*prototk.EndorsableState) (_ []byte, err error) {
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
+
+	// createLock checks the commitment tree root for the nullifier variants
+	proof, err := h.noto.lockProof(ctx, tx, stateQueryContext, signature)
+	if err != nil {
+		return nil, err
+	}
+
 	lockID := lockTransition.newLockInfo.LockID
 	spendData := lockTransition.newLockInfo.SpendData
 	cancelData := lockTransition.newLockInfo.CancelData
@@ -296,31 +329,37 @@ func (h *lockCommon) buildCreateLockParams(ctx context.Context, tx *types.Parsed
 	var spendCommitment pldtypes.Bytes32
 	var cancelCommitment pldtypes.Bytes32
 	var createLockArgs []byte
-	spendCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), endorsableStateIDs(lockedOutputs), endorsableStateIDs(spendOutputs), spendData)
-	if err == nil {
-		cancelCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), endorsableStateIDs(lockedOutputs), endorsableStateIDs(cancelOutputs), cancelData)
+
+	spendCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), spendOutputs, false), spendData)
+	if err != nil {
+		return nil, err
 	}
-	if err == nil {
-		if tx.DomainConfig.IsV1() {
-			createLockArgs, err = h.noto.encodeNotoCreateLockArgsV1(ctx, &types.NotoCreateLockArgs_V1{
-				TxId:         tx.Transaction.TransactionId,
-				Inputs:       endorsableStateIDs(inputs),
-				Outputs:      endorsableStateIDs(additionalOutputs),
-				Contents:     endorsableStateIDs(lockedOutputs),
-				NewLockState: lockTransition.newLockStateID,
-				Proof:        proof,
-			})
-		} else {
-			createLockArgs, err = h.noto.encodeNotoCreateLockArgs(ctx, &types.NotoCreateLockArgs{
-				TxId:         tx.Transaction.TransactionId,
-				Inputs:       endorsableStateIDs(inputs),
-				Outputs:      endorsableStateIDs(additionalOutputs),
-				Contents:     endorsableStateIDs(lockedOutputs),
-				NewLockState: lockTransition.newLockStateID,
-				Options:      options,
-				Proof:        proof,
-			})
-		}
+	cancelCommitment, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, lockID, spendTxId.String(), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), cancelOutputs, false), cancelData)
+	if err != nil {
+		return nil, err
+	}
+
+	if tx.DomainConfig.IsV1() {
+		createLockArgs, err = h.noto.encodeNotoCreateLockArgsV1(ctx, &types.NotoCreateLockArgs_V1{
+			TxId:         tx.Transaction.TransactionId,
+			Inputs:       h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), inputs, false),
+			Outputs:      h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), additionalOutputs, false),
+			Contents:     h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false),
+			NewLockState: lockTransition.newLockStateID,
+			Proof:        proof,
+		})
+	} else if tx.DomainConfig.IsV2() {
+		createLockArgs, err = h.noto.encodeNotoCreateLockArgs(ctx, &types.NotoCreateLockArgs{
+			TxId:         tx.Transaction.TransactionId,
+			Inputs:       h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), inputs, useNullifiers),
+			Outputs:      h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), additionalOutputs, false),
+			Contents:     h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false),
+			NewLockState: lockTransition.newLockStateID,
+			Options:      options,
+			Proof:        proof,
+		})
+	} else {
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, tx.DomainConfig.Variant)
 	}
 	if err != nil {
 		return nil, err
@@ -332,11 +371,11 @@ func (h *lockCommon) buildCreateLockParams(ctx context.Context, tx *types.Parsed
 	}
 
 	if tx.DomainConfig.IsV1() {
-		optionsEncoded, err := h.noto.encodeNotoLockOptions(ctx, &types.NotoLockOptions{
+		optionsEncoded, encErr := h.noto.encodeNotoLockOptions(ctx, &types.NotoLockOptions{
 			SpendTxId: lockTransition.newLockInfo.SpendTxId,
 		})
-		if err != nil {
-			return nil, err
+		if encErr != nil {
+			return nil, encErr
 		}
 		return json.Marshal(&CreateLockParams_V1{
 			CreateArgs: createLockArgs,
@@ -347,15 +386,15 @@ func (h *lockCommon) buildCreateLockParams(ctx context.Context, tx *types.Parsed
 			},
 			Data: txData,
 		})
+	} else if tx.DomainConfig.IsV2() {
+		return json.Marshal(&CreateLockParams{
+			CreateArgs:       createLockArgs,
+			SpendCommitment:  spendCommitment,
+			CancelCommitment: cancelCommitment,
+			Data:             txData,
+		})
 	}
-
-	return json.Marshal(&CreateLockParams{
-		CreateArgs:       createLockArgs,
-		SpendCommitment:  spendCommitment,
-		CancelCommitment: cancelCommitment,
-		Data:             txData,
-	})
-
+	return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, tx.DomainConfig.Variant)
 }
 
 // unlockCommon is shared by unlock + prepareUnlock only

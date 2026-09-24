@@ -1,6 +1,6 @@
 # Key Management
 
-> TODO: Well established architecture already being brought across to Paladin here (Lead: Matt Clarke)
+<!-- TODO: Well established architecture already being brought across to Paladin here -->
 
 ![Key Management](../images/key_management.jpg){.zoomable-image}
 

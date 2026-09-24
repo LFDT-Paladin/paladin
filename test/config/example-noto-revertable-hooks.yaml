@@ -2,17 +2,34 @@
 # Deploys Noto with Pente hooks that include a revertable external call on the
 # base ledger, then submits mint transactions that are expected to revert.
 # Validates that every receipt comes back with revert/failure data.
-
 nodes:
   - name: node1
     httpEndpoint: http://127.0.0.1:31548
     wsEndpoint: ws://127.0.0.1:31549
+    metricsEndpoint: http://127.0.0.1:31550
+    debugPortForward:
+      namespace: default
+      service: paladin-node1
+      remotePort: 6060
+      localPort: 16060
   - name: node2
     httpEndpoint: http://127.0.0.1:31648
     wsEndpoint: ws://127.0.0.1:31649
+    metricsEndpoint: http://127.0.0.1:31650
+    debugPortForward:
+      namespace: default
+      service: paladin-node2
+      remotePort: 6060
+      localPort: 16061
   - name: node3
     httpEndpoint: http://127.0.0.1:31748
     wsEndpoint: ws://127.0.0.1:31749
+    metricsEndpoint: http://127.0.0.1:31750
+    debugPortForward:
+      namespace: default
+      service: paladin-node3
+      remotePort: 6060
+      localPort: 16062
 
 instances:
   - name: noto-revertable-hooks-test
@@ -25,7 +42,9 @@ instances:
         includeInvalidInputErrors: true
     maxSubmissionsPerSecond: 4  # Target transactions per second
     completionTimeout: 5m  # Wait up to 5 minutes for all transactions to complete
-    maxActions: 500
-    length: 5m
+    # maxActions: 500
+    length: 1h
+    diagnostics:
+      interval: 5m
 logLevel: info
 logEvents: false

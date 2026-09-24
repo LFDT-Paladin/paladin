@@ -26,13 +26,11 @@ import (
 
 	_ "embed"
 
-	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
-	nototypes "github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
@@ -93,69 +91,59 @@ var _ = Describe("pente - parallelism on a single contract", Ordered, func() {
 			}
 		})
 
-		penteGroupStars := nototypes.PentePrivateGroup{
-			Salt:    pldtypes.RandBytes32(),                                                                                                             // unique salt must be shared privately to retain anonymity
-			Members: []string{fmt.Sprintf("tara@%s1", paladinPrefix), fmt.Sprintf("hoshi@%s2", paladinPrefix), fmt.Sprintf("seren@%s3", paladinPrefix)}, // these will be salted to establish the endorsement key identifiers
-		}
-
-		var penteContract *pldtypes.EthAddress
-		It("deploys a pente privacy group across all three nodes", func() {
+		var penteGroup *pldapi.PrivacyGroup
+		It("creates a pente privacy group across all three nodes", func() {
 
 			const ENDORSEMENT_TYPE__GROUP_SCOPED_IDENTITIES = "group_scoped_identities"
 
-			deploy := rpc[paladinPrefix+"1"].ForABI(ctx, abi.ABI{penteConstructorABI}).
-				Private().
-				Domain("pente").
-				Constructor().
-				Inputs(&penteConstructorParams{
-					Group:                penteGroupStars,
-					EVMVersion:           "shanghai",
-					EndorsementType:      ENDORSEMENT_TYPE__GROUP_SCOPED_IDENTITIES,
-					ExternalCallsEnabled: true,
-				}).
-				From("random." + uuid.NewString()). // anyone can submit this by design
-				Send().
-				Wait(5 * time.Second)
-			Expect(deploy.Error()).To(BeNil())
-			Expect(deploy.Receipt().ContractAddress).ToNot(BeNil())
-			penteContract = deploy.Receipt().ContractAddress
-			testLog("Pente privacy group %s (salt=%s) deployed by TX %s", penteContract, penteGroupStars.Salt, deploy.ID())
+			group, err := rpc[paladinPrefix+"1"].PrivacyGroups().CreateGroup(ctx, &pldapi.PrivacyGroupInput{
+				Domain:  "pente",
+				Members: []string{fmt.Sprintf("tara@%s1", paladinPrefix), fmt.Sprintf("hoshi@%s2", paladinPrefix), fmt.Sprintf("seren@%s3", paladinPrefix)},
+				Configuration: map[string]string{
+					"evmVersion":           "shanghai",
+					"endorsementType":      ENDORSEMENT_TYPE__GROUP_SCOPED_IDENTITIES,
+					"externalCallsEnabled": "true",
+				},
+			})
+			Expect(err).To(BeNil())
+			penteGroup = &group
+			Eventually(func() bool {
+				receipt, err := rpc[paladinPrefix+"1"].PTX().GetTransactionReceipt(ctx, group.GenesisTransaction)
+				return err == nil && receipt != nil && receipt.Success
+			}, "10s").Should(BeTrue())
+			testLog("Pente privacy group %s deployed by TX %s", penteGroup.ID, penteGroup.GenesisTransaction)
 		})
 
 		erc20Simple := solutils.MustLoadBuild(ERC20SimpleBuildJSON)
-		var erc20DeployID uuid.UUID
+		var erc20Deploy pldclient.SentTransaction
 		It("deploys a vanilla ERC-20 into the the privacy group with a minter/owner", func() {
 
-			deploy := rpc[paladinPrefix+"1"].ForABI(ctx, erc20PrivateABI).
-				Private().
-				Domain("pente").
-				To(penteContract).
-				Function("deploy").
-				Inputs(&penteDeployParams{
-					Group:    penteGroupStars,
-					Bytecode: erc20Simple.Bytecode,
-					Inputs: map[string]any{
-						"name":   "Stars",
-						"symbol": "STAR",
-					},
+			// The unmodified compiler-output ABI is used directly - no synthetic "deploy" function
+			deploy := rpc[paladinPrefix+"1"].TxBuilder(ctx).
+				PrivacyGroup(penteGroup).
+				SolidityBuild(erc20Simple).
+				Constructor().
+				Inputs(map[string]any{
+					"name":   "Stars",
+					"symbol": "STAR",
 				}).
 				From(fmt.Sprintf("tara@%s1", paladinPrefix)).
-				Send().
-				Wait(5 * time.Second)
+				Send()
+			res := deploy.Wait(5 * time.Second)
 			testLog("Deployed SimpleERC20 contract into privacy group in transaction %s", deploy.ID())
-			Expect(deploy.Error()).To(BeNil())
-			erc20DeployID = deploy.ID()
+			Expect(res.Error()).To(BeNil())
+			erc20Deploy = deploy
 		})
 
 		var erc20StarsAddr *pldtypes.EthAddress
-		It("requests the receipt from pente to get the contract address", func() {
+		It("requests the full receipt from pente to get the contract address", func() {
 
-			domainReceiptJSON, err := rpc[paladinPrefix+"1"].PTX().GetDomainReceipt(ctx, "pente", erc20DeployID)
+			receipt, err := erc20Deploy.GetReceiptFull()
 			Expect(err).To(BeNil())
-			var pr penteReceipt
-			err = json.Unmarshal(domainReceiptJSON, &pr)
-			Expect(err).To(BeNil())
+			var pr pldapi.PenteDomainReceipt
+			Expect(json.Unmarshal(receipt.DomainReceipt, &pr)).To(BeNil())
 			erc20StarsAddr = pr.Receipt.ContractAddress
+			Expect(erc20StarsAddr).ToNot(BeNil())
 			testLog("SimpleERC20 contractAddress (within privacy group): %s", erc20StarsAddr)
 
 		})
@@ -171,17 +159,13 @@ var _ = Describe("pente - parallelism on a single contract", Ordered, func() {
 				Param0 *pldtypes.HexUint256 `json:"0"`
 			}
 			var result ercBalanceOf
-			err := rpc[node].ForABI(ctx, erc20PrivateABI).
-				Private().
-				Domain("pente").
-				To(penteContract).
+			err := rpc[node].TxBuilder(ctx).
+				PrivacyGroup(penteGroup).
+				ABI(erc20Simple.ABI).
 				Function("balanceOf").
-				Inputs(&penteInvokeParams{
-					Group: penteGroupStars,
-					To:    *erc20StarsAddr,
-					Inputs: map[string]any{
-						"account": addr.String(),
-					},
+				To(erc20StarsAddr).
+				Inputs(map[string]any{
+					"account": addr.String(),
 				}).
 				Outputs(&result).
 				From(fmt.Sprintf("%s@%s", identity, node)).
@@ -201,18 +185,14 @@ var _ = Describe("pente - parallelism on a single contract", Ordered, func() {
 
 			for _, user := range users {
 
-				invoke := rpc[paladinPrefix+"1"].ForABI(ctx, erc20PrivateABI).
-					Private().
-					Domain("pente").
-					To(penteContract).
+				invoke := rpc[paladinPrefix+"1"].TxBuilder(ctx).
+					PrivacyGroup(penteGroup).
+					ABI(erc20Simple.ABI).
 					Function("mint").
-					Inputs(&penteInvokeParams{
-						Group: penteGroupStars,
-						To:    *erc20StarsAddr,
-						Inputs: map[string]any{
-							"to":     getEthAddress(user[0], user[1]),
-							"amount": with18Decimals(1000),
-						},
+					To(erc20StarsAddr).
+					Inputs(map[string]any{
+						"to":     getEthAddress(user[0], user[1]),
+						"amount": with18Decimals(1000),
 					}).
 					From(fmt.Sprintf("tara@%s1", paladinPrefix)). // operator
 					Send().
@@ -249,18 +229,14 @@ var _ = Describe("pente - parallelism on a single contract", Ordered, func() {
 					for i := 0; i < count && err == nil; i++ {
 						bigAmount, _ := rand.Int(rand.Reader, big.NewInt(9))
 						amount := bigAmount.Int64() + 1
-						invoke := rpc[user[1]].ForABI(ctx, erc20PrivateABI).
-							Private().
-							Domain("pente").
-							To(penteContract).
+						invoke := rpc[user[1]].TxBuilder(ctx).
+							PrivacyGroup(penteGroup).
+							ABI(erc20Simple.ABI).
 							Function("transfer").
-							Inputs(&penteInvokeParams{
-								Group: penteGroupStars,
-								To:    *erc20StarsAddr,
-								Inputs: map[string]any{
-									"to":    getEthAddress(toUser[0], toUser[1]),
-									"value": with18Decimals(amount),
-								},
+							To(erc20StarsAddr).
+							Inputs(map[string]any{
+								"to":    getEthAddress(toUser[0], toUser[1]),
+								"value": with18Decimals(amount),
 							}).
 							From(fmt.Sprintf("%s@%s", user[0], user[1])).
 							Send().
@@ -302,18 +278,14 @@ var _ = Describe("pente - parallelism on a single contract", Ordered, func() {
 					for i := 0; i < count; i++ {
 						bigAmount, _ := rand.Int(rand.Reader, big.NewInt(9))
 						amount := bigAmount.Int64() + 1
-						invoke := rpc[user[1]].ForABI(ctx, erc20PrivateABI).
-							Private().
-							Domain("pente").
-							To(penteContract).
+						invoke := rpc[user[1]].TxBuilder(ctx).
+							PrivacyGroup(penteGroup).
+							ABI(erc20Simple.ABI).
 							Function("transfer").
-							Inputs(&penteInvokeParams{
-								Group: penteGroupStars,
-								To:    *erc20StarsAddr,
-								Inputs: map[string]any{
-									"to":    getEthAddress(toUser[0], toUser[1]),
-									"value": with18Decimals(amount),
-								},
+							To(erc20StarsAddr).
+							Inputs(map[string]any{
+								"to":    getEthAddress(toUser[0], toUser[1]),
+								"value": with18Decimals(amount),
 							}).
 							From(fmt.Sprintf("%s@%s", user[0], user[1])).
 							Send()

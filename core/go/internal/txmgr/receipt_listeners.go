@@ -206,8 +206,7 @@ func (tm *txManager) CreateReceiptListener(ctx context.Context, spec *pldapi.Tra
 		Filters: pldtypes.JSONString(&spec.Filters),
 		Options: pldtypes.JSONString(&spec.Options),
 	}
-	if insertErr := tm.p.DB().
-		WithContext(ctx).
+	if insertErr := tm.p.DB(ctx).
 		Create(dbSpec).
 		Error; insertErr != nil {
 
@@ -288,8 +287,7 @@ func (tm *txManager) setReceiptListenerStatus(ctx context.Context, name string, 
 	if l == nil {
 		return i18n.NewError(ctx, msgs.MsgTxMgrReceiptListenerNotLoaded, name)
 	}
-	err := tm.p.DB().
-		WithContext(ctx).
+	err := tm.p.DB(ctx).
 		Model(&persistedReceiptListener{}).
 		Where("name = ?", name).
 		Update("started", started).
@@ -318,8 +316,7 @@ func (tm *txManager) DeleteReceiptListener(ctx context.Context, name string) err
 
 	l.stop()
 
-	err := tm.p.DB().
-		WithContext(ctx).
+	err := tm.p.DB(ctx).
 		Where("name = ?", name).
 		Delete(&persistedReceiptListener{}).
 		Error
@@ -370,8 +367,7 @@ func (tm *txManager) loadReceiptListeners() error {
 	for {
 
 		var page []*persistedReceiptListener
-		q := tm.p.DB().
-			WithContext(ctx).
+		q := tm.p.DB(ctx).
 			Order("name").
 			Limit(tm.receiptListenersLoadPageSize)
 		if lastPageEnd != nil {
@@ -440,7 +436,7 @@ func (tm *txManager) validateReceiptListenerSpec(ctx context.Context, spec *plda
 		return err
 	}
 	spec.Options.IncompleteStateReceiptBehavior = icrb.Enum()
-	_, err = tm.buildListenerDBQuery(ctx, spec, tm.p.DB())
+	_, err = tm.buildListenerDBQuery(ctx, spec, tm.p.DB(ctx))
 	return err
 }
 
@@ -636,8 +632,7 @@ func (l *receiptListener) removeReceiverFromList(receivers []*registeredReceiptR
 
 func (l *receiptListener) loadCheckpoint() error {
 	var checkpoints []*persistedReceiptCheckpoint
-	err := l.tm.p.DB().
-		WithContext(l.ctx).
+	err := l.tm.p.DB(l.ctx).
 		Where("listener = ?", l.spec.Name).
 		Limit(1).
 		Find(&checkpoints).
@@ -664,7 +659,7 @@ func (l *receiptListener) readReceiptPageAtHead() ([]*transactionReceipt, error)
 	behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
 	var receipts []*transactionReceipt
 	err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-		db := l.tm.p.DB()
+		db := l.tm.p.DB(l.ctx)
 		q, err := l.tm.buildListenerDBQuery(l.ctx, l.spec, db)
 		if err == nil {
 			if behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract {
@@ -687,7 +682,7 @@ func (l *receiptListener) readReceiptPageAtHead() ([]*transactionReceipt, error)
 func (l *receiptListener) readReceiptPageFromGap(gap *persistedReceiptGap) ([]*transactionReceipt, error) {
 	var receipts []*transactionReceipt
 	err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-		q, err := l.tm.buildListenerDBQuery(l.ctx, l.spec, l.tm.p.DB())
+		q, err := l.tm.buildListenerDBQuery(l.ctx, l.spec, l.tm.p.DB(l.ctx))
 		if err == nil {
 			q = q.
 				Where(`"transaction_receipts"."source" = ?`, gap.Source).
@@ -830,8 +825,7 @@ func (l *receiptListener) deliverBatch(b *receiptDeliveryBatch) error {
 
 func (l *receiptListener) updateCheckpoint(batch *receiptDeliveryBatch, newSequence uint64) error {
 	return l.tm.p.Transaction(l.ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		err := dbTX.DB().
-			WithContext(ctx).
+		err := dbTX.DB(ctx).
 			Clauses(clause.OnConflict{
 				Columns: []clause.Column{
 					{Name: "listener"},
@@ -848,8 +842,7 @@ func (l *receiptListener) updateCheckpoint(batch *receiptDeliveryBatch, newSeque
 			}).
 			Error
 		if err == nil && len(batch.Gaps) > 0 {
-			err = dbTX.DB().
-				WithContext(ctx).
+			err = dbTX.DB(ctx).
 				Clauses(clause.OnConflict{
 					DoNothing: true,
 				}).
@@ -857,8 +850,7 @@ func (l *receiptListener) updateCheckpoint(batch *receiptDeliveryBatch, newSeque
 				Error
 		}
 		if err == nil && len(batch.IncompleteReceipts) > 0 {
-			err = dbTX.DB().
-				WithContext(ctx).
+			err = dbTX.DB(ctx).
 				Clauses(clause.OnConflict{
 					DoNothing: true, // note update is handled separately
 				}).
@@ -922,8 +914,7 @@ func (l *receiptListener) processStaleGaps() error {
 	for {
 		var gaps []*persistedReceiptGap
 		err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-			q := l.tm.p.DB().
-				WithContext(l.ctx).
+			q := l.tm.p.DB(l.ctx).
 				InnerJoins("State").
 				Where("Listener = ?", l.spec.Name).
 				Limit(l.tm.receiptListenersLoadPageSize).
@@ -966,8 +957,7 @@ func (l *receiptListener) processStaleIncompletes() error {
 	for {
 		var incompletes []*persistedReceiptIncomplete
 		err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-			q := l.tm.p.DB().
-				WithContext(l.ctx).
+			q := l.tm.p.DB(l.ctx).
 				InnerJoins("State").
 				InnerJoins("Receipt").
 				Where("Listener = ?", l.spec.Name).
@@ -1009,8 +999,7 @@ func (l *receiptListener) processStaleIncompletes() error {
 		}
 		if err == nil && len(batch.IncompleteReceipts) > 0 {
 			err = l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-				return true, l.tm.p.DB().
-					WithContext(l.ctx).
+				return true, l.tm.p.DB(l.ctx).
 					Clauses(clause.OnConflict{
 						Columns:   []clause.Column{{Name: "listener"}, {Name: "sequence"}},
 						DoUpdates: clause.AssignmentColumns([]string{"state"}), // update the state on clash
@@ -1021,8 +1010,7 @@ func (l *receiptListener) processStaleIncompletes() error {
 		}
 		if err == nil && len(incompletesToDelete) > 0 {
 			err = l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-				return true, l.tm.p.DB().
-					WithContext(l.ctx).
+				return true, l.tm.p.DB(l.ctx).
 					Where("Listener = ?", l.spec.Name).
 					Where("Sequence IN ?", incompletesToDelete).
 					Delete(&persistedReceiptIncomplete{}).
@@ -1055,8 +1043,7 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 		if len(batch.Gaps) > 0 {
 			log.L(l.ctx).Infof("Gap for contract %s remains old=%d/%s new=%d/%s", gap.Source, gap.Sequence, gap.Transaction, batch.Gaps[0].Sequence, batch.Gaps[0].Transaction)
 			return l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-				return true, l.tm.p.DB().
-					WithContext(l.ctx).
+				return true, l.tm.p.DB(l.ctx).
 					Clauses(clause.OnConflict{
 						Columns: []clause.Column{
 							{Name: "listener"},
@@ -1075,8 +1062,7 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 		if len(page) < l.tm.receiptsReadPageSize {
 			// We are done at this point - delete the gap
 			return l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-				return true, l.tm.p.DB().
-					WithContext(l.ctx).
+				return true, l.tm.p.DB(l.ctx).
 					Where("listener = ?", gap.Listener).
 					Where("source = ?", gap.Source).
 					Delete(&persistedReceiptGap{}).
@@ -1090,8 +1076,7 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 		gap.StateID = nil
 		gap.State = nil
 		if err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-			return true, l.tm.p.DB().
-				WithContext(l.ctx).
+			return true, l.tm.p.DB(l.ctx).
 				Model(&persistedReceiptGap{}).
 				Where("listener = ?", gap.Listener).
 				Where("source = ?", gap.Source).

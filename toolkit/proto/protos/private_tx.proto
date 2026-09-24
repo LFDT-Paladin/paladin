@@ -1,0 +1,54 @@
+// Copyright contributors to Paladin, an LFDT project
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package io.kaleido.paladin.toolkit;
+
+import "to_domain.proto";
+import "states.proto";
+
+// PublicTxOptions carries the user-supplied gas/value overrides for the base-ledger transaction.
+// Uses hex-encoded string convention (matches PrivacyGroupEVMTX in to_domain.proto).
+message PublicTxOptions {
+  optional string gas = 1;                      // hex-encoded uint64 gas limit
+  optional string value = 2;                    // hex-encoded uint256 value
+  optional string max_fee_per_gas = 3;          // hex-encoded uint256 EIP-1559 max fee
+  optional string max_priority_fee_per_gas = 4; // hex-encoded uint256 EIP-1559 priority fee
+}
+
+// TransactionPreAssembly holds all state that is stable across re-assemblies
+message TransactionPreAssembly {
+  TransactionSpecification transaction_specification = 1;
+  repeated ResolveVerifierRequest required_verifiers = 2;
+  PublicTxOptions public_tx_options = 3;
+  repeated string chained_depends_on = 4; // UUID strings — ordering constraints from the parent coordinator
+}
+
+message TransactionPostAssembly {
+  AssembleTransactionResponse.Result assembly_result = 1;
+  BlockContext block_context = 2;
+  repeated NewState output_states_potential = 3;  // raw domain output, no IDs yet
+  repeated NewState info_states_potential = 4;    // raw domain info, no IDs yet
+  repeated EndorsableState input_states = 5;
+  repeated EndorsableState read_states = 6;
+  repeated AttestationRequest attestation_plan = 7;
+  repeated AttestationResult signatures = 8;
+  repeated AttestationResult endorsements = 9;
+  optional string domain_data = 10;
+  optional string revert_reason = 11;
+  repeated ResolvedVerifier resolved_verifiers = 12;
+}

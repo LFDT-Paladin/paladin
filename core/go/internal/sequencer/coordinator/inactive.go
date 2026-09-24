@@ -59,31 +59,29 @@ func action_RejectDelegationRequestBlockHeight(ctx context.Context, c *coordinat
 	c.recordOriginatorActivity(e.FromNode)
 	log.L(ctx).Warnf("rejecting delegation from %s due to block height tolerance (originator=%d, coordinator=%d, tolerance=%d)",
 		e.FromNode, e.OriginatorsBlockHeight, c.currentBlockHeight, c.blockHeightTolerance)
-	return c.transportWriter.SendDelegationRejection(
-		ctx,
-		e.FromNode,
-		e.DelegationID,
-		engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
-		"", // no active coordinator redirect for block height rejections
-		int64(e.OriginatorsBlockHeight),
-		c.currentBlockHeight,
-		int64(c.blockHeightTolerance),
-	)
+	return c.transportWriter.SendDelegationRejection(ctx, e.FromNode, &engineProto.DelegationRejection{
+		DelegationId:           e.DelegationID,
+		DelegateNodeId:         e.FromNode,
+		ContractAddress:        c.contractAddress.HexString(),
+		RejectionReason:        engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
+		OriginatorBlockHeight:  int64(e.OriginatorsBlockHeight),
+		CoordinatorBlockHeight: c.currentBlockHeight,
+		BlockHeightTolerance:   int64(c.blockHeightTolerance),
+	})
 }
 
 func action_RejectDelegationRequest(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*TransactionsDelegatedEvent)
 	c.recordOriginatorActivity(e.FromNode)
-	return c.transportWriter.SendDelegationRejection(
-		ctx,
-		e.FromNode,
-		e.DelegationID,
-		engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
-		c.currentActiveCoordinator,
-		int64(e.OriginatorsBlockHeight),
-		c.currentBlockHeight,
-		0, // tolerance not relevant for non-block-height rejections
-	)
+	return c.transportWriter.SendDelegationRejection(ctx, e.FromNode, &engineProto.DelegationRejection{
+		DelegationId:           e.DelegationID,
+		DelegateNodeId:         e.FromNode,
+		ContractAddress:        c.contractAddress.HexString(),
+		ActiveCoordinator:      c.currentActiveCoordinator,
+		RejectionReason:        engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
+		OriginatorBlockHeight:  int64(e.OriginatorsBlockHeight),
+		CoordinatorBlockHeight: c.currentBlockHeight,
+	})
 }
 
 func action_SetSelfAsActiveCoordinator(_ context.Context, c *coordinator, _ common.Event) error {

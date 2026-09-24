@@ -18,8 +18,8 @@ package besugenesis
 import (
 	"math/big"
 
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/rlp"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/rlp"
 )
 
 type GenesisJSON struct {
@@ -35,12 +35,13 @@ type GenesisJSON struct {
 }
 
 type GenesisConfig struct {
-	ChainID     int64       `json:"chainId"`
-	LondonBlock int64       `json:"londonBlock"`
-	CancunTime  int64       `json:"cancunTime"`
-	ZeroBaseFee *bool       `json:"zeroBaseFee"`
-	MinGasPrice *big.Int    `json:"minGasPrice,omitempty"`
-	QBFT        *QBFTConfig `json:"qbft,omitempty"`
+	ChainID           int64       `json:"chainId"`
+	LondonBlock       int64       `json:"londonBlock"`
+	CancunTime        int64       `json:"cancunTime"`
+	ZeroBaseFee       *bool       `json:"zeroBaseFee"`
+	ContractSizeLimit *big.Int    `json:"contractSizeLimit,omitempty"`
+	MinGasPrice       *big.Int    `json:"minGasPrice,omitempty"`
+	QBFT              *QBFTConfig `json:"qbft,omitempty"`
 }
 
 type QBFTConfig struct {

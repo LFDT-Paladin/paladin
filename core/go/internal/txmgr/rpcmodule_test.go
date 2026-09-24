@@ -31,9 +31,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
@@ -752,7 +753,7 @@ func TestRPCReceiptListenersCRUDRealDB(t *testing.T) {
 	txm.receiptsInit()
 
 	// Force persistent state to be started
-	err = txm.p.DB().Model(&persistedReceiptListener{}).
+	err = txm.p.DB(ctx).Model(&persistedReceiptListener{}).
 		Where("name = ?", "listener1").Update("started", true).Error
 	require.NoError(t, err)
 
@@ -803,8 +804,12 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 			Return(mockESHandle, nil)
 		mc.blockIndexer.On("QueryEventStreamDefinitions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return([]*blockindexer.EventStreamDefinition{es}, nil)
-		mc.blockIndexer.On("StartEventStream", mock.Anything, id).Return(nil)
-		mc.blockIndexer.On("StopEventStream", mock.Anything, id).Return(nil)
+		mc.blockIndexer.On("StartEventStream", mock.Anything, id).Run(func(args mock.Arguments) {
+			es.Started = confutil.P(true)
+		}).Return(nil)
+		mc.blockIndexer.On("StopEventStream", mock.Anything, id).Run(func(args mock.Arguments) {
+			es.Started = confutil.P(false)
+		}).Return(nil)
 		mc.blockIndexer.On("RemoveEventStream", mock.Anything, id).Return(nil)
 		mc.blockIndexer.On("GetEventStreamStatus", mock.Anything, id).Return(&blockindexer.EventStreamStatus{}, nil)
 	})
@@ -855,10 +860,28 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, *boolRes)
 
+	err = rpcClient.CallRPC(ctx, &l, "ptx_getBlockchainEventListener", "listener1")
+	require.NoError(t, err)
+	require.NotNil(t, l)
+	require.NotNil(t, l.Started)
+	assert.False(t, *l.Started)
+
+	err = rpcClient.CallRPC(ctx, &listeners, "ptx_queryBlockchainEventListeners", query.NewQueryBuilder().Limit(1).Query())
+	require.NoError(t, err)
+	require.Len(t, listeners, 1)
+	require.NotNil(t, listeners[0].Started)
+	assert.False(t, *listeners[0].Started)
+
 	// Start listener
 	err = rpcClient.CallRPC(ctx, &boolRes, "ptx_startBlockchainEventListener", "listener1")
 	require.NoError(t, err)
 	assert.True(t, *boolRes)
+
+	err = rpcClient.CallRPC(ctx, &l, "ptx_getBlockchainEventListener", "listener1")
+	require.NoError(t, err)
+	require.NotNil(t, l)
+	require.NotNil(t, l.Started)
+	assert.True(t, *l.Started)
 
 	// Delete listener
 	err = rpcClient.CallRPC(ctx, &boolRes, "ptx_deleteBlockchainEventListener", "listener1")
@@ -908,4 +931,42 @@ func TestDispatchAndChainedDispatchRPCs(t *testing.T) {
 	// Query chained dispatches missing limit
 	err = rpcClient.CallRPC(ctx, &chainedDispatches, "ptx_queryChainedDispatches", query.NewQueryBuilder().Query())
 	require.Regexp(t, "PD010721", err)
+}
+
+func TestSendTransactionIdempotencyConflict(t *testing.T) {
+
+	senderAddr := pldtypes.RandAddress()
+	ctx, url, _, done := newTestTransactionManagerWithRPC(t,
+		mockSubmitPublicTxOk(t, senderAddr),
+	)
+	defer done()
+
+	rpcClient, err := rpcclient.NewHTTPClient(ctx, &pldconf.HTTPClientConfig{URL: url})
+	require.NoError(t, err)
+
+	toAddr := pldtypes.MustEthAddress(pldtypes.RandHex(20))
+	txInput := &pldapi.TransactionInput{
+		ABI: abi.ABI{{Type: abi.Function, Name: "set", Inputs: abi.ParameterArray{{Type: "uint256"}}}},
+		TransactionBase: pldapi.TransactionBase{
+			IdempotencyKey: "idem-conflict-1",
+			From:           "sender1",
+			Type:           pldapi.TransactionTypePublic.Enum(),
+			Function:       "set(uint256)",
+			To:             toAddr,
+			Data:           pldtypes.RawJSON(`[12345]`),
+		},
+	}
+
+	// First submission should succeed
+	var txID uuid.UUID
+	err = rpcClient.CallRPC(ctx, &txID, "ptx_sendTransaction", txInput)
+	require.NoError(t, err)
+	assert.NotEqual(t, uuid.UUID{}, txID)
+
+	// Second submission with the same idempotency key must return PD012220 with RPCCodeConflict
+	var txID2 uuid.UUID
+	rpcErr := rpcClient.CallRPC(ctx, &txID2, "ptx_sendTransaction", txInput)
+	require.Error(t, rpcErr)
+	assert.Regexp(t, "PD012220", rpcErr.Error())
+	assert.Equal(t, int64(pldclient.RPCCodeConflict), rpcErr.RPCError().Code)
 }

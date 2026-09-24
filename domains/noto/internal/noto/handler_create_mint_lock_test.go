@@ -25,8 +25,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -218,12 +218,11 @@ func TestCreateMintLock(t *testing.T) {
 	require.NoError(t, err)
 	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
 	require.NoError(t, err)
-	notoParams := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
-	notoOptions := notoParams.Options
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), []string{}, endorsableStateIDs(infoStates[1:2]), unlockTxData)
+	createLockArgs := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), []string{}, n.endorsableStateIDs(ctx, nil, infoStates[1:2], false), unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), []string{}, []string{}, cancelUnlockTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), []string{}, []string{}, cancelUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
 
@@ -234,9 +233,9 @@ func TestCreateMintLock(t *testing.T) {
 		Outputs:      []string{},
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
 		Contents:     []string{},
-		Options:      notoParams.Options,
+		Options:      &types.NotoLockOptions{SpendTxId: lockInfo.SpendTxId},
 		Proof:        signatureBytes,
-	}, notoParams)
+	}, createLockArgs)
 
 	// Prepare again with V1 variant to exercise compatibility parameter shape
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{

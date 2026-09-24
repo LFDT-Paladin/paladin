@@ -32,16 +32,20 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 )
 
-// ParamValidator defines the interface for validating transaction parameters
+// ParamValidator constrains the handler types validateTransactionCommon accepts. Each
+// validates its own parameters, and each is compared against its zero value to detect a
+// function with no handler. Both types.DomainHandler and types.DomainCallHandler satisfy it.
 type ParamValidator interface {
+	comparable
 	ValidateParams(ctx context.Context, domainConfig *types.NotoParsedConfig, paramsJson string) (any, error)
 }
 
@@ -133,6 +137,8 @@ var allSchemas = []*abi.Parameter{
 	types.TransactionDataABI_V1,
 	types.TransactionDataABI_V2,
 	types.NotoManifestABI,
+	smt.MerkleTreeRootABI,
+	smt.MerkleTreeNodeABI,
 }
 
 var schemasJSON = mustParseSchemas(allSchemas)
@@ -150,6 +156,8 @@ type Noto struct {
 	fixedSigningIdentity string
 	coinSchema           *prototk.StateSchema
 	lockedCoinSchema     *prototk.StateSchema
+	merkleTreeRootSchema *prototk.StateSchema
+	merkleTreeNodeSchema *prototk.StateSchema
 	dataSchemaV0         *prototk.StateSchema
 	dataSchemaV1         *prototk.StateSchema
 	dataSchemaV2         *prototk.StateSchema
@@ -515,10 +523,17 @@ func (n *Noto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 	n.chainID = req.ChainId
 	n.fixedSigningIdentity = req.FixedSigningIdentity
 
+	algoName := types.AlgoDomainNullifier(n.name)
+	// using the "Sign" lifecycle method to generate the nullifier,
+	// we don't need a key length or a specific algorithm. just a placeholder entry.
+	signingAlgos := map[string]int32{}
+	signingAlgos[algoName] = 32
+
 	return &prototk.ConfigureDomainResponse{
 		DomainConfig: &prototk.DomainConfig{
 			AbiStateSchemasJson: schemasJSON,
 			AbiEventsJson:       allEventsJSON,
+			SigningAlgorithms:   signingAlgos,
 		},
 	}, nil
 }
@@ -540,6 +555,10 @@ func (n *Noto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (
 			n.lockInfoSchemaV0 = req.AbiStateSchemas[i]
 		case types.NotoLockInfoABI_V1.Name:
 			n.lockInfoSchemaV1 = req.AbiStateSchemas[i]
+		case smt.MerkleTreeRootABI.Name:
+			n.merkleTreeRootSchema = req.AbiStateSchemas[i]
+		case smt.MerkleTreeNodeABI.Name:
+			n.merkleTreeNodeSchema = req.AbiStateSchemas[i]
 		case types.NotoManifestABI.Name:
 			n.manifestSchema = req.AbiStateSchemas[i]
 		}
@@ -591,7 +610,10 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, err
 	}
-	localNodeName, _ := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	localNodeName, err := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	if err != nil {
+		return nil, err
+	}
 	notaryQualified, err := pldtypes.PrivateIdentityLocator(params.Notary).FullyQualified(ctx, localNodeName.Name)
 	if err != nil {
 		return nil, err
@@ -670,11 +692,12 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 		} else {
 			// For V1 and V2 factories, include name and symbol
 			deployParams = &NotoDeployParams{
-				TransactionID: req.Transaction.TransactionId,
-				Name:          params.Name,
-				Symbol:        params.Symbol,
-				Notary:        *notaryAddress,
-				Data:          deployDataJSON,
+				TransactionID:      req.Transaction.TransactionId,
+				ImplementationName: params.Implementation,
+				Name:               params.Name,
+				Symbol:             params.Symbol,
+				Notary:             *notaryAddress,
+				Data:               deployDataJSON,
 			}
 			if n.config.FactoryVersion == 2 && params.Implementation != "" {
 				deployParams.ImplementationName = params.Implementation
@@ -704,7 +727,10 @@ func (n *Noto) InitContract(ctx context.Context, req *prototk.InitContractReques
 		return &prototk.InitContractResponse{Valid: false}, nil
 	}
 
-	localNodeName, _ := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	localNodeName, err := n.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
+	if err != nil {
+		return nil, err
+	}
 	_, notaryNodeName, err := pldtypes.PrivateIdentityLocator(decodedData.NotaryLookup).Validate(ctx, localNodeName.Name, true)
 	if err != nil {
 		return nil, err
@@ -760,13 +786,34 @@ func (n *Noto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTra
 	if err != nil {
 		return nil, err
 	}
-	return handler.Assemble(ctx, tx, req)
+	res, err := handler.Assemble(ctx, tx, req)
+	if err != nil {
+		return nil, err
+	}
+	// Every new unlocked coin in a nullifier variant must carry a nullifier spec, otherwise the
+	// owner's node never derives a nullifier for it and the coin can never be spent, even though
+	// the base ledger confirms it. Checked here rather than in each handler so that no assembly
+	// path - including any added later - can miss it.
+	if tx.DomainConfig.IsNullifierVariant() && res.AssemblyResult == prototk.AssembleTransactionResponse_OK {
+		if err := n.validateNullifierSpecs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), res.AssembledTransaction); err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
 }
 
 func (n *Noto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
 	ctx, tx, handler, err := n.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, err
+	}
+	// Defense in depth for the nullifier variants: catches invalid transactions that includes inputs/outputs states
+	// with colliding nullifiers. Applied to every handler here rather than per-handler, so no transaction
+	// type can be missed.
+	if tx.DomainConfig.IsNullifierVariant() {
+		if err := n.validateDistinctNullifiers(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), req.Inputs, req.Outputs); err != nil {
+			return nil, err
+		}
 	}
 	return handler.Endorse(ctx, tx, req)
 }
@@ -834,7 +881,7 @@ func (n *Noto) validateDeploy(ctx context.Context, tx *prototk.DeployTransaction
 	return &params, err
 }
 
-func validateTransactionCommon[T comparable](
+func validateTransactionCommon[T ParamValidator](
 	ctx context.Context,
 	tx *prototk.TransactionSpecification,
 	getHandler func(method string) T,
@@ -869,13 +916,7 @@ func validateTransactionCommon[T comparable](
 		return nil, unsetT, i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)
 	}
 
-	// check if the handler implements the ValidateParams method cause generic T
-	validator, ok := any(handler).(ParamValidator)
-	if !ok {
-		return nil, *new(T), i18n.NewError(ctx, msgs.MsgErrorHandlerImplementationNotFound)
-	}
-
-	params, err := validator.ValidateParams(ctx, &domainConfig, tx.FunctionParamsJson)
+	params, err := handler.ValidateParams(ctx, &domainConfig, tx.FunctionParamsJson)
 	if err != nil {
 		return nil, *new(T), err
 	}
@@ -1207,11 +1248,38 @@ func mapPrepareTransactionType(transactionType pldapi.TransactionType) prototk.P
 }
 
 func (n *Noto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.SignResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+	log.L(ctx).Infof("generating nullifier for %s\n", req.Algorithm)
+	if types.IsNullifierPayloadType(req.PayloadType) {
+		// The contract comes from the payload type: a sign request carries only the state
+		// data, and the nullifier must be bound to the contract that holds the coin
+		contract, err := types.ParseNullifierPayloadType(req.PayloadType)
+		var coin *types.NotoCoin
+		if err == nil {
+			// Strict unmarshal - a NotoLockedCoin payload must not be nullified as an unlocked
+			// coin, as that would drop its lockId from the nullifier
+			coin, err = n.unmarshalCoinStrict(string(req.Payload))
+		}
+		var hashBytes *pldtypes.Bytes32
+		if err == nil {
+			log.L(ctx).Debugf("unmarshaled coin: %+v\n", coin)
+			hashBytes, err = calculateNullifier(ctx, contract, coin)
+		}
+		if err != nil {
+			return nil, i18n.WrapError(ctx, err, msgs.MsgNullifierGenerationFailed)
+		}
+		return &prototk.SignResponse{
+			Payload: hashBytes.Bytes(),
+		}, nil
+	}
+	return nil, i18n.NewError(ctx, msgs.MsgUnknownSignPayload, req.PayloadType)
 }
 
 func (n *Noto) GetVerifier(ctx context.Context, req *prototk.GetVerifierRequest) (*prototk.GetVerifierResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+	// as per the current nullifier design, no specific verifier is required
+	// to produce the nullifier. return a placeholder verifier
+	return &prototk.GetVerifierResponse{
+		Verifier: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+	}, nil
 }
 
 func (n *Noto) ValidateStateHashes(ctx context.Context, req *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {

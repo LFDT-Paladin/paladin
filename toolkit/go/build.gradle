@@ -21,7 +21,7 @@ ext {
         include "pkg/**/*.go"
         include "domainstarter/**/*.go"
     }
-    targetCoverage = 99.9
+    targetCoverage = 100
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
         'github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk',
@@ -89,7 +89,6 @@ task clean(type: Delete, dependsOn: ':testinfra:stopTestInfra') {
         include "**/*.pb.go"
     }
     delete 'coverage'
-    delete 'componenttest/abis'
 }
 
 task goGet(type:Exec, dependsOn: protoc) {
@@ -127,6 +126,7 @@ task generateDocs(type: Exec) {
     workingDir '.'
     executable 'go'
     args 'test'
+    args '-count=1'
     args './pkg/reference'
     args '-tags=reference'
     if (project.findProperty('verboseTests') == 'true') {
@@ -191,10 +191,43 @@ task buildStarterLibrary(type:GoLib, dependsOn:[goGet]) {
     mainFile './domainstarter'
 }
 
+task checkStateMachineDocs {
+    description = 'Checks that state machine docs are up to date without modifying source files'
+    doLast {
+        def docFiles = [
+            rootProject.file('doc-site/docs/architecture/distributed_sequencer_state_machine.md'),
+            rootProject.file('doc-site/docs/architecture/distributed_sequencer_state_machine_transitions.md'),
+        ]
+        def tmpDir = file("${buildDir}/tmp/checkStateMachineDocs")
+        tmpDir.mkdirs()
+
+        def originals = docFiles.collectEntries { f -> [(f): f.text] }
+
+        try {
+            exec {
+                commandLine 'go', 'test', '-count=1', './pkg/reference', '-tags=reference', '-run', 'TestGenerateStateMachineDocs'
+                workingDir projectDir
+            }
+            docFiles.each { f -> new File(tmpDir, f.name).text = f.text }
+            def changed = docFiles.any { f -> new File(tmpDir, f.name).text != originals[f] }
+            if (changed) {
+                throw new GradleException(
+                    "State machine docs are out of date. " +
+                    "Run './gradlew :toolkit:go:generateDocs' and commit the updated files."
+                )
+            }
+        } finally {
+            originals.each { f, content -> f.text = content }
+            tmpDir.deleteDir()
+        }
+    }
+}
+
 task build {
     dependsOn lint
     dependsOn test
     dependsOn checkCoverage
+    dependsOn checkStateMachineDocs
     dependsOn buildStarterLibrary
 }
 

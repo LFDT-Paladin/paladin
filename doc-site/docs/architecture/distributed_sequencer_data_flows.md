@@ -22,7 +22,7 @@ To aid with problem diagnostics and to allow an identity who submits a transacti
     - The `remote_id` of the `dispatch` sequencer activity is the ID of a `dispatch` record at the coordinator node. 
  - Chained private transactions
     - This is available on the coordinator node.
-    - It can be used to retrieve the chained transaction created during assembly of a Paladin transaction
+    - It can be used to retrieve the ID of the chained transaction created during the dispatch of a Paladin transaction
     - The `remote_id` of the `chained_dispatch` sequencer activity is the ID of a `chained transaction` record at the coordinator node. 
 
 The follow JSON/RPC queries can be used to retrieve sequencing activities and public transaction submissions:
@@ -37,7 +37,8 @@ The following diagram gives an example of the data flows between nodes for a pri
  - Node 2 is Notary for this `Noto` domain so it is the node that coordinates all `Noto` transactions
  - Nodes 3 and 4 also participate in this `Noto` domain but are not involved in this particular Paladin transaction in a privacy group with Node 2. 
 
-![Data flows](diagrams/paladin-node-data-flows.svg){.zoomable-image}
+![Data flows](diagrams/light/node-data-flows.svg#only-light){.zoomable-image}
+![Data flows](diagrams/dark/node-data-flows.svg#only-dark){.zoomable-image}
 
  - Queries to Node 1 return all transaction data, as well as the public transaction submissions and any sequencing records.
  - Queries to Node 2 return the receipt for the Paladin transaction, as well as the public transaction submissions and any sequencing records. The node does not store or return the Paladin transaction itself.
@@ -45,11 +46,12 @@ The following diagram gives an example of the data flows between nodes for a pri
 
 ## Chained transactions
 
-Some Paladin transactions are assembled into a new private transaction, called a "chained" transaction. A typical example of this is where a `Noto` token is deployed with a hook to delegate transaction approval to a private smart contract deployed to a `Pente` privacy group.
+Some Paladin transactions are dispatched as a new private transaction, called a "chained" transaction. A typical example of this is where a `Noto` token is deployed with a hook to delegate transaction approval to a private smart contract deployed to a `Pente` privacy group.
 
 The following diagram shows the flow of data between the nodes involved in both the original and the chained transaction:
 
-![Chained transaction flows](diagrams/paladin-node-data-flows-chained-transactions.svg){.zoomable-image}
+![Chained transaction flows](diagrams/light/node-data-flows-chained-transactions.svg#only-light){.zoomable-image}
+![Chained transaction flows](diagrams/dark/node-data-flows-chained-transactions.svg#only-dark){.zoomable-image}
 
 
 1. TX1 - in this case a Noto transfer - is submitted to Node 1

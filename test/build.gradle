@@ -31,6 +31,7 @@ task copySolidity(type: Copy, dependsOn: [":solidity:compile"]) {
         include 'contracts/testcontracts/SimpleStorage.sol/SimpleStorage.json'
         include 'contracts/testcontracts/RevertableTarget.sol/RevertableTarget.json'
         include 'contracts/testcontracts/NotoHooksRevertable.sol/NotoHooksRevertable.json'
+        include 'contracts/private/NotoTrackerERC20.sol/NotoTrackerERC20.json'
     }
 
     // Flatten all paths into the destination folder
@@ -46,6 +47,11 @@ task make(type: Exec, dependsOn: copySolidity) {
 
 task build {
     dependsOn make
+}
+
+task docker(type: Exec) {
+    executable 'make'
+    args 'docker'
 }
 
 task clean(type: Delete) {

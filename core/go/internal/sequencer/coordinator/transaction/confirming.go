@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
 )
 
 func guard_CanRetryRevert(ctx context.Context, txn *coordinatorTransaction) bool {
@@ -56,15 +57,10 @@ func action_RecordConfirmationRevert(ctx context.Context, t *coordinatorTransact
 
 	t.revertCount++
 	t.revertReason = e.RevertReason
-	if len(e.RevertReason) == 0 {
-		t.decodedRevertReason = e.FailureMessage
-		// We will only see this revert reason if a chained dispatch has failed because its dependency failed.
-		// This means that we assembled this transaction on potential output states that we now
-		// know will not be confirmed on the base ledger.
-		// As a general rule we should not be making sequencer logic conditional on specific error codes; however,
-		// this is acceptable since this is an error code that can originate from within the sequencer.
-		t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256") && t.revertCount <= t.baseLedgerRevertRetryThreshold
-	} else {
+	if e.OnChain.Type != pldtypes.NotOnChain {
+		// On-chain revert: the base ledger transaction was mined but reverted.
+		// Always record the on-chain location so that a receipt can be produced even
+		// when there is no revert data (e.g. a bare revert() with no message).
 		t.revertOnChain = &e.OnChain
 		retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)
 		if err != nil {
@@ -86,6 +82,15 @@ func action_RecordConfirmationRevert(ctx context.Context, t *coordinatorTransact
 		t.lastCanRetryRevert = retryable && t.revertCount <= t.baseLedgerRevertRetryThreshold
 		log.L(ctx).Debugf("transaction %s base ledger reverted with \"%s\" (%s) (count=%d, retryable=%t, threshold=%d, canRetry=%t)",
 			t.pt.ID.String(), t.decodedRevertReason, t.revertReason.String(), t.revertCount, retryable, t.baseLedgerRevertRetryThreshold, t.lastCanRetryRevert)
+	} else {
+		// Off-chain failure (e.g. chained dispatch dependency failed): no on-chain location.
+		t.decodedRevertReason = e.FailureMessage
+		// We will only see this revert reason if a chained dispatch has failed because its dependency failed.
+		// This means that we assembled this transaction on potential output states that we now
+		// know will not be confirmed on the base ledger.
+		// As a general rule we should not be making sequencer logic conditional on specific error codes; however,
+		// this is acceptable since this is an error code that can originate from within the sequencer.
+		t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256") && t.revertCount <= t.baseLedgerRevertRetryThreshold
 	}
 	checkConfirmedHash(ctx, t, e.Hash)
 	return nil
@@ -104,48 +109,88 @@ func checkConfirmedHash(ctx context.Context, t *coordinatorTransaction, hash pld
 
 func action_NotifyOriginatorOfConfirmation(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedSuccessEvent)
-	return t.transportWriter.SendTransactionConfirmed(
-		ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce,
-		engine.TransactionConfirmed_OUTCOME_SUCCESS, nil, "", false,
-	)
+	msg := &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_SUCCESS,
+	}
+	if e.Nonce != nil {
+		msg.Nonce = int64(*e.Nonce)
+	}
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, msg)
 }
 
 func action_NotifyOriginatorOfRetryableRevert(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedRevertedEvent)
-	return t.transportWriter.SendTransactionConfirmed(
-		ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce,
-		engine.TransactionConfirmed_OUTCOME_REVERTED, t.revertReason, t.decodedRevertReason, true,
-	)
+	msg := &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_REVERTED,
+		RevertReason:    t.revertReason,
+		FailureMessage:  t.decodedRevertReason,
+		WillRetry:       true,
+	}
+	if e.Nonce != nil {
+		msg.Nonce = int64(*e.Nonce)
+	}
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, msg)
 }
 
 func action_NotifyOriginatorOfNonRetryableRevert(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedRevertedEvent)
-	return t.transportWriter.SendTransactionConfirmed(
-		ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce,
-		engine.TransactionConfirmed_OUTCOME_REVERTED, t.revertReason, t.decodedRevertReason, false,
-	)
+	msg := &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_REVERTED,
+		RevertReason:    t.revertReason,
+		FailureMessage:  t.decodedRevertReason,
+	}
+	if e.Nonce != nil {
+		msg.Nonce = int64(*e.Nonce)
+	}
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, msg)
+}
+
+func action_NotifyOriginatorOfChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ChainedDependencyFailedEvent)
+	failureMessage := i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, e.FailedTxID).Error()
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, &engine.TransactionConfirmed{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Outcome:         engine.TransactionConfirmed_OUTCOME_REVERTED,
+		FailureMessage:  failureMessage,
+	})
 }
 
 func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	failureMessage := t.decodedRevertReason
 	log.L(ctx).Infof("finalizing transaction %s as reverted (revertCount=%d): %s", t.pt.ID.String(), t.revertCount, failureMessage)
-	t.syncPoints.QueueTransactionFinalize(ctx,
-		&syncpoints.TransactionFinalizeRequest{
-			Domain:          t.pt.Domain,
-			ContractAddress: pldtypes.EthAddress{},
-			Originator:      t.originator,
-			TransactionID:   t.pt.ID,
-			FailureMessage:  failureMessage,
-			RevertData:      t.revertReason,
-			OnChain:         t.revertOnChain,
-		},
-		func(ctx context.Context) {
-			log.L(ctx).Debugf("finalized non-retryable revert for transaction %s", t.pt.ID)
-		},
-		func(ctx context.Context, err error) {
-			log.L(ctx).Errorf("error finalizing non-retryable revert for transaction %s: %s", t.pt.ID, err)
-		},
-	)
+	var tryFinalize func()
+	tryFinalize = func() {
+		t.syncPoints.QueueTransactionFinalize(ctx,
+			&syncpoints.TransactionFinalizeRequest{
+				Domain:          t.pt.Domain,
+				ContractAddress: t.pt.Address,
+				Originator:      t.originator,
+				TransactionID:   t.pt.ID,
+				FailureMessage:  failureMessage,
+				RevertData:      t.revertReason,
+				OnChain:         t.revertOnChain,
+			},
+			func(ctx context.Context) {
+				log.L(ctx).Debugf("finalized non-retryable revert for transaction %s", t.pt.ID)
+			},
+			func(ctx context.Context, err error) {
+				log.L(ctx).Errorf("error finalizing non-retryable revert for transaction %s: %s", t.pt.ID, err)
+				tryFinalize()
+			},
+		)
+	}
+	tryFinalize()
 	return nil
 }
 
@@ -195,24 +240,28 @@ func action_CascadeChainedDependencyFailure(ctx context.Context, t *coordinatorT
 func action_FinalizeOnChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ChainedDependencyFailedEvent)
 	log.L(ctx).Infof("finalizing TX %s due to chained dependency failure from TX %s", t.pt.ID, e.FailedTxID)
-	t.syncPoints.QueueTransactionFinalize(ctx,
-		&syncpoints.TransactionFinalizeRequest{
-			Domain:          t.pt.Domain,
-			ContractAddress: t.pt.Address,
-			Originator:      t.originator,
-			TransactionID:   t.pt.ID,
-			FailureMessage:  i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, e.FailedTxID).Error(),
-		},
-		func(ctx context.Context) {
-			log.L(ctx).Debugf("finalized TX %s due to chained dependency failure", t.pt.ID)
-		},
-		func(ctx context.Context, err error) {
-			log.L(ctx).Errorf("error finalizing TX %s due to chained dependency failure: %s", t.pt.ID, err)
-		},
-	)
+	var tryFinalize func()
+	tryFinalize = func() {
+		t.syncPoints.QueueTransactionFinalize(ctx,
+			&syncpoints.TransactionFinalizeRequest{
+				Domain:          t.pt.Domain,
+				ContractAddress: t.pt.Address,
+				Originator:      t.originator,
+				TransactionID:   t.pt.ID,
+				FailureMessage:  i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, e.FailedTxID).Error(),
+			},
+			func(ctx context.Context) {
+				log.L(ctx).Debugf("finalized TX %s due to chained dependency failure", t.pt.ID)
+			},
+			func(ctx context.Context, err error) {
+				log.L(ctx).Errorf("error finalizing TX %s due to chained dependency failure: %s", t.pt.ID, err)
+				tryFinalize()
+			},
+		)
+	}
+	tryFinalize()
 	return nil
 }
-
 
 func action_RevertTransactionInGrapher(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("releasing transaction locks for %s (revert/failure path)", t.pt.ID.String())

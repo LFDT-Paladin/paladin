@@ -26,7 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 )
 
 type delegateLockHandler struct {
@@ -231,7 +231,7 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 			Signature:  signature.Payload,
 			Data:       txData,
 		})
-	} else {
+	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		var delegateInputsEncoded pldtypes.HexBytes
 		delegateInputsEncoded, err = h.noto.encodeNotoDelegateLockArgs(ctx, &types.NotoDelegateLockArgs{
 			TxId:         req.Transaction.TransactionId,
@@ -247,6 +247,8 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 				Data:         txData,
 			})
 		}
+	} else {
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, tx.DomainConfig.Variant)
 	}
 	if err != nil {
 		return nil, err

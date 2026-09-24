@@ -7,6 +7,7 @@
     "build": "tsc",
     "start": "ts-node ./src/create-mint-lock.ts",
     "start:create-transfer-lock": "ts-node ./src/create-transfer-lock.ts",
+    "verify": "ts-node ./src/tests/data-persistence.ts",
     "copy-abi": "echo 'No contracts to copy'",
     "abi": "echo 'No abi to copy'"
   },

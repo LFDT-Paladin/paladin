@@ -17,7 +17,6 @@
 package pldtypes
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 
@@ -30,21 +29,12 @@ type HexUint64OrString string
 
 // Parses with/without 0x in any case
 func (his *HexUint64OrString) UnmarshalJSON(b []byte) error {
-	var iVal interface{}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.UseNumber() // It's not safe
-	err := decoder.Decode(&iVal)
-	if err == nil {
-		switch v := iVal.(type) {
-		case string:
-			*his = HexUint64OrString(v)
-		case json.Number:
-			*his = HexUint64OrString(v.String())
-		default:
-			err = i18n.NewError(context.Background(), pldmsgs.MsgTypesScanFail, iVal, his)
-		}
+	text, ok := jsonNumericText(b)
+	if !ok {
+		return i18n.NewError(context.Background(), pldmsgs.MsgTypesScanFail, string(b), his)
 	}
-	return err
+	*his = HexUint64OrString(text)
+	return nil
 }
 
 func (his HexUint64OrString) MarshalJSON() ([]byte, error) {

@@ -27,7 +27,8 @@ type Event interface {
 
 type TransactionCreatedEvent struct {
 	common.BaseEvent
-	Transaction *components.PrivateTransaction
+	Transaction         *components.PrivateTransaction
+	ResolvedTransaction *components.ResolvedTransaction
 }
 
 func (*TransactionCreatedEvent) Type() EventType {
@@ -65,4 +66,17 @@ func (*DelegationRequestRejectedEvent) Type() EventType {
 
 func (*DelegationRequestRejectedEvent) TypeString() string {
 	return "Event_DelegationRequestRejected"
+}
+
+type DelegateSendBatchEvent struct {
+	common.BaseEvent
+	Full bool
+}
+
+func (*DelegateSendBatchEvent) Type() EventType {
+	return Event_DelegateSendBatch
+}
+
+func (*DelegateSendBatchEvent) TypeString() string {
+	return "Event_DelegateSendBatch"
 }

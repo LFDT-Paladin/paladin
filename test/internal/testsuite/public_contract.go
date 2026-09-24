@@ -174,6 +174,8 @@ func (s *publicContractSuite) NewWorker(startTime int64, workerID int) TestCase 
 	}
 }
 
+func (s *publicContractSuite) OnReceiptBatch(_ []string) {}
+
 func (s *publicContractSuite) PostRun() error {
 	return nil
 }

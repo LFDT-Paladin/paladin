@@ -75,6 +75,7 @@ func (h *createBurnLockHandler) checkAllowed(ctx context.Context, tx *types.Pars
 func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.CreateBurnLockParams)
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
 	ids, err := resolveIdentities(ctx, h.noto, tx, req, params.From, "")
 	if err != nil {
@@ -83,7 +84,7 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	notaryID, senderID, fromID := ids.notary, ids.sender, ids.from
 
 	// Prepare the input coins
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(params.Amount))
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(params.Amount), useNullifiers)
 	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
 		return res, err
 	}
@@ -108,12 +109,21 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 		if err != nil {
 			return nil, err
 		}
+		// The remainder is unlocked change from the inputs, so it needs a nullifier to be spendable
+		if tx.DomainConfig.IsNullifierVariant() {
+			h.noto.addNullifierSpecs(remainderOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
+		}
 	}
 
 	// Build the cancel outputs before unlock data so they can be referenced in the cancel manifest
 	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(params.Amount), identityList{notaryID, senderID, fromID})
 	if err != nil {
 		return nil, err
+	}
+	// The cancel outputs are returned to the lock owner if the lock is cancelled, so like any
+	// other unlocked coin they need a nullifier to be spendable
+	if tx.DomainConfig.IsNullifierVariant() {
+		h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
 	}
 
 	// Build and encode the unlock data (separate to the data for this TX)
@@ -273,6 +283,7 @@ func (h *createBurnLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 	functionName := "createLock"
 	paramsJSON, err := h.buildCreateLockParams(ctx,
 		tx,
+		req.StateQueryContext,
 		lockTransition,
 		sender.Payload,
 		inputCoinStates,

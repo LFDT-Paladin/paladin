@@ -25,11 +25,12 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatorstateviewmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/statevisibilitytrackermocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -37,6 +38,24 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// matchSendAssembleRequestMsg returns a mock.MatchedBy matcher that inspects the
+// AssembleRequest proto struct, equivalent to the previous per-argument assertions.
+// Pass a non-nil idempotencyKey only when the idempotency key should be asserted (e.g. nudge calls).
+func matchSendAssembleRequestMsg(txn *coordinatorTransaction, blockHeight int64, idempotencyKey *uuid.UUID) interface{} {
+	return mock.MatchedBy(func(msg *engineProto.AssembleRequest) bool {
+		if msg.TransactionId != txn.pt.ID.String() {
+			return false
+		}
+		if msg.CoordinatorBlockHeight != blockHeight {
+			return false
+		}
+		if idempotencyKey != nil && msg.AssembleRequestId != idempotencyKey.String() {
+			return false
+		}
+		return true
+	})
+}
 
 func Test_revertTransactionFailedAssembly_Success(t *testing.T) {
 	ctx := t.Context()
@@ -60,7 +79,7 @@ func Test_applyPostAssembly_RevertResult(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Domain("test-domain").Build()
 
 	revertReason := "test revert"
-	postAssembly := &components.TransactionPostAssembly{
+	proto := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 		RevertReason:   &revertReason,
 	}
@@ -78,9 +97,9 @@ func Test_applyPostAssembly_RevertResult(t *testing.T) {
 		mock.Anything, // onRollback callback
 	).Return()
 
-	err := txn.applyPostAssembly(ctx, postAssembly, requestID)
+	err := txn.applyPostAssembly(ctx, proto, requestID)
 	require.NoError(t, err)
-	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
+	assert.Equal(t, proto, txn.pt.PostAssembly.AssembleResponse)
 	assert.Contains(t, capturedFailureMessage, "PD012616")
 	assert.Contains(t, capturedFailureMessage, revertReason)
 }
@@ -89,7 +108,7 @@ func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.
 	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Domain("test-domain").Build()
 	revertReason := "assembler reverted"
-	postAssembly := &components.TransactionPostAssembly{
+	proto := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 		RevertReason:   &revertReason,
 	}
@@ -108,13 +127,13 @@ func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.
 
 	event := &AssembleRevertEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
-		PostAssembly:         postAssembly,
+		PostAssembly:         proto,
 		RequestID:            uuid.New(),
 	}
 
 	err := action_AssembleRevertResponse(ctx, txn, event)
 	require.NoError(t, err)
-	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
+	assert.Equal(t, proto, txn.pt.PostAssembly.AssembleResponse)
 	assert.Contains(t, capturedFailureMessage, "PD012616")
 	assert.Contains(t, capturedFailureMessage, revertReason)
 }
@@ -122,13 +141,13 @@ func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.
 func Test_applyPostAssembly_ParkResult(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-	postAssembly := &components.TransactionPostAssembly{
+	proto := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_PARK,
 	}
 
-	err := txn.applyPostAssembly(ctx, postAssembly, uuid.New())
+	err := txn.applyPostAssembly(ctx, proto, uuid.New())
 	require.NoError(t, err)
-	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
+	assert.Equal(t, proto, txn.pt.PostAssembly.AssembleResponse)
 }
 
 func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
@@ -146,14 +165,14 @@ func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return()
 
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write lock error"))
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write lock error"))
 
-	postAssembly := &components.TransactionPostAssembly{
+	proto := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}
 	requestID := uuid.New()
 
-	err := txn.applyPostAssembly(ctx, postAssembly, requestID)
+	err := txn.applyPostAssembly(ctx, proto, requestID)
 
 	require.ErrorContains(t, err, "write lock error")
 	// Assert state: revert event was queued so state machine can transition
@@ -166,7 +185,6 @@ func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
 
 func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
 	ctx := t.Context()
-	stateID := pldtypes.HexBytes(uuid.New().String())
 	mockGrapher := graphermocks.NewGrapher(t)
 	mockVisibility := statevisibilitytrackermocks.NewStateVisibilityStore(t)
 	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(errors.New("add minter error"))
@@ -175,40 +193,16 @@ func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
 		Grapher(mockGrapher).
 		StateVisibility(mockVisibility).
 		Build()
-	postAssembly := &components.TransactionPostAssembly{
+	proto := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
-		OutputStates: []*components.FullState{
-			{ID: stateID},
-		},
 	}
 
-	// Mock engine integration to succeed
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	// Mock engine integration to succeed (OutputStates remain nil; AddMinter is called with nil)
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
-	err := txn.applyPostAssembly(ctx, postAssembly, uuid.New())
+	err := txn.applyPostAssembly(ctx, proto, uuid.New())
 	assert.Error(t, err)
 	// No RecordAssemblyOutput expectation registered — the mock will fail the test if it is called.
-}
-
-func Test_applyPostAssembly_Success_MapPotentialStatesError(t *testing.T) {
-	ctx := t.Context()
-	mockGrapher := graphermocks.NewGrapher(t)
-	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(mockGrapher).
-		Build()
-
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
-	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, txn.pt).Return(nil, errors.New("map potential states error"))
-
-	postAssembly := &components.TransactionPostAssembly{
-		AssemblyResult: prototk.AssembleTransactionResponse_OK,
-		OutputStates:   []*components.FullState{},
-	}
-
-	err := txn.applyPostAssembly(ctx, postAssembly, uuid.New())
-	require.ErrorContains(t, err, "map potential states error")
 }
 
 func Test_applyPostAssembly_Success_Complete(t *testing.T) {
@@ -216,19 +210,56 @@ func Test_applyPostAssembly_Success_Complete(t *testing.T) {
 	mockVisibility := statevisibilitytrackermocks.NewStateVisibilityStore(t)
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).StateVisibility(mockVisibility).Build()
 
-	postAssembly := &components.TransactionPostAssembly{
+	proto := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
-		OutputStates:   []*components.FullState{},
 	}
 
 	// Mock engine integration to succeed
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
-	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, txn.pt).Return(nil, nil)
-	mockVisibility.EXPECT().RecordAssemblyOutput(mock.Anything, postAssembly.OutputStates, postAssembly.OutputStatesPotential).Once()
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	mockVisibility.EXPECT().RecordAssemblyOutput(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Once()
 
-	err := txn.applyPostAssembly(ctx, postAssembly, uuid.New())
+	err := txn.applyPostAssembly(ctx, proto, uuid.New())
 	require.NoError(t, err)
-	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
+	assert.Equal(t, proto, txn.pt.PostAssembly.AssembleResponse)
+}
+
+func Test_applyPostAssembly_RecordsOutputStateVisibility(t *testing.T) {
+	ctx := t.Context()
+	mockVisibility := statevisibilitytrackermocks.NewStateVisibilityStore(t)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).StateVisibility(mockVisibility).Build()
+
+	proto := &prototk.TransactionPostAssembly{
+		AssemblyResult:        prototk.AssembleTransactionResponse_OK,
+		OutputStatesPotential: []*prototk.NewState{{DistributionList: []string{"alice@node1"}}},
+	}
+
+	stateID := "0x" + strings.Repeat("aa", 32)
+	// ResolveStatesForTransaction is what settles OutputStates/OutputStatesWithLabels on PostAssembly; emulate it.
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, txn.pt).
+		Run(func(_ context.Context, tx *components.PrivateTransaction) {
+			tx.PostAssembly.OutputStates = []*prototk.EndorsableState{{Id: stateID}}
+			tx.PostAssembly.OutputStatesWithLabels = []*components.StateWithLabels{{State: &pldapi.State{
+				Labels: []*pldapi.StateLabel{{Label: "owner", Value: "0xfeed"}},
+			}}}
+		}).Return(nil)
+
+	var gotStates []*prototk.EndorsableState
+	var gotLabels []*prototk.StateLabels
+	var gotDist [][]string
+	mockVisibility.EXPECT().RecordAssemblyOutput(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, states []*prototk.EndorsableState, labels []*prototk.StateLabels, dist [][]string) {
+			gotStates, gotLabels, gotDist = states, labels, dist
+		}).Once()
+
+	err := txn.applyPostAssembly(ctx, proto, uuid.New())
+	require.NoError(t, err)
+
+	require.Len(t, gotStates, 1)
+	assert.Equal(t, stateID, gotStates[0].GetId())
+	require.Len(t, gotLabels, 1)
+	require.Len(t, gotLabels[0].GetLabels(), 1)
+	assert.Equal(t, "owner", gotLabels[0].GetLabels()[0].GetLabel())
+	require.Equal(t, [][]string{{"alice@node1"}}, gotDist)
 }
 
 func Test_sendAssembleRequest_Success(t *testing.T) {
@@ -238,28 +269,15 @@ func Test_sendAssembleRequest_Success(t *testing.T) {
 		WithCurrentBlockHeight(100).
 		Build()
 
-	// Mock transport writer - use mock.Anything for idempotency key since it's generated dynamically
+	// Mock transport writer - idempotency key is generated dynamically so only assert proto struct fields
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, txn.pendingAssembleRequest)
 	assert.NotNil(t, txn.cancelRequestTimeoutSchedule)
-}
-
-func Test_sendAssembleRequest_ExportStatesAndLocksError(t *testing.T) {
-	ctx := t.Context()
-	mockGrapher := graphermocks.NewGrapher(t)
-	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything, mock.Anything).Return(grapher.ExportableStates{}, errors.New("export states and locks failed"))
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(mockGrapher).
-		Build()
-
-	err := txn.sendAssembleRequest(ctx)
-	require.ErrorContains(t, err, "export states and locks failed")
 }
 
 func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
@@ -269,9 +287,9 @@ func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
 		WithCurrentBlockHeight(100).
 		Build()
 
-	// Mock transport writer to return error - use mock.Anything for idempotency key
+	// Mock transport writer to return error - idempotency key is generated dynamically
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(errors.New("send error"))
 
 	err := txn.sendAssembleRequest(ctx)
@@ -291,44 +309,25 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
 		WithCurrentBlockHeight(100).
-		PreAssembly(&components.TransactionPreAssembly{}).
+		PreAssembly(&prototk.TransactionPreAssembly{}).
 		Build()
 
 	// Create a pending request first
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
 	require.NoError(t, err)
 
-	// Now nudge it - should succeed since request exists
+	// Now nudge it - should succeed since request exists; nudge reuses the same idempotency key
+	idempotencyKey := txn.pendingAssembleRequest.IdempotencyKey()
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), &idempotencyKey),
 	).Return(nil)
 
 	err = txn.nudgeAssembleRequest(ctx)
 	assert.NoError(t, err)
-}
-
-func Test_writeLockStates_Success(t *testing.T) {
-	ctx := t.Context()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, txn.pt).Return(nil)
-
-	err := txn.writeStates(ctx)
-	require.NoError(t, err)
-}
-
-func Test_writeLockStates_Error(t *testing.T) {
-	ctx := t.Context()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write error"))
-
-	err := txn.writeStates(ctx)
-	require.Error(t, err)
 }
 
 func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *testing.T) {
@@ -340,7 +339,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *
 
 	// Create a pending request
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -365,7 +364,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_NoMatch(t
 
 	// Create a pending request
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -402,7 +401,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleRevertEvent_Match(t *t
 
 	// Create a pending request
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -427,7 +426,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorEvent_Match(t *te
 
 	// Create a pending request
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -453,7 +452,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorEvent_NoMatch(t *
 
 	// Create a pending request
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -502,7 +501,7 @@ func Test_action_SendAssembleRequest_Success(t *testing.T) {
 		Build()
 
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := action_SendAssembleRequest(ctx, txn, nil)
@@ -521,15 +520,16 @@ func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
 
 	// Create a pending request first
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
 	require.NoError(t, err)
 
-	// Now nudge it
+	// Now nudge it - nudge reuses the same idempotency key
+	idempotencyKey := txn.pendingAssembleRequest.IdempotencyKey()
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, txn.pendingAssembleRequest.IdempotencyKey(), txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), &idempotencyKey),
 	).Return(nil)
 
 	err = action_NudgeAssembleRequest(ctx, txn, nil)
@@ -607,7 +607,7 @@ func Test_sendAssembleRequest_schedulesTimer(t *testing.T) {
 	})
 
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, mock.Anything, int64(100), mock.Anything, mock.Anything,
+		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -750,11 +750,10 @@ func Test_AssembleSuccess_TransitionsToBlocked_WhenAttestationFulfilledButDepsNo
 		Grapher(g).
 		AddPendingAssembleRequest().
 		NumberOfRequiredEndorsers(0).
-		InputStateIDs(dependency.pt.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(dependency.pt.PostAssembly.OutputStates[0].GetId())
 
 	txn, mocks := txnBuilder.Build()
-	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, txnBuilder.BuildAssembleSuccessEvent())
 	require.NoError(t, err)
@@ -819,7 +818,6 @@ func Test_Assembling_ChainedDependencyFailed_TransitionsToReverted(t *testing.T)
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
-	// mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 
 	err := txn.HandleEvent(ctx, &ChainedDependencyFailedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -944,4 +942,60 @@ func Test_validator_IsAssembleRejection_NoMatch(t *testing.T) {
 	match, err := v(ctx, txn, event)
 	require.NoError(t, err)
 	assert.False(t, match)
+}
+
+func Test_sendAssembleRequest_CarriesAssembleRequestIDOnly(t *testing.T) {
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
+		UseMockTransportWriter().
+		WithCurrentBlockHeight(100).
+		Build()
+
+	// No state data rides the request: the originator pulls candidates and spent state IDs on
+	// demand from the state view captured under the assemble request ID.
+	spentStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("aa", 32))
+	txn.grapher.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: spentStateID.String()}}, uuid.New())
+
+	var sentRequestIDs []string
+	mocks.TransportWriter.EXPECT().SendAssembleRequest(
+		mock.Anything, txn.originatorNode, mock.Anything,
+	).Run(func(_ context.Context, _ string, msg *engineProto.AssembleRequest) {
+		sentRequestIDs = append(sentRequestIDs, msg.GetAssembleRequestId())
+	}).Return(nil).Twice()
+
+	err := txn.sendAssembleRequest(ctx)
+	require.NoError(t, err)
+	require.Len(t, sentRequestIDs, 1)
+	assert.Equal(t, txn.assembleRequestID.String(), sentRequestIDs[0])
+
+	// A nudge re-sends under the same assemble request ID, so the frozen view still serves it.
+	err = txn.nudgeAssembleRequest(ctx)
+	require.NoError(t, err)
+	require.Len(t, sentRequestIDs, 2)
+	assert.Equal(t, sentRequestIDs[0], sentRequestIDs[1])
+}
+
+func Test_action_CaptureGrapherSnapshot_CapturesViewForOriginatorNode(t *testing.T) {
+	ctx := t.Context()
+	mockProvider := coordinatorstateviewmocks.NewProvider(t)
+	mockProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, "node1").Return()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		StateViewProvider(mockProvider).
+		Build()
+
+	require.NoError(t, action_CaptureGrapherSnapshot(ctx, txn, nil))
+	require.NotEqual(t, uuid.Nil, txn.assembleRequestID)
+}
+
+func Test_action_DeleteGrapherSnapshot_DiscardsView(t *testing.T) {
+	ctx := t.Context()
+	mockProvider := coordinatorstateviewmocks.NewProvider(t)
+	mockProvider.EXPECT().DeleteSnapshot(mock.Anything, mock.Anything).Return()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		StateViewProvider(mockProvider).
+		Build()
+
+	require.NoError(t, action_DeleteGrapherSnapshot(ctx, txn, nil))
 }

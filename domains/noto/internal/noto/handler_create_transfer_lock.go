@@ -73,6 +73,7 @@ func (h *createTransferLockHandler) Init(ctx context.Context, tx *types.ParsedTr
 
 func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.CreateTransferLockParams)
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
 
 	ids, err := resolveIdentities(ctx, h.noto, tx, req, params.From, "")
@@ -88,7 +89,7 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 	}
 
 	// Prepare the input coins
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(requiredTotal))
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(requiredTotal), useNullifiers)
 	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
 		return res, err
 	}
@@ -127,6 +128,12 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(requiredTotal), identityList{notaryID, senderID, fromID})
 	if err != nil {
 		return nil, err
+	}
+	// The cancel outputs are returned to the lock owner if the lock is cancelled, so like any
+	// other unlocked coin they need a nullifier to be spendable. The immediate remainder carved
+	// out of spendOutputs above already has one, from assembleUnlockOutputs_V1
+	if useNullifiers {
+		h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
 	}
 
 	// Build and encode the unlock data (separate to the data for this TX)
@@ -291,6 +298,7 @@ func (h *createTransferLockHandler) baseLedgerInvoke(ctx context.Context, tx *ty
 	functionName := "createLock"
 	paramsJSON, err := h.buildCreateLockParams(ctx,
 		tx,
+		req.StateQueryContext,
 		lockTransition,
 		sender.Payload,
 		inputCoinStates,

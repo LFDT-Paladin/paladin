@@ -33,7 +33,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
-	"github.com/hyperledger/firefly-signer/pkg/keystorev3"
+	"github.com/hyperledger-firefly/signer/pkg/keystorev3"
 )
 
 type filesystemStoreFactory[C signerapi.ExtensibleConfig] struct{}
@@ -123,7 +123,7 @@ func (fss *filesystemStore) createWalletFile(ctx context.Context, keyFilePath, p
 	// will be used for SECP256K1 cryptography (BabyJubJub being an example) - or even that it's 32bytes in length
 	// (BIP39 mnemonics being a simple example).
 	//
-	// So we use the feature from https://github.com/hyperledger/firefly-signer/pull/70 to remove it entirely
+	// So we use the feature from https://github.com/hyperledger-firefly/signer/pull/70 to remove it entirely
 	wf.Metadata()["address"] = nil
 
 	err = os.WriteFile(passwordFilePath, []byte(password), fss.fileMode)

@@ -30,7 +30,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencertransportmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/mock"
 )
 
 const (
@@ -197,6 +199,11 @@ func (b *OriginatorBuilderForTesting) Build() (*originator, *OriginatorDependenc
 		mocks.TransportWriter = sequencertransportmocks.NewTransportWriter(b.t)
 	}
 
+	// Default no-op verifier resolution so transactions created via the normal flow (Initial → Resolving)
+	// don't fail on an unexpected mock call. Tests that assert on resolution set their own expectation.
+	mocks.EngineIntegration.On("ResolveVerifiers", mock.Anything, mock.Anything).
+		Return([]*prototk.ResolvedVerifier{}, nil).Maybe()
+
 	seqConfig := b.sequencerConfig
 	if seqConfig == nil {
 		seqConfig = &pldconf.SequencerDefaults
@@ -225,7 +232,12 @@ func (b *OriginatorBuilderForTesting) Build() (*originator, *OriginatorDependenc
 
 	originator.stateMachineEventLoop.StateMachine().SetCurrentState(b.state)
 	switch b.state {
-	// Any state specific setup can be done here
+	case State_Sending:
+		// In Sending the batching goroutine would own these channels. Synchronous ProcessEvent-based
+		// tests don't run the goroutine; create the channels here so actions can write to them and
+		// test functions read them
+		originator.notifyFullDelegation = make(chan struct{}, 1)
+		originator.notifyPartialDelegation = make(chan struct{}, 1)
 	}
 
 	if b.currentActiveCoordinator != nil {

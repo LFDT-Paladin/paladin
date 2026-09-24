@@ -29,7 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 
@@ -70,7 +70,7 @@ func (sMgr *sequencerManager) PostInit(c components.AllComponents) error {
 	log.L(sMgr.ctx).Infof("PostInit distributed sequencer manager")
 	sMgr.components = c
 	sMgr.nodeName = sMgr.components.TransportManager().LocalNodeName()
-	sMgr.syncPoints = syncpoints.NewSyncPoints(sMgr.ctx, &sMgr.config.Writer, c.Persistence(), c.TxManager(), c.PublicTxManager(), c.TransportManager())
+	sMgr.syncPoints = syncpoints.NewSyncPoints(sMgr.ctx, &sMgr.config.Writer, c.Persistence(), c.TxManager(), c.PublicTxManager(), c.TransportManager(), c.StateManager())
 	return nil
 }
 
@@ -334,14 +334,14 @@ func (sMgr *sequencerManager) evaluateDeployment(ctx context.Context, domain com
 		},
 	}
 	sequence.PublicTxs = publicTXs
-	dispatchBatch := &syncpoints.DispatchBatch{
+	deployDispatch := &syncpoints.TransactionDispatch{
 		PublicDispatches: []*syncpoints.PublicDispatch{
 			sequence,
 		},
 	}
 
 	// as this is a deploy we specify the null address
-	err = sMgr.syncPoints.PersistDeployDispatchBatch(ctx, tx.ID, dispatchBatch)
+	err = sMgr.syncPoints.PersistDeployTransactionDispatch(ctx, tx.ID, deployDispatch)
 	if err != nil {
 		log.L(ctx).Errorf("error persisting batch: %s", err)
 		return sMgr.revertDeploy(ctx, tx, err)
@@ -494,14 +494,19 @@ func (sMgr *sequencerManager) handleTx(ctx context.Context, dbTX persistence.DBT
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "PreAssembly is nil")
 	}
 
-	tx.PreAssembly.ChainedDependsOn = localTx.ChainedDependsOn
+	chainedDependsOn := make([]string, len(localTx.ChainedDependsOn))
+	for i, id := range localTx.ChainedDependsOn {
+		chainedDependsOn[i] = id.String()
+	}
+	tx.PreAssembly.ChainedDependsOn = chainedDependsOn
 
 	sequencer, err := sMgr.LoadSequencer(ctx, dbTX, contractAddr, domainAPI, tx)
 	if err != nil {
 		return err
 	}
 	txCreatedEvent := &originator.TransactionCreatedEvent{
-		Transaction: tx,
+		Transaction:         tx,
+		ResolvedTransaction: localTx,
 	}
 
 	if !resume {
@@ -621,7 +626,7 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 	return nil
 }
 
-func (sMgr *sequencerManager) handleTransactionConfirmedSuccess(ctx context.Context, confirmedTxn *components.TxCompletion, nonce *pldtypes.HexUint64) error {
+func (sMgr *sequencerManager) handleTransactionConfirmedSuccess(ctx context.Context, confirmedTxn *components.TxCompletion, nonce *pldtypes.HexUint64) {
 	log.L(sMgr.ctx).Tracef("handleTransactionConfirmedSuccess %s nonce=%v", confirmedTxn.TransactionID.String(), nonce)
 	sMgr.metrics.IncConfirmedTransactions()
 
@@ -631,7 +636,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmedSuccess(ctx context.Cont
 
 	// For a deploy we won't have tracked the transaction through the state machine
 	if confirmedTxn.ContractAddress != nil {
-		return nil
+		return
 	}
 
 	// Invoke of an existing contract.
@@ -640,7 +645,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmedSuccess(ctx context.Cont
 	// If we don't have a loaded sequencer already then a newly loaded one will not know about this transaction.
 	sequencer := sMgr.GetSequencer(ctx, contractAddress)
 	if sequencer == nil {
-		return nil
+		return
 	}
 
 	// we leave it to the coordinator to decide whether it is in a state where it handles the event
@@ -657,14 +662,13 @@ func (sMgr *sequencerManager) handleTransactionConfirmedSuccess(ctx context.Cont
 		Nonce:   nonce,
 		OnChain: confirmedTxn.OnChain,
 	})
-	return nil
 }
 
-func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation, nonce *pldtypes.HexUint64) error {
+func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation, nonce *pldtypes.HexUint64) {
 	// If we don't have a loaded sequencer already then a newly loaded one will not know about this transaction
 	sequencer := sMgr.GetSequencer(ctx, contractAddress)
 	if sequencer == nil {
-		return nil
+		return
 	}
 
 	// we leave it to the coordinator to decide whether it is in a state where it handles the event
@@ -682,7 +686,6 @@ func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx conte
 		OnChain:      onChain,
 		Nonce:        nonce,
 	})
-	return nil
 }
 
 func (sMgr *sequencerManager) HandleChainedTransactionOutcome(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, receiptType components.ReceiptType, failureMessage string, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation) {
@@ -753,17 +756,16 @@ func (sMgr *sequencerManager) HandleDirectTransactionRevert(ctx context.Context,
 			BlockNumber:      tx.BlockNumber,
 			TransactionIndex: tx.TransactionIndex,
 		}
-		err := sMgr.queueConfirmedRevertedEventToCoordinator(ctx, *contractAddress, tx.TransactionID, tx.RevertReason, onChain, &nonceVal)
-		if err != nil {
-			return err
-		}
+		sMgr.queueConfirmedRevertedEventToCoordinator(ctx, *contractAddress, tx.TransactionID, tx.RevertReason, onChain, &nonceVal)
 	}
 	return nil
 }
 
-func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistributions []*components.StateDistributionWithData) (nullifiers []*components.NullifierUpsert, err error) {
-
-	nullifiers = []*components.NullifierUpsert{}
+// BuildNullifiers builds the nullifier for each local state distribution that requires one. A state may
+// pick up a distribution per local recipient.
+func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistributions []*components.StateDistributionWithData) (nullifiers []*pldapi.StateNullifier, err error) {
+	nullifierByState := make(map[string]pldtypes.HexBytes)
+	nullifiers = []*pldapi.StateNullifier{}
 	err = sMgr.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		for _, s := range stateDistributions {
 			if s.NullifierAlgorithm == nil || s.NullifierVerifierType == nil || s.NullifierPayloadType == nil {
@@ -776,6 +778,15 @@ func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistribu
 				return err
 			}
 
+			stateID := nullifier.State.String()
+			if existing, dup := nullifierByState[stateID]; dup {
+				if !existing.Equals(nullifier.ID) {
+					return i18n.NewError(ctx, msgs.MsgStateNullifierConflict, nullifier.State, existing)
+				}
+				continue
+			}
+			nullifierByState[stateID] = nullifier.ID
+
 			nullifiers = append(nullifiers, nullifier)
 		}
 		return nil
@@ -783,7 +794,7 @@ func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistribu
 	return nullifiers, err
 }
 
-func (sMgr *sequencerManager) BuildNullifier(ctx context.Context, kr components.KeyResolver, s *components.StateDistributionWithData) (*components.NullifierUpsert, error) {
+func (sMgr *sequencerManager) BuildNullifier(ctx context.Context, kr components.KeyResolver, s *components.StateDistributionWithData) (*pldapi.StateNullifier, error) {
 	// We need to call the signing engine with the local identity to build the nullifier
 	log.L(ctx).Debugf("generating nullifier for state %s on node %s (algorithm=%s,verifierType=%s,payloadType=%s)",
 		s.StateID, sMgr.nodeName, *s.NullifierAlgorithm, *s.NullifierVerifierType, *s.NullifierPayloadType)
@@ -803,9 +814,10 @@ func (sMgr *sequencerManager) BuildNullifier(ctx context.Context, kr components.
 	if err != nil || len(nulliferBytes) == 0 {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgStateDistributorNullifierFail, s.StateID)
 	}
-	return &components.NullifierUpsert{
-		ID:    nulliferBytes,
-		State: pldtypes.MustParseHexBytes(s.StateID),
+	return &pldapi.StateNullifier{
+		DomainName: s.Domain,
+		ID:         nulliferBytes,
+		State:      pldtypes.MustParseHexBytes(s.StateID),
 	}, nil
 }
 
@@ -846,11 +858,10 @@ func (sMgr *sequencerManager) CallPrivateSmartContract(ctx context.Context, call
 	}
 
 	// Create a throwaway domain context for this call
-	dCtx := sMgr.components.StateManager().NewDomainContext(ctx, psc.Domain(), psc.Address())
-	defer dCtx.Close()
+	dc := sMgr.components.StateManager().NewDomainQueryContext(ctx, psc.Domain(), psc.Address())
 
 	// Do the actual call
-	return psc.ExecCall(dCtx, sMgr.components.Persistence().NOTX(), call, verifiers)
+	return psc.ExecCall(ctx, dc, sMgr.components.Persistence().NOTX(), call, verifiers)
 }
 
 func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {
@@ -879,11 +890,7 @@ func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, 
 				if publicTx.TransactionHash.Equals(&completion.OnChain.TransactionHash) {
 					confirmedWithPublicTX = true
 					log.L(ctx).Debugf("Found a match for the receipt we are processing %s", publicTx.TransactionHash)
-					err = sMgr.handleTransactionConfirmedSuccess(ctx, completion, publicTx.Nonce)
-					if err != nil {
-						// Log but continue confirming other transactions
-						log.L(ctx).Errorf("Error handling transaction confirmed event: %s", err)
-					}
+					sMgr.handleTransactionConfirmedSuccess(ctx, completion, publicTx.Nonce)
 				}
 			}
 		}
@@ -895,8 +902,7 @@ func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, 
 			// Otherwise this node is not the relevant coordinator context for this confirmation.
 			if completion.ContractAddress == nil {
 				var chainedCount int64
-				err := persistence.NOTX().DB().
-					WithContext(ctx).
+				err := persistence.NOTX().DB(ctx).
 					Table("chained_dispatches").
 					Where(`"transaction" = ?`, completion.TransactionID).
 					Count(&chainedCount).
@@ -911,11 +917,7 @@ func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, 
 				}
 			}
 			log.L(ctx).Debugf("No public TX found, confirming %s via locally chained transaction", completion.TransactionID)
-			err = sMgr.handleTransactionConfirmedSuccess(ctx, completion, nil)
-			if err != nil {
-				// Log but continue confirming other transactions
-				log.L(ctx).Errorf("Error handling transaction confirmed event: %s", err)
-			}
+			sMgr.handleTransactionConfirmedSuccess(ctx, completion, nil)
 		}
 	}
 }

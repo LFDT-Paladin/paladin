@@ -252,12 +252,9 @@ var (
 	StateConfirmed               = pdm("State.confirmed", "The confirmation record, if this an on-chain confirmation has been indexed from the base ledger for this state")
 	StateSpent                   = pdm("State.spent", "The spend record, if this an on-chain spend has been indexed from the base ledger for this state")
 	StateRead                    = pdm("State.read", "Read record, only returned when querying within an in-memory domain context to represent read-lock on a state from a transaction in that domain context")
-	StateLocks                   = pdm("State.locks", "When querying states within a domain context running ahead of the blockchain assembling transactions for submission, this provides detail on locks applied to the state")
 	StateNullifier               = pdm("State.nullifier", "Only set if nullifiers are being used in the domain, and a nullifier has been generated that is available for spending this state")
 	StateConfirmTransaction      = pdm("StateConfirm.transaction", "The ID of the Paladin transaction where this state was confirmed")
 	StateSpendTransaction        = pdm("StateSpend.transaction", "The ID of the Paladin transaction where this state was spent")
-	StateLockTransaction         = pdm("StateLock.transaction", "The ID of the Paladin transaction being assembled that is responsible for this lock")
-	StateLockType                = pdm("StateLock.type", "Whether this lock is for create, read or spend")
 	SchemaID                     = pdm("Schema.id", "The hash derived ID of the schema (query only)")
 	SchemaCreated                = pdm("Schema.created", "Server-generated creation timestamp for this schema (query only)")
 	SchemaDomain                 = pdm("Schema.domain", "The name of the domain this schema is managed by")
@@ -311,7 +308,6 @@ var (
 	PeerStatsLastSend            = pdm("PeerStats.lastSend", "Timestamp of the last send to this peer")
 	PeerStatsLastReceive         = pdm("PeerStats.lastReceive", "Timestamp of the last receive from this peer")
 	PeerStatsReliableHighestSent = pdm("PeerStats.reliableHighestSent", "Outbound reliable messages are assigned a sequence. This is the highest sequence sent to the peer since activation")
-	PeerStatsReliableAckBase     = pdm("PeerStats.reliableAckBase", "Outbound reliable messages are assigned a sequence. This is the lowest sequence that has not received an acknowledgement from the peer")
 
 	ReliableMessageSequence    = pdm("ReliableMessage.sequence", "Sequence number for the position of this message in the local database")
 	ReliableMessageID          = pdm("ReliableMessage.id", "UUID for this message. A separate message, with a separate ID, is allocated for each participant that will receive the message")
@@ -407,6 +403,12 @@ var (
 	LogConfigUTC          = pdm("LogConfig.utc", "Sets log timestamps to the UTC timezone")
 	LogConfigFile         = pdm("LogConfig.file", "Configure file based logging")
 	LogConfigJSON         = pdm("LogConfig.json", "Configure json based logging")
+	LogConfigBuffer       = pdm("LogConfig.buffer", "Configure buffered log output")
+
+	// LogBufferConfig field descriptions
+	LogBufferConfigEnabled       = pdm("LogBufferConfig.enabled", "Enables buffered log output, batching lines in memory to reduce the number of write syscalls (default false)")
+	LogBufferConfigSize          = pdm("LogBufferConfig.size", "The amount of log output to accumulate in memory before flushing")
+	LogBufferConfigFlushInterval = pdm("LogBufferConfig.flushInterval", "The maximum time to hold buffered log lines before flushing them")
 
 	// LogFileConfig field descriptions
 	LogFileConfigFilename   = pdm("LogFileConfig.filename", "Sets the log filename prefix")
@@ -582,9 +584,10 @@ var (
 	RPCServerConfigWSWriteBufferSize = pdm("RPCServerConfigWS.writeBufferSize", "Write buffer size for WebSocket connections")
 
 	// RPCServerConfig field descriptions
-	RPCServerConfigHTTPField   = pdm("RPCServerConfig.http", "HTTP server configuration")
-	RPCServerConfigWSField     = pdm("RPCServerConfig.ws", "WebSocket server configuration")
-	RPCServerConfigAuthorizers = pdm("RPCServerConfig.authorizers", "Ordered array of authorizer plugin names to use")
+	RPCServerConfigHTTPField         = pdm("RPCServerConfig.http", "HTTP server configuration")
+	RPCServerConfigWSField           = pdm("RPCServerConfig.ws", "WebSocket server configuration")
+	RPCServerConfigAuthorizers       = pdm("RPCServerConfig.authorizers", "Ordered array of authorizer plugin names to use")
+	RPCServerConfigLegacyReturnCodes = pdm("RPCServerConfig.legacyReturnCodes", "Use legacy HTTP status codes for JSON/RPC responses")
 
 	// RPCAuthManagerConfig field descriptions
 	RPCAuthManagerConfigRPCAuthorizers = pdm("RPCAuthManagerConfig.rpcAuthorizers", "Map of RPC authorizer configurations")
@@ -620,7 +623,9 @@ var (
 	StaticServerConfigBaseRedirect = pdm("StaticServerConfig.baseRedirect", "Redirect URL when hitting base path")
 
 	// DebugServerConfig field descriptions
-	DebugServerConfigEnabled = pdm("DebugServerConfig.enabled", "Whether debug server is enabled")
+	DebugServerConfigEnabled              = pdm("DebugServerConfig.enabled", "Whether debug server is enabled")
+	DebugServerConfigBlockProfileRate     = pdm("DebugServerConfig.blockProfileRate", "Rate for runtime block profiling exposed at /debug/pprof/block: 0 disables it, 1 records every blocking event, N samples one event in N")
+	DebugServerConfigMutexProfileFraction = pdm("DebugServerConfig.mutexProfileFraction", "Fraction for runtime mutex profiling exposed at /debug/pprof/mutex: 0 disables it, 1 records every contention event, N samples one event in N")
 
 	// MetricsServerConfig field descriptions
 	MetricsServerConfigEnabled = pdm("MetricsServerConfig.enabled", "Whether metrics server is enabled")
@@ -667,7 +672,8 @@ var (
 	WSClientConfigWSRequestTimeout       = pdm("WSClientConfig.wsRequestTimeout", "WebSocket request timeout")
 
 	// StateStoreConfig field descriptions
-	StateStoreConfigSchemaCache = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")
+	StateStoreConfigSchemaCache         = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")
+	StateStoreConfigValidatedStateCache = pdm("StateStoreConfig.validatedStateCache", "Validated-state cache configuration")
 
 	// BlockIndexerConfig field descriptions
 	BlockIndexerConfigFromBlock               = pdm("BlockIndexerConfig.fromBlock", "Starting block number for indexing")
@@ -727,21 +733,27 @@ var (
 	SequencerConfigStateTimeout                      = pdm("SequencerConfig.stateTimeout", "Timeout for request-driven transaction states before repooling")
 	SequencerConfigRequestTimeout                    = pdm("SequencerConfig.requestTimeout", "Timeout for sequencer requests")
 	SequencerConfigAssembleErrorRetryThreshold       = pdm("SequencerConfig.assembleErrorRetryThreshold", "Maximum number of times a transaction can error on assembly before being evicted")
+	SequencerConfigSignErrorRetryThreshold           = pdm("SequencerConfig.signErrorRetryThreshold", "Maximum number of times a transaction can error on the signing of its assembled attestations before being evicted")
 	SequencerConfigBlockHeightTolerance              = pdm("SequencerConfig.blockHeightTolerance", "Tolerance for block height differences. Must be the same for all nodes participating in a domain instance.")
 	SequencerConfigBlockRange                        = pdm("SequencerConfig.blockRange", "Block range size for sequencer operations. Must be the same for all nodes participating in a domain instance.")
 	SequencerConfigCoordinatorEventQueueSize         = pdm("SequencerConfig.coordinatorEventQueueSize", "Queue size for coordinator state machine events")
 	SequencerConfigCoordinatorPriorityEventQueueSize = pdm("SequencerConfig.coordinatorPriorityEventQueueSize", "Queue size for coordinator priority events")
+	SequencerConfigDispatchMaxBatchSize              = pdm("SequencerConfig.dispatchMaxBatchSize", "Maximum number of transactions prepared and committed in a single dispatch batch")
+	SequencerConfigEndorseErrorRetry                 = pdm("SequencerConfig.endorseErrorRetry", "Retry configuration for endorsements performed by this node")
 	SequencerConfigOriginatorEventQueueSize          = pdm("SequencerConfig.originatorEventQueueSize", "Queue size for originator state machine events")
 	SequencerConfigOriginatorPriorityEventQueueSize  = pdm("SequencerConfig.originatorPriorityEventQueueSize", "Queue size for originator priority events")
 	SequencerConfigClosingGracePeriod                = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")
 	SequencerConfigConfirmedLockRetentionGracePeriod = pdm("SequencerConfig.confirmedLockRetentionGracePeriod", "Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots")
 	SequencerConfigBaseLedgerRevertRetryThreshold    = pdm("SequencerConfig.baseLedgerRevertRetryThreshold", "Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed")
 	SequencerConfigDelegateTimeout                   = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
+	SequencerConfigDelegationBatchInterval           = pdm("SequencerConfig.delegationBatchInterval", "Interval over which originator delegation requests are coalesced into a single batched send while in the sending state")
+	SequencerConfigDispatchCommitErrorRetry          = pdm("SequencerConfig.dispatchCommitErrorRetry", "Retry behavior for committing a dispatch batch to the database; retries indefinitely on failure")
 	SequencerConfigHeartbeatInterval                 = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
 	SequencerConfigIdleSequencerCleanupInterval      = pdm("SequencerConfig.idleSequencerCleanupInterval", "Interval for proactively removing sequencers where both the coordinator and originator are in idle state")
 	SequencerConfigInactiveGracePeriod               = pdm("SequencerConfig.inactiveGracePeriod", "Number of heartbeat intervals without activity before a node is considered inactive")
 	SequencerConfigMaxInflightTransactions           = pdm("SequencerConfig.maxInflightTransactions", "Maximum number of inflight transactions")
 	SequencerConfigMaxDispatchAhead                  = pdm("SequencerConfig.maxDispatchAhead", "Maximum number of transactions to dispatch ahead")
+	SequencerConfigPrepareErrorRetry                 = pdm("SequencerConfig.prepareErrorRetry", "Retry behavior for preparing a transaction and building its dispatch; once the attempts are exhausted the transaction is returned to the pool")
 	SequencerConfigTargetActiveSequencers            = pdm("SequencerConfig.targetActiveSequencers", "Target number of active sequencers")
 	SequencerConfigTransactionResumePollInterval     = pdm("SequencerConfig.transactionResumePollInterval", "Poll interval for resuming transactions")
 	SequencerConfigTransactionResumePageSize         = pdm("SequencerConfig.transactionResumePageSize", "Page size for reading pending transactions to resume")

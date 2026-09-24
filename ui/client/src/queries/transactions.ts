@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -18,28 +18,27 @@ import i18next from 'i18next';
 import { constants } from '../components/config';
 import {
   IBlock,
+  ICreateEventListenerParams,
+  ICreateReceiptListenerParams,
   IEnrichedTransaction,
   IEvent,
-  IFilter,
+  IEventListener,
+  IFetchIndexedTransactionsParams,
+  IFetchSubmissionsParams,
   IPaladinTransaction,
   IPaladinTransactionPagingReference,
+  IPagedQueryParams,
+  IReceiptListener,
   ITransaction,
   ITransactionInput,
+  IPagedResult,
+  ISortPagingReference,
   ITransactionPagingReference,
   ITransactionReceipt,
 } from '../interfaces';
-import { translateFilters } from '../utils';
+import { toPagedResult, translateFilters } from '../utils';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
-
-const getBlockNumberQuery = (blockNumber: number) => {
-  return [
-    {
-      field: 'blockNumber',
-      value: blockNumber,
-    }
-  ]
-};
 
 const getTransactionPagingQuery = (pageParam: ITransactionPagingReference) => {
   return [
@@ -69,26 +68,24 @@ const getTransactionPagingQuery = (pageParam: ITransactionPagingReference) => {
 };
 
 export const fetchIndexedTransactions = async (
-  limit: number,
-  withReceipt: boolean,
-  fromBlockNumber?: number,
-  pageParam?: ITransactionPagingReference
-): Promise<IEnrichedTransaction[]> => {
+  params: IFetchIndexedTransactionsParams
+): Promise<IPagedResult<IEnrichedTransaction>> => {
+  const { limit, withReceipt, filters, pageParam } = params;
+  let translatedFilters = translateFilters(filters);
+
   let requestPayload: any = {
     jsonrpc: '2.0',
     id: Date.now(),
-    method: withReceipt? RpcMethods.bidx_QueryIndexedTransactionsWithReceipt : RpcMethods.bidx_QueryIndexedTransactions,
+    method: withReceipt ? RpcMethods.bidx_queryIndexedTransactionsWithReceipt : RpcMethods.bidx_queryIndexedTransactions,
     params: [
       {
-        limit,
+        ...translatedFilters,
+        limit: limit + 1,
         sort: ['blockNumber DESC', 'transactionIndex DESC'],
-      },
-    ],
+      }
+    ]
   };
 
-  if (fromBlockNumber !== undefined) {
-    requestPayload.params[0].lessThanOrEqual = getBlockNumberQuery(fromBlockNumber);
-  }
   if (pageParam !== undefined) {
     requestPayload.params[0].or = getTransactionPagingQuery(pageParam);
   }
@@ -98,12 +95,14 @@ export const fetchIndexedTransactions = async (
     i18next.t('errorFetchingTransactions')
   );
 
-  const receiptsResult = await fetchTransactionReceipts(transactions);
-  const events = await fetchTransactionEvents(transactions);
+  const { items: pageTransactions, hasMore } = toPagedResult(transactions, limit);
+
+  const receiptsResult = await fetchTransactionReceipts(pageTransactions);
+  const events = await fetchTransactionEvents(pageTransactions);
 
   let enrichedTransactions: IEnrichedTransaction[] = [];
 
-  for (const transaction of transactions) {
+  for (const transaction of pageTransactions) {
     enrichedTransactions.push({
       ...transaction,
       receipts: receiptsResult.filter(
@@ -113,64 +112,85 @@ export const fetchIndexedTransactions = async (
     });
   }
 
-  return enrichedTransactions;
+  return { items: enrichedTransactions, hasMore };
 };
 
-export const fetchSubmissions = async (
-  type: 'pending' | 'failed',
-  filters: IFilter[],
-  pageParam?: IPaladinTransactionPagingReference
-): Promise<IPaladinTransaction[]> => {
-  let translatedFilters = translateFilters(filters);
+export const buildPaladinTransactionPagingReference = (
+  transaction: IPaladinTransaction
+): IPaladinTransactionPagingReference => ({
+  id: transaction.id,
+  created: transaction.created,
+});
 
-  let params: any = [
-    {
-      ...translatedFilters,
-      limit: constants.SUBMISSIONS_QUERY_LIMIT,
-      sort: ['created DESC'],
-    },
-  ];
+export const fetchSubmissions = async (
+  params: IFetchSubmissionsParams
+): Promise<IPagedResult<IPaladinTransaction>> => {
+  const { type, limit, filters, sortAscending, pageParam } = params;
+  let translatedFilters = translateFilters(filters);
+  const sortDirection = sortAscending ? 'ASC' : 'DESC';
+
+  let queryParams: any = {
+    ...translatedFilters,
+    limit: limit + 1,
+    sort: [
+      `created ${sortDirection}`,
+      `id ${sortDirection}`,
+    ],
+  };
 
   if (pageParam !== undefined) {
-    if (params[0].lessThan === undefined) {
-      params[0].lessThan = [];
-    }
-    params[0].lessThan.push({
-      field: 'created',
-      value: pageParam.created,
-    });
+    const comparison = sortAscending ? 'greaterThan' : 'lessThan';
+    queryParams.or = [
+      {
+        [comparison]: [{
+          field: 'created',
+          value: pageParam.created,
+        }],
+      },
+      {
+        equal: [{
+          field: 'created',
+          value: pageParam.created,
+        }],
+        [comparison]: [{
+          field: 'id',
+          value: pageParam.id,
+        }],
+      },
+    ];
   }
 
-  if (type === 'failed') {
-    if (params[0].equal === undefined) {
-      params[0].equal = [];
+  let rpcParams: any = [queryParams];
+
+  if (['failed', 'successful'].includes(type)) {
+    if (rpcParams[0].equal === undefined) {
+      rpcParams[0].equal = [];
     }
-    params[0].equal.push(
+    rpcParams[0].equal.push(
       {
         field: 'success',
-        value: false
+        value: type === 'successful'
       }
     );
   } else {
-    params = [...params, true];
+    rpcParams = [...rpcParams, true];
   }
 
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
     method:
-      type === 'failed'
-        ? RpcMethods.ptx_QueryTransactionsFull
-        : RpcMethods.ptx_QueryPendingTransactions,
-    params
+      type === 'pending'
+        ? RpcMethods.ptx_queryPendingTransactions
+        : RpcMethods.ptx_queryTransactionsFull,
+    params: rpcParams
   };
 
-  return <Promise<IPaladinTransaction[]>>(
-    returnResponse(
-      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
-      i18next.t('errorFetchingSubmissions')
-    )
+  const results = await returnResponse(
+    () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+    i18next.t('errorFetchingSubmissions')
   );
+  return toPagedResult(results, limit);
 };
 
 export const fetchTransactionReceipt = async (
@@ -215,7 +235,7 @@ export const fetchTransactionReceipts = async (
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
-    method: RpcMethods.ptx_QueryTransactionReceipts,
+    method: RpcMethods.ptx_queryTransactionReceipts,
     params: [
       {
         limit: (transactions.length + 1) * constants.RECEIPTS_PER_TRANSACTION_DEFAULT_LIMIT,
@@ -245,7 +265,7 @@ export const fetchPaladinTransactions = async (
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
-    method: RpcMethods.ptx_QueryTransactionsFull,
+    method: RpcMethods.ptx_queryTransactionsFull,
     params: [
       {
         limit: transactionReceipts.length + 1,
@@ -273,7 +293,7 @@ export const fetchTransactionEvents = async (
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
-    method: RpcMethods.bidx_QueryIndexedEvents,
+    method: RpcMethods.bidx_queryIndexedEvents,
     params: [
       {
         limit: (transactions.length + 1) * constants.EVENTS_PER_TRANSACTION_DEFAULT_LIMIT,
@@ -306,8 +326,6 @@ export const sendTransaction = async (
     method: RpcMethods.ptx_sendTransaction,
     params: [transaction],
   };
-  console.log('Sending transaction');
-
   return <Promise<string>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
@@ -398,6 +416,316 @@ export const fetchPaladinTransactionFull = async (
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
       i18next.t('errorFetchingPaladinTransaction')
+    )
+  );
+};
+
+export const getEventListenerSortValue = (
+  listener: IEventListener,
+  sortBy: string,
+): any => sortBy === 'created' ? listener.created : listener.name;
+
+export const buildEventListenerPagingReference = (
+  listener: IEventListener,
+  sortBy: string,
+): ISortPagingReference => ({
+  sortValue: getEventListenerSortValue(listener, sortBy),
+  tiebreaker: listener.name,
+});
+
+export const listEventListeners = async (
+  params: IPagedQueryParams
+): Promise<IPagedResult<IEventListener>> => {
+  const { limit, filters, sortBy, sortAscending, pageRef } = params;
+  let translatedFilters = translateFilters(filters);
+  const sortDirection = sortAscending ? 'ASC' : 'DESC';
+
+  let queryParams: any = {
+    ...translatedFilters,
+    limit: limit + 1,
+    sort: [
+      `${sortBy} ${sortDirection}`,
+      `name ${sortDirection}`,
+    ],
+  };
+
+  if (pageRef !== undefined) {
+    const comparison = sortAscending ? 'greaterThan' : 'lessThan';
+    queryParams.or = [
+      {
+        [comparison]: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+      },
+      {
+        equal: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+        [comparison]: [{
+          field: 'name',
+          value: pageRef.tiebreaker,
+        }],
+      },
+    ];
+  }
+
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_queryBlockchainEventListeners,
+    params: [queryParams]
+  };
+  const results = await returnResponse(
+    () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+    i18next.t('errorFetchingEventListeners')
+  );
+  return toPagedResult(results, limit);
+};
+
+export const startEventListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_startBlockchainEventListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStartingEventListener')
+    )
+  );
+};
+
+export const stopEventListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_stopBlockchainEventListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStoppingEventListener')
+    )
+  );
+};
+
+export const createEventListener = async (
+  params: ICreateEventListenerParams
+): Promise<boolean> => {
+  const { name, started, sources, options } = params;
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_createBlockchainEventListener,
+    params: [{
+      name,
+      started,
+      sources,
+      options
+    }],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorCreatingEventListener')
+    )
+  );
+};
+
+export const deleteEventListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_deleteBlockchainEventListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorDeletingEventListener')
+    )
+  );
+};
+
+export const getEventListener = async (
+  listenerName: string
+): Promise<IEventListener> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_getBlockchainEventListener,
+    params: [listenerName],
+  };
+  return <Promise<IEventListener>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingEventListener')
+    )
+  );
+};
+
+export const getReceiptListenerSortValue = (
+  listener: IReceiptListener,
+  sortBy: string,
+): any => sortBy === 'created' ? listener.created : listener.name;
+
+export const buildReceiptListenerPagingReference = (
+  listener: IReceiptListener,
+  sortBy: string,
+): ISortPagingReference => ({
+  sortValue: getReceiptListenerSortValue(listener, sortBy),
+  tiebreaker: listener.name,
+});
+
+export const listReceiptListeners = async (
+  params: IPagedQueryParams
+): Promise<IPagedResult<IReceiptListener>> => {
+  const { limit, filters, sortBy, sortAscending, pageRef } = params;
+  let translatedFilters = translateFilters(filters);
+  const sortDirection = sortAscending ? 'ASC' : 'DESC';
+
+  let queryParams: any = {
+    ...translatedFilters,
+    limit: limit + 1,
+    sort: [
+      `${sortBy} ${sortDirection}`,
+      `name ${sortDirection}`,
+    ],
+  };
+
+  if (pageRef !== undefined) {
+    const comparison = sortAscending ? 'greaterThan' : 'lessThan';
+    queryParams.or = [
+      {
+        [comparison]: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+      },
+      {
+        equal: [{
+          field: sortBy,
+          value: pageRef.sortValue,
+        }],
+        [comparison]: [{
+          field: 'name',
+          value: pageRef.tiebreaker,
+        }],
+      },
+    ];
+  }
+
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_queryReceiptListeners,
+    params: [queryParams]
+  };
+  const results = await returnResponse(
+    () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+    i18next.t('errorFetchingReceiptListeners')
+  );
+  return toPagedResult(results, limit);
+};
+
+export const startReceiptListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_startReceiptListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStartingReceiptListener')
+    )
+  );
+};
+
+export const stopReceiptListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_stopReceiptListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorStoppingReceiptListener')
+    )
+  );
+};
+
+export const createReceiptListener = async (
+  params: ICreateReceiptListenerParams
+): Promise<boolean> => {
+  const { name, started, filters, options } = params;
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_createReceiptListener,
+    params: [{
+      name,
+      started,
+      filters,
+      options
+    }],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorCreatingReceiptListener')
+    )
+  );
+};
+
+export const deleteReceiptListener = async (
+  listenerName: string
+): Promise<boolean> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_deleteReceiptListener,
+    params: [listenerName],
+  };
+  return <Promise<boolean>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorDeletingReceiptListener')
+    )
+  );
+};
+
+export const getReceiptListener = async (
+  listenerName: string
+): Promise<IReceiptListener> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_getReceiptListener,
+    params: [listenerName],
+  };
+  return <Promise<IReceiptListener>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingReceiptListener')
     )
   );
 };

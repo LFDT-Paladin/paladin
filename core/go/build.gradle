@@ -31,7 +31,7 @@ ext {
         include "mocks/**/*.go"
     }
 
-    targetCoverage = 96.0
+    targetCoverage = 100
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
         'github.com/LFDT-Paladin/paladin/core/pkg/proto',
@@ -167,6 +167,10 @@ task protoc(type: ProtoCompile, dependsOn: [
 }
 
 task makeMocks(type: Exec, dependsOn: [":installMockery", protoc]) {
+   doFirst {
+      delete 'mocks'
+   }
+
    executable "mockery"
 }
 
@@ -192,7 +196,9 @@ task clean(type: Delete, dependsOn: ':testinfra:stopTestInfra') {
     delete 'coverage'
     delete 'mocks'
     delete 'internal/domainmgr/abis'
-    delete 'componenttest/abis'
+    delete 'noderuntests/componenttest/abis'
+    delete 'noderuntests/pkg/domains/abis'
+    delete 'pkg/testbed/abis'
 }
 
 task lint(type: Exec, dependsOn:[
@@ -485,50 +491,11 @@ task testcov(type: Exec, dependsOn: [test, aggregateCoverage]) {
     args '-html=coverage/coverage.txt'
 }
 
-task generateStateMachineDocs(type: Exec) {
-    description = 'Regenerates distributed sequencer state machine documentation from source'
-    commandLine 'python3', 'scripts/generate_state_machine_docs.py'
-    workingDir rootDir
-}
-
-task checkStateMachineDocs {
-    description = 'Checks that state machine docs are up to date without modifying source files'
-    doLast {
-        def docFiles = [
-            rootProject.file('doc-site/docs/architecture/distributed_sequencer_state_machine.md'),
-            rootProject.file('doc-site/docs/architecture/distributed_sequencer_state_machine_transitions.md'),
-        ]
-        def tmpDir = file("${buildDir}/tmp/checkStateMachineDocs")
-        tmpDir.mkdirs()
-
-        def originals = docFiles.collectEntries { f -> [(f): f.text] }
-
-        try {
-            exec {
-                commandLine 'python3', 'scripts/generate_state_machine_docs.py'
-                workingDir rootDir
-            }
-            docFiles.each { f -> new File(tmpDir, f.name).text = f.text }
-            def changed = docFiles.any { f -> new File(tmpDir, f.name).text != originals[f] }
-            if (changed) {
-                throw new GradleException(
-                    "State machine docs are out of date. " +
-                    "Run './gradlew generateStateMachineDocs' and commit the updated files."
-                )
-            }
-        } finally {
-            originals.each { f, content -> f.text = content }
-            tmpDir.deleteDir()
-        }
-    }
-}
-
 task build {
     dependsOn lint
     dependsOn test
     dependsOn aggregateCoverage
     dependsOn checkCoverage
-    dependsOn checkStateMachineDocs
 }
 
 task assemble {

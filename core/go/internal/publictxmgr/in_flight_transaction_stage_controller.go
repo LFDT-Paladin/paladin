@@ -143,7 +143,9 @@ func (it *inFlightTransactionStageController) MarkTime(eventName string) {
 		it.txTimeline[len(it.txTimeline)-1].tillNextEvent = time.Since(it.txTimeline[len(it.txTimeline)-1].timestamp)
 		if len(it.txTimeline) == it.timeLineLoggingMaxEntries {
 			// the array is full, we need to print the timeline and reset it
-			it.PrintTimeline()
+			if log.IsInfoEnabled() {
+				log.L(it.ctx).Infof("Timeline for %s: %s", it.privateTXID, it.PrintTimeline())
+			}
 			it.txTimeline = make([]PointOfTime, 0, it.timeLineLoggingMaxEntries)
 		}
 		it.txTimeline = append(it.txTimeline, PointOfTime{
@@ -576,7 +578,7 @@ func (it *inFlightTransactionStageController) startNewStage(ctx context.Context,
 	//    from the node but it is flaky behaviour that we have observed and should guard against
 	lastSubmitTime := it.stateManager.GetLastSubmitTime()
 	if lastSubmitTime != nil && time.Since(lastSubmitTime.Time()) > it.resubmitInterval {
-		log.L(ctx).Debugf("Transaction with ID %s entering retrieve gas price as exceeded resubmit interval of %s.", it.stateManager.GetSignerNonce(), it.resubmitInterval.String())
+		log.L(ctx).Debugf("Transaction with ID %s entering retrieve gas price as exceeded resubmit interval of %s.", it.stateManager.GetSignerNonce(), it.resubmitInterval)
 		it.TriggerNewStageRun(ctx, InFlightTxStageRetrieveGasPrice, BaseTxSubStatusStale)
 		return
 	}
@@ -691,7 +693,19 @@ func (it *inFlightTransactionStageController) executeAsync(funcToExecute func(),
 	if it.testOnlyNoActionMode {
 		return
 	}
+	// Tracked on the owning orchestrator's WaitGroup so Stop() can block until this goroutine finishes -
+	// see orchestrator.asyncWG. This prevents a new orchestrator being created for the same signing address
+	// (once this one is removed from the pool) from ever running concurrently with this stage action.
+	it.asyncWG.Add(1)
 	go func() {
+		defer it.asyncWG.Done()
+		if ctx.Err() != nil {
+			// The owning orchestrator was stopped (idle/stale eviction, or swapped out under load) before
+			// this goroutine got to run. Do not sign/submit/persist on its behalf - a new orchestrator for
+			// this signing address may already be processing the same transaction.
+			log.L(ctx).Debugf("Skipping in-flight stage action for %s: orchestrator context cancelled", it.stateManager.GetSignerNonce())
+			return
+		}
 		stage := generation.GetStage(ctx)
 		defer func() {
 			if err := recover(); err != nil {

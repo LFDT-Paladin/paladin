@@ -34,12 +34,21 @@ func GenerateAllReferenceMarkdown(ctx context.Context) (map[string][]byte, error
 		return nil, err
 	}
 
+	// Generate state machine documentation
+	stateMachineDocs, err := GenerateStateMachineDocs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// Merge the maps
 	allDocs := make(map[string][]byte)
 	for k, v := range apiDocs {
 		allDocs[k] = v
 	}
 	for k, v := range configDocs {
+		allDocs[k] = v
+	}
+	for k, v := range stateMachineDocs {
 		allDocs[k] = v
 	}
 

@@ -106,9 +106,8 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 
 	// Insert the batch of new contracts in this DB transaction (we do this before we call the domain to process the events)
 	if len(contracts) > 0 {
-		err := dbTX.DB().
+		err := dbTX.DB(ctx).
 			Table("private_smart_contracts").
-			WithContext(ctx).
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "address"}},
 				DoNothing: true, // immutable
@@ -278,9 +277,8 @@ func (d *domain) recoverTransactionID(ctx context.Context, txIDString string) (*
 func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress, batch *pscEventBatch) (*prototk.HandleEventBatchResponse, error) {
 	// We have a domain context for queries, but we never flush it to DB - as the only updates
 	// we allow in this function are those performed within our dbTX.
-	dCtx := d.dm.stateStore.NewDomainContext(ctx, d, addr)
-	defer dCtx.Close()
-	c := d.newInFlightDomainRequest(dbTX, dCtx, false /* write enabled */)
+	dqc := d.dm.stateStore.NewDomainQueryContext(ctx, d, addr)
+	c := d.newInFlightDomainRequest(dbTX, dqc, false /* write enabled */)
 	defer c.close()
 
 	batch.StateQueryContext = c.id

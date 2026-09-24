@@ -109,6 +109,11 @@ func (h *prepareMintUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 		if err != nil {
 			return nil, err
 		}
+		// These coins are minted to the recipient when the unlock is performed, so they need a
+		// nullifier to be spendable
+		if tx.DomainConfig.IsNullifierVariant() {
+			h.noto.addNullifierSpecs(recipientOutputs.states, toID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
+		}
 		outputs.distributions = append(outputs.distributions, recipientOutputs.distributions...)
 		outputs.coins = append(outputs.coins, recipientOutputs.coins...)
 		outputs.states = append(outputs.states, recipientOutputs.states...)
@@ -235,7 +240,7 @@ func (h *prepareMintUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *typ
 	}
 
 	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
-	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, []*prototk.EndorsableState{}, spendOutputs, []*prototk.EndorsableState{}, req.InfoStates)
+	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, req.StateQueryContext, lockTransition, sender.Payload, []*prototk.EndorsableState{}, spendOutputs, []*prototk.EndorsableState{}, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}

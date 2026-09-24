@@ -22,9 +22,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
-	"github.com/google/uuid"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
@@ -53,10 +53,9 @@ to atomically allocate and record the nonce under that same transaction.
 // but never more than one of these.  We probably could make the mutually exclusive nature more explicit by using interfaces but its not worth the added complexity
 
 type syncPointOperation struct {
-	contractAddress   pldtypes.EthAddress
-	domainContext     components.DomainContext
-	finalizeOperation *finalizeOperation
-	dispatchOperation *dispatchOperation
+	contractAddress    pldtypes.EthAddress
+	finalizeOperation  *finalizeOperation
+	dispatchOperations []*dispatchOperation
 }
 
 func (dso *syncPointOperation) WriteKey() string {
@@ -69,29 +68,29 @@ func (s *syncPoints) runBatch(ctx context.Context, dbTX persistence.DBTX, values
 
 	finalizeOperations := make([]*finalizeOperation, 0, len(values))
 	dispatchOperations := make([]*dispatchOperation, 0, len(values))
-	domainContextsToFlush := make(map[uuid.UUID]components.DomainContext)
+	var statesToWrite []*components.StateWithLabels
+	var nullifiers []*pldapi.StateNullifier
 
 	for _, op := range values {
-		if op.domainContext != nil {
-			domainContextsToFlush[op.domainContext.Info().ID] = op.domainContext
-		}
 		if op.finalizeOperation != nil {
 			finalizeOperations = append(finalizeOperations, op.finalizeOperation)
 		}
-		if op.dispatchOperation != nil {
-			dispatchOperations = append(dispatchOperations, op.dispatchOperation)
+		if len(op.dispatchOperations) > 0 {
+			dispatchOperations = append(dispatchOperations, op.dispatchOperations...)
 		}
 	}
 
-	// We flush all of the affected domain contexts first, as they might contain states we need to refer
-	// to in the DB transaction below using foreign key relationships
-	// We must track if we're returning an error with a nil callback, and ensure that in those cases
-	// we call the dbTXCallback with the error for any contexts we've received back from a Flush() call
+	// We write the dispatches' new states first, as the dispatch records written in the DB transaction
+	// below may refer to them using foreign key relationships.
+	for _, op := range dispatchOperations {
+		statesToWrite = append(statesToWrite, op.states...)
+		nullifiers = append(nullifiers, op.nullifiers...)
+	}
 	var err error
-	log.L(ctx).Infof("SyncPoints flush-writer: domain=contexts=%d finalizeOperations=%d dispatchOperations=%d",
-		len(domainContextsToFlush), len(finalizeOperations), len(dispatchOperations))
-	for _, dc := range domainContextsToFlush {
-		err = dc.Flush(dbTX) // err variable must not be re-allocated
+	log.L(ctx).Infof("SyncPoints flush-writer: statesToWrite=%d nullifiers=%d finalizeOperations=%d dispatchOperations=%d",
+		len(statesToWrite), len(nullifiers), len(finalizeOperations), len(dispatchOperations))
+	if len(statesToWrite) > 0 || len(nullifiers) > 0 {
+		err = s.stateMgr.WriteStateBatch(ctx, dbTX, statesToWrite, nullifiers...) // err variable must not be re-allocated
 		if err != nil {
 			return nil, err
 		}

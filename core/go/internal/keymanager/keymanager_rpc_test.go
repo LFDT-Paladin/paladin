@@ -32,7 +32,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/go-resty/resty/v2"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
