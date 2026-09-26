@@ -425,6 +425,9 @@ func (dc *domainContract) PrepareTransaction(ctx context.Context, dqc components
 	if err != nil {
 		return nil, err
 	}
+	if res.Transaction == nil {
+		return i18n.NewError(ctx, msgs.MsgDomainRespIncompletePrepareTransaction)
+	}
 
 	var functionABI abi.Entry
 	if err := json.Unmarshal(([]byte)(res.Transaction.FunctionAbiJson), &functionABI); err != nil {
@@ -677,6 +680,9 @@ func (dc *domainContract) WrapPrivacyGroupEVMTX(ctx context.Context, pg *pldapi.
 	})
 	if err != nil {
 		return nil, err
+	}
+	if res.Transaction == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgDomainRespIncompletePrepareTransaction)
 	}
 
 	// Function returned must be private
