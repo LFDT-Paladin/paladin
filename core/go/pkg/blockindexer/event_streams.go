@@ -693,9 +693,12 @@ func (es *eventStream) dispatcher() {
 		select {
 		case msg := <-es.dispatch:
 			if msg.confirmed != nil {
-				// A block (or catchup range) was confirmed to contain no matching events- advance the checkpoint
+				// A block (or catchup range) was confirmed to contain no matching events - advance the checkpoint
+				// with DB retry on any transient errors
 				if msg.confirmed.blockNumber > es.checkpoint.Load() {
-					err := es.updateCheckpoint(es.ctx, es.bi.persistence.NOTX(), int64(msg.confirmed.blockNumber))
+					err := es.bi.retry.Do(es.ctx, func(attempt int) (retryable bool, err error) {
+						return true, es.updateCheckpoint(es.ctx, es.bi.persistence.NOTX(), int64(msg.confirmed.blockNumber))
+					})
 					if err != nil {
 						l.Debugf("event stream dispatcher ending (during checkpoint update)")
 						return
