@@ -41,8 +41,10 @@ jobs:
           node-version: '22.22.1' # Working around bug https://github.com/nodejs/node/issues/62425 until we move to Node 24
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install latest npm
-        run: npm install -g npm@latest
+      # Pinned to npm 11 line - npm 12 requires node "^22.22.2 || ^24.15.0 || >=26.0.0"
+      # which hits bug https://github.com/nodejs/node/issues/62425 (see above)
+      - name: Install npm 11
+        run: npm install -g npm@11
 
       - name: Install pre-requisites
         uses: ./.github/actions/setup
