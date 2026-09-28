@@ -1904,7 +1904,7 @@ func TestDomainInitStream(t *testing.T) {
 
 	// Upgrades are announced by the instances themselves as well as the registry
 	require.Len(t, sources[1].ABI, 1)
-	assert.Equal(t, "PaladinUpgradeSmartContract_V0", sources[1].ABI[0].Name)
+	assert.Equal(t, "PaladinUpgradeSmartContractConfig_V0", sources[1].ABI[0].Name)
 	assert.Nil(t, sources[1].Address)
 
 	// Domain events from any address

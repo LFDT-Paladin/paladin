@@ -151,7 +151,7 @@ func (d *domain) processDomainConfig(dbTX persistence.DBTX, confRes *prototk.Con
 		Type: blockindexer.EventStreamTypeInternal.Enum(),
 		Sources: []blockindexer.EventStreamSource{
 			{ABI: registryEventABI("PaladinRegisterSmartContract_V0"), Address: d.registryAddress},
-			{ABI: registryEventABI("PaladinUpgradeSmartContract_V0")},
+			{ABI: registryEventABI("PaladinUpgradeSmartContractConfig_V0")},
 		},
 	}
 

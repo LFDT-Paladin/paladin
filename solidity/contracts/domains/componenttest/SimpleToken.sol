@@ -82,7 +82,7 @@ contract SimpleToken {
     // Announces a new configuration for this instance, as an upgraded instance would after
     // changing the parameters the off-chain domain needs
     function upgradeConfig(bytes calldata config) public {
-        emit IPaladinContractRegistry_V0.PaladinUpgradeSmartContract_V0(config);
+        emit IPaladinContractRegistry_V0.PaladinUpgradeSmartContractConfig_V0(config);
     }
 
 }

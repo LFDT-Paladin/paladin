@@ -56,10 +56,10 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 	nonRegisterEvents := make([]*pldapi.EventWithData, 0, len(batch.Events))
 
 	for _, ev := range batch.Events {
-		processedEvent := false
 		if ev.SoliditySignature == eventSolSig_PaladinRegisterSmartContract_V0 {
 
-			// We only register against registries that we have indexed, so we should be able to find the domain for this address
+			// Our event stream configuration includes the addresses of the configured domain registries, so all registration events
+			// we receive should be for a domain that is configured on this node.
 			d, err := dm.getDomainByAddress(ctx, &ev.Address)
 			if err != nil {
 				log.L(ctx).Errorf("Registration event for unknown domain event: %s", pldtypes.JSONString(ev))
@@ -67,41 +67,37 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 			}
 
 			var parsedEvent event_PaladinRegisterSmartContract_V0
-			parseErr := json.Unmarshal(ev.Data, &parsedEvent)
-			if parseErr != nil {
-				log.L(ctx).Errorf("Failed to parse domain event (%s): %s", parseErr, pldtypes.JSONString(ev))
-			} else {
-				processedEvent = true
-				txID := parsedEvent.TXId.UUIDFirst16()
-				contracts = append(contracts, &PrivateSmartContract{
-					DeployTX:        txID,
-					RegistryAddress: ev.Address,
-					Address:         parsedEvent.Instance,
-					ConfigBytes:     parsedEvent.Config,
-				})
-
-				// We don't know if the private transaction will match, but we need to pass it over
-				// to the private TX manager within our DB transaction to allow it to check
-				txCompletions = append(txCompletions, &components.TxCompletion{
-					ReceiptInput: components.ReceiptInput{
-						ReceiptType:   components.RT_Success,
-						TransactionID: txID,
-						Domain:        d.name,
-						OnChain: pldtypes.OnChainLocation{
-							Type:             pldtypes.OnChainEvent,
-							TransactionHash:  ev.TransactionHash,
-							BlockNumber:      ev.BlockNumber,
-							TransactionIndex: ev.TransactionIndex,
-							LogIndex:         ev.LogIndex,
-							Source:           &ev.Address,
-						},
-						ContractAddress: &parsedEvent.Instance,
-					},
-					PSC: nil, // currently unset for deployments (rather than fluffing up the domainContract at this point)
-				})
+			if err := json.Unmarshal(ev.Data, &parsedEvent); err != nil {
+				return nil, nil, i18n.WrapError(ctx, err, msgs.MsgDomainInvalidRegistryEventData, ev.SoliditySignature)
 			}
-		}
-		if !processedEvent {
+			txID := parsedEvent.TXId.UUIDFirst16()
+			contracts = append(contracts, &PrivateSmartContract{
+				DeployTX:        txID,
+				RegistryAddress: ev.Address,
+				Address:         parsedEvent.Instance,
+				ConfigBytes:     parsedEvent.Config,
+			})
+
+			// We don't know if the private transaction will match, but we need to pass it over
+			// to the private TX manager within our DB transaction to allow it to check
+			txCompletions = append(txCompletions, &components.TxCompletion{
+				ReceiptInput: components.ReceiptInput{
+					ReceiptType:   components.RT_Success,
+					TransactionID: txID,
+					Domain:        d.name,
+					OnChain: pldtypes.OnChainLocation{
+						Type:             pldtypes.OnChainEvent,
+						TransactionHash:  ev.TransactionHash,
+						BlockNumber:      ev.BlockNumber,
+						TransactionIndex: ev.TransactionIndex,
+						LogIndex:         ev.LogIndex,
+						Source:           &ev.Address,
+					},
+					ContractAddress: &parsedEvent.Instance,
+				},
+				PSC: nil, // currently unset for deployments (rather than fluffing up the domainContract at this point)
+			})
+		} else {
 			nonRegisterEvents = append(nonRegisterEvents, ev)
 		}
 	}
@@ -126,7 +122,7 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 
 // applyUpgrade replaces the stored configuration of a contract registered under this domain's registry with
 // that announced by the contract. Returns false when the contract is not registered here.
-func (d *domain) applyUpgrade(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress, upgrade *event_PaladinUpgradeSmartContract_V0) (bool, error) {
+func (d *domain) applyUpgrade(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress, upgrade *event_PaladinUpgradeSmartContractConfig_V0) (bool, error) {
 	res := dbTX.DB(ctx).
 		Table("private_smart_contracts").
 		Where("address = ? AND domain_address = ?", addr, d.registryAddress).
@@ -163,11 +159,10 @@ func (d *domain) batchEventsByContractConfig(ctx context.Context, dbTX persisten
 	current := make(map[pldtypes.EthAddress]*pscEventBatch)
 
 	for _, ev := range events {
-		if ev.SoliditySignature == eventSolSig_PaladinUpgradeSmartContract_V0 {
-			var upgrade event_PaladinUpgradeSmartContract_V0
+		if ev.SoliditySignature == eventSolSig_PaladinUpgradeSmartContractConfig_V0 {
+			var upgrade event_PaladinUpgradeSmartContractConfig_V0
 			if err := json.Unmarshal(ev.Data, &upgrade); err != nil {
-				log.L(ctx).Errorf("Failed to parse domain event (%s): %s", err, pldtypes.JSONString(ev))
-				continue
+				return nil, nil, i18n.WrapError(ctx, err, msgs.MsgDomainInvalidRegistryEventData, ev.SoliditySignature)
 			}
 			upgraded, err := d.applyUpgrade(ctx, dbTX, ev.Address, &upgrade)
 			if err != nil {

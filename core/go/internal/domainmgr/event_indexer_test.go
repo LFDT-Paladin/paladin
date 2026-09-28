@@ -45,7 +45,7 @@ func TestSolidityEventSignatures(t *testing.T) {
 	//
 	// The standard solidity signature is insufficient, as it doesn't include variable names, or the indexed-ness of fields
 	assert.Equal(t, "event PaladinRegisterSmartContract_V0(bytes32 indexed txId, address indexed instance, bytes config)", eventSolSig_PaladinRegisterSmartContract_V0)
-	assert.Equal(t, "event PaladinUpgradeSmartContract_V0(bytes config)", eventSolSig_PaladinUpgradeSmartContract_V0)
+	assert.Equal(t, "event PaladinUpgradeSmartContractConfig_V0(bytes config)", eventSolSig_PaladinUpgradeSmartContractConfig_V0)
 }
 
 func registerTestSmartContract(t *testing.T, td *testDomainContext) (deployTX uuid.UUID, contractAddr pldtypes.EthAddress) {
@@ -137,7 +137,7 @@ func TestEventIndexingBadEvent(t *testing.T) {
 		mc.db.ExpectBegin()
 		mc.db.ExpectCommit()
 		mc.db.ExpectBegin()
-		mc.db.ExpectCommit()
+		mc.db.ExpectRollback()
 	})
 	defer done()
 
@@ -158,7 +158,7 @@ func TestEventIndexingBadEvent(t *testing.T) {
 		})
 		return err
 	})
-	require.NoError(t, err)
+	assert.Regexp(t, "PD011668", err)
 
 }
 
@@ -1314,14 +1314,14 @@ func TestHandleEventBatchPendingPrivateStateDataBadTransactionID(t *testing.T) {
 
 func upgradeEvent(source pldtypes.EthAddress, config string, logIndex int64) *pldapi.EventWithData {
 	return &pldapi.EventWithData{
-		SoliditySignature: eventSolSig_PaladinUpgradeSmartContract_V0,
+		SoliditySignature: eventSolSig_PaladinUpgradeSmartContractConfig_V0,
 		Address:           source,
 		IndexedEvent: &pldapi.IndexedEvent{
 			BlockNumber:      12346,
 			TransactionIndex: 0,
 			LogIndex:         logIndex,
 			TransactionHash:  pldtypes.RandBytes32(),
-			Signature:        eventSig_PaladinUpgradeSmartContract_V0,
+			Signature:        eventSig_PaladinUpgradeSmartContractConfig_V0,
 		},
 		Data: pldtypes.RawJSON(`{"config": "` + config + `"}`),
 	}
@@ -1350,15 +1350,17 @@ type upgradeTestDomain struct {
 	initConfigs   []string
 }
 
-func newUpgradeTestDomain(t *testing.T) (*upgradeTestDomain, pldtypes.EthAddress, func()) {
+func newUpgradeTestDomain(t *testing.T, upgradeFails bool) (*upgradeTestDomain, pldtypes.EthAddress, func()) {
 	utd := &upgradeTestDomain{
 		confirmed:     make(chan []*components.TxCompletion, 1),
 		configChanged: make(chan pldtypes.EthAddress, 10),
 	}
 	td, done := newTestDomain(t, true, goodDomainConf(), func(mc *mockComponents) {
-		mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-			utd.confirmed <- args[1].([]*components.TxCompletion)
-		}).Return()
+		if !upgradeFails {
+			mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+				utd.confirmed <- args[1].([]*components.TxCompletion)
+			}).Return()
+		}
 		mc.sequencerManager.On("HandleContractConfigChanged", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 			utd.configChanged <- args[1].(pldtypes.EthAddress)
 		}).Return().Maybe()
@@ -1404,7 +1406,7 @@ func (utd *upgradeTestDomain) storedConfig(t *testing.T, addr pldtypes.EthAddres
 }
 
 func TestUpgradeEventFromInstanceReplacesConfig(t *testing.T) {
-	utd, contractAddr, done := newUpgradeTestDomain(t)
+	utd, contractAddr, done := newUpgradeTestDomain(t, false)
 	defer done()
 	ctx := utd.ctx
 
@@ -1432,7 +1434,7 @@ func TestUpgradeEventFromInstanceReplacesConfig(t *testing.T) {
 }
 
 func TestUpgradeEventFromUnregisteredAddressIgnored(t *testing.T) {
-	utd, contractAddr, done := newUpgradeTestDomain(t)
+	utd, contractAddr, done := newUpgradeTestDomain(t, false)
 	defer done()
 
 	utd.handleBatch(t, upgradeEvent(*pldtypes.RandAddress(), "0xcafe", 0))
@@ -1444,7 +1446,7 @@ func TestUpgradeEventFromUnregisteredAddressIgnored(t *testing.T) {
 }
 
 func TestUpgradeEventForInstanceOfAnotherRegistryIgnored(t *testing.T) {
-	utd, _, done := newUpgradeTestDomain(t)
+	utd, _, done := newUpgradeTestDomain(t, false)
 	defer done()
 
 	otherInstance := *pldtypes.RandAddress()
@@ -1464,20 +1466,26 @@ func TestUpgradeEventForInstanceOfAnotherRegistryIgnored(t *testing.T) {
 	assert.Empty(t, utd.initConfigs)
 }
 
-func TestUpgradeEventBadDataIgnored(t *testing.T) {
-	utd, contractAddr, done := newUpgradeTestDomain(t)
+func TestUpgradeEventBadDataFails(t *testing.T) {
+	utd, contractAddr, done := newUpgradeTestDomain(t, true)
 	defer done()
 
 	ev := upgradeEvent(contractAddr, "0xcafe", 0)
 	ev.Data = pldtypes.RawJSON(`{"config": "cannot parse this"}`)
-	utd.handleBatch(t, ev)
+	err := utd.dm.persistence.Transaction(utd.ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return utd.d.handleEventBatch(ctx, dbTX, &blockindexer.EventDeliveryBatch{
+			BatchID: uuid.New(),
+			Events:  []*pldapi.EventWithData{ev},
+		})
+	})
+	assert.Regexp(t, "PD011668", err)
 
-	assert.Empty(t, <-utd.confirmed)
+	assert.Empty(t, utd.configChanged)
 	assert.Equal(t, "0xfeedbeef", utd.storedConfig(t, contractAddr))
 }
 
 func TestHandleEventBatchSegmentedAtUpgrade(t *testing.T) {
-	utd, contractAddr, done := newUpgradeTestDomain(t)
+	utd, contractAddr, done := newUpgradeTestDomain(t, false)
 	defer done()
 
 	var batchConfigs []string
@@ -1503,7 +1511,7 @@ func TestHandleEventBatchSegmentedAtUpgrade(t *testing.T) {
 }
 
 func TestUpgradeEventInvalidConfigDiscardsLaterEvents(t *testing.T) {
-	utd, contractAddr, done := newUpgradeTestDomain(t)
+	utd, contractAddr, done := newUpgradeTestDomain(t, false)
 	defer done()
 
 	utd.tp.Functions.HandleEventBatch = func(ctx context.Context, req *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error) {
@@ -1525,7 +1533,7 @@ func TestUpgradeEventInvalidConfigDiscardsLaterEvents(t *testing.T) {
 }
 
 func TestUpgradeEventTwiceInBatchNotifiesOnce(t *testing.T) {
-	utd, contractAddr, done := newUpgradeTestDomain(t)
+	utd, contractAddr, done := newUpgradeTestDomain(t, false)
 	defer done()
 
 	utd.handleBatch(t,

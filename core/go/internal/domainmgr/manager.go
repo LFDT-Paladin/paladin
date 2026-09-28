@@ -56,8 +56,8 @@ var eventSig_PaladinRegisterSmartContract_V0 = mustParseEventSignatureHash(iPala
 var eventSolSig_PaladinRegisterSmartContract_V0 = mustParseEventSoliditySignature(iPaladinContractRegistryABI, "PaladinRegisterSmartContract_V0")
 
 //nolint:unused // Used in tests
-var eventSig_PaladinUpgradeSmartContract_V0 = mustParseEventSignatureHash(iPaladinContractRegistryABI, "PaladinUpgradeSmartContract_V0")
-var eventSolSig_PaladinUpgradeSmartContract_V0 = mustParseEventSoliditySignature(iPaladinContractRegistryABI, "PaladinUpgradeSmartContract_V0")
+var eventSig_PaladinUpgradeSmartContractConfig_V0 = mustParseEventSignatureHash(iPaladinContractRegistryABI, "PaladinUpgradeSmartContractConfig_V0")
+var eventSolSig_PaladinUpgradeSmartContractConfig_V0 = mustParseEventSoliditySignature(iPaladinContractRegistryABI, "PaladinUpgradeSmartContractConfig_V0")
 
 // var eventSig_PaladinPrivateTransaction_V0 = mustParseEventSignature(iPaladinContractABI, "PaladinPrivateTransaction_V0")
 
@@ -116,7 +116,7 @@ type event_PaladinRegisterSmartContract_V0 struct {
 	Config   pldtypes.HexBytes   `json:"config"`
 }
 
-type event_PaladinUpgradeSmartContract_V0 struct {
+type event_PaladinUpgradeSmartContractConfig_V0 struct {
 	Config pldtypes.HexBytes `json:"config"`
 }
 
