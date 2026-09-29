@@ -433,13 +433,13 @@ func newTestPrivateTx(contractAddr *pldtypes.EthAddress) *components.PrivateTran
 }
 
 func TestHandleDelegationRequest_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
 
 	privateTx := newTestPrivateTx(contractAddr)
-	message := newDelegationRequestMessage("test-node", contractAddr, 100, privateTx)
+	message := newDelegationRequestMessage("node1", contractAddr, 100, privateTx)
 
 	setupDefaultMocks(ctx, mocks, contractAddr)
 	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
@@ -454,7 +454,7 @@ func TestHandleDelegationRequest_Success(t *testing.T) {
 		return ok &&
 			len(event.Transactions) == 1 &&
 			event.Transactions[0].ID == privateTx.ID &&
-			event.FromNode == "test-node" &&
+			event.FromNode == "node1" &&
 			event.Originator == "originator@node1" &&
 			event.OriginatorsBlockHeight == 100
 	})).Once()
@@ -465,7 +465,7 @@ func TestHandleDelegationRequest_Success(t *testing.T) {
 }
 
 func TestHandleDelegationRequest_MultipleTxBatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -473,7 +473,7 @@ func TestHandleDelegationRequest_MultipleTxBatch(t *testing.T) {
 	tx1 := newTestPrivateTx(contractAddr)
 	tx2 := newTestPrivateTx(contractAddr)
 	tx3 := newTestPrivateTx(contractAddr)
-	message := newDelegationRequestMessage("originator-node", contractAddr, 42, tx1, tx2, tx3)
+	message := newDelegationRequestMessage("node1", contractAddr, 42, tx1, tx2, tx3)
 
 	setupDefaultMocks(ctx, mocks, contractAddr)
 	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
@@ -491,7 +491,7 @@ func TestHandleDelegationRequest_MultipleTxBatch(t *testing.T) {
 		return event.Transactions[0].ID == tx1.ID &&
 			event.Transactions[1].ID == tx2.ID &&
 			event.Transactions[2].ID == tx3.ID &&
-			event.FromNode == "originator-node" &&
+			event.FromNode == "node1" &&
 			event.OriginatorsBlockHeight == 42
 	})).Once()
 
@@ -513,6 +513,46 @@ func TestHandleDelegationRequest_EmptyTransactions(t *testing.T) {
 
 	// No QueueEvent call expected — mocks.coordinator has no registered expectations,
 	// and NewCoordinator(t) will fail the test if QueueEvent is called unexpectedly.
+}
+
+func TestHandleDelegationRequest_OriginatorNotOnSendingNode(t *testing.T) {
+	ctx := t.Context()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	privateTx := newTestPrivateTx(contractAddr)
+	privateTx.PreAssembly.TransactionSpecification.From = "victim@node2"
+	message := newDelegationRequestMessage("node1", contractAddr, 100, privateTx)
+
+	sm.handleDelegationRequest(ctx, message)
+}
+
+func TestHandleDelegationRequest_OriginatorNotFullyQualified(t *testing.T) {
+	ctx := t.Context()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	privateTx := newTestPrivateTx(contractAddr)
+	privateTx.PreAssembly.TransactionSpecification.From = "originator"
+	message := newDelegationRequestMessage("node1", contractAddr, 100, privateTx)
+
+	sm.handleDelegationRequest(ctx, message)
+}
+
+func TestHandleDelegationRequest_BatchWithOriginatorNotOnSendingNode(t *testing.T) {
+	ctx := t.Context()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	tx1 := newTestPrivateTx(contractAddr)
+	tx2 := newTestPrivateTx(contractAddr)
+	tx2.PreAssembly.TransactionSpecification.From = "victim@node2"
+	message := newDelegationRequestMessage("node1", contractAddr, 100, tx1, tx2)
+
+	sm.handleDelegationRequest(ctx, message)
 }
 
 func TestHandleNonceAssigned_Success(t *testing.T) {
@@ -2376,11 +2416,11 @@ func TestHandleDelegationRequest_InvalidContractAddress(t *testing.T) {
 }
 
 func TestHandleDelegationRequest_LoadSequencerError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
-	message := newDelegationRequestMessage("originator-node", contractAddr, 100, newTestPrivateTx(contractAddr))
+	message := newDelegationRequestMessage("node1", contractAddr, 100, newTestPrivateTx(contractAddr))
 	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
 	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
 	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()

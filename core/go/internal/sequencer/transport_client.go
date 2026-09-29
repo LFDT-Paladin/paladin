@@ -742,6 +742,17 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 			sMgr.logPaladinMessageFieldMissingError(ctx, message, "delegation.pre_assembly.transaction_specification")
 			return
 		}
+		// The coordinator sends each transaction's traffic to the node named in its own From, so a node
+		// may only delegate transactions whose From is one of its own identities
+		from := privateTransaction.PreAssembly.TransactionSpecification.From
+		originatorNode, err := pldtypes.PrivateIdentityLocator(from).Node(ctx, false)
+		if err == nil && originatorNode != message.FromNode {
+			err = fmt.Errorf("originator is not on the sending node %s", message.FromNode)
+		}
+		if err != nil {
+			sMgr.logPaladinMessageFieldInvalidError(ctx, message, "delegation.pre_assembly.transaction_specification.from", from, err)
+			return
+		}
 		if transactionDelegatedEvent.Originator == "" {
 			transactionDelegatedEvent.Originator = privateTransaction.PreAssembly.TransactionSpecification.From
 		}
