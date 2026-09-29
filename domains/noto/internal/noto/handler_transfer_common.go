@@ -34,10 +34,10 @@ type transferCommon struct {
 
 func (h *transferCommon) validateTransferParams(ctx context.Context, to string, amount *pldtypes.HexUint256) AssembleOrEndorseError {
 	if to == "" {
-		return invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "to")}
+		return invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "to")}
 	}
 	if amount == nil || amount.Int().Sign() != 1 {
-		return invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
+		return invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
 	}
 	return nil
 }

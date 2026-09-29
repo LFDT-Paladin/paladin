@@ -35,22 +35,22 @@ type createTransferLockHandler struct {
 
 func (h *createTransferLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	if config.IsV0() {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createTransferLock is not supported in Noto V0")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createTransferLock is not supported in Noto V0")}
 	}
 
 	var createTransferLockParams types.CreateTransferLockParams
 	if err := json.Unmarshal([]byte(params), &createTransferLockParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	if len(createTransferLockParams.From) == 0 {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "from")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "from")}
 	}
 	if len(createTransferLockParams.Recipients) == 0 {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")}
 	}
 	for _, entry := range createTransferLockParams.Recipients {
 		if entry.Amount == nil || entry.Amount.Int().Sign() != 1 {
-			return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")}
+			return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")}
 		}
 	}
 	return &createTransferLockParams, nil
@@ -248,13 +248,13 @@ func (h *createTransferLockHandler) Endorse(ctx context.Context, tx *types.Parse
 	// Validate the amounts, and sender's ownership of the inputs
 	totalOutputs := new(big.Int).Add(outputs.lockedTotal, outputs.total)
 	if inputs.total.Cmp(totalOutputs) != 0 {
-		return nil, invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "totalOutputs", inputs.total, totalOutputs)}
+		return nil, invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "totalOutputs", inputs.total, totalOutputs)}
 	}
 	if outputs.lockedTotal.Cmp(parsedSpendOutputs.total) != 0 {
-		return nil, invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "spendOutputs", inputs.total, parsedSpendOutputs.total)}
+		return nil, invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "spendOutputs", inputs.total, parsedSpendOutputs.total)}
 	}
 	if outputs.lockedTotal.Cmp(parsedCancelOutputs.total) != 0 {
-		return nil, invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "cancelOutputs", inputs.total, parsedCancelOutputs.total)}
+		return nil, invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "cancelOutputs", inputs.total, parsedCancelOutputs.total)}
 	}
 	if err := h.noto.validateOwners(ctx, fromID.identifier, req.ResolvedVerifiers, inputs.coins, inputs.states); err != nil {
 		return nil, err

@@ -34,14 +34,14 @@ func TestCategoryClassification(t *testing.T) {
 			assembleRevert bool
 			endorseRevert  bool
 		}{
-			{callbackFailed{cause}, false, false},
-			{encodeFailed{cause}, false, false},
-			{invalidParams{cause}, true, true},
-			{unknownFunction{cause}, true, true},
-			{invalidAmounts{cause}, true, true},
-			{invalidVerifier{cause}, false, true},
-			{invalidTransactionSpec{cause}, false, true},
-			{invalidTransactionData{cause}, false, true},
+			{callbackFailedError{cause}, false, false},
+			{encodeFailedError{cause}, false, false},
+			{invalidParamsError{cause}, true, true},
+			{unknownFunctionError{cause}, true, true},
+			{invalidAmountsError{cause}, true, true},
+			{invalidVerifierError{cause}, false, true},
+			{invalidTransactionSpecError{cause}, false, true},
+			{invalidTransactionDataError{cause}, false, true},
 		} {
 			assert.Equal(t, tc.assembleRevert, tc.err.IsAssembleRevert(), "%T", tc.err)
 			assert.Equal(t, tc.endorseRevert, tc.err.IsEndorseRevert(), "%T", tc.err)
@@ -50,7 +50,7 @@ func TestCategoryClassification(t *testing.T) {
 	})
 
 	t.Run("endorse only", func(t *testing.T) {
-		for _, err := range []EndorseError{operationNotAllowed{cause}, invalidStateList{cause}, invalidSignature{cause}, wrongOwner{cause}, invalidLockTransition{cause}} {
+		for _, err := range []EndorseError{operationNotAllowedError{cause}, invalidStateListError{cause}, invalidSignatureError{cause}, wrongOwnerError{cause}, invalidLockTransitionError{cause}} {
 			assert.True(t, err.IsEndorseRevert(), "%T", err)
 			assert.Equal(t, "pop", err.Error())
 			_, answersAssemble := any(err).(AssembleError)
@@ -63,10 +63,10 @@ func TestCategoryClassification(t *testing.T) {
 			err            AssembleError
 			assembleRevert bool
 		}{
-			{lockNotFound{cause}, true},
-			{insufficientFunds{cause}, true},
-			{invalidStoredState{cause}, false},
-			{invalidAssembledState{cause}, false},
+			{lockNotFoundError{cause}, true},
+			{insufficientFundsError{cause}, true},
+			{invalidStoredStateError{cause}, false},
+			{invalidAssembledStateError{cause}, false},
 		} {
 			err := tc.err
 			assert.Equal(t, tc.assembleRevert, err.IsAssembleRevert(), "%T", err)
@@ -82,23 +82,23 @@ func TestAssembleRevertOrError(t *testing.T) {
 	assert.Nil(t, res)
 	assert.NoError(t, err)
 
-	res, err = assembleRevertOrError(invalidAmounts{fmt.Errorf("invalid")})
+	res, err = assembleRevertOrError(invalidAmountsError{fmt.Errorf("invalid")})
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	assert.Equal(t, prototk.AssembleTransactionResponse_REVERT, res.AssemblyResult)
 	assert.Equal(t, "invalid", *res.RevertReason)
 
-	res, err = assembleRevertOrError(insufficientFunds{fmt.Errorf("broke")})
+	res, err = assembleRevertOrError(insufficientFundsError{fmt.Errorf("broke")})
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	assert.Equal(t, prototk.AssembleTransactionResponse_REVERT, res.AssemblyResult)
 	assert.Equal(t, "broke", *res.RevertReason)
 
-	res, err = assembleRevertOrError(callbackFailed{fmt.Errorf("pop")})
+	res, err = assembleRevertOrError(callbackFailedError{fmt.Errorf("pop")})
 	assert.Nil(t, res)
 	assert.Regexp(t, "pop", err)
 
-	res, err = assembleRevertOrError(invalidTransactionSpec{fmt.Errorf("pop")})
+	res, err = assembleRevertOrError(invalidTransactionSpecError{fmt.Errorf("pop")})
 	assert.Nil(t, res)
 	assert.Regexp(t, "pop", err)
 }
@@ -108,25 +108,25 @@ func TestEndorseRevertOrError(t *testing.T) {
 	assert.Nil(t, res)
 	assert.NoError(t, err)
 
-	res, err = endorseRevertOrError(invalidAmounts{fmt.Errorf("invalid")})
+	res, err = endorseRevertOrError(invalidAmountsError{fmt.Errorf("invalid")})
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	assert.Equal(t, prototk.EndorseTransactionResponse_REVERT, res.EndorsementResult)
 	assert.Equal(t, "invalid", *res.RevertReason)
 
-	res, err = endorseRevertOrError(invalidSignature{fmt.Errorf("forged")})
+	res, err = endorseRevertOrError(invalidSignatureError{fmt.Errorf("forged")})
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	assert.Equal(t, prototk.EndorseTransactionResponse_REVERT, res.EndorsementResult)
 	assert.Equal(t, "forged", *res.RevertReason)
 
-	res, err = endorseRevertOrError(invalidTransactionSpec{fmt.Errorf("sender's fault")})
+	res, err = endorseRevertOrError(invalidTransactionSpecError{fmt.Errorf("sender's fault")})
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	assert.Equal(t, prototk.EndorseTransactionResponse_REVERT, res.EndorsementResult)
 	assert.Equal(t, "sender's fault", *res.RevertReason)
 
-	res, err = endorseRevertOrError(callbackFailed{fmt.Errorf("pop")})
+	res, err = endorseRevertOrError(callbackFailedError{fmt.Errorf("pop")})
 	assert.Nil(t, res)
 	assert.Regexp(t, "pop", err)
 }

@@ -36,16 +36,16 @@ type delegateLockHandler struct {
 func (h *delegateLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var delegateParams types.DelegateLockParams
 	if err := json.Unmarshal([]byte(params), &delegateParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	if delegateParams.LockID.IsZero() {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId")}
 	}
 	if config.IsV0() && delegateParams.Unlock == nil {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "unlock")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "unlock")}
 	}
 	if delegateParams.Delegate.IsZero() {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgInvalidDelegate, delegateParams.Delegate)}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgInvalidDelegate, delegateParams.Delegate)}
 	}
 	return &delegateParams, nil
 }
@@ -153,7 +153,7 @@ func (h *delegateLockHandler) Endorse(ctx context.Context, tx *types.ParsedTrans
 	if tx.DomainConfig.IsV0() {
 		// Sender must specify at least one locked state, to show that they own the lock
 		if len(inputs.lockedCoins) == 0 {
-			return nil, invalidStateList{i18n.NewError(ctx, msgs.MsgNoStatesSpecified)}
+			return nil, invalidStateListError{i18n.NewError(ctx, msgs.MsgNoStatesSpecified)}
 		}
 	} else {
 		var err EndorseError

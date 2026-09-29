@@ -30,7 +30,7 @@ type transferHandler struct {
 func (h *transferHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var transferParams types.TransferParams
 	if err := json.Unmarshal([]byte(params), &transferParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	return &transferParams, h.validateTransferParams(ctx, transferParams.To, transferParams.Amount)
 }

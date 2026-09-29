@@ -32,13 +32,13 @@ type transferFromHandler struct {
 func (h *transferFromHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var transferFromParams types.TransferFromParams
 	if err := json.Unmarshal([]byte(params), &transferFromParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	if err := h.validateTransferParams(ctx, transferFromParams.To, transferFromParams.Amount); err != nil {
 		return &transferFromParams, err
 	}
 	if transferFromParams.From == "" {
-		return &transferFromParams, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "from")}
+		return &transferFromParams, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "from")}
 	}
 	return &transferFromParams, nil
 }

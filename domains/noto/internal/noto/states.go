@@ -174,7 +174,7 @@ func (n *Noto) unmarshalLockV1(stateData string) (*types.NotoLockInfo_V1, error)
 func (n *Noto) makeNewCoinState(coin *types.NotoCoin, distributionList []string) (*prototk.NewState, AssembleError) {
 	coinJSON, err := json.Marshal(coin)
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	return &prototk.NewState{
 		SchemaId:         n.coinSchema.Id,
@@ -186,7 +186,7 @@ func (n *Noto) makeNewCoinState(coin *types.NotoCoin, distributionList []string)
 func (n *Noto) makeNewLockedCoinState(coin *types.NotoLockedCoin, distributionList []string) (*prototk.NewState, AssembleError) {
 	coinJSON, err := json.Marshal(coin)
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	return &prototk.NewState{
 		SchemaId:         n.lockedCoinSchema.Id,
@@ -198,7 +198,7 @@ func (n *Noto) makeNewLockedCoinState(coin *types.NotoLockedCoin, distributionLi
 func (n *Noto) makeNewInfoState(info *types.TransactionData, variant pldtypes.HexUint64, distributionList []string) (*prototk.NewState, AssembleError) {
 	infoJSON, err := json.Marshal(info)
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	if variant == types.NotoVariantV0 {
 		return &prototk.NewState{
@@ -217,7 +217,7 @@ func (n *Noto) makeNewInfoState(info *types.TransactionData, variant pldtypes.He
 func (n *Noto) makeNewManifestInfoState(manifest *types.NotoManifest, distributionList []string) (*prototk.NewState, AssembleError) {
 	infoJSON, err := json.Marshal(manifest)
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	return &prototk.NewState{
 		SchemaId:         n.manifestSchema.Id,
@@ -229,7 +229,7 @@ func (n *Noto) makeNewManifestInfoState(manifest *types.NotoManifest, distributi
 func (n *Noto) makeNewLockState_V0(lock *types.NotoLockInfo_V0, distributionList []string) (*prototk.NewState, AssembleError) {
 	lockJSON, err := json.Marshal(lock)
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	return &prototk.NewState{
 		SchemaId:         n.lockInfoSchemaV0.Id,
@@ -241,7 +241,7 @@ func (n *Noto) makeNewLockState_V0(lock *types.NotoLockInfo_V0, distributionList
 func (n *Noto) makeNewLockState_V1(lock *types.NotoLockInfo_V1, distributionList []string) (*prototk.NewState, AssembleError) {
 	lockJSON, err := json.Marshal(lock)
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	return &prototk.NewState{
 		SchemaId:         n.lockInfoSchemaV1.Id,
@@ -338,16 +338,16 @@ func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owne
 		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
 		states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String(), useNullifiers)
 		if err != nil {
-			return nil, callbackFailed{err}
+			return nil, callbackFailedError{err}
 		}
 		if len(states) == 0 {
-			return nil, insufficientFunds{i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))}
+			return nil, insufficientFundsError{i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))}
 		}
 		for _, state := range states {
 			lastStateTimestamp = state.CreatedAt
 			coin, err := n.unmarshalCoin(state.DataJson)
 			if err != nil {
-				return nil, invalidStoredState{i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)}
+				return nil, invalidStoredStateError{i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)}
 			}
 			total = total.Add(total, coin.Amount.Int())
 			stateRefs = append(stateRefs, &prototk.StateRef{
@@ -389,13 +389,13 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
 		states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockedCoinSchema.Id, queryBuilder.Query().String(), false)
 		if err != nil {
-			return nil, callbackFailed{err}
+			return nil, callbackFailedError{err}
 		}
 		for _, state := range states {
 			lastStateTimestamp = state.CreatedAt
 			coin, err := n.unmarshalLockedCoin(state.DataJson)
 			if err != nil {
-				return nil, invalidStoredState{i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)}
+				return nil, invalidStoredStateError{i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)}
 			}
 			total = total.Add(total, coin.Amount.Int())
 			stateRefs = append(stateRefs, &prototk.StateRef{
@@ -422,7 +422,7 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 			total:  total,
 		}, nil
 	}
-	return nil, insufficientFunds{i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))}
+	return nil, insufficientFundsError{i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))}
 }
 
 func (n *Noto) prepareOutputs(owner *identityPair, amount *pldtypes.HexUint256, distributionList identityList) (*preparedOutputs, AssembleError) {
@@ -731,7 +731,7 @@ func (n *Noto) encodeTransferUnmasked(ctx context.Context, contract *ethtypes.Ad
 		},
 	})
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	return encoded, nil
 }
@@ -748,7 +748,7 @@ func (n *Noto) encodeLock(ctx context.Context, contract *ethtypes.Address0xHex, 
 		},
 	})
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	return encoded, nil
 }
@@ -765,7 +765,7 @@ func (n *Noto) encodeUnlock(ctx context.Context, contract *ethtypes.Address0xHex
 		},
 	})
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	return encoded, nil
 }
@@ -817,7 +817,7 @@ func (n *Noto) encodeDelegateLock(ctx context.Context, contract *ethtypes.Addres
 		},
 	})
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	return encoded, nil
 }
@@ -979,7 +979,7 @@ func (n *Noto) allocateStateIDs(ctx context.Context, stateQueryContext string, s
 		States:            allStates,
 	})
 	if err != nil {
-		return callbackFailed{err}
+		return callbackFailedError{err}
 	}
 
 	// Store the IDs back into the objects - we do this because it means we'll send them down

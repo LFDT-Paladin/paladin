@@ -34,21 +34,21 @@ type prepareBurnUnlockHandler struct {
 
 func (h *prepareBurnUnlockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	if config.IsV0() {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "prepareBurnUnlock is not supported in Noto V0")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "prepareBurnUnlock is not supported in Noto V0")}
 	}
 
 	var burnLockParams types.PrepareBurnUnlockParams
 	if err := json.Unmarshal([]byte(params), &burnLockParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	if burnLockParams.LockID.IsZero() {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId")}
 	}
 	if len(burnLockParams.From) == 0 {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "from")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "from")}
 	}
 	if burnLockParams.Amount == nil || burnLockParams.Amount.Int().Sign() != 1 {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
 	}
 	return &burnLockParams, nil
 }
@@ -60,7 +60,7 @@ func (h *prepareBurnUnlockHandler) checkAllowed(ctx context.Context, tx *types.P
 	if *tx.DomainConfig.Options.Basic.AllowBurn {
 		return nil
 	}
-	return operationNotAllowed{i18n.NewError(ctx, msgs.MsgBurnNotAllowed)}
+	return operationNotAllowedError{i18n.NewError(ctx, msgs.MsgBurnNotAllowed)}
 }
 
 func (h *prepareBurnUnlockHandler) checkAllowedForFrom(ctx context.Context, tx *types.ParsedTransaction, from string) EndorseError {
@@ -70,16 +70,16 @@ func (h *prepareBurnUnlockHandler) checkAllowedForFrom(ctx context.Context, tx *
 
 	localNodeName, nodeErr := h.noto.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
 	if nodeErr != nil {
-		return callbackFailed{nodeErr}
+		return callbackFailedError{nodeErr}
 	}
 	fromQualified, err := pldtypes.PrivateIdentityLocator(from).FullyQualified(ctx, localNodeName.Name)
 	if err != nil {
-		return invalidParams{err}
+		return invalidParamsError{err}
 	}
 	if tx.Transaction.From == fromQualified.String() {
 		return nil
 	}
-	return operationNotAllowed{i18n.NewError(ctx, msgs.MsgUnlockOnlyCreator, tx.Transaction.From, from)}
+	return operationNotAllowedError{i18n.NewError(ctx, msgs.MsgUnlockOnlyCreator, tx.Transaction.From, from)}
 }
 
 func (h *prepareBurnUnlockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
@@ -122,7 +122,7 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 
 	// Validate the amount matches exactly (no remainder for burn)
 	if lockedInputStates.total.Cmp(params.Amount.Int()) != 0 {
-		return nil, invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "prepareBurnUnlock", params.Amount.Int().Text(10), lockedInputStates.total.Text(10))}
+		return nil, invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "prepareBurnUnlock", params.Amount.Int().Text(10), lockedInputStates.total.Text(10))}
 	}
 
 	// Build the cancel outputs before unlock data so they can be referenced in the cancel manifest
@@ -218,7 +218,7 @@ func (h *prepareBurnUnlockHandler) Endorse(ctx context.Context, tx *types.Parsed
 
 	// Validate the amounts and sender's ownership of the locked inputs
 	if inputs.lockedTotal.Cmp(params.Amount.Int()) != 0 {
-		return nil, invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "prepareBurnUnlock", params.Amount.Int().Text(10), inputs.lockedTotal.Text(10))}
+		return nil, invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "prepareBurnUnlock", params.Amount.Int().Text(10), inputs.lockedTotal.Text(10))}
 	}
 
 	if tx.DomainConfig.IsV0() {

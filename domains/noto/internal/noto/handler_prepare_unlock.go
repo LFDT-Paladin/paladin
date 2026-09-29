@@ -37,7 +37,7 @@ type prepareUnlockHandler struct {
 func (h *prepareUnlockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var unlockParams types.PrepareUnlockParams
 	if err := json.Unmarshal([]byte(params), &unlockParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	return &unlockParams, h.validateParams(ctx, &unlockParams.UnlockParams)
 }

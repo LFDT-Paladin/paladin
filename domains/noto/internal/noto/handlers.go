@@ -110,10 +110,10 @@ func (n *Noto) GetCallHandler(method string) NotoDomainCallHandler {
 // Check that a mint has no inputs, and an output matching the requested amount
 func (n *Noto) validateMintAmounts(ctx context.Context, params *types.MintParams, inputs, outputs *parsedCoins) EndorseError {
 	if len(inputs.coins) > 0 {
-		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "mint", inputs.coins)}
+		return invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidInputs, "mint", inputs.coins)}
 	}
 	if outputs.total.Cmp(params.Amount.Int()) != 0 {
-		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "mint", params.Amount.Int().Text(10), outputs.total.Text(10))}
+		return invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "mint", params.Amount.Int().Text(10), outputs.total.Text(10))}
 	}
 	return nil
 }
@@ -121,10 +121,10 @@ func (n *Noto) validateMintAmounts(ctx context.Context, params *types.MintParams
 // Check that a transfer has at least one input and output, and they net out to zero
 func (n *Noto) validateTransferAmounts(ctx context.Context, inputs, outputs *parsedCoins) EndorseError {
 	if len(inputs.coins) == 0 {
-		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "transfer", inputs.coins)}
+		return invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidInputs, "transfer", inputs.coins)}
 	}
 	if inputs.total.Cmp(outputs.total) != 0 {
-		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "transfer", inputs.total, outputs.total)}
+		return invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "transfer", inputs.total, outputs.total)}
 	}
 	return nil
 }
@@ -132,11 +132,11 @@ func (n *Noto) validateTransferAmounts(ctx context.Context, inputs, outputs *par
 // Check that a burn has at least one input, and a net output matching the requested amount
 func (n *Noto) validateBurnAmounts(ctx context.Context, params *types.BurnParams, inputs, outputs *parsedCoins) EndorseError {
 	if len(inputs.coins) == 0 {
-		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "burn", inputs.coins)}
+		return invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidInputs, "burn", inputs.coins)}
 	}
 	amount := big.NewInt(0).Sub(inputs.total, outputs.total)
 	if amount.Cmp(params.Amount.Int()) != 0 {
-		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "burn", params.Amount.Int().Text(10), amount.Text(10))}
+		return invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "burn", params.Amount.Int().Text(10), amount.Text(10))}
 	}
 	return nil
 }
@@ -145,11 +145,11 @@ func (n *Noto) validateBurnAmounts(ctx context.Context, params *types.BurnParams
 func (n *Noto) validateLockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) EndorseError {
 	if tx.DomainConfig.IsV0() && len(inputs.coins) == 0 {
 		// V0 did not support empty locks
-		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "lock", inputs.coins)}
+		return invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidInputs, "lock", inputs.coins)}
 	}
 	amount := big.NewInt(0).Sub(inputs.total, outputs.total)
 	if amount.Cmp(outputs.lockedTotal) != 0 {
-		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "lock", outputs.lockedTotal.Text(10), amount.Text(10))}
+		return invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "lock", outputs.lockedTotal.Text(10), amount.Text(10))}
 	}
 	return nil
 }
@@ -159,11 +159,11 @@ func (n *Noto) validateLockAmounts(ctx context.Context, tx *types.ParsedTransact
 func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) EndorseError {
 	if tx.DomainConfig.IsV0() && len(inputs.lockedCoins) == 0 {
 		// In V0 there was no lock object to check
-		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "unlock", inputs.lockedCoins)}
+		return invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidInputs, "unlock", inputs.lockedCoins)}
 	}
 	amount := big.NewInt(0).Sub(inputs.lockedTotal, outputs.lockedTotal)
 	if amount.Cmp(outputs.total) != 0 {
-		return invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "unlock", outputs.total.Text(10), amount.Text(10))}
+		return invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "unlock", outputs.total.Text(10), amount.Text(10))}
 	}
 	return nil
 }
@@ -190,14 +190,14 @@ func (n *Noto) validateDistinctNullifiers(ctx context.Context, contract *pldtype
 
 			nullifier, isCoin, err := n.stateNullifier(ctx, contract, state)
 			if err != nil {
-				return invalidStateList{err}
+				return invalidStateListError{err}
 			}
 			if !isCoin {
 				// Identified on-chain by ID, so it has no nullifier
 				continue
 			}
 			if existing, found := nullifiers[nullifier]; found {
-				return invalidStateList{i18n.NewError(ctx, msgs.MsgDuplicateNullifierInList, existing, state.Id, nullifier)}
+				return invalidStateListError{i18n.NewError(ctx, msgs.MsgDuplicateNullifierInList, existing, state.Id, nullifier)}
 			}
 			nullifiers[nullifier] = state.Id
 		}
@@ -221,13 +221,13 @@ func (n *Noto) validateNullifierSpecs(ctx context.Context, contract *pldtypes.Et
 				continue
 			}
 			if len(state.NullifierSpecs) == 0 {
-				return invalidAssembledState{i18n.NewError(ctx, msgs.MsgMissingNullifierSpec, i)}
+				return invalidAssembledStateError{i18n.NewError(ctx, msgs.MsgMissingNullifierSpec, i)}
 			}
 			// The spec must name this contract, or the owner's node would derive a nullifier
 			// bound to a different one - which the base ledger here would never recognise
 			for _, spec := range state.NullifierSpecs {
 				if spec.PayloadType != expectedPayloadType {
-					return invalidAssembledState{i18n.NewError(ctx, msgs.MsgNullifierWrongContract, i, expectedPayloadType, spec.PayloadType)}
+					return invalidAssembledStateError{i18n.NewError(ctx, msgs.MsgNullifierWrongContract, i, expectedPayloadType, spec.PayloadType)}
 				}
 			}
 		}
@@ -239,16 +239,16 @@ func (n *Noto) validateNullifierSpecs(ctx context.Context, contract *pldtypes.Et
 func (n *Noto) validateSignature(ctx context.Context, name string, attestations []*prototk.AttestationResult, encodedMessage []byte) EndorseError {
 	signature := domain.FindAttestation(name, attestations)
 	if signature == nil {
-		return invalidSignature{i18n.NewError(ctx, msgs.MsgAttestationNotFound, name)}
+		return invalidSignatureError{i18n.NewError(ctx, msgs.MsgAttestationNotFound, name)}
 	}
 	recoveredSignature, err := n.recoverSignature(ctx, encodedMessage, signature.Payload)
 	if err != nil {
 		// The signature was supplied by the originator, so one that will not recover is
 		// a revert
-		return invalidSignature{err}
+		return invalidSignatureError{err}
 	}
 	if recoveredSignature.String() != signature.Verifier.Verifier {
-		return invalidSignature{i18n.NewError(ctx, msgs.MsgSignatureDoesNotMatch, name, signature.Verifier.Verifier, recoveredSignature.String())}
+		return invalidSignatureError{i18n.NewError(ctx, msgs.MsgSignatureDoesNotMatch, name, signature.Verifier.Verifier, recoveredSignature.String())}
 	}
 	return nil
 }
@@ -262,7 +262,7 @@ func (n *Noto) validateOwners(ctx context.Context, owner string, verifiers []*pr
 
 	for i, coin := range coins {
 		if !coin.Owner.Equals(fromAddress.address) {
-			return wrongOwner{i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)}
+			return wrongOwnerError{i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)}
 		}
 	}
 	return nil
@@ -276,7 +276,7 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 	}
 	for i, coin := range coins {
 		if !coin.Owner.Equals(fromAddress.address) {
-			return wrongOwner{i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)}
+			return wrongOwnerError{i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)}
 		}
 	}
 	return nil
@@ -286,11 +286,11 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, lookup string, verifierList []*prototk.ResolvedVerifier) (*identityPair, AssembleOrEndorseError) {
 	verifier := domain.FindVerifier(lookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, verifierList)
 	if verifier == nil {
-		return nil, invalidVerifier{i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, errorDescription)}
+		return nil, invalidVerifierError{i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, errorDescription)}
 	}
 	address, err := pldtypes.ParseEthAddress(verifier.Verifier)
 	if err != nil {
-		return nil, invalidVerifier{err}
+		return nil, invalidVerifierError{err}
 	}
 	return &identityPair{identifier: lookup, address: address}, nil
 }

@@ -74,7 +74,7 @@ func (mb *manifestBuilder) addLockInfo(lockInfo *preparedLockInfo) *manifestBuil
 func (mb *manifestBuilder) finalizeNewState(manifest *types.NotoManifest, newState *prototk.NewState, distribution identityList) AssembleError {
 	stateID, err := pldtypes.ParseBytes32(*newState.Id)
 	if err != nil {
-		return invalidAssembledState{err}
+		return invalidAssembledStateError{err}
 	}
 	manifest.States = append(manifest.States, &types.NotoManifestStateEntry{
 		ID:           stateID,

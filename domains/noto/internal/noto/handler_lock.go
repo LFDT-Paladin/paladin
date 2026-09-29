@@ -35,12 +35,12 @@ type lockHandler struct {
 func (h *lockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var lockParams types.LockParams
 	if err := json.Unmarshal([]byte(params), &lockParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	if config.IsV0() {
 		// V0 did not support empty locks
 		if lockParams.Amount == nil || lockParams.Amount.Int().Sign() != 1 {
-			return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
+			return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
 		}
 	}
 	return &lockParams, nil
@@ -53,7 +53,7 @@ func (h *lockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransact
 	if *tx.DomainConfig.Options.Basic.AllowLock {
 		return nil
 	}
-	return operationNotAllowed{i18n.NewError(ctx, msgs.MsgLockNotAllowed)}
+	return operationNotAllowedError{i18n.NewError(ctx, msgs.MsgLockNotAllowed)}
 }
 
 func (h *lockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {

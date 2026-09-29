@@ -30,7 +30,7 @@ type burnHandler struct {
 func (h *burnHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var burnParams types.BurnParams
 	if err := json.Unmarshal([]byte(params), &burnParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	return &burnParams, h.validateBurnParams(ctx, burnParams.Amount)
 }

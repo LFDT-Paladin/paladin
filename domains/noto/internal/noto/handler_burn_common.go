@@ -34,7 +34,7 @@ type burnCommon struct {
 
 func (h *burnCommon) validateBurnParams(ctx context.Context, amount *pldtypes.HexUint256) AssembleOrEndorseError {
 	if amount == nil || amount.Int().Sign() != 1 {
-		return invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
+		return invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
 	}
 	return nil
 }
@@ -46,7 +46,7 @@ func (h *burnCommon) checkBurnAllowed(ctx context.Context, tx *types.ParsedTrans
 	if *tx.DomainConfig.Options.Basic.AllowBurn {
 		return nil
 	}
-	return operationNotAllowed{i18n.NewError(ctx, msgs.MsgBurnNotAllowed)}
+	return operationNotAllowedError{i18n.NewError(ctx, msgs.MsgBurnNotAllowed)}
 }
 
 func (h *burnCommon) initBurn(ctx context.Context, tx *types.ParsedTransaction, from string) (*prototk.InitTransactionResponse, error) {

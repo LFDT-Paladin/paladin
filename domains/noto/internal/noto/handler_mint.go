@@ -34,13 +34,13 @@ type mintHandler struct {
 func (h *mintHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var mintParams types.MintParams
 	if err := json.Unmarshal([]byte(params), &mintParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	if mintParams.To == "" {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "to")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "to")}
 	}
 	if mintParams.Amount == nil || mintParams.Amount.Int().Sign() != 1 {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
 	}
 	return &mintParams, nil
 }
@@ -55,7 +55,7 @@ func (h *mintHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransact
 	if from == tx.DomainConfig.NotaryLookup {
 		return nil
 	}
-	return operationNotAllowed{i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from)}
+	return operationNotAllowedError{i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from)}
 }
 
 func (h *mintHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {

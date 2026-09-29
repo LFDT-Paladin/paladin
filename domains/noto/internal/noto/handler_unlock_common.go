@@ -57,14 +57,14 @@ func (h *lockCommon) checkAllowed(ctx context.Context, tx *types.ParsedTransacti
 
 	localNodeName, nodeErr := h.noto.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
 	if nodeErr != nil {
-		return callbackFailed{nodeErr}
+		return callbackFailedError{nodeErr}
 	}
 	fromQualified, err := pldtypes.PrivateIdentityLocator(from).FullyQualified(ctx, localNodeName.Name)
 	if err != nil {
-		return invalidParams{err}
+		return invalidParamsError{err}
 	}
 	if tx.Transaction.From != fromQualified.String() {
-		return operationNotAllowed{i18n.NewError(ctx, msgs.MsgUnlockOnlyCreator, tx.Transaction.From, from)}
+		return operationNotAllowedError{i18n.NewError(ctx, msgs.MsgUnlockOnlyCreator, tx.Transaction.From, from)}
 	}
 	return nil
 }
@@ -405,17 +405,17 @@ type unlockCommon struct {
 
 func (h *unlockCommon) validateParams(ctx context.Context, unlockParams *types.UnlockParams) AssembleOrEndorseError {
 	if unlockParams.LockID.IsZero() {
-		return invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId")}
+		return invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId")}
 	}
 	if len(unlockParams.From) == 0 {
-		return invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "from")}
+		return invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "from")}
 	}
 	if len(unlockParams.Recipients) == 0 {
-		return invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")}
+		return invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")}
 	}
 	for _, entry := range unlockParams.Recipients {
 		if entry.Amount == nil || entry.Amount.Int().Sign() != 1 {
-			return invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")}
+			return invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")}
 		}
 	}
 	return nil

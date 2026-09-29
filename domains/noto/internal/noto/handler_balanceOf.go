@@ -33,10 +33,10 @@ type balanceOfHandler struct {
 func (h *balanceOfHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var balanceOfParam types.BalanceOfParam
 	if err := json.Unmarshal([]byte(params), &balanceOfParam); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	if balanceOfParam.Account == "" {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "Account")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "Account")}
 	}
 	return &balanceOfParam, nil
 }

@@ -68,66 +68,66 @@ type AssembleOrEndorseError interface {
 	EndorseError
 }
 
-// callbackFailed: a callback to Paladin core failed.
+// callbackFailedError: a callback to Paladin core failed.
 //
 // IsAssembleRevert false: the failure is in this node, not the transaction, so a retry may succeed.
 //
 // IsEndorseRevert false: the failure is in this node, not the proposal, so a retry may succeed.
-type callbackFailed struct{ error }
+type callbackFailedError struct{ error }
 
-func (callbackFailed) IsAssembleRevert() bool { return false }
-func (callbackFailed) IsEndorseRevert() bool  { return false }
+func (callbackFailedError) IsAssembleRevert() bool { return false }
+func (callbackFailedError) IsEndorseRevert() bool  { return false }
 
-// encodeFailed: values this node has already parsed or built will not marshal or ABI-encode.
+// encodeFailedError: values this node has already parsed or built will not marshal or ABI-encode.
 //
 // IsAssembleRevert false: the values are typed before they reach the encoder, so a failure is a
 // code defect rather than anything about the transaction.
 //
 // IsEndorseRevert false: the values are this node's parsed copy of the proposal, typed before
 // they reach the encoder, so a failure is a code defect rather than anything about the proposal.
-type encodeFailed struct{ error }
+type encodeFailedError struct{ error }
 
-func (encodeFailed) IsAssembleRevert() bool { return false }
-func (encodeFailed) IsEndorseRevert() bool  { return false }
+func (encodeFailedError) IsAssembleRevert() bool { return false }
+func (encodeFailedError) IsEndorseRevert() bool  { return false }
 
-// invalidStoredState: a state read from this node's own store will not parse.
+// invalidStoredStateError: a state read from this node's own store will not parse.
 //
 // IsAssembleRevert false: this node wrote the state, so the transaction did not cause the failure.
-type invalidStoredState struct{ error }
+type invalidStoredStateError struct{ error }
 
-func (invalidStoredState) IsAssembleRevert() bool { return false }
+func (invalidStoredStateError) IsAssembleRevert() bool { return false }
 
-// invalidAssembledState: a state this node has just assembled has an ID that will not parse or a
+// invalidAssembledStateError: a state this node has just assembled has an ID that will not parse or a
 // nullifier spec that does not name this contract.
 //
 // IsAssembleRevert false: this node built the state, so a failure is a code defect rather than
 // anything about the transaction.
-type invalidAssembledState struct{ error }
+type invalidAssembledStateError struct{ error }
 
-func (invalidAssembledState) IsAssembleRevert() bool { return false }
+func (invalidAssembledStateError) IsAssembleRevert() bool { return false }
 
-// invalidParams: the function parameters do not parse or fail the handler's own rules, or the
+// invalidParamsError: the function parameters do not parse or fail the handler's own rules, or the
 // contract's variant does not offer the requested function.
 //
 // IsAssembleRevert true: the function and its parameters are the caller's request.
 //
 // IsEndorseRevert true: the function and its parameters are part of the originator's proposal.
-type invalidParams struct{ error }
+type invalidParamsError struct{ error }
 
-func (invalidParams) IsAssembleRevert() bool { return true }
-func (invalidParams) IsEndorseRevert() bool  { return true }
+func (invalidParamsError) IsAssembleRevert() bool { return true }
+func (invalidParamsError) IsEndorseRevert() bool  { return true }
 
-// unknownFunction: no Noto function matches the requested name and signature.
+// unknownFunctionError: no Noto function matches the requested name and signature.
 //
 // IsAssembleRevert true: the caller chose the function name and signature.
 //
 // IsEndorseRevert true: the function name and signature are part of the originator's proposal.
-type unknownFunction struct{ error }
+type unknownFunctionError struct{ error }
 
-func (unknownFunction) IsAssembleRevert() bool { return true }
-func (unknownFunction) IsEndorseRevert() bool  { return true }
+func (unknownFunctionError) IsAssembleRevert() bool { return true }
+func (unknownFunctionError) IsEndorseRevert() bool  { return true }
 
-// invalidAmounts: the inputs and outputs of the requested operation are not the set it requires,
+// invalidAmountsError: the inputs and outputs of the requested operation are not the set it requires,
 // or do not balance with its amount.
 //
 // IsAssembleRevert true: the amount being checked is the caller's parameter, compared against the
@@ -135,96 +135,96 @@ func (unknownFunction) IsEndorseRevert() bool  { return true }
 //
 // IsEndorseRevert true: the states whose amounts are checked are part of the originator's
 // proposal.
-type invalidAmounts struct{ error }
+type invalidAmountsError struct{ error }
 
-func (invalidAmounts) IsAssembleRevert() bool { return true }
-func (invalidAmounts) IsEndorseRevert() bool  { return true }
+func (invalidAmountsError) IsAssembleRevert() bool { return true }
+func (invalidAmountsError) IsEndorseRevert() bool  { return true }
 
-// invalidVerifier: a resolved verifier is missing from the list or is not an eth address.
+// invalidVerifierError: a resolved verifier is missing from the list or is not an eth address.
 //
 // IsAssembleRevert false: this node resolved every verifier its own init declared, all-or-nothing,
 // before assembling, so a missing entry means init and assemble disagree about what the
 // transaction needs, and a malformed one is a fault in this node's resolver.
 //
 // IsEndorseRevert true: the verifier list is part of the originator's proposal.
-type invalidVerifier struct{ error }
+type invalidVerifierError struct{ error }
 
-func (invalidVerifier) IsAssembleRevert() bool { return false }
-func (invalidVerifier) IsEndorseRevert() bool  { return true }
+func (invalidVerifierError) IsAssembleRevert() bool { return false }
+func (invalidVerifierError) IsEndorseRevert() bool  { return true }
 
-// invalidTransactionSpec: the function ABI, contract config or contract address in the
+// invalidTransactionSpecError: the function ABI, contract config or contract address in the
 // transaction specification will not parse.
 //
 // IsAssembleRevert false: these are a round-trip of values this node marshalled itself.
 //
 // IsEndorseRevert true: the transaction specification is part of the originator's proposal.
-type invalidTransactionSpec struct{ error }
+type invalidTransactionSpecError struct{ error }
 
-func (invalidTransactionSpec) IsAssembleRevert() bool { return false }
-func (invalidTransactionSpec) IsEndorseRevert() bool  { return true }
+func (invalidTransactionSpecError) IsAssembleRevert() bool { return false }
+func (invalidTransactionSpecError) IsEndorseRevert() bool  { return true }
 
-// invalidTransactionData: a state ID or transaction ID will not encode as bytes32 for the
+// invalidTransactionDataError: a state ID or transaction ID will not encode as bytes32 for the
 // on-chain transaction data or the lock ID.
 //
 // IsAssembleRevert false: this node generated the IDs.
 //
 // IsEndorseRevert true: the IDs are part of the originator's proposal.
-type invalidTransactionData struct{ error }
+type invalidTransactionDataError struct{ error }
 
-func (invalidTransactionData) IsAssembleRevert() bool { return false }
-func (invalidTransactionData) IsEndorseRevert() bool  { return true }
+func (invalidTransactionDataError) IsAssembleRevert() bool { return false }
+func (invalidTransactionDataError) IsEndorseRevert() bool  { return true }
 
-// operationNotAllowed: the contract disables the requested operation, or the sender may not
+// operationNotAllowedError: the contract disables the requested operation, or the sender may not
 // perform it.
 //
 // IsEndorseRevert true: the operation and the sender are part of the originator's proposal.
-type operationNotAllowed struct{ error }
+type operationNotAllowedError struct{ error }
 
-func (operationNotAllowed) IsEndorseRevert() bool { return true }
+func (operationNotAllowedError) IsEndorseRevert() bool { return true }
 
-// invalidStateList: a state list in the transaction is empty, or has a duplicate, an
+// invalidStateListError: a state list in the transaction is empty, or has a duplicate, an
 // unparseable entry or the wrong schema.
 //
 // IsEndorseRevert true: the state lists are part of the originator's proposal.
-type invalidStateList struct{ error }
+type invalidStateListError struct{ error }
 
-func (invalidStateList) IsEndorseRevert() bool { return true }
+func (invalidStateListError) IsEndorseRevert() bool { return true }
 
-// invalidSignature: the sender's signature is missing or does not recover to the sender.
+// invalidSignatureError: the sender's signature is missing or does not recover to the sender.
 //
 // IsEndorseRevert true: the attestation is part of the originator's proposal.
-type invalidSignature struct{ error }
+type invalidSignatureError struct{ error }
 
-func (invalidSignature) IsEndorseRevert() bool { return true }
+func (invalidSignatureError) IsEndorseRevert() bool { return true }
 
-// wrongOwner: an input being spent, or a locked or cancel output an unlock produces, is not owned
+// wrongOwnerError: an input being spent, or a locked or cancel output an unlock produces, is not owned
 // by the party the transaction names.
 //
 // IsEndorseRevert true: the states and the party they are checked against are part of the
 // originator's proposal.
-type wrongOwner struct{ error }
+type wrongOwnerError struct{ error }
 
-func (wrongOwner) IsEndorseRevert() bool { return true }
+func (wrongOwnerError) IsEndorseRevert() bool { return true }
 
-// invalidLockTransition: the lock states in the transaction do not describe a permitted
+// invalidLockTransitionError: the lock states in the transaction do not describe a permitted
 // transition.
 //
 // IsEndorseRevert true: the lock states are part of the originator's proposal.
-type invalidLockTransition struct{ error }
+type invalidLockTransitionError struct{ error }
 
-func (invalidLockTransition) IsEndorseRevert() bool { return true }
+func (invalidLockTransitionError) IsEndorseRevert() bool { return true }
 
-// lockNotFound: no available lock state has the requested lock ID.
+// lockNotFoundError: no available lock state has the requested lock ID.
 //
 // IsAssembleRevert true: the lock ID is the caller's request.
-type lockNotFound struct{ error }
+type lockNotFoundError struct{ error }
 
-func (lockNotFound) IsAssembleRevert() bool { return true }
+func (lockNotFoundError) IsAssembleRevert() bool { return true }
 
-// insufficientFunds: the owner named in the request has no available coins, under the requested
+// insufficientFundsError: the owner named in the request has no available coins, under the requested
 // lock where there is one, covering what the operation needs.
 //
 // IsAssembleRevert true: the owner, lock ID and amount are the caller's request.
-type insufficientFunds struct{ error }
+type insufficientFundsError struct{ error }
 
-func (insufficientFunds) IsAssembleRevert() bool { return true }
+func (insufficientFundsError) IsAssembleRevert() bool { return true }

@@ -61,10 +61,10 @@ func (n *Noto) loadLockInfoV1(ctx context.Context, stateQueryContext string, loc
 	log.L(ctx).Debugf("Lock query: %s", queryBuilder.Query())
 	states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockInfoSchemaV1.Id, queryBuilder.Query().String(), false)
 	if err != nil {
-		return nil, callbackFailed{err}
+		return nil, callbackFailedError{err}
 	}
 	if len(states) == 0 {
-		return nil, lockNotFound{i18n.NewError(ctx, msgs.MsgLockIDNotFound)}
+		return nil, lockNotFoundError{i18n.NewError(ctx, msgs.MsgLockIDNotFound)}
 	}
 	var lockState = states[0]
 	var lockInfo types.NotoLockInfo_V1
@@ -73,7 +73,7 @@ func (n *Noto) loadLockInfoV1(ctx context.Context, stateQueryContext string, loc
 		err = json.Unmarshal([]byte(lockState.DataJson), &lockInfo)
 	}
 	if err != nil {
-		return nil, invalidStoredState{i18n.WrapError(ctx, err, msgs.MsgInvalidLockState, lockState.Id)}
+		return nil, invalidStoredStateError{i18n.WrapError(ctx, err, msgs.MsgInvalidLockState, lockState.Id)}
 	}
 	return &loadedLockInfo{
 		id:       lockStateID,
@@ -93,15 +93,15 @@ func (n *Noto) validateV1LockTransition(ctx context.Context, transitionType lock
 	switch transitionType {
 	case LOCK_CREATE:
 		if len(inputLockInfoStates) != 0 || len(outputLockInfoStates) != 1 {
-			return nil, invalidLockTransition{i18n.NewError(ctx, msgs.MsgInvalidLockTransition)}
+			return nil, invalidLockTransitionError{i18n.NewError(ctx, msgs.MsgInvalidLockTransition)}
 		}
 	case LOCK_SPEND:
 		if len(inputLockInfoStates) != 1 || len(outputLockInfoStates) != 0 {
-			return nil, invalidLockTransition{i18n.NewError(ctx, msgs.MsgInvalidLockTransition)}
+			return nil, invalidLockTransitionError{i18n.NewError(ctx, msgs.MsgInvalidLockTransition)}
 		}
 	case LOCK_UPDATE:
 		if len(inputLockInfoStates) != 1 || len(outputLockInfoStates) != 1 {
-			return nil, invalidLockTransition{i18n.NewError(ctx, msgs.MsgInvalidLockTransition)}
+			return nil, invalidLockTransitionError{i18n.NewError(ctx, msgs.MsgInvalidLockTransition)}
 		}
 	}
 
@@ -112,12 +112,12 @@ func (n *Noto) validateV1LockTransition(ctx context.Context, transitionType lock
 			lt.prevLockStateID, err = pldtypes.ParseBytes32Ctx(ctx, lt.prevLockState.Id)
 		}
 		if err != nil {
-			return nil, invalidLockTransition{i18n.WrapError(ctx, err, msgs.MsgInvalidLockState, lt.prevLockState.Id)}
+			return nil, invalidLockTransitionError{i18n.WrapError(ctx, err, msgs.MsgInvalidLockState, lt.prevLockState.Id)}
 		}
 
 		// Check ownership of the input lock is the from address of the transaction
 		if senderID != nil && !lt.prevLockInfo.Owner.Equals(senderID.address) {
-			return nil, wrongOwner{i18n.NewError(ctx, msgs.MsgStateWrongOwner, lt.prevLockState.Id, senderID.address)}
+			return nil, wrongOwnerError{i18n.NewError(ctx, msgs.MsgStateWrongOwner, lt.prevLockState.Id, senderID.address)}
 		}
 	}
 
@@ -128,17 +128,17 @@ func (n *Noto) validateV1LockTransition(ctx context.Context, transitionType lock
 			lt.newLockStateID, err = pldtypes.ParseBytes32Ctx(ctx, lt.newLockState.Id)
 		}
 		if err != nil {
-			return nil, invalidLockTransition{i18n.WrapError(ctx, err, msgs.MsgInvalidLockState, lt.newLockState.Id)}
+			return nil, invalidLockTransitionError{i18n.WrapError(ctx, err, msgs.MsgInvalidLockState, lt.newLockState.Id)}
 		}
 
 		// New lock state must be a valid lock state
 		if lt.newLockInfo.Salt.IsZero() || lt.newLockInfo.Owner == nil || lt.newLockInfo.Spender == nil ||
 			(len(lt.newLockInfo.SpendOutputs) > 0 && lt.newLockInfo.SpendTxId.IsZero()) {
-			return nil, invalidLockTransition{i18n.NewError(ctx, msgs.MsgInvalidLockState, lt.newLockState.Id)}
+			return nil, invalidLockTransitionError{i18n.NewError(ctx, msgs.MsgInvalidLockState, lt.newLockState.Id)}
 		}
 		// VAlidate the lockId if we were passed one
 		if lockID != nil && !lt.newLockInfo.LockID.Equals(lockID) {
-			return nil, invalidLockTransition{i18n.NewError(ctx, msgs.MsgInvalidLockStateLockID, lt.newLockState.Id, lockID, lt.newLockInfo.LockID)}
+			return nil, invalidLockTransitionError{i18n.NewError(ctx, msgs.MsgInvalidLockStateLockID, lt.newLockState.Id, lockID, lt.newLockInfo.LockID)}
 		}
 
 		// If we have an old lock state, the transition must be valid
@@ -148,7 +148,7 @@ func (n *Noto) validateV1LockTransition(ctx context.Context, transitionType lock
 				lt.newLockInfo.Replaces.String() != lt.prevLockState.Id || // back pointer must be correct
 				lt.newLockInfo.Salt.Equals(&lt.prevLockInfo.Salt) { // and the salt must change
 				log.L(ctx).Errorf("Invalid lock transition. old=%s new=%s", lt.prevLockState.StateDataJson, lt.newLockState.StateDataJson)
-				return nil, invalidLockTransition{i18n.NewError(ctx, msgs.MsgInvalidLockTransition)}
+				return nil, invalidLockTransitionError{i18n.NewError(ctx, msgs.MsgInvalidLockTransition)}
 			}
 		}
 	}
@@ -175,7 +175,7 @@ func (lt *lockTransition) splitOutputs(ctx context.Context, infoStates []*protot
 	}
 	if len(spendOutputs) != len(lt.newLockInfo.SpendOutputs) || len(cancelOutputs) != len(lt.newLockInfo.CancelOutputs) {
 		log.L(ctx).Errorf("Invalid info states for transition. coins=%v lock=%s", coinOutputsDebug, lt.newLockState.StateDataJson)
-		return nil, nil, invalidLockTransition{i18n.NewError(ctx, msgs.MsgInvalidLockTransition)}
+		return nil, nil, invalidLockTransitionError{i18n.NewError(ctx, msgs.MsgInvalidLockTransition)}
 	}
 	return spendOutputs, cancelOutputs, nil
 }

@@ -34,19 +34,19 @@ type prepareMintUnlockHandler struct {
 
 func (h *prepareMintUnlockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	if config.IsV0() {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "prepareMintUnlock is not supported in Noto V0")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "prepareMintUnlock is not supported in Noto V0")}
 	}
 
 	var mintLockParams types.PrepareMintUnlockParams
 	if err := json.Unmarshal([]byte(params), &mintLockParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	if len(mintLockParams.Recipients) == 0 {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")}
 	}
 	for _, entry := range mintLockParams.Recipients {
 		if entry.Amount == nil || entry.Amount.Int().Sign() != 1 {
-			return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")}
+			return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")}
 		}
 	}
 	return &mintLockParams, nil
@@ -57,10 +57,10 @@ func (h *prepareMintUnlockHandler) checkAllowed(ctx context.Context, tx *types.P
 		return nil
 	}
 	if *tx.DomainConfig.Options.Basic.RestrictMint && from != tx.DomainConfig.NotaryLookup {
-		return operationNotAllowed{i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from)}
+		return operationNotAllowedError{i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from)}
 	}
 	if !*tx.DomainConfig.Options.Basic.AllowLock {
-		return operationNotAllowed{i18n.NewError(ctx, msgs.MsgLockNotAllowed)}
+		return operationNotAllowedError{i18n.NewError(ctx, msgs.MsgLockNotAllowed)}
 	}
 	return nil
 }

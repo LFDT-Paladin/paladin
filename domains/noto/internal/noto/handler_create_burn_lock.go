@@ -35,15 +35,15 @@ type createBurnLockHandler struct {
 
 func (h *createBurnLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, paramsJSON string) (any, AssembleOrEndorseError) {
 	if config.IsV0() {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createBurnLock is not supported in Noto V0")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createBurnLock is not supported in Noto V0")}
 	}
 
 	var params types.CreateBurnLockParams
 	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	if params.Amount == nil || params.Amount.Int().Sign() != 1 {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")}
 	}
 
 	return &params, nil
@@ -68,7 +68,7 @@ func (h *createBurnLockHandler) checkAllowed(ctx context.Context, tx *types.Pars
 	if *tx.DomainConfig.Options.Basic.AllowBurn {
 		return nil
 	}
-	return operationNotAllowed{i18n.NewError(ctx, msgs.MsgBurnNotAllowed)}
+	return operationNotAllowedError{i18n.NewError(ctx, msgs.MsgBurnNotAllowed)}
 }
 
 func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, AssembleError) {
@@ -231,13 +231,13 @@ func (h *createBurnLockHandler) Endorse(ctx context.Context, tx *types.ParsedTra
 	// Validate the amounts, and sender's ownership of the inputs
 	totalOutputs := new(big.Int).Add(outputs.lockedTotal, outputs.total)
 	if inputs.total.Cmp(totalOutputs) != 0 {
-		return nil, invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "totalOutputs", inputs.total, totalOutputs)}
+		return nil, invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "totalOutputs", inputs.total, totalOutputs)}
 	}
 	if parsedSpendOutputs.total.Sign() != 0 {
-		return nil, invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "spendOutputs", "0", parsedSpendOutputs.total)}
+		return nil, invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "spendOutputs", "0", parsedSpendOutputs.total)}
 	}
 	if outputs.lockedTotal.Cmp(parsedCancelOutputs.total) != 0 {
-		return nil, invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "cancelOutputs", inputs.total, parsedCancelOutputs.total)}
+		return nil, invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "cancelOutputs", inputs.total, parsedCancelOutputs.total)}
 	}
 	if err := h.noto.validateOwners(ctx, senderID.identifier, req.ResolvedVerifiers, inputs.coins, inputs.states); err != nil {
 		return nil, err

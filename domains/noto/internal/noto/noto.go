@@ -895,13 +895,13 @@ func validateTransactionCommon[T ParamValidator](
 	var functionABI abi.Entry
 	err := json.Unmarshal([]byte(tx.FunctionAbiJson), &functionABI)
 	if err != nil {
-		return nil, *new(T), invalidTransactionSpec{err}
+		return nil, *new(T), invalidTransactionSpecError{err}
 	}
 
 	var domainConfig types.NotoParsedConfig
 	err = json.Unmarshal([]byte(tx.ContractInfo.ContractConfigJson), &domainConfig)
 	if err != nil {
-		return nil, *new(T), invalidTransactionSpec{err}
+		return nil, *new(T), invalidTransactionSpecError{err}
 	}
 
 	// Lookup the function by signature. Noting below we're even more precise and throw
@@ -919,7 +919,7 @@ func validateTransactionCommon[T ParamValidator](
 	var unsetT T
 	handler := getHandler(functionABI.Name)
 	if abiFn == nil || handler == unsetT {
-		return nil, unsetT, unknownFunction{i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)}
+		return nil, unsetT, unknownFunctionError{i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)}
 	}
 
 	params, paramsErr := handler.ValidateParams(ctx, &domainConfig, tx.FunctionParamsJson)
@@ -934,12 +934,12 @@ func validateTransactionCommon[T ParamValidator](
 	// In the case we have multiple function definitions for a particular name (like prepareUnlock)
 	// we give an arbitrary one of the defined ones - so this isn't prefect.
 	if !exactSignatureMatch {
-		return nil, *new(T), unknownFunction{i18n.NewError(ctx, msgs.MsgUnexpectedFunctionSignature, functionABI.Name, abiFn.SolString(), tx.FunctionSignature)}
+		return nil, *new(T), unknownFunctionError{i18n.NewError(ctx, msgs.MsgUnexpectedFunctionSignature, functionABI.Name, abiFn.SolString(), tx.FunctionSignature)}
 	}
 
 	contractAddress, err := ethtypes.NewAddress(tx.ContractInfo.ContractAddress)
 	if err != nil {
-		return nil, *new(T), invalidTransactionSpec{err}
+		return nil, *new(T), invalidTransactionSpecError{err}
 	}
 
 	return &types.ParsedTransaction{
@@ -1019,7 +1019,7 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 	}
 	for i, state := range states {
 		if statesUsed[state.Id] {
-			return nil, invalidStateList{i18n.NewError(ctx, msgs.MsgDuplicateStateInList, label, i, state.Id)}
+			return nil, invalidStateListError{i18n.NewError(ctx, msgs.MsgDuplicateStateInList, label, i, state.Id)}
 		}
 		statesUsed[state.Id] = true
 
@@ -1027,7 +1027,7 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 		case n.coinSchema.Id:
 			coin, err := n.unmarshalCoin(state.StateDataJson)
 			if err != nil {
-				return nil, invalidStateList{i18n.NewError(ctx, msgs.MsgInvalidListInput, label, i, state.Id, err)}
+				return nil, invalidStateListError{i18n.NewError(ctx, msgs.MsgInvalidListInput, label, i, state.Id, err)}
 			}
 			result.coins = append(result.coins, coin)
 			result.total = result.total.Add(result.total, coin.Amount.Int())
@@ -1039,7 +1039,7 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 		case n.lockedCoinSchema.Id:
 			coin, err := n.unmarshalLockedCoin(state.StateDataJson)
 			if err != nil {
-				return nil, invalidStateList{i18n.NewError(ctx, msgs.MsgInvalidListInput, label, i, state.Id, err)}
+				return nil, invalidStateListError{i18n.NewError(ctx, msgs.MsgInvalidListInput, label, i, state.Id, err)}
 			}
 			result.lockedCoins = append(result.lockedCoins, coin)
 			result.lockedTotal = result.lockedTotal.Add(result.lockedTotal, coin.Amount.Int())
@@ -1051,7 +1051,7 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 		case n.lockInfoSchemaV1.Id:
 			// Not a coin - so ignored in this function
 		default:
-			return nil, invalidStateList{i18n.NewError(ctx, msgs.MsgUnexpectedSchema, state.SchemaId)}
+			return nil, invalidStateListError{i18n.NewError(ctx, msgs.MsgUnexpectedSchema, state.SchemaId)}
 		}
 	}
 	return result, nil
@@ -1110,13 +1110,13 @@ func (n *Noto) encodeTransactionDataV0(ctx context.Context, transaction *prototk
 	for i, state := range infoStates {
 		stateIDs[i], err = pldtypes.ParseBytes32Ctx(ctx, state.Id)
 		if err != nil {
-			return nil, invalidTransactionData{err}
+			return nil, invalidTransactionDataError{err}
 		}
 	}
 
 	transactionID, err := pldtypes.ParseBytes32Ctx(ctx, transaction.TransactionId)
 	if err != nil {
-		return nil, invalidTransactionData{err}
+		return nil, invalidTransactionDataError{err}
 	}
 	dataValues := &types.NotoTransactionData_V0{
 		TransactionID: transactionID,
@@ -1124,11 +1124,11 @@ func (n *Noto) encodeTransactionDataV0(ctx context.Context, transaction *prototk
 	}
 	dataJSON, err := json.Marshal(dataValues)
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	dataABI, err := types.NotoTransactionDataABI_V0.EncodeABIDataJSONCtx(ctx, dataJSON)
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 
 	var data []byte
@@ -1143,7 +1143,7 @@ func (n *Noto) encodeTransactionDataV1(ctx context.Context, infoStates []*protot
 	for i, state := range infoStates {
 		stateIDs[i], err = pldtypes.ParseBytes32Ctx(ctx, state.Id)
 		if err != nil {
-			return nil, invalidTransactionData{err}
+			return nil, invalidTransactionDataError{err}
 		}
 	}
 
@@ -1152,11 +1152,11 @@ func (n *Noto) encodeTransactionDataV1(ctx context.Context, infoStates []*protot
 	}
 	dataJSON, err := json.Marshal(dataValues)
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 	dataABI, err := types.NotoTransactionDataABI_V1.EncodeABIDataJSONCtx(ctx, dataJSON)
 	if err != nil {
-		return nil, encodeFailed{err}
+		return nil, encodeFailedError{err}
 	}
 
 	var data []byte
@@ -1432,13 +1432,13 @@ func (n *Noto) computeLockId(ctx context.Context, contractAddress *pldtypes.EthA
 
 	jsonData, err := json.Marshal(paramsJSON)
 	if err != nil {
-		return pldtypes.Bytes32{}, encodeFailed{err}
+		return pldtypes.Bytes32{}, encodeFailedError{err}
 	}
 
 	encoded, err := params.EncodeABIDataJSONCtx(ctx, jsonData)
 	if err != nil {
 		// Only txId can fail this encode - the two addresses are already-parsed EthAddress values.
-		return pldtypes.Bytes32{}, invalidTransactionData{err}
+		return pldtypes.Bytes32{}, invalidTransactionDataError{err}
 	}
 
 	return pldtypes.Bytes32Keccak(encoded), nil

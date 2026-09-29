@@ -35,19 +35,19 @@ type createMintLockHandler struct {
 
 func (h *createMintLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	if config.IsV0() {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createMintLock is not supported in Noto V0")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createMintLock is not supported in Noto V0")}
 	}
 
 	var createMintLockParams types.CreateMintLockParams
 	if err := json.Unmarshal([]byte(params), &createMintLockParams); err != nil {
-		return nil, invalidParams{err}
+		return nil, invalidParamsError{err}
 	}
 	if len(createMintLockParams.Recipients) == 0 {
-		return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")}
+		return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")}
 	}
 	for _, entry := range createMintLockParams.Recipients {
 		if entry.Amount == nil || entry.Amount.Int().Sign() != 1 {
-			return nil, invalidParams{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")}
+			return nil, invalidParamsError{i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")}
 		}
 	}
 	return &createMintLockParams, nil
@@ -63,7 +63,7 @@ func (h *createMintLockHandler) checkAllowed(ctx context.Context, tx *types.Pars
 	if from == tx.DomainConfig.NotaryLookup {
 		return nil
 	}
-	return operationNotAllowed{i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from)}
+	return operationNotAllowedError{i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from)}
 }
 
 func (h *createMintLockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
@@ -208,10 +208,10 @@ func (h *createMintLockHandler) Endorse(ctx context.Context, tx *types.ParsedTra
 		requiredTotal = requiredTotal.Add(requiredTotal, entry.Amount.Int())
 	}
 	if len(inputs.coins) > 0 || len(outputs.lockedCoins) > 0 || len(outputs.coins) > 0 || len(parsedCancelOutputs.coins) > 0 {
-		return nil, invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidInputs, "mint", inputs.coins)}
+		return nil, invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidInputs, "mint", inputs.coins)}
 	}
 	if requiredTotal.Cmp(parsedSpendOutputs.total) != 0 {
-		return nil, invalidAmounts{i18n.NewError(ctx, msgs.MsgInvalidAmount, "mint", requiredTotal.Text(10), parsedSpendOutputs.total.Text(10))}
+		return nil, invalidAmountsError{i18n.NewError(ctx, msgs.MsgInvalidAmount, "mint", requiredTotal.Text(10), parsedSpendOutputs.total.Text(10))}
 	}
 
 	// Notary checks the signature from the sender, then submits the transaction
