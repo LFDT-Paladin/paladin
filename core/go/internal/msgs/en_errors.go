@@ -308,6 +308,7 @@ var (
 	MsgDomainInvalidPGroupTxTypeNotPrivate    = pde("PD011665", "Resulting wrapped function call for privacy group must be a private transaction (type=%s)")
 	MsgDomainInvalidPGroupTxCannotRedirect    = pde("PD011666", "Resulting wrapped function call must target the same smart contract (contract=%s,addr=%s)")
 	MsgDomainUnsupportedStateQualifier        = pde("PD011667", "Unsupported state qualifier '%s'")
+	MsgDomainInvalidRegistryEventData         = pde("PD011668", "Invalid data in event '%s'")
 
 	// Entrypoint PD0117XX
 	MsgEntrypointUnknownRunMode = pde("PD011700", "Unknown run mode '%s'")

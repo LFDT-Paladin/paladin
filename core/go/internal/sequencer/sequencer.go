@@ -151,6 +151,11 @@ func (sMgr *sequencerManager) pollForIncompleteTransactions(ctx context.Context,
 // Originators are responsible for resuming and re-delegating their own transactions.
 // Paginates through all pending transactions with configurable page size and optional upper limit.
 func (sMgr *sequencerManager) resumeIncompleteTransactions(ctx context.Context) {
+	sMgr.resumeIncompleteTransactionsMatching(ctx, func(query.QueryBuilder) {})
+}
+
+// resumeIncompleteTransactionsMatching resumes the pending transactions that also satisfy the filter
+func (sMgr *sequencerManager) resumeIncompleteTransactionsMatching(ctx context.Context, filter func(query.QueryBuilder)) {
 	pageSize := confutil.IntMin(sMgr.config.TransactionResumePageSize, pldconf.SequencerMinimum.TransactionResumePageSize, *pldconf.SequencerDefaults.TransactionResumePageSize)
 	maxTransactions := *pldconf.SequencerDefaults.TransactionResumeMaxTransactions
 	if sMgr.config.TransactionResumeMaxTransactions != nil {
@@ -166,16 +171,17 @@ func (sMgr *sequencerManager) resumeIncompleteTransactions(ctx context.Context) 
 			limit = maxTransactions - resumedTransactions
 		}
 
-		query := query.NewQueryBuilder().
+		qb := query.NewQueryBuilder().
 			Limit(limit).
 			Sort("created")
+		filter(qb)
 		if lastCreatedTime > 0 {
 			log.L(ctx).Debugf("Retrieving the next %d incomplete transactions to resume from timestamp %d", limit, lastCreatedTime)
-			query.GreaterThan("created", lastCreatedTime)
+			qb.GreaterThan("created", lastCreatedTime)
 		} else {
 			log.L(ctx).Debugf("Retrieving the next %d incomplete transactions to resume", limit)
 		}
-		q := query.Query()
+		q := qb.Query()
 
 		pendingTx, err := sMgr.components.TxManager().QueryTransactionsResolved(ctx, q, sMgr.components.Persistence().NOTX(), true)
 		if err != nil {
