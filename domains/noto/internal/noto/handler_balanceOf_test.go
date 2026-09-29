@@ -17,6 +17,7 @@ package noto
 
 import (
 	"context"
+	"regexp"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -75,6 +76,7 @@ func TestBalanceOfValidateParams(t *testing.T) {
 
 			if tc.expectedErr != "" {
 				assert.EqualError(t, err, tc.expectedErr)
+				assertRevert(t, err, regexp.QuoteMeta(tc.expectedErr))
 			}
 
 			if tc.validate != nil {

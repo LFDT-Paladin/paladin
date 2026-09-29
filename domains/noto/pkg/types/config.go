@@ -125,8 +125,6 @@ var NotoTransactionDataABI_V1 = &abi.ParameterArray{
 	{Name: "infoStates", Type: "bytes32[]"},
 }
 
-type DomainHandler = domain.DomainHandler[NotoParsedConfig]
-type DomainCallHandler = domain.DomainCallHandler[NotoParsedConfig]
 type ParsedTransaction = domain.ParsedTransaction[NotoParsedConfig]
 
 const (
