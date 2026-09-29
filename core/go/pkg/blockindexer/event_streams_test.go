@@ -217,6 +217,9 @@ func TestInternalEventStreamDeliveryCatchUp(t *testing.T) {
 
 	// Set up our handler, even though it won't be driven with anything yet
 	eventCollector := make(chan *pldapi.EventWithData)
+	// Notified with the block of the last event in each batch, once that batch (including its
+	// checkpoint update) has committed. Buffered so the dispatcher is never held up by us.
+	batchCommitted := make(chan int64, len(blocks))
 	var esID string
 	handler := func(ctx context.Context, dbTX persistence.DBTX, batch *EventDeliveryBatch) error {
 		if esID == "" {
@@ -233,6 +236,8 @@ func TestInternalEventStreamDeliveryCatchUp(t *testing.T) {
 			case <-ctx.Done():
 			}
 		}
+		lastBlock := batch.Events[len(batch.Events)-1].BlockNumber
+		dbTX.AddPostCommit(func(txCtx context.Context) { batchCommitted <- lastBlock })
 		return nil
 	}
 
@@ -301,14 +306,19 @@ func TestInternalEventStreamDeliveryCatchUp(t *testing.T) {
 		}
 	}
 
-	// Wait for checkpoint
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		es := bi.eventStreams[uuid.MustParse(esID)]
-		baseBlock, err := es.readDBCheckpoint()
-		assert.NoError(t, err)
-		assert.NotNil(t, baseBlock)
-		assert.Equal(t, int64(14), *baseBlock, "Checkpoint block should be 14")
-	}, testTimeout(t), 10*time.Millisecond, "Checkpoint not written")
+	// Wait for the batch carrying the last event of the final block to commit - at that point
+	// the checkpoint for that block is durable
+	for committedBlock := range batchCommitted {
+		if committedBlock >= int64(len(blocks)-1) {
+			break
+		}
+	}
+
+	es := bi.eventStreams[uuid.MustParse(esID)]
+	baseBlock, err := es.readDBCheckpoint()
+	require.NoError(t, err)
+	require.NotNil(t, baseBlock)
+	require.Equal(t, int64(14), *baseBlock, "Checkpoint block should be 14")
 
 	// Stop and restart
 	bi.Stop()
@@ -325,7 +335,7 @@ func TestInternalEventStreamDeliveryCatchUp(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check it's back to the checkpoint we expect
-	es := bi.eventStreams[uuid.MustParse(esID)]
+	es = bi.eventStreams[uuid.MustParse(esID)]
 	cp, err := es.processCheckpoint()
 	require.NoError(t, err)
 	require.NotNil(t, cp)
@@ -670,6 +680,10 @@ func TestStartStopEventStream(t *testing.T) {
 	defer done()
 	esID := uuid.New()
 
+	// The detector runs its startup queries on its own routine, so they do not have a
+	// deterministic order against the start/stop updates we drive from this routine
+	p.Mock.MatchExpectationsInOrder(false)
+
 	// doesn't exist
 	err := bi.StartEventStream(ctx, esID)
 	require.ErrorContains(t, err, "PD011312")
@@ -722,10 +736,8 @@ func TestStartStopEventStream(t *testing.T) {
 	p.Mock.ExpectExec("UPDATE.*event_streams").WillReturnError(errors.New("pop"))
 	p.Mock.ExpectExec("UPDATE.*event_streams").WillReturnResult(sqlmock.NewResult(1, 1))
 
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		err = bi.StopEventStream(ctx, esID)
-		assert.ErrorContains(c, err, "pop")
-	}, testTimeout(t), 1*time.Millisecond)
+	err = bi.StopEventStream(ctx, esID)
+	require.ErrorContains(t, err, "pop")
 	// Failed DB update must not flip in-memory started status
 	require.NotNil(t, eventStream.definition.Started)
 	assert.True(t, *eventStream.definition.Started)
@@ -1138,11 +1150,12 @@ func TestDispatcherBlockConfirmedCheckpoint(t *testing.T) {
 			ID:   esID,
 			Type: EventStreamTypeInternal.Enum(),
 		},
-		batchSize:         10,
-		batchTimeout:      1 * time.Second,
-		dispatch:          make(chan *detectorMsg, 5),
-		dispatcherDone:    make(chan struct{}),
-		dispatcherStarted: make(chan struct{}),
+		batchSize:           10,
+		batchTimeout:        1 * time.Second,
+		dispatch:            make(chan *detectorMsg, 5),
+		dispatcherDone:      make(chan struct{}),
+		dispatcherStarted:   make(chan struct{}),
+		checkpointCommitted: make(chan int64, 1),
 	}
 
 	// Expect one DB write for block 5; block 3 is below the checkpoint so it should be skipped.
@@ -1156,14 +1169,65 @@ func TestDispatcherBlockConfirmedCheckpoint(t *testing.T) {
 	// Advance checkpoint to block 5 — expect a DB write.
 	es.dispatch <- &detectorMsg{confirmed: &blockConfirmed{blockNumber: 5}}
 
-	// Wait until the checkpoint has been stored in memory before sending the stale one.
-	require.Eventually(t, func() bool { return es.checkpoint.Load() == 5 }, testTimeout(t), time.Millisecond)
+	// Wait for that checkpoint write to be committed before checking the in-memory value
+	require.Equal(t, int64(5), <-es.checkpointCommitted)
 	assert.Equal(t, int64(5), es.checkpoint.Load())
 
 	cancelCtx()
 	<-es.dispatcherDone
 
 	assert.Equal(t, int64(5), es.checkpoint.Load())
+	require.NoError(t, p.Mock.ExpectationsWereMet())
+}
+
+// A transient DB error writing the checkpoint for a confirmed (empty) block must not end the
+// dispatcher - nothing restarts it for the life of the process, so the stream would silently
+// stop delivering events until the next node restart.
+func TestDispatcherBlockConfirmedCheckpointRetriesTransientError(t *testing.T) {
+	ctx, bi, _, p, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(3)
+
+	cancellableCtx, cancelCtx := context.WithCancel(ctx)
+
+	es := &eventStream{
+		bi:  bi,
+		ctx: cancellableCtx,
+		definition: &EventStreamDefinition{
+			ID:   uuid.New(),
+			Type: EventStreamTypeInternal.Enum(),
+		},
+		batchSize:           10,
+		batchTimeout:        1 * time.Second,
+		dispatch:            make(chan *detectorMsg, 5),
+		dispatcherDone:      make(chan struct{}),
+		dispatcherStarted:   make(chan struct{}),
+		checkpointCommitted: make(chan int64, 1),
+	}
+
+	// First write fails transiently, the retry succeeds
+	p.Mock.ExpectExec("INSERT.*event_stream_checkpoints").WillReturnError(fmt.Errorf("pop"))
+	p.Mock.ExpectExec("INSERT.*event_stream_checkpoints").WillReturnResult(sqlmock.NewResult(1, 1))
+
+	go func() {
+		assert.NotPanics(t, func() { es.dispatcher() })
+	}()
+	<-es.dispatcherStarted
+
+	es.dispatch <- &detectorMsg{confirmed: &blockConfirmed{blockNumber: 5}}
+
+	// The dispatcher must survive the transient error and commit the checkpoint
+	require.Equal(t, int64(5), <-es.checkpointCommitted)
+	assert.Equal(t, int64(5), es.checkpoint.Load())
+
+	// ... and still be alive to process another advance
+	p.Mock.ExpectExec("INSERT.*event_stream_checkpoints").WillReturnResult(sqlmock.NewResult(1, 1))
+	es.dispatch <- &detectorMsg{confirmed: &blockConfirmed{blockNumber: 6}}
+	require.Equal(t, int64(6), <-es.checkpointCommitted)
+
+	cancelCtx()
+	<-es.dispatcherDone
 	require.NoError(t, p.Mock.ExpectationsWereMet())
 }
 
@@ -1393,13 +1457,6 @@ func TestNOTXHandler(t *testing.T) {
 	assert.False(t, returnErr)
 }
 
-func testTimeout(t *testing.T) time.Duration {
-	if deadline, hasDeadline := t.Deadline(); hasDeadline {
-		return time.Until(deadline) - time.Second // Subtract a small buffer to ensure test cleanup
-	}
-	return 30 * time.Second // Default timeout if no deadline is set
-}
-
 func TestEventStreamGetters(t *testing.T) {
 	id := uuid.New()
 	es := &eventStream{
@@ -1446,6 +1503,11 @@ func TestDispatcherCheckpointUpdateError(t *testing.T) {
 	ctx, bi, _, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
 	defer done()
 
+	// Checkpoint updates for confirmed (empty) blocks are retried indefinitely in production,
+	// so the dispatcher no longer ends on a checkpoint write failure. Bound the retry so the
+	// error return path (context cancellation in production) is still exercised.
+	bi.retry.UTSetMaxAttempts(1)
+
 	cancellableCtx, cancelCtx := context.WithCancel(ctx)
 	defer cancelCtx()
 
@@ -1470,4 +1532,5 @@ func TestDispatcherCheckpointUpdateError(t *testing.T) {
 
 	es.dispatch <- &detectorMsg{confirmed: &blockConfirmed{blockNumber: 5}}
 	<-es.dispatcherDone
+	assert.Equal(t, int64(0), es.checkpoint.Load())
 }

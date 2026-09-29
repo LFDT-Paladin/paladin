@@ -38,27 +38,28 @@ import (
 )
 
 type eventStream struct {
-	ctx               context.Context
-	cancelCtx         context.CancelFunc
-	bi                *blockIndexer
-	definition        *EventStreamDefinition
-	signatures        map[string]bool
-	signatureList     []pldtypes.Bytes32
-	batchSize         int
-	batchTimeout      time.Duration
-	blocks            chan *eventStreamBlock
-	dispatch          chan *detectorMsg
-	useNOTXHandler    bool
-	handlerDBTX       InternalStreamCallbackDBTX
-	handlerNOTX       InternalStreamCallbackNOTX
-	serializer        *abi.Serializer
-	detectorDone      chan struct{}
-	detectorStarted   chan struct{}
-	dispatcherDone    chan struct{}
-	dispatcherStarted chan struct{}
-	fromBlock         *ethtypes.HexUint64 // nil == latest
-	checkpoint        atomic.Int64        // set after we persist checkpoint
-	catchup           atomic.Bool
+	ctx                 context.Context
+	cancelCtx           context.CancelFunc
+	bi                  *blockIndexer
+	definition          *EventStreamDefinition
+	signatures          map[string]bool
+	signatureList       []pldtypes.Bytes32
+	batchSize           int
+	batchTimeout        time.Duration
+	blocks              chan *eventStreamBlock
+	dispatch            chan *detectorMsg
+	useNOTXHandler      bool
+	handlerDBTX         InternalStreamCallbackDBTX
+	handlerNOTX         InternalStreamCallbackNOTX
+	serializer          *abi.Serializer
+	detectorDone        chan struct{}
+	detectorStarted     chan struct{}
+	dispatcherDone      chan struct{}
+	dispatcherStarted   chan struct{}
+	fromBlock           *ethtypes.HexUint64 // nil == latest
+	checkpoint          atomic.Int64        // set after we persist checkpoint
+	catchup             atomic.Bool
+	checkpointCommitted chan int64
 }
 
 type eventBatch struct {
@@ -255,12 +256,13 @@ func (bi *blockIndexer) initEventStream(ctx context.Context, definition *EventSt
 		es.definition.Config = definition.Config
 	} else {
 		es = &eventStream{
-			bi:         bi,
-			definition: definition,
-			signatures: make(map[string]bool),
-			blocks:     make(chan *eventStreamBlock, bi.esBlockDispatchQueueLength),
-			dispatch:   make(chan *detectorMsg, batchSize),
-			serializer: definition.Format.GetABISerializerIgnoreErrors(ctx),
+			bi:                  bi,
+			definition:          definition,
+			signatures:          make(map[string]bool),
+			blocks:              make(chan *eventStreamBlock, bi.esBlockDispatchQueueLength),
+			dispatch:            make(chan *detectorMsg, batchSize),
+			serializer:          definition.Format.GetABISerializerIgnoreErrors(ctx),
+			checkpointCommitted: make(chan int64, 1),
 		}
 	}
 
@@ -391,6 +393,10 @@ func (bi *blockIndexer) startEventStreams() {
 			// no possibility of error if not updating DB
 			_ = es.start(false)
 		}
+	}
+	select {
+	case bi.eventStreamsStarted <- struct{}{}:
+	default: // a previous start is still unread
 	}
 }
 
@@ -527,7 +533,7 @@ func (es *eventStream) detector() {
 	// the dispatcher's checkpoint, which represents the last block to be fully processed and persisted.
 	checkpointBlock, err := es.processCheckpoint()
 	if err != nil {
-		log.L(es.ctx).Debugf("exiting before retrieving checkpoint")
+		log.L(es.ctx).Infof("exiting before retrieving checkpoint")
 		close(es.detectorStarted)
 		return
 	}
@@ -560,7 +566,7 @@ func (es *eventStream) detector() {
 		// Note startupBlock might be nil, and that's fine
 		startupBlock, err = es.bi.getHighestIndexedBlock(es.ctx)
 		if err != nil {
-			log.L(es.ctx).Debugf("exiting before retrieving highest block")
+			log.L(es.ctx).Infof("exiting before retrieving highest block")
 			return
 		}
 	}
@@ -603,7 +609,7 @@ func (es *eventStream) detector() {
 			var caughtUp bool
 			caughtUp, lastCatchupEvent, err = es.processCatchupEventPage(lastCatchupEvent, *checkpointBlock, catchUpToBlockNumber)
 			if err != nil {
-				log.L(es.ctx).Debugf("exiting during catchup phase")
+				log.L(es.ctx).Infof("exiting during catchup phase")
 				return
 			}
 			if caughtUp {
@@ -687,11 +693,14 @@ func (es *eventStream) dispatcher() {
 		select {
 		case msg := <-es.dispatch:
 			if msg.confirmed != nil {
-				// A block (or catchup range) was confirmed to contain no matching events- advance the checkpoint
+				// A block (or catchup range) was confirmed to contain no matching events - advance the checkpoint
+				// with DB retry on any transient errors
 				if msg.confirmed.blockNumber > es.checkpoint.Load() {
-					err := es.updateCheckpoint(es.ctx, es.bi.persistence.NOTX(), int64(msg.confirmed.blockNumber))
+					err := es.bi.retry.Do(es.ctx, func(attempt int) (retryable bool, err error) {
+						return true, es.updateCheckpoint(es.ctx, es.bi.persistence.NOTX(), int64(msg.confirmed.blockNumber))
+					})
 					if err != nil {
-						l.Debugf("event stream dispatcher ending (during checkpoint update)")
+						l.Infof("event stream dispatcher ending (during checkpoint update)")
 						return
 					}
 				}
@@ -736,7 +745,7 @@ func (es *eventStream) dispatcher() {
 			batch.timeoutCancel()
 			l.Debugf("Running batch %s (len=%d,timeout=%t,age=%dms)", batch.BatchID, len(batch.Events), timedOut, time.Since(batch.opened).Milliseconds())
 			if err := es.runBatch(batch); err != nil {
-				l.Debugf("event stream dispatcher ending (during dispatch)")
+				l.Infof("event stream dispatcher ending (during dispatch)")
 				return
 			}
 			batch = nil
@@ -761,8 +770,21 @@ func (es *eventStream) updateCheckpoint(ctx context.Context, dbTX persistence.DB
 		Error
 	if err == nil {
 		es.checkpoint.Store(blockNumber)
+		if dbTX.FullTransaction() {
+			dbTX.AddPostCommit(func(txCtx context.Context) { es.notifyCheckpointCommitted(blockNumber) })
+		} else {
+			// The statement above is the whole transaction, so it is already committed
+			es.notifyCheckpointCommitted(blockNumber)
+		}
 	}
 	return err
+}
+
+func (es *eventStream) notifyCheckpointCommitted(blockNumber int64) {
+	select {
+	case es.checkpointCommitted <- blockNumber:
+	default: // a previous update is still unread
+	}
 }
 
 func (es *eventStream) runBatch(batch *eventBatch) error {

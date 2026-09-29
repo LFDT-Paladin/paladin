@@ -102,7 +102,7 @@ func TestFindStatesMissingSchema(t *testing.T) {
 	db.ExpectQuery("SELECT").WillReturnRows(db.NewRows([]string{}))
 
 	contractAddress := pldtypes.RandAddress()
-	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, pldtypes.Bytes32Keccak(([]byte)("schema1")), &query.QueryJSON{}, "all")
+	_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, pldtypes.Bytes32Keccak(([]byte)("schema1")), &query.QueryJSON{}, "all", nil)
 	assert.Regexp(t, "PD010106", err)
 }
 
@@ -125,7 +125,7 @@ func TestFindStatesBadQuery(t *testing.T) {
 				},
 			},
 		},
-	}, "all")
+	}, "all", nil)
 	assert.Regexp(t, "PD010700.*wrong", err)
 
 }
@@ -154,7 +154,7 @@ func TestFindStatesFail(t *testing.T) {
 				},
 			},
 		},
-	}, "all")
+	}, "all", nil)
 	assert.Regexp(t, "pop", err)
 
 }

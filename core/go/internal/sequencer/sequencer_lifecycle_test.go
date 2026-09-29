@@ -44,6 +44,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -1746,4 +1747,76 @@ func TestSequencerManager_LoadSequencer_ReachesTargetLimit(t *testing.T) {
 	sm.sequencers[contractAddr3.String()].cancelCtx()
 	result.GetCoordinator().WaitForDone(ctx)
 	result.GetOriginator().WaitForDone(ctx)
+}
+
+// matchesResumeForContract asserts the resume query is restricted to the contract's transactions
+func matchesResumeForContract(t *testing.T, contractAddr *pldtypes.EthAddress) interface{} {
+	return mock.MatchedBy(func(q *query.QueryJSON) bool {
+		for _, eq := range q.Statements.Ops.Eq {
+			if eq.Field == "to" {
+				assert.JSONEq(t, `"`+contractAddr.String()+`"`, eq.Value.String())
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func TestSequencerManager_HandleContractConfigChanged_StopsSequencerAndResumes(t *testing.T) {
+	ctx := t.Context()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	mocks.coordinator.EXPECT().WaitForDone(mock.Anything).Once()
+	mocks.originator.EXPECT().WaitForDone(mock.Anything).Once()
+	mocks.metrics.EXPECT().SetActiveSequencers(0).Once()
+
+	txID := uuid.New()
+	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, matchesResumeForContract(t, contractAddr), nil, true).Return([]*components.ResolvedTransaction{{
+		Transaction: &pldapi.Transaction{
+			ID:              &txID,
+			Created:         pldtypes.Timestamp(time.Now().UnixNano()),
+			TransactionBase: pldapi.TransactionBase{To: contractAddr},
+		},
+	}}, nil).Once()
+	mocks.persistence.EXPECT().Transaction(mock.Anything, mock.Anything).RunAndReturn(
+		func(txCtx context.Context, fn func(context.Context, persistence.DBTX) error) error {
+			return fn(txCtx, persistencemocks.NewDBTX(t))
+		},
+	).Once()
+	mocks.txManager.EXPECT().BlockedByDependencies(mock.Anything, mock.Anything, mock.MatchedBy(func(txi *components.ValidatedTransaction) bool {
+		return *txi.Transaction.ID == txID
+	})).Return(true, nil).Once()
+
+	sm.HandleContractConfigChanged(ctx, *contractAddr)
+
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	assert.NotContains(t, sm.sequencers, contractAddr.String())
+}
+
+func TestSequencerManager_HandleContractConfigChanged_NoSequencerLoaded(t *testing.T) {
+	ctx := t.Context()
+	contractAddr := pldtypes.RandAddress()
+	otherAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	other := newSequencerForTesting(otherAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[otherAddr.String()] = other
+	sm.sequencersLock.Unlock()
+
+	sm.HandleContractConfigChanged(ctx, *contractAddr)
+
+	mocks.txManager.AssertNotCalled(t, "QueryTransactionsResolved", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	assert.Contains(t, sm.sequencers, otherAddr.String())
 }

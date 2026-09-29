@@ -893,11 +893,10 @@ func TestBlockIndexerResetsAfterHashLookupFail(t *testing.T) {
 	assert.True(t, sentFail)
 
 	// Check that the event stream goroutines are now running
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		es := bi.eventStreams[eventStream.Definition().ID]
-		assert.NotNil(c, es.detectorDone, "Event stream detector should be started after reset")
-		assert.NotNil(c, es.dispatcherDone, "Event stream dispatcher should be started after reset")
-	}, testTimeout(t), 100*time.Millisecond, "Event streams should be started after reset")
+	<-bi.eventStreamsStarted
+	es = bi.eventStreams[eventStream.Definition().ID]
+	require.NotNil(t, es.detectorDone, "Event stream detector should be started after reset")
+	require.NotNil(t, es.dispatcherDone, "Event stream dispatcher should be started after reset")
 }
 
 func TestBlockIndexerResetsAfterReceiptIntegrityFail(t *testing.T) {
@@ -955,11 +954,10 @@ func TestBlockIndexerResetsAfterReceiptIntegrityFail(t *testing.T) {
 
 	assert.True(t, sentFail)
 
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		es := bi.eventStreams[eventStream.Definition().ID]
-		assert.NotNil(c, es.detectorDone, "Event stream detector should be started after reset")
-		assert.NotNil(c, es.dispatcherDone, "Event stream dispatcher should be started after reset")
-	}, testTimeout(t), 100*time.Millisecond, "Event streams should be started after reset")
+	<-bi.eventStreamsStarted
+	es = bi.eventStreams[eventStream.Definition().ID]
+	require.NotNil(t, es.detectorDone, "Event stream detector should be started after reset")
+	require.NotNil(t, es.dispatcherDone, "Event stream dispatcher should be started after reset")
 }
 
 func TestBlockIndexerDispatcherFallsBehindHead(t *testing.T) {
