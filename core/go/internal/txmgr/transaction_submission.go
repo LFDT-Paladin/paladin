@@ -627,6 +627,9 @@ func (tm *txManager) resolveNewTransaction(ctx context.Context, dbTX persistence
 		if submitMode == pldapi.SubmitModeExternal {
 			return nil, i18n.NewError(ctx, msgs.MsgTxMgrPrivateOnlyForPrepare)
 		}
+		if len(tx.DependsOn) > 0 {
+			return nil, i18n.NewError(ctx, msgs.MsgTxMgrDependsOnPrivateOnly)
+		}
 	default:
 		return nil, i18n.NewError(ctx, msgs.MsgTxMgrInvalidTXType)
 	}

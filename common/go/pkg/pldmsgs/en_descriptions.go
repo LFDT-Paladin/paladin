@@ -132,7 +132,7 @@ var (
 	TransactionFrom                                         = pdm("Transaction.from", "Locator for a local signing identity to use for submission of this transaction. May be a key identifier, or an eth address prefixed with 'eth_address:'.")
 	TransactionTo                                           = pdm("Transaction.to", "Target contract address, or null for a deploy")
 	TransactionData                                         = pdm("Transaction.data", "Pre-encoded array with/without function selector, array, or object input")
-	TransactionInputDependsOn                               = pdm("TransactionInput.dependsOn", "Transactions that must be mined on the blockchain successfully before this transaction submits")
+	TransactionInputDependsOn                               = pdm("TransactionInput.dependsOn", "Transactions that must be mined on the blockchain successfully before this transaction submits. Private transactions only")
 	TransactionInputABI                                     = pdm("TransactionInput.abi", "Application Binary Interface (ABI) definition - required if abiReference not supplied")
 	TransactionInputBytecode                                = pdm("TransactionInput.bytecode", "Bytecode prepended to encoded data inputs for deploy transactions")
 	TransactionCallDataFormat                               = pdm("TransactionCall.dataFormat", "How call data should be serialized into JSON once decoded using the ABI function definition")

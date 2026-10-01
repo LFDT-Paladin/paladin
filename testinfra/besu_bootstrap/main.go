@@ -129,7 +129,6 @@ func main() {
 				BlockPeriodSeconds:      ptrTo(1), // this is overwritten by the BlockPeriodMilliseconds
 				EpochLength:             ptrTo(30000),
 				RequestTimeoutSeconds:   ptrTo(10),
-				EmptyBlockPeriodSeconds: ptrTo(10),
 				BlockPeriodMilliseconds: ptrTo(200),
 			},
 		},
