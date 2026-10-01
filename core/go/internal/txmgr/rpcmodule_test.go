@@ -138,7 +138,6 @@ func TestPublicTransactionLifecycle(t *testing.T) {
 		func(tmc *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.publicTxMgr.On("UpdateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			mc.keyManager.On("ResolveEthAddressNewDatabaseTX", mock.Anything, "sender1").Return(senderAddr, nil) // used in call
-			mc.sequencerMgr.On("HandleTxResume", mock.Anything, mock.Anything).Return(nil)
 
 			unconnected := ethclient.NewUnconnectedRPCClient(context.Background(), &pldconf.EthClientConfig{}, 0)
 			mc.ethClientFactory.On("HTTPClient").Return(unconnected)
@@ -168,12 +167,10 @@ func TestPublicTransactionLifecycle(t *testing.T) {
 	}
 
 	// Submit in a public deploy with array encoded params and bytecode
-	tx0ID := uuid.New()
 	var tx1ID uuid.UUID
 	err = rpcClient.CallRPC(ctx, &tx1ID, "ptx_sendTransaction", &pldapi.TransactionInput{
-		ABI:       sampleABI,
-		Bytecode:  pldtypes.MustParseHexBytes("0x11223344"),
-		DependsOn: []uuid.UUID{tx0ID},
+		ABI:      sampleABI,
+		Bytecode: pldtypes.MustParseHexBytes("0x11223344"),
 		TransactionBase: pldapi.TransactionBase{
 			IdempotencyKey: "tx1",
 			From:           "sender1",
@@ -209,7 +206,6 @@ func TestPublicTransactionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, txns, 1)
 	assert.Equal(t, tx1ID, *txns[0].ID)
-	assert.Equal(t, tx0ID, txns[0].DependsOn[0])
 	assert.Equal(t, `{"0":"12345"}`, txns[0].Data.String())
 	assert.Equal(t, "(uint256)", txns[0].Function)
 	assert.Equal(t, *senderAddr, txns[0].Public[0].From)
@@ -248,7 +244,6 @@ func TestPublicTransactionLifecycle(t *testing.T) {
 
 	// Submit in a public invoke using that same ABI referring to the function
 	tx2Input := &pldapi.TransactionInput{
-		DependsOn: []uuid.UUID{tx1ID},
 		TransactionBase: pldapi.TransactionBase{
 			ABIReference:   &abiHash,
 			IdempotencyKey: "tx2",
@@ -324,7 +319,6 @@ func TestPublicTransactionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pendingTransactionFull, 1)
 	require.Equal(t, tx2ID, *pendingTransactionFull[0].ID)
-	require.Len(t, pendingTransactionFull[0].DependsOn, 1)
 	var pendingTransactions []*pldapi.Transaction
 	err = rpcClient.CallRPC(ctx, &pendingTransactions, "ptx_queryPendingTransactions", query.NewQueryBuilder().Limit(100).Query(), false)
 	require.NoError(t, err)
@@ -374,13 +368,6 @@ func TestPublicTransactionLifecycle(t *testing.T) {
 	require.Len(t, successReceipts, 1)
 	assert.Equal(t, successReceipts[0].ID, tx1ID)
 
-	// Get the dependency in the middle of the chain 0, 1, 2 to see both sides
-	var tx1Deps *pldapi.TransactionDependencies
-	err = rpcClient.CallRPC(ctx, &tx1Deps, "ptx_getTransactionDependencies", tx1ID)
-	require.NoError(t, err)
-	assert.Equal(t, []uuid.UUID{tx0ID}, tx1Deps.DependsOn)
-	assert.Equal(t, []uuid.UUID{tx2ID}, tx1Deps.PrereqOf)
-
 	var resJSON pldtypes.RawJSON
 	err = rpcClient.CallRPC(ctx, &resJSON, "ptx_call", &pldapi.TransactionCall{
 		TransactionInput: pldapi.TransactionInput{
@@ -416,6 +403,70 @@ func TestPublicTransactionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"value": "123456789012345678901234567890"}`, decodedEvent.Data.String())
 
+}
+
+func TestPublicTransactionDependsOnRejected(t *testing.T) {
+	ctx, url, _, done := newTestTransactionManagerWithRPC(t)
+	defer done()
+
+	rpcClient, err := rpcclient.NewHTTPClient(ctx, &pldconf.HTTPClientConfig{URL: url})
+	require.NoError(t, err)
+
+	var txID uuid.UUID
+	err = rpcClient.CallRPC(ctx, &txID, "ptx_sendTransaction", &pldapi.TransactionInput{
+		ABI:       abi.ABI{{Type: abi.Function, Name: "doIt"}},
+		DependsOn: []uuid.UUID{uuid.New()},
+		TransactionBase: pldapi.TransactionBase{
+			From:     "sender1",
+			Type:     pldapi.TransactionTypePublic.Enum(),
+			Function: "doIt",
+			To:       pldtypes.RandAddress(),
+		},
+	})
+	assert.Regexp(t, "PD012257", err)
+}
+
+func TestPrivateTransactionDependencies(t *testing.T) {
+	ctx, url, _, done := newTestTransactionManagerWithRPC(t, mockDomainContractResolve(t, "domain1"),
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		})
+	defer done()
+
+	rpcClient, err := rpcclient.NewHTTPClient(ctx, &pldconf.HTTPClientConfig{URL: url})
+	require.NoError(t, err)
+
+	send := func(dependsOn ...uuid.UUID) uuid.UUID {
+		var txID uuid.UUID
+		err := rpcClient.CallRPC(ctx, &txID, "ptx_sendTransaction", &pldapi.TransactionInput{
+			ABI:       abi.ABI{{Type: abi.Function, Name: "doIt"}},
+			DependsOn: dependsOn,
+			TransactionBase: pldapi.TransactionBase{
+				From:     "me",
+				Type:     pldapi.TransactionTypePrivate.Enum(),
+				Function: "doIt",
+				To:       pldtypes.RandAddress(),
+			},
+		})
+		require.NoError(t, err)
+		return txID
+	}
+	tx0ID := uuid.New()
+	tx1ID := send(tx0ID)
+	tx2ID := send(tx1ID)
+
+	var txns []*pldapi.TransactionFull
+	err = rpcClient.CallRPC(ctx, &txns, "ptx_queryPendingTransactions", query.NewQueryBuilder().Equal("id", tx2ID).Limit(1).Query(), true)
+	require.NoError(t, err)
+	require.Len(t, txns, 1)
+	assert.Equal(t, []uuid.UUID{tx1ID}, txns[0].DependsOn)
+
+	// The middle of the chain 0, 1, 2 shows both sides
+	var tx1Deps *pldapi.TransactionDependencies
+	err = rpcClient.CallRPC(ctx, &tx1Deps, "ptx_getTransactionDependencies", tx1ID)
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{tx0ID}, tx1Deps.DependsOn)
+	assert.Equal(t, []uuid.UUID{tx2ID}, tx1Deps.PrereqOf)
 }
 
 func TestPublicTransactionPassthroughQueries(t *testing.T) {
