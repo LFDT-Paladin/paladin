@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 )
 
 func (tm *txManager) notifyDependentTransactions(ctx context.Context, dbTX persistence.DBTX, receipts []*transactionReceipt) error {
@@ -38,6 +39,10 @@ func (tm *txManager) notifyDependentTransactions(ctx context.Context, dbTX persi
 				resolvedTx, err := tm.getResolvedTransactionByIDWithinTX(ctx, dep, dbTX)
 				if err != nil {
 					return err
+				}
+				// Unreachable for transactions created since dependsOn is restricted to private transactions
+				if resolvedTx.Transaction.Type.V() != pldapi.TransactionTypePrivate {
+					continue
 				}
 				// Add the necessary post-commits to tap the sequencer manager once the DB is updated
 				dbTX.AddPostCommit(func(ctx context.Context) {

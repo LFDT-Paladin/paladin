@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
@@ -268,6 +269,62 @@ func TestNotifyDependentTransactions_SuccessWithDependent_CallsHandleTxResume(t 
 
 	txm.sequencerMgr.(*componentsmocks.SequencerManager).AssertExpectations(t)
 	_ = depID
+}
+
+func TestNotifyDependentTransactions_SuccessWithPublicDependent_DoesNotResume(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, true, mockDomainContractResolve(t, "domain1"),
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		})
+	defer done()
+
+	exampleABI := abi.ABI{{Type: abi.Function, Name: "doIt"}}
+	callData, err := exampleABI[0].EncodeCallDataJSON([]byte(`[]`))
+	require.NoError(t, err)
+
+	prereqID, err := txm.sendTransactionNewDBTX(ctx, &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			From:     "me",
+			Type:     pldapi.TransactionTypePrivate.Enum(),
+			Function: "doIt",
+			To:       pldtypes.MustEthAddress(pldtypes.RandHex(20)),
+			Data:     pldtypes.JSONString(pldtypes.HexBytes(callData)),
+		},
+		ABI: exampleABI,
+	})
+	require.NoError(t, err)
+
+	// Submission rejects dependsOn on a public transaction, so the dependent is written directly
+	prereq, err := txm.GetResolvedTransactionByID(ctx, *prereqID)
+	require.NoError(t, err)
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := txm.insertTransactions(ctx, dbTX, []*components.ValidatedTransaction{{
+			ResolvedTransaction: components.ResolvedTransaction{
+				Transaction: &pldapi.Transaction{
+					ID:         confutil.P(uuid.New()),
+					SubmitMode: pldapi.SubmitModeAuto.Enum(),
+					TransactionBase: pldapi.TransactionBase{
+						From: "sender1@node1",
+						Type: pldapi.TransactionTypePublic.Enum(),
+						To:   pldtypes.RandAddress(),
+					},
+				},
+				DependsOn: []uuid.UUID{*prereqID},
+				Function:  prereq.Function,
+			},
+		}}, false)
+		return err
+	})
+	require.NoError(t, err)
+
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{TransactionID: *prereqID, ReceiptType: components.RT_Success},
+		})
+	})
+	require.NoError(t, err)
+
+	txm.sequencerMgr.(*componentsmocks.SequencerManager).AssertNotCalled(t, "HandleTxResume", mock.Anything, mock.Anything)
 }
 
 func TestNotifyDependentTransactions_FailurePropagatesToDependent(t *testing.T) {
