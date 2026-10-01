@@ -8,10 +8,10 @@
 <link href="../pstate/" rel="prev"/>
 <link href="../reg/" rel="next"/>
 <link href="../../../assets/paladin-icon-light.png" rel="icon"/>
-<meta content="mkdocs-1.6.1, mkdocs-material-9.5.44" name="generator"/>
+<meta content="mkdocs-1.6.1, mkdocs-material-9.7.7" name="generator"/>
 <title>ptx_* - Paladin</title>
-<link href="../../../assets/stylesheets/main.0253249f.min.css" rel="stylesheet"/>
-<link href="../../../assets/stylesheets/palette.06af60db.min.css" rel="stylesheet"/>
+<link href="../../../assets/stylesheets/main.ec1eaa64.min.css" rel="stylesheet"/>
+<link href="../../../assets/stylesheets/palette.ab4e12ef.min.css" rel="stylesheet"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback" rel="stylesheet"/>
 <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".zoomable-image", ".mermaid", ".d2"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".d2", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -40,7 +40,7 @@
 <strong>Click here to go to latest.</strong>
 </a>
 </div>
-<script>var el=document.querySelector("[data-md-component=outdated]"),outdated=__md_get("__outdated",sessionStorage);!0===outdated&&el&&(el.hidden=!1)</script>
+<script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
 </aside>
 </div>
 <!--
@@ -133,7 +133,7 @@
 <div class="md-header__source">
 <a class="md-source" data-md-component="source" href="https://github.com/LFDT-Paladin/paladin" title="Go to repository">
 <div class="md-source__icon md-icon">
-<svg viewbox="0 0 496 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+<svg viewbox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
 </div>
 <div class="md-source__repository">
     LFDT-Paladin/paladin
@@ -149,6 +149,7 @@
 <a class="md-tabs__link" href="../../..">
           
   
+  
     
   
   Introduction
@@ -158,6 +159,7 @@
 <li class="md-tabs__item">
 <a class="md-tabs__link" href="../../../architecture/overview/">
           
+  
   
     
   
@@ -169,6 +171,7 @@
 <a class="md-tabs__link" href="../../../getting-started/installation/">
           
   
+  
     
   
   Getting Started
@@ -178,6 +181,7 @@
 <li class="md-tabs__item">
 <a class="md-tabs__link" href="../../../tutorials/">
           
+  
   
     
   
@@ -189,6 +193,7 @@
 <a class="md-tabs__link" href="../../../administration/administering_peers/">
           
   
+  
     
   
   Administration
@@ -198,6 +203,7 @@
 <li class="md-tabs__item md-tabs__item--active">
 <a class="md-tabs__link" href="../bidx/">
           
+  
   
     
   
@@ -209,6 +215,7 @@
 <a class="md-tabs__link" href="../../../contributing/how-to-contribute/">
           
   
+  
     
   
   Contributing
@@ -219,6 +226,7 @@
 <a class="md-tabs__link" href="../../../faqs/">
         
   
+  
     
   
   FAQs
@@ -228,6 +236,7 @@
 <li class="md-tabs__item">
 <a class="md-tabs__link" href="../../../glossary/">
         
+  
   
     
   
@@ -278,7 +287,7 @@
 <div class="md-nav__source">
 <a class="md-source" data-md-component="source" href="https://github.com/LFDT-Paladin/paladin" title="Go to repository">
 <div class="md-source__icon md-icon">
-<svg viewbox="0 0 496 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+<svg viewbox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
 </div>
 <div class="md-source__repository">
     LFDT-Paladin/paladin
@@ -291,7 +300,12 @@
 <div class="md-nav__link md-nav__container">
 <a class="md-nav__link" href="../../..">
 <span class="md-ellipsis">
+    
+  
     Introduction
+  
+
+    
   </span>
 </a>
 <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
@@ -301,48 +315,82 @@
 <nav aria-expanded="false" aria-labelledby="__nav_1_label" class="md-nav" data-md-level="1">
 <label class="md-nav__title" for="__nav_1">
 <span class="md-nav__icon md-icon"></span>
-            Introduction
+            
+  
+    Introduction
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../concepts/tokens/">
 <span class="md-ellipsis">
+    
+  
     Privacy Preserving Tokens
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../concepts/private_evm/">
 <span class="md-ellipsis">
+    
+  
     Private EVM Smart Contracts
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../concepts/advanced_crypto/">
 <span class="md-ellipsis">
+    
+  
     Advanced Cryptography
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../concepts/atomic_programmability/">
 <span class="md-ellipsis">
+    
+  
     Atomic EVM Programmability
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../concepts/full_stack/">
 <span class="md-ellipsis">
+    
+  
     Full Enterprise Privacy Stack
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../concepts/cloud_native/">
 <span class="md-ellipsis">
+    
+  
     Cloud Native Runtime
+  
+
+    
   </span>
 </a>
 </li>
@@ -353,90 +401,154 @@
 <input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_2" type="checkbox"/>
 <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
 <span class="md-ellipsis">
+    
+  
     Architecture
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <nav aria-expanded="false" aria-labelledby="__nav_2_label" class="md-nav" data-md-level="1">
 <label class="md-nav__title" for="__nav_2">
 <span class="md-nav__icon md-icon"></span>
-            Architecture
+            
+  
+    Architecture
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/overview/">
 <span class="md-ellipsis">
+    
+  
     Overview
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/programming_model/">
 <span class="md-ellipsis">
+    
+  
     Programming model
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/domains/">
 <span class="md-ellipsis">
+    
+  
     Domains
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/zeto/">
 <span class="md-ellipsis">
+    
+  
     Zeto - ZKP Tokens
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/noto/">
 <span class="md-ellipsis">
+    
+  
     Noto - Notarized Tokens
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/pente/">
 <span class="md-ellipsis">
+    
+  
     Pente - EVM Privacy Groups
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/key_management/">
 <span class="md-ellipsis">
+    
+  
     Key management
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/state_store/">
 <span class="md-ellipsis">
+    
+  
     State store
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/atomic_interop/">
 <span class="md-ellipsis">
+    
+  
     Atomic interop
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/data_and_registry/">
 <span class="md-ellipsis">
+    
+  
     Data Transports &amp; Registry
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/ledger_layers/">
 <span class="md-ellipsis">
+    
+  
     Ledger Layers
+  
+
+    
   </span>
 </a>
 </li>
@@ -444,55 +556,94 @@
 <input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_2_12" type="checkbox"/>
 <label class="md-nav__link" for="__nav_2_12" id="__nav_2_12_label" tabindex="0">
 <span class="md-ellipsis">
+    
+  
     Distributed Sequencer
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <nav aria-expanded="false" aria-labelledby="__nav_2_12_label" class="md-nav" data-md-level="2">
 <label class="md-nav__title" for="__nav_2_12">
 <span class="md-nav__icon md-icon"></span>
-            Distributed Sequencer
+            
+  
+    Distributed Sequencer
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/distributed_sequencer_overview/">
 <span class="md-ellipsis">
+    
+  
     Overview
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/distributed_sequencer_architecture/">
 <span class="md-ellipsis">
+    
+  
     Architecture
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/distributed_sequencer_state_machine/">
 <span class="md-ellipsis">
+    
+  
     State Machine
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/distributed_sequencer_data_flows/">
 <span class="md-ellipsis">
+    
+  
     Data Flows
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/distributed_sequencer_dependency_handling/">
 <span class="md-ellipsis">
+    
+  
     Dependency Handling
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../architecture/distributed_sequencer_protocol/">
 <span class="md-ellipsis">
+    
+  
     Protocol
+  
+
+    
   </span>
 </a>
 </li>
@@ -506,48 +657,81 @@
 <input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_3" type="checkbox"/>
 <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
 <span class="md-ellipsis">
+    
+  
     Getting Started
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <nav aria-expanded="false" aria-labelledby="__nav_3_label" class="md-nav" data-md-level="1">
 <label class="md-nav__title" for="__nav_3">
 <span class="md-nav__icon md-icon"></span>
-            Getting Started
+            
+  
+    Getting Started
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item md-nav__item--nested">
 <input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_3_1" type="checkbox"/>
 <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
 <span class="md-ellipsis">
+    
+  
     Installation
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <nav aria-expanded="false" aria-labelledby="__nav_3_1_label" class="md-nav" data-md-level="2">
 <label class="md-nav__title" for="__nav_3_1">
 <span class="md-nav__icon md-icon"></span>
-            Installation
+            
+  
+    Installation
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../getting-started/installation/">
 <span class="md-ellipsis">
+    
+  
     Default Installation
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../getting-started/installation-advanced/">
 <span class="md-ellipsis">
+    
+  
     Advanced Installation
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../getting-started/installation-manual/">
 <span class="md-ellipsis">
+    
+  
     Manual Installation
+  
+
+    
   </span>
 </a>
 </li>
@@ -557,14 +741,24 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../getting-started/user-interface/">
 <span class="md-ellipsis">
+    
+  
     User Interface
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../getting-started/troubleshooting/">
 <span class="md-ellipsis">
+    
+  
     Troubleshooting
+  
+
+    
   </span>
 </a>
 </li>
@@ -576,7 +770,12 @@
 <div class="md-nav__link md-nav__container">
 <a class="md-nav__link" href="../../../tutorials/">
 <span class="md-ellipsis">
+    
+  
     Tutorials
+  
+
+    
   </span>
 </a>
 <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
@@ -586,62 +785,106 @@
 <nav aria-expanded="false" aria-labelledby="__nav_4_label" class="md-nav" data-md-level="1">
 <label class="md-nav__title" for="__nav_4">
 <span class="md-nav__icon md-icon"></span>
-            Tutorials
+            
+  
+    Tutorials
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../tutorials/hello-world/">
 <span class="md-ellipsis">
+    
+  
     Hello World
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../tutorials/public-storage/">
 <span class="md-ellipsis">
+    
+  
     Public Smart Contract
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../tutorials/private-storage/">
 <span class="md-ellipsis">
+    
+  
     Private Smart Contract
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../tutorials/notarized-tokens/">
 <span class="md-ellipsis">
+    
+  
     Notarized Tokens
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../tutorials/zkp-cbdc/">
 <span class="md-ellipsis">
+    
+  
     Wholesale CBDC
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../tutorials/private-stablecoin/">
 <span class="md-ellipsis">
+    
+  
     Private Stablecoin with KYC
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../tutorials/atomic-swap/">
 <span class="md-ellipsis">
+    
+  
     Atomic Swap
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../tutorials/bond-issuance/">
 <span class="md-ellipsis">
+    
+  
     Bond Issuance
+  
+
+    
   </span>
 </a>
 </li>
@@ -652,55 +895,94 @@
 <input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_5" type="checkbox"/>
 <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
 <span class="md-ellipsis">
+    
+  
     Administration
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <nav aria-expanded="false" aria-labelledby="__nav_5_label" class="md-nav" data-md-level="1">
 <label class="md-nav__title" for="__nav_5">
 <span class="md-nav__icon md-icon"></span>
-            Administration
+            
+  
+    Administration
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../administration/administering_peers/">
 <span class="md-ellipsis">
+    
+  
     Administering Peers
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../administration/auth/">
 <span class="md-ellipsis">
+    
+  
     Authentication and Authorization
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../administration/certificate_management/">
 <span class="md-ellipsis">
+    
+  
     Certificate Management
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../administration/configuration/">
 <span class="md-ellipsis">
+    
+  
     Configuration
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../administration/l1-and-l2-chains/">
 <span class="md-ellipsis">
+    
+  
     L1 and L2 Chains
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../administration/logging/">
 <span class="md-ellipsis">
+    
+  
     Logging
+  
+
+    
   </span>
 </a>
 </li>
@@ -711,55 +993,93 @@
 <input checked="" class="md-nav__toggle md-toggle" id="__nav_6" type="checkbox"/>
 <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
 <span class="md-ellipsis">
+    
+  
     Reference
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <nav aria-expanded="true" aria-labelledby="__nav_6_label" class="md-nav" data-md-level="1">
 <label class="md-nav__title" for="__nav_6">
 <span class="md-nav__icon md-icon"></span>
-            Reference
+            
+  
+    Reference
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item md-nav__item--active md-nav__item--nested">
 <input checked="" class="md-nav__toggle md-toggle" id="__nav_6_1" type="checkbox"/>
 <label class="md-nav__link" for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
 <span class="md-ellipsis">
+    
+  
     APIs
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <nav aria-expanded="true" aria-labelledby="__nav_6_1_label" class="md-nav" data-md-level="2">
 <label class="md-nav__title" for="__nav_6_1">
 <span class="md-nav__icon md-icon"></span>
-            APIs
+            
+  
+    APIs
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
 <a class="md-nav__link" href="../bidx/">
 <span class="md-ellipsis">
+    
+  
     bidx_*
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../keymgr/">
 <span class="md-ellipsis">
+    
+  
     keymgr_*
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../pgroup/">
 <span class="md-ellipsis">
+    
+  
     pgroup_*
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../pstate/">
 <span class="md-ellipsis">
+    
+  
     pstate_*
+  
+
+    
   </span>
 </a>
 </li>
@@ -767,13 +1087,23 @@
 <input class="md-nav__toggle md-toggle" id="__toc" type="checkbox"/>
 <label class="md-nav__link md-nav__link--active" for="__toc">
 <span class="md-ellipsis">
+    
+  
     ptx_*
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <a class="md-nav__link md-nav__link--active" href="./">
 <span class="md-ellipsis">
+    
+  
     ptx_*
+  
+
+    
   </span>
 </a>
 <nav aria-label="Table of contents" class="md-nav md-nav--secondary">
@@ -785,7 +1115,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_call">
 <span class="md-ellipsis">
-      ptx_call
+      
+        ptx_call
+      
     </span>
 </a>
 <nav aria-label="ptx_call" class="md-nav">
@@ -793,14 +1125,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -810,7 +1146,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_createblockchaineventlistener">
 <span class="md-ellipsis">
-      ptx_createBlockchainEventListener
+      
+        ptx_createBlockchainEventListener
+      
     </span>
 </a>
 <nav aria-label="ptx_createBlockchainEventListener" class="md-nav">
@@ -818,14 +1156,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_1">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_1">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -835,7 +1177,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_createreceiptlistener">
 <span class="md-ellipsis">
-      ptx_createReceiptListener
+      
+        ptx_createReceiptListener
+      
     </span>
 </a>
 <nav aria-label="ptx_createReceiptListener" class="md-nav">
@@ -843,14 +1187,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_2">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_2">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -860,7 +1208,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_decodecall">
 <span class="md-ellipsis">
-      ptx_decodeCall
+      
+        ptx_decodeCall
+      
     </span>
 </a>
 <nav aria-label="ptx_decodeCall" class="md-nav">
@@ -868,14 +1218,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_3">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_3">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -885,7 +1239,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_decodeerror">
 <span class="md-ellipsis">
-      ptx_decodeError
+      
+        ptx_decodeError
+      
     </span>
 </a>
 <nav aria-label="ptx_decodeError" class="md-nav">
@@ -893,14 +1249,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_4">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_4">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -910,7 +1270,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_decodeevent">
 <span class="md-ellipsis">
-      ptx_decodeEvent
+      
+        ptx_decodeEvent
+      
     </span>
 </a>
 <nav aria-label="ptx_decodeEvent" class="md-nav">
@@ -918,14 +1280,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_5">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_5">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -935,7 +1301,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_deleteblockchaineventlistener">
 <span class="md-ellipsis">
-      ptx_deleteBlockchainEventListener
+      
+        ptx_deleteBlockchainEventListener
+      
     </span>
 </a>
 <nav aria-label="ptx_deleteBlockchainEventListener" class="md-nav">
@@ -943,14 +1311,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_6">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_6">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -960,7 +1332,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_deletereceiptlistener">
 <span class="md-ellipsis">
-      ptx_deleteReceiptListener
+      
+        ptx_deleteReceiptListener
+      
     </span>
 </a>
 <nav aria-label="ptx_deleteReceiptListener" class="md-nav">
@@ -968,14 +1342,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_7">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_7">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -985,7 +1363,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getblockchaineventlistener">
 <span class="md-ellipsis">
-      ptx_getBlockchainEventListener
+      
+        ptx_getBlockchainEventListener
+      
     </span>
 </a>
 <nav aria-label="ptx_getBlockchainEventListener" class="md-nav">
@@ -993,14 +1373,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_8">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_8">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1010,7 +1394,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getblockchaineventlistenerstatus">
 <span class="md-ellipsis">
-      ptx_getBlockchainEventListenerStatus
+      
+        ptx_getBlockchainEventListenerStatus
+      
     </span>
 </a>
 <nav aria-label="ptx_getBlockchainEventListenerStatus" class="md-nav">
@@ -1018,14 +1404,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_9">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_9">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1035,7 +1425,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getchaineddispatch">
 <span class="md-ellipsis">
-      ptx_getChainedDispatch
+      
+        ptx_getChainedDispatch
+      
     </span>
 </a>
 <nav aria-label="ptx_getChainedDispatch" class="md-nav">
@@ -1043,14 +1435,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_10">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_10">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1060,7 +1456,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getdispatch">
 <span class="md-ellipsis">
-      ptx_getDispatch
+      
+        ptx_getDispatch
+      
     </span>
 </a>
 <nav aria-label="ptx_getDispatch" class="md-nav">
@@ -1068,14 +1466,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_11">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_11">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1085,7 +1487,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getdomainreceipt">
 <span class="md-ellipsis">
-      ptx_getDomainReceipt
+      
+        ptx_getDomainReceipt
+      
     </span>
 </a>
 <nav aria-label="ptx_getDomainReceipt" class="md-nav">
@@ -1093,14 +1497,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_12">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_12">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1110,7 +1518,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getpreparedtransaction">
 <span class="md-ellipsis">
-      ptx_getPreparedTransaction
+      
+        ptx_getPreparedTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_getPreparedTransaction" class="md-nav">
@@ -1118,14 +1528,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_13">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_13">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1135,7 +1549,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getpublictransaction">
 <span class="md-ellipsis">
-      ptx_getPublicTransaction
+      
+        ptx_getPublicTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_getPublicTransaction" class="md-nav">
@@ -1143,14 +1559,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_14">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_14">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1160,7 +1580,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getreceiptlistener">
 <span class="md-ellipsis">
-      ptx_getReceiptListener
+      
+        ptx_getReceiptListener
+      
     </span>
 </a>
 <nav aria-label="ptx_getReceiptListener" class="md-nav">
@@ -1168,14 +1590,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_15">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_15">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1185,7 +1611,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getstatereceipt">
 <span class="md-ellipsis">
-      ptx_getStateReceipt
+      
+        ptx_getStateReceipt
+      
     </span>
 </a>
 <nav aria-label="ptx_getStateReceipt" class="md-nav">
@@ -1193,14 +1621,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_16">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_16">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1210,7 +1642,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getstoredabi">
 <span class="md-ellipsis">
-      ptx_getStoredABI
+      
+        ptx_getStoredABI
+      
     </span>
 </a>
 <nav aria-label="ptx_getStoredABI" class="md-nav">
@@ -1218,14 +1652,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_17">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_17">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1235,7 +1673,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_gettransaction">
 <span class="md-ellipsis">
-      ptx_getTransaction
+      
+        ptx_getTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_getTransaction" class="md-nav">
@@ -1243,14 +1683,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_18">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_18">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1260,7 +1704,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_gettransactionbyidempotencykey">
 <span class="md-ellipsis">
-      ptx_getTransactionByIdempotencyKey
+      
+        ptx_getTransactionByIdempotencyKey
+      
     </span>
 </a>
 <nav aria-label="ptx_getTransactionByIdempotencyKey" class="md-nav">
@@ -1268,14 +1714,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_19">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_19">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1285,7 +1735,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_gettransactionfull">
 <span class="md-ellipsis">
-      ptx_getTransactionFull
+      
+        ptx_getTransactionFull
+      
     </span>
 </a>
 <nav aria-label="ptx_getTransactionFull" class="md-nav">
@@ -1293,14 +1745,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_20">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_20">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1310,7 +1766,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_gettransactionreceipt">
 <span class="md-ellipsis">
-      ptx_getTransactionReceipt
+      
+        ptx_getTransactionReceipt
+      
     </span>
 </a>
 <nav aria-label="ptx_getTransactionReceipt" class="md-nav">
@@ -1318,14 +1776,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_21">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_21">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1335,7 +1797,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_gettransactionreceiptfull">
 <span class="md-ellipsis">
-      ptx_getTransactionReceiptFull
+      
+        ptx_getTransactionReceiptFull
+      
     </span>
 </a>
 <nav aria-label="ptx_getTransactionReceiptFull" class="md-nav">
@@ -1343,14 +1807,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_22">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_22">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1360,7 +1828,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_preparetransaction">
 <span class="md-ellipsis">
-      ptx_prepareTransaction
+      
+        ptx_prepareTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_prepareTransaction" class="md-nav">
@@ -1368,14 +1838,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_23">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_23">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1385,7 +1859,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_preparetransactions">
 <span class="md-ellipsis">
-      ptx_prepareTransactions
+      
+        ptx_prepareTransactions
+      
     </span>
 </a>
 <nav aria-label="ptx_prepareTransactions" class="md-nav">
@@ -1393,14 +1869,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_24">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_24">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1410,7 +1890,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_queryblockchaineventlisteners">
 <span class="md-ellipsis">
-      ptx_queryBlockchainEventListeners
+      
+        ptx_queryBlockchainEventListeners
+      
     </span>
 </a>
 <nav aria-label="ptx_queryBlockchainEventListeners" class="md-nav">
@@ -1418,14 +1900,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_25">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_25">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1435,7 +1921,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querychaineddispatches">
 <span class="md-ellipsis">
-      ptx_queryChainedDispatches
+      
+        ptx_queryChainedDispatches
+      
     </span>
 </a>
 <nav aria-label="ptx_queryChainedDispatches" class="md-nav">
@@ -1443,14 +1931,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_26">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_26">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1460,7 +1952,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querydispatches">
 <span class="md-ellipsis">
-      ptx_queryDispatches
+      
+        ptx_queryDispatches
+      
     </span>
 </a>
 <nav aria-label="ptx_queryDispatches" class="md-nav">
@@ -1468,14 +1962,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_27">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_27">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1485,7 +1983,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querypreparedtransactions">
 <span class="md-ellipsis">
-      ptx_queryPreparedTransactions
+      
+        ptx_queryPreparedTransactions
+      
     </span>
 </a>
 <nav aria-label="ptx_queryPreparedTransactions" class="md-nav">
@@ -1493,14 +1993,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_28">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_28">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1510,7 +2014,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_queryreceiptlisteners">
 <span class="md-ellipsis">
-      ptx_queryReceiptListeners
+      
+        ptx_queryReceiptListeners
+      
     </span>
 </a>
 <nav aria-label="ptx_queryReceiptListeners" class="md-nav">
@@ -1518,14 +2024,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_29">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_29">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1535,7 +2045,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querystoredabis">
 <span class="md-ellipsis">
-      ptx_queryStoredABIs
+      
+        ptx_queryStoredABIs
+      
     </span>
 </a>
 <nav aria-label="ptx_queryStoredABIs" class="md-nav">
@@ -1543,14 +2055,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_30">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_30">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1560,7 +2076,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querytransactionreceipts">
 <span class="md-ellipsis">
-      ptx_queryTransactionReceipts
+      
+        ptx_queryTransactionReceipts
+      
     </span>
 </a>
 <nav aria-label="ptx_queryTransactionReceipts" class="md-nav">
@@ -1568,14 +2086,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_31">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_31">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1585,7 +2107,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querytransactions">
 <span class="md-ellipsis">
-      ptx_queryTransactions
+      
+        ptx_queryTransactions
+      
     </span>
 </a>
 <nav aria-label="ptx_queryTransactions" class="md-nav">
@@ -1593,14 +2117,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_32">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_32">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1610,7 +2138,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querytransactionsfull">
 <span class="md-ellipsis">
-      ptx_queryTransactionsFull
+      
+        ptx_queryTransactionsFull
+      
     </span>
 </a>
 <nav aria-label="ptx_queryTransactionsFull" class="md-nav">
@@ -1618,14 +2148,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_33">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_33">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1635,7 +2169,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_resolveverifier">
 <span class="md-ellipsis">
-      ptx_resolveVerifier
+      
+        ptx_resolveVerifier
+      
     </span>
 </a>
 <nav aria-label="ptx_resolveVerifier" class="md-nav">
@@ -1643,14 +2179,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_34">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_34">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1660,7 +2200,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_sendtransaction">
 <span class="md-ellipsis">
-      ptx_sendTransaction
+      
+        ptx_sendTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_sendTransaction" class="md-nav">
@@ -1668,14 +2210,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_35">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_35">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1685,7 +2231,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_sendtransactions">
 <span class="md-ellipsis">
-      ptx_sendTransactions
+      
+        ptx_sendTransactions
+      
     </span>
 </a>
 <nav aria-label="ptx_sendTransactions" class="md-nav">
@@ -1693,14 +2241,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_36">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_36">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1710,7 +2262,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_startblockchaineventlistener">
 <span class="md-ellipsis">
-      ptx_startBlockchainEventListener
+      
+        ptx_startBlockchainEventListener
+      
     </span>
 </a>
 <nav aria-label="ptx_startBlockchainEventListener" class="md-nav">
@@ -1718,14 +2272,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_37">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_37">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1735,7 +2293,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_startreceiptlistener">
 <span class="md-ellipsis">
-      ptx_startReceiptListener
+      
+        ptx_startReceiptListener
+      
     </span>
 </a>
 <nav aria-label="ptx_startReceiptListener" class="md-nav">
@@ -1743,14 +2303,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_38">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_38">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1760,7 +2324,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_stopblockchaineventlistener">
 <span class="md-ellipsis">
-      ptx_stopBlockchainEventListener
+      
+        ptx_stopBlockchainEventListener
+      
     </span>
 </a>
 <nav aria-label="ptx_stopBlockchainEventListener" class="md-nav">
@@ -1768,14 +2334,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_39">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_39">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1785,7 +2355,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_stopreceiptlistener">
 <span class="md-ellipsis">
-      ptx_stopReceiptListener
+      
+        ptx_stopReceiptListener
+      
     </span>
 </a>
 <nav aria-label="ptx_stopReceiptListener" class="md-nav">
@@ -1793,14 +2365,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_40">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_40">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1810,7 +2386,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_storeabi">
 <span class="md-ellipsis">
-      ptx_storeABI
+      
+        ptx_storeABI
+      
     </span>
 </a>
 <nav aria-label="ptx_storeABI" class="md-nav">
@@ -1818,14 +2396,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_41">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_41">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1835,7 +2417,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_updatetransaction">
 <span class="md-ellipsis">
-      ptx_updateTransaction
+      
+        ptx_updateTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_updateTransaction" class="md-nav">
@@ -1843,14 +2427,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_42">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_42">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -1863,14 +2451,24 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="../reg/">
 <span class="md-ellipsis">
+    
+  
     reg_*
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../transport/">
 <span class="md-ellipsis">
+    
+  
     transport_*
+  
+
+    
   </span>
 </a>
 </li>
@@ -1881,384 +2479,658 @@
 <input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6_2" type="checkbox"/>
 <label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
 <span class="md-ellipsis">
+    
+  
     Types
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <nav aria-expanded="false" aria-labelledby="__nav_6_2_label" class="md-nav" data-md-level="2">
 <label class="md-nav__title" for="__nav_6_2">
 <span class="md-nav__icon md-icon"></span>
-            Types
+            
+  
+    Types
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/abidecodeddata/">
 <span class="md-ellipsis">
+    
+  
     ABIDecodedData
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/blockchaineventlistener/">
 <span class="md-ellipsis">
+    
+  
     BlockchainEventListener
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/blockchaineventlistenercheckpoint/">
 <span class="md-ellipsis">
+    
+  
     BlockchainEventListenerCheckpoint
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/blockchaineventlisteneroptions/">
 <span class="md-ellipsis">
+    
+  
     BlockchainEventListenerOptions
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/blockchaineventlistenersource/">
 <span class="md-ellipsis">
+    
+  
     BlockchainEventListenerSource
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/blockchaineventlistenerstatus/">
 <span class="md-ellipsis">
+    
+  
     BlockchainEventListenerStatus
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/chaineddispatch/">
 <span class="md-ellipsis">
+    
+  
     ChainedDispatch
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/dispatch/">
 <span class="md-ellipsis">
+    
+  
     Dispatch
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/eventwithdata/">
 <span class="md-ellipsis">
+    
+  
     EventWithData
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/indexedblock/">
 <span class="md-ellipsis">
+    
+  
     IndexedBlock
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/indexedevent/">
 <span class="md-ellipsis">
+    
+  
     IndexedEvent
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/indexedtransaction/">
 <span class="md-ellipsis">
+    
+  
     IndexedTransaction
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/jsonformatoptions/">
 <span class="md-ellipsis">
+    
+  
     JSONFormatOptions
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/keymappingandverifier/">
 <span class="md-ellipsis">
+    
+  
     KeyMappingAndVerifier
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/keyqueryentry/">
 <span class="md-ellipsis">
+    
+  
     KeyQueryEntry
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/onchainlocation/">
 <span class="md-ellipsis">
+    
+  
     OnChainLocation
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/peerinfo/">
 <span class="md-ellipsis">
+    
+  
     PeerInfo
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/preparedtransaction/">
 <span class="md-ellipsis">
+    
+  
     PreparedTransaction
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/privacygroup/">
 <span class="md-ellipsis">
+    
+  
     PrivacyGroup
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/privacygroupevmcall/">
 <span class="md-ellipsis">
+    
+  
     PrivacyGroupEVMCall
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/privacygroupevmtxinput/">
 <span class="md-ellipsis">
+    
+  
     PrivacyGroupEVMTXInput
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/privacygroupinput/">
 <span class="md-ellipsis">
+    
+  
     PrivacyGroupInput
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/privacygroupmessage/">
 <span class="md-ellipsis">
+    
+  
     PrivacyGroupMessage
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/privacygroupmessageinput/">
 <span class="md-ellipsis">
+    
+  
     PrivacyGroupMessageInput
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/privacygroupmessagelistener/">
 <span class="md-ellipsis">
+    
+  
     PrivacyGroupMessageListener
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/privacygroupwithabi/">
 <span class="md-ellipsis">
+    
+  
     PrivacyGroupWithABI
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/publictx/">
 <span class="md-ellipsis">
+    
+  
     PublicTx
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/publictxwithbinding/">
 <span class="md-ellipsis">
+    
+  
     PublicTxWithBinding
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/queryjson/">
 <span class="md-ellipsis">
+    
+  
     QueryJSON
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/registryentry/">
 <span class="md-ellipsis">
+    
+  
     RegistryEntry
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/registryentrywithproperties/">
 <span class="md-ellipsis">
+    
+  
     RegistryEntryWithProperties
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/registryproperty/">
 <span class="md-ellipsis">
+    
+  
     RegistryProperty
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/reliablemessage/">
 <span class="md-ellipsis">
+    
+  
     ReliableMessage
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/reliablemessageack/">
 <span class="md-ellipsis">
+    
+  
     ReliableMessageAck
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/schema/">
 <span class="md-ellipsis">
+    
+  
     Schema
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/simpletypes/">
 <span class="md-ellipsis">
+    
+  
     Simple Types
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/state/">
 <span class="md-ellipsis">
+    
+  
     State
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/stateconfirm/">
 <span class="md-ellipsis">
+    
+  
     StateConfirm
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/stateconfirmrecord/">
 <span class="md-ellipsis">
+    
+  
     StateConfirmRecord
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/statespend/">
 <span class="md-ellipsis">
+    
+  
     StateSpend
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/statespendrecord/">
 <span class="md-ellipsis">
+    
+  
     StateSpendRecord
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/statestatusqualifier/">
 <span class="md-ellipsis">
+    
+  
     StateStatusQualifier
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/storedabi/">
 <span class="md-ellipsis">
+    
+  
     StoredABI
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/transaction/">
 <span class="md-ellipsis">
+    
+  
     Transaction
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/transactioncall/">
 <span class="md-ellipsis">
+    
+  
     TransactionCall
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/transactionfull/">
 <span class="md-ellipsis">
+    
+  
     TransactionFull
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/transactioninput/">
 <span class="md-ellipsis">
+    
+  
     TransactionInput
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/transactionreceipt/">
 <span class="md-ellipsis">
+    
+  
     TransactionReceipt
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/transactionreceiptfilters/">
 <span class="md-ellipsis">
+    
+  
     TransactionReceiptFilters
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/transactionreceiptfull/">
 <span class="md-ellipsis">
+    
+  
     TransactionReceiptFull
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/transactionreceiptlistener/">
 <span class="md-ellipsis">
+    
+  
     TransactionReceiptListener
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/transactionreceiptlisteneroptions/">
 <span class="md-ellipsis">
+    
+  
     TransactionReceiptListenerOptions
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../types/transactionstates/">
 <span class="md-ellipsis">
+    
+  
     TransactionStates
+  
+
+    
   </span>
 </a>
 </li>
@@ -2269,20 +3141,34 @@
 <input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6_3" type="checkbox"/>
 <label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
 <span class="md-ellipsis">
+    
+  
     Kubernetes CRDs
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <nav aria-expanded="false" aria-labelledby="__nav_6_3_label" class="md-nav" data-md-level="2">
 <label class="md-nav__title" for="__nav_6_3">
 <span class="md-nav__icon md-icon"></span>
-            Kubernetes CRDs
+            
+  
+    Kubernetes CRDs
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../crds/core.paladin.io/">
 <span class="md-ellipsis">
+    
+  
     core.paladin.io
+  
+
+    
   </span>
 </a>
 </li>
@@ -2292,21 +3178,36 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../architecture/">
 <span class="md-ellipsis">
+    
+  
     Architecture
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../commands/">
 <span class="md-ellipsis">
+    
+  
     Commands
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../roadmap/">
 <span class="md-ellipsis">
+    
+  
     Roadmap
+  
+
+    
   </span>
 </a>
 </li>
@@ -2317,41 +3218,70 @@
 <input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_7" type="checkbox"/>
 <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
 <span class="md-ellipsis">
+    
+  
     Contributing
+  
+
+    
   </span>
 <span class="md-nav__icon md-icon"></span>
 </label>
 <nav aria-expanded="false" aria-labelledby="__nav_7_label" class="md-nav" data-md-level="1">
 <label class="md-nav__title" for="__nav_7">
 <span class="md-nav__icon md-icon"></span>
-            Contributing
+            
+  
+    Contributing
+  
+
           </label>
 <ul class="md-nav__list" data-md-scrollfix="">
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../contributing/how-to-contribute/">
 <span class="md-ellipsis">
+    
+  
     How to Contribute
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../contributing/reporting-a-bug/">
 <span class="md-ellipsis">
+    
+  
     Reporting a Bug
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../contributing/requesting-a-change/">
 <span class="md-ellipsis">
+    
+  
     Requesting a Change
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../contributing/asking-a-question/">
 <span class="md-ellipsis">
+    
+  
     Asking a Question
+  
+
+    
   </span>
 </a>
 </li>
@@ -2361,14 +3291,24 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../faqs/">
 <span class="md-ellipsis">
+    
+  
     FAQs
+  
+
+    
   </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="../../../glossary/">
 <span class="md-ellipsis">
+    
+  
     Glossary
+  
+
+    
   </span>
 </a>
 </li>
@@ -2389,7 +3329,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_call">
 <span class="md-ellipsis">
-      ptx_call
+      
+        ptx_call
+      
     </span>
 </a>
 <nav aria-label="ptx_call" class="md-nav">
@@ -2397,14 +3339,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2414,7 +3360,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_createblockchaineventlistener">
 <span class="md-ellipsis">
-      ptx_createBlockchainEventListener
+      
+        ptx_createBlockchainEventListener
+      
     </span>
 </a>
 <nav aria-label="ptx_createBlockchainEventListener" class="md-nav">
@@ -2422,14 +3370,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_1">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_1">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2439,7 +3391,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_createreceiptlistener">
 <span class="md-ellipsis">
-      ptx_createReceiptListener
+      
+        ptx_createReceiptListener
+      
     </span>
 </a>
 <nav aria-label="ptx_createReceiptListener" class="md-nav">
@@ -2447,14 +3401,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_2">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_2">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2464,7 +3422,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_decodecall">
 <span class="md-ellipsis">
-      ptx_decodeCall
+      
+        ptx_decodeCall
+      
     </span>
 </a>
 <nav aria-label="ptx_decodeCall" class="md-nav">
@@ -2472,14 +3432,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_3">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_3">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2489,7 +3453,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_decodeerror">
 <span class="md-ellipsis">
-      ptx_decodeError
+      
+        ptx_decodeError
+      
     </span>
 </a>
 <nav aria-label="ptx_decodeError" class="md-nav">
@@ -2497,14 +3463,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_4">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_4">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2514,7 +3484,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_decodeevent">
 <span class="md-ellipsis">
-      ptx_decodeEvent
+      
+        ptx_decodeEvent
+      
     </span>
 </a>
 <nav aria-label="ptx_decodeEvent" class="md-nav">
@@ -2522,14 +3494,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_5">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_5">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2539,7 +3515,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_deleteblockchaineventlistener">
 <span class="md-ellipsis">
-      ptx_deleteBlockchainEventListener
+      
+        ptx_deleteBlockchainEventListener
+      
     </span>
 </a>
 <nav aria-label="ptx_deleteBlockchainEventListener" class="md-nav">
@@ -2547,14 +3525,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_6">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_6">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2564,7 +3546,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_deletereceiptlistener">
 <span class="md-ellipsis">
-      ptx_deleteReceiptListener
+      
+        ptx_deleteReceiptListener
+      
     </span>
 </a>
 <nav aria-label="ptx_deleteReceiptListener" class="md-nav">
@@ -2572,14 +3556,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_7">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_7">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2589,7 +3577,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getblockchaineventlistener">
 <span class="md-ellipsis">
-      ptx_getBlockchainEventListener
+      
+        ptx_getBlockchainEventListener
+      
     </span>
 </a>
 <nav aria-label="ptx_getBlockchainEventListener" class="md-nav">
@@ -2597,14 +3587,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_8">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_8">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2614,7 +3608,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getblockchaineventlistenerstatus">
 <span class="md-ellipsis">
-      ptx_getBlockchainEventListenerStatus
+      
+        ptx_getBlockchainEventListenerStatus
+      
     </span>
 </a>
 <nav aria-label="ptx_getBlockchainEventListenerStatus" class="md-nav">
@@ -2622,14 +3618,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_9">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_9">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2639,7 +3639,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getchaineddispatch">
 <span class="md-ellipsis">
-      ptx_getChainedDispatch
+      
+        ptx_getChainedDispatch
+      
     </span>
 </a>
 <nav aria-label="ptx_getChainedDispatch" class="md-nav">
@@ -2647,14 +3649,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_10">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_10">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2664,7 +3670,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getdispatch">
 <span class="md-ellipsis">
-      ptx_getDispatch
+      
+        ptx_getDispatch
+      
     </span>
 </a>
 <nav aria-label="ptx_getDispatch" class="md-nav">
@@ -2672,14 +3680,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_11">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_11">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2689,7 +3701,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getdomainreceipt">
 <span class="md-ellipsis">
-      ptx_getDomainReceipt
+      
+        ptx_getDomainReceipt
+      
     </span>
 </a>
 <nav aria-label="ptx_getDomainReceipt" class="md-nav">
@@ -2697,14 +3711,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_12">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_12">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2714,7 +3732,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getpreparedtransaction">
 <span class="md-ellipsis">
-      ptx_getPreparedTransaction
+      
+        ptx_getPreparedTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_getPreparedTransaction" class="md-nav">
@@ -2722,14 +3742,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_13">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_13">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2739,7 +3763,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getpublictransaction">
 <span class="md-ellipsis">
-      ptx_getPublicTransaction
+      
+        ptx_getPublicTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_getPublicTransaction" class="md-nav">
@@ -2747,14 +3773,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_14">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_14">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2764,7 +3794,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getreceiptlistener">
 <span class="md-ellipsis">
-      ptx_getReceiptListener
+      
+        ptx_getReceiptListener
+      
     </span>
 </a>
 <nav aria-label="ptx_getReceiptListener" class="md-nav">
@@ -2772,14 +3804,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_15">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_15">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2789,7 +3825,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getstatereceipt">
 <span class="md-ellipsis">
-      ptx_getStateReceipt
+      
+        ptx_getStateReceipt
+      
     </span>
 </a>
 <nav aria-label="ptx_getStateReceipt" class="md-nav">
@@ -2797,14 +3835,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_16">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_16">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2814,7 +3856,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_getstoredabi">
 <span class="md-ellipsis">
-      ptx_getStoredABI
+      
+        ptx_getStoredABI
+      
     </span>
 </a>
 <nav aria-label="ptx_getStoredABI" class="md-nav">
@@ -2822,14 +3866,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_17">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_17">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2839,7 +3887,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_gettransaction">
 <span class="md-ellipsis">
-      ptx_getTransaction
+      
+        ptx_getTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_getTransaction" class="md-nav">
@@ -2847,14 +3897,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_18">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_18">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2864,7 +3918,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_gettransactionbyidempotencykey">
 <span class="md-ellipsis">
-      ptx_getTransactionByIdempotencyKey
+      
+        ptx_getTransactionByIdempotencyKey
+      
     </span>
 </a>
 <nav aria-label="ptx_getTransactionByIdempotencyKey" class="md-nav">
@@ -2872,14 +3928,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_19">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_19">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2889,7 +3949,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_gettransactionfull">
 <span class="md-ellipsis">
-      ptx_getTransactionFull
+      
+        ptx_getTransactionFull
+      
     </span>
 </a>
 <nav aria-label="ptx_getTransactionFull" class="md-nav">
@@ -2897,14 +3959,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_20">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_20">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2914,7 +3980,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_gettransactionreceipt">
 <span class="md-ellipsis">
-      ptx_getTransactionReceipt
+      
+        ptx_getTransactionReceipt
+      
     </span>
 </a>
 <nav aria-label="ptx_getTransactionReceipt" class="md-nav">
@@ -2922,14 +3990,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_21">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_21">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2939,7 +4011,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_gettransactionreceiptfull">
 <span class="md-ellipsis">
-      ptx_getTransactionReceiptFull
+      
+        ptx_getTransactionReceiptFull
+      
     </span>
 </a>
 <nav aria-label="ptx_getTransactionReceiptFull" class="md-nav">
@@ -2947,14 +4021,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_22">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_22">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2964,7 +4042,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_preparetransaction">
 <span class="md-ellipsis">
-      ptx_prepareTransaction
+      
+        ptx_prepareTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_prepareTransaction" class="md-nav">
@@ -2972,14 +4052,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_23">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_23">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -2989,7 +4073,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_preparetransactions">
 <span class="md-ellipsis">
-      ptx_prepareTransactions
+      
+        ptx_prepareTransactions
+      
     </span>
 </a>
 <nav aria-label="ptx_prepareTransactions" class="md-nav">
@@ -2997,14 +4083,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_24">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_24">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3014,7 +4104,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_queryblockchaineventlisteners">
 <span class="md-ellipsis">
-      ptx_queryBlockchainEventListeners
+      
+        ptx_queryBlockchainEventListeners
+      
     </span>
 </a>
 <nav aria-label="ptx_queryBlockchainEventListeners" class="md-nav">
@@ -3022,14 +4114,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_25">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_25">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3039,7 +4135,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querychaineddispatches">
 <span class="md-ellipsis">
-      ptx_queryChainedDispatches
+      
+        ptx_queryChainedDispatches
+      
     </span>
 </a>
 <nav aria-label="ptx_queryChainedDispatches" class="md-nav">
@@ -3047,14 +4145,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_26">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_26">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3064,7 +4166,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querydispatches">
 <span class="md-ellipsis">
-      ptx_queryDispatches
+      
+        ptx_queryDispatches
+      
     </span>
 </a>
 <nav aria-label="ptx_queryDispatches" class="md-nav">
@@ -3072,14 +4176,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_27">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_27">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3089,7 +4197,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querypreparedtransactions">
 <span class="md-ellipsis">
-      ptx_queryPreparedTransactions
+      
+        ptx_queryPreparedTransactions
+      
     </span>
 </a>
 <nav aria-label="ptx_queryPreparedTransactions" class="md-nav">
@@ -3097,14 +4207,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_28">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_28">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3114,7 +4228,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_queryreceiptlisteners">
 <span class="md-ellipsis">
-      ptx_queryReceiptListeners
+      
+        ptx_queryReceiptListeners
+      
     </span>
 </a>
 <nav aria-label="ptx_queryReceiptListeners" class="md-nav">
@@ -3122,14 +4238,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_29">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_29">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3139,7 +4259,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querystoredabis">
 <span class="md-ellipsis">
-      ptx_queryStoredABIs
+      
+        ptx_queryStoredABIs
+      
     </span>
 </a>
 <nav aria-label="ptx_queryStoredABIs" class="md-nav">
@@ -3147,14 +4269,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_30">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_30">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3164,7 +4290,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querytransactionreceipts">
 <span class="md-ellipsis">
-      ptx_queryTransactionReceipts
+      
+        ptx_queryTransactionReceipts
+      
     </span>
 </a>
 <nav aria-label="ptx_queryTransactionReceipts" class="md-nav">
@@ -3172,14 +4300,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_31">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_31">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3189,7 +4321,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querytransactions">
 <span class="md-ellipsis">
-      ptx_queryTransactions
+      
+        ptx_queryTransactions
+      
     </span>
 </a>
 <nav aria-label="ptx_queryTransactions" class="md-nav">
@@ -3197,14 +4331,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_32">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_32">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3214,7 +4352,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_querytransactionsfull">
 <span class="md-ellipsis">
-      ptx_queryTransactionsFull
+      
+        ptx_queryTransactionsFull
+      
     </span>
 </a>
 <nav aria-label="ptx_queryTransactionsFull" class="md-nav">
@@ -3222,14 +4362,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_33">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_33">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3239,7 +4383,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_resolveverifier">
 <span class="md-ellipsis">
-      ptx_resolveVerifier
+      
+        ptx_resolveVerifier
+      
     </span>
 </a>
 <nav aria-label="ptx_resolveVerifier" class="md-nav">
@@ -3247,14 +4393,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_34">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_34">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3264,7 +4414,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_sendtransaction">
 <span class="md-ellipsis">
-      ptx_sendTransaction
+      
+        ptx_sendTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_sendTransaction" class="md-nav">
@@ -3272,14 +4424,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_35">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_35">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3289,7 +4445,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_sendtransactions">
 <span class="md-ellipsis">
-      ptx_sendTransactions
+      
+        ptx_sendTransactions
+      
     </span>
 </a>
 <nav aria-label="ptx_sendTransactions" class="md-nav">
@@ -3297,14 +4455,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_36">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_36">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3314,7 +4476,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_startblockchaineventlistener">
 <span class="md-ellipsis">
-      ptx_startBlockchainEventListener
+      
+        ptx_startBlockchainEventListener
+      
     </span>
 </a>
 <nav aria-label="ptx_startBlockchainEventListener" class="md-nav">
@@ -3322,14 +4486,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_37">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_37">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3339,7 +4507,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_startreceiptlistener">
 <span class="md-ellipsis">
-      ptx_startReceiptListener
+      
+        ptx_startReceiptListener
+      
     </span>
 </a>
 <nav aria-label="ptx_startReceiptListener" class="md-nav">
@@ -3347,14 +4517,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_38">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_38">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3364,7 +4538,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_stopblockchaineventlistener">
 <span class="md-ellipsis">
-      ptx_stopBlockchainEventListener
+      
+        ptx_stopBlockchainEventListener
+      
     </span>
 </a>
 <nav aria-label="ptx_stopBlockchainEventListener" class="md-nav">
@@ -3372,14 +4548,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_39">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_39">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3389,7 +4569,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_stopreceiptlistener">
 <span class="md-ellipsis">
-      ptx_stopReceiptListener
+      
+        ptx_stopReceiptListener
+      
     </span>
 </a>
 <nav aria-label="ptx_stopReceiptListener" class="md-nav">
@@ -3397,14 +4579,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_40">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_40">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3414,7 +4600,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_storeabi">
 <span class="md-ellipsis">
-      ptx_storeABI
+      
+        ptx_storeABI
+      
     </span>
 </a>
 <nav aria-label="ptx_storeABI" class="md-nav">
@@ -3422,14 +4610,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_41">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_41">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3439,7 +4631,9 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#ptx_updatetransaction">
 <span class="md-ellipsis">
-      ptx_updateTransaction
+      
+        ptx_updateTransaction
+      
     </span>
 </a>
 <nav aria-label="ptx_updateTransaction" class="md-nav">
@@ -3447,14 +4641,18 @@
 <li class="md-nav__item">
 <a class="md-nav__link" href="#parameters_42">
 <span class="md-ellipsis">
-      Parameters
+      
+        Parameters
+      
     </span>
 </a>
 </li>
 <li class="md-nav__item">
 <a class="md-nav__link" href="#returns_42">
 <span class="md-ellipsis">
-      Returns
+      
+        Returns
+      
     </span>
 </a>
 </li>
@@ -3467,6 +4665,24 @@
 </div>
 </div>
 <div class="md-content" data-md-component="content">
+<nav aria-label="Navigation" class="md-path">
+<ol class="md-path__list">
+<li class="md-path__item">
+<a class="md-path__link" href="../bidx/">
+<span class="md-ellipsis">
+    Reference
+  </span>
+</a>
+</li>
+<li class="md-path__item">
+<a class="md-path__link" href="../bidx/">
+<span class="md-ellipsis">
+    APIs
+  </span>
+</a>
+</li>
+</ol>
+</nav>
 <article class="md-content__inner md-typeset">
 <h1>ptx_*</h1>
 <h2 id="ptx_call"><code>ptx_call</code><a class="headerlink" href="#ptx_call" title="Permanent link">¶</a></h2>
@@ -3909,7 +5125,7 @@
 <div class="md-dialog" data-md-component="dialog">
 <div class="md-dialog__inner md-typeset"></div>
 </div>
-<script id="__config" type="application/json">{"base": "../../..", "features": ["content.code.copy", "navigation.expand", "navigation.footer", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.sidebar", "navigation.tracking", "navigation.path", "navigation.indexes"], "search": "../../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
-<script src="../../../assets/javascripts/bundle.83f73b43.min.js"></script>
+<script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["content.code.copy", "navigation.expand", "navigation.footer", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.sidebar", "navigation.tracking", "navigation.path", "navigation.indexes"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+<script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
 <script src="../../../assets/javascripts/panzoom.min.js"></script><script src="../../../assets/javascripts/zoompan.js"></script></body>
 </html>
