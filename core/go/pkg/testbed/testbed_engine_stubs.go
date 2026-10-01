@@ -60,7 +60,7 @@ func (tb *testbed) ExecTransactionSync(ctx context.Context, tx *pldapi.Transacti
 	return receipt, nil
 }
 
-func (tb *testbed) execBaseLedgerDeployTransaction(ctx context.Context, signer string, txInstruction *components.EthDeployTransaction) (receipt *pldapi.TransactionReceipt, err error) {
+func (tb *testbed) execBaseLedgerDeployTransaction(ctx context.Context, signer string, txInstruction *components.EthDeployTransaction, publicTxOptions pldapi.PublicTxOptions) (receipt *pldapi.TransactionReceipt, err error) {
 	var data []byte
 	if txInstruction.Inputs != nil {
 		data, err = pldtypes.StandardABISerializer().SerializeJSONCtx(ctx, txInstruction.Inputs)
@@ -70,9 +70,10 @@ func (tb *testbed) execBaseLedgerDeployTransaction(ctx context.Context, signer s
 	}
 	tx := &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
-			Type: pldapi.TransactionTypePublic.Enum(),
-			From: signer,
-			Data: data,
+			Type:            pldapi.TransactionTypePublic.Enum(),
+			From:            signer,
+			Data:            data,
+			PublicTxOptions: publicTxOptions,
 		},
 		ABI:      abi.ABI{txInstruction.ConstructorABI},
 		Bytecode: pldtypes.HexBytes(txInstruction.Bytecode),
@@ -80,7 +81,7 @@ func (tb *testbed) execBaseLedgerDeployTransaction(ctx context.Context, signer s
 	return tb.ExecTransactionSync(ctx, tx)
 }
 
-func (tb *testbed) execBaseLedgerTransaction(ctx context.Context, signer string, txInstruction *components.EthTransaction) (receipt *pldapi.TransactionReceipt, err error) {
+func (tb *testbed) execBaseLedgerTransaction(ctx context.Context, signer string, txInstruction *components.EthTransaction, publicTxOptions pldapi.PublicTxOptions) (receipt *pldapi.TransactionReceipt, err error) {
 	var data []byte
 	if txInstruction.Inputs != nil {
 		data, err = pldtypes.StandardABISerializer().SerializeJSONCtx(ctx, txInstruction.Inputs)
@@ -90,11 +91,12 @@ func (tb *testbed) execBaseLedgerTransaction(ctx context.Context, signer string,
 	}
 	tx := &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
-			Type:     pldapi.TransactionTypePublic.Enum(),
-			Function: txInstruction.FunctionABI.String(),
-			From:     signer,
-			To:       &txInstruction.To,
-			Data:     data,
+			Type:            pldapi.TransactionTypePublic.Enum(),
+			Function:        txInstruction.FunctionABI.String(),
+			From:            signer,
+			To:              &txInstruction.To,
+			Data:            data,
+			PublicTxOptions: publicTxOptions,
 		},
 		ABI: abi.ABI{txInstruction.FunctionABI},
 	}

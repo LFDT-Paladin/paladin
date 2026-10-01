@@ -336,17 +336,26 @@ func TestSequencerManager_evaluateDeployment_PersistError(t *testing.T) {
 }
 
 func TestSequencerManager_evaluateDeployment_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 
 	mockDomain := componentsmocks.NewDomain(t)
 	tx := goodDeployTxForEvaluate()
+	gas := pldtypes.HexUint64(100000)
+	tx.PublicTxOptions = pldapi.PublicTxOptions{Gas: &gas}
 	mockDomain.EXPECT().PrepareDeploy(ctx, tx).Return(nil).Once()
 	from := pldtypes.RandAddress()
 	mocks.keyManager.EXPECT().ResolveEthAddressBatchNewDatabaseTX(ctx, []string{"signer"}).Return([]*pldtypes.EthAddress{from}, nil).Once()
 	mocks.publicTxManager.EXPECT().ValidateTransaction(ctx, nil, mock.Anything).Return(nil).Once()
-	mocks.syncPoints.EXPECT().PersistDeployTransactionDispatch(ctx, mock.Anything, mock.Anything).Return(nil).Once()
+	mocks.syncPoints.EXPECT().PersistDeployTransactionDispatch(ctx, tx.ID, mock.Anything).
+		Run(func(_ context.Context, _ uuid.UUID, dispatch *syncpoints.TransactionDispatch) {
+			pubTx := dispatch.PublicDispatches[0].PublicTxs[0]
+			assert.Equal(t, from, pubTx.From)
+			assert.Equal(t, &tx.InvokeTransaction.To, pubTx.To)
+			assert.Equal(t, gas, *pubTx.Gas)
+		}).
+		Return(nil).Once()
 
 	err := sm.evaluateDeployment(ctx, mockDomain, tx)
 	require.NoError(t, err)

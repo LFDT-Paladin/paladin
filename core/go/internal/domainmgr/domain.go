@@ -662,6 +662,7 @@ func (d *domain) PrepareDeploy(ctx context.Context, tx *components.PrivateContra
 		// Must specify exactly one of the two types of transaction
 		return i18n.NewError(ctx, msgs.MsgDomainInvalidPrepareDeployResult)
 	}
+	tx.PublicTxOptions = pldapi.PublicTxOptions{Gas: &d.defaultGasLimit}
 	return nil
 }
 
