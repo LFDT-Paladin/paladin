@@ -1302,6 +1302,23 @@ func TestSequencerManager_resumeIncompleteTransactions_Pagination(t *testing.T) 
 	assert.Equal(t, 2, callCount)
 }
 
+func TestSequencerManager_resumeIncompleteTransactions_PrivateOnly(t *testing.T) {
+	ctx := t.Context()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	mocks.txManager.EXPECT().QueryTransactionsResolved(mock.Anything, mock.MatchedBy(func(q *query.QueryJSON) bool {
+		for _, eq := range q.Statements.Ops.Eq {
+			if eq.Field == "type" {
+				return eq.Value.String() == `"private"`
+			}
+		}
+		return false
+	}), nil, true).Return(nil, nil).Once()
+
+	sm.resumeIncompleteTransactions(ctx)
+}
+
 func TestSequencerManager_resumeIncompleteTransactions_QueryError(t *testing.T) {
 	ctx := context.Background()
 	mocks := newSequencerLifecycleTestMocks(t)

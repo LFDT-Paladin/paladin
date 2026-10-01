@@ -173,7 +173,8 @@ func (sMgr *sequencerManager) resumeIncompleteTransactionsMatching(ctx context.C
 
 		qb := query.NewQueryBuilder().
 			Limit(limit).
-			Sort("created")
+			Sort("created").
+			Equal("type", pldapi.TransactionTypePrivate)
 		filter(qb)
 		if lastCreatedTime > 0 {
 			log.L(ctx).Debugf("Retrieving the next %d incomplete transactions to resume from timestamp %d", limit, lastCreatedTime)
