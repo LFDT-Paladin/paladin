@@ -93,6 +93,23 @@ spec:
                 "usesKyc": true
               }
             }
+          },
+          {
+            "name": "Zeto_NfAnon",
+            "circuits": {
+              "deposit": {
+                "name": "not_implemented"
+              },
+              "withdraw": {
+                "name": "not_implemented"
+              },
+              "transfer": {
+                "name": "nf_anon"
+              },
+              "transferLocked": {
+                "name": "nf_anon"
+              }
+            }
           }
         ]
       },
