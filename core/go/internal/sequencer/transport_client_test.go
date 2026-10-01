@@ -17,7 +17,9 @@ package sequencer
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -398,7 +400,6 @@ func newDelegationRequestMessage(fromNode string, contractAddr *pldtypes.EthAddr
 	delegations := make([]*engineProto.PrivateTransactionDelegation, 0, len(txs))
 	for _, tx := range txs {
 		delegations = append(delegations, &engineProto.PrivateTransactionDelegation{
-			Id:          tx.ID.String(),
 			Domain:      tx.Domain,
 			Intent:      tx.Intent,
 			PreAssembly: tx.PreAssembly,
@@ -418,11 +419,17 @@ func newDelegationRequestMessage(fromNode string, contractAddr *pldtypes.EthAddr
 	}
 }
 
+func specTransactionID(txID string) string {
+	return pldtypes.Bytes32UUIDFirst16(uuid.MustParse(txID)).String()
+}
+
 func newTestPrivateTx(contractAddr *pldtypes.EthAddress) *components.PrivateTransaction {
+	txID := uuid.New()
 	return &components.PrivateTransaction{
-		ID: uuid.New(),
+		ID: txID,
 		PreAssembly: &prototk.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
+				TransactionId: pldtypes.Bytes32UUIDFirst16(txID).String(),
 				ContractInfo: &prototk.ContractInfo{
 					ContractAddress: contractAddr.String(),
 				},
@@ -551,6 +558,19 @@ func TestHandleDelegationRequest_BatchWithOriginatorNotOnSendingNode(t *testing.
 	tx2 := newTestPrivateTx(contractAddr)
 	tx2.PreAssembly.TransactionSpecification.From = "victim@node2"
 	message := newDelegationRequestMessage("node1", contractAddr, 100, tx1, tx2)
+
+	sm.handleDelegationRequest(ctx, message)
+}
+
+func TestHandleDelegationRequest_InvalidTransactionSpecificationID(t *testing.T) {
+	ctx := t.Context()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	privateTx := newTestPrivateTx(contractAddr)
+	privateTx.PreAssembly.TransactionSpecification.TransactionId = "not-hex"
+	message := newDelegationRequestMessage("node1", contractAddr, 100, privateTx)
 
 	sm.handleDelegationRequest(ctx, message)
 }
@@ -1071,7 +1091,7 @@ func TestHandleDelegationResponse_Empty(t *testing.T) {
 }
 
 func TestHandleEndorsementRequest_Success_Sign(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -1080,7 +1100,7 @@ func TestHandleEndorsementRequest_Success_Sign(t *testing.T) {
 	idempotencyKey := uuid.New().String()
 	party := "party@test-node"
 
-	txSpec := &prototk.TransactionSpecification{TransactionId: txID}
+	txSpec := &prototk.TransactionSpecification{TransactionId: specTransactionID(txID)}
 	verifier := &prototk.ResolvedVerifier{Lookup: "verifier@node1"}
 	signature := &prototk.AttestationResult{Name: "sig1"}
 	state := &prototk.EndorsableState{Id: "state1"}
@@ -1090,7 +1110,7 @@ func TestHandleEndorsementRequest_Success_Sign(t *testing.T) {
 	}
 
 	endorsementRequest := &engineProto.EndorsementRequest{
-		TransactionId: txID, IdempotencyKey: idempotencyKey,
+		IdempotencyKey:  idempotencyKey,
 		ContractAddress: contractAddr.String(), Party: party,
 		TransactionSpecification: txSpec,
 		Verifiers:                []*prototk.ResolvedVerifier{verifier}, Signatures: []*prototk.AttestationResult{signature},
@@ -1123,7 +1143,7 @@ func TestHandleEndorsementRequest_Success_Sign(t *testing.T) {
 }
 
 func TestHandleEndorsementRequest_Success_Revert(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -1132,7 +1152,7 @@ func TestHandleEndorsementRequest_Success_Revert(t *testing.T) {
 	idempotencyKey := uuid.New().String()
 	party := "party@test-node"
 
-	txSpec := &prototk.TransactionSpecification{TransactionId: txID}
+	txSpec := &prototk.TransactionSpecification{TransactionId: specTransactionID(txID)}
 	verifier := &prototk.ResolvedVerifier{Lookup: "verifier@node1"}
 	signature := &prototk.AttestationResult{Name: "sig1"}
 	state := &prototk.EndorsableState{Id: "state1"}
@@ -1142,7 +1162,7 @@ func TestHandleEndorsementRequest_Success_Revert(t *testing.T) {
 	}
 
 	endorsementRequest := &engineProto.EndorsementRequest{
-		TransactionId: txID, IdempotencyKey: idempotencyKey,
+		IdempotencyKey:  idempotencyKey,
 		ContractAddress: contractAddr.String(), Party: party,
 		TransactionSpecification: txSpec,
 		Verifiers:                []*prototk.ResolvedVerifier{verifier}, Signatures: []*prototk.AttestationResult{signature},
@@ -1175,7 +1195,7 @@ func TestHandleEndorsementRequest_Success_Revert(t *testing.T) {
 }
 
 func TestHandleEndorsementRequest_Success_EndorserSubmit(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -1184,7 +1204,7 @@ func TestHandleEndorsementRequest_Success_EndorserSubmit(t *testing.T) {
 	idempotencyKey := uuid.New().String()
 	party := "party@test-node"
 
-	txSpec := &prototk.TransactionSpecification{TransactionId: txID}
+	txSpec := &prototk.TransactionSpecification{TransactionId: specTransactionID(txID)}
 	verifier := &prototk.ResolvedVerifier{Lookup: "verifier@node1"}
 	signature := &prototk.AttestationResult{Name: "sig1"}
 	state := &prototk.EndorsableState{Id: "state1"}
@@ -1194,7 +1214,7 @@ func TestHandleEndorsementRequest_Success_EndorserSubmit(t *testing.T) {
 	}
 
 	endorsementRequest := &engineProto.EndorsementRequest{
-		TransactionId: txID, IdempotencyKey: idempotencyKey,
+		IdempotencyKey:  idempotencyKey,
 		ContractAddress: contractAddr.String(), Party: party,
 		TransactionSpecification: txSpec,
 		Verifiers:                []*prototk.ResolvedVerifier{verifier}, Signatures: []*prototk.AttestationResult{signature},
@@ -1243,13 +1263,11 @@ func TestHandleEndorsementRequest_UnmarshalError(t *testing.T) {
 }
 
 func TestHandleEndorsementRequest_InvalidContractAddress(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 
-	txID := uuid.New().String()
 	endorsementRequest := &engineProto.EndorsementRequest{
-		TransactionId:   txID,
 		ContractAddress: "invalid-address",
 	}
 	payload, _ := proto.Marshal(endorsementRequest)
@@ -1265,12 +1283,48 @@ func TestHandleEndorsementRequest_InvalidContractAddress(t *testing.T) {
 	sm.handleEndorsementRequest(ctx, message)
 }
 
+func TestHandleEndorsementRequest_InvalidTransactionSpecificationID(t *testing.T) {
+	txID := uuid.New()
+	trailingBytes := pldtypes.Bytes32UUIDFirst16(txID)
+	trailingBytes[31] = 1
+	canonical := pldtypes.Bytes32UUIDFirst16(txID).String()
+
+	for name, specTxID := range map[string]string{
+		"missing":          "",
+		"not hex":          "not-hex",
+		"not 32 bytes":     "0x" + hex.EncodeToString(txID[:]),
+		"non-zero padding": trailingBytes.String(),
+		"upper case":       "0x" + strings.ToUpper(canonical[2:]),
+		"no 0x prefix":     canonical[2:],
+	} {
+		t.Run(name, func(t *testing.T) {
+			mocks := newTransportClientTestMocks(t)
+			sm := newSequencerManagerForTransportClientTesting(t, mocks)
+			payload, _ := proto.Marshal(&engineProto.EndorsementRequest{
+				ContractAddress:          pldtypes.RandAddress().String(),
+				TransactionSpecification: &prototk.TransactionSpecification{TransactionId: specTxID},
+			})
+			sm.handleEndorsementRequest(t.Context(), &components.ReceivedMessage{MessageType: transport.MessageType_EndorsementRequest, Payload: payload})
+		})
+	}
+}
+
+func TestHandleEndorsementRequest_NilTransactionSpecification(t *testing.T) {
+	ctx := t.Context()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	payload, _ := proto.Marshal(&engineProto.EndorsementRequest{
+		ContractAddress: pldtypes.RandAddress().String(),
+	})
+	sm.handleEndorsementRequest(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_EndorsementRequest, Payload: payload})
+}
+
 // TestHandleEndorsementRequest_QueuesEventWithDecodedFields verifies that a valid endorsement
 // request results in an EndorsementRequestReceivedEvent being queued on the coordinator with
 // the correct decoded field values. (The former EndorseTransactionError test is superseded by
 // tests in coordinator/endorsing_test.go now that that logic lives in the coordinator.)
 func TestHandleEndorsementRequest_QueuesEventWithDecodedFields(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -1279,7 +1333,7 @@ func TestHandleEndorsementRequest_QueuesEventWithDecodedFields(t *testing.T) {
 	idempotencyKey := uuid.New().String()
 	party := "party@test-node"
 
-	txSpec := &prototk.TransactionSpecification{TransactionId: txID}
+	txSpec := &prototk.TransactionSpecification{TransactionId: specTransactionID(txID)}
 	verifier := &prototk.ResolvedVerifier{Lookup: "verifier@node1"}
 	signature := &prototk.AttestationResult{Name: "sig1"}
 	state := &prototk.EndorsableState{Id: "state1"}
@@ -1289,7 +1343,7 @@ func TestHandleEndorsementRequest_QueuesEventWithDecodedFields(t *testing.T) {
 	}
 
 	endorsementRequest := &engineProto.EndorsementRequest{
-		TransactionId: txID, IdempotencyKey: idempotencyKey,
+		IdempotencyKey:  idempotencyKey,
 		ContractAddress: contractAddr.String(), Party: party,
 		TransactionSpecification: txSpec,
 		Verifiers:                []*prototk.ResolvedVerifier{verifier}, Signatures: []*prototk.AttestationResult{signature},
@@ -1332,7 +1386,7 @@ func TestHandleEndorsementRequest_QueuesEventWithDecodedFields(t *testing.T) {
 }
 
 func TestHandleEndorsementRequest_LoadSequencerError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -1340,7 +1394,7 @@ func TestHandleEndorsementRequest_LoadSequencerError(t *testing.T) {
 	txID := uuid.New().String()
 	party := "party@test-node"
 
-	txSpec := &prototk.TransactionSpecification{TransactionId: txID}
+	txSpec := &prototk.TransactionSpecification{TransactionId: specTransactionID(txID)}
 	verifier := &prototk.ResolvedVerifier{Lookup: "verifier@node1"}
 	signature := &prototk.AttestationResult{Name: "sig1"}
 	state := &prototk.EndorsableState{Id: "state1"}
@@ -1350,7 +1404,7 @@ func TestHandleEndorsementRequest_LoadSequencerError(t *testing.T) {
 	}
 
 	endorsementRequest := &engineProto.EndorsementRequest{
-		TransactionId: txID, IdempotencyKey: uuid.NewString(), ContractAddress: contractAddr.String(), Party: party,
+		IdempotencyKey: uuid.NewString(), ContractAddress: contractAddr.String(), Party: party,
 		TransactionSpecification: txSpec,
 		Verifiers:                []*prototk.ResolvedVerifier{verifier}, Signatures: []*prototk.AttestationResult{signature},
 		InputStates: []*prototk.EndorsableState{state}, ReadStates: []*prototk.EndorsableState{state},
@@ -1381,7 +1435,7 @@ func TestHandleEndorsementRequest_LoadSequencerError(t *testing.T) {
 // to verify that the endorsement request event is queued even when the from-node field differs
 // from the coordinator's own node name.
 func TestHandleEndorsementRequest_SendEndorsementResponseError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -1390,13 +1444,13 @@ func TestHandleEndorsementRequest_SendEndorsementResponseError(t *testing.T) {
 	idempotencyKey := uuid.New().String()
 	party := "party@test-node"
 
-	txSpec := &prototk.TransactionSpecification{TransactionId: txID}
+	txSpec := &prototk.TransactionSpecification{TransactionId: specTransactionID(txID)}
 	attestationRequest := &prototk.AttestationRequest{
 		Name: "endorsement1", Algorithm: "ECDSA", VerifierType: "eth_address",
 	}
 
 	endorsementRequest := &engineProto.EndorsementRequest{
-		TransactionId: txID, IdempotencyKey: idempotencyKey,
+		IdempotencyKey:  idempotencyKey,
 		ContractAddress: contractAddr.String(), Party: party,
 		TransactionSpecification: txSpec, AttestationRequest: attestationRequest,
 	}
@@ -1427,7 +1481,7 @@ func TestHandleEndorsementRequest_SendEndorsementResponseError(t *testing.T) {
 // TestHandleEndorsementRequest_SignValidationError verifies successful queueing when the party
 // field contains a node name different from the local node.
 func TestHandleEndorsementRequest_SignValidationError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -1435,13 +1489,13 @@ func TestHandleEndorsementRequest_SignValidationError(t *testing.T) {
 	txID := uuid.New().String()
 	party := "party@other-node" // Different node — key is still resolved locally by the endorser
 
-	txSpec := &prototk.TransactionSpecification{TransactionId: txID}
+	txSpec := &prototk.TransactionSpecification{TransactionId: specTransactionID(txID)}
 	attestationRequest := &prototk.AttestationRequest{
 		Name: "endorsement1", Algorithm: "ECDSA", VerifierType: "eth_address",
 	}
 
 	endorsementRequest := &engineProto.EndorsementRequest{
-		TransactionId: txID, IdempotencyKey: uuid.NewString(), ContractAddress: contractAddr.String(), Party: party,
+		IdempotencyKey: uuid.NewString(), ContractAddress: contractAddr.String(), Party: party,
 		TransactionSpecification: txSpec, AttestationRequest: attestationRequest,
 	}
 	payload, _ := proto.Marshal(endorsementRequest)
@@ -2428,26 +2482,8 @@ func TestHandleDelegationRequest_LoadSequencerError(t *testing.T) {
 	sm.handleDelegationRequest(ctx, message)
 }
 
-func TestHandleDelegationRequest_InvalidDelegationID(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-	payload, _ := proto.Marshal(&engineProto.DelegationRequest{
-		ContractAddress:       contractAddr.HexString(),
-		OriginatorBlockHeight: 100,
-		Transactions: []*engineProto.PrivateTransactionDelegation{
-			{Id: "not-a-uuid"},
-		},
-	})
-	sm.handleDelegationRequest(ctx, &components.ReceivedMessage{
-		MessageType: transport.MessageType_DelegationRequest,
-		Payload:     payload,
-	})
-}
-
 func TestHandleDelegationRequest_NilPreAssembly(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -2455,7 +2491,7 @@ func TestHandleDelegationRequest_NilPreAssembly(t *testing.T) {
 		ContractAddress:       contractAddr.HexString(),
 		OriginatorBlockHeight: 100,
 		Transactions: []*engineProto.PrivateTransactionDelegation{
-			{Id: uuid.New().String()},
+			{Domain: "test-domain"},
 		},
 	})
 	sm.handleDelegationRequest(ctx, &components.ReceivedMessage{
@@ -2465,7 +2501,7 @@ func TestHandleDelegationRequest_NilPreAssembly(t *testing.T) {
 }
 
 func TestHandleDelegationRequest_NilTransactionSpecification(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -2474,7 +2510,6 @@ func TestHandleDelegationRequest_NilTransactionSpecification(t *testing.T) {
 		OriginatorBlockHeight: 100,
 		Transactions: []*engineProto.PrivateTransactionDelegation{
 			{
-				Id:          uuid.New().String(),
 				PreAssembly: &prototk.TransactionPreAssembly{}, // no TransactionSpecification
 			},
 		},
@@ -2537,13 +2572,15 @@ func TestHandleHandoverRequest_InvalidContractAddress(t *testing.T) {
 }
 
 func TestHandleEndorsementRequest_WithExpiry(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New().String()
 	payload, _ := proto.Marshal(&engineProto.EndorsementRequest{
-		ContractAddress: contractAddr.String(), TransactionId: uuid.New().String(), IdempotencyKey: uuid.New().String(),
-		ExpiryTimeUnixMs: time.Now().Add(time.Hour).UnixMilli(),
+		ContractAddress: contractAddr.String(), IdempotencyKey: uuid.New().String(),
+		TransactionSpecification: &prototk.TransactionSpecification{TransactionId: specTransactionID(txID)},
+		ExpiryTimeUnixMs:         time.Now().Add(time.Hour).UnixMilli(),
 	})
 	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
 	mocks.persistence.EXPECT().NOTX().Return(nil).Once()

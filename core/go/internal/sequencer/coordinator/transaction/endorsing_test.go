@@ -64,7 +64,7 @@ func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_Initialize
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
 			mock.Anything, "node1", mock.MatchedBy(func(msg *engineProto.EndorsementRequest) bool {
-				return msg.TransactionId == txn.pt.ID.String() && msg.Party == "party1@node1"
+				return msg.TransactionSpecification == txn.pt.PreAssembly.TransactionSpecification && msg.Party == "party1@node1"
 			}),
 		).Return(nil)
 
@@ -97,7 +97,7 @@ func Test_sendEndorsementRequests_SendEndorsementRequestReturnsError_LogsAndCont
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
 			mock.Anything, "node1", mock.MatchedBy(func(msg *engineProto.EndorsementRequest) bool {
-				return msg.TransactionId == txn.pt.ID.String() && msg.Party == "party1@node1"
+				return msg.TransactionSpecification == txn.pt.PreAssembly.TransactionSpecification && msg.Party == "party1@node1"
 			}),
 		).Return(sendErr)
 
@@ -155,13 +155,13 @@ func Test_sendEndorsementRequests_TwoAttestationNames_CreatesMapPerName(t *testi
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
 			mock.Anything, "node1", mock.MatchedBy(func(msg *engineProto.EndorsementRequest) bool {
-				return msg.TransactionId == txn.pt.ID.String() && msg.Party == "party1@node1"
+				return msg.TransactionSpecification == txn.pt.PreAssembly.TransactionSpecification && msg.Party == "party1@node1"
 			}),
 		).Return(nil)
 	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
 			mock.Anything, "node2", mock.MatchedBy(func(msg *engineProto.EndorsementRequest) bool {
-				return msg.TransactionId == txn.pt.ID.String() && msg.Party == "party2@node2"
+				return msg.TransactionSpecification == txn.pt.PreAssembly.TransactionSpecification && msg.Party == "party2@node2"
 			}),
 		).Return(nil)
 
