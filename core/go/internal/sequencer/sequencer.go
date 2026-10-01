@@ -303,7 +303,7 @@ func (sMgr *sequencerManager) evaluateDeployment(ctx context.Context, domain com
 			Bindings: []*components.PaladinTXReference{{TransactionID: tx.ID, TransactionType: pldapi.TransactionTypePrivate.Enum()}},
 			PublicTxInput: pldapi.PublicTxInput{
 				From:            resolvedAddrs[0],
-				PublicTxOptions: pldapi.PublicTxOptions{}, // TODO: Consider propagation from paladin transaction input
+				PublicTxOptions: tx.PublicTxOptions, // TODO: Consider propagation from paladin transaction input
 			},
 		},
 	}

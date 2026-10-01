@@ -124,6 +124,7 @@ type PrivateContractDeploy struct {
 	Signer            string
 	InvokeTransaction *EthTransaction
 	DeployTransaction *EthDeployTransaction
+	PublicTxOptions   pldapi.PublicTxOptions
 }
 
 type PrivateTransactionEndorseRequest struct {
