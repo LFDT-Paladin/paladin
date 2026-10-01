@@ -101,5 +101,18 @@ ordinary transaction body builder. Gas, value, and fee setters configure the
 base-ledger submission options. ABI references and dependencies are not supported
 by the privacy-group RPC and are rejected by the builder.
 
-The [operator E2E suite](../../operator/README.md#java-sdk-privacy-group-e2e-coverage)
-exercises this API against a live three-node installation.
+### Live integration test
+
+The Java SDK integration test exercises this API against a running default
+three-node installation. It creates a group on nodes 1 and 2, deploys ERC20Simple,
+mints and transfers tokens, checks balances on both members, and verifies that
+node 3 does not receive the group. With JDK 21 and the nodes running, invoke it
+explicitly from the repository root:
+
+```sh
+./gradlew :sdk:java:integration-test:operatorE2E
+```
+
+The task prepares the ERC20Simple artifact and connects to localhost ports
+31548, 31648, and 31748. Ordinary Java SDK `test` and `check` tasks exclude
+this live test.
