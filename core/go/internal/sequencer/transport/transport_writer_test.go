@@ -252,7 +252,6 @@ func testDelegationRequestMsg(coordinatorNode string, contractAddress *pldtypes.
 	delegations := make([]*engineProto.PrivateTransactionDelegation, 0, len(transactions))
 	for _, tx := range transactions {
 		delegations = append(delegations, &engineProto.PrivateTransactionDelegation{
-			Id:          tx.ID.String(),
 			Domain:      tx.Domain,
 			Intent:      tx.Intent,
 			PreAssembly: tx.PreAssembly,
@@ -289,11 +288,10 @@ func testDelegationRejectionMsg(delegatingNodeName, delegationId string, contrac
 	}
 }
 
-func testEndorsementRequestMsg(txID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates, readStates, outputStates, infoStates []*prototk.EndorsableState, expiry time.Time, coordinatorBlockHeight, blockHeightTolerance int64) *engineProto.EndorsementRequest {
+func testEndorsementRequestMsg(idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates, readStates, outputStates, infoStates []*prototk.EndorsableState, expiry time.Time, coordinatorBlockHeight, blockHeightTolerance int64) *engineProto.EndorsementRequest {
 	return &engineProto.EndorsementRequest{
 		IdempotencyKey:           idempotencyKey.String(),
 		ContractAddress:          transactionSpecification.ContractInfo.ContractAddress,
-		TransactionId:            txID.String(),
 		AttestationRequest:       attRequest,
 		Party:                    party,
 		TransactionSpecification: transactionSpecification,
@@ -683,7 +681,7 @@ func TestSendTransactionSubmitted_ProtoMarshalError(t *testing.T) {
 // ===== SendDelegationRequest Tests =====
 
 func TestSendDelegationRequest_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	coordinatorNode := "coordinator-node"
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	blockHeight := uint64(100)
@@ -695,11 +693,17 @@ func TestSendDelegationRequest_Success(t *testing.T) {
 			ID:      tx1ID,
 			Domain:  "test-domain",
 			Address: *contractAddress,
+			PreAssembly: &prototk.TransactionPreAssembly{
+				TransactionSpecification: &prototk.TransactionSpecification{TransactionId: pldtypes.Bytes32UUIDFirst16(tx1ID).String()},
+			},
 		},
 		{
 			ID:      tx2ID,
 			Domain:  "test-domain",
 			Address: *contractAddress,
+			PreAssembly: &prototk.TransactionPreAssembly{
+				TransactionSpecification: &prototk.TransactionSpecification{TransactionId: pldtypes.Bytes32UUIDFirst16(tx2ID).String()},
+			},
 		},
 	}
 
@@ -738,8 +742,8 @@ func TestSendDelegationRequest_Success(t *testing.T) {
 	assert.Equal(t, int64(blockHeight), capturedRequest.OriginatorBlockHeight)
 	require.Len(t, capturedRequest.Transactions, 2)
 
-	assert.Equal(t, tx1ID.String(), capturedRequest.Transactions[0].GetId())
-	assert.Equal(t, tx2ID.String(), capturedRequest.Transactions[1].GetId())
+	assert.Equal(t, pldtypes.Bytes32UUIDFirst16(tx1ID).String(), capturedRequest.Transactions[0].GetPreAssembly().GetTransactionSpecification().GetTransactionId())
+	assert.Equal(t, pldtypes.Bytes32UUIDFirst16(tx2ID).String(), capturedRequest.Transactions[1].GetPreAssembly().GetTransactionSpecification().GetTransactionId())
 }
 
 func TestSendDelegationRequest_SendError(t *testing.T) {
@@ -1096,7 +1100,7 @@ func TestSendHandoverRequest_ProtoMarshalError(t *testing.T) {
 // ===== SendEndorsementRequest Tests =====
 
 func TestSendEndorsementRequest_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txID := uuid.New()
 	idempotencyKey := uuid.New()
 	party := "party1@node1"
@@ -1107,7 +1111,7 @@ func TestSendEndorsementRequest_Success(t *testing.T) {
 	}
 
 	transactionSpecification := &prototk.TransactionSpecification{
-		TransactionId: txID.String(),
+		TransactionId: pldtypes.Bytes32UUIDFirst16(txID).String(),
 		ContractInfo: &prototk.ContractInfo{
 			ContractAddress: contractAddress.HexString(),
 		},
@@ -1155,7 +1159,7 @@ func TestSendEndorsementRequest_Success(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		if endorsementRequest.TransactionId != txID.String() {
+		if endorsementRequest.GetTransactionSpecification().GetTransactionId() != pldtypes.Bytes32UUIDFirst16(txID).String() {
 			return false
 		}
 		if endorsementRequest.IdempotencyKey != idempotencyKey.String() {
@@ -1178,18 +1182,18 @@ func TestSendEndorsementRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendEndorsementRequest(ctx, "node1", testEndorsementRequestMsg(txID, idempotencyKey, party, attRequest, transactionSpecification, verifiers, signatures, inputStates, readStates, outputStates, infoStates, time.Time{}, 0, 0))
+	err := tw.SendEndorsementRequest(ctx, "node1", testEndorsementRequestMsg(idempotencyKey, party, attRequest, transactionSpecification, verifiers, signatures, inputStates, readStates, outputStates, infoStates, time.Time{}, 0, 0))
 	require.NoError(t, err)
 }
 
 func TestSendEndorsementRequest_SerialisesExpiryTimeIntoProto(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txID := uuid.New()
 	idempotencyKey := uuid.New()
 	party := "party1@node1"
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	transactionSpecification := &prototk.TransactionSpecification{
-		TransactionId: txID.String(),
+		TransactionId: pldtypes.Bytes32UUIDFirst16(txID).String(),
 		ContractInfo:  &prototk.ContractInfo{ContractAddress: contractAddress.HexString()},
 	}
 	expiry := time.Now().Truncate(time.Millisecond) // truncate to ms precision to match UnixMilli roundtrip
@@ -1214,13 +1218,13 @@ func TestSendEndorsementRequest_SerialisesExpiryTimeIntoProto(t *testing.T) {
 		loopbackTransport: mockLoopbackTransport,
 		contractAddress:   contractAddress,
 	}
-	err := tw.SendEndorsementRequest(ctx, "node1", testEndorsementRequestMsg(txID, idempotencyKey, party, nil, transactionSpecification, nil, nil, nil, nil, nil, nil, expiry, 0, 0))
+	err := tw.SendEndorsementRequest(ctx, "node1", testEndorsementRequestMsg(idempotencyKey, party, nil, transactionSpecification, nil, nil, nil, nil, nil, nil, expiry, 0, 0))
 	require.NoError(t, err)
 	assert.Equal(t, expiry.UnixMilli(), capturedExpiry, "ExpiryTimeUnixMs should match expiry.UnixMilli()")
 }
 
 func TestSendEndorsementRequest_EmptyNode(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txID := uuid.New()
 	idempotencyKey := uuid.New()
 	party := "party1@node1"
@@ -1231,7 +1235,7 @@ func TestSendEndorsementRequest_EmptyNode(t *testing.T) {
 	}
 
 	transactionSpecification := &prototk.TransactionSpecification{
-		TransactionId: txID.String(),
+		TransactionId: pldtypes.Bytes32UUIDFirst16(txID).String(),
 		ContractInfo: &prototk.ContractInfo{
 			ContractAddress: contractAddress.HexString(),
 		},
@@ -1248,7 +1252,7 @@ func TestSendEndorsementRequest_EmptyNode(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendEndorsementRequest(ctx, "", testEndorsementRequestMsg(txID, idempotencyKey, party, attRequest, transactionSpecification, nil, nil, nil, nil, nil, nil, time.Time{}, 0, 0))
+	err := tw.SendEndorsementRequest(ctx, "", testEndorsementRequestMsg(idempotencyKey, party, attRequest, transactionSpecification, nil, nil, nil, nil, nil, nil, time.Time{}, 0, 0))
 	require.NoError(t, err)
 	mockTransportManager.AssertNotCalled(t, "Send")
 }

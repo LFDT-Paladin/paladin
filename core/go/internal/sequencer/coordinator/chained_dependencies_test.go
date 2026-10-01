@@ -99,7 +99,7 @@ func (s *ChainedDependenciesSuite) newTx(chainedDeps ...uuid.UUID) uuid.UUID {
 	}
 	b.PreAssembly(pa)
 	txn := b.BuildSparse()
-	txn.PreAssembly.TransactionSpecification.TransactionId = txn.ID.String()
+	txn.PreAssembly.TransactionSpecification.TransactionId = pldtypes.Bytes32UUIDFirst16(txn.ID).String()
 	s.txBuilders[txn.ID] = b
 	s.txns[txn.ID] = txn
 	return txn.ID
