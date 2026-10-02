@@ -7,6 +7,11 @@ status before using those notes to resume work.
 
 ## SDK delivery timeline and order
 
+Java SDK feature branches and PRs target `java-sdk-main`. Merge SDK work there;
+do not target repository `main` directly. Before opening or reviewing an SDK PR,
+confirm that its base branch is `java-sdk-main` so its commit list contains only
+that feature's changes.
+
 The following sequence comes from `sdk/java/CLAUDE.md` (the issue #1224 working
 plan). Checkboxes describe local implementation as of October 2, 2026, not remote
 issue or PR status. Items 1–6 are on `java-sdk-main`; item 7 is implemented on
