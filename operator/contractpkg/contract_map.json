@@ -13,7 +13,10 @@
     },
     "noto_factory_proxy": {
         "filename": "test/e2e/abis/ERC1967Proxy.json",
-        "requiredDeployments": ["noto_factory", "noto"],
+        "requiredDeployments": [
+            "noto_factory",
+            "noto"
+        ],
         "params": [
             "{{index .status.resolvedContractAddresses \"noto-factory\"}}",
             "{{printf \"0xc4d66de8000000000000000000000000%s\" (trimPrefix \"0x\" (index .status.resolvedContractAddresses \"noto\"))}}"
@@ -24,7 +27,9 @@
     },
     "pente_factory_proxy": {
         "filename": "test/e2e/abis/ERC1967Proxy.json",
-        "requiredDeployments": ["pente_factory"],
+        "requiredDeployments": [
+            "pente_factory"
+        ],
         "params": [
             "{{index .status.resolvedContractAddresses \"pente-factory\"}}",
             "0x8129fc1c"
@@ -88,18 +93,28 @@
             "PoseidonUnit3L": "zeto_poseidon_unit3l"
         }
     },
+    "zeto_lockable_lib": {
+        "filename": "test/e2e/abis/zeto/ZetoLockableLib.json"
+    },
     "zeto_impl_anon": {
-        "filename": "test/e2e/abis/zeto/Zeto_Anon.json"
+        "filename": "test/e2e/abis/zeto/Zeto_Anon.json",
+        "linkedContracts": {
+            "ZetoLockableLib": "zeto_lockable_lib"
+        }
     },
     "zeto_impl_anon_enc": {
-        "filename": "test/e2e/abis/zeto/Zeto_AnonEnc.json"
+        "filename": "test/e2e/abis/zeto/Zeto_AnonEnc.json",
+        "linkedContracts": {
+            "ZetoLockableLib": "zeto_lockable_lib"
+        }
     },
     "zeto_impl_anon_nullifier": {
         "filename": "test/e2e/abis/zeto/Zeto_AnonNullifier.json",
         "linkedContracts": {
             "PoseidonUnit2L": "zeto_poseidon_unit2l",
             "PoseidonUnit3L": "zeto_poseidon_unit3l",
-            "SmtLib": "zeto_smt_lib"
+            "SmtLib": "zeto_smt_lib",
+            "ZetoLockableLib": "zeto_lockable_lib"
         }
     },
     "zeto_impl_anon_nullifier_kyc": {
@@ -107,15 +122,18 @@
         "linkedContracts": {
             "PoseidonUnit2L": "zeto_poseidon_unit2l",
             "PoseidonUnit3L": "zeto_poseidon_unit3l",
-            "SmtLib": "zeto_smt_lib"
+            "SmtLib": "zeto_smt_lib",
+            "ZetoLockableLib": "zeto_lockable_lib"
         }
     },
     "zeto_factory": {
-        "filename": "test/e2e/abis/zeto/ZetoFactory.json"
+        "filename": "test/e2e/abis/zeto/ZetoFactory_V0.json"
     },
     "zeto_factory_proxy": {
         "filename": "test/e2e/abis/ERC1967Proxy.json",
-        "requiredDeployments": ["zeto_factory"],
+        "requiredDeployments": [
+            "zeto_factory"
+        ],
         "params": [
             "{{index .status.resolvedContractAddresses \"zeto-factory\"}}",
             "0x8129fc1c"

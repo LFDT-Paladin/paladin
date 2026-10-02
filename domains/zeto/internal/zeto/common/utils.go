@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 
 	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
@@ -44,6 +45,9 @@ type StateSchemas struct {
 	DataSchema           *prototk.StateSchema
 	MerkleTreeRootSchema *prototk.StateSchema
 	MerkleTreeNodeSchema *prototk.StateSchema
+	// LockInfoSchema is optional (nil on legacy 5-schema registrations). When set, createLock/spendLock may persist
+	// types.ZetoLockInfoState keyed by lockId (see domains/zeto/pkg/types/lock_info.go).
+	LockInfoSchema *prototk.StateSchema
 }
 
 type MerkleTreeSpec struct {
@@ -113,7 +117,7 @@ func GetInputSize(sizeOfEndorsableStates int) int {
 
 func HexUint256To32ByteHexString(v *pldtypes.HexUint256) string {
 	paddedBytes := IntTo32ByteSlice(v.Int())
-	return hex.EncodeToString(paddedBytes)
+	return "0x" + hex.EncodeToString(paddedBytes)
 }
 
 func IntTo32ByteSlice(bigInt *big.Int) (res []byte) {
@@ -122,7 +126,46 @@ func IntTo32ByteSlice(bigInt *big.Int) (res []byte) {
 
 func IntTo32ByteHexString(bigInt *big.Int) string {
 	paddedBytes := bigInt.FillBytes(make([]byte, 32))
-	return hex.EncodeToString(paddedBytes)
+	return "0x" + hex.EncodeToString(paddedBytes)
+}
+
+// CoinStateIDFromPersistedString normalizes a coin state .id from lock-info persistence.
+// lockedOutputs uses uint256[] in the AbiStateSchema; after storage round-trip values may be
+// 0x-prefixed hex (as written at createLock) or base-10 decimal strings. Decimal values must not
+// be parsed as hexadecimal (that inflates the integer and can panic in FillBytes).
+func CoinStateIDFromPersistedString(ctx context.Context, s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "empty coin state id")
+	}
+	if after, ok := strings.CutPrefix(s, "0x"); ok {
+		b, err := pldtypes.ParseHexBytes(ctx, "0x"+after)
+		if err != nil {
+			return "", i18n.WrapError(ctx, err, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+		}
+		if len(b) != 32 {
+			return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+		}
+		return b.String(), nil
+	}
+	if after, ok := strings.CutPrefix(s, "0X"); ok {
+		b, err := pldtypes.ParseHexBytes(ctx, "0x"+after)
+		if err != nil {
+			return "", i18n.WrapError(ctx, err, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+		}
+		if len(b) != 32 {
+			return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+		}
+		return b.String(), nil
+	}
+	bi, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+	}
+	if bi.Sign() < 0 || bi.BitLen() > 256 {
+		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+	}
+	return IntTo32ByteHexString(bi), nil
 }
 
 func LoadBabyJubKey(payload []byte) (*babyjub.PublicKey, error) {

@@ -312,7 +312,7 @@ func TestMakeNewState(t *testing.T) {
 	validToken := types.NewZetoNFToken((*pldtypes.HexUint256)(big.NewInt(456)), "https://example.com", mockPubKey(), big.NewInt(123))
 
 	// Compute expected hash string by calling the common helper.
-	expectedHashStr := "11e84f5f703728d1f231655c59597678524e3a14ce684d07a0b653bd51ccd650"
+	expectedHashStr := "0x11e84f5f703728d1f231655c59597678524e3a14ce684d07a0b653bd51ccd650"
 
 	// Also, compute the JSON representation of the token.
 	tokenJSON, err := json.Marshal(validToken)

@@ -28,11 +28,11 @@ spec:
           "verifier":              "{{ index .status.resolvedContractAddresses "zeto-g16-anon-enc" }}",
           "depositVerifier":       "{{ index .status.resolvedContractAddresses "zeto-g16-deposit" }}",
           "withdrawVerifier":      "{{ index .status.resolvedContractAddresses "zeto-g16-withdraw" }}",
-          "lockVerifier":          "0x0000000000000000000000000000000000000000",
+          "lockVerifier":          "{{ index .status.resolvedContractAddresses "zeto-g16-anon-enc" }}",
           "burnVerifier":          "0x0000000000000000000000000000000000000000",
           "batchVerifier":         "{{ index .status.resolvedContractAddresses "zeto-g16-anon-enc-batch" }}",
           "batchWithdrawVerifier": "{{ index .status.resolvedContractAddresses "zeto-g16-withdraw-batch" }}",
-          "batchLockVerifier":     "0x0000000000000000000000000000000000000000",
+          "batchLockVerifier":     "{{ index .status.resolvedContractAddresses "zeto-g16-anon-enc-batch" }}",
           "batchBurnVerifier":     "0x0000000000000000000000000000000000000000"
         }
       }

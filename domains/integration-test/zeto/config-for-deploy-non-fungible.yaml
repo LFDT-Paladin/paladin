@@ -1,13 +1,14 @@
+# Upstream ABI+bytecode under helpers/abis/zkp/v0.2.2/; factory at helpers/abis/. ZKP root v0.2.2.
 contracts:
   factory:
     abiAndBytecode:
-      path: ./helpers/abis/ZetoFactory.json
+      path: ./helpers/abis/ZetoFactory_V0.json
   # the Zeto factory is a CloneFactory, which needs implementation
   # contracts to be set
   implementations:
     - name: Groth16Verifier_NfAnon
       abiAndBytecode:
-        path: ./helpers/abis/Groth16Verifier_NfAnon.json
+        path: ./helpers/abis/zkp/v0.2.2/Groth16Verifier_NfAnon.json
     - name: Zeto_NfAnon
       verifier: Groth16Verifier_NfAnon
       circuits:
@@ -21,4 +22,4 @@ contracts:
           name: not_implemented
       cloneable: true
       abiAndBytecode:
-        path: ./helpers/abis/Zeto_NfAnon.json
+        path: ./helpers/abis/zkp/v0.2.2/Zeto_NfAnon.json

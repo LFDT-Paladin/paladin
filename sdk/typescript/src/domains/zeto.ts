@@ -3,6 +3,7 @@ import PaladinClient from "../paladin";
 import { TransactionFuture } from "../transaction";
 import { PaladinVerifier } from "../verifier";
 import * as zetoPrivateJSON from "./abis/IZetoFungible.json";
+import * as zetoPrivateV1JSON from "./abis/IZetoFungible_V1.json";
 import * as zetoPublicJSON from "./abis/Zeto_Anon.json";
 
 // Algorithm/verifier types specific to Zeto
@@ -12,6 +13,8 @@ export const IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X =
   "iden3_pubkey_babyjubjub_compressed_0x";
 
 const zetoAbi = zetoPrivateJSON.abi;
+// The V1 transaction API: createLock / spendLock / cancelLock in place of V0's lock / transferLocked.
+const zetoAbiV1 = zetoPrivateV1JSON.abi;
 const zetoPublicAbi = zetoPublicJSON.abi;
 
 export const zetoConstructorABI = {
@@ -19,8 +22,46 @@ export const zetoConstructorABI = {
   inputs: [{ name: "tokenName", type: "string" }],
 };
 
+// Opts a pool into the V1 transaction axis. The generation decides the on-chain calldata shape — zeto-contracts
+// ~v0.5.x takes a single packed `bytes proof` where ~v0.2.x took a discrete proof tuple — so a pool deployed without
+// these against v0.5.x implementations reverts on the first proving call (deposit) with no decodable revert data.
+export const zetoConstructorABI_V1 = {
+  type: "constructor",
+  inputs: [
+    { name: "tokenName", type: "string" },
+    { name: "domainConfigSchema", type: "string" },
+    { name: "zetoVariant", type: "uint256" },
+    { name: "factoryVersion", type: "uint256" },
+  ],
+};
+
+export interface ZetoCreateLockParams {
+  from: string;
+  recipients: ZetoTransfer[];
+  unlockData: string;
+  data: string;
+}
+
+export interface ZetoSpendLockParams {
+  lockId: string;
+  from: string;
+  data: string;
+}
+
+// V1 delegateLock on the pool: delegateLock(bytes32 lockId, bytes delegateArgs, address newSpender, bytes data).
+export interface ZetoDelegateLockV1Params {
+  lockId: string;
+  delegateArgs: string;
+  newSpender: string;
+  data: string;
+}
+
 export interface ZetoConstructorParams {
   tokenName: string;
+  // Supply all three together to deploy on the V1 axis; omit them all for the legacy V0 axis.
+  domainConfigSchema?: string;
+  zetoVariant?: number;
+  factoryVersion?: number;
 }
 
 export interface ZetoMintParams {
@@ -93,12 +134,19 @@ export class ZetoFactory {
   }
 
   newZeto(from: PaladinVerifier, data: ZetoConstructorParams) {
+    // The V1 constructor carries three extra params, so the ABI has to match what is actually being sent.
+    const abi =
+      data.domainConfigSchema !== undefined ||
+      data.zetoVariant !== undefined ||
+      data.factoryVersion !== undefined
+        ? zetoConstructorABI_V1
+        : zetoConstructorABI;
     return new ZetoFuture(
       this.paladin,
       this.paladin.sendTransaction({
         type: TransactionType.PRIVATE,
         domain: this.domain,
-        abi: [zetoConstructorABI],
+        abi: [abi],
         function: "",
         from: from.lookup,
         data,
@@ -197,6 +245,58 @@ export class ZetoInstance {
         type: TransactionType.PRIVATE,
         abi: zetoAbi,
         function: "lock",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  // --- V1 lock lifecycle (IZetoFungible_V1) ----------------------------------------------------------------
+  // V1 replaces V0's lock/transferLocked pair: the spend recipients are pinned when the lock is created, so the
+  // delegate's spendLock can be encoded and authorised ahead of time.
+
+  createLock(from: PaladinVerifier, data: ZetoCreateLockParams) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PRIVATE,
+        abi: zetoAbiV1,
+        function: "createLock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          from: data.from,
+          recipients: data.recipients.map((t) => ({ ...t, to: t.to.lookup })),
+          unlockData: data.unlockData,
+          data: data.data,
+        },
+      })
+    );
+  }
+
+  prepareSpendLock(from: PaladinVerifier, data: ZetoSpendLockParams) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.prepareTransaction({
+        type: TransactionType.PRIVATE,
+        abi: zetoAbiV1,
+        function: "spendLock",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  // Hands the lock to a new spender. Only the current spender — the submitter of the public createLock — may call it.
+  delegateLockV1(from: PaladinVerifier, data: ZetoDelegateLockV1Params) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PUBLIC,
+        abi: zetoPublicAbi,
+        function: "delegateLock",
         to: this.address,
         from: from.lookup,
         data,

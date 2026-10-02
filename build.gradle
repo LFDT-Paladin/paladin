@@ -234,6 +234,15 @@ task copyUIFiles(type: Copy) {
 task copyZetoZKPFiles(type: Copy) {
     def zetoZkpDir = file("${buildDir}/domains/zeto/zkp")
 
+    // Every release tree this task reads is produced by that generation's extract task. Declared lazily via a closure
+    // because the root script is configured before the :domains:zeto ext block exists; without it Gradle reports an
+    // undeclared dependency on the producer as soon as both tasks are in the same build.
+    dependsOn {
+        project(':domains:zeto').ext.zetoVersions.collect { variant ->
+            ":domains:zeto:extractZetoZkp_${variant.id}"
+        }
+    }
+
     doFirst {
         zetoZkpDir.mkdirs()
     }
@@ -241,60 +250,88 @@ task copyZetoZKPFiles(type: Copy) {
     // These can be very large binaries, so adding to this list in the base image should be done with care.
     // Likely if the range of circuits grows, a separate docker tag will be required for builds
     // of Paladin that have a wider range of pre-built circuits included.
-    from fileTree('domains/zeto/zkp') {
+    def zetoCircuitIncludes = [
         // anon
-        include 'anon.zkey'
-        include 'anon-vkey.json'
-        include 'anon_js/anon.wasm'
-        include 'anon_batch.zkey'
-        include 'anon_batch-vkey.json'
-        include 'anon_batch_js/anon_batch.wasm'
+        'anon.zkey',
+        'anon-vkey.json',
+        'anon_js/anon.wasm',
+        'anon_batch.zkey',
+        'anon_batch-vkey.json',
+        'anon_batch_js/anon_batch.wasm',
         // anon_enc
-        include 'anon_enc.zkey'
-        include 'anon_enc-vkey.json'
-        include 'anon_enc_js/anon_enc.wasm'
-        include 'anon_enc_batch.zkey'
-        include 'anon_enc_batch-vkey.json'
-        include 'anon_enc_batch_js/anon_enc_batch.wasm'
+        'anon_enc.zkey',
+        'anon_enc-vkey.json',
+        'anon_enc_js/anon_enc.wasm',
+        'anon_enc_batch.zkey',
+        'anon_enc_batch-vkey.json',
+        'anon_enc_batch_js/anon_enc_batch.wasm',
         // anon_nullifier
-        include 'anon_nullifier_transfer.zkey'
-        include 'anon_nullifier_transfer-vkey.json'
-        include 'anon_nullifier_transfer_js/anon_nullifier_transfer.wasm'
-        include 'anon_nullifier_transfer_batch.zkey'
-        include 'anon_nullifier_transfer_batch-vkey.json'
-        include 'anon_nullifier_transfer_batch_js/anon_nullifier_transfer_batch.wasm'
+        'anon_nullifier_transfer.zkey',
+        'anon_nullifier_transfer-vkey.json',
+        'anon_nullifier_transfer_js/anon_nullifier_transfer.wasm',
+        'anon_nullifier_transfer_batch.zkey',
+        'anon_nullifier_transfer_batch-vkey.json',
+        'anon_nullifier_transfer_batch_js/anon_nullifier_transfer_batch.wasm',
         // anon_nullifier_kyc
-        include 'anon_nullifier_kyc_transfer.zkey'
-        include 'anon_nullifier_kyc_transfer-vkey.json'
-        include 'anon_nullifier_kyc_transfer_js/anon_nullifier_kyc_transfer.wasm'
-        include 'anon_nullifier_kyc_transfer_batch.zkey'
-        include 'anon_nullifier_kyc_transfer_batch-vkey.json'
-        include 'anon_nullifier_kyc_transfer_batch_js/anon_nullifier_kyc_transfer_batch.wasm'
+        'anon_nullifier_kyc_transfer.zkey',
+        'anon_nullifier_kyc_transfer-vkey.json',
+        'anon_nullifier_kyc_transfer_js/anon_nullifier_kyc_transfer.wasm',
+        'anon_nullifier_kyc_transfer_batch.zkey',
+        'anon_nullifier_kyc_transfer_batch-vkey.json',
+        'anon_nullifier_kyc_transfer_batch_js/anon_nullifier_kyc_transfer_batch.wasm',
         // deposit
-        include 'deposit.zkey'
-        include 'deposit-vkey.json'
-        include 'deposit_js/deposit.wasm'
+        'deposit.zkey',
+        'deposit-vkey.json',
+        'deposit_js/deposit.wasm',
         // withdraw
-        include 'withdraw.zkey'
-        include 'withdraw-vkey.json'
-        include 'withdraw_js/withdraw.wasm'
-        include 'withdraw_batch.zkey'
-        include 'withdraw_batch-vkey.json'
-        include 'withdraw_batch_js/withdraw_batch.wasm'
+        'withdraw.zkey',
+        'withdraw-vkey.json',
+        'withdraw_js/withdraw.wasm',
+        'withdraw_batch.zkey',
+        'withdraw_batch-vkey.json',
+        'withdraw_batch_js/withdraw_batch.wasm',
         // withdraw_nullifier
-        include 'withdraw_nullifier.zkey'
-        include 'withdraw_nullifier-vkey.json'
-        include 'withdraw_nullifier_js/withdraw_nullifier.wasm'
-        include 'withdraw_nullifier_batch.zkey'
-        include 'withdraw_nullifier_batch-vkey.json'
-        include 'withdraw_nullifier_batch_js/withdraw_nullifier_batch.wasm'
+        'withdraw_nullifier.zkey',
+        'withdraw_nullifier-vkey.json',
+        'withdraw_nullifier_js/withdraw_nullifier.wasm',
+        'withdraw_nullifier_batch.zkey',
+        'withdraw_nullifier_batch-vkey.json',
+        'withdraw_nullifier_batch_js/withdraw_nullifier_batch.wasm',
+    ]
+
+    // Every release generation is shipped, each under its own V<n>/ directory, because circuit names are NOT unique
+    // across upstream releases — the KYC family kept its names while the proving keys changed, so a flat layout would
+    // silently serve one generation's proving key to the other generation's pool. The prover reads
+    // <circuitsDir>/V<n>/... for the pool's generation (ZetoReleaseGeneration.ArtifactDirName()), so a node holding
+    // every V<n> directory can serve pools of every generation.
+    //
+    // Versions resolve lazily: the root script is configured before the :domains:zeto ext block exists.
+    from {
+        project(':domains:zeto').ext.zetoVersions.collect { variant ->
+            fileTree("domains/zeto/zkp/${variant.zkpRoot}") { include zetoCircuitIncludes }
+        }
     }
+
+    // A single lazy `from` keeps that laziness, so the generation prefix is applied per file on the way out by
+    // matching each source path back to the release tree it came from.
+    eachFile { details ->
+        def variant = project(':domains:zeto').ext.zetoVersions.find { v ->
+            details.file.absolutePath.contains("${File.separator}zkp${File.separator}${v.zkpRoot}${File.separator}")
+        }
+        if (variant == null) {
+            throw new GradleException("cannot map ${details.file} back to a zetoVersions release tree")
+        }
+        def segments = [project(':domains:zeto').ext.zetoGenerationDirName(variant.id)] + (details.relativePath.segments as List)
+        details.relativePath = new RelativePath(true, segments as String[])
+    }
+    includeEmptyDirs = false
+
     into zetoZkpDir
 
     outputs.upToDateWhen { false }
 
     doLast {
-        println "Copied zetoZkp files to ${zetoZkpDir}"
+        println "Copied zetoZkp files for all generations to ${zetoZkpDir}"
     }
 }
 

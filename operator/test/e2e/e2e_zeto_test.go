@@ -20,10 +20,12 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	_ "embed"
 
+	"github.com/google/uuid"
 	"github.com/hyperledger-firefly/signer/pkg/abi"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -42,15 +44,45 @@ import (
 //go:embed abis/zeto/Zeto_Anon.json
 var zetoAnonBuildJSON []byte
 
+// Pools here are deployed on the V1 transaction API against zeto-contracts v0.5.1 implementations, so this is the
+// generation carrying createLock/spendLock (V0's lock/transferLocked no longer exist). See ZetoFungibleABIVersion
+// and ZetoReleaseGeneration in domains/zeto/pkg/types/versions.go.
+var zetoFungibleABI = zetotypes.ZetoFungibleABIForVersion(zetotypes.ZetoFungibleABI_V1)
+
+// zetoLockInfoStateResult mirrors zetotypes.ZetoCoinState for the lock-info schema, which is where createLock
+// persists the lock id this suite needs for delegateLock / spendLock.
+type zetoLockInfoStateResult struct {
+	ID              pldtypes.HexUint256         `json:"id"`
+	ContractAddress pldtypes.EthAddress         `json:"contractAddress"`
+	Data            zetotypes.ZetoLockInfoState `json:"data"`
+}
+
+// zetoDelegateLockArgsABI matches IZetoLockableCapability.ZetoDelegateLockArgs — the ABI-encoded delegateArgs
+// argument of delegateLock(bytes32,bytes,address,bytes) on zeto-contracts ~v0.5.x.
+var zetoDelegateLockArgsABI = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct ZetoDelegateLockArgs",
+		Components: abi.ParameterArray{
+			{Name: "txId", Type: "bytes32"},
+		},
+	},
+}
+
 const tokenType = "Zeto_Anon"
 const isNullifier = false
 
 // const tokenType = "Zeto_AnonNullifier"
 // const isNullifier = true
 
+// The V1 axis is opted into at deploy: domainConfigSchema "v1" selects the prefixed on-chain config encoding, and
+// zetoVariant / factoryVersion record the Paladin API generation and the upstream release generation respectively.
 var zetoConstructorABI = &abi.Entry{
 	Type: abi.Constructor, Inputs: abi.ParameterArray{
 		{Name: "tokenName", Type: "string"},
+		{Name: "domainConfigSchema", Type: "string"},
+		{Name: "zetoVariant", Type: "uint256"},
+		{Name: "factoryVersion", Type: "uint256"},
 	},
 }
 
@@ -116,7 +148,10 @@ var _ = Describe(fmt.Sprintf("zeto - %s", tokenType), Ordered, func() {
 				Constructor().
 				From(operator).
 				Inputs(&zetotypes.InitializerParams{
-					TokenName: tokenType,
+					TokenName:          tokenType,
+					DomainConfigSchema: zetotypes.DomainConfigSchemaV1,
+					ZetoVariant:        zetotypes.ZetoFungibleABI_V1,
+					ReleaseGeneration:  zetotypes.ZetoRelease_V1,
 				}).
 				Send().
 				Wait(5 * time.Second)
@@ -126,8 +161,9 @@ var _ = Describe(fmt.Sprintf("zeto - %s", tokenType), Ordered, func() {
 			testLog("Zeto (%s) contract %s deployed by TX %s", tokenType, zetoContract, deploy.ID())
 		})
 
+		var zetoLockInfoSchemaID *pldtypes.Bytes32
 		var zetoCoinSchemaID *pldtypes.Bytes32
-		It("gets the coin schema", func() {
+		It("gets the coin and lock-info schemas", func() {
 			var schemas []*pldapi.Schema
 			err := rpc[paladinPrefix+"1"].CallRPC(ctx, &schemas, "pstate_listSchemas", "zeto")
 			Expect(err).To(BeNil())
@@ -135,8 +171,14 @@ var _ = Describe(fmt.Sprintf("zeto - %s", tokenType), Ordered, func() {
 				if s.Signature == "type=ZetoCoin(uint256 salt,bytes32 owner,uint256 amount,bool locked),labels=[owner,locked]" {
 					zetoCoinSchemaID = &s.ID
 				}
+				// Matched on the type prefix rather than the full signature: the lock-info schema carries a dozen
+				// components and pinning all of them here would break on any upstream field addition.
+				if strings.HasPrefix(s.Signature, "type=ZetoLockInfoState(") {
+					zetoLockInfoSchemaID = &s.ID
+				}
 			}
 			Expect(zetoCoinSchemaID).ToNot(BeNil())
+			Expect(zetoLockInfoSchemaID).ToNot(BeNil())
 		})
 
 		logWallet := func(identity, node string) {
@@ -162,7 +204,7 @@ var _ = Describe(fmt.Sprintf("zeto - %s", tokenType), Ordered, func() {
 		}
 
 		It("mints some zetos to bob on node1", func() {
-			txn := rpc[paladinPrefix+"1"].ForABI(ctx, zetotypes.ZetoFungibleABI).
+			txn := rpc[paladinPrefix+"1"].ForABI(ctx, zetoFungibleABI).
 				Private().
 				Domain("zeto").
 				Function("mint").
@@ -200,7 +242,7 @@ var _ = Describe(fmt.Sprintf("zeto - %s", tokenType), Ordered, func() {
 				with10Decimals(33), // 79
 				with10Decimals(66), // 13
 			} {
-				txn := rpc[paladinPrefix+"1"].ForABI(ctx, zetotypes.ZetoFungibleABI).
+				txn := rpc[paladinPrefix+"1"].ForABI(ctx, zetoFungibleABI).
 					Private().
 					Domain("zeto").
 					Function("transfer").
@@ -224,7 +266,7 @@ var _ = Describe(fmt.Sprintf("zeto - %s", tokenType), Ordered, func() {
 		})
 
 		It("sally on node2 sends some zetos to fred on node3", func() {
-			txn := rpc[paladinPrefix+"2"].ForABI(ctx, zetotypes.ZetoFungibleABI).
+			txn := rpc[paladinPrefix+"2"].ForABI(ctx, zetoFungibleABI).
 				Private().
 				Domain("zeto").
 				Function("transfer").
@@ -247,65 +289,107 @@ var _ = Describe(fmt.Sprintf("zeto - %s", tokenType), Ordered, func() {
 			testLog("done testing zeto in isolation")
 		})
 
-		It("Bob on node1 locks some zetos and designate sally as the delegate", func() {
+		It("Bob on node1 creates a lock, delegates it to sally, and sally spends it to fred", func() {
+			bobID := fmt.Sprintf("bob@%s1", paladinPrefix)
+			sallyID := fmt.Sprintf("sally@%s2", paladinPrefix)
+			fredID := fmt.Sprintf("fred@%s3", paladinPrefix)
 			sallyEthAddr := getEthAddress(ctx, rpc[paladinPrefix+"2"], "sally", paladinPrefix+"2")
+			// ABI only: MustLoadBuild rejects the v0.5.1 build as unlinked, since Zeto_Anon now links ZetoLockableLib.
+			zetoPoolABI := solutils.MustParseBuildABI(zetoAnonBuildJSON)
 
-			txn := rpc[paladinPrefix+"1"].ForABI(ctx, zetotypes.ZetoFungibleABI).
+			// V1 pins the spend recipient when the lock is created, not when it is spent — that is what lets the
+			// delegate's spendLock be authorised ahead of time. Prepare rather than Send so this test submits the
+			// public leg itself and therefore knows the msg.sender, which becomes the lock's spender.
+			createLock := rpc[paladinPrefix+"1"].ForABI(ctx, zetoFungibleABI).
 				Private().
 				Domain("zeto").
-				Function("lock").
+				Function("createLock").
 				To(zetoContract).
-				From(fmt.Sprintf("bob@%s1", paladinPrefix)).
-				Inputs(&zetotypes.LockParams{
-					Amount:   with10Decimals(10),
-					Delegate: &sallyEthAddr,
-				}).
-				Send().
-				Wait(5 * time.Second)
-			testLog("Zeto lock transaction %s", txn.ID())
-			Expect(txn.Error()).To(BeNil())
-			logWallet("bob", paladinPrefix+"1")
-
-			var coins []*zetotypes.ZetoCoinState
-			err := rpc[paladinPrefix+"1"].CallRPC(ctx, &coins, "pstate_queryContractStates", "zeto", zetoContract, zetoCoinSchemaID,
-				query.NewQueryBuilder().Equal("locked", true).Limit(1).Query(),
-				"confirmed")
-			Expect(err).To(BeNil())
-			Expect(coins).To(HaveLen(1))
-
-			// Bob must generate a proof for Sally to use to perform the transfer
-			result := rpc[paladinPrefix+"1"].ForABI(ctx, zetotypes.ZetoFungibleABI).
-				Private().
-				Domain("zeto").
-				Function("transferLocked").
-				To(zetoContract).
-				From(fmt.Sprintf("bob@%s1", paladinPrefix)).
-				Inputs(&zetotypes.FungibleTransferLockedParams{
-					LockedInputs: []*pldtypes.HexUint256{&coins[0].ID},
-					Delegate:     fmt.Sprintf("sally@%s2", paladinPrefix),
-					Transfers: []*zetotypes.FungibleTransferParamEntry{
-						{
-							To:     fmt.Sprintf("fred@%s3", paladinPrefix),
-							Amount: with10Decimals(10),
-						},
+				From(bobID).
+				Inputs(&zetotypes.CreateLockParams{
+					From: bobID,
+					Recipients: []*zetotypes.FungibleTransferParamEntry{
+						{To: fredID, Amount: with10Decimals(10)},
 					},
+					UnlockData: pldtypes.HexBytes{},
+					Data:       pldtypes.HexBytes{},
 				}).
 				Prepare().
 				Wait(5 * time.Second)
-			Expect(result.Error()).To(BeNil())
+			Expect(createLock.Error()).To(BeNil())
 
-			// Sally as the delegate can use the proof to transfer the locked funds
-			zetoAnonSpec := solutils.MustLoadBuild(zetoAnonBuildJSON)
-			result1 := rpc[paladinPrefix+"2"].ForABI(ctx, zetoAnonSpec.ABI).
+			createLockPublic := rpc[paladinPrefix+"1"].ForABI(ctx, zetoPoolABI).
 				Public().
-				Function("transferLocked").
+				Function("createLock").
 				To(zetoContract).
-				From(fmt.Sprintf("sally@%s2", paladinPrefix)).
-				Inputs(result.PreparedTransaction().Transaction.Data).
+				From(bobID).
+				Inputs(createLock.PreparedTransaction().Transaction.Data).
 				Send().
 				Wait(5 * time.Second)
-			Expect(result1.Error()).To(BeNil())
-			testLog("Zeto transferLocked transaction %s", txn.ID())
+			Expect(createLockPublic.Error()).To(BeNil())
+			testLog("Zeto createLock transaction %s", createLockPublic.ID())
+			logWallet("bob", paladinPrefix+"1")
+
+			// The lock id is carried on the persisted lock-info state, which is the only place it is available
+			// over plain RPC (the domain also emits it on ZetoLockCreated).
+			var lockInfos []*zetoLockInfoStateResult
+			Eventually(func() int {
+				err := rpc[paladinPrefix+"1"].CallRPC(ctx, &lockInfos, "pstate_queryContractStates", "zeto", zetoContract,
+					zetoLockInfoSchemaID, query.NewQueryBuilder().Limit(1).Query(), "all")
+				Expect(err).To(BeNil())
+				return len(lockInfos)
+			}, "20s", "1s").Should(Equal(1))
+			lockID := lockInfos[0].Data.LockID
+			Expect(lockID.IsZero()).To(BeFalse())
+			testLog("Zeto lock %s created (spender %s)", lockID, lockInfos[0].Data.Spender)
+
+			// Hand the lock to sally so she — not bob — can spend it. Only the current spender may delegate.
+			delegateArgs, err := zetoDelegateLockArgsABI.EncodeABIDataJSONCtx(ctx, []byte(fmt.Sprintf(
+				`[{"txId":"%s"}]`, pldtypes.Bytes32UUIDFirst16(uuid.New()).HexString0xPrefix())))
+			Expect(err).To(BeNil())
+			delegate := rpc[paladinPrefix+"1"].ForABI(ctx, zetoPoolABI).
+				Public().
+				Function("delegateLock").
+				To(zetoContract).
+				From(bobID).
+				Inputs(map[string]any{
+					"lockId":       lockID.HexString0xPrefix(),
+					"delegateArgs": pldtypes.HexBytes(delegateArgs).HexString0xPrefix(),
+					"newSpender":   sallyEthAddr.String(),
+					"data":         "0x",
+				}).
+				Send().
+				Wait(5 * time.Second)
+			Expect(delegate.Error()).To(BeNil())
+			testLog("Zeto delegateLock transaction %s", delegate.ID())
+
+			// Bob owns the locked value so he generates the proof; sally submits it as the delegate.
+			spend := rpc[paladinPrefix+"1"].ForABI(ctx, zetoFungibleABI).
+				Private().
+				Domain("zeto").
+				Function("spendLock").
+				To(zetoContract).
+				From(bobID).
+				Inputs(&zetotypes.SpendLockParams{
+					LockId: lockID,
+					From:   bobID,
+					Data:   pldtypes.HexBytes{},
+				}).
+				Prepare().
+				Wait(5 * time.Second)
+			Expect(spend.Error()).To(BeNil())
+
+			spendPublic := rpc[paladinPrefix+"2"].ForABI(ctx, zetoPoolABI).
+				Public().
+				Function("spendLock").
+				To(zetoContract).
+				From(sallyID).
+				Inputs(spend.PreparedTransaction().Transaction.Data).
+				Send().
+				Wait(5 * time.Second)
+			Expect(spendPublic.Error()).To(BeNil())
+			testLog("Zeto spendLock transaction %s", spendPublic.ID())
+			logWallet("fred", paladinPrefix+"3")
 		})
 	})
 })

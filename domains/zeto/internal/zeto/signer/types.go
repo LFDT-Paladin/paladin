@@ -39,4 +39,6 @@ var _ witnessInputs = &witness.FungibleEncWitnessInputs{}
 
 var _ witnessInputs = &witness.FungibleNullifierWitnessInputs{}
 
+var _ witnessInputs = &witness.FungibleLockKycWitnessInputs{}
+
 var _ witnessInputs = &witness.NonFungibleWitnessInputs{}

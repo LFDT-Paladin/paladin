@@ -237,3 +237,24 @@ func TestDetailedEncoderConfig(t *testing.T) {
 	assert.Contains(t, out, "detailed")
 	assert.Contains(t, out, "file.go:42")
 }
+
+// OpenNamespace is part of zapcore.ObjectEncoder, so the simple encoder has to implement it even though Paladin
+// never uses zap namespaces. Assert it stays a no-op: a namespace must not leak into the encoded line or the fields.
+func TestSimpleEncoderOpenNamespaceIsNoOp(t *testing.T) {
+	enc := newSimpleEncoder(defaultTimestampFormat, false)
+	enc.AddString("before", "1")
+	enc.OpenNamespace("ns")
+	enc.AddString("after", "2")
+
+	buf, err := enc.EncodeEntry(zapcore.Entry{
+		Level:   zapcore.InfoLevel,
+		Time:    time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC),
+		Message: "namespaced",
+	}, nil)
+	require.NoError(t, err)
+	line := buf.String()
+	assert.Contains(t, line, "namespaced")
+	assert.Contains(t, line, "before=1")
+	assert.Contains(t, line, "after=2")
+	assert.NotContains(t, line, "ns")
+}
