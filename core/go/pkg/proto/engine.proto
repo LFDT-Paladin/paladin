@@ -143,8 +143,7 @@ message DelegationRejection {
 }
 
 message CoordinatorHandoverRequest {
-    string from_node = 1;
-    string contract_address = 2;
+    string contract_address = 1;
 }
 
 message AssembleRequest {
@@ -267,9 +266,8 @@ message PreDispatchRejection {
 }
 
 message CoordinatorHeartbeatNotification {
-    string from = 1;
-    string contract_address = 2; // Represent as hex address?
-    CoordinatorSnapshot coordinator_snapshot = 3;
+    string contract_address = 1; // Represent as hex address?
+    CoordinatorSnapshot coordinator_snapshot = 2;
 }
 
 // The snapshot transaction types are flattened (no embedding) — each carries the transaction id plus

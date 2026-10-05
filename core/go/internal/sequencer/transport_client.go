@@ -566,12 +566,6 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 		return
 	}
 
-	from := heartbeatNotification.From
-	if from == "" {
-		sMgr.logPaladinMessageFieldMissingError(ctx, message, "From")
-		return
-	}
-
 	contractAddress := sMgr.parseContractAddressString(ctx, heartbeatNotification.ContractAddress, message)
 	if contractAddress == nil {
 		return
@@ -590,7 +584,7 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 	}
 
 	heartbeatEvent := &common.HeartbeatReceivedEvent{}
-	heartbeatEvent.FromNode = from
+	heartbeatEvent.FromNode = message.FromNode
 	heartbeatEvent.ContractAddress = contractAddress
 	heartbeatEvent.CoordinatorSnapshot = coordinatorSnapshot
 	heartbeatEvent.EventTime = time.Now()
@@ -881,7 +875,7 @@ func (sMgr *sequencerManager) handleHandoverRequest(ctx context.Context, message
 	}
 
 	handoverEvent := &coordinator.HandoverRequestEvent{}
-	handoverEvent.FromNode = handoverRequest.FromNode
+	handoverEvent.FromNode = message.FromNode
 	handoverEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, handoverEvent)
 }

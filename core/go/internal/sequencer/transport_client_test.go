@@ -26,6 +26,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator"
 	coordTransaction "github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator"
@@ -647,7 +648,7 @@ func TestHandleTransactionSubmitted_Success(t *testing.T) {
 }
 
 func TestHandleTransactionConfirmed_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -682,7 +683,7 @@ func TestHandleTransactionConfirmed_Success(t *testing.T) {
 }
 
 func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -819,38 +820,13 @@ func TestParseContractAddressString_Invalid(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-func TestHandleCoordinatorHeartbeatNotification_MissingFrom(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-
-	heartbeatNotification := &engineProto.CoordinatorHeartbeatNotification{
-		From:                "", // Missing From field
-		ContractAddress:     contractAddr.String(),
-		CoordinatorSnapshot: &engineProto.CoordinatorSnapshot{},
-	}
-	payload, _ := proto.Marshal(heartbeatNotification)
-
-	message := &components.ReceivedMessage{
-		FromNode:    "test-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_CoordinatorHeartbeatNotification,
-		Payload:     payload,
-	}
-
-	// Should not panic and should return early
-	sm.handleCoordinatorHeartbeatNotification(ctx, message)
-}
-
 func TestHandleCoordinatorHeartbeatNotification_SequencerNotLoaded(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
 
 	heartbeatNotification := &engineProto.CoordinatorHeartbeatNotification{
-		From:                "coordinator@node2",
 		ContractAddress:     contractAddr.String(),
 		CoordinatorSnapshot: &engineProto.CoordinatorSnapshot{},
 	}
@@ -1881,14 +1857,13 @@ func TestHandleDelegationRejection_Success(t *testing.T) {
 }
 
 func TestHandleHandoverRequest_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
 
 	handover := &engineProto.CoordinatorHandoverRequest{
 		ContractAddress: contractAddr.String(),
-		FromNode:        "coord@node2",
 	}
 	payload, err := proto.Marshal(handover)
 	require.NoError(t, err)
@@ -1898,7 +1873,7 @@ func TestHandleHandoverRequest_Success(t *testing.T) {
 	done := make(chan struct{})
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordinator.HandoverRequestEvent)
-		if ok && event.FromNode == "coord@node2" {
+		if ok && event.FromNode == "other-node" {
 			close(done)
 		}
 		return ok
@@ -2003,14 +1978,13 @@ func TestHandlePreDispatchRejection_InvalidTransactionID(t *testing.T) {
 }
 
 func TestHandleCoordinatorHeartbeatNotification_UnparseableSnapshot(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
 
 	// A snapshot carrying a malformed transaction UUID must be dropped by CoordinatorSnapshotFromProto.
 	heartbeatNotification := &engineProto.CoordinatorHeartbeatNotification{
-		From:            "coord@node2",
 		ContractAddress: contractAddr.String(),
 		CoordinatorSnapshot: &engineProto.CoordinatorSnapshot{
 			PooledTransactions: []*engineProto.SnapshotPooledTransaction{{Id: "not-a-uuid"}},
@@ -2120,7 +2094,7 @@ func TestHandlePaladinMsg_RoutesDelegationRejection(t *testing.T) {
 }
 
 func TestHandlePaladinMsg_RoutesHandoverRequest(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -2129,14 +2103,14 @@ func TestHandlePaladinMsg_RoutesHandoverRequest(t *testing.T) {
 	sm.sequencers[contractAddr.String()] = seq
 
 	payload, err := proto.Marshal(&engineProto.CoordinatorHandoverRequest{
-		ContractAddress: contractAddr.String(), FromNode: "coord@node2",
+		ContractAddress: contractAddr.String(),
 	})
 	require.NoError(t, err)
 
 	done := make(chan struct{})
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordinator.HandoverRequestEvent)
-		if ok && event.FromNode == "coord@node2" {
+		if ok && event.FromNode == "other-node" {
 			close(done)
 		}
 		return ok
@@ -2295,12 +2269,12 @@ func TestHandlePreDispatchRejection_InvalidRequestID(t *testing.T) {
 }
 
 func TestHandleCoordinatorHeartbeatNotification_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
 	payload, _ := proto.Marshal(&engineProto.CoordinatorHeartbeatNotification{
-		From: contractAddr.String(), ContractAddress: contractAddr.String(), CoordinatorSnapshot: &engineProto.CoordinatorSnapshot{},
+		ContractAddress: contractAddr.String(), CoordinatorSnapshot: &engineProto.CoordinatorSnapshot{},
 	})
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
@@ -2308,10 +2282,13 @@ func TestHandleCoordinatorHeartbeatNotification_Success(t *testing.T) {
 	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
 	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
-	mocks.originator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
+	fromCoordinatorNode := mock.MatchedBy(func(e *common.HeartbeatReceivedEvent) bool {
+		return e.FromNode == "coordinator-node"
+	})
+	mocks.originator.EXPECT().QueueEvent(ctx, fromCoordinatorNode).Once()
+	mocks.coordinator.EXPECT().QueueEvent(ctx, fromCoordinatorNode).Once()
 	sm.handleCoordinatorHeartbeatNotification(ctx, &components.ReceivedMessage{
-		MessageType: transport.MessageType_CoordinatorHeartbeatNotification, Payload: payload,
+		FromNode: "coordinator-node", MessageType: transport.MessageType_CoordinatorHeartbeatNotification, Payload: payload,
 	})
 }
 
@@ -2403,10 +2380,10 @@ func TestHandleAssembleRejection_InvalidContractAddress(t *testing.T) {
 }
 
 func TestHandleCoordinatorHeartbeatNotification_InvalidContractAddress(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	payload, _ := proto.Marshal(&engineProto.CoordinatorHeartbeatNotification{From: "node@test", ContractAddress: "invalid", CoordinatorSnapshot: &engineProto.CoordinatorSnapshot{}})
+	payload, _ := proto.Marshal(&engineProto.CoordinatorHeartbeatNotification{ContractAddress: "invalid", CoordinatorSnapshot: &engineProto.CoordinatorSnapshot{}})
 	sm.handleCoordinatorHeartbeatNotification(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_CoordinatorHeartbeatNotification, Payload: payload})
 }
 
@@ -2564,10 +2541,10 @@ func TestHandleDelegationRejection_SequencerNotLoaded(t *testing.T) {
 }
 
 func TestHandleHandoverRequest_InvalidContractAddress(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	payload, _ := proto.Marshal(&engineProto.CoordinatorHandoverRequest{ContractAddress: "invalid", FromNode: "n"})
+	payload, _ := proto.Marshal(&engineProto.CoordinatorHandoverRequest{ContractAddress: "invalid"})
 	sm.handleHandoverRequest(ctx, &components.ReceivedMessage{MessageType: transport.MessageType_HandoverRequest, Payload: payload})
 }
 

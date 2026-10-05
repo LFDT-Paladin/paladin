@@ -411,9 +411,8 @@ func testTransactionConfirmedMsg(txID uuid.UUID, contractAddress *pldtypes.EthAd
 	return msg
 }
 
-func testHeartbeatMsg(from string, contractAddress *pldtypes.EthAddress, coordinatorSnapshot *engineProto.CoordinatorSnapshot) (*engineProto.CoordinatorHeartbeatNotification, error) {
+func testHeartbeatMsg(contractAddress *pldtypes.EthAddress, coordinatorSnapshot *engineProto.CoordinatorSnapshot) (*engineProto.CoordinatorHeartbeatNotification, error) {
 	return &engineProto.CoordinatorHeartbeatNotification{
-		From:                from,
 		ContractAddress:     contractAddress.HexString(),
 		CoordinatorSnapshot: coordinatorSnapshot,
 	}, nil
@@ -1045,7 +1044,6 @@ func TestSendHandoverRequest_Success(t *testing.T) {
 	}
 
 	err := tw.SendHandoverRequest(ctx, targetNode, &engineProto.CoordinatorHandoverRequest{
-		FromNode:        "local-node",
 		ContractAddress: contractAddress.String(),
 	})
 	require.NoError(t, err)
@@ -2683,9 +2681,6 @@ func TestSendHeartbeat_Success(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		if heartbeat.From != "local-node" {
-			return false
-		}
 		if heartbeat.ContractAddress != contractAddress.HexString() {
 			return false
 		}
@@ -2710,7 +2705,7 @@ func TestSendHeartbeat_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	heartbeatMsg, err := testHeartbeatMsg("local-node", contractAddress, coordinatorSnapshot)
+	heartbeatMsg, err := testHeartbeatMsg(contractAddress, coordinatorSnapshot)
 	require.NoError(t, err)
 	err = tw.SendHeartbeat(ctx, targetNode, heartbeatMsg)
 	require.NoError(t, err)
@@ -2737,7 +2732,7 @@ func TestSendHeartbeat_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	heartbeatMsg, err := testHeartbeatMsg("local-node", contractAddress, coordinatorSnapshot)
+	heartbeatMsg, err := testHeartbeatMsg(contractAddress, coordinatorSnapshot)
 	require.NoError(t, err)
 	err = tw.SendHeartbeat(ctx, targetNode, heartbeatMsg)
 	require.NoError(t, err)
@@ -2766,7 +2761,7 @@ func TestSendHeartbeat_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	heartbeatMsg, err := testHeartbeatMsg("local-node", contractAddress, coordinatorSnapshot)
+	heartbeatMsg, err := testHeartbeatMsg(contractAddress, coordinatorSnapshot)
 	require.NoError(t, err)
 	err = tw.SendHeartbeat(ctx, targetNode, heartbeatMsg)
 	require.NoError(t, err)
@@ -2780,7 +2775,6 @@ func TestSendHeartbeat_Loopback(t *testing.T) {
 		var heartbeat engineProto.CoordinatorHeartbeatNotification
 		err := proto.Unmarshal(msg.Payload, &heartbeat)
 		require.NoError(t, err)
-		assert.Equal(t, "local-node", heartbeat.From)
 		assert.Equal(t, contractAddress.HexString(), heartbeat.ContractAddress)
 	default:
 		t.Fatal("Expected message in loopback queue")
