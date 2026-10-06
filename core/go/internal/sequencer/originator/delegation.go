@@ -153,7 +153,6 @@ func sendDelegationRequest(ctx context.Context, o *originator, full bool) error 
 	delegations := make([]*engineProto.PrivateTransactionDelegation, 0, len(transactionsToDelegate))
 	for _, tx := range transactionsToDelegate {
 		delegations = append(delegations, &engineProto.PrivateTransactionDelegation{
-			Id:          tx.ID.String(),
 			Domain:      tx.Domain,
 			Intent:      tx.Intent,
 			PreAssembly: tx.PreAssembly,

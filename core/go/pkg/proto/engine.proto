@@ -70,20 +70,19 @@ enum RejectionReason {
 message EndorsementRequest {
     io.kaleido.paladin.toolkit.AttestationRequest attestation_request = 1;
     string idempotency_key = 2;
-    string transaction_id = 3;
-    string contract_address = 4;
-    string party = 5;
-    io.kaleido.paladin.toolkit.TransactionSpecification transaction_specification = 6;
-    repeated io.kaleido.paladin.toolkit.ResolvedVerifier verifiers = 7;
-    repeated io.kaleido.paladin.toolkit.AttestationResult signatures = 8;
-    repeated io.kaleido.paladin.toolkit.EndorsableState inputStates = 9;
-    repeated io.kaleido.paladin.toolkit.EndorsableState readStates = 10;
-    repeated io.kaleido.paladin.toolkit.EndorsableState outputStates = 11;
-    repeated io.kaleido.paladin.toolkit.EndorsableState infoStates = 12;
-    int64 expiry_time_unix_ms = 13;
-    int64 coordinator_block_height = 14;
-    int64 block_height_tolerance = 15;
-    io.kaleido.paladin.toolkit.BlockContext block_context = 16;
+    string contract_address = 3;
+    string party = 4;
+    io.kaleido.paladin.toolkit.TransactionSpecification transaction_specification = 5;
+    repeated io.kaleido.paladin.toolkit.ResolvedVerifier verifiers = 6;
+    repeated io.kaleido.paladin.toolkit.AttestationResult signatures = 7;
+    repeated io.kaleido.paladin.toolkit.EndorsableState inputStates = 8;
+    repeated io.kaleido.paladin.toolkit.EndorsableState readStates = 9;
+    repeated io.kaleido.paladin.toolkit.EndorsableState outputStates = 10;
+    repeated io.kaleido.paladin.toolkit.EndorsableState infoStates = 11;
+    int64 expiry_time_unix_ms = 12;
+    int64 coordinator_block_height = 13;
+    int64 block_height_tolerance = 14;
+    io.kaleido.paladin.toolkit.BlockContext block_context = 15;
 }
 
 message EndorsementResponse {
@@ -119,10 +118,9 @@ message DelegationRequest {
 // PrivateTransactionDelegation is the minimal wire descriptor sent when an originator
 // delegates a transaction to a coordinator
 message PrivateTransactionDelegation {
-    string id = 1;
-    string domain = 2;
-    io.kaleido.paladin.toolkit.TransactionSpecification.Intent intent = 3;
-    io.kaleido.paladin.toolkit.TransactionPreAssembly pre_assembly = 4;
+    string domain = 1;
+    io.kaleido.paladin.toolkit.TransactionSpecification.Intent intent = 2;
+    io.kaleido.paladin.toolkit.TransactionPreAssembly pre_assembly = 3;
 }
 
 message DelegationResponse {
@@ -145,8 +143,7 @@ message DelegationRejection {
 }
 
 message CoordinatorHandoverRequest {
-    string from_node = 1;
-    string contract_address = 2;
+    string contract_address = 1;
 }
 
 message AssembleRequest {
@@ -269,9 +266,8 @@ message PreDispatchRejection {
 }
 
 message CoordinatorHeartbeatNotification {
-    string from = 1;
-    string contract_address = 2; // Represent as hex address?
-    CoordinatorSnapshot coordinator_snapshot = 3;
+    string contract_address = 1; // Represent as hex address?
+    CoordinatorSnapshot coordinator_snapshot = 2;
 }
 
 // The snapshot transaction types are flattened (no embedding) — each carries the transaction id plus
