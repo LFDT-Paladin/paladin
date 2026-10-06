@@ -15,6 +15,19 @@ Work in progress...
 | `testing`          | Mock client, WireMock stubs, Testcontainers      |
 | `integration-test` | End-to-end tests against a real Paladin node     |
 
+## Waiting for transaction receipts
+
+`TxBuilder.send()` returns a `SentTransaction` immediately. Calling `waitForReceipt()`
+queries immediately, then waits 100, 200, 400, and 800 milliseconds between unsuccessful
+queries before settling at one second. This reduces detection delay for fast transactions
+while limiting the extra queries for long-running transactions. Setting
+`pollingInterval(Duration)` explicitly selects a fixed interval instead.
+
+The receipt timeout starts after submission returns the transaction ID and also applies
+while a receipt RPC is pending. Cancelling the wait stops further polling. It does not
+cancel submission or the transaction on the node, and an already-issued receipt RPC may
+still finish. Each call to `waitForReceipt()` has an independent timeout and cancellation.
+
 ## Building
 
 ```bash
