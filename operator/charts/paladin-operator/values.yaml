@@ -164,6 +164,8 @@ smartContractDeployments:
     from: ""
   zetoG16WithdrawNullifierBatch:
     from: ""
+  zetoG16NfAnon:
+    from: ""
   zetoPoseidonUnit2l:
     from: ""
   zetoPoseidonUnit3l:
@@ -177,6 +179,8 @@ smartContractDeployments:
   zetoImplAnonNullifier:
     from: ""
   zetoImplAnonNullifierKyc:
+    from: ""
+  zetoImplNfAnon:
     from: ""
   zetoFactory:
     from: ""
@@ -198,6 +202,8 @@ transactionInvokes:
   zetoAnonNullifier:
     from: ""
   zetoAnonNullifierKyc:
+    from: ""
+  zetoNfAnon:
     from: ""
 
     

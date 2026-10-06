@@ -37,6 +37,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/crypto"
+	"github.com/iden3/go-iden3-crypto/babyjub"
 	"github.com/iden3/go-iden3-crypto/poseidon"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -521,6 +522,9 @@ func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	z.dataSchema = &pb.StateSchema{
 		Id: "data",
 	}
+	z.nftSchema = &pb.StateSchema{
+		Id: "nft",
+	}
 	z.events.mint = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
 	z.events.burn = "event UTXOBurn(uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
 	z.events.transfer = "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)"
@@ -821,6 +825,49 @@ func TestValidateStateHashesDataState(t *testing.T) {
 	res, err = z.ValidateStateHashes(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res.StateIds, 1)
+}
+
+func TestValidateStateHashesNFTState(t *testing.T) {
+	z, _ := newTestZeto()
+	ctx := t.Context()
+
+	req := &pb.ValidateStateHashesRequest{
+		States: []*pb.EndorsableState{
+			{
+				SchemaId:      z.NFTSchemaID(),
+				StateDataJson: "bad json",
+			},
+		},
+	}
+	_, err := z.ValidateStateHashes(ctx, req)
+	assert.ErrorContains(t, err, "PD210087")
+
+	privateKey := babyjub.NewRandPrivKey()
+	token := types.NewZetoNFToken((*pldtypes.HexUint256)(big.NewInt(456)), "https://example.com", privateKey.Public(), big.NewInt(123))
+	tokenJSON, err := json.Marshal(token)
+	require.NoError(t, err)
+	hash, err := token.Hash(ctx)
+	require.NoError(t, err)
+	expectedID := zetocommon.HexUint256To32ByteHexString(hash)
+
+	req.States[0].StateDataJson = string(tokenJSON)
+	res, err := z.ValidateStateHashes(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, []string{expectedID}, res.StateIds)
+
+	req.States[0].Id = "0x1234"
+	_, err = z.ValidateStateHashes(ctx, req)
+	assert.ErrorContains(t, err, "PD210086")
+
+	req.States[0].Id = "0x" + expectedID
+	res, err = z.ValidateStateHashes(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"0x" + expectedID}, res.StateIds)
+
+	req.States[0].Id = ""
+	req.States[0].StateDataJson = `{"tokenID":"0x01"}`
+	_, err = z.ValidateStateHashes(ctx, req)
+	assert.ErrorContains(t, err, "PD210112")
 }
 
 func TestGetHandler(t *testing.T) {

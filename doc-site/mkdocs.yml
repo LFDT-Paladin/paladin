@@ -136,6 +136,7 @@ nav:
     - Private Smart Contract: tutorials/private-storage.md
     - Notarized Tokens: tutorials/notarized-tokens.md
     - Wholesale CBDC: tutorials/zkp-cbdc.md
+    - Non-Fungible Tokens: tutorials/zkp-nft.md
     - Private Stablecoin with KYC: tutorials/private-stablecoin.md
     - Atomic Swap: tutorials/atomic-swap.md
     - Bond Issuance: tutorials/bond-issuance.md
