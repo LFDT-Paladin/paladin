@@ -28,7 +28,7 @@ PALADIN_SDK_VERSION=${PALADIN_SDK_VERSION:-""} # download the paladin SDK from n
 PALADIN_ABI_VERSION=${PALADIN_ABI_VERSION:-""} # download the paladin solidity contracts from npm (default is latest)   
 ZETO_ABI_VERSION=${ZETO_ABI_VERSION:-"v0.2.0"} # download the zeto solidity contracts from npm (default is v0.2.0)
 
-IGNORE_EXAMPLES=${IGNORE_EXAMPLES:-""} # ignore examples (; separated list of example names)
+IGNORE_EXAMPLES=${IGNORE_EXAMPLES:-""} # ignore examples (, separated list of example names)
 
 # Command line arguments for cache directory
 BASE_CACHE_DIR=${1:-""} # first argument: base cache directory
@@ -302,7 +302,7 @@ main() {
         if [ -f "$examples_dir/package.json" ]; then
             # ignore examples if IGNORE_EXAMPLES is set
             if [ "$IGNORE_EXAMPLES" != "" ]; then
-                if [[ "$IGNORE_EXAMPLES" == *$example_name* ]]; then
+                if [[ ",$IGNORE_EXAMPLES," == *",$example_name,"* ]]; then
                     print_status "Skipping example $example_name (IGNORE_EXAMPLES)"
                     skipped_examples+=("$example_name")
                     continue
