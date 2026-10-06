@@ -19,7 +19,7 @@
 <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
 <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".d2", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".d2", ".mermaid", ".zoomable-image"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
 <body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
 <input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
 <input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
@@ -1032,6 +1032,18 @@
     
   
     Wholesale CBDC
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/zkp-nft/">
+<span class="md-ellipsis">
+    
+  
+    Non-Fungible Tokens
   
 
     
@@ -2401,15 +2413,18 @@
 <a href="#__codelineno-5-15" id="__codelineno-5-15" name="__codelineno-5-15"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_g16_withdraw_nullifier_batch.yaml
 <a href="#__codelineno-5-16" id="__codelineno-5-16" name="__codelineno-5-16"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_g16_withdraw_nullifier.yaml
 <a href="#__codelineno-5-17" id="__codelineno-5-17" name="__codelineno-5-17"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_g16_withdraw.yaml
-<a href="#__codelineno-5-18" id="__codelineno-5-18" name="__codelineno-5-18"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_impl_anon_enc.yaml
-<a href="#__codelineno-5-19" id="__codelineno-5-19" name="__codelineno-5-19"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_impl_anon_nullifier.yaml
-<a href="#__codelineno-5-20" id="__codelineno-5-20" name="__codelineno-5-20"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_impl_anon.yaml
-<a href="#__codelineno-5-21" id="__codelineno-5-21" name="__codelineno-5-21"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_poseidon_unit2l.yaml
-<a href="#__codelineno-5-22" id="__codelineno-5-22" name="__codelineno-5-22"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_poseidon_unit3l.yaml
-<a href="#__codelineno-5-23" id="__codelineno-5-23" name="__codelineno-5-23"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_smt_lib.yaml
-<a href="#__codelineno-5-24" id="__codelineno-5-24" name="__codelineno-5-24"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_transactioninvoke_zeto_register_anon_enc.yaml
-<a href="#__codelineno-5-25" id="__codelineno-5-25" name="__codelineno-5-25"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_transactioninvoke_zeto_register_anon_nullifier.yaml
-<a href="#__codelineno-5-26" id="__codelineno-5-26" name="__codelineno-5-26"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_transactioninvoke_zeto_register_anon.yaml
+<a href="#__codelineno-5-18" id="__codelineno-5-18" name="__codelineno-5-18"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_g16_nf_anon.yaml
+<a href="#__codelineno-5-19" id="__codelineno-5-19" name="__codelineno-5-19"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_impl_anon_enc.yaml
+<a href="#__codelineno-5-20" id="__codelineno-5-20" name="__codelineno-5-20"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_impl_anon_nullifier.yaml
+<a href="#__codelineno-5-21" id="__codelineno-5-21" name="__codelineno-5-21"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_impl_anon.yaml
+<a href="#__codelineno-5-22" id="__codelineno-5-22" name="__codelineno-5-22"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_impl_nf_anon.yaml
+<a href="#__codelineno-5-23" id="__codelineno-5-23" name="__codelineno-5-23"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_poseidon_unit2l.yaml
+<a href="#__codelineno-5-24" id="__codelineno-5-24" name="__codelineno-5-24"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_poseidon_unit3l.yaml
+<a href="#__codelineno-5-25" id="__codelineno-5-25" name="__codelineno-5-25"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_smartcontractdeployment_zeto_smt_lib.yaml
+<a href="#__codelineno-5-26" id="__codelineno-5-26" name="__codelineno-5-26"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_transactioninvoke_zeto_register_anon_enc.yaml
+<a href="#__codelineno-5-27" id="__codelineno-5-27" name="__codelineno-5-27"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_transactioninvoke_zeto_register_anon_nullifier.yaml
+<a href="#__codelineno-5-28" id="__codelineno-5-28" name="__codelineno-5-28"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_transactioninvoke_zeto_register_anon.yaml
+<a href="#__codelineno-5-29" id="__codelineno-5-29" name="__codelineno-5-29"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>paladin<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>core_v1alpha1_transactioninvoke_zeto_register_nf_anon.yaml
 </code></pre></div>
 <p><strong>Note:</strong> Smart contracts won't be fully deployed until Step 7.</p>
 <h2 id="step-5-create-an-evm-registry">Step 5: Create an EVM Registry<a class="headerlink" href="#step-5-create-an-evm-registry" title="Permanent link">¶</a></h2>
@@ -2535,18 +2550,35 @@
 <a href="#__codelineno-9-66" id="__codelineno-9-66" name="__codelineno-9-66"></a><span class="w">                </span><span class="no">"usesNullifiers": true</span>
 <a href="#__codelineno-9-67" id="__codelineno-9-67" name="__codelineno-9-67"></a><span class="w">              </span><span class="no">}</span>
 <a href="#__codelineno-9-68" id="__codelineno-9-68" name="__codelineno-9-68"></a><span class="w">            </span><span class="no">}</span>
-<a href="#__codelineno-9-69" id="__codelineno-9-69" name="__codelineno-9-69"></a><span class="w">          </span><span class="no">}</span>
-<a href="#__codelineno-9-70" id="__codelineno-9-70" name="__codelineno-9-70"></a><span class="w">        </span><span class="no">]</span>
-<a href="#__codelineno-9-71" id="__codelineno-9-71" name="__codelineno-9-71"></a><span class="w">      </span><span class="no">},</span>
-<a href="#__codelineno-9-72" id="__codelineno-9-72" name="__codelineno-9-72"></a><span class="w">      </span><span class="no">"snarkProver": {</span>
-<a href="#__codelineno-9-73" id="__codelineno-9-73" name="__codelineno-9-73"></a><span class="w">        </span><span class="no">"circuitsDir": "/app/domains/zeto/zkp",</span>
-<a href="#__codelineno-9-74" id="__codelineno-9-74" name="__codelineno-9-74"></a><span class="w">        </span><span class="no">"provingKeysDir": "/app/domains/zeto/zkp"</span>
-<a href="#__codelineno-9-75" id="__codelineno-9-75" name="__codelineno-9-75"></a><span class="w">      </span><span class="no">}</span>
-<a href="#__codelineno-9-76" id="__codelineno-9-76" name="__codelineno-9-76"></a><span class="w">    </span><span class="no">}</span>
-<a href="#__codelineno-9-77" id="__codelineno-9-77" name="__codelineno-9-77"></a><span class="w">  </span><span class="nt">plugin</span><span class="p">:</span>
-<a href="#__codelineno-9-78" id="__codelineno-9-78" name="__codelineno-9-78"></a><span class="w">    </span><span class="nt">library</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/app/domains/libzeto.so</span>
-<a href="#__codelineno-9-79" id="__codelineno-9-79" name="__codelineno-9-79"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">c-shared</span>
-<a href="#__codelineno-9-80" id="__codelineno-9-80" name="__codelineno-9-80"></a><span class="w">  </span><span class="nt">smartContractDeployment</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">zeto-factory</span>
+<a href="#__codelineno-9-69" id="__codelineno-9-69" name="__codelineno-9-69"></a><span class="w">          </span><span class="no">},</span>
+<a href="#__codelineno-9-70" id="__codelineno-9-70" name="__codelineno-9-70"></a><span class="w">          </span><span class="no">{</span>
+<a href="#__codelineno-9-71" id="__codelineno-9-71" name="__codelineno-9-71"></a><span class="w">            </span><span class="no">"name": "Zeto_NfAnon",</span>
+<a href="#__codelineno-9-72" id="__codelineno-9-72" name="__codelineno-9-72"></a><span class="w">            </span><span class="no">"circuits": {</span>
+<a href="#__codelineno-9-73" id="__codelineno-9-73" name="__codelineno-9-73"></a><span class="w">              </span><span class="no">"deposit": {</span>
+<a href="#__codelineno-9-74" id="__codelineno-9-74" name="__codelineno-9-74"></a><span class="w">                </span><span class="no">"name": "not_implemented"</span>
+<a href="#__codelineno-9-75" id="__codelineno-9-75" name="__codelineno-9-75"></a><span class="w">              </span><span class="no">},</span>
+<a href="#__codelineno-9-76" id="__codelineno-9-76" name="__codelineno-9-76"></a><span class="w">              </span><span class="no">"withdraw": {</span>
+<a href="#__codelineno-9-77" id="__codelineno-9-77" name="__codelineno-9-77"></a><span class="w">                </span><span class="no">"name": "not_implemented"</span>
+<a href="#__codelineno-9-78" id="__codelineno-9-78" name="__codelineno-9-78"></a><span class="w">              </span><span class="no">},</span>
+<a href="#__codelineno-9-79" id="__codelineno-9-79" name="__codelineno-9-79"></a><span class="w">              </span><span class="no">"transfer": {</span>
+<a href="#__codelineno-9-80" id="__codelineno-9-80" name="__codelineno-9-80"></a><span class="w">                </span><span class="no">"name": "nf_anon"</span>
+<a href="#__codelineno-9-81" id="__codelineno-9-81" name="__codelineno-9-81"></a><span class="w">              </span><span class="no">},</span>
+<a href="#__codelineno-9-82" id="__codelineno-9-82" name="__codelineno-9-82"></a><span class="w">              </span><span class="no">"transferLocked": {</span>
+<a href="#__codelineno-9-83" id="__codelineno-9-83" name="__codelineno-9-83"></a><span class="w">                </span><span class="no">"name": "nf_anon"</span>
+<a href="#__codelineno-9-84" id="__codelineno-9-84" name="__codelineno-9-84"></a><span class="w">              </span><span class="no">}</span>
+<a href="#__codelineno-9-85" id="__codelineno-9-85" name="__codelineno-9-85"></a><span class="w">            </span><span class="no">}</span>
+<a href="#__codelineno-9-86" id="__codelineno-9-86" name="__codelineno-9-86"></a><span class="w">          </span><span class="no">}</span>
+<a href="#__codelineno-9-87" id="__codelineno-9-87" name="__codelineno-9-87"></a><span class="w">        </span><span class="no">]</span>
+<a href="#__codelineno-9-88" id="__codelineno-9-88" name="__codelineno-9-88"></a><span class="w">      </span><span class="no">},</span>
+<a href="#__codelineno-9-89" id="__codelineno-9-89" name="__codelineno-9-89"></a><span class="w">      </span><span class="no">"snarkProver": {</span>
+<a href="#__codelineno-9-90" id="__codelineno-9-90" name="__codelineno-9-90"></a><span class="w">        </span><span class="no">"circuitsDir": "/app/domains/zeto/zkp",</span>
+<a href="#__codelineno-9-91" id="__codelineno-9-91" name="__codelineno-9-91"></a><span class="w">        </span><span class="no">"provingKeysDir": "/app/domains/zeto/zkp"</span>
+<a href="#__codelineno-9-92" id="__codelineno-9-92" name="__codelineno-9-92"></a><span class="w">      </span><span class="no">}</span>
+<a href="#__codelineno-9-93" id="__codelineno-9-93" name="__codelineno-9-93"></a><span class="w">    </span><span class="no">}</span>
+<a href="#__codelineno-9-94" id="__codelineno-9-94" name="__codelineno-9-94"></a><span class="w">  </span><span class="nt">plugin</span><span class="p">:</span>
+<a href="#__codelineno-9-95" id="__codelineno-9-95" name="__codelineno-9-95"></a><span class="w">    </span><span class="nt">library</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/app/domains/libzeto.so</span>
+<a href="#__codelineno-9-96" id="__codelineno-9-96" name="__codelineno-9-96"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">c-shared</span>
+<a href="#__codelineno-9-97" id="__codelineno-9-97" name="__codelineno-9-97"></a><span class="w">  </span><span class="nt">smartContractDeployment</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">zeto-factory</span>
 </code></pre></div>
 </details>
 <h2 id="step-7-create-paladin-nodes">Step 7: Create Paladin Nodes<a class="headerlink" href="#step-7-create-paladin-nodes" title="Permanent link">¶</a></h2>
