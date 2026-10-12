@@ -39,6 +39,34 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         _notary = notary;
     }
 
+    function transfer(
+        address /* to */,
+        uint256 /* value */
+    ) public pure override returns (bool) {
+        revert(
+            "Direct transfers are disabled: balances only change through Noto hooks"
+        );
+    }
+
+    function approve(
+        address /* spender */,
+        uint256 /* value */
+    ) public pure override returns (bool) {
+        revert(
+            "Direct transfers are disabled: balances only change through Noto hooks"
+        );
+    }
+
+    function transferFrom(
+        address /* from */,
+        address /* to */,
+        uint256 /* value */
+    ) public pure override returns (bool) {
+        revert(
+            "Direct transfers are disabled: balances only change through Noto hooks"
+        );
+    }
+
     function _onMint(
         address /* sender */,
         address to,
