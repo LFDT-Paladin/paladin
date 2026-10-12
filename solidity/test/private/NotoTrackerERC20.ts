@@ -69,6 +69,21 @@ describe("NotoTrackerERC20", function () {
     });
   });
 
+  describe("ERC20", function () {
+    it("rejects moving balances other than through the hooks", async function () {
+      const { tracker, notary, alice, bob } = await deployTracker();
+      await tracker.onMint(notary.address, alice.address, 100, "0x", prepared);
+
+      const asAlice = tracker.connect(alice);
+      await expect(asAlice.transfer(bob.address, 10)).to.be.revertedWith("Direct transfers are disabled: balances only change through Noto hooks");
+      await expect(asAlice.approve(bob.address, 10)).to.be.revertedWith("Direct transfers are disabled: balances only change through Noto hooks");
+      await expect(tracker.connect(bob).transferFrom(alice.address, bob.address, 10)).to.be.revertedWith(
+        "Direct transfers are disabled: balances only change through Noto hooks",
+      );
+      expect(await tracker.balanceOf(alice.address)).to.equal(100);
+    });
+  });
+
   describe("pending balances", function () {
     it("releases the previous recipients when a lock is re-prepared", async function () {
       const { tracker, locks, notary, alice, bob, delegate } = await deployTracker();
