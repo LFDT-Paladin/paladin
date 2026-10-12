@@ -55,7 +55,7 @@ contract NotoLocks {
             lockedBalance[lock.from] -= recipients[i].amount;
         }
 
-        delete lock.recipients;
+        _releasePending(lock);
         if (lock.amount == 0) {
             delete _locks[lockId];
         }
@@ -90,7 +90,7 @@ contract NotoLocks {
     ) internal {
         LockDetail storage lock = _locks[lockId];
         lock.spendKind = spendKind;
-        delete lock.recipients;
+        _releasePending(lock);
 
         for (uint256 i = 0; i < recipients.length; i++) {
             pendingBalance[recipients[i].to] += recipients[i].amount;
@@ -103,9 +103,7 @@ contract NotoLocks {
         INotoHooks.UnlockRecipient[] calldata recipients
     ) public {
         LockDetail storage lock = _locks[lockId];
-        for (uint256 i = 0; i < lock.recipients.length; i++) {
-            pendingBalance[lock.recipients[i].to] -= lock.recipients[i].amount;
-        }
+        _releasePending(lock);
         if (lock.spendKind == SpendKind.Mint) {
             // Nothing was locked: a spend mints to the recipients and a cancel has none
             delete _locks[lockId];
@@ -115,6 +113,13 @@ contract NotoLocks {
         } else {
             onUnlock(lockId, recipients);
         }
+    }
+
+    function _releasePending(LockDetail storage lock) internal {
+        for (uint256 i = 0; i < lock.recipients.length; i++) {
+            pendingBalance[lock.recipients[i].to] -= lock.recipients[i].amount;
+        }
+        delete lock.recipients;
     }
 
     // A burn spend has no recipients, and a burn cancel returns the whole amount to the owner
