@@ -19,6 +19,46 @@ describe("NotoTrackerERC20", function () {
     return { tracker, locks, notary, alice, bob, delegate };
   }
 
+  describe("pending balances", function () {
+    it("releases the previous recipients when a lock is re-prepared", async function () {
+      const { tracker, locks, notary, alice, bob, delegate } = await deployTracker();
+      await tracker.onMint(notary.address, alice.address, 100, "0x", prepared);
+      const lockId = randomBytes32();
+      await tracker.onCreateTransferLock(alice.address, lockId, alice.address, 60, [{ to: bob.address, amount: 60 }], "0x", prepared);
+      await tracker.onPrepareUnlock(alice.address, lockId, [{ to: delegate.address, amount: 60 }], "0x", prepared);
+      expect(await locks.pendingBalance(bob.address)).to.equal(0);
+      expect(await locks.pendingBalance(delegate.address)).to.equal(60);
+    });
+
+    it("releases the previous recipients when a lock is re-prepared to burn", async function () {
+      const { tracker, locks, notary, alice, bob } = await deployTracker();
+      await tracker.onMint(notary.address, alice.address, 100, "0x", prepared);
+      const lockId = randomBytes32();
+      await tracker.onCreateTransferLock(alice.address, lockId, alice.address, 60, [{ to: bob.address, amount: 60 }], "0x", prepared);
+      await tracker.onPrepareBurnUnlock(alice.address, lockId, alice.address, 60, "0x", prepared);
+      expect(await locks.pendingBalance(bob.address)).to.equal(0);
+    });
+
+    it("releases the previous recipients when a mint lock is re-prepared", async function () {
+      const { tracker, locks, notary, alice, bob } = await deployTracker();
+      const lockId = randomBytes32();
+      await tracker.onCreateMintLock(notary.address, lockId, [{ to: alice.address, amount: 100 }], "0x", prepared);
+      await tracker.onPrepareMintUnlock(notary.address, lockId, [{ to: bob.address, amount: 50 }], "0x", prepared);
+      expect(await locks.pendingBalance(alice.address)).to.equal(0);
+      expect(await locks.pendingBalance(bob.address)).to.equal(50);
+    });
+
+    it("releases the prepared recipients when the owner unlocks", async function () {
+      const { tracker, locks, notary, alice, bob } = await deployTracker();
+      await tracker.onMint(notary.address, alice.address, 100, "0x", prepared);
+      const lockId = randomBytes32();
+      await tracker.onCreateTransferLock(alice.address, lockId, alice.address, 60, [{ to: bob.address, amount: 60 }], "0x", prepared);
+      await tracker.onUnlock(alice.address, lockId, [{ to: alice.address, amount: 60 }], "0x", prepared);
+      expect(await locks.pendingBalance(bob.address)).to.equal(0);
+      expect(await locks.lockedBalance(alice.address)).to.equal(0);
+    });
+  });
+
   describe("delegated unlock", function () {
     it("mints to the recipients when a mint lock is spent", async function () {
       const { tracker, locks, notary, bob, delegate } = await deployTracker();
