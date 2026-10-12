@@ -512,6 +512,7 @@ var _ = Describe("noto/pente - simple", Ordered, func() {
 		It("deploys a noto tracker smart contract into the privacy group", func() {
 
 			notoTracker := solutils.MustLoadBuild(NotoTrackerERC20BuildJSON)
+			notaryAddress := getEthAddress(ctx, rpc[paladinPrefix+"1"], "notary.on", paladinPrefix+"1")
 
 			deploy := rpc[paladinPrefix+"1"].TxBuilder(ctx).
 				PrivacyGroup(penteGroup).
@@ -520,6 +521,7 @@ var _ = Describe("noto/pente - simple", Ordered, func() {
 				Inputs(map[string]any{
 					"name":   "NOTO",
 					"symbol": "NOTO",
+					"notary": notaryAddress,
 				}).
 				From(notary).
 				Send()
