@@ -31,8 +31,12 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         _;
     }
 
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {
-        _notary = msg.sender;
+    constructor(
+        string memory name,
+        string memory symbol,
+        address notary
+    ) ERC20(name, symbol) {
+        _notary = notary;
     }
 
     function _onMint(
@@ -41,7 +45,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         uint256 amount,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
-    ) internal virtual {
+    ) internal virtual onlyNotary(msg.sender) {
         _mint(to, amount);
         emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
     }
@@ -53,7 +57,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         uint256 amount,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
-    ) internal virtual {
+    ) internal virtual onlyNotary(msg.sender) {
         _transfer(from, to, amount);
         emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
     }
@@ -64,7 +68,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         uint256 amount,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
-    ) internal virtual {
+    ) internal virtual onlyNotary(msg.sender) {
         _burn(from, amount);
         emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
     }
@@ -76,7 +80,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         uint256 amount,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
-    ) internal virtual {
+    ) internal virtual onlyNotary(msg.sender) {
         _locks.onLock(lockId, from, amount);
         emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
     }
@@ -87,7 +91,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         UnlockRecipient[] calldata recipients,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
-    ) internal virtual {
+    ) internal virtual onlyNotary(msg.sender) {
         address from = _locks.ownerOf(lockId);
         _locks.onUnlock(lockId, recipients);
         for (uint256 i = 0; i < recipients.length; i++) {
@@ -102,7 +106,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         UnlockRecipient[] memory recipients,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
-    ) internal virtual {
+    ) internal virtual onlyNotary(msg.sender) {
         _locks.onPrepareUnlock(lockId, recipients);
         emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
     }
@@ -155,7 +159,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         UnlockRecipient[] calldata recipients,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
-    ) external virtual override onlyNotary(sender) {
+    ) external virtual override onlyNotary(msg.sender) onlyNotary(sender) {
         _locks.onPrepareMintUnlock(lockId, recipients);
         emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
     }
@@ -167,7 +171,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         uint256 /* amount */,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
-    ) external virtual override onlySelf(sender, from) {
+    ) external virtual override onlyNotary(msg.sender) onlySelf(sender, from) {
         _locks.onPrepareBurnUnlock(lockId);
         emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
     }
@@ -211,7 +215,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         UnlockRecipient[] calldata recipients,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
-    ) external virtual override onlyNotary(sender) {
+    ) external virtual override onlyNotary(msg.sender) onlyNotary(sender) {
         _locks.onPrepareMintUnlock(lockId, recipients);
         emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
     }
@@ -223,7 +227,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         uint256 amount,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
-    ) external virtual override onlySelf(sender, from) {
+    ) external virtual override onlyNotary(msg.sender) onlySelf(sender, from) {
         _locks.onLock(lockId, from, amount);
         _locks.onPrepareBurnUnlock(lockId);
         emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
@@ -234,7 +238,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         bytes32 /* lockId */,
         address /* delegate */,
         PreparedTransaction calldata prepared
-    ) external virtual override {
+    ) external virtual override onlyNotary(msg.sender) {
         emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
     }
 
@@ -243,7 +247,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         bytes32 lockId,
         UnlockRecipient[] calldata recipients,
         bytes calldata /* data */
-    ) external virtual override {
+    ) external virtual override onlyNotary(msg.sender) {
         NotoLocks.LockDetail memory lock = _locks.getLock(lockId);
         bool burn = _locks.isBurnSpend(lockId, recipients);
         _locks.handleDelegateUnlock(lockId, recipients);

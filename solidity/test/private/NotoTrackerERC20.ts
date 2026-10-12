@@ -10,14 +10,64 @@ describe("NotoTrackerERC20", function () {
   async function deployTracker() {
     const [notary, alice, bob, delegate] = await ethers.getSigners();
     const tracker = (await (await ethers.getContractFactory("NotoTrackerERC20"))
-      .connect(notary)
-      .deploy("NOTO", "NOTO")) as NotoTrackerERC20;
+      .connect(alice)
+      .deploy("NOTO", "NOTO", notary.address)
+      .then((c) => c.connect(notary))) as NotoTrackerERC20;
     const trackerAddress = await tracker.getAddress();
     const locks = (await ethers.getContractFactory("NotoLocks")).attach(
       ethers.getCreateAddress({ from: trackerAddress, nonce: 1 }),
     ) as NotoLocks;
     return { tracker, locks, notary, alice, bob, delegate };
   }
+
+  describe("callers", function () {
+    it("rejects every hook called by anyone but the notary", async function () {
+      const { tracker, notary, alice, bob } = await deployTracker();
+      await tracker.onMint(notary.address, alice.address, 100, "0x", prepared);
+      const lockId = randomBytes32();
+      await tracker.onCreateTransferLock(alice.address, lockId, alice.address, 60, [{ to: bob.address, amount: 60 }], "0x", prepared);
+      const recipients = [{ to: alice.address, amount: 60 }];
+
+      const asAlice = tracker.connect(alice);
+      const calls = [
+        asAlice.onMint(notary.address, alice.address, 100, "0x", prepared),
+        asAlice.onTransfer(alice.address, alice.address, bob.address, 10, "0x", prepared),
+        asAlice.onBurn(alice.address, alice.address, 10, "0x", prepared),
+        asAlice.onLock(alice.address, randomBytes32(), alice.address, 10, "0x", prepared),
+        asAlice.onPrepareMintUnlock(notary.address, randomBytes32(), recipients, "0x", prepared),
+        asAlice.onPrepareBurnUnlock(alice.address, lockId, alice.address, 60, "0x", prepared),
+        asAlice.onUnlock(alice.address, lockId, recipients, "0x", prepared),
+        asAlice.onPrepareUnlock(alice.address, lockId, recipients, "0x", prepared),
+        asAlice.onCreateTransferLock(alice.address, randomBytes32(), alice.address, 10, recipients, "0x", prepared),
+        asAlice.onCreateMintLock(notary.address, randomBytes32(), recipients, "0x", prepared),
+        asAlice.onCreateBurnLock(alice.address, randomBytes32(), alice.address, 10, "0x", prepared),
+        asAlice.onDelegateLock(alice.address, lockId, bob.address, prepared),
+        asAlice.handleDelegateUnlock(alice.address, lockId, recipients, "0x"),
+      ];
+      for (const call of calls) {
+        await expect(call).to.be.revertedWith("Sender is not the notary");
+      }
+    });
+
+    it("rejects lock updates called by anyone but the tracker", async function () {
+      const { locks, alice } = await deployTracker();
+      const lockId = randomBytes32();
+      const recipients = [{ to: alice.address, amount: 10 }];
+
+      const asAlice = locks.connect(alice);
+      const calls = [
+        asAlice.onLock(lockId, alice.address, 10),
+        asAlice.onUnlock(lockId, []),
+        asAlice.onPrepareUnlock(lockId, recipients),
+        asAlice.onPrepareMintUnlock(lockId, recipients),
+        asAlice.onPrepareBurnUnlock(lockId),
+        asAlice.handleDelegateUnlock(lockId, []),
+      ];
+      for (const call of calls) {
+        await expect(call).to.be.revertedWith("Caller is not the owner");
+      }
+    });
+  });
 
   describe("pending balances", function () {
     it("releases the previous recipients when a lock is re-prepared", async function () {

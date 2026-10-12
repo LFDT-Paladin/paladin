@@ -7,6 +7,8 @@ import {INotoHooks} from "../domains/interfaces/INotoHooks.sol";
  * Helpers for tracking locked amounts from Noto hooks contracts.
  */
 contract NotoLocks {
+    address internal immutable _owner;
+
     // Details on all currently active locks and their possible unlocks
     mapping(bytes32 => LockDetail) internal _locks;
 
@@ -30,6 +32,15 @@ contract NotoLocks {
         SpendKind spendKind;
     }
 
+    modifier onlyOwner() {
+        require(msg.sender == _owner, "Caller is not the owner");
+        _;
+    }
+
+    constructor() {
+        _owner = msg.sender;
+    }
+
     function getLock(bytes32 lockId) public view returns (LockDetail memory) {
         return _locks[lockId];
     }
@@ -38,7 +49,7 @@ contract NotoLocks {
         return _locks[lockId].from;
     }
 
-    function onLock(bytes32 lockId, address from, uint256 amount) public {
+    function onLock(bytes32 lockId, address from, uint256 amount) public onlyOwner {
         LockDetail storage lock = _locks[lockId];
         lock.from = from;
         lock.amount = amount;
@@ -48,7 +59,7 @@ contract NotoLocks {
     function onUnlock(
         bytes32 lockId,
         INotoHooks.UnlockRecipient[] calldata recipients
-    ) public {
+    ) public onlyOwner {
         LockDetail storage lock = _locks[lockId];
         for (uint256 i = 0; i < recipients.length; i++) {
             lock.amount -= recipients[i].amount;
@@ -64,18 +75,18 @@ contract NotoLocks {
     function onPrepareUnlock(
         bytes32 lockId,
         INotoHooks.UnlockRecipient[] calldata recipients
-    ) public {
+    ) public onlyOwner {
         _prepareUnlock(lockId, SpendKind.Transfer, recipients);
     }
 
     function onPrepareMintUnlock(
         bytes32 lockId,
         INotoHooks.UnlockRecipient[] calldata recipients
-    ) public {
+    ) public onlyOwner {
         _prepareUnlock(lockId, SpendKind.Mint, recipients);
     }
 
-    function onPrepareBurnUnlock(bytes32 lockId) public {
+    function onPrepareBurnUnlock(bytes32 lockId) public onlyOwner {
         _prepareUnlock(
             lockId,
             SpendKind.Burn,
@@ -101,7 +112,7 @@ contract NotoLocks {
     function handleDelegateUnlock(
         bytes32 lockId,
         INotoHooks.UnlockRecipient[] calldata recipients
-    ) public {
+    ) public onlyOwner {
         LockDetail storage lock = _locks[lockId];
         _releasePending(lock);
         if (lock.spendKind == SpendKind.Mint) {
