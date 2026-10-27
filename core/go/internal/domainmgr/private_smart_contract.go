@@ -40,7 +40,7 @@ type PrivateSmartContract struct {
 	RegistryAddress    pldtypes.EthAddress `json:"domainAddress"       gorm:"column:domain_address"`
 	Address            pldtypes.EthAddress `json:"address"             gorm:"column:address"`
 	ConfigBytes        pldtypes.HexBytes   `json:"configBytes"         gorm:"column:config_bytes"`
-	ConfigLocation     *string             `json:"configLocation"      gorm:"column:config_location"`      // of the event that wrote ConfigBytes
+	ConfigLocation     string              `json:"configLocation"      gorm:"column:config_location"`      // of the event that wrote ConfigBytes
 	IndexedConfigBytes pldtypes.HexBytes   `json:"indexedConfigBytes"  gorm:"column:indexed_config_bytes"` // in force at the event stream's position
 	Created            pldtypes.Timestamp  `json:"created"             gorm:"column:created;autoCreateTime:nano"`
 }

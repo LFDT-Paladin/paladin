@@ -1467,6 +1467,25 @@ func TestUpgradeEventFromInstanceReplacesConfig(t *testing.T) {
 	assert.Equal(t, []string{"0xfeedbeef", "0xcafe"}, utd.initConfigs)
 }
 
+func TestUpgradeEventReplacesConfigWithEmptyLocation(t *testing.T) {
+	utd, contractAddr, done := newUpgradeTestDomain(t, false)
+	defer done()
+
+	err := utd.dm.persistence.NOTX().DB(utd.ctx).Table("private_smart_contracts").
+		Where("address = ?", contractAddr).
+		Update("config_location", "").
+		Error
+	require.NoError(t, err)
+
+	upgrade := upgradeEvent(contractAddr, "0xcafe", 0)
+	utd.handleBatch(t, upgrade)
+	assert.Empty(t, <-utd.confirmed)
+	assert.Equal(t, contractAddr, <-utd.configChanged)
+	assert.Equal(t, "0xcafe", utd.storedConfig(t, contractAddr))
+	assert.Equal(t, configLocation(upgrade), utd.storedContract(t, contractAddr).ConfigLocation)
+	assert.Equal(t, `{"config":"0xcafe"}`, utd.liveContractConfig(t, contractAddr))
+}
+
 func TestUpgradeEventFromUnregisteredAddressIgnored(t *testing.T) {
 	utd, contractAddr, done := newUpgradeTestDomain(t, false)
 	defer done()

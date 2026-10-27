@@ -131,9 +131,8 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 }
 
 // Fixed width, so that locations compare in chain order as strings
-func configLocation(ev *pldapi.EventWithData) *string {
-	location := fmt.Sprintf("%016x%08x%08x", ev.BlockNumber, ev.TransactionIndex, ev.LogIndex)
-	return &location
+func configLocation(ev *pldapi.EventWithData) string {
+	return fmt.Sprintf("%016x%08x%08x", ev.BlockNumber, ev.TransactionIndex, ev.LogIndex)
 }
 
 // applyUpgrade sets the indexed config of a contract registered under this domain's registry to that announced by the
@@ -155,12 +154,12 @@ func (d *domain) applyUpgrade(ctx context.Context, dbTX persistence.DBTX, ev *pl
 	}
 	// config_bytes stores the latest config for any component that needs the "live" config. The column
 	// is only updated if this event is newer than the event which wrote the last config. Location will only
-	// be null if the row was written before config upgrade was supported, meaning a null location must be for
-	// a registration event and is always older than an upgrade.
+	// be empty if the row was written before config upgrade was supported, meaning it holds the registration
+	// config and sorts before any upgrade.
 	location := configLocation(ev)
 	res = dbTX.DB(ctx).
 		Table("private_smart_contracts").
-		Where("address = ? AND (config_location IS NULL OR config_location < ?)", ev.Address, *location).
+		Where("address = ? AND config_location < ?", ev.Address, location).
 		Updates(map[string]any{"config_bytes": upgrade.Config, "config_location": location})
 	if res.Error != nil {
 		return false, false, res.Error
