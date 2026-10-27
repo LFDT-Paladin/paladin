@@ -77,6 +77,20 @@ public final class SentTransaction {
   }
 
   /**
+   * Tracks a transaction that was submitted by other means, such as the genesis transaction the
+   * node submits when a privacy group is created. Waits use {@link
+   * TxBuilder#DEFAULT_POLLING_INTERVAL} and {@link TxBuilder#DEFAULT_RECEIPT_TIMEOUT}.
+   *
+   * @param ptx the client used to fetch the receipt; must not be {@code null}
+   * @param id a future completing with the transaction id; must not be {@code null}
+   * @return a handle on the transaction
+   */
+  public static SentTransaction track(final PtxClient ptx, final CompletableFuture<UUID> id) {
+    return new SentTransaction(
+        ptx, id, TxBuilder.DEFAULT_POLLING_INTERVAL, TxBuilder.DEFAULT_RECEIPT_TIMEOUT);
+  }
+
+  /**
    * The node-assigned id of the submitted transaction.
    *
    * @return a future completing with the transaction id, or failing with the {@link
