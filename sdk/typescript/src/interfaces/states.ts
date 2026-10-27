@@ -31,7 +31,6 @@ export interface IState extends IStateBase {
   confirmed?: IStateConfirm;
   read?: IStateRead;
   spent?: IStateSpend;
-  locks?: IStateLock[];
   nullifier?: IStateNullifier;
 }
 
@@ -61,13 +60,6 @@ export interface IStateSpend {
   transaction: string;
 }
 
-type StateLockType = "create" | "read" | "spend";
-
-export interface IStateLock {
-  transaction: string;
-  type: StateLockType;
-}
-
 export interface IStateNullifier {
   domain: string;
   id: string;
@@ -75,7 +67,6 @@ export interface IStateNullifier {
 }
 
 export type StateStatus =
-  | "available"
   | "confirmed"
   | "unconfirmed"
   | "spent"

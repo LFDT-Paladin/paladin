@@ -84,6 +84,22 @@
             "mode": "debug",
             "program": "${workspaceRoot}/test/pldtest/main.go",
             "args": ["run", "-c", "../config/example-noto-revertable-hooks.yaml", "-i", "0"],
+        },
+        {
+            "name": "Run noto transfer test against quick start",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceRoot}/test/pldtest/main.go",
+            "args": ["run", "-c", "../config/example-noto-transfer.yaml", "-i", "0"],
+        },
+        {
+            "name": "Run noto pente tracker test against quick start",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceRoot}/test/pldtest/main.go",
+            "args": ["run", "-c", "../config/example-noto-pente-tracker.yaml", "-i", "0"],
         }
     ]
 }

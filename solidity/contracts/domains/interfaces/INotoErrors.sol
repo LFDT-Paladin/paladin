@@ -10,6 +10,10 @@ interface INotoErrors {
 
     error NotoInvalidOutput(bytes32 id);
 
+    error NotoInvalidRoot(uint256 root);
+
+    error NotoInvalidProof(bytes proof);
+
     error NotoNotNotary(address sender);
 
     error NotoDuplicateLock(bytes32 lockId);
@@ -31,4 +35,6 @@ interface INotoErrors {
     error NotoInvalidOptions(bytes options);
 
     error NotoInvalidTransaction(bytes32 txId);
+
+    error NotoNullifierIsCommitment(bytes32 nullifier);
 }

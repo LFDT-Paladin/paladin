@@ -120,3 +120,17 @@ func TestTransferFromHooksModeAllowed(t *testing.T) {
 	assert.Equal(t, "from@node1", initRes.RequiredVerifiers[2].Lookup)
 	assert.Equal(t, "to@node2", initRes.RequiredVerifiers[3].Lookup)
 }
+
+func TestTransferFromValidateParamsRevert(t *testing.T) {
+	h := &transferFromHandler{}
+	for _, tc := range []struct{ name, params, match string }{
+		{"malformed JSON", `{"amount":`, "unexpected end of JSON input"},
+		{"shared transfer validation", `{"from": "sender@node1", "amount": 1}`, "PD200007.*'to'"},
+		{"missing from", `{"to": "receiver@node2", "amount": 1}`, "PD200007.*'from'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), notoBasicConfigV1, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}

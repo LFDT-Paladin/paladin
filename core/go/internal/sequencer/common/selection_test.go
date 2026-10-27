@@ -32,6 +32,11 @@ func TestDedupeSortedCoordinatorEndorserNodes_RemovesDuplicatesAndSorts(t *testi
 	assert.Equal(t, []string{"a", "b", "c"}, got)
 }
 
+func TestDedupeSortedCoordinatorEndorserNodes_EmptyInput_ReturnsEmpty(t *testing.T) {
+	got := DedupeSortedCoordinatorEndorserNodes([]string{})
+	assert.Empty(t, got)
+}
+
 func Test_ComputeCoordinatorPriorityList_SingleNode_ReturnsThatNode(t *testing.T) {
 	ctx := context.Background()
 	list := ComputeCoordinatorPriorityList(ctx, []string{"node1"}, 1000)
@@ -156,6 +161,26 @@ func Test_PriorityIndexOf_ReturnsIndexForKnownNode(t *testing.T) {
 func Test_PriorityIndexOf_ReturnsLenForUnknownNode(t *testing.T) {
 	list := []string{"a", "b", "c"}
 	assert.Equal(t, len(list), PriorityIndexOf(list, "unknown"))
+}
+
+func Test_IsHigherPriority_FirstNodeHigher(t *testing.T) {
+	list := []string{"a", "b", "c"}
+	assert.True(t, IsHigherPriority(list, "a", "b"))
+	assert.True(t, IsHigherPriority(list, "a", "c"))
+	assert.True(t, IsHigherPriority(list, "b", "c"))
+}
+
+func Test_IsHigherPriority_SecondNodeHigher(t *testing.T) {
+	list := []string{"a", "b", "c"}
+	assert.False(t, IsHigherPriority(list, "b", "a"))
+	assert.False(t, IsHigherPriority(list, "c", "a"))
+}
+
+func Test_IsHigherPriority_AbsentNodeLowestPriority(t *testing.T) {
+	list := []string{"a", "b"}
+	// An absent node has index len(list), so any present node beats it.
+	assert.True(t, IsHigherPriority(list, "a", "unknown"))
+	assert.False(t, IsHigherPriority(list, "unknown", "a"))
 }
 
 func Test_ComputeEffectiveBlockHeight_AtEpochBoundary(t *testing.T) {

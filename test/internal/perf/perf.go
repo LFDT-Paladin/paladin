@@ -33,12 +33,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/LFDT-Paladin/paladin/test/internal/conf"
-	"github.com/LFDT-Paladin/paladin/test/internal/testsuite"
-	"github.com/LFDT-Paladin/paladin/test/internal/util"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/test/internal/conf"
+	"github.com/LFDT-Paladin/paladin/test/internal/testsuite"
+	"github.com/LFDT-Paladin/paladin/test/internal/util"
 
 	dto "github.com/prometheus/client_model/go"
 	log "github.com/sirupsen/logrus"
@@ -141,8 +141,12 @@ type perfRunner struct {
 
 	wsReceivers map[string]chan bool
 
-	currentSuite testsuite.TestSuite
-	nodeManager  NodeManager
+	currentSuite          testsuite.TestSuite
+	nodeManager           NodeManager
+	rollingBatch          []string
+	rollingBatchMu        sync.Mutex
+	rollingCheckWG        sync.WaitGroup
+	rollingCheckBatchSize int
 
 	// Node kill coordination channels (one set per worker)
 	pauseRequests []chan struct{} // Channels to signal each worker to pause
@@ -186,11 +190,13 @@ func New(config *conf.RunnerConfig, reportBuilder *util.Report) PerfRunner {
 			totalSummary: 0,
 			mutex:        &sync.Mutex{},
 		},
-		totalWorkers:  totalWorkers,
-		pauseRequests: make([]chan struct{}, totalWorkers),
-		pauseAcks:     make([]chan struct{}, totalWorkers),
-		resumeSignals: make([]chan struct{}, totalWorkers),
-		stopRunners:   make(chan struct{}),
+		totalWorkers:          totalWorkers,
+		pauseRequests:         make([]chan struct{}, totalWorkers),
+		pauseAcks:             make([]chan struct{}, totalWorkers),
+		resumeSignals:         make([]chan struct{}, totalWorkers),
+		stopRunners:           make(chan struct{}),
+		rollingCheckBatchSize: config.RollingCheckBatchSize,
+		rollingBatch:          make([]string, 0, config.RollingCheckBatchSize),
 	}
 	// Initialize channels for each worker
 	for i := 0; i < totalWorkers; i++ {
@@ -281,6 +287,16 @@ func (pr *perfRunner) Start() (err error) {
 	if sub != nil {
 		pr.wg.Add(1)
 		go pr.batchEventLoop(sub)
+	}
+
+	if pr.cfg.Diagnostics != nil && pr.cfg.Diagnostics.Interval > 0 {
+		dir, err := pr.createDiagnosticsDir()
+		if err != nil {
+			log.Warnf("Diagnostics disabled: %v", err)
+		} else {
+			pr.wg.Add(1)
+			go pr.runDiagnosticsTicker(dir)
+		}
 	}
 
 	// Start workers
@@ -526,18 +542,6 @@ perfLoop:
 		log.Errorf("failed to generate performance report: %+v", err)
 	}
 
-	log.Info("Shutdown summary:")
-	log.Infof(" - Prometheus metric received_events_total   = %f\n", getMetricVal(receivedEventsCounter))
-	log.Infof(" - Prometheus metric incomplete_events_total = %f\n", getMetricVal(incompleteEventsCounter))
-	log.Infof(" - Prometheus metric actions_submitted_total = %f\n", getMetricVal(totalActionsCounter))
-	log.Infof(" - Test duration: %s", measuredTime)
-	log.Infof(" - Measured actions: %d", measuredActions)
-	log.Infof(" - Measured send TPS: %2f", tps.SendRate)
-	log.Infof(" - Measured throughput: %2f", tps.Throughput)
-	log.Infof(" - Measured send duration: %s", pr.sendTime)
-	log.Infof(" - Measured event receiving duration: %s", pr.receiveTime)
-	log.Infof(" - Measured total duration: %s", pr.totalTime)
-
 	// Stop worker and event-loop goroutines, but keep clients/context alive for post-run RPCs.
 	log.Info("Stopping runners before post-run verification")
 	pr.stopRunnersOnce.Do(func() {
@@ -555,13 +559,42 @@ perfLoop:
 		log.Warnf("Timeout waiting for runners to stop after %v", runnerShutdownTimeout)
 	}
 
+	// Flush any IDs accumulated but not yet dispatched to a check goroutine.
+	pr.rollingBatchMu.Lock()
+	remaining := pr.rollingBatch
+	pr.rollingBatch = nil
+	pr.rollingBatchMu.Unlock()
+	if len(remaining) > 0 {
+		pr.rollingCheckWG.Add(1)
+		go func(batch []string) {
+			defer pr.rollingCheckWG.Done()
+			pr.currentSuite.OnReceiptBatch(batch)
+		}(remaining)
+	}
+	log.Info("Waiting for rolling check goroutines to complete")
+	pr.rollingCheckWG.Wait()
+
 	log.Info("Running suite post-run verification")
 	if postRunErr := pr.currentSuite.PostRun(); postRunErr != nil {
 		if fatalErr == nil {
 			fatalErr = fmt.Errorf("post-run analysis failed: %w", postRunErr)
 		}
-		log.Errorf("Post-run analysis failed: %v", postRunErr)
+		log.Errorf("TEST FAILED - post-run analysis failed: %v", postRunErr)
+	} else {
+		log.Info("TEST PASSED - post-run analysis succeeded")
 	}
+
+	log.Info("Shutdown summary:")
+	log.Infof(" - Prometheus metric received_events_total   = %f\n", getMetricVal(receivedEventsCounter))
+	log.Infof(" - Prometheus metric incomplete_events_total = %f\n", getMetricVal(incompleteEventsCounter))
+	log.Infof(" - Prometheus metric actions_submitted_total = %f\n", getMetricVal(totalActionsCounter))
+	log.Infof(" - Test duration: %s", measuredTime)
+	log.Infof(" - Measured actions: %d", measuredActions)
+	log.Infof(" - Measured send TPS: %2f", tps.SendRate)
+	log.Infof(" - Measured throughput: %2f", tps.Throughput)
+	log.Infof(" - Measured send duration: %s", pr.sendTime)
+	log.Infof(" - Measured event receiving duration: %s", pr.receiveTime)
+	log.Infof(" - Measured total duration: %s", pr.totalTime)
 
 	// Final hard shutdown: cancel context and close websocket clients.
 	log.Info("Stopping runners (cancelling context and closing WebSockets)")
@@ -623,6 +656,9 @@ func (pr *perfRunner) batchEventLoop(sub rpcclient.Subscription) (err error) {
 			g, _ := errgroup.WithContext(pr.ctx)
 			g.SetLimit(-1)
 
+			var completedMu sync.Mutex
+			completedInBatch := make([]string, 0, len(batch.Receipts))
+
 			for _, receipt := range batch.Receipts {
 				thisReceipt := receipt
 				g.Go(func() error {
@@ -632,7 +668,7 @@ func (pr *perfRunner) batchEventLoop(sub rpcclient.Subscription) (err error) {
 						// we cant apply reliable filters to ensure we're only getting back receipts
 						// for transactions submitted in this test, so just log and skip any we don't
 						// recognuse
-						log.Warnf("No worker ID map entry for transaction id: %s", transactionID)
+						log.Tracef("No worker ID map entry for transaction id: %s", transactionID)
 						return nil
 					}
 					workerID := v.(int)
@@ -644,6 +680,11 @@ func (pr *perfRunner) batchEventLoop(sub rpcclient.Subscription) (err error) {
 
 					receivedEventsCounter.Inc()
 					pr.recordCompletedAction()
+
+					completedMu.Lock()
+					completedInBatch = append(completedInBatch, transactionID)
+					completedMu.Unlock()
+
 					// Release worker so it can continue to its next task
 					if !pr.stopping {
 						if workerID >= 0 {
@@ -667,6 +708,24 @@ func (pr *perfRunner) batchEventLoop(sub rpcclient.Subscription) (err error) {
 				return err
 			}
 			log.Debug("All events from websocket handled")
+
+			if len(completedInBatch) > 0 {
+				pr.rollingBatchMu.Lock()
+				pr.rollingBatch = append(pr.rollingBatch, completedInBatch...)
+				var toCheck []string
+				if len(pr.rollingBatch) >= pr.rollingCheckBatchSize {
+					toCheck = pr.rollingBatch
+					pr.rollingBatch = make([]string, 0, pr.rollingCheckBatchSize)
+				}
+				pr.rollingBatchMu.Unlock()
+				if len(toCheck) > 0 {
+					pr.rollingCheckWG.Add(1)
+					go func(batch []string) {
+						defer pr.rollingCheckWG.Done()
+						pr.currentSuite.OnReceiptBatch(batch)
+					}(toCheck)
+				}
+			}
 
 			// We have completed all the go routines
 			// and can ack the batch
@@ -776,7 +835,9 @@ func (pr *perfRunner) runLoop(tc testsuite.TestCase, workerID int, actionsPerLoo
 				pendingActions++
 				go func() {
 					transactionID, err := tc.RunOnce(actionCount)
-					log.Debugf("%d --> %s action %d sent after %f seconds", workerID, testName, actionCount, time.Since(startTime).Seconds())
+					if err == nil {
+						log.Infof("%d --> %s action %d submitted transaction %s after %f seconds", workerID, testName, actionCount, transactionID, time.Since(startTime).Seconds())
+					}
 					actionResponses <- &ActionResponse{
 						transactionID: transactionID,
 						err:           err,

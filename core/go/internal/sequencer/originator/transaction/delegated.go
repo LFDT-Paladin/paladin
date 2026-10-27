@@ -30,6 +30,14 @@ func action_Delegated(ctx context.Context, t *originatorTransaction, event commo
 	if e.Coordinator == "" {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction delegate cannot be set to an empty node identity")
 	}
+	// Reset the first-delegation timestamp whenever the transaction is delegated to a different
+	// coordinator: the dropped-transaction grace must restart so the new coordinator has a chance to
+	// report the transaction in a snapshot before it can be considered dropped. Re-delegations to the
+	// same coordinator (e.g. the partial FIFO resend) leave it untouched so the grace reflects how long
+	// the transaction has genuinely been in flight there.
+	if t.firstDelegatedTime == nil || e.Coordinator != t.currentDelegate {
+		t.firstDelegatedTime = ptrTo(t.clock.Now())
+	}
 	t.currentDelegate = e.Coordinator
 	t.updateLastDelegatedTime()
 	return nil
@@ -62,9 +70,11 @@ func (t *originatorTransaction) updateLastDelegatedTime() {
 }
 
 func action_SendPreDispatchResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
-	// MRW TODO - sending a dispatch response should be based on some sanity check that we are OK for the coordinator
-	// to proceed to dispatch. Not sure if that belongs here, or somewhere else, but at the moment we always reply OK/proceed.
-	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, txn.latestPreDispatchRequestID, txn.pt.PreAssembly.TransactionSpecification)
+	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, &engineProto.PreDispatchResponse{
+		Id:              txn.latestPreDispatchRequestID.String(),
+		TransactionId:   txn.pt.ID.String(),
+		ContractAddress: txn.pt.Address.HexString(),
+	})
 }
 
 func validator_AssembleRequestFromCurrentDelegate(ctx context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
@@ -108,7 +118,12 @@ func validator_PreDispatchRequestFromCurrentDelegate(ctx context.Context, txn *o
 func action_SendPreDispatchRejectionNotCurrentDelegate(ctx context.Context, txn *originatorTransaction, event common.Event) error {
 	e := event.(*PreDispatchRequestReceivedEvent)
 	log.L(ctx).Debugf("rejecting pre-dispatch request from %s: not current delegate (current=%s)", e.Coordinator, txn.currentDelegate)
-	if err := txn.transportWriter.SendPreDispatchRejection(ctx, txn.pt.ID, e.RequestID, e.Coordinator, engineProto.RejectionReason_NOT_CURRENT_DELEGATE); err != nil {
+	if err := txn.transportWriter.SendPreDispatchRejection(ctx, e.Coordinator, &engineProto.PreDispatchRejection{
+		TransactionId:   txn.pt.ID.String(),
+		RequestId:       e.RequestID.String(),
+		ContractAddress: txn.pt.Address.HexString(),
+		RejectionReason: engineProto.RejectionReason_NOT_CURRENT_DELEGATE,
+	}); err != nil {
 		log.L(ctx).Warnf("failed to send pre-dispatch rejection to %s: %s", e.Coordinator, err)
 	}
 	return nil

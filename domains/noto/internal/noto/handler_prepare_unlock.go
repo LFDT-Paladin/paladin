@@ -27,20 +27,19 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 )
 
 type prepareUnlockHandler struct {
 	unlockCommon
 }
 
-func (h *prepareUnlockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *prepareUnlockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, AssembleOrEndorseError) {
 	var unlockParams types.PrepareUnlockParams
-	err := json.Unmarshal([]byte(params), &unlockParams)
-	if err == nil {
-		err = h.validateParams(ctx, &unlockParams.UnlockParams)
+	if err := json.Unmarshal([]byte(params), &unlockParams); err != nil {
+		return nil, invalidParamsError{err}
 	}
-	return &unlockParams, err
+	return &unlockParams, h.validateParams(ctx, &unlockParams.UnlockParams)
 }
 
 func (h *prepareUnlockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
@@ -48,7 +47,7 @@ func (h *prepareUnlockHandler) Init(ctx context.Context, tx *types.ParsedTransac
 	return h.init(ctx, tx, &params.UnlockParams)
 }
 
-func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, AssembleError) {
 	params := tx.Params.(*types.PrepareUnlockParams)
 	unlockParams := &params.UnlockParams
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
@@ -66,10 +65,9 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 
 	var existingLock *loadedLockInfo
 	if !tx.DomainConfig.IsV0() {
-		var revert bool
-		existingLock, revert, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, unlockParams.LockID)
-		if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-			return res, err
+		existingLock, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, unlockParams.LockID)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -78,9 +76,9 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		requiredTotal = requiredTotal.Add(requiredTotal, entry.Amount.Int())
 	}
 
-	lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, unlockParams.LockID, fromID.address, requiredTotal, true)
-	if res, err := assembleRevertOrError(revert, err); res != nil || err != nil {
-		return res, err
+	lockedInputs, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, unlockParams.LockID, fromID.address, requiredTotal, true)
+	if err != nil {
+		return nil, err
 	}
 
 	remainder := big.NewInt(0).Sub(lockedInputs.total, requiredTotal)
@@ -88,7 +86,7 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 	var outputs *preparedOutputs
 	var v0LockedOutputs *preparedLockedOutputs
 	if tx.DomainConfig.IsV0() {
-		outputs, v0LockedOutputs, err = h.assembleUnlockOutputs_V0(ctx, tx, unlockParams, req, fromID.address, remainder)
+		outputs, v0LockedOutputs, err = h.assembleUnlockOutputs_V0(ctx, tx, unlockParams, req, remainder)
 	} else {
 		outputs, err = h.assembleUnlockOutputs_V1(ctx, tx, notaryID, fromID, unlockParams.Recipients, req.ResolvedVerifiers, remainder)
 	}
@@ -101,6 +99,11 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		cancelOutputs, err = h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(lockedInputs.total), identityList{notaryID, fromID})
 		if err != nil {
 			return nil, err
+		}
+		// The cancel outputs are returned to the lock owner if the lock is cancelled, so like any
+		// other unlocked coin they need a nullifier to be spendable
+		if tx.DomainConfig.IsNullifierVariant() {
+			h.noto.addNullifierSpecs(cancelOutputs.states, fromID.identifier, (*pldtypes.EthAddress)(tx.ContractAddress))
 		}
 	}
 
@@ -187,7 +190,7 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 	}, nil
 }
 
-func (h *prepareUnlockHandler) endorse_V0(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *prepareUnlockHandler) endorse_V0(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, EndorseError) {
 	params := tx.Params.(*types.PrepareUnlockParams)
 	lockedInputs := req.Reads
 	allOutputs := h.noto.filterSchema(req.Info, []string{h.noto.coinSchema.Id, h.noto.lockedCoinSchema.Id})
@@ -204,7 +207,7 @@ func (h *prepareUnlockHandler) endorse_V0(ctx context.Context, tx *types.ParsedT
 	return h.endorse(ctx, tx, &params.UnlockParams, req, inputs, outputs, nil)
 }
 
-func (h *prepareUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+func (h *prepareUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, EndorseError) {
 	if tx.DomainConfig.IsV0() {
 		return h.endorse_V0(ctx, tx, req)
 	}
@@ -212,6 +215,7 @@ func (h *prepareUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTran
 	params := tx.Params.(*types.PrepareUnlockParams)
 	lockedInputs := req.Reads
 
+	var err EndorseError
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
@@ -247,7 +251,8 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 	var lockTransition *lockTransition           // v1 only
 	var cancelOutputs []*prototk.EndorsableState // v1 only
 	if !tx.DomainConfig.IsV0() {
-		senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+		var senderID *identityPair
+		senderID, err = h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 		if err != nil {
 			return nil, err
 		}
@@ -272,8 +277,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 
 	if tx.DomainConfig.IsV0() {
 		var unlockHash ethtypes.HexBytes0xPrefix
-		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, endorsableStateIDs(lockedInputs), endorsableStateIDs(lockedOutputs), endorsableStateIDs(spendOutputs),
-			inParams.Data /* we do not have unlockData in V0 inputs */)
+		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedOutputs, false), h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), spendOutputs, false), inParams.Data)
 		if err != nil {
 			return nil, err
 		}
@@ -284,15 +288,17 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		if err == nil {
 			functionName = "prepareUnlock"
 			paramsJSON, err = json.Marshal(&NotoPrepareUnlock_V0_Params{
-				LockedInputs: endorsableStateIDs(lockedInputs),
+				LockedInputs: h.noto.endorsableStateIDs(ctx, (*pldtypes.EthAddress)(tx.ContractAddress), lockedInputs, false),
 				UnlockHash:   unlockHash.String(),
 				Signature:    sender.Payload,
 				Data:         txData,
 			})
 		}
-	} else {
+	} else if tx.DomainConfig.IsV1() || tx.DomainConfig.IsV2() {
 		functionName = "updateLock"
-		paramsJSON, err = h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
+		paramsJSON, err = h.buildPrepareUnlockParams(ctx, tx, req.StateQueryContext, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
+	} else {
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, tx.DomainConfig.Variant)
 	}
 	if err != nil {
 		return nil, err
@@ -305,6 +311,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 }
 
 func (h *prepareUnlockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
+	var err error
 	inParams := tx.Params.(*types.PrepareUnlockParams)
 
 	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)

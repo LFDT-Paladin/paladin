@@ -20,6 +20,7 @@ package io.kaleido.paladin.toolkit;
 message ConfigureSigningModuleRequest {
     string name = 1; // The name
     string config_json= 2; // The block of config supplied in the configuration for the signing module by the Paladin administrator (converted from YAML to JSON for transport)
+    string log_level = 3; // The configured log level
   }
 
 message ConfigureSigningModuleResponse {

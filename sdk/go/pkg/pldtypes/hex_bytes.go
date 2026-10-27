@@ -21,7 +21,6 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/hex"
-	"fmt"
 	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -80,7 +79,10 @@ func (id HexBytes) HexString0xPrefix() string {
 	if id == nil {
 		return (&HexBytes{}).HexString0xPrefix()
 	}
-	return fmt.Sprintf("0x%s", hex.EncodeToString(id[:]))
+	buf := make([]byte, 2+hex.EncodedLen(len(id)))
+	buf[0], buf[1] = '0', 'x'
+	hex.Encode(buf[2:], id)
+	return string(buf)
 }
 
 // Get string (without 0x prefix) - nil is all zeros

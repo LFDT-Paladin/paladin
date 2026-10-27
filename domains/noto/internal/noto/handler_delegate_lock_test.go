@@ -27,9 +27,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -567,4 +567,34 @@ func TestDelegateLock_V0(t *testing.T) {
 			"encodedCall": "%s"
 		}
 	}`, senderKey.Address, lockInfo.LockID, delegateAddress, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
+}
+
+func TestDelegateLockValidateParamsRevert(t *testing.T) {
+	h := &delegateLockHandler{}
+	lockID := pldtypes.RandBytes32()
+	for _, tc := range []struct {
+		name, params, match string
+		config              *types.NotoParsedConfig
+	}{
+		{"malformed JSON", `{"lockId":`, "unexpected end of JSON input", notoBasicConfigV1},
+		{"missing lockId", `{"delegate": "0x1000000000000000000000000000000000000000"}`, "PD200007.*'lockId'", notoBasicConfigV1},
+		{"V0 requires unlock", fmt.Sprintf(`{"lockId": "%s", "delegate": "0x1000000000000000000000000000000000000000"}`, lockID), "PD200007.*'unlock'", notoBasicConfigV0},
+		{"missing delegate", fmt.Sprintf(`{"lockId": "%s"}`, lockID), "PD200023", notoBasicConfigV1},
+		{"zero delegate", fmt.Sprintf(`{"lockId": "%s", "delegate": "0x0000000000000000000000000000000000000000"}`, lockID), "PD200023", notoBasicConfigV1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), tc.config, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestDelegateLockEndorseInV0RevertsWhenNoLockedCoinIsNamed(t *testing.T) {
+	n, tx, _, _ := notoForLockEndorse()
+	tx.DomainConfig = notoBasicConfigV0
+	tx.Params = &types.DelegateLockParams{LockID: pldtypes.RandBytes32()}
+	h := &delegateLockHandler{noto: n}
+
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{Transaction: tx.Transaction})
+	assertEndorseRevert(t, err, "PD200026")
 }

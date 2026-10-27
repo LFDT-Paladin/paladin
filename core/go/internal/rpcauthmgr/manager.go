@@ -75,6 +75,7 @@ func (am *rpcAuthManager) RPCAuthorizerRegistered(name string, id uuid.UUID, toA
 			// Configure the plugin using the interface method
 			req := &prototk.ConfigureRPCAuthorizerRequest{
 				ConfigJson: configJson,
+				LogLevel:   log.GetLevel(),
 			}
 			_, err := toAuthorizer.ConfigureRPCAuthorizer(ctx, req)
 			if err != nil {

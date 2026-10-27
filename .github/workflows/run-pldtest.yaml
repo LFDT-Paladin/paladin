@@ -16,6 +16,8 @@ on:
           - private-transaction-node-restart
           - privacy-group-contract-deploy
           - noto-revertable-hooks
+          - noto-pente-tracker
+          - noto-transfer
       paladin_branch:
         description: "Branch of Paladin to test"
         required: false
@@ -42,7 +44,9 @@ jobs:
                 {name:"public-contract",               config_file:"example-public-contract.yaml"},
                 {name:"private-transaction-node-restart", config_file:"example-private-transaction-node-restart.yaml"},
                 {name:"privacy-group-contract-deploy", config_file:"example-privacy-group-contract-deploy.yaml"},
-                {name:"noto-revertable-hooks",         config_file:"example-noto-revertable-hooks.yaml"}
+                {name:"noto-revertable-hooks",         config_file:"example-noto-revertable-hooks.yaml"},
+                {name:"noto-pente-tracker",            config_file:"example-noto-pente-tracker.yaml"},
+                {name:"noto-transfer",                 config_file:"example-noto-transfer.yaml"}
               ]}')
               ;;
             public-contract)
@@ -56,6 +60,12 @@ jobs:
               ;;
             noto-revertable-hooks)
               matrix=$(jq -cn '{include:[{name:"noto-revertable-hooks",config_file:"example-noto-revertable-hooks.yaml"}]}')
+              ;;
+            noto-pente-tracker)
+              matrix=$(jq -cn '{include:[{name:"noto-pente-tracker",config_file:"example-noto-pente-tracker.yaml"}]}')
+              ;;
+            noto-transfer)
+              matrix=$(jq -cn '{include:[{name:"noto-transfer",config_file:"example-noto-transfer.yaml"}]}')
               ;;
           esac
           echo "matrix=$matrix" >> $GITHUB_OUTPUT

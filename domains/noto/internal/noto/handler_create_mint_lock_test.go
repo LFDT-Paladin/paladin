@@ -25,8 +25,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -218,12 +218,11 @@ func TestCreateMintLock(t *testing.T) {
 	require.NoError(t, err)
 	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
 	require.NoError(t, err)
-	notoParams := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
-	notoOptions := notoParams.Options
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), []string{}, endorsableStateIDs(infoStates[1:2]), unlockTxData)
+	createLockArgs := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), []string{}, n.endorsableStateIDs(ctx, nil, infoStates[1:2], false), unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), []string{}, []string{}, cancelUnlockTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), []string{}, []string{}, cancelUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
 
@@ -234,9 +233,9 @@ func TestCreateMintLock(t *testing.T) {
 		Outputs:      []string{},
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
 		Contents:     []string{},
-		Options:      notoParams.Options,
+		Options:      &types.NotoLockOptions{SpendTxId: lockInfo.SpendTxId},
 		Proof:        signatureBytes,
-	}, notoParams)
+	}, createLockArgs)
 
 	// Prepare again with V1 variant to exercise compatibility parameter shape
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
@@ -417,4 +416,59 @@ func TestCreateMintLockBasicModeRestrictMint(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Mint can only be initiated by notary")
+}
+
+func TestCreateMintLockValidateParamsRevert(t *testing.T) {
+	h := &createMintLockHandler{}
+	for _, tc := range []struct {
+		name, params, match string
+		config              *types.NotoParsedConfig
+	}{
+		{"not supported in V0", `{}`, "PD200014", notoBasicConfigV0},
+		{"malformed JSON", `{"recipients":`, "unexpected end of JSON input", notoBasicConfigV1},
+		{"missing recipients", `{}`, "PD200007.*'recipients'", notoBasicConfigV1},
+		{"zero recipient amount", `{"recipients": [{"to": "receiver@node2", "amount": 0}]}`, "PD200008.*'recipient amount'", notoBasicConfigV1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), tc.config, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestCreateMintLockCheckAllowedRevertsForNonNotary(t *testing.T) {
+	h := &createMintLockHandler{}
+	tx := &types.ParsedTransaction{DomainConfig: notoBasicConfigV1}
+	assertEndorseRevert(t, h.checkAllowed(t.Context(), tx, "sender@node1"), "PD200009")
+}
+
+func TestCreateMintLockEndorseRevertsWhenItSpendsExistingCoins(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	tx.Params = &types.CreateMintLockParams{
+		Recipients: []*types.UnlockRecipient{{To: "receiver@node2", Amount: pldtypes.Int64ToInt256(100)}},
+	}
+	h := &createMintLockHandler{lockCommon{noto: n}}
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, nil, nil)},
+	})
+	assertEndorseRevert(t, err, "PD200012.*mint")
+}
+
+func TestCreateMintLockEndorseRevertsWhenRecipientsDoNotGetWhatIsMinted(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	tx.Params = &types.CreateMintLockParams{
+		Recipients: []*types.UnlockRecipient{{To: "receiver@node2", Amount: pldtypes.Int64ToInt256(100)}},
+	}
+	h := &createMintLockHandler{lockCommon{noto: n}}
+	spend := newCoinState(sender, 40)
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, stateIDs(spend), nil)},
+		Info:              []*prototk.EndorsableState{spend},
+	})
+	assertEndorseRevert(t, err, "PD200013.*mint")
 }

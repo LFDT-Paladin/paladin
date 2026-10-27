@@ -52,6 +52,11 @@ class ProtoCompile extends DefaultTask {
 
     @TaskAction
     void exec() {
+        // Remove any previously generated files before regenerating. protoc only overwrites
+        // the files it emits this run, so a renamed or deleted .proto would otherwise leave
+        // an orphaned .pb.go behind, and that duplicates type registrations.
+        plugins.deleteOutputs()
+
         String path
         if (protocPath != null) {
             path = protocPath + File.pathSeparator + System.getenv('PATH')
@@ -114,6 +119,15 @@ class ProtoCompile extends DefaultTask {
             }
         }
 
+        protected void deleteOutputs() {
+            if (go != null) {
+                go.deleteOutputs()
+            }
+            if (go_grpc != null) {
+                go_grpc.deleteOutputs()
+            }
+        }
+
         class Plugin {
 
             private final String prefix
@@ -154,6 +168,13 @@ class ProtoCompile extends DefaultTask {
                     spec.args "--${prefix}_out=${out}"
                 }
                 opts.each { o -> spec.args "--${prefix}_opt=${o}" }
+            }
+
+            protected void deleteOutputs() {
+                FileTree files = getOutputFiles()
+                if (files != null) {
+                    project.delete files
+                }
             }
 
         }

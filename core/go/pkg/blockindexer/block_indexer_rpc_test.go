@@ -79,7 +79,7 @@ func TestBlockIndexRPCCalls(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, idxTxns)
 
-	require.NoError(t, bi.persistence.DB().Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, tx_hash) VALUES (?, ?, ?, ?, ?)`,
+	require.NoError(t, bi.persistence.DB(ctx).Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, tx_hash) VALUES (?, ?, ?, ?, ?)`,
 		uuid.New(),
 		"",
 		pldtypes.TimestampNow(),

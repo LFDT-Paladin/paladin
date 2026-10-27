@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -16,46 +16,39 @@
 
 import {
   Alert,
-  Box,
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  Stack,
   TextField
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { customNavigate } from '../utils';
 import { useNavigate } from 'react-router-dom';
 import { IState } from '../interfaces';
 import { pushState } from '../queries/states';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
   state: IState
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const SendStateDialog: React.FC<Props> = ({
   state,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
 
   const { t } = useTranslation();
   const [errorMessage, setErrorMessage] = useState<string>();
   const [recipient, setRecipient] = useState('');
   const [messageId, setMessageId] = useState<string>();
-  const [lastRecepient, setLastRecepient] = useState<string>();
+  const [lastRecipient, setLastRecipient] = useState<string>();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (dialogOpen) {
-      setRecipient('');
-    }
-  }, [dialogOpen]);
 
   const { refetch: pushMessage } = useQuery({
     queryKey: ['push-state', state, recipient],
@@ -64,35 +57,27 @@ export const SendStateDialog: React.FC<Props> = ({
     enabled: false
   });
 
-  useEffect(() => {
-    if (dialogOpen) {
-      setErrorMessage(undefined);
-      setMessageId(undefined);
-      setLastRecepient(undefined);
-    }
-  }, [dialogOpen]);
-
   const handleSubmit = () => {
     setErrorMessage(undefined);
     setMessageId(undefined);
     pushMessage().then(result => {
-      if(result.isError) {
+      if (result.isError) {
         setErrorMessage(t('failedToPushMessageCheckRecipientNode'));
       } else if (result.data !== undefined && result.data.replace(/[0-]/g, '').length === 0) {
         setErrorMessage(t('mustPushStateToAccountInDifferentNode'));
       } else {
         setMessageId(result.data);
-        setLastRecepient(recipient);
+        setLastRecipient(recipient);
       }
     });
   };
 
-  const canSubmit = /.+@.+/.test(recipient) && lastRecepient !== recipient;
+  const canSubmit = /.+@.+/.test(recipient) && lastRecipient !== recipient;
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       PaperProps={{ sx: { width: '680px' } }}
       fullWidth
       maxWidth="md"
@@ -107,29 +92,29 @@ export const SendStateDialog: React.FC<Props> = ({
             <Alert sx={{ marginTop: '15px' }} variant="filled" severity="warning">{errorMessage}</Alert>}
         </DialogTitle>
         <DialogContent>
-          {messageId !== undefined &&
-            <Alert variant="filled" severity="success" sx={{ marginBottom: '20px' }}
-              action={
-                <Button variant="outlined" color="inherit" size="small"
-                  onClick={event => customNavigate(`/ui/messages/${messageId}`, event, navigate)}
-                >{t('view')}</Button>
-              }
-            >
-              {t('messageValue', { value: messageId })}
-            </Alert>}
-            <Alert sx={{ marginBottom: '25px'}} variant="filled" severity="warning">
-              {t('sendPrivateStateWarning')}
-            </Alert>
-          <Box sx={{ marginTop: '6px' }}>
+          <Stack spacing={3} sx={{ marginTop: '6px' }}>
+            {messageId !== undefined &&
+              <Alert variant="filled" severity="success"
+                action={
+                  <Button variant="outlined" color="inherit" size="small"
+                    onClick={event => customNavigate(AppRouteFactory.getPath('ReliableMessage', { id: messageId }), event, navigate)}
+                  >{t('view')}</Button>
+                }
+              >
+                {t('messageValue', { value: messageId })}
+              </Alert>}
+            {messageId === undefined &&
+              <Alert variant="filled" severity="warning">
+                {t('sendPrivateStateWarning')}
+              </Alert>}
             <TextField
               label={t('recipient')}
-              autoComplete="OFF"
-              sx={{ marginBottom: '20px' }}
+              autoComplete="off"
               fullWidth
               value={recipient}
               onChange={event => setRecipient(event.target.value)}
             />
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
           <Button
@@ -146,9 +131,9 @@ export const SendStateDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
-            {t(lastRecepient !== undefined? 'close' : 'cancel')}
+            {t(lastRecipient !== undefined ? 'close' : 'cancel')}
           </Button>
         </DialogActions>
       </form>

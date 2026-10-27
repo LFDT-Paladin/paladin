@@ -115,6 +115,7 @@ func (ah *rpcAuthHandler) RequestToPlugin(ctx context.Context, iReq PluginMessag
 	var err error
 	switch input := req.RequestToAuthplugin.(type) {
 	case *prototk.RPCAuthMessage_ConfigureRpcAuthorizer:
+		applyLogLevel(input.ConfigureRpcAuthorizer.LogLevel)
 		resMsg := &prototk.RPCAuthMessage_ConfigureRpcAuthorizerRes{}
 		resMsg.ConfigureRpcAuthorizerRes, err = ah.api.ConfigureRPCAuthorizer(ctx, input.ConfigureRpcAuthorizer)
 		res.ResponseFromAuthplugin = resMsg

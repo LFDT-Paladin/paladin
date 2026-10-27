@@ -27,9 +27,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -617,4 +617,50 @@ func TestUnlock_V0(t *testing.T) {
 			"encodedCall": "%s"
 		}
 	}`, senderKey.Address, lockID, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
+}
+
+func TestLockCommonCheckAllowedLocalNodeNameFailed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockLocalNodeName = func() (*prototk.LocalNodeNameResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	h := &lockCommon{noto: &Noto{Callbacks: mockCallbacks}}
+	tx := &types.ParsedTransaction{
+		Transaction:  &prototk.TransactionSpecification{From: "sender@node1"},
+		DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
+	}
+	assertEndorseInternal(t, h.checkAllowed(t.Context(), tx, "sender"), "pop")
+}
+
+func TestUnlockValidateParamsRevert(t *testing.T) {
+	h := &unlockHandler{}
+	lockID := pldtypes.RandBytes32()
+	for _, tc := range []struct{ name, params, match string }{
+		{"malformed JSON", `{"lockId":`, "unexpected end of JSON input"},
+		{"missing lockId", `{"from": "sender@node1"}`, "PD200007.*'lockId'"},
+		{"missing from", fmt.Sprintf(`{"lockId": "%s"}`, lockID), "PD200007.*'from'"},
+		{"missing recipients", fmt.Sprintf(`{"lockId": "%s", "from": "sender@node1"}`, lockID), "PD200007.*'recipients'"},
+		{"zero recipient amount", fmt.Sprintf(`{"lockId": "%s", "from": "sender@node1", "recipients": [{"to": "receiver@node2", "amount": 0}]}`, lockID), "PD200008.*'recipient amount'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), notoBasicConfigV1, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestLockCommonCheckAllowedRevertsOnInvalidFrom(t *testing.T) {
+	h := &lockCommon{noto: &Noto{Callbacks: newMockCallbacks()}}
+	for _, tc := range []struct{ name, txFrom, from, match string }{
+		{"unparsable locator", "sender@node1", "sender@node1@node2", "PD020006"},
+		{"not the lock creator", "someoneelse@node1", "sender", "PD200031"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := &types.ParsedTransaction{
+				Transaction:  &prototk.TransactionSpecification{From: tc.txFrom},
+				DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
+			}
+			assertEndorseRevert(t, h.checkAllowed(t.Context(), tx, tc.from), tc.match)
+		})
+	}
 }

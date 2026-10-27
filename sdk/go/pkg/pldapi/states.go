@@ -44,17 +44,25 @@ func (st SchemaType) Options() []string {
 	}
 }
 
-// Queries against the state store can be made in the context of a
-// transaction UUID, or one of the standard qualifiers
-// (confirmed/unconfirmed/spent/all)
+// Queries against the state store are qualified by the confirm/spend status of the states to
+// return, using one of the standard qualifiers below.
 //
-// Note this is not modelled as a normal Paladin Enum, as you can fall back to a UUID.
+// Note this is not modelled as a normal Paladin Enum, as the set of qualifiers is open to
+// extension with forms that are not a fixed list of options - such as a reference to a
+// particular point in the history of the chain.
 type StateStatusQualifier string
 
-const StateStatusAvailable StateStatusQualifier = "available"
+// States with a confirmation record, and no spend record - a state is confirmed for
+// use only while it is also unspent
 const StateStatusConfirmed StateStatusQualifier = "confirmed"
+
+// States with no confirmation record
 const StateStatusUnconfirmed StateStatusQualifier = "unconfirmed"
+
+// States with a spend record
 const StateStatusSpent StateStatusQualifier = "spent"
+
+// All states, whatever their confirm/spend status
 const StateStatusAll StateStatusQualifier = "all"
 
 func (q *StateStatusQualifier) UnmarshalJSON(b []byte) error {
@@ -63,18 +71,13 @@ func (q *StateStatusQualifier) UnmarshalJSON(b []byte) error {
 	if err == nil {
 		qText := StateStatusQualifier(strings.ToLower(text))
 		switch qText {
-		case StateStatusAvailable,
-			StateStatusConfirmed,
+		case StateStatusConfirmed,
 			StateStatusUnconfirmed,
 			StateStatusSpent,
 			StateStatusAll:
 			*q = qText
 		default:
-			u, err := uuid.Parse(string(text))
-			if err != nil {
-				return i18n.NewError(context.Background(), pldmsgs.MsgTypesInvalidStateQualifier)
-			}
-			*q = (StateStatusQualifier)(u.String())
+			return i18n.NewError(context.Background(), pldmsgs.MsgTypesInvalidStateQualifier)
 		}
 	}
 	return err
@@ -115,7 +118,6 @@ type State struct {
 	Confirmed   *StateConfirmRecord `docstruct:"State" json:"confirmed,omitempty" gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
 	Read        *StateReadRecord    `docstruct:"State" json:"read,omitempty"      gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
 	Spent       *StateSpendRecord   `docstruct:"State" json:"spent,omitempty"     gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
-	Locks       []*StateLock        `docstruct:"State" json:"locks,omitempty"     gorm:"-"` // in memory only processing here
 	Nullifier   *StateNullifier     `docstruct:"State" json:"nullifier,omitempty" gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
 }
 
@@ -225,35 +227,6 @@ type StateInfoRecord struct {
 	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction" gorm:"primaryKey"`
 }
 
-type StateLockType string
-
-const (
-	StateLockTypeCreate StateLockType = "create"
-	StateLockTypeRead   StateLockType = "read"
-	StateLockTypeSpend  StateLockType = "spend"
-)
-
-func (tt StateLockType) Enum() pldtypes.Enum[StateLockType] {
-	return pldtypes.Enum[StateLockType](tt)
-}
-
-func (tt StateLockType) Options() []string {
-	return []string{
-		string(StateLockTypeCreate),
-		string(StateLockTypeRead),
-		string(StateLockTypeSpend),
-	}
-}
-
-// State locks record which transaction a state is being locked to, either
-// spending a previously confirmed state, or an optimistic record of creating
-// (and maybe later spending) a state that is yet to be confirmed.
-type StateLock struct {
-	DomainName  string                       `json:"-"`
-	StateID     pldtypes.HexBytes            `json:"-"`
-	Transaction uuid.UUID                    `docstruct:"StateLock" json:"transaction"`
-	Type        pldtypes.Enum[StateLockType] `docstruct:"StateLock" json:"type"`
-}
 
 // State nullifiers are used when a domain chooses to use a separate identifier
 // specifically for spending states (i.e. not the state ID).

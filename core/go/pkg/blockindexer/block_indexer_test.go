@@ -30,8 +30,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/mocks/rpcclientmocks"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
@@ -653,7 +653,7 @@ func TestBlockIndexerListenFromCurrentUsingCheckpointBlock(t *testing.T) {
 	blocks, receipts := testBlockArray(t, 15)
 	mockBlocksRPCCalls(mRPC, blocks, receipts)
 
-	bi.persistence.DB().Table("indexed_blocks").Create(&pldapi.IndexedBlock{
+	bi.persistence.DB(context.Background()).Table("indexed_blocks").Create(&pldapi.IndexedBlock{
 		Number: 12345,
 		Hash:   pldtypes.MustParseBytes32(pldtypes.RandHex(32)),
 	})
@@ -893,11 +893,10 @@ func TestBlockIndexerResetsAfterHashLookupFail(t *testing.T) {
 	assert.True(t, sentFail)
 
 	// Check that the event stream goroutines are now running
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		es := bi.eventStreams[eventStream.Definition().ID]
-		assert.NotNil(c, es.detectorDone, "Event stream detector should be started after reset")
-		assert.NotNil(c, es.dispatcherDone, "Event stream dispatcher should be started after reset")
-	}, testTimeout(t), 100*time.Millisecond, "Event streams should be started after reset")
+	<-bi.eventStreamsStarted
+	es = bi.eventStreams[eventStream.Definition().ID]
+	require.NotNil(t, es.detectorDone, "Event stream detector should be started after reset")
+	require.NotNil(t, es.dispatcherDone, "Event stream dispatcher should be started after reset")
 }
 
 func TestBlockIndexerResetsAfterReceiptIntegrityFail(t *testing.T) {
@@ -955,11 +954,10 @@ func TestBlockIndexerResetsAfterReceiptIntegrityFail(t *testing.T) {
 
 	assert.True(t, sentFail)
 
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		es := bi.eventStreams[eventStream.Definition().ID]
-		assert.NotNil(c, es.detectorDone, "Event stream detector should be started after reset")
-		assert.NotNil(c, es.dispatcherDone, "Event stream dispatcher should be started after reset")
-	}, testTimeout(t), 100*time.Millisecond, "Event streams should be started after reset")
+	<-bi.eventStreamsStarted
+	es = bi.eventStreams[eventStream.Definition().ID]
+	require.NotNil(t, es.detectorDone, "Event stream detector should be started after reset")
+	require.NotNil(t, es.dispatcherDone, "Event stream dispatcher should be started after reset")
 }
 
 func TestBlockIndexerDispatcherFallsBehindHead(t *testing.T) {
@@ -1626,7 +1624,7 @@ func TestQueryIndexedTransactionsHasPaladinReceipt(t *testing.T) {
 	require.Len(t, txs, 1)
 	require.Equal(t, txHash, txs[0].Hash)
 
-	err = bi.persistence.DB().Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, tx_hash) VALUES (?, ?, ?, ?, ?)`,
+	err = bi.persistence.DB(ctx).Exec(`INSERT INTO transaction_receipts ("transaction", domain, indexed, success, tx_hash) VALUES (?, ?, ?, ?, ?)`,
 		uuid.New(),
 		"",
 		pldtypes.TimestampNow(),

@@ -26,8 +26,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -262,25 +262,27 @@ func TestCreateBurnLock(t *testing.T) {
 	require.NoError(t, err)
 	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
 	require.NoError(t, err)
-	notoParams := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
-	notoOptions := notoParams.Options
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), []string{}, unlockTxData)
+	createLockArgs := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), n.endorsableStateIDs(ctx, nil, outputStates[1:2], false), []string{}, unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), cancelUnlockTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), n.endorsableStateIDs(ctx, nil, outputStates[1:2], false), n.endorsableStateIDs(ctx, nil, infoStates[1:2], false), cancelUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
+
+	expectedInputs := n.endorsableStateIDs(ctx, nil, inputStates, false)
+	require.NotNil(t, expectedInputs)
 
 	// Validate the encoded noto parameters passed in
 	require.Equal(t, &types.NotoCreateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Inputs:       []string{inputCoinState.Id},
+		Inputs:       expectedInputs,
 		Outputs:      []string{*remainderCoinState.Id},
 		Contents:     []string{*lockedCoinState.Id},
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
-		Options:      notoParams.Options,
+		Options:      &types.NotoLockOptions{SpendTxId: lockInfo.SpendTxId},
 		Proof:        signatureBytes,
-	}, notoParams)
+	}, createLockArgs)
 
 	// Prepare again with V1 variant to exercise compatibility parameter shape
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
@@ -510,4 +512,74 @@ func TestCreateBurnLockBasicModeRestriction(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Burn is not enabled")
+}
+
+func TestCreateBurnLockValidateParamsRevert(t *testing.T) {
+	h := &createBurnLockHandler{}
+	for _, tc := range []struct {
+		name, params, match string
+		config              *types.NotoParsedConfig
+	}{
+		{"not supported in V0", `{}`, "PD200014", notoBasicConfigV0},
+		{"malformed JSON", `{"amount":`, "unexpected end of JSON input", notoBasicConfigV1},
+		{"zero amount", `{"amount": 0}`, "PD200008.*'amount'", notoBasicConfigV1},
+		{"absent amount", `{}`, "PD200008.*'amount'", notoBasicConfigV1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), tc.config, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestCreateBurnLockCheckAllowedRevertsWhenBurnDisabled(t *testing.T) {
+	allowBurn := false
+	h := &createBurnLockHandler{}
+	tx := &types.ParsedTransaction{
+		DomainConfig: &types.NotoParsedConfig{
+			NotaryMode: types.NotaryModeBasic.Enum(),
+			Options:    types.NotoOptions{Basic: &types.NotoBasicOptions{AllowBurn: &allowBurn}},
+		},
+	}
+	assertEndorseRevert(t, h.checkAllowed(t.Context(), tx), "PD200025")
+}
+
+func TestCreateBurnLockEndorseRevertsWhenInputsDoNotCoverOutputs(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	h := &createBurnLockHandler{lockCommon{noto: n}}
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, nil, nil), newLockedCoinState(sender, 50)},
+	})
+	assertEndorseRevert(t, err, "PD200013.*totalOutputs")
+}
+
+func TestCreateBurnLockEndorseRevertsWhenTheSpendProducesOutputs(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	h := &createBurnLockHandler{lockCommon{noto: n}}
+	spend := newCoinState(sender, 100)
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, stateIDs(spend), nil), newLockedCoinState(sender, 100)},
+		Info:              []*prototk.EndorsableState{spend},
+	})
+	assertEndorseRevert(t, err, "PD200013.*spendOutputs.*expected=0 actual=100")
+}
+
+func TestCreateBurnLockEndorseRevertsWhenCancelDoesNotReturnWhatWasLocked(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	h := &createBurnLockHandler{lockCommon{noto: n}}
+	cancel := newCoinState(sender, 40)
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, nil, stateIDs(cancel)), newLockedCoinState(sender, 100)},
+		Info:              []*prototk.EndorsableState{cancel},
+	})
+	assertEndorseRevert(t, err, "PD200013.*cancelOutputs")
 }

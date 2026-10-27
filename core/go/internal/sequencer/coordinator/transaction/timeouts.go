@@ -65,3 +65,8 @@ func action_ScheduleStateTimeout(ctx context.Context, txn *coordinatorTransactio
 	txn.scheduleStateTimeout(ctx)
 	return nil
 }
+
+func action_ClearStateTimeout(_ context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.clearStateTimeoutSchedule()
+	return nil
+}

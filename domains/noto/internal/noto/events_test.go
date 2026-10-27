@@ -88,6 +88,67 @@ func TestHandleEventBatch_NotoTransfer(t *testing.T) {
 	require.Len(t, res.InfoStates, 1)
 }
 
+func TestHandleEventBatch_NotoTransfer_Nullifiers(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		return &prototk.FindAvailableStatesResponse{}, nil
+	}
+	n := &Noto{
+		Callbacks: mockCallbacks,
+		coinSchema: &prototk.StateSchema{
+			Id: "noto_coin",
+		},
+		merkleTreeRootSchema: &prototk.StateSchema{
+			Id: "merkle_tree_root",
+		},
+		merkleTreeNodeSchema: &prototk.StateSchema{
+			Id: "merkle_tree_node",
+		},
+	}
+	ctx := context.Background()
+
+	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantV2Nullifiers}),
+	})
+	require.NoError(t, err)
+
+	txId := pldtypes.RandBytes32()
+	input := pldtypes.RandBytes32()
+	output := pldtypes.RandBytes32()
+	event := &NotoTransfer_Event{
+		TxId:    txId,
+		Inputs:  []pldtypes.Bytes32{input},
+		Outputs: []pldtypes.Bytes32{output},
+		Proof:   pldtypes.MustParseHexBytes("0x1234"),
+		Data:    sampleV1Data(t, n),
+	}
+	notoEventJson, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	req := &prototk.HandleEventBatchRequest{
+		Events: []*prototk.OnChainEvent{
+			{
+				SoliditySignature: eventSignatures[EventTransfer],
+				DataJson:          string(notoEventJson),
+			},
+		},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
+				Variant: types.NotoVariantV2Nullifiers,
+			}),
+		},
+	}
+
+	res, err := n.HandleEventBatch(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, res.TransactionsComplete, 1)
+	require.Len(t, res.SpentStates, 1)
+	assert.Equal(t, input.String(), res.SpentStates[0].Id)
+	require.Len(t, res.ConfirmedStates, 1)
+	assert.Equal(t, output.String(), res.ConfirmedStates[0].Id)
+	require.Len(t, res.InfoStates, 1)
+}
+
 func TestHandleEventBatch_NotoTransferBadData(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}

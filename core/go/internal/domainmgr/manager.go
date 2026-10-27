@@ -29,7 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
@@ -54,6 +54,10 @@ var iPaladinContractRegistryABI = mustParseEmbeddedBuildABI(iPaladinContractRegi
 //nolint:unused // Used in tests
 var eventSig_PaladinRegisterSmartContract_V0 = mustParseEventSignatureHash(iPaladinContractRegistryABI, "PaladinRegisterSmartContract_V0")
 var eventSolSig_PaladinRegisterSmartContract_V0 = mustParseEventSoliditySignature(iPaladinContractRegistryABI, "PaladinRegisterSmartContract_V0")
+
+//nolint:unused // Used in tests
+var eventSig_PaladinUpgradeSmartContractConfig_V0 = mustParseEventSignatureHash(iPaladinContractRegistryABI, "PaladinUpgradeSmartContractConfig_V0")
+var eventSolSig_PaladinUpgradeSmartContractConfig_V0 = mustParseEventSoliditySignature(iPaladinContractRegistryABI, "PaladinUpgradeSmartContractConfig_V0")
 
 // var eventSig_PaladinPrivateTransaction_V0 = mustParseEventSignature(iPaladinContractABI, "PaladinPrivateTransaction_V0")
 
@@ -102,7 +106,10 @@ type domainManager struct {
 	domainsByAddress map[pldtypes.EthAddress]*domain
 
 	privateTxWaiter *inflight.InflightManager[uuid.UUID, *components.ReceiptInput]
-	contractCache   cache.Cache[pldtypes.EthAddress, *domainContract]
+
+	contractCacheLock       sync.Mutex
+	contractCache           cache.Cache[pldtypes.EthAddress, *domainContract]
+	contractCacheGeneration uint64 // incremented each time a committed live config change evicts a contract
 }
 
 type event_PaladinRegisterSmartContract_V0 struct {
@@ -110,6 +117,10 @@ type event_PaladinRegisterSmartContract_V0 struct {
 	Domain   pldtypes.EthAddress `json:"domain"`
 	Instance pldtypes.EthAddress `json:"instance"`
 	Config   pldtypes.HexBytes   `json:"config"`
+}
+
+type event_PaladinUpgradeSmartContractConfig_V0 struct {
+	Config pldtypes.HexBytes `json:"config"`
 }
 
 func (dm *domainManager) PreInit(c components.PreInitComponents) (*components.ManagerInitResult, error) {
@@ -336,6 +347,31 @@ func (dm *domainManager) getSmartContractCached(ctx context.Context, dbTX persis
 	return dm.dbGetSmartContract(ctx, dbTX, func(db *gorm.DB) *gorm.DB { return db.Where("address = ?", addr) })
 }
 
+func (dm *domainManager) contractConfigChanged(ctx context.Context, addr pldtypes.EthAddress) {
+	dm.contractCacheLock.Lock()
+	dm.contractCacheGeneration++
+	dm.contractCache.Delete(addr)
+	dm.contractCacheLock.Unlock()
+	// A sequencer is the only component which holds a contract beyond a single request
+	dm.sequencerManager.HandleContractConfigChanged(ctx, addr)
+}
+
+func (dm *domainManager) getContractCacheGeneration() uint64 {
+	dm.contractCacheLock.Lock()
+	defer dm.contractCacheLock.Unlock()
+	return dm.contractCacheGeneration
+}
+
+// A contract loaded from a row read before a live config change was committed may hold the replaced config, so it is
+// only cached if no change was committed since the load began
+func (dm *domainManager) cacheContract(dc *domainContract, loadGeneration uint64) {
+	dm.contractCacheLock.Lock()
+	defer dm.contractCacheLock.Unlock()
+	if dm.contractCacheGeneration == loadGeneration {
+		dm.contractCache.Set(dc.info.Address, dc)
+	}
+}
+
 func (dm *domainManager) populateContractConfig(result *pldapi.DomainSmartContract, config *prototk.ContractConfig) {
 	if config != nil {
 		result.Config = &pldapi.ContractConfig{}
@@ -346,6 +382,7 @@ func (dm *domainManager) populateContractConfig(result *pldapi.DomainSmartContra
 }
 
 func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.DomainSmartContract, error) {
+	loadGeneration := dm.getContractCacheGeneration()
 	qw := &filters.QueryWrapper[PrivateSmartContract, pldapi.DomainSmartContract]{
 		P:           dm.persistence,
 		Table:       "private_smart_contracts",
@@ -353,7 +390,7 @@ func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persisten
 		Filters:     smartContractFilters,
 		Query:       jq,
 		MapResult: func(pt *PrivateSmartContract) (result *pldapi.DomainSmartContract, err error) {
-			_, dc, err := dm.enrichContractWithDomain(ctx, dbTX, pt)
+			_, dc, err := dm.enrichContractWithDomain(ctx, dbTX, pt, loadGeneration)
 			if err == nil {
 				result = &pldapi.DomainSmartContract{
 					DomainAddress: &pt.RegistryAddress,
@@ -366,18 +403,17 @@ func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persisten
 				}
 			}
 			return result, err
-
 		},
 	}
 	return qw.Run(ctx, dbTX)
 }
 
 func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistence.DBTX, setWhere func(db *gorm.DB) *gorm.DB) (pscLoadResult, *domainContract, error) {
+	loadGeneration := dm.getContractCacheGeneration()
 	var contracts []*PrivateSmartContract
-	query := dbTX.DB().Table("private_smart_contracts")
+	query := dbTX.DB(ctx).Table("private_smart_contracts")
 	query = setWhere(query)
 	err := query.
-		WithContext(ctx).
 		Limit(1).
 		Find(&contracts).
 		Error
@@ -387,7 +423,7 @@ func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistenc
 
 	// At this point it's possible we have a matching smart contract in our DB, for which we
 	// no longer recognize the domain registry (as it's not one that is configured any longer)
-	loadResult, dc, err := dm.enrichContractWithDomain(ctx, dbTX, contracts[0])
+	loadResult, dc, err := dm.enrichContractWithDomain(ctx, dbTX, contracts[0], loadGeneration)
 	if err != nil {
 		return loadResult, nil, err
 	}
@@ -397,7 +433,7 @@ func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistenc
 	return loadResult, dc, nil
 }
 
-func (dm *domainManager) enrichContractWithDomain(ctx context.Context, dbTX persistence.DBTX, contract *PrivateSmartContract) (pscLoadResult, *domainContract, error) {
+func (dm *domainManager) enrichContractWithDomain(ctx context.Context, dbTX persistence.DBTX, contract *PrivateSmartContract, loadGeneration uint64) (pscLoadResult, *domainContract, error) {
 
 	// Get the domain by address
 	d := dm.getDomainByAddressOrNil(&contract.RegistryAddress)
@@ -405,7 +441,7 @@ func (dm *domainManager) enrichContractWithDomain(ctx context.Context, dbTX pers
 		return pscDomainNotFound, nil, nil
 	}
 
-	return d.initSmartContract(ctx, dbTX, contract)
+	return d.initSmartContract(ctx, dbTX, contract, loadGeneration)
 }
 
 // If an embedded ABI is broken, we don't even run the tests / start the runtime

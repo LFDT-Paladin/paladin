@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -162,7 +161,7 @@ func TestAssembleSuccessEvent_GetTransactionID(t *testing.T) {
 func TestAssembleSuccessEvent_Fields(t *testing.T) {
 	txID := uuid.New()
 	requestID := uuid.New()
-	postAssembly := &components.TransactionPostAssembly{
+	postAssembly := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}
 
@@ -206,7 +205,7 @@ func TestAssembleRevertEvent_Fields(t *testing.T) {
 	txID := uuid.New()
 	requestID := uuid.New()
 	revertReason := "transaction reverted"
-	postAssembly := &components.TransactionPostAssembly{
+	postAssembly := &prototk.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 		RevertReason:   &revertReason,
 	}

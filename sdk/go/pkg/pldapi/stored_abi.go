@@ -18,7 +18,7 @@ package pldapi
 
 import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 // This is a very compact wrapping structure that is automatically stored for any ABI

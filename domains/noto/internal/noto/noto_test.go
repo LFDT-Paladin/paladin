@@ -28,7 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -119,7 +119,7 @@ func TestNotoDomainInit(t *testing.T) {
 		ConfigJson: "{}",
 	})
 	require.NoError(t, err)
-	assert.Len(t, configureRes.DomainConfig.AbiStateSchemasJson, 8)
+	assert.Len(t, configureRes.DomainConfig.AbiStateSchemasJson, 10)
 
 	initRes, err := n.InitDomain(ctx, &prototk.InitDomainRequest{
 		AbiStateSchemas: []*prototk.StateSchema{
@@ -131,6 +131,8 @@ func TestNotoDomainInit(t *testing.T) {
 			{Id: "schema6"},
 			{Id: "schema7"},
 			{Id: "schema8"},
+			{Id: "schema9"},
+			{Id: "schema10"},
 		},
 	})
 	require.NoError(t, err)
@@ -749,6 +751,39 @@ func TestInitContractBadNotary(t *testing.T) {
 	require.ErrorContains(t, err, "PD020006")
 }
 
+func TestPrepareDeployLocalNodeNameFailed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockLocalNodeName = func() (*prototk.LocalNodeNameResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	n := &Noto{Callbacks: mockCallbacks}
+	_, err := n.PrepareDeploy(t.Context(), &prototk.PrepareDeployRequest{
+		Transaction: &prototk.DeployTransactionSpecification{
+			ConstructorParamsJson: `{
+				"notary": "notary@node1",
+				"notaryMode": "basic"
+			}`,
+		},
+	})
+	assert.ErrorContains(t, err, "pop")
+}
+
+func TestInitContractLocalNodeNameFailed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockLocalNodeName = func() (*prototk.LocalNodeNameResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	n := &Noto{Callbacks: mockCallbacks}
+	// The config decoded, so this is a failure of our own node - an error rather than a
+	// contract we report as invalid
+	res, err := n.InitContract(t.Context(), &prototk.InitContractRequest{
+		ContractAddress: pldtypes.RandAddress().String(),
+		ContractConfig:  encodedConfig(&types.NotoConfigData_V0{NotaryLookup: "notary@node1"}),
+	})
+	require.ErrorContains(t, err, "pop")
+	assert.Nil(t, res)
+}
+
 func TestInitTransactionBadAbi(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
@@ -1001,12 +1036,14 @@ func TestAssembleTransactionBadAbi(t *testing.T) {
 func TestEndorseTransactionBadAbi(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	_, err := n.EndorseTransaction(context.Background(), &prototk.EndorseTransactionRequest{
+	res, err := n.EndorseTransaction(t.Context(), &prototk.EndorseTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
 			FunctionAbiJson: "!!wrong",
 		},
 	})
-	assert.ErrorContains(t, err, "invalid character")
+	require.NoError(t, err)
+	assert.Equal(t, prototk.EndorseTransactionResponse_REVERT, res.EndorsementResult)
+	assert.Contains(t, *res.RevertReason, "invalid character")
 }
 
 func TestPrepareTransactionBadAbi(t *testing.T) {
@@ -1020,17 +1057,77 @@ func TestPrepareTransactionBadAbi(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid character")
 }
 
+func TestSign(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := context.Background()
+
+	coin := &types.NotoCoin{
+		Amount: pldtypes.MustParseHexUint256("100"),
+		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.RandAddress(),
+	}
+	coinJSON, err := json.Marshal(coin)
+	require.NoError(t, err)
+
+	resp, err := n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
+		Payload:     coinJSON,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, len(resp.Payload), 32)
+
+	// The same coin in a different contract must nullify differently, or the two records
+	// collide in the local state store, which is keyed per domain rather than per contract
+	otherContractResp, err := n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(pldtypes.MustEthAddress("0x1111111111111111111111111111111111111111")),
+		Payload:     coinJSON,
+	})
+	require.NoError(t, err)
+	assert.NotEqual(t, resp.Payload, otherContractResp.Payload)
+
+	// A nullifier that is not bound to a contract must be refused
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		Payload:     coinJSON,
+	})
+	assert.ErrorContains(t, err, "PD200043")
+
+	lockedCoin := &types.NotoLockedCoin{
+		Amount: coin.Amount,
+		Salt:   coin.Salt,
+		Owner:  coin.Owner,
+		LockID: pldtypes.RandBytes32(),
+	}
+	lockedCoinJSON, err := json.Marshal(lockedCoin)
+	require.NoError(t, err)
+
+	// Locked coins are spent by ID, so they are never nullified. A locked coin presented as
+	// an unlocked coin is rejected, rather than being nullified with its lockId dropped
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
+		Payload:     lockedCoinJSON,
+	})
+	assert.ErrorContains(t, err, "PD200043")
+
+	// A coin without an owner cannot be nullified
+	_, err = n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.NullifierPayloadType(testNullifierContract),
+		Payload:     []byte(`{"amount": "100", "salt": "0x1b0d6be69d1d5bd7ff9b1b8b7d3b1de4b23e6ba95d8b6c8e4f0eb9c0f6a9f36e"}`),
+	})
+	assert.ErrorContains(t, err, "PD200044")
+}
+
 func TestUnimplementedMethods(t *testing.T) {
 	n := &Noto{}
 	ctx := t.Context()
 
-	_, err := n.Sign(ctx, nil)
-	assert.ErrorContains(t, err, "PD200022")
-
-	_, err = n.GetVerifier(ctx, nil)
-	assert.ErrorContains(t, err, "PD200022")
-
-	_, err = n.ValidateStateHashes(ctx, nil)
+	_, err := n.ValidateStateHashes(ctx, nil)
 	assert.ErrorContains(t, err, "PD200022")
 }
 
@@ -1050,6 +1147,103 @@ func TestRecoverSignatureInvalid(t *testing.T) {
 	assert.ErrorContains(t, err, "FF22087")
 }
 
+func TestParseCoinListBadStates(t *testing.T) {
+	n := &Noto{
+		coinSchema:       testSchema("coin"),
+		lockedCoinSchema: testSchema("lockedCoin"),
+		lockInfoSchemaV1: testSchema("lockInfoV1"),
+	}
+	stateID := pldtypes.RandBytes32().String()
+	coin := mustParseJSON(&types.NotoCoin{
+		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.RandAddress(),
+		Amount: pldtypes.Int64ToInt256(100),
+	})
+
+	for _, tc := range []struct {
+		name   string
+		states []*prototk.EndorsableState
+		match  string
+	}{
+		{"the same state twice", []*prototk.EndorsableState{
+			{Id: stateID, SchemaId: hashName("coin"), StateDataJson: coin},
+			{Id: stateID, SchemaId: hashName("coin"), StateDataJson: coin},
+		}, "PD200020"},
+		{"coin data that will not parse", []*prototk.EndorsableState{
+			{Id: stateID, SchemaId: hashName("coin"), StateDataJson: `{"amount": "not-a-number"}`},
+		}, "PD200004"},
+		{"locked coin data that will not parse", []*prototk.EndorsableState{
+			{Id: stateID, SchemaId: hashName("lockedCoin"), StateDataJson: `{"amount": "not-a-number"}`},
+		}, "PD200004"},
+		{"a schema this domain does not use", []*prototk.EndorsableState{
+			{Id: stateID, SchemaId: hashName("somethingelse"), StateDataJson: `{}`},
+		}, "PD200003"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := n.parseCoinList(t.Context(), "inputs", tc.states)
+			assertEndorseRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestComputeLockIdBadTransactionID(t *testing.T) {
+	n := &Noto{}
+	_, err := n.computeLockId(t.Context(), pldtypes.RandAddress(), pldtypes.RandAddress(), "not-a-transaction-id")
+	assertEndorseOnlyRevert(t, err, "FF22047|PD020007|bad|invalid")
+}
+
+func TestEncodeTransactionDataV0BadInfoStateID(t *testing.T) {
+	goodTx := &prototk.TransactionSpecification{TransactionId: pldtypes.RandBytes32().String()}
+	_, err := (&Noto{}).encodeTransactionDataV0(t.Context(), goodTx, []*prototk.EndorsableState{{Id: "not-a-state-id"}})
+	assertAssembleInternal(t, err, "PD020008|bad|invalid")
+}
+
+func TestEncodeTransactionDataV0BadTransactionID(t *testing.T) {
+	badTx := &prototk.TransactionSpecification{TransactionId: "not-a-transaction-id"}
+	_, err := (&Noto{}).encodeTransactionDataV0(t.Context(), badTx, nil)
+	assertAssembleInternal(t, err, "PD020008|bad|invalid")
+}
+
+func TestEncodeTransactionDataV1BadInfoStateID(t *testing.T) {
+	_, err := (&Noto{}).encodeTransactionDataV1(t.Context(), []*prototk.EndorsableState{{Id: "not-a-state-id"}})
+	assertAssembleInternal(t, err, "PD020008|bad|invalid")
+}
+
+func TestValidateTransactionCommonBadFunctionABI(t *testing.T) {
+	spec := newValidTransferSpec()
+	spec.FunctionAbiJson = `{`
+	_, _, err := validateTransactionCommon(t.Context(), spec, (&Noto{}).GetHandler)
+	assertEndorseOnlyRevert(t, err, "unexpected end of JSON input")
+}
+
+func TestValidateTransactionCommonBadContractConfig(t *testing.T) {
+	spec := newValidTransferSpec()
+	spec.ContractInfo.ContractConfigJson = `{`
+	_, _, err := validateTransactionCommon(t.Context(), spec, (&Noto{}).GetHandler)
+	assertEndorseOnlyRevert(t, err, "unexpected end of JSON input")
+}
+
+func TestValidateTransactionCommonBadContractAddress(t *testing.T) {
+	spec := newValidTransferSpec()
+	spec.ContractInfo.ContractAddress = "not-an-address"
+	_, _, err := validateTransactionCommon(t.Context(), spec, (&Noto{}).GetHandler)
+	assertEndorseOnlyRevert(t, err, "bad address")
+}
+
+func TestValidateTransactionCommonUnknownFunction(t *testing.T) {
+	spec := newValidTransferSpec()
+	spec.FunctionAbiJson = `{"name": "notAFunction", "type": "function", "inputs": []}`
+	_, _, err := validateTransactionCommon(t.Context(), spec, (&Noto{}).GetHandler)
+	assertRevert(t, err, "PD200001.*notAFunction")
+}
+
+func TestValidateTransactionCommonWrongSignature(t *testing.T) {
+	spec := newValidTransferSpec()
+	spec.FunctionSignature = "transfer(uint256)"
+	_, _, err := validateTransactionCommon(t.Context(), spec, (&Noto{}).GetHandler)
+	assertRevert(t, err, "PD200002.*transfer")
+}
+
 func hashName(name string) string {
 	h := sha256.New()
 	_, _ = h.Write([]byte(name))
@@ -1061,5 +1255,18 @@ func testSchema(name string) *prototk.StateSchema {
 	nameHash := hashName(name)
 	return &prototk.StateSchema{
 		Id: nameHash,
+	}
+}
+
+func newValidTransferSpec() *prototk.TransactionSpecification {
+	fn := types.NotoABI.Functions()["transfer"]
+	return &prototk.TransactionSpecification{
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress:    pldtypes.RandAddress().String(),
+			ContractConfigJson: mustParseJSON(notoBasicConfigV1),
+		},
+		FunctionAbiJson:    mustParseJSON(fn),
+		FunctionSignature:  fn.SolString(),
+		FunctionParamsJson: `{"to": "receiver@node2", "amount": 1}`,
 	}
 }

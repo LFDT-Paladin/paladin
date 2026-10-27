@@ -53,8 +53,7 @@ func WriteSequencingActivities(ctx context.Context, dbTX persistence.DBTX, seque
 		})
 	}
 
-	return dbTX.DB().
-		WithContext(ctx).
+	return dbTX.DB(ctx).
 		Table("sequencer_activities").
 		Create(dbActivities).
 		Error

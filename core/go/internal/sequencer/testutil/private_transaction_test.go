@@ -39,25 +39,25 @@ func TestPrivateTransactionBuilder_Defaults(t *testing.T) {
 	assert.Len(t, tx.PreAssembly.RequiredVerifiers, 4)
 
 	require.NotNil(t, tx.PostAssembly)
-	assert.Len(t, tx.PostAssembly.AttestationPlan, 4)
-	assert.Nil(t, tx.PostAssembly.RevertReason)
-	assert.Equal(t, prototk.AssembleTransactionResponse_OK, tx.PostAssembly.AssemblyResult)
-	assert.Len(t, tx.PostAssembly.Signatures, 1)
-	assert.Len(t, tx.PostAssembly.Endorsements, 0)
-	assert.Len(t, tx.PostAssembly.ResolvedVerifiers, 4)
+	assert.Len(t, tx.PostAssembly.AssembleResponse.GetAttestationPlan(), 4)
+	assert.Nil(t, tx.PostAssembly.AssembleResponse.RevertReason)
+	assert.Equal(t, prototk.AssembleTransactionResponse_OK, tx.PostAssembly.AssembleResponse.GetAssemblyResult())
+	assert.Len(t, tx.PostAssembly.AssembleResponse.GetSignatures(), 1)
+	assert.Len(t, tx.PostAssembly.AssembleResponse.GetEndorsements(), 0)
+	assert.Len(t, tx.PostAssembly.AssembleResponse.GetResolvedVerifiers(), 4)
 
 }
 
 func TestPrivateTransactionBuilder_PartiallyEndorsed(t *testing.T) {
 	builder := NewPrivateTransactionBuilderForTesting().NumberOfEndorsements(2)
 	tx := builder.Build()
-	assert.Len(t, tx.PostAssembly.Endorsements, 2)
+	assert.Len(t, tx.PostAssembly.AssembleResponse.GetEndorsements(), 2)
 }
 
 func TestPrivateTransactionBuilder_FullyEndorsed(t *testing.T) {
 	builder := NewPrivateTransactionBuilderForTesting().NumberOfEndorsements(3)
 	tx := builder.Build()
-	assert.Len(t, tx.PostAssembly.Endorsements, 3)
+	assert.Len(t, tx.PostAssembly.AssembleResponse.GetEndorsements(), 3)
 }
 
 func TestPrivateTransactionBuilderList_SameOriginatorAndAddress(t *testing.T) {

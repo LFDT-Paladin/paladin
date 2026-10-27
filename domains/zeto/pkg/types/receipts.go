@@ -1,0 +1,56 @@
+// Copyright contributors to Paladin, an LFDT project
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package types
+
+import "github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+
+// ZetoDomainReceipt has no top-level data field: none of Zeto's methods take a top-level data
+// parameter. Data is supplied per transfer entry, so it is reported on the individual transfers.
+type ZetoDomainReceipt struct {
+	States    ReceiptStates      `json:"states"`
+	Transfers []*ReceiptTransfer `json:"transfers,omitempty"`
+}
+
+// ReceiptStates lists the states the transaction consumed and produced. Zeto holds locked and
+// unlocked coins in the same schema, distinguished by their "locked" flag, but they are reported
+// separately here to match the shape of the Noto domain receipt.
+type ReceiptStates struct {
+	Inputs        []*ReceiptState `json:"inputs,omitempty"`
+	LockedInputs  []*ReceiptState `json:"lockedInputs,omitempty"`
+	Outputs       []*ReceiptState `json:"outputs,omitempty"`
+	LockedOutputs []*ReceiptState `json:"lockedOutputs,omitempty"`
+}
+
+type ReceiptState struct {
+	ID     pldtypes.HexBytes `json:"id"`
+	Schema pldtypes.Bytes32  `json:"schema"`
+	Data   pldtypes.RawJSON  `json:"data"`
+}
+
+// ReceiptTransfer describes value moving between owners. Owners are Baby Jubjub public keys rather
+// than Ethereum addresses. An absent "from" is a mint, and an absent "to" is a burn (which includes
+// withdrawing back to the ERC-20 balance).
+type ReceiptTransfer struct {
+	From    pldtypes.HexBytes    `json:"from,omitempty"`
+	To      pldtypes.HexBytes    `json:"to,omitempty"`
+	Amount  *pldtypes.HexUint256 `json:"amount,omitempty"`  // fungible tokens only
+	TokenID *pldtypes.HexUint256 `json:"tokenId,omitempty"` // non-fungible tokens only
+	// The data supplied on the transfer entry that produced this transfer. Absent when the
+	// transaction's entries carried differing data, as an info state cannot be matched to the
+	// entry it came from - see transferData.
+	Data pldtypes.HexBytes `json:"data,omitempty"`
+}

@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
@@ -34,44 +33,49 @@ func (t *coordinatorTransaction) revertTransactionFailedAssembly(ctx context.Con
 	tryFinalize = func() {
 		t.syncPoints.QueueTransactionFinalize(ctx, &syncpoints.TransactionFinalizeRequest{
 			Domain:          t.pt.Domain,
-			ContractAddress: pldtypes.EthAddress{},
+			ContractAddress: t.pt.Address,
 			Originator:      t.originator,
 			TransactionID:   t.pt.ID,
 			FailureMessage:  revertReason,
 		},
 			func(ctx context.Context) {
-				log.L(ctx).Debugf("finalized deployment transaction: %s", t.pt.ID)
+				log.L(ctx).Debugf("finalized transaction reverted at assembly: %s", t.pt.ID)
 			},
 			func(ctx context.Context, err error) {
-				log.L(ctx).Errorf("error finalizing deployment: %s", err)
+				log.L(ctx).Errorf("error finalizing transaction reverted at assembly %s: %s", t.pt.ID, err)
 				tryFinalize()
 			})
 	}
 	tryFinalize()
 }
 
-func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly, requestID uuid.UUID) error {
-	t.pt.PostAssembly = postAssembly
+func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, assemblyResponse *prototk.TransactionPostAssembly, requestID uuid.UUID) error {
+	applyStart := t.clock.Now()
+	defer func() { t.metrics.ObserveAssembleResponseApply(t.clock.Now().Sub(applyStart)) }()
+
+	t.pt.PostAssembly = &components.TransactionPostAssembly{
+		AssembleResponse:      assemblyResponse,
+		CollectedEndorsements: append([]*prototk.AttestationResult{}, assemblyResponse.GetEndorsements()...),
+	}
 
 	t.clearTimeoutSchedules()
 
-	if t.pt.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_REVERT {
-		t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerAssembleRevert), *postAssembly.RevertReason))
+	if assemblyResponse.GetAssemblyResult() == prototk.AssembleTransactionResponse_REVERT {
+		t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerAssembleRevert), assemblyResponse.GetRevertReason()))
 		return nil
 	}
-	if t.pt.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_PARK {
+	if assemblyResponse.GetAssemblyResult() == prototk.AssembleTransactionResponse_PARK {
 		log.L(ctx).Debugf("assembly resulted in transaction %s parked", t.pt.ID.String())
 		return nil
 	}
 
-	// This should create state IDs when mapping from output potential states to output states. However, the IDs are lost below.
-	err := t.writeStates(ctx)
+	err := t.engineIntegration.ResolveStatesForTransaction(ctx, t.pt)
 
 	if err != nil {
 		// Internal error. Only option is to revert the transaction
 		revertReason := i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err)
 		seqRevertEvent := &AssembleRevertEvent{
-			PostAssembly: &components.TransactionPostAssembly{
+			PostAssembly: &prototk.TransactionPostAssembly{
 				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 				RevertReason:   &revertReason,
 			},
@@ -84,26 +88,48 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 		return err
 	}
 
+	pa := t.pt.PostAssembly
+
 	// Add output states to the grapher for other transactions to use
-	err = t.grapher.AddMinter(ctx, postAssembly.OutputStates, t.pt.ID)
+	err = t.grapher.AddMinter(ctx, pa.OutputStates, t.pt.ID)
 	if err != nil {
 		return err
 	}
 
-	// Record private state visibility after AddMinter succeeds
-	t.stateVisibilityTracker.RecordAssemblyOutput(ctx, postAssembly.OutputStates, postAssembly.OutputStatesPotential)
+	// Record private state visibility after AddMinter succeeds.
+	t.recordOutputStateVisibility(ctx)
 
 	// Add a lock for every output we create.
-	createLocks, err := t.engineIntegration.MapPotentialStates(ctx, postAssembly.OutputStatesPotential, t.pt)
-	if err != nil {
-		return err
-	}
-	t.grapher.LockMintsOnCreate(ctx, createLocks, postAssembly.OutputStates, t.pt.ID)
+	t.grapher.LockMintsOnCreate(ctx, pa.OutputStates, t.pt.ID)
 
 	// Add a lock for every read state and spent state to prevent other transactions using them.
-	t.grapher.LockMintsOnReadAndSpend(ctx, postAssembly.ReadStates, postAssembly.InputStates, t.pt.ID)
+	t.grapher.LockMintsOnReadAndSpend(ctx, pa.AssembleResponse.GetReadStates(), pa.AssembleResponse.GetInputStates(), t.pt.ID)
 
 	return nil
+}
+
+// recordOutputStateVisibility loads newly minted output-state visibility into the tracker. The three
+// index-aligned slices are derived from the transaction's PostAssembly: each output state, its
+// proto labels (OutputStatesWithLabels, in OutputStates order), and its distribution
+// list from the matching potential output (the authoritative AllowedNodes source).
+//
+// All three of these sources are guaranteed 1:1 with OutputStates in the output of ResolvePotentialStates.
+// This pattern of multiple aligned slices is fragile, but the fragility is kept to the single
+// function in the state visibility tracker and this one call site. The alternative involves either
+// composite types specifically for this function call, which come with the risk of being misused elsewhere,
+// or reusing existing types with multiple back and forth conversions between different field types
+// (e.g. pldtypes hex to proto string), which drives high CPU through allocs -> GC.
+func (t *coordinatorTransaction) recordOutputStateVisibility(ctx context.Context) {
+	pa := t.pt.PostAssembly
+	outputs := pa.OutputStates
+	potentials := pa.AssembleResponse.GetOutputStatesPotential()
+	labels := make([]*prototk.StateLabels, len(outputs))
+	distributionLists := make([][]string, len(outputs))
+	for i := range outputs {
+		labels[i] = pa.OutputStatesWithLabels[i].ProtoLabels()
+		distributionLists[i] = potentials[i].GetDistributionList()
+	}
+	t.stateVisibilityTracker.RecordAssemblyOutput(ctx, outputs, labels, distributionLists)
 }
 
 func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error {
@@ -115,14 +141,15 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	// When we first send the request, we start a ticker to emit a requestTimeout event for each tick
 	// and nudge the request every requestTimeout event to implement the short retry.
 	// The state machine will deal with the longer state timeout via timeout guards.
-	t.pendingAssembleRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		grapherStatesAndLocks, err := t.grapher.ExportStatesAndLocks(ctx, t.originatorNode)
-		if err != nil {
-			log.L(ctx).Errorf("failed to export grapher state locks: %s", err)
-			return err
-		}
-
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStatesAndLocks, t.getBlockHeight(), t.clock.Now().Add(t.stateTimeout), int64(t.blockHeightTolerance))
+	t.pendingAssembleRequest = common.NewIdempotentRequestWithKey(ctx, t.clock, t.requestTimeout, t.assembleRequestID, func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, &engineProto.AssembleRequest{
+			TransactionId:          t.pt.ID.String(),
+			AssembleRequestId:      idempotencyKey.String(),
+			ContractAddress:        t.pt.Address.HexString(),
+			CoordinatorBlockHeight: t.getBlockHeight(),
+			ExpiryTimeUnixMs:       t.clock.Now().Add(t.stateTimeout).UnixMilli(),
+			BlockHeightTolerance:   int64(t.blockHeightTolerance),
+		})
 	})
 
 	t.scheduleRequestTimeout(ctx)
@@ -171,20 +198,31 @@ func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context
 	return nil
 }
 
-func (t *coordinatorTransaction) writeStates(ctx context.Context) error {
-	return t.engineIntegration.WriteStatesForTransaction(ctx, t.pt)
-}
-
 func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
+	if txn.pendingAssembleRequest == nil {
+		return false, nil
+	}
+	var requestID uuid.UUID
 	switch event := event.(type) {
 	case *AssembleSuccessEvent:
-		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
+		requestID = event.RequestID
 	case *AssembleRevertEvent:
-		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
+		requestID = event.RequestID
 	case *AssembleErrorEvent:
-		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
+		requestID = event.RequestID
+	case *SignedEvent:
+		requestID = event.RequestID
+	case *SignErrorEvent:
+		requestID = event.RequestID
 	}
-	return false, nil
+	return txn.pendingAssembleRequest.IdempotencyKey() == requestID, nil
+}
+
+// validator_SignedCarriesAssembly gates the State_Assembling Event_Signed fast-forward: the SignResponse
+// must carry the piggybacked assembly to advance assembly. A payload-less SignResponse (e.g. from an older
+// peer) is not matched, and is left for the separate AssembleSuccess to advance the transaction.
+func validator_SignedCarriesAssembly(_ context.Context, _ *coordinatorTransaction, event common.Event) (bool, error) {
+	return event.(*SignedEvent).PostAssembly != nil, nil
 }
 
 func action_AssembleSuccess(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
@@ -201,6 +239,10 @@ func guard_CanRetryErroredAssemble(ctx context.Context, txn *coordinatorTransact
 	return txn.assembleErrorCount <= txn.assembleErrorRetryThreshhold
 }
 
+func guard_CanRetryErroredSign(ctx context.Context, txn *coordinatorTransaction) bool {
+	return txn.signErrorCount <= txn.signErrorRetryThreshhold
+}
+
 func action_AssembleError(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	t.assembleErrorCount++
 	return nil
@@ -208,6 +250,21 @@ func action_AssembleError(ctx context.Context, t *coordinatorTransaction, event 
 
 func action_SendAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	return txn.sendAssembleRequest(ctx)
+}
+
+// action_CaptureGrapherSnapshot initialises the assembleRequestID for this attempt and captures the state view
+// served to the originator: the states currently available to it plus the IDs of the states already
+// spend-locked. Every state view request for this assemble is answered from that captured view, so the
+// originator's view cannot shift while the assemble is in flight.
+func action_CaptureGrapherSnapshot(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.assembleRequestID = uuid.New()
+	txn.stateViewProvider.CaptureSnapshot(ctx, txn.assembleRequestID.String(), txn.originatorNode)
+	return nil
+}
+
+func action_DeleteGrapherSnapshot(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.stateViewProvider.DeleteSnapshot(ctx, txn.assembleRequestID.String())
+	return nil
 }
 
 func action_NudgeAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {

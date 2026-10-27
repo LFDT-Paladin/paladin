@@ -52,6 +52,12 @@ The tutorials on this page provide an introduction to building on the Paladin pl
 
     Implement a wholesale CBDC with **zero-knowledge proof** features for enhanced privacy and regulatory compliance using the Zeto domain.
 
+-   **[Non-Fungible Tokens](zkp-nft.md)**  
+
+    ---  
+
+    Mint a **non-fungible token** with the Zeto domain and pass it privately between owners on different Paladin nodes.
+
 -   **[Private Stablecoin with KYC](private-stablecoin.md)**  
 
     ---  
@@ -79,7 +85,7 @@ The tutorials are designed to be completed in sequence, with each building upon 
 1. **Foundation** - Start with Hello World and Public Storage to understand basic Paladin operations
 2. **Privacy** - Move to Private Storage to learn about privacy groups and confidential contracts
 3. **Tokens** - Explore Notarized Tokens for controlled, auditable token operations
-4. **Advanced Privacy** - Dive into ZKP-based privacy with the CBDC and Stablecoin tutorials
+4. **Advanced Privacy** - Dive into ZKP-based privacy with the CBDC, Non-Fungible Tokens and Stablecoin tutorials
 5. **Integration** - Learn atomic operations and complex workflows with Atomic Swap and Bond Issuance
 
 ## Getting Help

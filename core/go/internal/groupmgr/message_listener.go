@@ -136,8 +136,7 @@ func (gm *groupManager) CreateMessageListener(ctx context.Context, spec *pldapi.
 		Filters: pldtypes.JSONString(&spec.Filters),
 		Options: pldtypes.JSONString(&spec.Options),
 	}
-	if insertErr := gm.p.DB().
-		WithContext(ctx).
+	if insertErr := gm.p.DB(ctx).
 		Create(dbSpec).
 		Error; insertErr != nil {
 
@@ -212,8 +211,7 @@ func (gm *groupManager) setMessageListenerStatus(ctx context.Context, name strin
 	if l == nil {
 		return i18n.NewError(ctx, msgs.MsgPGroupsMessageListenerNotLoaded, name)
 	}
-	err := gm.p.DB().
-		WithContext(ctx).
+	err := gm.p.DB(ctx).
 		Model(&persistedMessageListener{}).
 		Where("name = ?", name).
 		Update("started", started).
@@ -241,8 +239,7 @@ func (gm *groupManager) DeleteMessageListener(ctx context.Context, name string) 
 
 	l.stop()
 
-	err := gm.p.DB().
-		WithContext(ctx).
+	err := gm.p.DB(ctx).
 		Where("name = ?", name).
 		Delete(&persistedMessageListener{}).
 		Error
@@ -293,8 +290,7 @@ func (gm *groupManager) loadMessageListeners() error {
 	for {
 
 		var page []*persistedMessageListener
-		q := gm.p.DB().
-			WithContext(ctx).
+		q := gm.p.DB(ctx).
 			Order("name").
 			Limit(gm.messageListenersLoadPageSize)
 		if lastPageEnd != nil {
@@ -546,8 +542,7 @@ func (l *messageListener) removeReceiverFromList(receivers []*registeredMessageR
 
 func (l *messageListener) loadCheckpoint() error {
 	var checkpoints []*persistedMessageCheckpoint
-	err := l.gm.p.DB().
-		WithContext(l.ctx).
+	err := l.gm.p.DB(l.ctx).
 		Where("listener = ?", l.spec.Name).
 		Limit(1).
 		Find(&checkpoints).
@@ -573,7 +568,7 @@ func (l *messageListener) loadCheckpoint() error {
 func (l *messageListener) readPage() ([]*persistedMessage, error) {
 	var messages []*persistedMessage
 	err := l.gm.messagesRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-		db := l.gm.p.DB()
+		db := l.gm.p.DB(l.ctx)
 		q := l.gm.buildListenerDBQuery(l.spec, db)
 		if l.checkpoint != nil {
 			q = q.Where(`"pgroup_msgs"."local_seq" > ?`, *l.checkpoint)
@@ -628,8 +623,7 @@ func (l *messageListener) deliverBatch(b *messageDeliveryBatch) error {
 
 func (l *messageListener) updateCheckpoint(newSequence uint64) error {
 	return l.gm.p.Transaction(l.ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		err := dbTX.DB().
-			WithContext(ctx).
+		err := dbTX.DB(ctx).
 			Clauses(clause.OnConflict{
 				Columns: []clause.Column{
 					{Name: "listener"},

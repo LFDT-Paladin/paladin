@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 )
 
@@ -31,10 +32,7 @@ type State = common.CoordinatorState
 // EventType is an alias for common.EventType
 type EventType = common.EventType
 
-// Note: inline comments on State_* constants are used in auto-generated documentation.
-// Keep them accurate and human-readable - see scripts/generate_state_machine_docs.py
 const (
-
 	State_Initial       = common.CoordinatorState_Initial       // Coordinator state machine created
 	State_Idle          = common.CoordinatorState_Idle          // Not actively coordinating and not aware of any other active coordinators
 	State_Observing     = common.CoordinatorState_Observing     // Not actively coordinating but aware of another node actively coordinating
@@ -782,16 +780,15 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
 					Actions:   []ActionRule{{Action: action_PoolTransaction}},
 				}, {
-					Actions: []ActionRule{{If: statemachine.GuardNot(guard_HasTransactionAssembling), Action: action_SelectTransaction}},
-				}, {
-					Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
-					Actions:   []ActionRule{{Action: action_QueueTransactionForDispatch}},
-				}, {
-					Validator: validator_TransactionStateTransitionFrom(transaction.State_Dispatched),
-					Actions:   []ActionRule{{Action: action_NudgeDispatchLoop}},
+					Validator: validator_TransactionStateTransitionFrom(transaction.State_Assembling),
+					Actions:   []ActionRule{{Action: action_ClearAssemblyInFlight}},
 				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Final, transaction.State_Evicted),
 					Actions:   []ActionRule{{Action: action_CleanUpTransaction}},
+				}, {
+					Actions: []ActionRule{
+						{If: statemachine.GuardNot(guard_HasTransactionAssembling), Action: action_SelectTransaction},
+					},
 				}},
 			},
 			Event_EpochBoundaryReached: {
@@ -969,13 +966,15 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
 					Actions:   []ActionRule{{Action: action_PoolTransaction}},
 				}, {
-					Actions: []ActionRule{{If: statemachine.GuardNot(guard_HasTransactionAssembling), Action: action_SelectTransaction}},
-				}, {
-					Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
-					Actions:   []ActionRule{{Action: action_QueueTransactionForDispatch}},
+					Validator: validator_TransactionStateTransitionFrom(transaction.State_Assembling),
+					Actions:   []ActionRule{{Action: action_ClearAssemblyInFlight}},
 				}, {
 					Validator: validator_TransactionStateTransitionTo(transaction.State_Final, transaction.State_Evicted),
 					Actions:   []ActionRule{{Action: action_CleanUpTransaction}},
+				}, {
+					Actions: []ActionRule{
+						{If: statemachine.GuardNot(guard_HasTransactionAssembling), Action: action_SelectTransaction},
+					},
 				}, {
 					Validator: validator_TransactionStateTransitionFrom(transaction.State_Dispatched),
 					Transitions: []Transition{{
@@ -1232,6 +1231,7 @@ func (c *coordinator) initializeStateMachineEventLoop(initialState State, eventQ
 		Name:                   fmt.Sprintf("coordinator-%s", c.contractAddress.String()[0:8]),
 		TransitionCallback:     c.onStateTransition,
 		PreProcess:             c.preProcessEvent,
+		Metrics:                metrics.NewEventLoopMetrics(c.metrics, "coordinator"),
 	})
 }
 

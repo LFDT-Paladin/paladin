@@ -29,11 +29,12 @@ import {
   IconButton,
   Radio,
   RadioGroup,
+  Stack,
   TextField,
   Tooltip,
   Typography
 } from '@mui/material';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useQuery } from '@tanstack/react-query';
@@ -42,13 +43,11 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { constants } from '../components/config';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: Dispatch<SetStateAction<boolean>>
+  onClose: () => void
 }
 
 export const ResolveVerifierDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen
+  onClose
 }) => {
 
   const [keyIdentifier, setKeyIdentifier] = useState('');
@@ -69,20 +68,6 @@ export const ResolveVerifierDialog: React.FC<Props> = ({
     retry: false
   });
 
-  useEffect(() => {
-    if (!dialogOpen) {
-      setTimeout(() => {
-        setKeyIdentifier('');
-        setIsLocalNode(true);
-        setRemoteNodeName('');
-        setAlgorithm(constants.KEY_ETHEREUM_ALGORITHM);
-        setVerifierType(constants.KEY_ETHEREUM_TYPE);
-        setIsError(false);
-        setResult(undefined);
-      }, 200);
-    }
-  }, [dialogOpen]);
-
   const handleSubmit = () => {
     refetch().then(result => {
       setIsError(result.status === 'error');
@@ -94,8 +79,8 @@ export const ResolveVerifierDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       fullWidth
       maxWidth="sm"
     >
@@ -159,21 +144,22 @@ export const ResolveVerifierDialog: React.FC<Props> = ({
               <Typography component="span">{t('options')}</Typography>
             </AccordionSummary>
             <AccordionDetails>
-              <TextField
-                fullWidth
-                label={t('algorithm')}
-                autoComplete="off"
-                value={algorithm}
-                onChange={event => setAlgorithm(event.target.value)}
-              />
-              <TextField
-                sx={{ marginTop: '20px' }}
-                fullWidth
-                label={t('verifierType')}
-                autoComplete="off"
-                value={verifierType}
-                onChange={event => setVerifierType(event.target.value)}
-              />
+              <Stack spacing={3}>
+                <TextField
+                  fullWidth
+                  label={t('algorithm')}
+                  autoComplete="off"
+                  value={algorithm}
+                  onChange={event => setAlgorithm(event.target.value)}
+                />
+                <TextField
+                  fullWidth
+                  label={t('verifierType')}
+                  autoComplete="off"
+                  value={verifierType}
+                  onChange={event => setVerifierType(event.target.value)}
+                />
+              </Stack>
             </AccordionDetails>
           </Accordion>
         </DialogContent>
@@ -192,7 +178,7 @@ export const ResolveVerifierDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('close')}
           </Button>

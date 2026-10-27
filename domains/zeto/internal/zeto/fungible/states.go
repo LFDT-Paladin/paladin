@@ -62,6 +62,9 @@ func makeNewState(ctx context.Context, coinSchema *prototk.StateSchema, useNulli
 		DistributionList: []string{owner},
 	}
 	if useNullifiers {
+		// the nullifiers will be persisted along with the new states,
+		// because the spend records (based on nullifiers in contract events)
+		// will have the nullifier IDs rather than state IDs
 		newState.NullifierSpecs = []*pb.NullifierSpec{
 			{
 				Party:        owner,

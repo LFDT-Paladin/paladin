@@ -21,27 +21,33 @@ import (
 )
 
 type SequencerConfig struct {
-	AssembleErrorRetryThreshold       *int              `json:"assembleErrorRetryThreshold"`
-	BaseLedgerRevertRetryThreshold    *int              `json:"baseLedgerRevertRetryThreshold"`
-	BlockHeightTolerance              *uint64           `json:"blockHeightTolerance"`
-	BlockRange                        *uint64           `json:"blockRange"`
-	ClosingGracePeriod                *int              `json:"closingGracePeriod"`
-	CoordinatorEventQueueSize         *int              `json:"coordinatorEventQueueSize"`
-	CoordinatorPriorityEventQueueSize *int              `json:"coordinatorPriorityEventQueueSize"`
-	HeartbeatInterval                 *string           `json:"heartbeatInterval"`
-	IdleSequencerCleanupInterval      *string           `json:"idleSequencerCleanupInterval"`
-	InactiveGracePeriod               *int              `json:"inactiveGracePeriod"`
-	MaxDispatchAhead                  *int              `json:"maxDispatchAhead"`
-	MaxInflightTransactions           *int              `json:"maxInflightTransactions"`
-	OriginatorEventQueueSize          *int              `json:"originatorEventQueueSize"`
-	OriginatorPriorityEventQueueSize  *int              `json:"originatorPriorityEventQueueSize"`
-	RequestTimeout                    *string           `json:"requestTimeout"`
-	StateTimeout                      *string           `json:"stateTimeout"`
-	TargetActiveSequencers            *int              `json:"targetActiveSequencers"`
-	TransactionResumeMaxTransactions  *int              `json:"transactionResumeMaxTransactions"`
-	TransactionResumePageSize         *int              `json:"transactionResumePageSize"`
-	TransactionResumePollInterval     *string           `json:"transactionResumePollInterval"`
-	Writer                            FlushWriterConfig `json:"writer"`
+	AssembleErrorRetryThreshold       *int               `json:"assembleErrorRetryThreshold"`
+	BaseLedgerRevertRetryThreshold    *int               `json:"baseLedgerRevertRetryThreshold"`
+	BlockHeightTolerance              *uint64            `json:"blockHeightTolerance"`
+	BlockRange                        *uint64            `json:"blockRange"`
+	ClosingGracePeriod                *int               `json:"closingGracePeriod"`
+	CoordinatorEventQueueSize         *int               `json:"coordinatorEventQueueSize"`
+	CoordinatorPriorityEventQueueSize *int               `json:"coordinatorPriorityEventQueueSize"`
+	DelegationBatchInterval           *string            `json:"delegationBatchInterval"`
+	DispatchCommitErrorRetry          RetryConfig        `json:"dispatchCommitErrorRetry"`
+	DispatchMaxBatchSize              *int               `json:"dispatchMaxBatchSize"`
+	EndorseErrorRetry                 RetryConfigWithMax `json:"endorseErrorRetry"`
+	HeartbeatInterval                 *string            `json:"heartbeatInterval"`
+	IdleSequencerCleanupInterval      *string            `json:"idleSequencerCleanupInterval"`
+	InactiveGracePeriod               *int               `json:"inactiveGracePeriod"`
+	MaxDispatchAhead                  *int               `json:"maxDispatchAhead"`
+	MaxInflightTransactions           *int               `json:"maxInflightTransactions"`
+	OriginatorEventQueueSize          *int               `json:"originatorEventQueueSize"`
+	OriginatorPriorityEventQueueSize  *int               `json:"originatorPriorityEventQueueSize"`
+	PrepareErrorRetry                 RetryConfigWithMax `json:"prepareErrorRetry"`
+	RequestTimeout                    *string            `json:"requestTimeout"`
+	SignErrorRetryThreshold           *int               `json:"signErrorRetryThreshold"`
+	StateTimeout                      *string            `json:"stateTimeout"`
+	TargetActiveSequencers            *int               `json:"targetActiveSequencers"`
+	TransactionResumeMaxTransactions  *int               `json:"transactionResumeMaxTransactions"`
+	TransactionResumePageSize         *int               `json:"transactionResumePageSize"`
+	TransactionResumePollInterval     *string            `json:"transactionResumePollInterval"`
+	Writer                            FlushWriterConfig  `json:"writer"`
 }
 
 type SequencerMinimumConfig struct {
@@ -52,6 +58,8 @@ type SequencerMinimumConfig struct {
 	ClosingGracePeriod                int
 	CoordinatorEventQueueSize         int
 	CoordinatorPriorityEventQueueSize int
+	DelegationBatchInterval           time.Duration
+	DispatchMaxBatchSize              int
 	HeartbeatInterval                 time.Duration
 	IdleSequencerCleanupInterval      time.Duration
 	InactiveGracePeriod               int
@@ -60,6 +68,7 @@ type SequencerMinimumConfig struct {
 	OriginatorEventQueueSize          int
 	OriginatorPriorityEventQueueSize  int
 	RequestTimeout                    time.Duration
+	SignErrorRetryThreshold           int
 	StateTimeout                      time.Duration
 	TargetActiveSequencers            int
 	TransactionResumeMaxTransactions  int
@@ -75,6 +84,10 @@ var SequencerDefaults = SequencerConfig{
 	ClosingGracePeriod:                confutil.P(2),
 	CoordinatorEventQueueSize:         confutil.P(100),
 	CoordinatorPriorityEventQueueSize: confutil.P(500),
+	DelegationBatchInterval:           confutil.P("50ms"),
+	DispatchCommitErrorRetry:          GenericRetryDefaults.RetryConfig,
+	DispatchMaxBatchSize:              confutil.P(100),
+	EndorseErrorRetry:                 *GenericRetryDefaults,
 	HeartbeatInterval:                 confutil.P("10s"),
 	IdleSequencerCleanupInterval:      confutil.P("1m"),
 	InactiveGracePeriod:               confutil.P(2),
@@ -82,7 +95,9 @@ var SequencerDefaults = SequencerConfig{
 	MaxInflightTransactions:           confutil.P(500),
 	OriginatorEventQueueSize:          confutil.P(50),
 	OriginatorPriorityEventQueueSize:  confutil.P(500),
-	RequestTimeout:                    confutil.P("3s"),  // Time before sending 1 retry of an assemble request, endorsement request etc
+	PrepareErrorRetry:                 *GenericRetryDefaults,
+	RequestTimeout:                    confutil.P("3s"), // Time before sending 1 retry of an assemble request, endorsement request etc
+	SignErrorRetryThreshold:           confutil.P(3),
 	StateTimeout:                      confutil.P("10s"), // Time before giving up on request-driven transaction state progress and re-pooling
 	TargetActiveSequencers:            confutil.P(50),
 	TransactionResumeMaxTransactions:  confutil.P(100000),
@@ -103,6 +118,8 @@ var SequencerMinimum = SequencerMinimumConfig{
 	ClosingGracePeriod:                1,
 	CoordinatorEventQueueSize:         1,
 	CoordinatorPriorityEventQueueSize: 1,
+	DelegationBatchInterval:           10 * time.Millisecond,
+	DispatchMaxBatchSize:              1,
 	HeartbeatInterval:                 1 * time.Second,
 	IdleSequencerCleanupInterval:      10 * time.Second,
 	InactiveGracePeriod:               1,
@@ -111,6 +128,7 @@ var SequencerMinimum = SequencerMinimumConfig{
 	OriginatorEventQueueSize:          1,
 	OriginatorPriorityEventQueueSize:  1,
 	RequestTimeout:                    1 * time.Second,
+	SignErrorRetryThreshold:           0,
 	StateTimeout:                      1 * time.Second,
 	TargetActiveSequencers:            10,
 	TransactionResumeMaxTransactions:  0,

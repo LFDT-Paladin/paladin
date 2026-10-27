@@ -17,6 +17,7 @@ package noto
 
 import (
 	"context"
+	"regexp"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -24,7 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,6 +76,7 @@ func TestBalanceOfValidateParams(t *testing.T) {
 
 			if tc.expectedErr != "" {
 				assert.EqualError(t, err, tc.expectedErr)
+				assertRevert(t, err, regexp.QuoteMeta(tc.expectedErr))
 			}
 
 			if tc.validate != nil {

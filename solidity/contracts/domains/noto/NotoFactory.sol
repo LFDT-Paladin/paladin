@@ -44,7 +44,14 @@ contract NotoFactory is
         address notary,
         bytes calldata data
     ) external {
-        _deploy(implementations["default"], transactionId, name, symbol, notary, data);
+        _deploy(
+            implementations["default"],
+            transactionId,
+            name,
+            symbol,
+            notary,
+            data
+        );
     }
 
     /**
@@ -78,7 +85,8 @@ contract NotoFactory is
         bytes calldata data
     ) external {
         address impl = implementations[implementationName];
-        if (impl == address(0)) revert UnknownImplementation(implementationName);
+        if (impl == address(0))
+            revert UnknownImplementation(implementationName);
         _deploy(impl, transactionId, name, symbol, notary, data);
     }
 

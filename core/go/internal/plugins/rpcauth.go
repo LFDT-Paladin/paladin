@@ -17,6 +17,7 @@ package plugins
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
@@ -126,6 +127,7 @@ func (ab *RPCAuthBridge) RequestReply(ctx context.Context, req plugintk.PluginMe
 func (ab *RPCAuthBridge) ConfigureRPCAuthorizerByName(ctx context.Context, configJson string) error {
 	req := &prototk.ConfigureRPCAuthorizerRequest{
 		ConfigJson: configJson,
+		LogLevel:   log.GetLevel(),
 	}
 	_, err := ab.ConfigureRPCAuthorizer(ctx, req)
 	return err

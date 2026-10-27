@@ -15,7 +15,6 @@
 
 package transport
 
-
 const (
 	MessageType_AssembleRequest                  = "AssembleRequest"
 	MessageType_AssembleResponse                 = "AssembleResponse"
@@ -30,13 +29,19 @@ const (
 	MessageType_EndorsementResponse              = "EndorsementResponse"
 	MessageType_EndorsementError                 = "EndorsementError"
 	MessageType_EndorsementRejection             = "EndorsementRejection"
+	MessageType_GetSpentStateIDsRequest          = "GetSpentStateIDsRequest"
+	MessageType_GetSpentStateIDsResponse         = "GetSpentStateIDsResponse"
 	MessageType_HandoverRequest                  = "HandoverRequest"
 	MessageType_NonceAssigned                    = "NonceAssigned"
 	MessageType_PreDispatchRequest               = "PreDispatchRequest"
 	MessageType_PreDispatchResponse              = "PreDispatchResponse"
 	MessageType_PreDispatchRejection             = "PreDispatchRejection"
+	MessageType_SignResponse                     = "SignResponse"
+	MessageType_SignError                        = "SignError"
+	MessageType_QueryAvailableStatesRequest      = "QueryAvailableStatesRequest"
+	MessageType_QueryAvailableStatesResponse     = "QueryAvailableStatesResponse"
+	MessageType_StateViewError                   = "StateViewError"
 	MessageType_TransactionRequest               = "TransactionRequest"
 	MessageType_TransactionSubmitted             = "TransactionSubmitted"
 	MessageType_TransactionConfirmed             = "TransactionConfirmed"
 )
-

@@ -23,18 +23,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/wsclient"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestWSRPC(t *testing.T) (context.Context, *wsRPCClient, chan string, chan string, func()) {
-	logrus.SetLevel(logrus.TraceLevel)
+	log.SetLevel("trace")
 
 	toServer, fromServer, url, close := wsclient.NewTestWSServer(func(req *http.Request) {
 		assert.Equal(t, "/test", req.URL.Path)

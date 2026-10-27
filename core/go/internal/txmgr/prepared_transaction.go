@@ -136,14 +136,14 @@ func (tm *txManager) WritePreparedTransactions(ctx context.Context, dbTX persist
 
 	var err error
 	if len(preparedTxInserts) > 0 {
-		err = dbTX.DB().WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Clauses(clause.OnConflict{DoNothing: true /* immutable */}).
 			Create(preparedTxInserts).
 			Error
 	}
 
 	if err == nil && len(preparedTxStateInserts) > 0 {
-		err = dbTX.DB().WithContext(ctx).
+		err = dbTX.DB(ctx).
 			Omit("State").
 			Clauses(clause.OnConflict{DoNothing: true /* immutable */}).
 			Create(preparedTxStateInserts).
@@ -205,7 +205,7 @@ func (tm *txManager) enrichPreparedTransactionsFull(ctx context.Context, dbTX pe
 			transactionIDs[i] = pt.ID
 		}
 		var preparedStates []*preparedTransactionState
-		err := dbTX.DB().WithContext(ctx).
+		err := dbTX.DB(ctx).
 			Where(`"transaction" IN (?)`, transactionIDs).
 			Order(`"transaction"`).
 			Order(`"type"`).
@@ -250,7 +250,7 @@ func (tm *txManager) enrichPreparedTransactionsRefs(ctx context.Context, dbTX pe
 			transactionIDs[i] = pt.ID
 		}
 		var preparedStates []*preparedTransactionState
-		err := dbTX.DB().WithContext(ctx).
+		err := dbTX.DB(ctx).
 			Where(`"transaction" IN (?)`, transactionIDs).
 			Order(`"transaction"`).
 			Order(`"type"`).

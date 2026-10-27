@@ -34,9 +34,10 @@ type RPCServerConfigWS struct {
 }
 
 type RPCServerConfig struct {
-	HTTP        RPCServerConfigHTTP `json:"http,omitempty"`
-	WS          RPCServerConfigWS   `json:"ws,omitempty"`
-	Authorizers []string            `json:"authorizers,omitempty"` // Ordered array of authorizer plugin names to use
+	HTTP              RPCServerConfigHTTP `json:"http,omitempty"`
+	WS                RPCServerConfigWS   `json:"ws,omitempty"`
+	Authorizers       []string            `json:"authorizers,omitempty"`       // Ordered array of authorizer plugin names to use
+	LegacyReturnCodes bool                `json:"legacyReturnCodes,omitempty"` // Return HTTP 500 for all JSON/RPC errors (legacy pre-v1 behaviour to give us the option of reverting the new default if it breaks user applications)
 }
 
 var RPCServerConfigDefaults = RPCServerConfig{

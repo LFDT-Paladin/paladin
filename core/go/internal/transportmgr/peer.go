@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright contributors to Paladin, an LFDT project
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -27,10 +27,12 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"gorm.io/gorm/clause"
 )
@@ -60,8 +62,9 @@ type peer struct {
 	lowestPendingSeqLock sync.Mutex
 	lowestPendingSeq     uint64
 
-	senderStarted atomic.Bool
-	senderDone    chan struct{}
+	senderStarted      atomic.Bool // is the sender goroutine alive?
+	senderDone         chan struct{}
+	transportActivated bool // does the transport plugin hold a connection for this peer?
 }
 
 type nameSortedPeers []*peer
@@ -111,6 +114,63 @@ func (tm *transportManager) listActivePeerInfo() []*pldapi.PeerInfo {
 	return peerInfo
 }
 
+type peerWithValueSet struct {
+	info *pldapi.PeerInfo
+	vs   filters.PassthroughValueSet
+}
+
+func (p *peerWithValueSet) ValueSet() filters.ValueSet {
+	return p.vs
+}
+
+func peerInfoValueSet(p *pldapi.PeerInfo) filters.PassthroughValueSet {
+	return filters.PassthroughValueSet{
+		"name": p.Name,
+	}
+}
+
+func (tm *transportManager) queryPeers(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.PeerInfo, error) {
+	if err := filters.CheckLimitSet(ctx, jq); err != nil {
+		return nil, err
+	}
+
+	sortInstructions := jq.Sort
+	if len(sortInstructions) == 0 {
+		sortInstructions = []string{"name"}
+	}
+
+	peers := tm.listActivePeers()
+	matches := make([]*peerWithValueSet, 0, len(peers))
+	for _, p := range peers {
+		pws := &peerWithValueSet{
+			info: &p.PeerInfo,
+			vs:   peerInfoValueSet(&p.PeerInfo),
+		}
+		match, err := filters.EvalQuery(ctx, jq, peerInfoFilters, pws.vs)
+		if err != nil {
+			return nil, err
+		}
+		if match {
+			matches = append(matches, pws)
+		}
+	}
+
+	if err := filters.SortValueSetInPlace(ctx, peerInfoFilters, matches, sortInstructions...); err != nil {
+		return nil, err
+	}
+
+	limit := *jq.Limit
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+
+	result := make([]*pldapi.PeerInfo, len(matches))
+	for i, p := range matches {
+		result[i] = p.info
+	}
+	return result, nil
+}
+
 func (tm *transportManager) getPeerInfo(nodeName string) *pldapi.PeerInfo {
 	peer := tm.getActivePeer(nodeName)
 	if peer == nil {
@@ -135,8 +195,9 @@ func (tm *transportManager) reapPeer(p *peer) {
 	log.L(p.ctx).Infof("peer %s deactivating", p.Name)
 	p.close()
 
-	if p.senderStarted.Load() {
+	if p.transportActivated {
 		// Holding the lock while activating/deactivating ensures we never dual-activate in the transport
+		p.transportActivated = false
 		if _, err := p.transport.api.DeactivatePeer(p.ctx, &prototk.DeactivatePeerRequest{
 			NodeName: p.Name,
 		}); err != nil {
@@ -241,7 +302,7 @@ func (p *peer) startSender() (string, error) {
 		return "", i18n.NewError(p.ctx, msgs.MsgTransportNoTransportsConfiguredForNode, p.Name, registeredTransportNames)
 	}
 
-	// Activate the connection (the deactivate is deferred to the send loop)
+	// Activate the connection (the deactivate happens when the peer is reaped)
 	res, err := p.transport.api.ActivatePeer(p.ctx, &prototk.ActivatePeerRequest{
 		NodeName:         p.Name,
 		TransportDetails: remoteTransportDetails,
@@ -249,6 +310,7 @@ func (p *peer) startSender() (string, error) {
 	if err != nil {
 		return p.transport.name, err
 	}
+	p.transportActivated = true
 	if err = json.Unmarshal([]byte(res.PeerInfoJson), &p.Outbound); err != nil {
 		// We've already activated at this point, so we need to keep going - but this
 		// will mean there's no peer info, so we put it in as a string
@@ -346,8 +408,7 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 			fullScan,
 			lastPageEnd,
 		)
-		query := p.tm.persistence.DB().
-			WithContext(p.ctx).
+		query := p.tm.persistence.DB(p.ctx).
 			Order("sequence ASC").
 			Joins("Ack").
 			Where(`"Ack"."time" IS NULL`).
@@ -485,8 +546,7 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 
 	// Persist any bad message failures
 	if len(errorAcks) > 0 {
-		err := p.tm.persistence.DB().
-			WithContext(p.ctx).
+		err := p.tm.persistence.DB(p.ctx).
 			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(errorAcks).
 			Error

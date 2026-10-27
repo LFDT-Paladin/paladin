@@ -35,9 +35,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/ethclientmocks"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/ethsigner"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
 	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
@@ -257,7 +257,7 @@ func TestTransactionLifecycleRealKeyMgrAndDB(t *testing.T) {
 		txIDs[i] = uuid.New()
 
 		// We do the public TX manager's job for it in this test
-		fakeTxManagerInsert(t, ptm.p.DB(), txIDs[i], "signer2")
+		fakeTxManagerInsert(t, ptm.p.DB(ctx), txIDs[i], "signer2")
 
 		txs[i] = &components.PublicTxSubmission{
 			Bindings: []*components.PaladinTXReference{
@@ -577,7 +577,7 @@ func TestEngineSuspendResumeRealDB(t *testing.T) {
 	defer ticker.Stop()
 
 	// TX manager will query TX bindings to pass events to the sequencer. Fake up just enough in `public_txn_bindings`
-	// err = m.allComponents.Persistence().NOTX().DB().Exec(`INSERT INTO "public_txn_bindings" ("pub_txn_id", "transaction", "tx_type", "sender", "contract_address") VALUES (?, ?, ?, ?, ?)`,
+	// err = m.allComponents.Persistence().NOTX().DB(ctx).Exec(`INSERT INTO "public_txn_bindings" ("pub_txn_id", "transaction", "tx_type", "sender", "contract_address") VALUES (?, ?, ?, ?, ?)`,
 	// 	1, uuid.New(), pldapi.TransactionTypePrivate.Enum(), "signer1", "").
 	// 	Error
 	// require.NoError(t, err)
@@ -898,18 +898,18 @@ func TestSuspendTransactionNoOrchestrator(t *testing.T) {
 	testTxID := uuid.New()
 
 	// First, insert a test transaction into the database (omit PublicTxnID - it's auto-generated)
-	dbTX := ptm.p.DB().WithContext(ctx)
+	dbTX := ptm.p.DB(ctx).WithContext(ctx)
 	dbPublicTx := &DBPublicTxn{
 		From:      *testAddress,
 		Nonce:     &testNonce,
 		Suspended: false,
 	}
 	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		err := dbTX.DB(ctx).WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
 		if err != nil {
 			return err
 		}
-		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+		return dbTX.DB(ctx).WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
 			PublicTxnID:     dbPublicTx.PublicTxnID,
 			Transaction:     testTxID,
 			TransactionType: pldapi.TransactionTypePrivate.Enum(),
@@ -940,18 +940,18 @@ func TestResumeTransactionNoOrchestrator(t *testing.T) {
 	testTxID := uuid.New()
 
 	// First, insert a test transaction into the database (suspended) (omit PublicTxnID - it's auto-generated)
-	dbTX := ptm.p.DB().WithContext(ctx)
+	dbTX := ptm.p.DB(ctx).WithContext(ctx)
 	dbPublicTx := &DBPublicTxn{
 		From:      *testAddress,
 		Nonce:     &testNonce,
 		Suspended: true,
 	}
 	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		err := dbTX.DB(ctx).WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
 		if err != nil {
 			return err
 		}
-		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+		return dbTX.DB(ctx).WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
 			PublicTxnID:     dbPublicTx.PublicTxnID,
 			Transaction:     testTxID,
 			TransactionType: pldapi.TransactionTypePrivate.Enum(),
@@ -1008,7 +1008,7 @@ func TestCheckTransactionCompletedNotCompleted(t *testing.T) {
 	testTxID := uuid.New()
 
 	// Insert a transaction without completion (omit PublicTxnID - it's auto-generated)
-	dbTX := ptm.p.DB().WithContext(ctx)
+	dbTX := ptm.p.DB(ctx).WithContext(ctx)
 	dbPublicTx := &DBPublicTxn{
 		From:      *testAddress,
 		Nonce:     &testNonce,
@@ -1016,11 +1016,11 @@ func TestCheckTransactionCompletedNotCompleted(t *testing.T) {
 		Completed: nil, // No completion record
 	}
 	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		err := dbTX.DB(ctx).WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
 		if err != nil {
 			return err
 		}
-		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+		return dbTX.DB(ctx).WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
 			PublicTxnID:     dbPublicTx.PublicTxnID,
 			Transaction:     testTxID,
 			TransactionType: pldapi.TransactionTypePrivate.Enum(),
@@ -1052,7 +1052,7 @@ func TestCheckTransactionCompletedWithCompletion(t *testing.T) {
 	testTxID := uuid.New()
 
 	// Insert a transaction with completion (omit PublicTxnID - it's auto-generated)
-	dbTX := ptm.p.DB().WithContext(ctx)
+	dbTX := ptm.p.DB(ctx).WithContext(ctx)
 	dbPublicTx := &DBPublicTxn{
 		From:      *testAddress,
 		Nonce:     &testNonce,
@@ -1063,11 +1063,11 @@ func TestCheckTransactionCompletedWithCompletion(t *testing.T) {
 		Dispatcher: "dispatcher-node",
 	}
 	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		err := dbTX.DB(ctx).WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
 		if err != nil {
 			return err
 		}
-		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+		return dbTX.DB(ctx).WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
 			PublicTxnID:     dbPublicTx.PublicTxnID,
 			Transaction:     testTxID,
 			TransactionType: pldapi.TransactionTypePrivate.Enum(),
@@ -1262,7 +1262,7 @@ func TestWriteReceivedPublicTransactionSubmissions(t *testing.T) {
 
 	// Verify the transaction was written
 	var dbTx DBPublicTxn
-	err = ptm.p.DB().WithContext(ctx).
+	err = ptm.p.DB(ctx).WithContext(ctx).
 		Table("public_txns").
 		Where(`"from" = ?`, *testAddress).
 		Where("nonce = ?", testNonce).
@@ -1605,7 +1605,7 @@ func TestUpdateTransactionAlreadyCompleted(t *testing.T) {
 				Success:         true,
 			},
 		}
-		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error
+		err := dbTX.DB(ctx).WithContext(ctx).Table("public_txns").Create(dbTx).Error
 		if err != nil {
 			return err
 		}
@@ -1615,7 +1615,7 @@ func TestUpdateTransactionAlreadyCompleted(t *testing.T) {
 			Transaction:     txID,
 			TransactionType: pldapi.TransactionTypePrivate.Enum(),
 		}
-		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
+		return dbTX.DB(ctx).WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
 
@@ -1675,7 +1675,7 @@ func TestUpdateTransactionCheckCompletedError(t *testing.T) {
 			From: *testAddress,
 			Gas:  21000,
 		}
-		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error
+		err := dbTX.DB(ctx).WithContext(ctx).Table("public_txns").Create(dbTx).Error
 		if err != nil {
 			return err
 		}
@@ -1685,7 +1685,7 @@ func TestUpdateTransactionCheckCompletedError(t *testing.T) {
 			Transaction:     txID,
 			TransactionType: pldapi.TransactionTypePrivate.Enum(),
 		}
-		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
+		return dbTX.DB(ctx).WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
 
@@ -1734,7 +1734,7 @@ func TestMatchUpdateConfirmedTransactionsCompletionDBError(t *testing.T) {
 			Gas:   21000,
 			Nonce: confutil.P(uint64(100)),
 		}
-		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error
+		err := dbTX.DB(ctx).WithContext(ctx).Table("public_txns").Create(dbTx).Error
 		if err == nil {
 			pubTxnID = dbTx.PublicTxnID
 		}
@@ -1748,7 +1748,7 @@ func TestMatchUpdateConfirmedTransactionsCompletionDBError(t *testing.T) {
 			Transaction:     testTxID,
 			TransactionType: pldapi.TransactionTypePrivate.Enum(),
 		}
-		err = dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
+		err = dbTX.DB(ctx).WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 		if err != nil {
 			return err
 		}
@@ -1758,7 +1758,7 @@ func TestMatchUpdateConfirmedTransactionsCompletionDBError(t *testing.T) {
 			PublicTxnID:     pubTxnID,
 			TransactionHash: testHash,
 		}
-		return dbTX.DB().WithContext(ctx).Table("public_submissions").Create(submission).Error
+		return dbTX.DB(ctx).WithContext(ctx).Table("public_submissions").Create(submission).Error
 	})
 	require.NoError(t, err)
 
@@ -1826,14 +1826,19 @@ func TestRunTransactionQueryError(t *testing.T) {
 	m.db.ExpectQuery("SELECT.*public_txns").WillReturnError(fmt.Errorf("database error"))
 
 	dbTX := m.allComponents.Persistence().NOTX()
-	results, err := ptm.runTransactionQuery(ctx, dbTX, true, nil, dbTX.DB())
+	results, err := ptm.runTransactionQuery(ctx, dbTX, true, nil, dbTX.DB(ctx))
 	assert.Error(t, err)
 	assert.Nil(t, results)
 }
 
 func TestRunTransactionQueryGetSubmissionsError(t *testing.T) {
 	ctx := context.Background()
-	_, ptm, m, done := newTestPublicTxManager(t, false)
+	// Keep the manager stopped. Its engine loop polls "public_txns" on startup, which also
+	// matches the first expectation below - if it consumes that expectation our own query
+	// falls through to the second one, and we never reach the getTransactionSubmissions call.
+	_, ptm, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		mocks.disableManagerStart = true
+	})
 	defer done()
 
 	// Mock successful query but error on getting submissions
@@ -1842,9 +1847,10 @@ func TestRunTransactionQueryGetSubmissionsError(t *testing.T) {
 	m.db.ExpectQuery("SELECT.*public_submissions").WillReturnError(fmt.Errorf("submission error"))
 
 	dbTX := m.allComponents.Persistence().NOTX()
-	results, err := ptm.runTransactionQuery(ctx, dbTX, true, nil, dbTX.DB())
+	results, err := ptm.runTransactionQuery(ctx, dbTX, true, nil, dbTX.DB(ctx))
 	assert.Error(t, err)
 	assert.Nil(t, results)
+	require.ErrorContains(t, err, "submission error")
 }
 
 func TestUpdateTransactionGasEstimateNonRejectedError(t *testing.T) {
@@ -1868,7 +1874,7 @@ func TestUpdateTransactionGasEstimateNonRejectedError(t *testing.T) {
 			From: *testAddress,
 			Gas:  21000,
 		}
-		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error
+		err := dbTX.DB(ctx).WithContext(ctx).Table("public_txns").Create(dbTx).Error
 		if err != nil {
 			return err
 		}
@@ -1878,7 +1884,7 @@ func TestUpdateTransactionGasEstimateNonRejectedError(t *testing.T) {
 			Transaction:     txID,
 			TransactionType: pldapi.TransactionTypePrivate.Enum(),
 		}
-		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
+		return dbTX.DB(ctx).WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
 
@@ -1913,7 +1919,7 @@ func TestUpdateTransactionGasEstimateRejectedNoRevertData(t *testing.T) {
 			From: *testAddress,
 			Gas:  21000,
 		}
-		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error
+		err := dbTX.DB(ctx).WithContext(ctx).Table("public_txns").Create(dbTx).Error
 		if err != nil {
 			return err
 		}
@@ -1923,7 +1929,7 @@ func TestUpdateTransactionGasEstimateRejectedNoRevertData(t *testing.T) {
 			Transaction:     txID,
 			TransactionType: pldapi.TransactionTypePrivate.Enum(),
 		}
-		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
+		return dbTX.DB(ctx).WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
 
@@ -2086,5 +2092,122 @@ func TestMatchUpdateConfirmedTransactionsCompletionInsertError(t *testing.T) {
 	matches, err := ptm.MatchUpdateConfirmedTransactions(ctx, m.allComponents.Persistence().NOTX(), itxs)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "completions insert error")
+	assert.Nil(t, matches)
+}
+
+func TestMatchUpdateConfirmedTransactionsSetsCompletedFlag(t *testing.T) {
+	ctx, ptm, _, done := newTestPublicTxManager(t, true)
+	defer done()
+
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testHash := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	testTxID := uuid.New()
+
+	// Create a transaction with a binding and submission
+	var pubTxnID uint64
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		dbTx := &DBPublicTxn{
+			From:  *testAddress,
+			Gas:   21000,
+			Nonce: confutil.P(uint64(100)),
+		}
+		if err := dbTX.DB(ctx).WithContext(ctx).Table("public_txns").Create(dbTx).Error; err != nil {
+			return err
+		}
+		pubTxnID = dbTx.PublicTxnID
+		binding := &DBPublicTxnBinding{
+			PublicTxnID:     pubTxnID,
+			Transaction:     testTxID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}
+		if err := dbTX.DB(ctx).WithContext(ctx).Table("public_txn_bindings").Create(binding).Error; err != nil {
+			return err
+		}
+		submission := &DBPubTxnSubmission{
+			PublicTxnID:     pubTxnID,
+			TransactionHash: testHash,
+		}
+		return dbTX.DB(ctx).WithContext(ctx).Table("public_submissions").Create(submission).Error
+	})
+	require.NoError(t, err)
+
+	// The poll relies on the partial-index predicate to decide whether a txn is
+	// still outstanding: our txn must be visible to it before, and gone after.
+	pollSeesTxn := func() bool {
+		var n int64
+		require.NoError(t, ptm.p.DB(ctx).Raw(
+			`SELECT count(*) FROM "public_txns" WHERE "completed" IS FALSE AND "pub_txn_id" = ?`, pubTxnID).Scan(&n).Error)
+		return n > 0
+	}
+
+	// Before confirmation the txn is outstanding and completed is false
+	assert.True(t, pollSeesTxn())
+	var completed bool
+	require.NoError(t, ptm.p.DB(ctx).Raw(
+		`SELECT "completed" FROM "public_txns" WHERE "pub_txn_id" = ?`, pubTxnID).Scan(&completed).Error)
+	assert.False(t, completed)
+
+	itxs := []*blockindexer.IndexedTransactionNotify{
+		{
+			IndexedTransaction: pldapi.IndexedTransaction{
+				Hash:   testHash,
+				Result: pldapi.TXResult_SUCCESS.Enum(),
+			},
+		},
+	}
+
+	matches, err := ptm.MatchUpdateConfirmedTransactions(ctx, ptm.p.NOTX(), itxs)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+
+	// After confirmation the denormalized flag is set and the sender drops out of the poll
+	require.NoError(t, ptm.p.DB(ctx).Raw(
+		`SELECT "completed" FROM "public_txns" WHERE "pub_txn_id" = ?`, pubTxnID).Scan(&completed).Error)
+	assert.True(t, completed)
+	assert.False(t, pollSeesTxn())
+
+	// And it is consistent with public_completions being the source of truth
+	var completionCount int64
+	require.NoError(t, ptm.p.DB(ctx).Raw(
+		`SELECT count(*) FROM "public_completions" WHERE "pub_txn_id" = ?`, pubTxnID).Scan(&completionCount).Error)
+	assert.Equal(t, int64(1), completionCount)
+}
+
+func TestMatchUpdateConfirmedTransactionsCompletedUpdateError(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, m, done := newTestPublicTxManager(t, false)
+	defer done()
+
+	testHash := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	testTxID := uuid.New()
+	testPubTxnID := uint64(42)
+
+	itxs := []*blockindexer.IndexedTransactionNotify{
+		{
+			IndexedTransaction: pldapi.IndexedTransaction{
+				Hash:   testHash,
+				Result: pldapi.TXResult_SUCCESS.Enum(),
+			},
+		},
+	}
+
+	// Binding lookup returns a matching row
+	m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(
+		sqlmock.NewRows([]string{
+			"pub_txn_id", "transaction", "tx_type", "sender", "contract_address",
+			"Submission__pub_txn_id", "Submission__tx_hash",
+		}).AddRow(
+			testPubTxnID, testTxID.String(), "private", "", "",
+			testPubTxnID, testHash[:],
+		),
+	)
+	// The completion insert succeeds, but the denormalized completed UPDATE fails
+	m.db.ExpectQuery("INSERT.*public_completions").WillReturnRows(
+		sqlmock.NewRows([]string{"pub_txn_id"}).AddRow(testPubTxnID))
+	m.db.ExpectExec("UPDATE.*public_txns").WillReturnError(fmt.Errorf("completed update error"))
+
+	matches, err := ptm.MatchUpdateConfirmedTransactions(ctx, m.allComponents.Persistence().NOTX(), itxs)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "completed update error")
 	assert.Nil(t, matches)
 }

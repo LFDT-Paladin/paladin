@@ -29,8 +29,8 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/testinfra/pkg/besugenesis"
 	"github.com/LFDT-Paladin/paladin/testinfra/pkg/testutils"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 )
 
 func main() {
@@ -129,7 +129,6 @@ func main() {
 				BlockPeriodSeconds:      ptrTo(1), // this is overwritten by the BlockPeriodMilliseconds
 				EpochLength:             ptrTo(30000),
 				RequestTimeoutSeconds:   ptrTo(10),
-				EmptyBlockPeriodSeconds: ptrTo(10),
 				BlockPeriodMilliseconds: ptrTo(200),
 			},
 		},

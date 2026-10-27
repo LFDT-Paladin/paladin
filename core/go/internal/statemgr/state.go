@@ -18,7 +18,10 @@ package statemgr
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -26,13 +29,13 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 type transactionStateRecord struct {
@@ -74,12 +77,12 @@ func (ss *stateManager) WriteReceivedStates(ctx context.Context, dbTX persistenc
 	}
 
 	if d.CustomHashFunction() {
-		dStates := make([]*components.FullState, len(states))
+		dStates := make([]*prototk.EndorsableState, len(states))
 		for i, s := range states {
-			dStates[i] = &components.FullState{
-				ID:     s.ID,
-				Schema: s.SchemaID,
-				Data:   s.Data,
+			dStates[i] = &prototk.EndorsableState{
+				Id:            s.ID.String(),
+				SchemaId:      s.SchemaID.String(),
+				StateDataJson: string(s.Data),
 			}
 		}
 		ids, err := d.ValidateStateHashes(ctx, dStates)
@@ -96,29 +99,20 @@ func (ss *stateManager) WriteReceivedStates(ctx context.Context, dbTX persistenc
 	return ss.processInsertStates(ctx, dbTX, d, states)
 }
 
-func (ss *stateManager) WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, upserts []*components.NullifierUpsert) (err error) {
+func (ss *stateManager) WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*pldapi.StateNullifier) (err error) {
 	ctx = log.WithComponent(ctx, "statemanager")
-	d, err := ss.domainManager.GetDomainByName(ctx, domainName)
+	_, err = ss.domainManager.GetDomainByName(ctx, domainName)
 	if err != nil {
 		return err
 	}
 
-	stateNullifiers := make([]*pldapi.StateNullifier, len(upserts))
-	for i, n := range upserts {
-		stateNullifiers[i] = &pldapi.StateNullifier{
-			DomainName: d.Name(),
-			ID:         n.ID,
-			State:      n.State,
-		}
-	}
-
-	if len(stateNullifiers) > 0 {
-		err = dbTX.DB().
+	if len(nullifiers) > 0 {
+		err = dbTX.DB(ctx).
 			Table("state_nullifiers").
 			Clauses(clause.OnConflict{
 				DoNothing: true, // immutable
 			}).
-			Create(stateNullifiers).
+			Create(nullifiers).
 			Error
 	}
 
@@ -134,7 +128,7 @@ func (ss *stateManager) processInsertStates(ctx context.Context, dbTX persistenc
 			return nil, err
 		}
 
-		s, err := schema.ProcessState(ctx, inState.ContractAddress, inState.Data, inState.ID, d.CustomHashFunction())
+		s, err := schema.ProcessStateWithLabels(ctx, inState.ContractAddress, inState.Data, inState.ID, d.CustomHashFunction())
 		if err != nil {
 			return nil, err
 		}
@@ -150,6 +144,33 @@ func (ss *stateManager) processInsertStates(ctx context.Context, dbTX persistenc
 	return processedStates, nil
 }
 
+func (ss *stateManager) WriteStateBatch(ctx context.Context, dbTX persistence.DBTX, statesWithLabels []*components.StateWithLabels, nullifiers ...*pldapi.StateNullifier) (err error) {
+	states := make([]*pldapi.State, len(statesWithLabels))
+	for i, s := range statesWithLabels {
+		states[i] = s.State
+	}
+	log.L(ctx).Debugf("Writing state batch states=%d nullifiers=%d", len(states), len(nullifiers))
+	if log.IsTraceEnabled() {
+		for _, s := range states {
+			log.L(ctx).Tracef("Writing state for contract %s, data=%s, domain=%s, created=%s", s.ContractAddress, s.Data, s.DomainName, s.Created)
+		}
+	}
+
+	if len(states) > 0 {
+		err = ss.writeStates(ctx, dbTX, states)
+	}
+	if err == nil && len(nullifiers) > 0 {
+		err = dbTX.DB(ctx).
+			Table("state_nullifiers").
+			Clauses(clause.OnConflict{
+				DoNothing: true, // immutable
+			}).
+			Create(nullifiers).
+			Error
+	}
+	return err
+}
+
 func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, states []*pldapi.State) (err error) {
 	var labels []*pldapi.StateLabel
 	var int64Labels []*pldapi.StateInt64Label
@@ -159,9 +180,8 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 	}
 
 	if len(states) > 0 {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("states").
-			WithContext(ctx).
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "domain_name"}, {Name: "id"}},
 				DoNothing: true, // immutable
@@ -171,7 +191,7 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 			Error
 	}
 	if err == nil && len(labels) > 0 {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("state_labels").
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "domain_name"}, {Name: "state"}, {Name: "label"}},
@@ -181,7 +201,7 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 			Error
 	}
 	if err == nil && len(int64Labels) > 0 {
-		err = dbTX.DB().
+		err = dbTX.DB(ctx).
 			Table("state_int64_labels").
 			Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "domain_name"}, {Name: "state"}, {Name: "label"}},
@@ -191,14 +211,19 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 			Error
 	}
 
-	// Update the completion index for any opted-in domain transactions that were
-	// waiting for one of the just-written states
+	// Reconcile availability flags for the just-written states, then update the
+	// completion index. A confirm/spend record may have been written before the state row
+	// existed; setStateAvailableFromSpendConfirmRecords sets the flags now from the
+	// authoritative record tables.
 	if err == nil && len(states) > 0 {
-		arrivedIDs := make([]pldtypes.HexBytes, len(states))
-		for i, s := range states {
-			arrivedIDs[i] = s.ID
+		err = ss.setStateAvailableFromSpendConfirmRecords(ctx, dbTX, states)
+		if err == nil {
+			arrivedIDs := make([]pldtypes.HexBytes, len(states))
+			for i, s := range states {
+				arrivedIDs[i] = s.ID
+			}
+			err = ss.updatePendingPrivateStateData(ctx, dbTX, arrivedIDs)
 		}
-		err = ss.updatePendingPrivateStateData(ctx, dbTX, arrivedIDs)
 	}
 	return err
 }
@@ -208,7 +233,7 @@ func (ss *stateManager) getStateIDsMissingPrivateData(ctx context.Context, dbTX 
 		return nil, nil
 	}
 	var found []pldtypes.HexBytes
-	if err := dbTX.DB().Table("states").WithContext(ctx).
+	if err := dbTX.DB(ctx).Table("states").
 		Where("domain_name = ?", domainName).
 		Where("id IN ?", stateIDs).
 		Pluck("id", &found).Error; err != nil {
@@ -232,7 +257,7 @@ func (ss *stateManager) getStateIDsMissingPrivateData(ctx context.Context, dbTX 
 
 func (ss *stateManager) GetStatesByID(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, stateIDs []pldtypes.HexBytes, failNotFound, withLabels bool) ([]*pldapi.State, error) {
 	ctx = log.WithComponent(ctx, "statemanager")
-	q := dbTX.DB().Table("states")
+	q := dbTX.DB(ctx).Table("states")
 	if withLabels {
 		q = q.Preload("Labels").Preload("Int64Labels")
 	}
@@ -266,6 +291,12 @@ func addStateBaseLabels(labelValues filters.PassthroughValueSet, id pldtypes.Hex
 	return labelValues
 }
 
+// sortFieldBaseName reduces a sort instruction ("[-]field[ asc|desc]") to the field name it orders on.
+func sortFieldBaseName(sortInstruction string) string {
+	name, _ := strings.CutPrefix(strings.SplitN(sortInstruction, " ", 2)[0], "-")
+	return name
+}
+
 type trackingLabelSet struct {
 	labels map[string]*schemaLabelInfo
 	used   map[string]*schemaLabelInfo
@@ -292,27 +323,33 @@ func (ss *stateManager) labelSetFor(schema components.Schema) *trackingLabelSet 
 	return &tls
 }
 
-func (ss *stateManager) FindContractStates(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, schemaID pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (s []*pldapi.State, err error) {
-	_, s, err = ss.findStates(ctx, dbTX, domainName, contractAddress, schemaID, query, &components.StateQueryOptions{StatusQualifier: status})
-	return s, err
+// statusScope returns the query modifier that scopes a states query to a status qualifier and
+// excludes the given state IDs. The confirmed qualifier is served from the maintained confirmed/spent
+// flags and the states_available partial index, so it needs neither the Confirmed/Spent joins nor
+// whereClauseForQual. Every other qualifier expresses status via those joins.
+func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.StateStatusQualifier, excludedIDs []pldtypes.HexBytes) func(*gorm.DB) *gorm.DB {
+	var whereClause *gorm.DB
+	var needsStatusJoins bool
+	if status == pldapi.StateStatusConfirmed {
+		whereClause = dbTX.DB(ctx).Where(`"states"."confirmed" AND NOT "states"."spent"`)
+	} else {
+		whereClause = whereClauseForQual(dbTX.DB(ctx), status, "Spent")
+		needsStatusJoins = true
+	}
+	return func(q *gorm.DB) *gorm.DB {
+		if needsStatusJoins {
+			q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
+				Joins("Spent", dbTX.DB(ctx).Select("transaction"))
+		}
+		if len(excludedIDs) > 0 {
+			q = q.Not(`"states"."id" IN(?)`, excludedIDs)
+		}
+		return q.Where(whereClause)
+	}
 }
 
-func (ss *stateManager) FindStates(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, options *components.StateQueryOptions) (s []*pldapi.State, err error) {
-	ctx = log.WithComponent(ctx, "statemanager")
-	_, s, err = ss.findStates(ctx, dbTX, domainName, nil, schemaID, query, options)
-	return s, err
-}
-
-func (ss *stateManager) FindContractNullifiers(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress pldtypes.EthAddress, schemaID pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (s []*pldapi.State, err error) {
-	_, s, err = ss.findNullifiers(ctx, dbTX, domainName, &contractAddress, schemaID, query, status, nil, nil)
-	return s, err
-}
-
-func (ss *stateManager) FindNullifiers(ctx context.Context, dbTX persistence.DBTX, domainName string, schemaID pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (s []*pldapi.State, err error) {
-	_, s, err = ss.findNullifiers(ctx, dbTX, domainName, nil, schemaID, query, status, nil, nil)
-	return s, err
-}
-
+// findStates reads states from the local DB, scoped by the given status qualifier and query,
+// excluding any of the given state IDs.
 func (ss *stateManager) findStates(
 	ctx context.Context,
 	dbTX persistence.DBTX,
@@ -320,49 +357,18 @@ func (ss *stateManager) findStates(
 	contractAddress *pldtypes.EthAddress,
 	schemaID pldtypes.Bytes32,
 	jq *query.QueryJSON,
-	options *components.StateQueryOptions,
-) (schema components.Schema, s []*pldapi.State, err error) {
-	if options == nil {
-		options = &components.StateQueryOptions{}
-	}
-	if options.StatusQualifier == "" {
-		options.StatusQualifier = pldapi.StateStatusAll
-	}
-	whereClause, isPlainDB := whereClauseForQual(dbTX.DB(), options.StatusQualifier, "Spent")
-	if isPlainDB {
-		return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
-			q = q.Joins("Confirmed", dbTX.DB().Select("transaction")).
-				Joins("Spent", dbTX.DB().Select("transaction"))
-
-			if len(options.ExcludedIDs) > 0 {
-				q = q.Not(`"states"."id" IN(?)`, options.ExcludedIDs)
-			}
-
-			// Scope the query based on the status qualifier
-			q = q.Where(whereClause)
-
-			if options.QueryModifier != nil {
-				q = options.QueryModifier(dbTX, q)
-			}
-			return q
-		})
-	}
-
-	// Otherwise, we need to run it against the specified domain context
-	var dc components.DomainContext
-	dcID, err := uuid.Parse(string(options.StatusQualifier))
-	if err == nil {
-		if dc = ss.GetDomainContext(ctx, dcID); dc == nil {
-			err = i18n.NewError(ctx, msgs.MsgStateDomainContextNotActive, dcID)
-		}
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	return dc.FindAvailableStates(ctx, dbTX, schemaID, jq)
+	status pldapi.StateStatusQualifier,
+	excludedIDs []pldtypes.HexBytes,
+) (components.Schema, []*pldapi.State, error) {
+	scope := statusScope(ctx, dbTX, status, excludedIDs)
+	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq,
+		func(_ persistence.DBTX, q *gorm.DB) *gorm.DB { return scope(q) })
 }
 
-func (ss *stateManager) findNullifiers(
+// findNullifierBackedStates reads states that carry a nullifier, dropping those that do not. Status is
+// expressed through the Confirmed join and the nullifier's own spend join, since the chain records the
+// spend against the nullifier rather than against the state it consumes.
+func (ss *stateManager) findNullifierBackedStates(
 	ctx context.Context,
 	dbTX persistence.DBTX,
 	domainName string,
@@ -370,44 +376,23 @@ func (ss *stateManager) findNullifiers(
 	schemaID pldtypes.Bytes32,
 	jq *query.QueryJSON,
 	status pldapi.StateStatusQualifier,
-	spendingStates []pldtypes.HexBytes,
-	spendingNullifiers []pldtypes.HexBytes,
-) (schema components.Schema, s []*pldapi.State, err error) {
-	whereClause, isPlainDB := whereClauseForQual(dbTX.DB(), status, "Nullifier__Spent")
-	if isPlainDB {
-		return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
-			hasNullifier := dbTX.DB().Where(`"Nullifier"."id" IS NOT NULL`)
+	excludedIDs []pldtypes.HexBytes,
+) (components.Schema, []*pldapi.State, error) {
+	whereClause := whereClauseForQual(dbTX.DB(ctx), status, "Nullifier__Spent")
+	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
+		hasNullifier := dbTX.DB(ctx).Where(`"Nullifier"."id" IS NOT NULL`)
 
-			q = q.Joins("Confirmed", dbTX.DB().Select("transaction")).
-				Joins("Nullifier", dbTX.DB().Select(`"Nullifier"."id"`)).
-				Joins("Nullifier.Spent", dbTX.DB().Select("transaction")).
-				Where(hasNullifier)
+		q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
+			Joins("Nullifier", dbTX.DB(ctx).Select(`"Nullifier"."id"`)).
+			Joins("Nullifier.Spent", dbTX.DB(ctx).Select("transaction")).
+			Where(hasNullifier)
 
-			if len(spendingStates) > 0 {
-				q = q.Not(`"states"."id" IN(?)`, spendingStates)
-			}
-			if len(spendingNullifiers) > 0 {
-				q = q.Not(`"Nullifier"."id" IN(?)`, spendingNullifiers)
-			}
-
-			// Scope to only unspent
-			q = q.Where(whereClause)
-			return q
-		})
-	}
-
-	// Otherwise, we need to run it against the specified domain context
-	var dc components.DomainContext
-	dcID, err := uuid.Parse(string(status))
-	if err == nil {
-		if dc = ss.GetDomainContext(ctx, dcID); dc == nil {
-			err = i18n.NewError(ctx, msgs.MsgStateDomainContextNotActive, dcID)
+		if len(excludedIDs) > 0 {
+			q = q.Not(`"states"."id" IN(?)`, excludedIDs)
 		}
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	return dc.FindAvailableNullifiers(ctx, dbTX, schemaID, jq)
+
+		return q.Where(whereClause)
+	})
 }
 
 func (ss *stateManager) findStatesCommon(
@@ -431,7 +416,7 @@ func (ss *stateManager) findStatesCommon(
 	tracker := ss.labelSetFor(schema)
 
 	// Build the query
-	q := filters.BuildGORM(ctx, jq, dbTX.DB().Table("states"), tracker)
+	q := filters.BuildGORM(ctx, jq, dbTX.DB(ctx).Table("states"), tracker)
 	if q.Error != nil {
 		return nil, nil, q.Error
 	}
@@ -454,9 +439,152 @@ func (ss *stateManager) findStatesCommon(
 	q = modifyQuery(dbTX, q)
 
 	var states []*pldapi.State
-	q = q.Find(&states)
-	if q.Error != nil {
-		return nil, nil, q.Error
+	dbStart := time.Now()
+	err = q.Find(&states).Error
+	ss.metrics.ObserveStateQueryDB(domainName, time.Since(dbStart))
+	if err != nil {
+		return nil, nil, err
 	}
 	return schema, states, nil
+}
+
+// cacheGetValidatedStateWithLabels returns a caller-owned shallow copy of a cache entry, with labels.
+// The shallow copy means that the caller may mutate Created or do a wholesale replacement of labels,
+// without modifying the cache entry.
+//
+// All other fields must still be treated as read only. This is fragile as it relies on an
+// unenforced and difficult to document contract, but taking a deep copy of the state would be expensive,
+// and modifications to any of the remaining fields in the state or partial modifications to its labels are
+// destroy the integrity/self consistency of the state, making it effectively unusable, so the risk of
+// future changes not respecting this contract is low enough to justify the performance benefits of not
+// making a deep copy.
+func (ss *stateManager) cacheGetValidatedStateWithLabels(cacheKey string) (*components.StateWithLabels, bool) {
+	cached, ok := ss.validatedStateCache.Get(cacheKey)
+	if !ok {
+		return nil, false
+	}
+	stateCopy := *cached.State
+	return &components.StateWithLabels{
+		State:       &stateCopy,
+		LabelValues: cached.LabelValues,
+	}, true
+}
+
+// cacheGetValidatedState returns just the validated content (id, schema, normalized data) of
+// a full cache entry. The same unenforced contract about all fields other than Created being
+// immutable applies as for cacheGetValidatedStateWithLabels.
+func (ss *stateManager) cacheGetValidatedState(cacheKey string) (*pldapi.State, bool) {
+	cached, ok := ss.validatedStateCache.Get(cacheKey)
+	if !ok {
+		return nil, false
+	}
+	stateCopy := *cached.State
+	stateCopy.Labels = nil
+	stateCopy.Int64Labels = nil
+	return &stateCopy, true
+}
+
+// validatedCacheParams parses a proto state's id/schema and derives its validatedStateCache key. An
+// empty cacheKey means the state is not addressable in the cache: only content-addressed states whose
+// claimed ID is hash-verified against content in ProcessState may be cached, and customHashFunction
+// states pre-verify their own hash so are never cached.
+func (ss *stateManager) validatedCacheParams(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, es *prototk.EndorsableState) (schemaID pldtypes.Bytes32, stateID pldtypes.HexBytes, cacheKey string, err error) {
+	if schemaID, err = pldtypes.ParseBytes32Ctx(ctx, es.GetSchemaId()); err != nil {
+		return
+	}
+	if idStr := es.GetId(); idStr != "" {
+		if stateID, err = pldtypes.ParseHexBytes(ctx, idStr); err != nil {
+			return
+		}
+	}
+	if !customHashFunction && stateID != nil {
+		cacheKey = validatedStateCacheKey(domainName, contractAddress, stateID)
+	}
+	return
+}
+
+// validateStateWithLabels returns the validated, full StateWithLabels form of a proto-native state,
+// reading through validatedStateCache. It is the only path that builds complete StateWithLabel types,
+// so it is the only path that seeds the cache.
+func (ss *stateManager) validateStateWithLabels(ctx context.Context, domainName string, contractAddress pldtypes.EthAddress, customHashFunction bool, dbTX persistence.DBTX, es *prototk.EndorsableState) (*components.StateWithLabels, error) {
+	schemaID, stateID, cacheKey, err := ss.validatedCacheParams(ctx, domainName, contractAddress, customHashFunction, es)
+	if err != nil {
+		return nil, err
+	}
+	if cacheKey != "" {
+		if cached, ok := ss.cacheGetValidatedStateWithLabels(cacheKey); ok {
+			return cached, nil
+		}
+	}
+	schema, err := ss.getSchemaByID(ctx, dbTX, domainName, schemaID, true)
+	if err != nil {
+		return nil, err
+	}
+	vs, err := schema.ProcessStateWithLabels(ctx, &contractAddress, pldtypes.RawJSON(es.GetStateDataJson()), stateID, customHashFunction)
+	if err != nil {
+		return nil, err
+	}
+	if cacheKey != "" {
+		// ProcessStateWithLabels does not set Created, so the shared cache never holds Created timestamp.
+		// Each caller stamps the created its context needs on the copy it receives.
+		ss.validatedStateCache.Set(cacheKey, vs)
+		stateCopy := *vs.State
+		return &components.StateWithLabels{
+			State:       &stateCopy,
+			LabelValues: vs.LabelValues,
+		}, nil
+	}
+	return vs, nil
+}
+
+func validatedStateCacheKey(domainName string, contractAddress pldtypes.EthAddress, stateID pldtypes.HexBytes) string {
+	// Build "domain:0x<address>:0x<stateID>" into a single buffer, hex-encoding the
+	// address and state ID directly to avoid the intermediate String() allocations.
+	buf := make([]byte, 0, len(domainName)+6+len(contractAddress)*2+len(stateID)*2)
+	buf = append(buf, domainName...)
+	buf = append(buf, ':', '0', 'x')
+	buf = hex.AppendEncode(buf, contractAddress[:])
+	buf = append(buf, ':', '0', 'x')
+	buf = hex.AppendEncode(buf, stateID)
+	return string(buf)
+}
+
+// ValidateStates validates and normalizes state data against the state's schema, and computes the state ID.
+func (ss *stateManager) ValidateStates(ctx context.Context, dbTX persistence.DBTX, domain components.Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*pldapi.State, error) {
+	domainName := domain.Name()
+	customHashFunction := domain.CustomHashFunction()
+	validated := make([]*pldapi.State, len(states))
+	for i, es := range states {
+		schemaID, stateID, cacheKey, err := ss.validatedCacheParams(ctx, domainName, contractAddress, customHashFunction, es)
+		if err != nil {
+			return nil, err
+		}
+		if cacheKey != "" {
+			if cached, ok := ss.cacheGetValidatedState(cacheKey); ok {
+				validated[i] = cached
+				continue
+			}
+		}
+		schema, err := ss.getSchemaByID(ctx, dbTX, domainName, schemaID, true)
+		if err != nil {
+			return nil, err
+		}
+		if validated[i], err = schema.ProcessState(ctx, &contractAddress, pldtypes.RawJSON(es.GetStateDataJson()), stateID, customHashFunction); err != nil {
+			return nil, err
+		}
+	}
+	return validated, nil
+}
+
+// ValidateStatesWithLabels is ValidateStates, additionally extracting label values.
+func (ss *stateManager) ValidateStatesWithLabels(ctx context.Context, dbTX persistence.DBTX, domain components.Domain, contractAddress pldtypes.EthAddress, states ...*prototk.EndorsableState) ([]*components.StateWithLabels, error) {
+	withLabels := make([]*components.StateWithLabels, len(states))
+	for i, es := range states {
+		vs, err := ss.validateStateWithLabels(ctx, domain.Name(), contractAddress, domain.CustomHashFunction(), dbTX, es)
+		if err != nil {
+			return nil, err
+		}
+		withLabels[i] = vs
+	}
+	return withLabels, nil
 }

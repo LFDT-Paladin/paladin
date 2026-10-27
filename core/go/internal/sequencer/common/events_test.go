@@ -137,3 +137,23 @@ func TestTransactionStateTransitionEvent_ImplementsEventInterface(t *testing.T) 
 	assert.Equal(t, 0, event.FromState)
 	assert.Equal(t, 1, event.ToState)
 }
+
+func TestHeartbeatReceivedEvent_Type(t *testing.T) {
+	event := &HeartbeatReceivedEvent{}
+	assert.Equal(t, Event_HeartbeatReceived, event.Type())
+}
+
+func TestHeartbeatReceivedEvent_TypeString(t *testing.T) {
+	event := &HeartbeatReceivedEvent{}
+	assert.Equal(t, "Event_HeartbeatReceived", event.TypeString())
+}
+
+func TestEndorserNodesDiscoveredEvent_Type(t *testing.T) {
+	event := &EndorserNodesDiscoveredEvent{}
+	assert.Equal(t, Event_EndorserNodesDiscovered, event.Type())
+}
+
+func TestEndorserNodesDiscoveredEvent_TypeString(t *testing.T) {
+	event := &EndorserNodesDiscoveredEvent{}
+	assert.Equal(t, "Event_EndorserNodesDiscovered", event.TypeString())
+}

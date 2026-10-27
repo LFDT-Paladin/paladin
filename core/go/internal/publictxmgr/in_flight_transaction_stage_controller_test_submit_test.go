@@ -198,6 +198,34 @@ func TestProduceLatestInFlightStageContextCannotSubmit(t *testing.T) {
 	currentGeneration.bufferedStageOutputs = make([]*StageOutput, 0)
 }
 
+func TestProduceLatestInFlightStageContextReadyToExitCostsNothing(t *testing.T) {
+	ctx, o, _, done := newTestOrchestrator(t)
+	defer done()
+	it, mTS := newInflightTransaction(o, 1)
+	it.testOnlyNoActionMode = true
+
+	// A gas price is available, but the transaction has already been confirmed so it is only
+	// waiting to be removed from the in-flight set- there is nothing left to submit and pay for.
+	confirmReceived := InFlightStatusConfirmReceived
+	mTS.ApplyInMemoryUpdates(ctx, &BaseTXUpdates{
+		NewValues: BaseTXUpdateNewValues{
+			GasPricing: &pldapi.PublicTxGasPricing{
+				MaxFeePerGas:         pldtypes.Uint64ToUint256(32247127816),
+				MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(32146027800),
+			},
+			InFlightStatus: &confirmReceived,
+		},
+	})
+
+	tOut := it.ProduceLatestInFlightStageContext(ctx, &OrchestratorContext{
+		AvailableToSpend:         big.NewInt(0),
+		PreviousNonceCostUnknown: true,
+	})
+	assert.Equal(t, "0", tOut.Cost.String())
+	// nothing is started for a transaction that is only waiting for removal
+	assert.Nil(t, it.stateManager.GetCurrentGeneration(ctx).GetRunningStageContext(ctx))
+}
+
 func TestProduceLatestInFlightStageContextSubmitCompleteAlreadyKnown(t *testing.T) {
 	ctx, o, m, done := newTestOrchestrator(t)
 	defer done()

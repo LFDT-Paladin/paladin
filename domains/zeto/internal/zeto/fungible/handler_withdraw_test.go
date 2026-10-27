@@ -180,7 +180,7 @@ func TestWithdrawAssemble(t *testing.T) {
 		},
 	}
 	_, err = h.Assemble(ctx, tx, req)
-	require.ErrorContains(t, err, "PD210042: Failed to format proving request. PD210055: Failed to query the smt DB for leaf node")
+	require.ErrorContains(t, err, "PD210042: Failed to format proving request. PD021211: Failed to query the smt DB for leaf node")
 
 	called = 0
 	h.callbacks = &testDomainCallbacks{

@@ -75,15 +75,18 @@ kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_g16_withd
 kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_g16_withdraw_nullifier_batch.yaml
 kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_g16_withdraw_nullifier.yaml
 kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_g16_withdraw.yaml
+kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_g16_nf_anon.yaml
 kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_impl_anon_enc.yaml
 kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_impl_anon_nullifier.yaml
 kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_impl_anon.yaml
+kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_impl_nf_anon.yaml
 kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_poseidon_unit2l.yaml
 kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_poseidon_unit3l.yaml
 kubectl -n paladin apply -f core_v1alpha1_smartcontractdeployment_zeto_smt_lib.yaml
 kubectl -n paladin apply -f core_v1alpha1_transactioninvoke_zeto_register_anon_enc.yaml
 kubectl -n paladin apply -f core_v1alpha1_transactioninvoke_zeto_register_anon_nullifier.yaml
 kubectl -n paladin apply -f core_v1alpha1_transactioninvoke_zeto_register_anon.yaml
+kubectl -n paladin apply -f core_v1alpha1_transactioninvoke_zeto_register_nf_anon.yaml
 ```
 
 **Note:** Smart contracts won't be fully deployed until Step 7.
@@ -221,6 +224,23 @@ spec:
               "transferLocked": {
                 "name": "anon_nullifier_transferLocked",
                 "usesNullifiers": true
+              }
+            }
+          },
+          {
+            "name": "Zeto_NfAnon",
+            "circuits": {
+              "deposit": {
+                "name": "not_implemented"
+              },
+              "withdraw": {
+                "name": "not_implemented"
+              },
+              "transfer": {
+                "name": "nf_anon"
+              },
+              "transferLocked": {
+                "name": "nf_anon"
               }
             }
           }

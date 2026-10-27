@@ -32,7 +32,7 @@ Because the base ledger smart contract cannot access or leak the data involved i
 2. A zero-knowledge proof is verified during execution of the transaction
     - The smart contract uses advanced cryptography to verify the rules were obeyed
     - Anyone can submit a transaction, as long as it comes with a suitable proof
-    - Example 1: a cash token with total conversation of value and ownership enforced via ZKP
+    - Example 1: a cash token with total conservation of value and ownership enforced via ZKP
     - Example 2: a non-fungible token with uniqueness and ownership enforced via ZKP
 
 There are strong reasons why both of these approaches exist - some related to efficiency/performance, and others related to fundamental characteristics of each model. The Paladin project embraces both approaches, and allows them coexist and interoperate atomically.
@@ -53,7 +53,7 @@ Examples include:
 
 The diagram below shows the fundamental anatomy of the EVM smart contract. There are a set of standard functions that Paladin uses to coordinate operations with your smart contract, and code that maps these down to EVM state and proof/signature verification functions.
 
-> TODO: Provide link to detailed developer guidance / samples / instructions
+<!-- TODO: Provide link to detailed developer guidance / samples / instructions -->
 
 ![EVM Smart Contract - Layer A](../images/evm_smart_contract_layer_a.jpg)
 
@@ -105,7 +105,7 @@ Paladin provides a modular system for plugging in the off-chain half of your pri
 For more information see the following architecture pages:
 
 - [UTXO State Store](./uxto_state_store.md)
-- [Distributed Transaction Manager](./transaction_manager.md)
+- [Distributed Transaction Manager](./distributed_sequencer_overview.md)
 - [Runtime Architecture](./runtime_architecture.md)
 
 ## Layer C: Ecosystem programmability (Private EVM)

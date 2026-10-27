@@ -27,8 +27,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -299,21 +299,20 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
 	require.NoError(t, err)
 	notoParams := decodeSingleABITuple[types.NotoUpdateLockArgs](t, types.NotoUpdateLockArgsABI, fnParams.UpdateArgs)
-	notoOptions := notoParams.Options
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), []string{}, unlockTxData)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), n.endorsableStateIDs(ctx, nil, readStates, false), []string{}, unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[1:2]), cancelUnlockTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), n.endorsableStateIDs(ctx, nil, readStates, false), n.endorsableStateIDs(ctx, nil, infoStates[1:2], false), cancelUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
 
 	// Validate the encoded noto parameters passed in
 	require.Equal(t, &types.NotoUpdateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Contents:     endorsableStateIDs(readStates),
+		Contents:     n.endorsableStateIDs(ctx, nil, readStates, false),
 		OldLockState: pldtypes.MustParseBytes32(inputLockInfo.Id),
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
-		Options:      notoParams.Options,
+		Options:      types.NotoLockOptions{SpendTxId: lockInfo.SpendTxId},
 		Proof:        signatureBytes,
 	}, notoParams)
 
@@ -483,4 +482,142 @@ func TestPrepareBurnUnlockOnlyCreator(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Only the lock creator can perform unlock")
+}
+
+func TestPrepareBurnUnlockCheckAllowedForFromLocalNodeNameFailed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockLocalNodeName = func() (*prototk.LocalNodeNameResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	h := &prepareBurnUnlockHandler{lockCommon: lockCommon{noto: &Noto{Callbacks: mockCallbacks}}}
+	tx := &types.ParsedTransaction{
+		Transaction:  &prototk.TransactionSpecification{From: "sender@node1"},
+		DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
+	}
+	assertEndorseInternal(t, h.checkAllowedForFrom(t.Context(), tx, "sender"), "pop")
+}
+
+func TestPrepareBurnUnlockValidateParamsRevert(t *testing.T) {
+	h := &prepareBurnUnlockHandler{}
+	lockID := pldtypes.RandBytes32()
+	for _, tc := range []struct {
+		name, params, match string
+		config              *types.NotoParsedConfig
+	}{
+		{"not supported in V0", `{}`, "PD200014", notoBasicConfigV0},
+		{"malformed JSON", `{"lockId":`, "unexpected end of JSON input", notoBasicConfigV1},
+		{"missing lockId", `{"from": "sender@node1", "amount": 1}`, "PD200007.*'lockId'", notoBasicConfigV1},
+		{"missing from", fmt.Sprintf(`{"lockId": "%s", "amount": 1}`, lockID), "PD200007.*'from'", notoBasicConfigV1},
+		{"zero amount", fmt.Sprintf(`{"lockId": "%s", "from": "sender@node1", "amount": 0}`, lockID), "PD200008.*'amount'", notoBasicConfigV1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), tc.config, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestPrepareBurnUnlockCheckAllowedRevertsWhenBurnDisabled(t *testing.T) {
+	allowBurn := false
+	h := &prepareBurnUnlockHandler{}
+	tx := &types.ParsedTransaction{
+		DomainConfig: &types.NotoParsedConfig{
+			NotaryMode: types.NotaryModeBasic.Enum(),
+			Options:    types.NotoOptions{Basic: &types.NotoBasicOptions{AllowBurn: &allowBurn}},
+		},
+	}
+	assertEndorseRevert(t, h.checkAllowed(t.Context(), tx), "PD200025")
+}
+
+func TestPrepareBurnUnlockCheckAllowedForFromUnparsableLocator(t *testing.T) {
+	h := &prepareBurnUnlockHandler{lockCommon{noto: &Noto{Callbacks: newMockCallbacks()}}}
+	tx := &types.ParsedTransaction{
+		Transaction:  &prototk.TransactionSpecification{From: "sender@node1"},
+		DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
+	}
+	assertEndorseRevert(t, h.checkAllowedForFrom(t.Context(), tx, "sender@node1@node2"), "PD020006")
+}
+
+func TestPrepareBurnUnlockCheckAllowedForFromNotTheLockCreator(t *testing.T) {
+	h := &prepareBurnUnlockHandler{lockCommon{noto: &Noto{Callbacks: newMockCallbacks()}}}
+	tx := &types.ParsedTransaction{
+		Transaction:  &prototk.TransactionSpecification{From: "someoneelse@node1"},
+		DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
+	}
+	assertEndorseRevert(t, h.checkAllowedForFrom(t.Context(), tx, "sender"), "PD200031")
+}
+
+func TestPrepareBurnUnlockEndorseRevertsWhenLockedCoinsDoNotMatchTheBurnAmount(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	tx.Params = &types.PrepareBurnUnlockParams{
+		LockID: pldtypes.RandBytes32(),
+		From:   "sender@node1",
+		Amount: pldtypes.Int64ToInt256(100),
+	}
+	h := &prepareBurnUnlockHandler{lockCommon{noto: n}}
+
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Reads:             []*prototk.EndorsableState{newLockedCoinState(sender, 40)},
+	})
+	assertEndorseRevert(t, err, "PD200013.*prepareBurnUnlock")
+}
+
+func TestPrepareBurnUnlockAssembleRevertsWhenTheLockHoldsMoreThanTheBurnAmount(t *testing.T) {
+	ctx, mockCallbacks, n := newNotoFullSchemaSet(t)
+	sender := pldtypes.RandAddress()
+	lockID := pldtypes.RandBytes32()
+
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		switch req.SchemaId {
+		case n.lockInfoSchemaV1.Id:
+			return &prototk.FindAvailableStatesResponse{States: []*prototk.StoredState{{
+				Id:       pldtypes.RandBytes32().String(),
+				SchemaId: req.SchemaId,
+				DataJson: mustParseJSON(&types.NotoLockInfo_V1{
+					Salt: pldtypes.RandBytes32(), LockID: lockID, Owner: sender, Spender: sender,
+				}),
+			}}}, nil
+		case n.lockedCoinSchema.Id:
+			return &prototk.FindAvailableStatesResponse{States: []*prototk.StoredState{{
+				Id:       pldtypes.RandBytes32().String(),
+				SchemaId: req.SchemaId,
+				DataJson: mustParseJSON(&types.NotoLockedCoin{
+					Salt: pldtypes.RandBytes32(), LockID: lockID, Owner: sender, Amount: pldtypes.Int64ToInt256(150),
+				}),
+			}}}, nil
+		}
+		return &prototk.FindAvailableStatesResponse{}, nil
+	}
+
+	h := &prepareBurnUnlockHandler{lockCommon{noto: n}}
+	tx := &types.ParsedTransaction{
+		Transaction:     &prototk.TransactionSpecification{From: "sender@node1"},
+		ContractAddress: ethtypes.MustNewAddress(pldtypes.RandAddress().String()),
+		DomainConfig:    notoBasicConfigV1,
+		Params: &types.PrepareBurnUnlockParams{
+			LockID: lockID,
+			From:   "sender@node1",
+			Amount: pldtypes.Int64ToInt256(100),
+		},
+	}
+	ethAddressVerifier := func(lookup string) *prototk.ResolvedVerifier {
+		return &prototk.ResolvedVerifier{
+			Lookup:       lookup,
+			Algorithm:    algorithms.ECDSA_SECP256K1,
+			VerifierType: verifiers.ETH_ADDRESS,
+			Verifier:     sender.String(),
+		}
+	}
+
+	_, err := h.Assemble(ctx, tx, &prototk.AssembleTransactionRequest{
+		Transaction:       tx.Transaction,
+		StateQueryContext: "query-context",
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			ethAddressVerifier("notary@node1"),
+			ethAddressVerifier("sender@node1"),
+		},
+	})
+	assertAssembleRevert(t, err, "PD200013.*prepareBurnUnlock")
 }

@@ -31,7 +31,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/wsclient"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 )
 
 func NewWSClient(ctx context.Context, conf *pldconf.WSClientConfig) (WSClient, error) {
@@ -394,7 +393,7 @@ func (rc *wsRPCClient) sendRPC(ctx context.Context, reqID string, rpcReq *RPCReq
 	jsonInput, err := json.Marshal(rpcReq)
 	if err == nil {
 		log.L(ctx).Debugf("RPC[%s] --> %s", reqID, rpcReq.Method)
-		if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		if log.IsTraceEnabled() {
 			log.L(ctx).Tracef("RPC[%s] INPUT: %s", reqID, jsonInput)
 		}
 		err = rc.client.Send(ctx, jsonInput)

@@ -52,7 +52,7 @@ func newSubmissionWriter(bgCtx context.Context, nodeName string, p persistence.P
 }
 
 func (sw *submissionWriter) runBatch(ctx context.Context, tx persistence.DBTX, values []*DBPubTxnSubmission) ([]flushwriter.Result[*noResult], error) {
-	err := tx.DB().
+	err := tx.DB(ctx).
 		Table("public_submissions").
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "tx_hash"}},

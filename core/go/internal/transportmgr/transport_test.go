@@ -119,7 +119,7 @@ func testMessage() *components.FireAndForgetMessageSend {
 	return &components.FireAndForgetMessageSend{
 		Node:          "node2",
 		CorrelationID: confutil.P(uuid.New()),
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("something"),
 	}
 }
@@ -330,7 +330,7 @@ func TestReceiveMessageTransactionEngine(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_TRANSACTION_ENGINE,
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 
@@ -358,7 +358,7 @@ func TestReceiveMessageIdentityResolver(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_IDENTITY_RESOLVER,
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 
@@ -380,7 +380,7 @@ func TestReceiveMessageInvalidComponent(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_Component(42),
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 
@@ -399,7 +399,7 @@ func TestReceiveMessageInvalidNode(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_Component(42),
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 
@@ -420,7 +420,7 @@ func TestReceiveMessageNotInit(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P(uuid.NewString()),
 		Component:     prototk.PaladinMsg_TRANSACTION_ENGINE,
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 	_, err := tp.t.ReceiveMessage(ctx, &prototk.ReceiveMessageRequest{
@@ -447,7 +447,7 @@ func TestReceiveMessageBadDestination(t *testing.T) {
 	msg := &prototk.PaladinMsg{
 		MessageId:   uuid.NewString(),
 		Component:   prototk.PaladinMsg_Component(42),
-		MessageType: "myMessageType",
+		MessageType: "test-message-type",
 		Payload:     []byte("some data"),
 	}
 	_, err := tp.t.ReceiveMessage(ctx, &prototk.ReceiveMessageRequest{
@@ -463,7 +463,7 @@ func TestReceiveMessageBadMsgID(t *testing.T) {
 
 	msg := &prototk.PaladinMsg{
 		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
-		MessageType: "myMessageType",
+		MessageType: "test-message-type",
 		Payload:     []byte("some data"),
 	}
 	_, err := tp.t.ReceiveMessage(ctx, &prototk.ReceiveMessageRequest{
@@ -480,7 +480,7 @@ func TestReceiveMessageBadCorrelID(t *testing.T) {
 		MessageId:     uuid.NewString(),
 		CorrelationId: confutil.P("wrong"),
 		Component:     prototk.PaladinMsg_TRANSACTION_ENGINE,
-		MessageType:   "myMessageType",
+		MessageType:   "test-message-type",
 		Payload:       []byte("some data"),
 	}
 	_, err := tp.t.ReceiveMessage(ctx, &prototk.ReceiveMessageRequest{

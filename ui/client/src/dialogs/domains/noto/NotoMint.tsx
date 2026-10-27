@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -22,20 +22,21 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  TextField,
+  Stack,
+  TextField
 } from '@mui/material';
 import { useMutation } from '@tanstack/react-query';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TransactionType } from '../../../interfaces';
 import { sendTransaction } from '../../../queries/transactions';
 import { customNavigate, encodeHex } from '../../../utils';
 import { useNavigate } from 'react-router-dom';
+import { AppRouteFactory } from '../../../routes';
 
 type Props = {
   contractAddress: string;
-  dialogOpen: boolean;
-  setDialogOpen: Dispatch<SetStateAction<boolean>>;
+  onClose: () => void
 };
 
 const mintAbi = {
@@ -64,8 +65,7 @@ const mintAbi = {
 
 export const NotoMintDialog: React.FC<Props> = ({
   contractAddress,
-  dialogOpen,
-  setDialogOpen,
+  onClose,
 }) => {
   const { t } = useTranslation();
   const [sender, setSender] = useState('');
@@ -74,15 +74,6 @@ export const NotoMintDialog: React.FC<Props> = ({
   const [data, setData] = useState('');
   const [errorMessage, setErrorMessage] = useState<string>();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (dialogOpen) {
-        setRecipient('');
-        setSender('');
-        setAmount('');
-        setData('');
-    }
-  }, [dialogOpen]);
 
   const { mutate, error, data: transactionId } = useMutation({
     mutationFn: () =>
@@ -111,8 +102,8 @@ export const NotoMintDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      open={dialogOpen}
-      onClose={() => setDialogOpen(false)}
+      open
+      onClose={onClose}
       fullWidth
       maxWidth="sm"
     >
@@ -133,17 +124,17 @@ export const NotoMintDialog: React.FC<Props> = ({
           </Box>
         </DialogTitle>
         <DialogContent>
-                    {transactionId !== undefined &&
-            <Alert variant="filled" severity="success" sx={{ marginBottom: '20px' }}
+          <Stack spacing={3} sx={{ marginTop: '5px' }}>
+            {transactionId !== undefined &&
+            <Alert variant="filled" severity="success"
               action={
                 <Button variant="outlined" color="inherit" size="small"
-                  onClick={event => customNavigate(`/ui/transactions/${transactionId}?back=domains`, event, navigate)}
+                  onClick={event => customNavigate(AppRouteFactory.getPath('Transaction', { hashOrId: transactionId }, { back: 'domains' }), event, navigate)}
                 >{t('view')}</Button>
               }
             >
               {t('transactionValue', { value: transactionId })}
             </Alert>}
-          <Box sx={{ marginTop: '5px' }}>
             <TextField
               fullWidth
               disabled
@@ -151,8 +142,6 @@ export const NotoMintDialog: React.FC<Props> = ({
               autoComplete="off"
               value={contractAddress}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('from')}
@@ -160,8 +149,6 @@ export const NotoMintDialog: React.FC<Props> = ({
               value={sender}
               onChange={(event) => setSender(event.target.value)}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('to')}
@@ -169,8 +156,6 @@ export const NotoMintDialog: React.FC<Props> = ({
               value={recipient}
               onChange={(event) => setRecipient(event.target.value)}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('amount')}
@@ -178,8 +163,6 @@ export const NotoMintDialog: React.FC<Props> = ({
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
             />
-          </Box>
-          <Box sx={{ marginTop: '20px' }}>
             <TextField
               fullWidth
               label={t('dataOptional')}
@@ -187,7 +170,7 @@ export const NotoMintDialog: React.FC<Props> = ({
               value={data}
               onChange={(event) => setData(event.target.value)}
             />
-          </Box>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', paddingBottom: '20px' }}>
           <Button
@@ -205,7 +188,7 @@ export const NotoMintDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('close')}
           </Button>

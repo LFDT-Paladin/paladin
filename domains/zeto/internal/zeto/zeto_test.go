@@ -37,6 +37,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/crypto"
+	"github.com/iden3/go-iden3-crypto/babyjub"
 	"github.com/iden3/go-iden3-crypto/poseidon"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -521,6 +522,9 @@ func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	z.dataSchema = &pb.StateSchema{
 		Id: "data",
 	}
+	z.nftSchema = &pb.StateSchema{
+		Id: "nft",
+	}
 	z.events.mint = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
 	z.events.burn = "event UTXOBurn(uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
 	z.events.transfer = "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)"
@@ -561,7 +565,7 @@ func TestHandleEventBatch(t *testing.T) {
 
 	req.ContractInfo.ContractAddress = "0x1234567890123456789012345678901234567890"
 	_, err = z.HandleEventBatch(ctx, req)
-	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: PD210065: Failed to find available states for the merkle tree. find merkle tree root error")
+	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree spec for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: find merkle tree root error")
 
 	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 		return &pb.FindAvailableStatesResponse{}, nil
@@ -593,7 +597,7 @@ func TestHandleEventBatch(t *testing.T) {
 	req.Events[0].DataJson = string(data)
 	req.Events[0].SoliditySignature = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
 	_, err = z.HandleEventBatch(ctx, req)
-	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD210056: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 
 	data, _ = json.Marshal(map[string]any{
 		"data":      encodedData,
@@ -823,6 +827,49 @@ func TestValidateStateHashesDataState(t *testing.T) {
 	assert.Len(t, res.StateIds, 1)
 }
 
+func TestValidateStateHashesNFTState(t *testing.T) {
+	z, _ := newTestZeto()
+	ctx := t.Context()
+
+	req := &pb.ValidateStateHashesRequest{
+		States: []*pb.EndorsableState{
+			{
+				SchemaId:      z.NFTSchemaID(),
+				StateDataJson: "bad json",
+			},
+		},
+	}
+	_, err := z.ValidateStateHashes(ctx, req)
+	assert.ErrorContains(t, err, "PD210087")
+
+	privateKey := babyjub.NewRandPrivKey()
+	token := types.NewZetoNFToken((*pldtypes.HexUint256)(big.NewInt(456)), "https://example.com", privateKey.Public(), big.NewInt(123))
+	tokenJSON, err := json.Marshal(token)
+	require.NoError(t, err)
+	hash, err := token.Hash(ctx)
+	require.NoError(t, err)
+	expectedID := zetocommon.HexUint256To32ByteHexString(hash)
+
+	req.States[0].StateDataJson = string(tokenJSON)
+	res, err := z.ValidateStateHashes(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, []string{expectedID}, res.StateIds)
+
+	req.States[0].Id = "0x1234"
+	_, err = z.ValidateStateHashes(ctx, req)
+	assert.ErrorContains(t, err, "PD210086")
+
+	req.States[0].Id = "0x" + expectedID
+	res, err = z.ValidateStateHashes(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"0x" + expectedID}, res.StateIds)
+
+	req.States[0].Id = ""
+	req.States[0].StateDataJson = `{"tokenID":"0x01"}`
+	_, err = z.ValidateStateHashes(ctx, req)
+	assert.ErrorContains(t, err, "PD210112")
+}
+
 func TestGetHandler(t *testing.T) {
 	z := &Zeto{
 		name: "test1",
@@ -897,9 +944,7 @@ func TestIsBaseLedgerRevertRetryable(t *testing.T) {
 
 func TestUnimplementedMethods(t *testing.T) {
 	z := &Zeto{}
-	_, err := z.BuildReceipt(context.Background(), nil)
-	assert.ErrorContains(t, err, "PD210102: Not implemented")
-	_, err = z.ConfigurePrivacyGroup(context.Background(), nil)
+	_, err := z.ConfigurePrivacyGroup(context.Background(), nil)
 	assert.ErrorContains(t, err, "PD210085: Not implemented")
 	_, err = z.InitPrivacyGroup(context.Background(), nil)
 	assert.ErrorContains(t, err, "PD210085: Not implemented")

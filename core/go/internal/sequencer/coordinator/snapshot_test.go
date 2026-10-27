@@ -20,10 +20,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -40,30 +39,30 @@ func TestGetSnapshot_OK(t *testing.T) {
 
 func TestGetSnapshot_AggregatesTransactionsBySnapshotType(t *testing.T) {
 	ctx := context.Background()
-	pooledTxnID, dispatchedTxnID, confirmedTxnID, excludedTxnID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	pooledSnapshot := &common.SnapshotPooledTransaction{
-		ID: pooledTxnID,
-	}
-	dispatchedSnapshot := &common.SnapshotDispatchedTransaction{}
-	dispatchedSnapshot.ID = dispatchedTxnID
-	confirmedSnapshot := &common.SnapshotConfirmedTransaction{}
-	confirmedSnapshot.ID = confirmedTxnID
+	pooledTxnID, dispatchedTxnID, confirmedTxnID, revertedTxnID, excludedTxnID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	pooledSnapshot := &engineProto.SnapshotPooledTransaction{Id: pooledTxnID.String()}
+	dispatchedSnapshot := &engineProto.SnapshotDispatchedTransaction{Id: dispatchedTxnID.String()}
+	confirmedSnapshot := &engineProto.SnapshotConfirmedTransaction{Id: confirmedTxnID.String()}
+	revertedSnapshot := &engineProto.SnapshotRevertedTransaction{Id: revertedTxnID.String()}
 
 	pooledTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	pooledTxn.EXPECT().GetID().Return(pooledTxnID)
-	pooledTxn.EXPECT().GetSnapshot(mock.Anything).Return(pooledSnapshot, nil, nil)
+	pooledTxn.EXPECT().GetSnapshot(mock.Anything).Return(pooledSnapshot, nil, nil, nil)
 	dispatchedTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	dispatchedTxn.EXPECT().GetID().Return(dispatchedTxnID)
-	dispatchedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, dispatchedSnapshot, nil)
+	dispatchedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, dispatchedSnapshot, nil, nil)
 	confirmedTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	confirmedTxn.EXPECT().GetID().Return(confirmedTxnID)
-	confirmedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, nil, confirmedSnapshot)
+	confirmedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, nil, confirmedSnapshot, nil)
+	revertedTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	revertedTxn.EXPECT().GetID().Return(revertedTxnID)
+	revertedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, nil, nil, revertedSnapshot)
 	excludedTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
 	excludedTxn.EXPECT().GetID().Return(excludedTxnID)
-	excludedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, nil, nil)
+	excludedTxn.EXPECT().GetSnapshot(mock.Anything).Return(nil, nil, nil, nil)
 
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
-		Transactions(pooledTxn, dispatchedTxn, confirmedTxn, excludedTxn).
+		Transactions(pooledTxn, dispatchedTxn, confirmedTxn, revertedTxn, excludedTxn).
 		Build()
 
 	snapshot := c.getSnapshot(ctx)
@@ -71,9 +70,11 @@ func TestGetSnapshot_AggregatesTransactionsBySnapshotType(t *testing.T) {
 	assert.Len(t, snapshot.PooledTransactions, 1)
 	assert.Len(t, snapshot.DispatchedTransactions, 1)
 	assert.Len(t, snapshot.ConfirmedTransactions, 1)
-	assert.Equal(t, pooledTxnID, snapshot.PooledTransactions[0].ID)
-	assert.Equal(t, dispatchedTxnID, snapshot.DispatchedTransactions[0].ID)
-	assert.Equal(t, confirmedTxnID, snapshot.ConfirmedTransactions[0].ID)
+	assert.Len(t, snapshot.RevertedTransactions, 1)
+	assert.Equal(t, pooledTxnID.String(), snapshot.PooledTransactions[0].Id)
+	assert.Equal(t, dispatchedTxnID.String(), snapshot.DispatchedTransactions[0].Id)
+	assert.Equal(t, confirmedTxnID.String(), snapshot.ConfirmedTransactions[0].Id)
+	assert.Equal(t, revertedTxnID.String(), snapshot.RevertedTransactions[0].Id)
 }
 
 func TestGetSnapshot_IncludesCoordinatorStateAndBlockHeight(t *testing.T) {
@@ -83,7 +84,7 @@ func TestGetSnapshot_IncludesCoordinatorStateAndBlockHeight(t *testing.T) {
 
 	snapshot := c.getSnapshot(ctx)
 	require.NotNil(t, snapshot)
-	assert.Equal(t, c.GetCurrentState(), snapshot.CoordinatorState)
+	assert.Equal(t, int32(c.GetCurrentState()), snapshot.CoordinatorState)
 	assert.Equal(t, blockHeight, snapshot.BlockHeight)
 }
 
@@ -118,9 +119,9 @@ func TestSendHeartbeat_HandlesError(t *testing.T) {
 		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
 		WithMockTransportWriter().
 		Build()
-	mocks.TransportWriter.EXPECT().SendHeartbeat(mock.Anything, "node1", mock.Anything, mock.Anything).
+	mocks.TransportWriter.EXPECT().SendHeartbeat(mock.Anything, "node1", mock.Anything).
 		Return(nil)
-	mocks.TransportWriter.EXPECT().SendHeartbeat(mock.Anything, "node2", mock.Anything, mock.Anything).
+	mocks.TransportWriter.EXPECT().SendHeartbeat(mock.Anything, "node2", mock.Anything).
 		Return(fmt.Errorf("transport error"))
 
 	err := c.sendHeartbeat(ctx, false)
@@ -145,9 +146,9 @@ func TestAction_SendHeartbeatWithLocks(t *testing.T) {
 	ctx := context.Background()
 	mockGrapher := graphermocks.NewGrapher(t)
 	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything, "node1").
-		Return(grapher.ExportableStates{}, nil)
+		Return(&prototk.StateSnapshot{}, nil)
 	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything, "node2").
-		Return(grapher.ExportableStates{}, nil)
+		Return(&prototk.StateSnapshot{}, nil)
 
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
 		EndorserCandidates("node1", "node2").
@@ -206,7 +207,7 @@ func TestSendHeartbeat_ExportStatesAndLocksError_ReturnsError(t *testing.T) {
 
 	mockGrapher := graphermocks.NewGrapher(t)
 	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything, "node1").
-		Return(grapher.ExportableStates{}, fmt.Errorf("export error"))
+		Return(nil, fmt.Errorf("export error"))
 
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
 		EndorserCandidates("node1").

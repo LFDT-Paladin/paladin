@@ -25,9 +25,10 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "pldtest",
-	Short: "A CLI tool to generate synthetic load tests against a Paladin node",
-	Long:  "Paladin Test CLI is a tool to generate synthetic load tests against a Paladin node.",
+	Use:           "pldtest",
+	Short:         "A CLI tool to generate synthetic load tests against a Paladin node",
+	Long:          "Paladin Test CLI is a tool to generate synthetic load tests against a Paladin node.",
+	SilenceErrors: true, // test will log its own error when it wants to
 }
 
 func init() {

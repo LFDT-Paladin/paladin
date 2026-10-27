@@ -159,17 +159,19 @@ func (t *grpcTransport) ConfigureTransport(ctx context.Context, req *prototk.Con
 	// Kick off the gRPC listener
 	if t.serverDone == nil {
 		t.serverDone = make(chan struct{})
-		go t.serve()
+		go t.serve(t.grpcServer, t.listener, t.serverDone)
 	}
 
 	return &prototk.ConfigureTransportResponse{}, nil
 }
 
-func (t *grpcTransport) serve() {
-	defer close(t.serverDone)
+// The server, listener and done channel are passed in rather than read from the struct, as
+// shutdownTransport clears those fields and may run before this goroutine is scheduled.
+func (t *grpcTransport) serve(grpcServer *grpc.Server, listener net.Listener, serverDone chan struct{}) {
+	defer close(serverDone)
 
-	log.L(t.bgCtx).Infof("gRPC server for plugin %s starting on %s", t.name, t.listener.Addr())
-	err := t.grpcServer.Serve(t.listener)
+	log.L(t.bgCtx).Infof("gRPC server for plugin %s starting on %s", t.name, listener.Addr())
+	err := grpcServer.Serve(listener)
 	log.L(t.bgCtx).Infof("gRPC server for plugin %s stopped (err=%v)", t.name, err)
 }
 
@@ -272,8 +274,7 @@ func (t *grpcTransport) DeactivatePeer(ctx context.Context, req *prototk.Deactiv
 
 	existing := t.outboundConnections[req.NodeName]
 	if existing != nil {
-		// Replace an existing connection - unexpected as Paladin shouldn't do this
-		log.L(ctx).Warnf("replacing existing activation for node '%s'", req.NodeName)
+		log.L(ctx).Debugf("deactivating peer '%s'", req.NodeName)
 		existing.close(ctx)
 		delete(t.outboundConnections, req.NodeName)
 	}
@@ -296,7 +297,7 @@ func (t *grpcTransport) SendMessage(ctx context.Context, req *prototk.SendMessag
 		// This is an error in the Paladin layer
 		return nil, i18n.NewError(ctx, msgs.MsgNodeNotActive, req.Node)
 	}
-	log.L(ctx).Infof("GRPC sending message id=%s cid=%v component=%s messageType=%s to peer %s",
+	log.L(ctx).Infof("GRPC sending message id=%s cid=%v component=%d messageType=%s to peer %s",
 		msg.MessageId, msg.CorrelationId, msg.Component, msg.MessageType, req.Node)
 	err := oc.send(&proto.Message{
 		MessageId:     msg.MessageId,

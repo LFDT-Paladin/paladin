@@ -27,7 +27,7 @@ import (
 func TestSQLMockProvider(t *testing.T) {
 	m, err := NewSQLMockProvider()
 	require.NoError(t, err)
-	assert.NotNil(t, m.P.DB())
+	assert.NotNil(t, m.P.DB(context.Background()))
 	assert.Equal(t, "sqlmock", (&SQLMockProvider{}).DBName())
 	_, err = (&SQLMockProvider{}).GetMigrationDriver(nil)
 	assert.Regexp(t, "not supported", err)

@@ -69,8 +69,8 @@ func TestReceiveMessageStateWithNullifierSendAckRealDB(t *testing.T) {
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.stateManager.On("WriteReceivedStates", mock.Anything, mock.Anything, "domain1", mock.Anything).
 				Return(nil, nil).Once()
-			nullifier := &components.NullifierUpsert{ID: pldtypes.RandBytes(32)}
-			mc.stateManager.On("WriteNullifiersForReceivedStates", mock.Anything, mock.Anything, "domain1", []*components.NullifierUpsert{nullifier}).
+			nullifier := &pldapi.StateNullifier{DomainName: "domain1", ID: pldtypes.RandBytes(32)}
+			mc.stateManager.On("WriteNullifiersForReceivedStates", mock.Anything, mock.Anything, "domain1", []*pldapi.StateNullifier{nullifier}).
 				Return(nil).Once()
 			mkr := componentsmocks.NewKeyResolver(t)
 			mc.sequencerManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nullifier, nil)
@@ -498,8 +498,8 @@ func TestHandleNullifierFail(t *testing.T) {
 			mc.db.Mock.ExpectBegin()
 			mc.stateManager.On("WriteReceivedStates", mock.Anything, mock.Anything, "domain1", mock.Anything).
 				Return(nil, nil).Once()
-			nullifier := &components.NullifierUpsert{ID: pldtypes.RandBytes(32)}
-			mc.stateManager.On("WriteNullifiersForReceivedStates", mock.Anything, mock.Anything, "domain1", []*components.NullifierUpsert{nullifier}).
+			nullifier := &pldapi.StateNullifier{DomainName: "domain1", ID: pldtypes.RandBytes(32)}
+			mc.stateManager.On("WriteNullifiersForReceivedStates", mock.Anything, mock.Anything, "domain1", []*pldapi.StateNullifier{nullifier}).
 				Return(fmt.Errorf("pop")).Once()
 			mkr := componentsmocks.NewKeyResolver(t)
 			mc.sequencerManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nullifier, nil)

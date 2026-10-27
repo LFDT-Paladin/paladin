@@ -32,8 +32,7 @@ const (
 
 func (ptm *pubTxManager) persistSuspendedFlag(ctx context.Context, from pldtypes.EthAddress, nonce uint64, suspended bool) error {
 	log.L(ctx).Infof("Setting suspend status to '%t' for transaction %s:%d", suspended, from, nonce)
-	return ptm.p.DB().
-		WithContext(ctx).
+	return ptm.p.DB(ctx).
 		Table("public_txns").
 		Where(`"from" = ?`, from).
 		Where("nonce = ?", nonce).

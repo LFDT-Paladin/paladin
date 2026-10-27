@@ -36,6 +36,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/mock"
 )
@@ -43,14 +44,12 @@ import (
 type CoordinatorBuilderForTesting struct {
 	t                                        *testing.T
 	state                                    State
-	domainAPI                                *componentsmocks.DomainSmartContract
-	txManager                                *componentsmocks.TXManager
-	sequencerManager                         *componentsmocks.SequencerManager
 	contractAddress                          *pldtypes.EthAddress
 	coordinatorSelectionMode                 *prototk.ContractConfig_CoordinatorSelection
 	currentEffectiveBlockHeight              *uint64
 	transactions                             []transaction.CoordinatorTransaction
 	pooledTransactions                       []transaction.CoordinatorTransaction
+	assemblingTxID                           *uuid.UUID
 	heartbeatsUntilClosingGracePeriodExpires *int
 	metrics                                  metrics.DistributedSequencerMetrics
 	sequencerConfig                          *pldconf.SequencerConfig
@@ -76,7 +75,13 @@ type CoordinatorDependencyMocks struct {
 	TransportWriter     *sequencertransportmocks.TransportWriter
 	Clock               *sequencercommonmocks.Clock
 	AllComponents       *componentsmocks.AllComponents
+	Domain              *componentsmocks.Domain
 	DomainAPI           *componentsmocks.DomainSmartContract
+	StateManager        *componentsmocks.StateManager
+	DomainQueryContext  *componentsmocks.DomainQueryContext
+	TXManager           *componentsmocks.TXManager
+	SequencerManager    *componentsmocks.SequencerManager
+	Persistence         *mockpersistence.SQLMockProvider
 }
 
 // copySequencerDefaultsForTest returns a deep copy of SequencerDefaults so tests that mutate
@@ -154,22 +159,24 @@ func copySequencerDefaultsForTest() *pldconf.SequencerConfig {
 		v := *def.Writer.BatchMaxSize
 		copy.Writer.BatchMaxSize = &v
 	}
+	// Very short retry delay for tests
+	copy.EndorseErrorRetry = pldconf.RetryConfigWithMax{
+		RetryConfig: pldconf.RetryConfig{
+			InitialDelay: confutil.P("1ms"),
+			MaxDelay:     confutil.P("1ms"),
+			Factor:       confutil.P(1.0),
+		},
+		MaxAttempts: def.EndorseErrorRetry.MaxAttempts,
+	}
 	return copy
 }
 
 func NewCoordinatorBuilderForTesting(t *testing.T, state State) *CoordinatorBuilderForTesting {
-
-	domainAPI := componentsmocks.NewDomainSmartContract(t)
-	txManager := componentsmocks.NewTXManager(t)
-	sequencerManager := componentsmocks.NewSequencerManager(t)
 	return &CoordinatorBuilderForTesting{
-		t:                t,
-		state:            state,
-		domainAPI:        domainAPI,
-		txManager:        txManager,
-		sequencerManager: sequencerManager,
-		metrics:          metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
-		sequencerConfig:  copySequencerDefaultsForTest(),
+		t:               t,
+		state:           state,
+		metrics:         metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
+		sequencerConfig: copySequencerDefaultsForTest(),
 	}
 }
 
@@ -197,16 +204,11 @@ func (b *CoordinatorBuilderForTesting) PooledTransactions(transactions ...transa
 	return b
 }
 
-func (b *CoordinatorBuilderForTesting) GetDomainAPI() *componentsmocks.DomainSmartContract {
-	return b.domainAPI
-}
-
-func (b *CoordinatorBuilderForTesting) GetTXManager() *componentsmocks.TXManager {
-	return b.txManager
-}
-
-func (b *CoordinatorBuilderForTesting) GetSequencerManager() *componentsmocks.SequencerManager {
-	return b.sequencerManager
+// AssemblingTransaction marks the single assembly slot as occupied by the given transaction ID,
+// mirroring the state the coordinator holds while a transaction is being assembled.
+func (b *CoordinatorBuilderForTesting) AssemblingTransaction(txID uuid.UUID) *CoordinatorBuilderForTesting {
+	b.assemblingTxID = &txID
+	return b
 }
 
 func (b *CoordinatorBuilderForTesting) GetSequencerConfig() *pldconf.SequencerConfig {
@@ -215,6 +217,13 @@ func (b *CoordinatorBuilderForTesting) GetSequencerConfig() *pldconf.SequencerCo
 
 func (b *CoordinatorBuilderForTesting) OverrideSequencerConfig(config *pldconf.SequencerConfig) *CoordinatorBuilderForTesting {
 	b.sequencerConfig = config
+	return b
+}
+
+// EndorseErrorRetryMaxAttempts sets how many attempts the endorser-side endorsement work makes before
+// reporting an endorsement error back to the requester.
+func (b *CoordinatorBuilderForTesting) EndorseErrorRetryMaxAttempts(n int) *CoordinatorBuilderForTesting {
+	b.sequencerConfig.EndorseErrorRetry.MaxAttempts = confutil.P(n)
 	return b
 }
 
@@ -289,6 +298,11 @@ func (b *CoordinatorBuilderForTesting) AssembleErrorRetryThreshold(n int) *Coord
 	return b
 }
 
+func (b *CoordinatorBuilderForTesting) SignErrorRetryThreshold(n int) *CoordinatorBuilderForTesting {
+	b.sequencerConfig.SignErrorRetryThreshold = confutil.P(n)
+	return b
+}
+
 func (b *CoordinatorBuilderForTesting) BlockHeightTolerance(n uint64) *CoordinatorBuilderForTesting {
 	b.sequencerConfig.BlockHeightTolerance = confutil.P(n)
 	return b
@@ -324,8 +338,18 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 		SyncPoints:          syncpointsmocks.NewSyncPoints(b.t),
 		Clock:               sequencercommonmocks.NewClock(b.t),
 		AllComponents:       componentsmocks.NewAllComponents(b.t),
-		DomainAPI:           b.domainAPI,
+		Domain:              componentsmocks.NewDomain(b.t),
+		DomainAPI:           componentsmocks.NewDomainSmartContract(b.t),
+		StateManager:        componentsmocks.NewStateManager(b.t),
+		DomainQueryContext:  componentsmocks.NewDomainQueryContext(b.t),
+		TXManager:           componentsmocks.NewTXManager(b.t),
+		SequencerManager:    componentsmocks.NewSequencerManager(b.t),
 	}
+
+	mocks.DomainAPI.On("Domain").Return(mocks.Domain).Maybe()
+	mocks.Domain.On("Name").Return("test-domain").Maybe()
+	mocks.DomainAPI.On("Address").Return(*b.contractAddress).Maybe()
+	mocks.StateManager.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mocks.DomainQueryContext).Maybe()
 
 	if b.useMockTransportWriter {
 		mockTransportWriter := sequencertransportmocks.NewTransportWriter(b.t)
@@ -339,6 +363,7 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 	if err != nil {
 		panic(err)
 	}
+	mocks.Persistence = mp
 
 	localNode := "node1"
 	if b.localNodeName != "" {
@@ -347,7 +372,8 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 
 	transportManager := componentsmocks.NewTransportManager(b.t)
 	transportManager.On("LocalNodeName").Return(localNode).Maybe()
-	mocks.AllComponents.On("SequencerManager").Return(b.sequencerManager).Maybe()
+	mocks.AllComponents.On("SequencerManager").Return(mocks.SequencerManager).Maybe()
+	mocks.AllComponents.On("StateManager").Return(mocks.StateManager).Maybe()
 	mocks.AllComponents.On("Persistence").Return(mp.P).Maybe()
 
 	if b.keyManagerResolveErr != nil {
@@ -371,10 +397,8 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 
 	coordinator := NewCoordinator(
 		b.contractAddress,
-		b.domainAPI,
-		nil,
+		mocks.DomainAPI,
 		mocks.AllComponents,
-		nil,
 		nil,
 		transportWriter,
 		clock,
@@ -400,6 +424,10 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 			coordinator.transactionsByID[tx.GetID()] = tx
 			coordinator.pooledTransactions = append(coordinator.pooledTransactions, tx)
 		}
+	}
+	if b.assemblingTxID != nil {
+		coordinator.assemblyInFlight = true
+		coordinator.assemblingTxID = *b.assemblingTxID
 	}
 	coordinator.stateMachineEventLoop.StateMachine().SetCurrentState(b.state)
 

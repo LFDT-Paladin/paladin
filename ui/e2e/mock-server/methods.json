@@ -1,0 +1,252 @@
+{
+  "bidx_queryIndexedTransactions": {
+    "type": "query",
+    "collection": "indexed-transactions",
+    "queryParamIndex": 0
+  },
+  "bidx_queryIndexedTransactionsWithReceipt": {
+    "type": "derivedQuery",
+    "collection": "indexed-transactions",
+    "queryParamIndex": 0,
+    "preFilter": {
+      "hasReceiptIn": "transaction-receipts",
+      "joinField": "transactionHash",
+      "sourceField": "hash"
+    }
+  },
+  "bidx_queryIndexedEvents": {
+    "type": "query",
+    "collection": "indexed-events",
+    "queryParamIndex": 0
+  },
+  "bidx_getTransactionByHash": {
+    "type": "getByField",
+    "collection": "indexed-transactions",
+    "field": "hash",
+    "paramIndex": 0
+  },
+  "bidx_getBlockByNumber": {
+    "type": "getByField",
+    "collection": "indexed-transactions",
+    "field": "blockNumber",
+    "paramIndex": 0,
+    "returnField": "block"
+  },
+  "ptx_queryTransactionReceipts": {
+    "type": "query",
+    "collection": "transaction-receipts",
+    "queryParamIndex": 0
+  },
+  "ptx_queryPendingTransactions": {
+    "type": "derivedQuery",
+    "collection": "paladin-transactions",
+    "queryParamIndex": 0,
+    "preFilter": {
+      "fieldMissing": "success"
+    }
+  },
+  "ptx_queryTransactionsFull": {
+    "type": "query",
+    "collection": "paladin-transactions",
+    "queryParamIndex": 0
+  },
+  "ptx_queryTransactions": {
+    "type": "query",
+    "collection": "paladin-transactions",
+    "queryParamIndex": 0
+  },
+  "ptx_getTransaction": {
+    "type": "getByField",
+    "collection": "paladin-transactions",
+    "field": "id",
+    "paramIndex": 0
+  },
+  "ptx_getTransactionFull": {
+    "type": "getByField",
+    "collection": "paladin-transactions",
+    "field": "id",
+    "paramIndex": 0
+  },
+  "ptx_getTransactionReceipt": {
+    "type": "getByField",
+    "collection": "transaction-receipts",
+    "field": "id",
+    "paramIndex": 0
+  },
+  "ptx_getTransactionReceiptFull": {
+    "type": "getByField",
+    "collection": "transaction-receipts",
+    "field": "id",
+    "paramIndex": 0
+  },
+  "keymgr_queryKeys": {
+    "type": "query",
+    "collection": "keys",
+    "queryParamIndex": 0
+  },
+  "keymgr_reverseKeyLookup": {
+    "type": "empty",
+    "returnValue": null
+  },
+  "reg_registries": {
+    "type": "listField",
+    "collection": "registries",
+    "field": "name"
+  },
+  "reg_queryEntriesWithProps": {
+    "type": "derivedQuery",
+    "collection": "registry-entries",
+    "queryParamIndex": 1,
+    "preFilter": {
+      "equalField": "registry",
+      "equalParamIndex": 0,
+      "activeParamIndex": 2
+    }
+  },
+  "domain_listDomains": {
+    "type": "listField",
+    "collection": "domains",
+    "field": "name"
+  },
+  "domain_getDomain": {
+    "type": "getByField",
+    "collection": "domains",
+    "field": "name",
+    "paramIndex": 0
+  },
+  "domain_querySmartContracts": {
+    "type": "query",
+    "collection": "smart-contracts",
+    "queryParamIndex": 0
+  },
+  "domain_getSmartContractByAddress": {
+    "type": "getByField",
+    "collection": "smart-contracts",
+    "field": "address",
+    "paramIndex": 0
+  },
+  "pgroup_queryGroups": {
+    "type": "query",
+    "collection": "privacy-groups",
+    "queryParamIndex": 0
+  },
+  "pgroup_getGroupById": {
+    "type": "getByField",
+    "collection": "privacy-groups",
+    "field": "id",
+    "paramIndex": 1
+  },
+  "pgroup_getGroupByAddress": {
+    "type": "getByField",
+    "collection": "privacy-groups",
+    "field": "contractAddress",
+    "paramIndex": 0
+  },
+  "pgroup_queryMessages": {
+    "type": "query",
+    "collection": "privacy-group-messages",
+    "queryParamIndex": 0
+  },
+  "pgroup_queryMessageListeners": {
+    "type": "query",
+    "collection": "privacy-group-listeners",
+    "queryParamIndex": 0
+  },
+  "pgroup_getMessageListener": {
+    "type": "getByField",
+    "collection": "privacy-group-listeners",
+    "field": "name",
+    "paramIndex": 0
+  },
+  "pstate_listSchemas": {
+    "type": "derivedQuery",
+    "collection": "schemas",
+    "queryParamIndex": 1,
+    "preFilter": {
+      "equalField": "domain",
+      "equalParamIndex": 0
+    }
+  },
+  "pstate_queryStates": {
+    "type": "derivedQuery",
+    "collection": "states",
+    "queryParamIndex": 2,
+    "preFilter": {
+      "equalFields": [
+        { "field": "domain", "paramIndex": 0 },
+        { "field": "schema", "paramIndex": 1 }
+      ]
+    }
+  },
+  "transport_queryPeers": {
+    "type": "query",
+    "collection": "transport-peers",
+    "queryParamIndex": 0
+  },
+  "transport_queryReliableMessages": {
+    "type": "query",
+    "collection": "transport-messages",
+    "queryParamIndex": 0
+  },
+  "transport_peers": {
+    "type": "query",
+    "collection": "transport-peers",
+    "queryParamIndex": 0
+  },
+  "transport_nodeName": {
+    "type": "static",
+    "file": "../static/transport-node-name.json"
+  },
+  "transport_localTransportDetails": {
+    "type": "static",
+    "file": "../static/transport-local-details.json"
+  },
+  "ptx_queryBlockchainEventListeners": {
+    "type": "query",
+    "collection": "event-listeners",
+    "queryParamIndex": 0
+  },
+  "ptx_getBlockchainEventListener": {
+    "type": "getByField",
+    "collection": "event-listeners",
+    "field": "name",
+    "paramIndex": 0
+  },
+  "ptx_queryReceiptListeners": {
+    "type": "query",
+    "collection": "receipt-listeners",
+    "queryParamIndex": 0
+  },
+  "ptx_getReceiptListener": {
+    "type": "getByField",
+    "collection": "receipt-listeners",
+    "field": "name",
+    "paramIndex": 0
+  },
+  "ptx_call": { "type": "empty", "returnValue": null },
+  "ptx_decodeCall": { "type": "empty", "returnValue": null },
+  "ptx_decodeEvent": { "type": "empty", "returnValue": null },
+  "ptx_getDomainReceipt": { "type": "empty", "returnValue": null },
+  "ptx_getStateReceipt": { "type": "empty", "returnValue": null },
+  "ptx_resolveVerifier": {
+    "type": "static",
+    "returnValue": "0x0000000000000000000000000000000000000001"
+  },
+  "ptx_sendTransaction": { "type": "empty", "returnValue": null },
+  "ptx_storeABI": { "type": "empty", "returnValue": null },
+  "ptx_createBlockchainEventListener": { "type": "empty", "returnValue": null },
+  "ptx_deleteBlockchainEventListener": { "type": "empty", "returnValue": null },
+  "ptx_startBlockchainEventListener": { "type": "empty", "returnValue": null },
+  "ptx_stopBlockchainEventListener": { "type": "empty", "returnValue": null },
+  "ptx_createReceiptListener": { "type": "empty", "returnValue": null },
+  "ptx_deleteReceiptListener": { "type": "empty", "returnValue": null },
+  "ptx_startReceiptListener": { "type": "empty", "returnValue": null },
+  "ptx_stopReceiptListener": { "type": "empty", "returnValue": null },
+  "pgroup_sendMessage": { "type": "empty", "returnValue": null },
+  "pgroup_createGroup": { "type": "empty", "returnValue": null },
+  "pgroup_startMessageListener": { "type": "empty", "returnValue": null },
+  "pgroup_stopMessageListener": { "type": "empty", "returnValue": null },
+  "pgroup_createMessageListener": { "type": "empty", "returnValue": null },
+  "pgroup_deleteMessageListener": { "type": "empty", "returnValue": null },
+  "pstate_transferPrivateState": { "type": "empty", "returnValue": null }
+}

@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -372,6 +373,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 			mockCallbacks,
 			merkleTreeRootSchema,
 			merkleTreeNodeSchema,
+			common.GetHasher(),
 			inputCoins,
 			outputCoins,
 			circuit,
@@ -381,7 +383,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 			delegate,
 		)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "PD210065: Failed to find available states for the merkle tree. simulated merkle tree error") // MsgErrorGenerateMTP
+		assert.Contains(t, err.Error(), "simulated merkle tree error") // MsgErrorGenerateMTP
 		assert.Nil(t, result)
 	})
 
@@ -391,6 +393,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 			mockCallbacks,
 			merkleTreeRootSchema,
 			merkleTreeNodeSchema,
+			common.GetHasher(),
 			inputCoins,
 			outputCoins,
 			circuit,
@@ -400,7 +403,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 		)
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "PD210065: Failed to find available states for the merkle tree. simulated merkle tree error") // MsgErrorGenerateMTP
+		assert.Contains(t, err.Error(), "simulated merkle tree error") // MsgErrorGenerateMTP
 		assert.Nil(t, result)
 	})
 
@@ -430,6 +433,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 			mockCallbacksNullifier,
 			merkleTreeRootSchema,
 			merkleTreeNodeSchema,
+			common.GetHasher(),
 			inputCoinsSize3,
 			outputCoins,
 			circuit,
@@ -463,6 +467,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 			mockCallbacksNullifierKyc,
 			merkleTreeRootSchema,
 			merkleTreeNodeSchema,
+			common.GetHasher(),
 			inputCoinsSize3,
 			outputCoins,
 			circuitKyc,

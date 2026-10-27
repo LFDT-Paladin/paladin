@@ -17,7 +17,7 @@ package sequencer
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -51,6 +51,20 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 		go sMgr.handleAssembleError(sMgr.ctx, message)
 	case transport.MessageType_AssembleRejection:
 		go sMgr.handleAssembleRejection(sMgr.ctx, message)
+	case transport.MessageType_SignResponse:
+		go sMgr.handleSignResponse(sMgr.ctx, message)
+	case transport.MessageType_SignError:
+		go sMgr.handleSignError(sMgr.ctx, message)
+	case transport.MessageType_QueryAvailableStatesRequest:
+		go sMgr.handleQueryAvailableStatesRequest(sMgr.ctx, message)
+	case transport.MessageType_QueryAvailableStatesResponse:
+		go sMgr.handleQueryAvailableStatesResponse(sMgr.ctx, message)
+	case transport.MessageType_GetSpentStateIDsRequest:
+		go sMgr.handleGetSpentStateIDsRequest(sMgr.ctx, message)
+	case transport.MessageType_GetSpentStateIDsResponse:
+		go sMgr.handleGetSpentStateIDsResponse(sMgr.ctx, message)
+	case transport.MessageType_StateViewError:
+		go sMgr.handleStateViewError(sMgr.ctx, message)
 	case transport.MessageType_CoordinatorHeartbeatNotification:
 		go sMgr.handleCoordinatorHeartbeatNotification(sMgr.ctx, message)
 	case transport.MessageType_DelegationRequest:
@@ -89,15 +103,62 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 }
 
 func (sMgr *sequencerManager) logPaladinMessageUnmarshalError(ctx context.Context, message *components.ReceivedMessage, err error) {
-	log.L(ctx).Errorf("<< ERROR unmarshalling proto message%s from %s: %s", message.MessageType, message.FromNode, err)
+	log.L(ctx).Errorf("<< ERROR unmarshalling proto message %s from %s: %s", message.MessageType, message.FromNode, err)
 }
 
 func (sMgr *sequencerManager) logPaladinMessageFieldMissingError(ctx context.Context, message *components.ReceivedMessage, field string) {
 	log.L(ctx).Errorf("<< field %s missing from proto message %s received from %s", field, message.MessageType, message.FromNode)
 }
 
-func (sMgr *sequencerManager) logPaladinMessageJsonUnmarshalError(ctx context.Context, jsonObject string, message *components.ReceivedMessage, err error) {
-	log.L(ctx).Errorf("<< ERROR unmarshalling JSON object %s from proto message %s (received from %s): %s", jsonObject, message.MessageType, message.FromNode, err)
+func (sMgr *sequencerManager) logPaladinMessageFieldInvalidError(ctx context.Context, message *components.ReceivedMessage, field string, value string, err error) {
+	log.L(ctx).Errorf("<< field %s of proto message %s received from %s could not be parsed (value %q): %s", field, message.MessageType, message.FromNode, value, err)
+}
+
+func (sMgr *sequencerManager) parseUUIDField(ctx context.Context, message *components.ReceivedMessage, field string, value string) (uuid.UUID, bool) {
+	if value == "" {
+		sMgr.logPaladinMessageFieldMissingError(ctx, message, field)
+		return uuid.UUID{}, false
+	}
+	parsed, err := uuid.Parse(value)
+	if err != nil {
+		sMgr.logPaladinMessageFieldInvalidError(ctx, message, field, value, err)
+		return uuid.UUID{}, false
+	}
+	return parsed, true
+}
+
+// A transaction specification carries the transaction's UUID in the domain's bytes32 form: the UUID in
+// the first 16 bytes, zero padded. It must be in exactly the form the originator produces so that no
+// other encoding of the same UUID reaches the domain.
+func (sMgr *sequencerManager) parseTransactionSpecificationID(ctx context.Context, message *components.ReceivedMessage, field string, spec *prototk.TransactionSpecification) (uuid.UUID, bool) {
+	if spec.TransactionId == "" {
+		sMgr.logPaladinMessageFieldMissingError(ctx, message, field)
+		return uuid.UUID{}, false
+	}
+	b32, err := pldtypes.ParseBytes32Ctx(ctx, spec.TransactionId)
+	if err != nil {
+		sMgr.logPaladinMessageFieldInvalidError(ctx, message, field, spec.TransactionId, err)
+		return uuid.UUID{}, false
+	}
+	transactionID := b32.UUIDFirst16()
+	if expected := pldtypes.Bytes32UUIDFirst16(transactionID).String(); spec.TransactionId != expected {
+		sMgr.logPaladinMessageFieldInvalidError(ctx, message, field, spec.TransactionId,
+			fmt.Errorf("not a transaction UUID in bytes32 form (expected %s)", expected))
+		return uuid.UUID{}, false
+	}
+	return transactionID, true
+}
+
+func (sMgr *sequencerManager) parseBytes32Field(ctx context.Context, message *components.ReceivedMessage, field string, value []byte) (pldtypes.Bytes32, bool) {
+	if len(value) == 0 {
+		sMgr.logPaladinMessageFieldMissingError(ctx, message, field)
+		return pldtypes.Bytes32{}, false
+	}
+	if len(value) != 32 {
+		sMgr.logPaladinMessageFieldInvalidError(ctx, message, field, pldtypes.HexBytes(value).String(), fmt.Errorf("expected 32 bytes, received %d", len(value)))
+		return pldtypes.Bytes32{}, false
+	}
+	return pldtypes.Bytes32(value), true
 }
 
 func (sMgr *sequencerManager) parseContractAddressString(ctx context.Context, contractAddressString string, message *components.ReceivedMessage) *pldtypes.EthAddress {
@@ -118,16 +179,20 @@ func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message
 		return
 	}
 
-	preAssembly := &components.TransactionPreAssembly{}
-	err = json.Unmarshal(assembleRequest.PreAssembly, preAssembly)
-	if err != nil {
-		sMgr.logPaladinMessageJsonUnmarshalError(ctx, "TransactionPreAssembly", message, err)
-		return
-	}
-	log.L(ctx).Infof("handling assemble request with %d required verifiers", len(preAssembly.RequiredVerifiers))
+	log.L(ctx).Infof("handling assemble request for transaction %s", assembleRequest.TransactionId)
 
 	contractAddress := sMgr.parseContractAddressString(ctx, assembleRequest.ContractAddress, message)
 	if contractAddress == nil {
+		return
+	}
+
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", assembleRequest.TransactionId)
+	if !ok {
+		return
+	}
+
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "assemble_request_id", assembleRequest.AssembleRequestId)
+	if !ok {
 		return
 	}
 
@@ -140,13 +205,11 @@ func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message
 	}
 
 	assembleRequestEvent := &originatorTransaction.AssembleRequestReceivedEvent{}
-	assembleRequestEvent.TransactionID = uuid.MustParse(assembleRequest.TransactionId)
-	assembleRequestEvent.RequestID = uuid.MustParse(assembleRequest.AssembleRequestId)
+	assembleRequestEvent.TransactionID = transactionID
+	assembleRequestEvent.RequestID = requestID
 	assembleRequestEvent.Coordinator = message.FromNode
 	assembleRequestEvent.CoordinatorBlockHeight = assembleRequest.CoordinatorBlockHeight
 	assembleRequestEvent.BlockHeightTolerance = assembleRequest.BlockHeightTolerance
-	assembleRequestEvent.StateLocksJSON = assembleRequest.StateLocks
-	assembleRequestEvent.PreAssembly = assembleRequest.PreAssembly
 	assembleRequestEvent.EventTime = time.Now()
 	if assembleRequest.ExpiryTimeUnixMs != 0 {
 		assembleRequestEvent.Expiry = time.UnixMilli(assembleRequest.ExpiryTimeUnixMs)
@@ -169,17 +232,18 @@ func (sMgr *sequencerManager) handleAssembleResponse(ctx context.Context, messag
 		return
 	}
 
-	postAssembly := &components.TransactionPostAssembly{}
-	err = json.Unmarshal(assembleResponse.PostAssembly, postAssembly)
-	if err != nil {
-		sMgr.logPaladinMessageJsonUnmarshalError(ctx, "TransactionPostAssembly", message, err)
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", assembleResponse.TransactionId)
+	if !ok {
 		return
 	}
 
-	preAssembly := &components.TransactionPreAssembly{}
-	err = json.Unmarshal(assembleResponse.PreAssembly, preAssembly)
-	if err != nil {
-		sMgr.logPaladinMessageJsonUnmarshalError(ctx, "TransactionPreAssembly", message, err)
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "assemble_request_id", assembleResponse.AssembleRequestId)
+	if !ok {
+		return
+	}
+
+	if assembleResponse.PostAssembly == nil {
+		log.L(ctx).Warnf("assemble response for transaction %s has nil post_assembly", assembleResponse.TransactionId)
 		return
 	}
 
@@ -191,25 +255,25 @@ func (sMgr *sequencerManager) handleAssembleResponse(ctx context.Context, messag
 		return
 	}
 
-	switch postAssembly.AssemblyResult {
+	switch assembleResponse.PostAssembly.GetAssemblyResult() {
 	case prototk.AssembleTransactionResponse_OK:
 		assembleResponseEvent := &coordTransaction.AssembleSuccessEvent{}
-		assembleResponseEvent.TransactionID = uuid.MustParse(assembleResponse.TransactionId)
-		assembleResponseEvent.RequestID = uuid.MustParse(assembleResponse.AssembleRequestId)
-		assembleResponseEvent.PostAssembly = postAssembly
+		assembleResponseEvent.TransactionID = transactionID
+		assembleResponseEvent.RequestID = requestID
+		assembleResponseEvent.PostAssembly = assembleResponse.PostAssembly
 		assembleResponseEvent.EventTime = time.Now()
 		seq.GetCoordinator().QueueEvent(ctx, assembleResponseEvent)
 	case prototk.AssembleTransactionResponse_PARK:
 		log.L(ctx).Errorf("coordinator state machine cannot move from Assembling to Parked")
 	case prototk.AssembleTransactionResponse_REVERT:
 		assembleResponseEvent := &coordTransaction.AssembleRevertEvent{}
-		assembleResponseEvent.TransactionID = uuid.MustParse(assembleResponse.TransactionId)
-		assembleResponseEvent.RequestID = uuid.MustParse(assembleResponse.AssembleRequestId)
-		assembleResponseEvent.PostAssembly = postAssembly
+		assembleResponseEvent.TransactionID = transactionID
+		assembleResponseEvent.RequestID = requestID
+		assembleResponseEvent.PostAssembly = assembleResponse.PostAssembly
 		assembleResponseEvent.EventTime = time.Now()
 		seq.GetCoordinator().QueueEvent(ctx, assembleResponseEvent)
 	default:
-		log.L(ctx).Errorf("received unexpected assemble response type %s", postAssembly.AssemblyResult)
+		log.L(ctx).Errorf("received unexpected assemble response type %s", assembleResponse.PostAssembly.GetAssemblyResult())
 	}
 }
 
@@ -227,6 +291,16 @@ func (sMgr *sequencerManager) handleAssembleError(ctx context.Context, message *
 		return
 	}
 
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", assembleError.TransactionId)
+	if !ok {
+		return
+	}
+
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "assemble_request_id", assembleError.AssembleRequestId)
+	if !ok {
+		return
+	}
+
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
 		log.L(ctx).Warnf("sequencer for contract %s is not loaded: assemble error for transaction %s cannot be processed unless already in memory",
@@ -235,10 +309,212 @@ func (sMgr *sequencerManager) handleAssembleError(ctx context.Context, message *
 	}
 
 	assembleErrorEvent := &coordTransaction.AssembleErrorEvent{}
-	assembleErrorEvent.RequestID = uuid.MustParse(assembleError.AssembleRequestId)
-	assembleErrorEvent.TransactionID = uuid.MustParse(assembleError.TransactionId)
+	assembleErrorEvent.RequestID = requestID
+	assembleErrorEvent.TransactionID = transactionID
 	assembleErrorEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, assembleErrorEvent)
+}
+
+// The three state query message handlers below route directly to the state view provider/reader —
+// never through the coordinator/originator event loops. Both are internally thread-safe; requests
+// are answered from the coordinator's current view and responses are correlated by request ID.
+// message.FromNode is transport-authenticated and is the identity used for visibility filtering.
+
+func (sMgr *sequencerManager) handleQueryAvailableStatesRequest(ctx context.Context, message *components.ReceivedMessage) {
+	queryAvailableStatesRequest := &engineProto.QueryAvailableStatesRequest{}
+	if err := proto.Unmarshal(message.Payload, queryAvailableStatesRequest); err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, queryAvailableStatesRequest.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	// Get rather than load the sequencer - a state query is only valid against a coordinator
+	// that has an ahead-of-chain view in memory right now
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: state query request %s cannot be processed unless already in memory",
+			contractAddress, queryAvailableStatesRequest.RequestId)
+		return
+	}
+
+	seq.GetCoordinator().StateViewProvider().HandleQueryAvailableStates(ctx, message.FromNode, queryAvailableStatesRequest)
+}
+
+func (sMgr *sequencerManager) handleQueryAvailableStatesResponse(ctx context.Context, message *components.ReceivedMessage) {
+	queryAvailableStatesResponse := &engineProto.QueryAvailableStatesResponse{}
+	if err := proto.Unmarshal(message.Payload, queryAvailableStatesResponse); err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, queryAvailableStatesResponse.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: state query response %s cannot be processed unless already in memory",
+			contractAddress, queryAvailableStatesResponse.RequestId)
+		return
+	}
+
+	seq.GetOriginator().StateViewReader().HandleQueryAvailableStatesResponse(ctx, message.FromNode, queryAvailableStatesResponse)
+}
+
+func (sMgr *sequencerManager) handleGetSpentStateIDsRequest(ctx context.Context, message *components.ReceivedMessage) {
+	getSpentStateIDsRequest := &engineProto.GetSpentStateIDsRequest{}
+	if err := proto.Unmarshal(message.Payload, getSpentStateIDsRequest); err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, getSpentStateIDsRequest.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	// Get rather than load the sequencer - a state view request is only valid against a coordinator
+	// that has an ahead-of-chain view in memory right now
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: get spent state IDs request %s cannot be processed unless already in memory",
+			contractAddress, getSpentStateIDsRequest.RequestId)
+		return
+	}
+
+	seq.GetCoordinator().StateViewProvider().HandleGetSpentStateIDs(ctx, message.FromNode, getSpentStateIDsRequest)
+}
+
+func (sMgr *sequencerManager) handleGetSpentStateIDsResponse(ctx context.Context, message *components.ReceivedMessage) {
+	getSpentStateIDsResponse := &engineProto.GetSpentStateIDsResponse{}
+	if err := proto.Unmarshal(message.Payload, getSpentStateIDsResponse); err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, getSpentStateIDsResponse.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: get spent state IDs response %s cannot be processed unless already in memory",
+			contractAddress, getSpentStateIDsResponse.RequestId)
+		return
+	}
+
+	seq.GetOriginator().StateViewReader().HandleGetSpentStateIDsResponse(ctx, message.FromNode, getSpentStateIDsResponse)
+}
+
+func (sMgr *sequencerManager) handleStateViewError(ctx context.Context, message *components.ReceivedMessage) {
+	stateViewError := &engineProto.StateViewError{}
+	if err := proto.Unmarshal(message.Payload, stateViewError); err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, stateViewError.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: state view error %s cannot be processed unless already in memory",
+			contractAddress, stateViewError.RequestId)
+		return
+	}
+
+	seq.GetOriginator().StateViewReader().HandleError(ctx, message.FromNode, stateViewError)
+}
+
+func (sMgr *sequencerManager) handleSignResponse(ctx context.Context, message *components.ReceivedMessage) {
+	signResponse := &engineProto.SignResponse{}
+
+	err := proto.Unmarshal(message.Payload, signResponse)
+	if err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, signResponse.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", signResponse.TransactionId)
+	if !ok {
+		return
+	}
+
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "assemble_request_id", signResponse.AssembleRequestId)
+	if !ok {
+		return
+	}
+
+	if signResponse.AttestationResult == nil {
+		sMgr.logPaladinMessageFieldMissingError(ctx, message, "attestation_result")
+		return
+	}
+
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: sign response for transaction %s cannot be processed unless already in memory",
+			contractAddress, signResponse.TransactionId)
+		return
+	}
+
+	signedEvent := &coordTransaction.SignedEvent{}
+	signedEvent.TransactionID = transactionID
+	signedEvent.RequestID = requestID
+	signedEvent.AttestationResult = signResponse.AttestationResult
+	signedEvent.PostAssembly = signResponse.PostAssembly
+	signedEvent.EventTime = time.Now()
+	seq.GetCoordinator().QueueEvent(ctx, signedEvent)
+}
+
+func (sMgr *sequencerManager) handleSignError(ctx context.Context, message *components.ReceivedMessage) {
+	signError := &engineProto.SignError{}
+
+	err := proto.Unmarshal(message.Payload, signError)
+	if err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, signError.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", signError.TransactionId)
+	if !ok {
+		return
+	}
+
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "assemble_request_id", signError.AssembleRequestId)
+	if !ok {
+		return
+	}
+
+	seq := sMgr.GetSequencer(ctx, *contractAddress)
+	if seq == nil {
+		log.L(ctx).Warnf("sequencer for contract %s is not loaded: sign error for transaction %s cannot be processed unless already in memory",
+			contractAddress, signError.TransactionId)
+		return
+	}
+
+	signErrorEvent := &coordTransaction.SignErrorEvent{}
+	signErrorEvent.TransactionID = transactionID
+	signErrorEvent.RequestID = requestID
+	signErrorEvent.EventTime = time.Now()
+	seq.GetCoordinator().QueueEvent(ctx, signErrorEvent)
 }
 
 func (sMgr *sequencerManager) handleAssembleRejection(ctx context.Context, message *components.ReceivedMessage) {
@@ -255,6 +531,16 @@ func (sMgr *sequencerManager) handleAssembleRejection(ctx context.Context, messa
 		return
 	}
 
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", assembleRejection.TransactionId)
+	if !ok {
+		return
+	}
+
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "assemble_request_id", assembleRejection.AssembleRequestId)
+	if !ok {
+		return
+	}
+
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
 		log.L(ctx).Warnf("sequencer for contract %s is not loaded: assemble rejection for transaction %s cannot be processed unless already in memory",
@@ -263,8 +549,8 @@ func (sMgr *sequencerManager) handleAssembleRejection(ctx context.Context, messa
 	}
 
 	assembleRejectedEvent := &coordTransaction.AssembleRequestRejectedEvent{}
-	assembleRejectedEvent.RequestID = uuid.MustParse(assembleRejection.AssembleRequestId)
-	assembleRejectedEvent.TransactionID = uuid.MustParse(assembleRejection.TransactionId)
+	assembleRejectedEvent.RequestID = requestID
+	assembleRejectedEvent.TransactionID = transactionID
 	assembleRejectedEvent.EventTime = time.Now()
 	assembleRejectedEvent.RejectionReason = assembleRejection.RejectionReason
 	assembleRejectedEvent.CoordinatorBlockHeight = assembleRejection.CoordinatorBlockHeight
@@ -280,21 +566,14 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 		return
 	}
 
-	from := heartbeatNotification.From
-	if from == "" {
-		sMgr.logPaladinMessageFieldMissingError(ctx, message, "From")
-		return
-	}
-
 	contractAddress := sMgr.parseContractAddressString(ctx, heartbeatNotification.ContractAddress, message)
 	if contractAddress == nil {
 		return
 	}
 
-	coordinatorSnapshot := &common.CoordinatorSnapshot{}
-	err = json.Unmarshal(heartbeatNotification.CoordinatorSnapshot, coordinatorSnapshot)
+	coordinatorSnapshot, err := common.CoordinatorSnapshotFromProto(ctx, heartbeatNotification.GetCoordinatorSnapshot())
 	if err != nil {
-		sMgr.logPaladinMessageJsonUnmarshalError(ctx, "CoordinatorSnapshot", message, err)
+		log.L(ctx).Errorf("failed to parse coordinator snapshot from heartbeat: %v", err)
 		return
 	}
 
@@ -305,7 +584,7 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 	}
 
 	heartbeatEvent := &common.HeartbeatReceivedEvent{}
-	heartbeatEvent.FromNode = from
+	heartbeatEvent.FromNode = message.FromNode
 	heartbeatEvent.ContractAddress = contractAddress
 	heartbeatEvent.CoordinatorSnapshot = coordinatorSnapshot
 	heartbeatEvent.EventTime = time.Now()
@@ -314,7 +593,7 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 }
 
 func (sMgr *sequencerManager) handlePreDispatchRequest(ctx context.Context, message *components.ReceivedMessage) {
-	preDispatchRequest := &engineProto.TransactionDispatched{}
+	preDispatchRequest := &engineProto.PreDispatchRequest{}
 
 	err := proto.Unmarshal(message.Payload, preDispatchRequest)
 	if err != nil {
@@ -324,6 +603,16 @@ func (sMgr *sequencerManager) handlePreDispatchRequest(ctx context.Context, mess
 
 	contractAddress := sMgr.parseContractAddressString(ctx, preDispatchRequest.ContractAddress, message)
 	if contractAddress == nil {
+		return
+	}
+
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", preDispatchRequest.TransactionId)
+	if !ok {
+		return
+	}
+
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "id", preDispatchRequest.Id)
+	if !ok {
 		return
 	}
 
@@ -338,11 +627,11 @@ func (sMgr *sequencerManager) handlePreDispatchRequest(ctx context.Context, mess
 	postAssemblyHash := pldtypes.NewBytes32FromSlice(preDispatchRequest.PostAssembleHash)
 
 	preDispatchRequestReceivedEvent := &originatorTransaction.PreDispatchRequestReceivedEvent{
-		RequestID:        uuid.MustParse(preDispatchRequest.Id),
+		RequestID:        requestID,
 		Coordinator:      message.FromNode,
 		PostAssemblyHash: &postAssemblyHash,
 	}
-	preDispatchRequestReceivedEvent.TransactionID = uuid.MustParse(preDispatchRequest.TransactionId[2:34])
+	preDispatchRequestReceivedEvent.TransactionID = transactionID
 	preDispatchRequestReceivedEvent.EventTime = time.Now()
 
 	// TODO - not sure where we should make the decision as to whether or not to approve dispatch.
@@ -353,7 +642,7 @@ func (sMgr *sequencerManager) handlePreDispatchRequest(ctx context.Context, mess
 }
 
 func (sMgr *sequencerManager) handlePreDispatchResponse(ctx context.Context, message *components.ReceivedMessage) {
-	preDispatchResponse := &engineProto.TransactionDispatched{}
+	preDispatchResponse := &engineProto.PreDispatchResponse{}
 
 	err := proto.Unmarshal(message.Payload, preDispatchResponse)
 	if err != nil {
@@ -363,6 +652,16 @@ func (sMgr *sequencerManager) handlePreDispatchResponse(ctx context.Context, mes
 
 	contractAddress := sMgr.parseContractAddressString(ctx, preDispatchResponse.ContractAddress, message)
 	if contractAddress == nil {
+		return
+	}
+
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", preDispatchResponse.TransactionId)
+	if !ok {
+		return
+	}
+
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "id", preDispatchResponse.Id)
+	if !ok {
 		return
 	}
 
@@ -377,9 +676,9 @@ func (sMgr *sequencerManager) handlePreDispatchResponse(ctx context.Context, mes
 	// TODO - we don't yet return anything other than approved.
 
 	dispatchRequestApprovedEvent := &coordTransaction.DispatchRequestApprovedEvent{
-		RequestID: uuid.MustParse(preDispatchResponse.Id),
+		RequestID: requestID,
 	}
-	dispatchRequestApprovedEvent.TransactionID = uuid.MustParse(preDispatchResponse.TransactionId[2:34])
+	dispatchRequestApprovedEvent.TransactionID = transactionID
 	dispatchRequestApprovedEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, dispatchRequestApprovedEvent)
 }
@@ -398,6 +697,11 @@ func (sMgr *sequencerManager) handleDispatchedEvent(ctx context.Context, message
 		return
 	}
 
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", dispatchedEvent.TransactionId)
+	if !ok {
+		return
+	}
+
 	// Get rather than load the sequencer- it must already have the transaction in memory to process the dispatched event
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
@@ -407,7 +711,7 @@ func (sMgr *sequencerManager) handleDispatchedEvent(ctx context.Context, message
 	}
 
 	dispatchConfirmedEvent := &originatorTransaction.DispatchedEvent{}
-	dispatchConfirmedEvent.TransactionID = uuid.MustParse(dispatchedEvent.TransactionId[2:34])
+	dispatchConfirmedEvent.TransactionID = transactionID
 	dispatchConfirmedEvent.Coordinator = message.FromNode
 	dispatchConfirmedEvent.EventTime = time.Now()
 
@@ -428,18 +732,41 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 	transactionDelegatedEvent.DelegationID = delegationRequest.DelegationId
 	transactionDelegatedEvent.EventTime = time.Now()
 
-	var contractAddress *pldtypes.EthAddress
-	for _, txBytes := range delegationRequest.PrivateTransactions {
-		privateTransaction := &components.PrivateTransaction{}
-		if err = json.Unmarshal(txBytes, privateTransaction); err != nil {
-			sMgr.logPaladinMessageJsonUnmarshalError(ctx, "PrivateTransaction", message, err)
+	contractAddress := sMgr.parseContractAddressString(ctx, delegationRequest.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	for _, del := range delegationRequest.Transactions {
+		privateTransaction := &components.PrivateTransaction{
+			Domain:      del.GetDomain(),
+			Address:     *contractAddress,
+			Intent:      del.GetIntent(),
+			PreAssembly: del.GetPreAssembly(),
+		}
+		if privateTransaction.PreAssembly == nil {
+			sMgr.logPaladinMessageFieldMissingError(ctx, message, "delegation.pre_assembly")
 			return
 		}
-		if contractAddress == nil {
-			contractAddress = sMgr.parseContractAddressString(ctx, privateTransaction.PreAssembly.TransactionSpecification.ContractInfo.ContractAddress, message)
-			if contractAddress == nil {
-				return
-			}
+		if privateTransaction.PreAssembly.TransactionSpecification == nil {
+			sMgr.logPaladinMessageFieldMissingError(ctx, message, "delegation.pre_assembly.transaction_specification")
+			return
+		}
+		id, ok := sMgr.parseTransactionSpecificationID(ctx, message, "delegation.pre_assembly.transaction_specification.transaction_id", privateTransaction.PreAssembly.TransactionSpecification)
+		if !ok {
+			return
+		}
+		privateTransaction.ID = id
+		// The coordinator sends each transaction's traffic to the node named in its own From, so a node
+		// may only delegate transactions whose From is one of its own identities
+		from := privateTransaction.PreAssembly.TransactionSpecification.From
+		originatorNode, err := pldtypes.PrivateIdentityLocator(from).Node(ctx, false)
+		if err == nil && originatorNode != message.FromNode {
+			err = fmt.Errorf("originator is not on the sending node %s", message.FromNode)
+		}
+		if err != nil {
+			sMgr.logPaladinMessageFieldInvalidError(ctx, message, "delegation.pre_assembly.transaction_specification.from", from, err)
+			return
 		}
 		if transactionDelegatedEvent.Originator == "" {
 			transactionDelegatedEvent.Originator = privateTransaction.PreAssembly.TransactionSpecification.From
@@ -447,7 +774,7 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 		transactionDelegatedEvent.Transactions = append(transactionDelegatedEvent.Transactions, privateTransaction)
 	}
 
-	if contractAddress == nil {
+	if len(transactionDelegatedEvent.Transactions) == 0 {
 		log.L(ctx).Warnf("delegation request from %s contained no transactions", message.FromNode)
 		return
 	}
@@ -548,7 +875,7 @@ func (sMgr *sequencerManager) handleHandoverRequest(ctx context.Context, message
 	}
 
 	handoverEvent := &coordinator.HandoverRequestEvent{}
-	handoverEvent.FromNode = handoverRequest.FromNode
+	handoverEvent.FromNode = message.FromNode
 	handoverEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, handoverEvent)
 }
@@ -566,7 +893,18 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 		return
 	}
 
+	if endorsementRequest.TransactionSpecification == nil {
+		sMgr.logPaladinMessageFieldMissingError(ctx, message, "transaction_specification")
+		return
+	}
+
+	transactionID, ok := sMgr.parseTransactionSpecificationID(ctx, message, "transaction_specification.transaction_id", endorsementRequest.TransactionSpecification)
+	if !ok {
+		return
+	}
+
 	privateEndorsementRequest := &components.PrivateTransactionEndorseRequest{
+		BlockContext:             endorsementRequest.BlockContext,
 		TransactionSpecification: endorsementRequest.TransactionSpecification,
 		Verifiers:                endorsementRequest.Verifiers,
 		Signatures:               endorsementRequest.Signatures,
@@ -590,7 +928,7 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 
 	endorsementRequestReceivedEvent := &coordinator.EndorsementRequestReceivedEvent{
 		FromNode:                  message.FromNode,
-		TransactionId:             endorsementRequest.TransactionId,
+		TransactionId:             transactionID.String(),
 		IdempotencyKey:            endorsementRequest.IdempotencyKey,
 		Party:                     endorsementRequest.Party,
 		PrivateEndorsementRequest: privateEndorsementRequest,
@@ -617,6 +955,16 @@ func (sMgr *sequencerManager) handleEndorsementResponse(ctx context.Context, mes
 		return
 	}
 
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", endorsementResponse.TransactionId)
+	if !ok {
+		return
+	}
+
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "idempotency_key", endorsementResponse.IdempotencyKey)
+	if !ok {
+		return
+	}
+
 	// Get rather than load the sequencer- it must already have the transaction in memory to process the endorsement response
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
@@ -628,8 +976,8 @@ func (sMgr *sequencerManager) handleEndorsementResponse(ctx context.Context, mes
 	// Endorsement reverted
 	if endorsementResponse.GetRevertReason() != "" {
 		endorseRevertEvent := &coordTransaction.EndorseRevertEvent{}
-		endorseRevertEvent.TransactionID = uuid.MustParse(endorsementResponse.TransactionId)
-		endorseRevertEvent.RequestID = uuid.MustParse(endorsementResponse.IdempotencyKey)
+		endorseRevertEvent.TransactionID = transactionID
+		endorseRevertEvent.RequestID = requestID
 		endorseRevertEvent.EventTime = time.Now()
 		endorseRevertEvent.Party = endorsementResponse.Party
 		endorseRevertEvent.RevertReason = endorsementResponse.GetRevertReason()
@@ -642,8 +990,8 @@ func (sMgr *sequencerManager) handleEndorsementResponse(ctx context.Context, mes
 	endorsement := endorsementResponse.Endorsement
 
 	endorsementResponseEvent := &coordTransaction.EndorsedEvent{}
-	endorsementResponseEvent.TransactionID = uuid.MustParse(endorsementResponse.TransactionId)
-	endorsementResponseEvent.RequestID = uuid.MustParse(endorsementResponse.IdempotencyKey)
+	endorsementResponseEvent.TransactionID = transactionID
+	endorsementResponseEvent.RequestID = requestID
 	endorsementResponseEvent.Endorsement = endorsement
 	endorsementResponseEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, endorsementResponseEvent)
@@ -662,6 +1010,16 @@ func (sMgr *sequencerManager) handleEndorsementRejection(ctx context.Context, me
 		return
 	}
 
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", endorsementRejection.TransactionId)
+	if !ok {
+		return
+	}
+
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "idempotency_key", endorsementRejection.IdempotencyKey)
+	if !ok {
+		return
+	}
+
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
 		log.L(ctx).Warnf("sequencer for contract %s is not loaded: endorsement rejection for transaction %s cannot be processed unless already in memory",
@@ -670,8 +1028,8 @@ func (sMgr *sequencerManager) handleEndorsementRejection(ctx context.Context, me
 	}
 
 	endorseRejectedEvent := &coordTransaction.EndorseRequestRejectedEvent{}
-	endorseRejectedEvent.TransactionID = uuid.MustParse(endorsementRejection.TransactionId)
-	endorseRejectedEvent.RequestID = uuid.MustParse(endorsementRejection.IdempotencyKey)
+	endorseRejectedEvent.TransactionID = transactionID
+	endorseRejectedEvent.RequestID = requestID
 	endorseRejectedEvent.EventTime = time.Now()
 	endorseRejectedEvent.Party = endorsementRejection.Party
 	endorseRejectedEvent.AttestationRequestName = endorsementRejection.AttestationRequestName
@@ -695,6 +1053,16 @@ func (sMgr *sequencerManager) handleEndorsementError(ctx context.Context, messag
 		return
 	}
 
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", endorsementError.TransactionId)
+	if !ok {
+		return
+	}
+
+	requestID, ok := sMgr.parseUUIDField(ctx, message, "idempotency_key", endorsementError.IdempotencyKey)
+	if !ok {
+		return
+	}
+
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
 		log.L(ctx).Warnf("sequencer for contract %s is not loaded: endorsement error for transaction %s cannot be processed unless already in memory",
@@ -703,8 +1071,8 @@ func (sMgr *sequencerManager) handleEndorsementError(ctx context.Context, messag
 	}
 
 	endorseErrorEvent := &coordTransaction.EndorseErrorEvent{}
-	endorseErrorEvent.TransactionID = uuid.MustParse(endorsementError.TransactionId)
-	endorseErrorEvent.RequestID = uuid.MustParse(endorsementError.IdempotencyKey)
+	endorseErrorEvent.TransactionID = transactionID
+	endorseErrorEvent.RequestID = requestID
 	endorseErrorEvent.EventTime = time.Now()
 	endorseErrorEvent.Party = endorsementError.Party
 	endorseErrorEvent.AttestationRequestName = endorsementError.AttestationRequestName
@@ -724,6 +1092,11 @@ func (sMgr *sequencerManager) handleNonceAssigned(ctx context.Context, message *
 		return
 	}
 
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", nonceAssigned.TransactionId)
+	if !ok {
+		return
+	}
+
 	// Get rather than load the sequencer- it must already have the transaction in memory to process the nonce assigned event
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
@@ -733,7 +1106,7 @@ func (sMgr *sequencerManager) handleNonceAssigned(ctx context.Context, message *
 	}
 
 	nonceAssignedEvent := &originatorTransaction.NonceAssignedEvent{}
-	nonceAssignedEvent.TransactionID = uuid.MustParse(nonceAssigned.TransactionId)
+	nonceAssignedEvent.TransactionID = transactionID
 	nonceAssignedEvent.Nonce = uint64(nonceAssigned.Nonce)
 	nonceAssignedEvent.Coordinator = message.FromNode
 	nonceAssignedEvent.EventTime = time.Now()
@@ -754,6 +1127,16 @@ func (sMgr *sequencerManager) handleTransactionSubmitted(ctx context.Context, me
 		return
 	}
 
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", transactionSubmitted.TransactionId)
+	if !ok {
+		return
+	}
+
+	submissionHash, ok := sMgr.parseBytes32Field(ctx, message, "hash", transactionSubmitted.Hash)
+	if !ok {
+		return
+	}
+
 	// Get rather than load the sequencer- it must already have the transaction in memory to process the transaction submitted event
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
@@ -763,8 +1146,8 @@ func (sMgr *sequencerManager) handleTransactionSubmitted(ctx context.Context, me
 	}
 
 	transactionSubmittedEvent := &originatorTransaction.SubmittedEvent{}
-	transactionSubmittedEvent.TransactionID = uuid.MustParse(transactionSubmitted.TransactionId)
-	transactionSubmittedEvent.LatestSubmissionHash = pldtypes.Bytes32(transactionSubmitted.Hash)
+	transactionSubmittedEvent.TransactionID = transactionID
+	transactionSubmittedEvent.LatestSubmissionHash = submissionHash
 	transactionSubmittedEvent.Coordinator = message.FromNode
 	transactionSubmittedEvent.EventTime = time.Now()
 
@@ -784,6 +1167,11 @@ func (sMgr *sequencerManager) handleTransactionConfirmed(ctx context.Context, me
 		return
 	}
 
+	transactionID, ok := sMgr.parseUUIDField(ctx, message, "transaction_id", transactionConfirmed.TransactionId)
+	if !ok {
+		return
+	}
+
 	// Get rather than load the sequencer- it must already have the transaction in memory to process the transaction confirmed event
 	seq := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil {
@@ -794,7 +1182,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmed(ctx context.Context, me
 
 	if transactionConfirmed.GetOutcome() == engineProto.TransactionConfirmed_OUTCOME_REVERTED {
 		transactionSubmittedEvent := &originatorTransaction.ConfirmedRevertedEvent{}
-		transactionSubmittedEvent.TransactionID = uuid.MustParse(transactionConfirmed.TransactionId)
+		transactionSubmittedEvent.TransactionID = transactionID
 		transactionSubmittedEvent.RevertReason = transactionConfirmed.RevertReason
 		transactionSubmittedEvent.FailureMessage = transactionConfirmed.GetFailureMessage()
 		transactionSubmittedEvent.WillRetry = transactionConfirmed.WillRetry
@@ -802,7 +1190,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmed(ctx context.Context, me
 		seq.GetOriginator().QueueEvent(ctx, transactionSubmittedEvent)
 	} else {
 		transactionSubmittedEvent := &originatorTransaction.ConfirmedSuccessEvent{}
-		transactionSubmittedEvent.TransactionID = uuid.MustParse(transactionConfirmed.TransactionId)
+		transactionSubmittedEvent.TransactionID = transactionID
 		transactionSubmittedEvent.EventTime = time.Now()
 		seq.GetOriginator().QueueEvent(ctx, transactionSubmittedEvent)
 	}

@@ -1,4 +1,4 @@
-// Copyright © 2026 Kaleido, Inc.
+// Copyright contributors to Paladin, an LFDT project
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -25,22 +25,23 @@ import {
   TextField
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { fetchPaladinTransaction, fetchEnrichedTransaction } from '../queries/transactions';
+import { fetchEnrichedTransaction, fetchPaladinTransaction, fetchTransactionReceipt } from '../queries/transactions';
 import { isValidTransactionHash, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
+import { AppRouteFactory } from '../routes';
 
 type Props = {
-  dialogOpen: boolean
-  setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  onClose: () => void
   label: string
+  backToSubmissions?: boolean
 }
 
 export const TransactionLookupDialog: React.FC<Props> = ({
-  dialogOpen,
-  setDialogOpen,
-  label
+  onClose,
+  label,
+  backToSubmissions
 }) => {
 
   const { t } = useTranslation();
@@ -48,44 +49,57 @@ export const TransactionLookupDialog: React.FC<Props> = ({
   const [hashOrId, setHashOrId] = useState('');
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (dialogOpen) {
-      setHashOrId('');
-    }
-  }, [dialogOpen]);
-
   const { refetch: blockchainTransactionByHash } = useQuery({
     queryKey: ["blockchainTransactionByHash", hashOrId],
     queryFn: () => fetchEnrichedTransaction(hashOrId),
-    enabled: isValidTransactionHash(hashOrId),
     refetchOnMount: false,
-    retry: false
+    retry: false,
+    enabled: false,
+  });
+
+  const { refetch: paladinReceiptById } = useQuery({
+    queryKey: ["paladinReceiptById", hashOrId],
+    queryFn: () => fetchTransactionReceipt(hashOrId),
+    refetchOnMount: false,
+    retry: false,
+    enabled: false,
   });
 
   const { refetch: paladinTransactionById } = useQuery({
     queryKey: ["paladinTransactionById", hashOrId],
     queryFn: () => fetchPaladinTransaction(hashOrId),
-    enabled: isValidUUID(hashOrId),
     refetchOnMount: false,
-    retry: false
+    retry: false,
+    enabled: false,
   });
 
   const handleSubmit = () => {
+    const path = AppRouteFactory.getPath(
+      'Transaction',
+      { hashOrId },
+      backToSubmissions === true ? { back: 'submissions' } : undefined
+    );
     setNotFound(false);
     if (isValidTransactionHash(hashOrId)) {
       blockchainTransactionByHash().then(result => {
         if (result.isSuccess) {
-          navigate(`/ui/transactions/${hashOrId}`);
+          navigate(path);
         } else {
           setNotFound(true);
         }
       });
     } else if (isValidUUID(hashOrId)) {
-      paladinTransactionById().then(result => {
+      paladinReceiptById().then(result => {
         if (result.isSuccess && result.data !== null) {
-          navigate(`/ui/transactions/${hashOrId}`);
+          navigate(path);
         } else {
-          setNotFound(true);
+          paladinTransactionById().then(result => {
+            if (result.isSuccess && result.data !== null) {
+              navigate(path);
+            } else {
+              setNotFound(true);
+            }
+          });
         }
       });
     }
@@ -95,8 +109,8 @@ export const TransactionLookupDialog: React.FC<Props> = ({
 
   return (
     <Dialog
-      onClose={() => setDialogOpen(false)}
-      open={dialogOpen}
+      onClose={onClose}
+      open
       PaperProps={{ sx: { width: '680px' } }}
       fullWidth
       maxWidth="md"
@@ -114,8 +128,7 @@ export const TransactionLookupDialog: React.FC<Props> = ({
           <Box sx={{ marginTop: '6px' }}>
             <TextField
               label={label}
-              autoComplete="OFF"
-              sx={{ marginBottom: '20px' }}
+              autoComplete="off"
               fullWidth
               value={hashOrId}
               onChange={event => setHashOrId(event.target.value)}
@@ -137,7 +150,7 @@ export const TransactionLookupDialog: React.FC<Props> = ({
             size="large"
             variant="outlined"
             disableElevation
-            onClick={() => setDialogOpen(false)}
+            onClick={() => onClose()}
           >
             {t('cancel')}
           </Button>

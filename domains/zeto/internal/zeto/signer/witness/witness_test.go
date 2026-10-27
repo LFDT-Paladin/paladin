@@ -690,10 +690,18 @@ func TestPrepareInputsForNullifiers(t *testing.T) {
 
 	assert.Equal(t, []*big.Int{a, b}, nullifiers)
 	assert.Equal(t, big.NewInt(0x123456), root)
-	assert.Equal(t, [][]*big.Int{
-		{big.NewInt(1), big.NewInt(2), big.NewInt(3)},
-		{big.NewInt(0), big.NewInt(0), big.NewInt(0)},
-	}, proofs)
+	// Use Cmp instead of assert.Equal: Go 1.25 changed the internal big.Int zero
+	// representation (big.NewInt(0).abs is nil, but new(big.Int).SetString("0",16).abs
+	// is an empty non-nil slice), so reflect.DeepEqual fails for equal zero values.
+	require.Len(t, proofs, 2)
+	require.Len(t, proofs[0], 3)
+	require.Len(t, proofs[1], 3)
+	assert.Zero(t, proofs[0][0].Cmp(big.NewInt(1)))
+	assert.Zero(t, proofs[0][1].Cmp(big.NewInt(2)))
+	assert.Zero(t, proofs[0][2].Cmp(big.NewInt(3)))
+	assert.Zero(t, proofs[1][0].Cmp(big.NewInt(0)))
+	assert.Zero(t, proofs[1][1].Cmp(big.NewInt(0)))
+	assert.Zero(t, proofs[1][2].Cmp(big.NewInt(0)))
 	assert.Equal(t, []*big.Int{big.NewInt(1), big.NewInt(0)}, enabled)
 }
 

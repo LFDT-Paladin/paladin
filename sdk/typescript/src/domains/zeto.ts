@@ -3,6 +3,7 @@ import PaladinClient from "../paladin";
 import { TransactionFuture } from "../transaction";
 import { PaladinVerifier } from "../verifier";
 import * as zetoPrivateJSON from "./abis/IZetoFungible.json";
+import * as zetoNonFungiblePrivateJSON from "./abis/IZetoNonFungible.json";
 import * as zetoPublicJSON from "./abis/Zeto_Anon.json";
 
 // Algorithm/verifier types specific to Zeto
@@ -12,6 +13,7 @@ export const IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X =
   "iden3_pubkey_babyjubjub_compressed_0x";
 
 const zetoAbi = zetoPrivateJSON.abi;
+const zetoNonFungibleAbi = zetoNonFungiblePrivateJSON.abi;
 const zetoPublicAbi = zetoPublicJSON.abi;
 
 export const zetoConstructorABI = {
@@ -75,12 +77,39 @@ export interface ZetoBalanceOfResult {
   overflow: boolean;
 }
 
+export interface ZetoNonFungibleMintParams {
+  mints: ZetoNonFungibleMint[];
+}
+
+export interface ZetoNonFungibleMint {
+  to: PaladinVerifier;
+  uri: string;
+}
+
+export interface ZetoNonFungibleTransferParams {
+  transfers: ZetoNonFungibleTransfer[];
+}
+
+export interface ZetoNonFungibleTransfer {
+  to: PaladinVerifier;
+  tokenID: string;
+}
+
 // Represents an in-flight Zeto deployment
 export class ZetoFuture extends TransactionFuture {
   async waitForDeploy(waitMs?: number) {
     const receipt = await this.waitForReceipt(waitMs);
     return receipt?.contractAddress
       ? new ZetoInstance(this.paladin, receipt.contractAddress)
+      : undefined;
+  }
+}
+
+export class ZetoNonFungibleFuture extends TransactionFuture {
+  async waitForDeploy(waitMs?: number) {
+    const receipt = await this.waitForReceipt(waitMs);
+    return receipt?.contractAddress
+      ? new ZetoNonFungibleInstance(this.paladin, receipt.contractAddress)
       : undefined;
   }
 }
@@ -94,6 +123,20 @@ export class ZetoFactory {
 
   newZeto(from: PaladinVerifier, data: ZetoConstructorParams) {
     return new ZetoFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PRIVATE,
+        domain: this.domain,
+        abi: [zetoConstructorABI],
+        function: "",
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  newZetoNonFungible(from: PaladinVerifier, data: ZetoConstructorParams) {
+    return new ZetoNonFungibleFuture(
       this.paladin,
       this.paladin.sendTransaction({
         type: TransactionType.PRIVATE,
@@ -278,5 +321,48 @@ export class ZetoInstance {
       from: from.lookup,
       data,
     });
+  }
+}
+
+export class ZetoNonFungibleInstance {
+  constructor(
+    private paladin: PaladinClient,
+    public readonly address: string
+  ) {}
+
+  using(paladin: PaladinClient) {
+    return new ZetoNonFungibleInstance(paladin, this.address);
+  }
+
+  mint(from: PaladinVerifier, data: ZetoNonFungibleMintParams) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PRIVATE,
+        abi: zetoNonFungibleAbi,
+        function: "mint",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          mints: data.mints.map((m) => ({ ...m, to: m.to.lookup })),
+        },
+      })
+    );
+  }
+
+  transfer(from: PaladinVerifier, data: ZetoNonFungibleTransferParams) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PRIVATE,
+        abi: zetoNonFungibleAbi,
+        function: "transfer",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          transfers: data.transfers.map((t) => ({ ...t, to: t.to.lookup })),
+        },
+      })
+    );
   }
 }

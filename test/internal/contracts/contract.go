@@ -18,7 +18,7 @@ package contracts
 
 import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
 // Contract holds the parsed SimpleStorage ABI and bytecode.

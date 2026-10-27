@@ -86,6 +86,14 @@ func buildTestCertificate(t *testing.T, subject pkix.Name, ca *x509.Certificate,
 }
 
 func newTestGRPCTransport(t *testing.T, nodeCert, nodeKey string, conf *Config) (*grpcTransport, *PublishedTransportDetails, *testCallbacks, func()) {
+	return newTestGRPCTransportPreServe(t, nodeCert, nodeKey, conf, nil)
+}
+
+// preServe, if supplied, runs after ConfigureTransport has built the server but before it starts
+// accepting connections. Any test that needs to adjust the TLS config must do it here - once the
+// server is serving, peerValidator clones baseTLSConfig on every handshake (including the dial
+// below that waits for the socket), so a later write would be a data race.
+func newTestGRPCTransportPreServe(t *testing.T, nodeCert, nodeKey string, conf *Config, preServe func(*grpcTransport)) (*grpcTransport, *PublishedTransportDetails, *testCallbacks, func()) {
 	// Grab a localhost port to use and put that in config
 	portGrabber, err := net.Listen("tcp", "127.0.0.1:0")
 	assert.NoError(t, err)
@@ -106,12 +114,21 @@ func newTestGRPCTransport(t *testing.T, nodeCert, nodeKey string, conf *Config) 
 	//  construct the plugin
 	callbacks := &testCallbacks{}
 	transport := NewGRPCTransport(callbacks).(*grpcTransport)
+	if preServe != nil {
+		// ConfigureTransport only starts the serve goroutine when serverDone is nil, so pre-setting
+		// it holds the server back until we have run preServe and started serve() ourselves.
+		transport.serverDone = make(chan struct{})
+	}
 	res, err := transport.ConfigureTransport(transport.bgCtx, &prototk.ConfigureTransportRequest{
 		Name:       "grpc",
 		ConfigJson: string(jsonConf),
 	})
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
+	if preServe != nil {
+		preServe(transport)
+		go transport.serve(transport.grpcServer, transport.listener, transport.serverDone)
+	}
 
 	// Build the transport details for this plugin
 	transportDetails := &PublishedTransportDetails{
@@ -655,10 +672,12 @@ func TestGRPCTransport_ServerRejectNoCerts(t *testing.T) {
 	defer done1()
 
 	node2Cert, node2Key := buildTestCertificate(t, pkix.Name{CommonName: "node2"}, nil, nil)
-	plugin2, transportDetails2, callbacks2, done2 := newTestGRPCTransport(t, node2Cert, node2Key, &Config{})
+	// For test we ask for one, but don't have one to give. This must be set before the server
+	// starts serving, as baseTLSConfig is read on every handshake from then on.
+	_, transportDetails2, callbacks2, done2 := newTestGRPCTransportPreServe(t, node2Cert, node2Key, &Config{}, func(transport *grpcTransport) {
+		transport.peerVerifier.baseTLSConfig.ClientAuth = tls.RequestClientCert
+	})
 	defer done2()
-	// For test we ask for one, but don't have one to give
-	plugin2.peerVerifier.baseTLSConfig.ClientAuth = tls.RequestClientCert
 
 	ptds := map[string]*PublishedTransportDetails{"node1": transportDetails1, "node2": transportDetails2}
 	mockRegistry(callbacks1, ptds)

@@ -24,14 +24,13 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -135,10 +134,11 @@ func TestRPC(t *testing.T) {
 
 	// Write some nullifiers and query them back
 	nullifier1 := pldtypes.HexBytes(pldtypes.RandHex(32))
-	err = ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*components.NullifierUpsert{
+	err = ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*pldapi.StateNullifier{
 		{
-			ID:    nullifier1,
-			State: state.ID,
+			DomainName: "domain1",
+			ID:         nullifier1,
+			State:      state.ID,
 		},
 	})
 	require.NoError(t, err)
@@ -167,6 +167,42 @@ func TestRPC(t *testing.T) {
 	assert.Equal(t, state.ID, states[0].ID)
 	assert.Equal(t, nullifier1, states[0].Nullifier.ID)
 
+}
+
+// TestRPCQueryHandlersValidateQualifier calls each pstate query handler directly, checking an
+// unrecognised qualifier - including a transaction UUID - is rejected as the request is parsed,
+// before any query runs, so no DB interaction is mocked.
+func TestRPCQueryHandlersValidateQualifier(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	domain := pldtypes.JSONString("domain1")
+	schemaID := pldtypes.JSONString(pldtypes.RandBytes32())
+	contractAddress := pldtypes.JSONString(pldtypes.RandAddress())
+	emptyQuery := pldtypes.RawJSON(`{}`)
+
+	for _, qualifier := range []string{"wrong", uuid.NewString()} {
+		badQualifier := pldtypes.JSONString(qualifier)
+		for _, tc := range []struct {
+			method  string
+			handler rpcserver.RPCHandler
+			params  []pldtypes.RawJSON
+		}{
+			{"pstate_queryStates", ss.rpcQueryStates(), []pldtypes.RawJSON{domain, schemaID, emptyQuery, badQualifier}},
+			{"pstate_queryNullifiers", ss.rpcQueryNullifiers(), []pldtypes.RawJSON{domain, schemaID, emptyQuery, badQualifier}},
+			{"pstate_queryContractStates", ss.rpcQueryContractStates(), []pldtypes.RawJSON{domain, contractAddress, schemaID, emptyQuery, badQualifier}},
+			{"pstate_queryContractNullifiers", ss.rpcQueryContractNullifiers(), []pldtypes.RawJSON{domain, contractAddress, schemaID, emptyQuery, badQualifier}},
+		} {
+			resp := tc.handler.Handle(ctx, &rpcclient.RPCRequest{
+				JSONRpc: "2.0",
+				ID:      pldtypes.RawJSON(`"1"`),
+				Method:  tc.method,
+				Params:  tc.params,
+			})
+			require.NotNil(t, resp.Error, "%s accepted qualifier %q", tc.method, qualifier)
+			assert.Regexp(t, "PD020016", resp.Error.Message)
+		}
+	}
 }
 
 func TestRPCTransferState(t *testing.T) {

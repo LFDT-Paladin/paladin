@@ -56,7 +56,7 @@ func (qw *QueryWrapper[PT, T]) Run(ctx context.Context, dbTX persistence.DBTX) (
 	if dbTX == nil {
 		dbTX = qw.P.NOTX()
 	}
-	q := dbTX.DB().WithContext(ctx)
+	q := dbTX.DB(ctx)
 	if qw.Table != "" {
 		q = q.Table(qw.Table)
 	}

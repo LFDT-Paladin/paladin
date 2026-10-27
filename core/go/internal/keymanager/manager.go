@@ -28,7 +28,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signer"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -290,7 +289,7 @@ func (km *keyManager) ReverseKeyLookup(ctx context.Context, dbTX persistence.DBT
 		return mapping, nil
 	}
 	var dbVerifiers []*DBKeyVerifier
-	err := dbTX.DB().WithContext(ctx).
+	err := dbTX.DB(ctx).
 		Where(`"algorithm" = ?`, algorithm).
 		Where(`"type" = ?`, verifierType).
 		Where(`"verifier" = ?`, verifier).
@@ -315,10 +314,10 @@ func (km *keyManager) ReverseKeyLookup(ctx context.Context, dbTX persistence.DBT
 	return mapping, nil
 }
 
-func (km *keyManager) QueryKeys(ctx context.Context, dbTX *gorm.DB, jq *query.QueryJSON) (keyList []*pldapi.KeyQueryEntry, err error) {
+func (km *keyManager) QueryKeys(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) (keyList []*pldapi.KeyQueryEntry, err error) {
 
 	q := filters.BuildGORM(ctx, jq,
-		dbTX.WithContext(ctx).
+		dbTX.DB(ctx).
 			Table("key_paths"), KeyEntryFilters)
 
 	q.Select(`DISTINCT key_mappings.identifier IS NOT NULL AS "is_key",` +
@@ -346,7 +345,7 @@ func (km *keyManager) QueryKeys(ctx context.Context, dbTX *gorm.DB, jq *query.Qu
 
 	var verifiers []*DBKeyVerifier
 
-	err = dbTX.Table("key_verifiers").
+	err = dbTX.DB(ctx).Table("key_verifiers").
 		Where("identifier IN ?", ids).
 		Scan(&verifiers).Error
 	if err != nil {

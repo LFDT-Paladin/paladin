@@ -289,7 +289,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          try {
              LOGGER.info("Assembling transaction");
 
-             var tx = new PenteTransaction(this, request.getTransaction());
+             var tx = new PenteTransaction(this, request.getTransaction(), request.hasBlockContext() ? request.getBlockContext() : null);
 
              // Execution throws an EVMExecutionException if fails
              var accountLoader = new AssemblyAccountLoader(request.getStateQueryContext());
@@ -377,7 +377,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
                  throw new IllegalArgumentException("Expected exactly one info state containing the transaction input");
 
              // Recover the input from the signed rawTransaction that is in the "info" state recorded alongside the transaction
-             var tx = new PenteTransaction(this, request.getTransaction());
+             var tx = new PenteTransaction(this, request.getTransaction(), request.hasBlockContext() ? request.getBlockContext() : null);
              var evmTxn = PenteEVMTransaction.buildFromInput(this, request.getInfo(0).getStateDataJson().getBytes(StandardCharsets.UTF_8));
 
              // Do the execution of the transaction again ourselves
@@ -629,7 +629,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      protected CompletableFuture<ExecCallResponse> execCall(ExecCallRequest request) {
          setTransactionLogContext(request.getTransaction());
          try {
-             var tx = new PenteTransaction(this, request.getTransaction());
+             var tx = new PenteTransaction(this, request.getTransaction(), request.hasBlockContext() ? request.getBlockContext() : null);
              var accountLoader = new AssemblyAccountLoader(request.getStateQueryContext());
              var ethTxn = new PenteEVMTransaction(this, tx, tx.getFromVerifier(request.getResolvedVerifiersList()));
              var result = ethTxn.invokeEVM(accountLoader);

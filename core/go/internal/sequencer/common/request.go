@@ -32,8 +32,13 @@ type IdempotentRequest struct {
 }
 
 func NewIdempotentRequest(ctx context.Context, clock Clock, timeout time.Duration, sendRequest func(ctx context.Context, idempotencyKey uuid.UUID) error) *IdempotentRequest {
-	idempotencyKey := uuid.New()
-	r := &IdempotentRequest{
+	return NewIdempotentRequestWithKey(ctx, clock, timeout, uuid.New(), sendRequest)
+}
+
+// NewIdempotentRequestWithKey builds an idempotent request with a caller-supplied idempotency key,
+// used when the key needs to be known ahead of the send.
+func NewIdempotentRequestWithKey(ctx context.Context, clock Clock, timeout time.Duration, idempotencyKey uuid.UUID, sendRequest func(ctx context.Context, idempotencyKey uuid.UUID) error) *IdempotentRequest {
+	return &IdempotentRequest{
 		idempotencyKey:   idempotencyKey,
 		clock:            clock,
 		send:             sendRequest,
@@ -41,8 +46,6 @@ func NewIdempotentRequest(ctx context.Context, clock Clock, timeout time.Duratio
 		requestTime:      nil,
 		firstRequestTime: nil,
 	}
-
-	return r
 }
 
 func (r *IdempotentRequest) IdempotencyKey() uuid.UUID {

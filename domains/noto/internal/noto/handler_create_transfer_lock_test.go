@@ -26,8 +26,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
+	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
+	"github.com/hyperledger-firefly/signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -285,22 +285,24 @@ func TestCreateTransferLock(t *testing.T) {
 	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelManifestState, unlockDataState}))
 	require.NoError(t, err)
 	createLockArgs := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
-	notoOptions := createLockArgs.Options
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), unlockTxData)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), n.endorsableStateIDs(ctx, nil, outputStates[1:2], false), n.endorsableStateIDs(ctx, nil, infoStates[1:2], false), unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[2:3]), cancelUnlockTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, lockInfo.SpendTxId.HexString(), n.endorsableStateIDs(ctx, nil, outputStates[1:2], false), n.endorsableStateIDs(ctx, nil, infoStates[2:3], false), cancelUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
+
+	expectedInputs := n.endorsableStateIDs(ctx, nil, inputStates, false)
+	require.NotNil(t, expectedInputs)
 
 	// Validate the encoded noto parameters passed in
 	require.Equal(t, &types.NotoCreateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Inputs:       []string{inputCoinState.Id},
+		Inputs:       expectedInputs,
 		Outputs:      []string{*remainderCoinState.Id},
 		Contents:     []string{*lockedCoinState.Id},
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
-		Options:      createLockArgs.Options,
+		Options:      &types.NotoLockOptions{SpendTxId: lockInfo.SpendTxId},
 		Proof:        signatureBytes,
 	}, createLockArgs)
 
@@ -523,4 +525,67 @@ func TestCreateTransferLockInsufficientFunds(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, prototk.AssembleTransactionResponse_REVERT, assembleRes.AssemblyResult)
+}
+
+func TestCreateTransferLockValidateParamsRevert(t *testing.T) {
+	h := &createTransferLockHandler{}
+	for _, tc := range []struct {
+		name, params, match string
+		config              *types.NotoParsedConfig
+	}{
+		{"not supported in V0", `{}`, "PD200014", notoBasicConfigV0},
+		{"malformed JSON", `{"from":`, "unexpected end of JSON input", notoBasicConfigV1},
+		{"missing from", `{"recipients": [{"to": "receiver@node2", "amount": 1}]}`, "PD200007.*'from'", notoBasicConfigV1},
+		{"missing recipients", `{"from": "sender@node1"}`, "PD200007.*'recipients'", notoBasicConfigV1},
+		{"zero recipient amount", `{"from": "sender@node1", "recipients": [{"to": "receiver@node2", "amount": 0}]}`, "PD200008.*'recipient amount'", notoBasicConfigV1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), tc.config, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestCreateTransferLockEndorseRevertsWhenInputsDoNotCoverOutputs(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	tx.Params = &types.CreateTransferLockParams{From: "sender@node1"}
+	h := &createTransferLockHandler{lockCommon{noto: n}}
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, nil, nil), newLockedCoinState(sender, 50)},
+	})
+	assertEndorseRevert(t, err, "PD200013.*totalOutputs")
+}
+
+func TestCreateTransferLockEndorseRevertsWhenSpendDoesNotMatchWhatWasLocked(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	tx.Params = &types.CreateTransferLockParams{From: "sender@node1"}
+	h := &createTransferLockHandler{lockCommon{noto: n}}
+	spend := newCoinState(sender, 40)
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, stateIDs(spend), nil), newLockedCoinState(sender, 100)},
+		Info:              []*prototk.EndorsableState{spend},
+	})
+	assertEndorseRevert(t, err, "PD200013.*spendOutputs")
+}
+
+func TestCreateTransferLockEndorseRevertsWhenCancelDoesNotReturnWhatWasLocked(t *testing.T) {
+	n, tx, resolved, sender := notoForLockEndorse()
+	tx.Params = &types.CreateTransferLockParams{From: "sender@node1"}
+	h := &createTransferLockHandler{lockCommon{noto: n}}
+	spend := newCoinState(sender, 100)
+	cancel := newCoinState(sender, 40)
+	_, err := h.Endorse(t.Context(), tx, &prototk.EndorseTransactionRequest{
+		Transaction:       tx.Transaction,
+		ResolvedVerifiers: resolved,
+		Inputs:            []*prototk.EndorsableState{newCoinState(sender, 100)},
+		Outputs:           []*prototk.EndorsableState{newLockState(sender, stateIDs(spend), stateIDs(cancel)), newLockedCoinState(sender, 100)},
+		Info:              []*prototk.EndorsableState{spend, cancel},
+	})
+	assertEndorseRevert(t, err, "PD200013.*cancelOutputs")
 }

@@ -111,12 +111,16 @@
      private Values values;
  
      PenteTransaction(PenteDomain domain, TransactionSpecification tx) throws IOException, IllegalArgumentException {
+         this(domain, tx, null);
+     }
+
+     PenteTransaction(PenteDomain domain, TransactionSpecification tx, BlockContext blockCtx) throws IOException, IllegalArgumentException {
          this.domain = domain;
          contractAddress = new Address(tx.getContractInfo().getContractAddress());
          contractConfig = new ObjectMapper().readValue(tx.getContractInfo().getContractConfigJson(), PenteConfiguration.ContractConfig.class);
          from = tx.getFrom();
-         baseBlock = tx.getBaseBlock();
-         baseBlockTimestamp = tx.getBaseBlockTimestamp();
+         baseBlock = blockCtx != null ? blockCtx.getBlockNumber() : 0;
+         baseBlockTimestamp = blockCtx != null ? blockCtx.getBlockTimestamp() : 0;
          // Check the ABI params we expect at the top level (we don't mind the order)
          functionDef = new ObjectMapper().readValue(tx.getFunctionAbiJson(), JsonABI.Entry.class);
          for (JsonABI.Parameter param : functionDef.inputs()) {

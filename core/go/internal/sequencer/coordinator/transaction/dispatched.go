@@ -19,25 +19,37 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/google/uuid"
 )
 
 func action_NotifyDispatched(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	var txSpec *prototk.TransactionSpecification
-	if t.pt.PreAssembly != nil {
-		txSpec = t.pt.PreAssembly.TransactionSpecification
+	msg := &engineProto.TransactionDispatched{
+		Id:              uuid.New().String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Signer:          t.originator,
+		TransactionId:   t.pt.ID.String(),
 	}
-	return t.transportWriter.SendDispatched(ctx, t.originator, uuid.New(), txSpec)
+	return t.transportWriter.SendDispatched(ctx, t.originatorNode, msg)
 }
 
-// action_CleanUpAssemblyPayload releases the heavy post-assembly and prepared-dispatch
-// payload data after dispatch. PreAssembly is preserved because it holds the
-// TransactionSpecification and RequiredVerifiers needed if the transaction reverts
-// and must be re-assembled.
-func action_CleanUpAssemblyPayload(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	log.L(ctx).Debugf("cleaning up assembly payload for dispatched transaction %s", t.pt.ID.String())
-	t.pt.CleanUpPostAssemblyData()
+// action_MarkDispatchedInFlight records this transaction against the coordinator's dispatch-ahead count,
+// but only when the dispatch being persisted includes a public transaction; other dispatch outcomes do
+// not occupy a dispatch-ahead slot.
+func action_MarkDispatchedInFlight(_ context.Context, t *coordinatorTransaction, event common.Event) error {
+	if e, ok := event.(*DispatchedEvent); ok && e.PublicTransaction && t.setDispatchedInFlight != nil {
+		t.setDispatchedInFlight(t.pt.ID, true)
+	}
+	return nil
+}
+
+// action_ClearDispatchedInFlight clears this transaction from the coordinator's dispatch-ahead count. It
+// is idempotent, so it is safe even when the transaction was never counted (i.e. it did not dispatch a
+// public transaction).
+func action_ClearDispatchedInFlight(_ context.Context, t *coordinatorTransaction, _ common.Event) error {
+	if t.setDispatchedInFlight != nil {
+		t.setDispatchedInFlight(t.pt.ID, false)
+	}
 	return nil
 }
 
@@ -50,12 +62,22 @@ func action_NotifyCollected(_ context.Context, t *coordinatorTransaction, event 
 func action_NotifyNonceAllocated(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*NonceAllocatedEvent)
 	t.nonce = &e.Nonce
-	return t.transportWriter.SendNonceAssigned(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce)
+	return t.transportWriter.SendNonceAssigned(ctx, t.originatorNode, &engineProto.NonceAssigned{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Nonce:           int64(e.Nonce),
+	})
 }
 
 func action_NotifySubmitted(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*SubmittedEvent)
 	log.L(ctx).Infof("coordinator transaction applying SubmittedEvent for transaction %s submitted with hash %s", t.pt.ID.String(), e.SubmissionHash.HexString())
 	t.latestSubmissionHash = &e.SubmissionHash
-	return t.transportWriter.SendTransactionSubmitted(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, &e.SubmissionHash)
+	return t.transportWriter.SendTransactionSubmitted(ctx, t.originatorNode, &engineProto.TransactionSubmitted{
+		Id:              uuid.New().String(),
+		TransactionId:   t.pt.ID.String(),
+		ContractAddress: t.pt.Address.HexString(),
+		Hash:            e.SubmissionHash.Bytes(),
+	})
 }

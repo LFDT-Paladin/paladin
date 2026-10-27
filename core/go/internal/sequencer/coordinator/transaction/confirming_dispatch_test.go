@@ -21,6 +21,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -176,7 +177,9 @@ func Test_sendPreDispatchRequest_RequestTimeoutSchedulesTimer_QueueEventCalled(t
 		Build()
 
 	mocks.TransportWriter.EXPECT().SendPreDispatchRequest(
-		ctx, txn.originatorNode, mock.Anything, txn.pt.PreAssembly.TransactionSpecification, mock.Anything,
+		mock.Anything, txn.originatorNode, mock.MatchedBy(func(msg *engineProto.PreDispatchRequest) bool {
+			return msg.TransactionId == txn.pt.ID.String()
+		}),
 	).Return(nil)
 
 	mocks.Clock.On("Now").Return(time.Now()).Once()

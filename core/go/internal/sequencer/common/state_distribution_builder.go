@@ -47,7 +47,7 @@ type stateDistributionBuilder struct {
 	tx *components.PrivateTransaction
 }
 
-func (sd *stateDistributionBuilder) processStateForDistribution(ctx context.Context, fullState *components.FullState, instruction *prototk.NewState) error {
+func (sd *stateDistributionBuilder) processStateForDistribution(ctx context.Context, fullState *prototk.EndorsableState, instruction *prototk.NewState) error {
 	tx := sd.tx
 
 	// We enforce that the originator gets a distribution
@@ -89,10 +89,10 @@ func (sd *stateDistributionBuilder) processStateForDistribution(ctx context.Cont
 				ContractAddress: tx.Address.String(),
 				// the state data json is available on both but we take it
 				// from the outputState to make sure it is the same json that was used to generate the hash
-				StateID:  fullState.ID.String(),
-				SchemaID: fullState.Schema.String(),
+				StateID:  fullState.GetId(),
+				SchemaID: fullState.GetSchemaId(),
 			},
-			StateData: fullState.Data,
+			StateData: pldtypes.RawJSON(fullState.GetStateDataJson()),
 		}
 
 		// Add the nullifier requirement if there is one
@@ -104,10 +104,10 @@ func (sd *stateDistributionBuilder) processStateForDistribution(ctx context.Cont
 
 		// Add it to the right list
 		if nodeName == sd.LocalNode {
-			log.L(ctx).Debugf("new state %s will be written locally for recipient %s hasNullifier=%t", fullState.ID, recipient, matchedNullifier != nil)
+			log.L(ctx).Debugf("new state %s will be written locally for recipient %s hasNullifier=%t", fullState.GetId(), recipient, matchedNullifier != nil)
 			sd.Local = append(sd.Local, distribution)
 		} else {
-			log.L(ctx).Debugf("new state %s will be distributed to recipient %s hasNullifier=%t", fullState.ID, recipient, matchedNullifier != nil)
+			log.L(ctx).Debugf("new state %s will be distributed to recipient %s hasNullifier=%t", fullState.GetId(), recipient, matchedNullifier != nil)
 			sd.Remote = append(sd.Remote, distribution)
 		}
 	}
@@ -141,20 +141,25 @@ func (sd *stateDistributionBuilder) Build(ctx context.Context) (sds *components.
 		return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerFromNotResolvedDistroTime)
 	}
 
-	if tx.PostAssembly == nil ||
-		len(tx.PostAssembly.OutputStatesPotential) != len(tx.PostAssembly.OutputStates) ||
-		len(tx.PostAssembly.InfoStatesPotential) != len(tx.PostAssembly.InfoStates) {
+	if tx.PostAssembly == nil {
+		log.L(ctx).Debugf("Invalid post assembly: %+v", tx.PostAssembly)
+		return nil, i18n.NewError(ctx, msgs.MsgSequencerInvalidTxStateStateDistro)
+	}
+	outputStatesPotential := tx.PostAssembly.AssembleResponse.GetOutputStatesPotential()
+	infoStatesPotential := tx.PostAssembly.AssembleResponse.GetInfoStatesPotential()
+	if len(outputStatesPotential) != len(tx.PostAssembly.OutputStates) ||
+		len(infoStatesPotential) != len(tx.PostAssembly.InfoStates) {
 		log.L(ctx).Debugf("Invalid post assembly: %+v", tx.PostAssembly)
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInvalidTxStateStateDistro)
 	}
 
 	for i, fullState := range tx.PostAssembly.OutputStates {
-		if err := sd.processStateForDistribution(ctx, fullState, tx.PostAssembly.OutputStatesPotential[i]); err != nil {
+		if err := sd.processStateForDistribution(ctx, fullState, outputStatesPotential[i]); err != nil {
 			return nil, err
 		}
 	}
 	for i, fullState := range tx.PostAssembly.InfoStates {
-		if err := sd.processStateForDistribution(ctx, fullState, tx.PostAssembly.InfoStatesPotential[i]); err != nil {
+		if err := sd.processStateForDistribution(ctx, fullState, infoStatesPotential[i]); err != nil {
 			return nil, err
 		}
 	}

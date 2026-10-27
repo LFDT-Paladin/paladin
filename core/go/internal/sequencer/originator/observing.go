@@ -34,6 +34,13 @@ func action_ProcessConfirmedTransactions(ctx context.Context, o *originator, eve
 	return o.processConfirmedTransactions(ctx, e)
 }
 
+// action_ProcessRevertedTransactions notifies originator transactions of any reverts
+// included in the heartbeat snapshot. Only runs for heartbeats from the current coordinator.
+func action_ProcessRevertedTransactions(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*common.HeartbeatReceivedEvent)
+	return o.processRevertedTransactions(ctx, e)
+}
+
 // action_ProcessCurrentCoordinatorHeartbeat handles a live heartbeat from the currently tracked
 // coordinator. It resets the liveness timer and propagates dispatch state updates to local
 // transaction state machines. Dropped-transaction detection is handled separately in
@@ -50,20 +57,18 @@ func action_SwitchActiveCoordinator(ctx context.Context, o *originator, event co
 	o.currentActiveCoordinator = e.FromNode
 	o.resetFailoverIndex()
 	o.heartbeatIntervalsSinceLastReceive = 0
+	// The node we are switching to has never seen our transactions, so redelegate the full backlog
+	o.requestFullDelegation()
 	return nil
 }
 
 // processDispatchedTransactions propagates dispatch state updates (submission hash, nonce)
 // from the active coordinator's heartbeat to our local transaction state machines.
+// Transactions not found in our in-memory map belong to other originators and are silently skipped.
 func (o *originator) processDispatchedTransactions(ctx context.Context, event *common.HeartbeatReceivedEvent) error {
 	for _, dispatchedTransaction := range event.CoordinatorSnapshot.DispatchedTransactions {
-		if dispatchedTransaction.Originator != o.nodeName {
-			continue
-		}
 		txn := o.transactionsByID[dispatchedTransaction.ID]
 		if txn == nil {
-			log.L(ctx).Warnf("received heartbeat from %s with dispatched transaction %s but no transaction found in memory",
-				o.currentActiveCoordinator, dispatchedTransaction.ID)
 			continue
 		}
 		if dispatchedTransaction.LatestSubmissionHash != nil {
@@ -94,46 +99,82 @@ func (o *originator) processDispatchedTransactions(ctx context.Context, event *c
 	return nil
 }
 
-// processConfirmedTransactions notifies originator transactions of any confirmations
-// included in the heartbeat snapshot, regardless of sender or state.
+// processConfirmedTransactions notifies originator transactions of any on-chain successes
+// included in the heartbeat snapshot, regardless of coordinator state.
+// Coordinator State_Confirmed is only reached via success; revert reason is never present here.
+// Transactions not found in our in-memory map belong to other originators and are silently skipped.
 func (o *originator) processConfirmedTransactions(ctx context.Context, event *common.HeartbeatReceivedEvent) error {
 	for _, confirmedTransaction := range event.CoordinatorSnapshot.ConfirmedTransactions {
-		if confirmedTransaction.Originator != o.nodeName {
-			continue
-		}
 		txn := o.transactionsByID[confirmedTransaction.ID]
 		if txn == nil {
-			log.L(ctx).Debugf("received confirmed transaction %s in heartbeat from %s but no transaction found in memory",
-				confirmedTransaction.ID, event.FromNode)
 			continue
 		}
-		if len(confirmedTransaction.RevertReason) > 0 {
-			err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
-				BaseEvent:    transaction.BaseEvent{TransactionID: confirmedTransaction.ID},
-				RevertReason: confirmedTransaction.RevertReason,
-				WillRetry:    false,
-			})
-			if err != nil {
-				msg := fmt.Errorf("error handling confirmed reverted event for transaction %s: %v", txn.GetID(), err)
-				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-			}
-		} else {
-			err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
-				BaseEvent: transaction.BaseEvent{TransactionID: confirmedTransaction.ID},
-			})
-			if err != nil {
-				msg := fmt.Errorf("error handling confirmed success event for transaction %s: %v", txn.GetID(), err)
-				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-			}
+		err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
+			BaseEvent: transaction.BaseEvent{TransactionID: confirmedTransaction.ID},
+		})
+		if err != nil {
+			msg := fmt.Errorf("error handling confirmed success event for transaction %s: %v", txn.GetID(), err)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
 	}
 	return nil
 }
 
-// hasDroppedTransactions returns true if any non-final transaction is absent from the coordinator's
-// snapshot, implying the coordinator has dropped it and we need to redelegate everything.
+// processRevertedTransactions notifies originator transactions of any reverts included in the
+// heartbeat snapshot from the current coordinator. Only the raw on-chain revert bytes are
+// propagated; the coordinator does not send failure message as a transaction reverted at assembly time
+// may have private data in its failure message.
+func (o *originator) processRevertedTransactions(ctx context.Context, event *common.HeartbeatReceivedEvent) error {
+	for _, revertedTransaction := range event.CoordinatorSnapshot.RevertedTransactions {
+		txn := o.transactionsByID[revertedTransaction.ID]
+		if txn == nil {
+			continue
+		}
+		err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
+			BaseEvent:    transaction.BaseEvent{TransactionID: revertedTransaction.ID},
+			RevertReason: revertedTransaction.RevertReason,
+			WillRetry:    false,
+		})
+		if err != nil {
+			msg := fmt.Errorf("error handling confirmed reverted event for transaction %s: %v", txn.GetID(), err)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+		}
+	}
+	return nil
+}
+
+// hasDroppedTransactions returns true if any transaction that should be in-flight on the coordinator
+// is absent from its snapshot, implying the coordinator has dropped it and we need to redelegate
+// everything.
 func (o *originator) hasDroppedTransactions(ctx context.Context, snapshot *common.CoordinatorSnapshot) bool {
-	for _, txn := range o.getTransactionsNotInStates([]transaction.State{transaction.State_Final, transaction.State_Confirmed, transaction.State_Reverted}) {
+	// Two groups of transactions are excluded from the dropped check:
+	//   - pre-delegation states (Initial, Resolving, Pending): never sent to a coordinator, so their
+	//     absence from a snapshot is expected and does not indicate a drop.
+	//   - terminal states (Confirmed, Reverted, Final): although a coordinator does report these in its
+	//     snapshot, they have already been finalized so there is no purpose in redelegating them.
+	excludedStates := []transaction.State{
+		transaction.State_Initial,
+		transaction.State_Resolving,
+		transaction.State_Pending,
+		transaction.State_Confirmed,
+		transaction.State_Reverted,
+		transaction.State_Final,
+	}
+	for _, txn := range o.getTransactionsNotInStates(excludedStates) {
+		// A freshly-delegated transaction races the coordinator's snapshot: the snapshot we are checking
+		// against may have been generated before the delegation reached the coordinator, so its absence is
+		// expected rather than a drop. Only consider a transaction dropped once at least one full heartbeat
+		// interval has elapsed since it was first delegated to the current coordinator, by which point that
+		// coordinator has had the chance to include it in a snapshot. The first-delegation time is reset if
+		// the transaction is redirected to a different coordinator, so the grace restarts on each handover
+		// but is not extended by the partial FIFO resend to the same coordinator.
+		//
+		// A 10% buffer is added to the heartbeat interval to allow for network delays where the delegation has
+		// arrived at the coordinator the instant after a heartbeat has been sent.
+		firstDelegated := txn.GetFirstDelegatedTime()
+		if firstDelegated == nil || o.clock.Now().Sub(*firstDelegated) < o.heartbeatInterval*11/10 {
+			continue
+		}
 		if !transactionFoundInSnapshot(snapshot, txn) {
 			log.L(ctx).Debugf("transaction %s not found in latest coordinator snapshot, assuming dropped", txn.GetID())
 			return true
@@ -154,6 +195,11 @@ func transactionFoundInSnapshot(snapshot *common.CoordinatorSnapshot, txn transa
 		}
 	}
 	for _, t := range snapshot.ConfirmedTransactions {
+		if t.ID == txn.GetID() {
+			return true
+		}
+	}
+	for _, t := range snapshot.RevertedTransactions {
 		if t.ID == txn.GetID() {
 			return true
 		}

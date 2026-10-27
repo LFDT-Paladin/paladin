@@ -130,7 +130,7 @@ public class NotoHelper {
 
     public List<NotoCoin> queryStates(JsonHex.Bytes32 schemaID, JsonQuery.Query query) throws IOException {
         List<HashMap<String, Object>> states = testbed.getRpcClient().request("pstate_queryContractStates",
-                domainName, address, schemaID, query, "available");
+                domainName, address, schemaID, query, "confirmed");
         var mapper = new ObjectMapper();
         return states.stream().map(state -> mapper.convertValue(state, NotoCoin.class)).toList();
     }
