@@ -4,11 +4,11 @@ pragma solidity ^0.8.20;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {IAtomicLockSettler} from "./interfaces/IAtomicLockSettler.sol";
-import {ILockableCapability} from "../domains/interfaces/ILockableCapability.sol";
+import {IERC8316} from "../domains/interfaces/IERC8316.sol";
 
 /**
  * @title AtomicLockSettler
- * @dev Atomically spends or cancels a set of ILockableCapability locks.
+ * @dev Atomically spends or cancels a set of IERC8316 locks.
  */
 contract AtomicLockSettler is
     Initializable,
@@ -49,7 +49,7 @@ contract AtomicLockSettler is
 
         for (uint256 i = 0; i < _locks.length; i++) {
             LockEntry storage entry = _locks[i];
-            ILockableCapability(entry.contractAddress).spendLock(
+            IERC8316(entry.contractAddress).spendLock(
                 entry.lockId,
                 entry.spendInputs,
                 entry.data
@@ -74,7 +74,7 @@ contract AtomicLockSettler is
             LockEntry storage entry = _locks[i];
             (bool success, ) = entry.contractAddress.call(
                 abi.encodeCall(
-                    ILockableCapability.cancelLock,
+                    IERC8316.cancelLock,
                     (entry.lockId, entry.cancelInputs, entry.data)
                 )
             );
@@ -107,7 +107,7 @@ contract AtomicLockSettler is
                 .contractAddress
                 .call(
                     abi.encodeCall(
-                        ILockableCapability.spendLock,
+                        IERC8316.spendLock,
                         (entry.lockId, entry.spendInputs, entry.data)
                     )
                 );

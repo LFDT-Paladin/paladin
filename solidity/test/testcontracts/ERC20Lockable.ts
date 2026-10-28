@@ -233,6 +233,16 @@ describe("ERC20Lockable", function () {
       );
     });
 
+    it("should revert if delegating to the zero address", async function () {
+      await expect(
+        token
+          .connect(alice)
+          .delegateLock(lockId, "0x", ethers.ZeroAddress, "0x"),
+      )
+        .to.be.revertedWithCustomError(token, "LockInvalidSpender")
+        .withArgs(lockId, ethers.ZeroAddress);
+    });
+
     it("should revert if alice tries to spend after delegation", async function () {
       await token
         .connect(alice)
