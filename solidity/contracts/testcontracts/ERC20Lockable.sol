@@ -4,15 +4,15 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "../domains/interfaces/ILockableCapability.sol";
+import "../domains/interfaces/IERC8316.sol";
 
 /**
  * @title ERC20Lockable
- * @dev Simple ERC20 token that implements ILockableCapability for balance locking.
+ * @dev Simple ERC20 token that implements IERC8316 for balance locking.
  *      Locks represent reserved token amounts that can be spent or cancelled later.
  *      Locked balances are tracked as a subset of the owner's total balance.
  */
-contract ERC20Lockable is ERC20, ERC20Burnable, Ownable, ILockableCapability {
+contract ERC20Lockable is ERC20, ERC20Burnable, Ownable, IERC8316 {
     struct CreateLockInputs {
         uint256 amount;
         address recipient;
@@ -170,6 +170,10 @@ contract ERC20Lockable is ERC20, ERC20Burnable, Ownable, ILockableCapability {
         require(
             msg.sender == lock.spender,
             LockUnauthorized(lockId, lock.spender, msg.sender)
+        );
+        require(
+            newSpender != address(0),
+            LockInvalidSpender(lockId, newSpender)
         );
 
         address oldSpender = lock.spender;
