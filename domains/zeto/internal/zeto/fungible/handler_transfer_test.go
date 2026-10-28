@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
@@ -35,6 +36,7 @@ import (
 	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -648,4 +650,107 @@ func (dc *testDomainCallbacks) ReverseKeyLookup(ctx context.Context, req *pb.Rev
 
 func (dc *testDomainCallbacks) ValidateStates(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error) {
 	return nil, nil
+}
+
+func TestFormatTransferProvingRequestOutputsDetermineSize(t *testing.T) {
+	ctx := context.Background()
+	owner := pldtypes.MustParseHexBytes("0x7cdd539f3ed6c283494f47d8481f84308a6d7043087fb6711c9f1df04e2b8025")
+	newCoin := func(salt string, amount int64) *types.ZetoCoin {
+		return &types.ZetoCoin{
+			Salt:   pldtypes.MustParseHexUint256(salt),
+			Owner:  owner,
+			Amount: (*pldtypes.HexUint256)(big.NewInt(amount)),
+		}
+	}
+	// a single input paying two recipients plus change must use the batch circuit size,
+	// rather than truncating the outputs to the 2-input circuit size
+	inputCoins := []*types.ZetoCoin{
+		newCoin("0x042fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec", 75),
+	}
+	outputCoins := []*types.ZetoCoin{
+		newCoin("0x142fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec", 10),
+		newCoin("0x242fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec", 5),
+		newCoin("0x342fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec", 60),
+	}
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	payloadBytes, err := formatTransferProvingRequest(ctx, nil, nil, nil, signercommon.GetHasher(), inputCoins, outputCoins, &zetosignerapi.Circuit{Name: "anon", Type: "transfer"}, constants.TOKEN_ANON, "testContext", contractAddress)
+	require.NoError(t, err)
+
+	var provingReq corepb.ProvingRequest
+	require.NoError(t, proto.Unmarshal(payloadBytes, &provingReq))
+	assert.Len(t, provingReq.Common.InputCommitments, 10)
+	assert.Len(t, provingReq.Common.OutputOwners, 10)
+	assert.Len(t, provingReq.Common.OutputSalts, 10)
+
+	var secrets corepb.TokenSecrets_Fungible
+	require.NoError(t, json.Unmarshal(provingReq.Common.TokenSecrets, &secrets))
+	assert.Equal(t, []uint64{75, 0, 0, 0, 0, 0, 0, 0, 0, 0}, secrets.InputValues)
+	assert.Equal(t, []uint64{10, 5, 60, 0, 0, 0, 0, 0, 0, 0}, secrets.OutputValues)
+}
+
+func TestTransferPrepareOutputsDetermineSize(t *testing.T) {
+	h := transferHandler{
+		baseHandler: baseHandler{
+			name: "test1",
+		},
+	}
+	txSpec := &pb.TransactionSpecification{
+		TransactionId: "0x1234567890123456789012345678901234567890123456789012345678901234",
+		From:          "Bob",
+	}
+	tx := &types.ParsedTransaction{
+		Transaction: txSpec,
+		DomainConfig: &types.DomainInstanceConfig{
+			TokenName: constants.TOKEN_ANON,
+			Circuits: &zetosignerapi.Circuits{
+				"transfer": &zetosignerapi.Circuit{Name: "anon", Type: "transfer"},
+			},
+		},
+	}
+	coinJSON := "{\"salt\":\"0x042fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec\",\"owner\":\"0x7cdd539f3ed6c283494f47d8481f84308a6d7043087fb6711c9f1df04e2b8025\",\"amount\":\"0x0f\"}"
+	coinHash := "0x303eb034d22aacc5dff09647928d757017a35e64e696d48609a250a6505e5d5f"
+	proofRes, err := proto.Marshal(&corepb.ProvingResponse{
+		Proof: &corepb.SnarkProof{
+			A: []string{"0x1234567890", "0x1234567890"},
+			B: []*corepb.B_Item{
+				{Items: []string{"0x1234567890", "0x1234567890"}},
+				{Items: []string{"0x1234567890", "0x1234567890"}},
+			},
+			C: []string{"0x1234567890", "0x1234567890"},
+		},
+	})
+	require.NoError(t, err)
+	at := zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK
+	req := &pb.PrepareTransactionRequest{
+		InputStates: []*pb.EndorsableState{
+			{SchemaId: "coin", StateDataJson: coinJSON},
+		},
+		OutputStates: []*pb.EndorsableState{
+			{SchemaId: "coin", StateDataJson: coinJSON},
+			{SchemaId: "coin", StateDataJson: coinJSON},
+			{SchemaId: "coin", StateDataJson: coinJSON},
+		},
+		AttestationResult: []*pb.AttestationResult{
+			{
+				Name:            "sender",
+				AttestationType: pb.AttestationType_ENDORSE,
+				PayloadType:     &at,
+				Payload:         proofRes,
+			},
+		},
+		Transaction: txSpec,
+	}
+
+	res, err := h.Prepare(context.Background(), tx, req)
+	require.NoError(t, err)
+
+	var params struct {
+		Inputs  []string `json:"inputs"`
+		Outputs []string `json:"outputs"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
+	// all three outputs must be submitted, padded to the batch size along with the input
+	assert.Equal(t, []string{coinHash, "0", "0", "0", "0", "0", "0", "0", "0", "0"}, params.Inputs)
+	assert.Equal(t, []string{coinHash, coinHash, coinHash, "0", "0", "0", "0", "0", "0", "0"}, params.Outputs)
 }

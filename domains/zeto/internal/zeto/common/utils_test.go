@@ -217,3 +217,12 @@ func TestNewMerkleTreeSpec(t *testing.T) {
 	spec, err = NewMerkleTreeSpec(ctx, "testSmt", 3, testCallbacks, "smt_root_schema", "smt_node_schema", "test_query_context")
 	require.ErrorContains(t, err, "PD210140: Unknown states merkle tree type: 3")
 }
+
+func TestGetCircuitSize(t *testing.T) {
+	assert.Equal(t, 2, GetCircuitSize(1, 1))
+	assert.Equal(t, 2, GetCircuitSize(2, 2))
+	// either side exceeding 2 needs the batch circuit
+	assert.Equal(t, 10, GetCircuitSize(1, 3))
+	assert.Equal(t, 10, GetCircuitSize(3, 1))
+	assert.Equal(t, 10, GetCircuitSize(10, 10))
+}
