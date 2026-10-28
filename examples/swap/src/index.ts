@@ -122,6 +122,7 @@ async function main(): Promise<boolean> {
   const tracker = await newERC20Tracker(issuerGroup, assetIssuer, {
     name: "ASSET",
     symbol: "ASSET",
+    notary: await assetIssuer.address(),
   });
   if (!checkDeploy(tracker)) return false;
 
