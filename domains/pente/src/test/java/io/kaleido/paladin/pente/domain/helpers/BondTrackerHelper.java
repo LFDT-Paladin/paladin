@@ -16,8 +16,12 @@
 package io.kaleido.paladin.pente.domain.helpers;
 
 import io.kaleido.paladin.toolkit.*;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.Function;
+import org.web3j.abi.datatypes.Utf8String;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
 
 public class BondTrackerHelper {
@@ -25,7 +29,7 @@ public class BondTrackerHelper {
     final JsonABI abi;
     final JsonHex.Address address;
 
-    public static BondTrackerHelper deploy(PenteHelper pente, String sender, Object inputs) throws IOException {
+    public static BondTrackerHelper deploy(PenteHelper pente, String sender, String name, String symbol, String custodian, String publicTracker) throws IOException {
         String bytecode = ResourceLoader.jsonResourceEntryText(
                 BondTrackerHelper.class.getClassLoader(),
                 "contracts/private/BondTracker.sol/BondTracker.json",
@@ -36,8 +40,16 @@ public class BondTrackerHelper {
                 "contracts/private/BondTracker.sol/BondTracker.json",
                 "abi"
         );
-        var constructor = abi.getABIEntry("constructor", null);
-        var address = pente.deploy(sender, bytecode, constructor.inputs(), inputs);
+        var address = pente.deployProxy(sender, bytecode, new Function(
+                "initialize",
+                Arrays.asList(
+                        new Utf8String(name),
+                        new Utf8String(symbol),
+                        new Address(custodian),
+                        new Address(publicTracker)
+                ),
+                Arrays.asList()
+        ));
         return new BondTrackerHelper(pente, abi, address);
     }
 

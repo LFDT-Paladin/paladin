@@ -24,6 +24,9 @@ import io.kaleido.paladin.pente.domain.PenteEVMTransaction;
 import io.kaleido.paladin.testbed.Testbed;
 import io.kaleido.paladin.toolkit.JsonABI;
 import io.kaleido.paladin.toolkit.JsonHex;
+import io.kaleido.paladin.toolkit.ResourceLoader;
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Function;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -126,6 +129,25 @@ public class PenteHelper {
                 ), true));
         var domainReceipt = new ObjectMapper().convertValue(tx.domainReceipt(), PenteEVMTransaction.JSONReceipt.class);
         return domainReceipt.receipt().contractAddress();
+    }
+
+    public JsonHex.Address deployProxy(String sender, String implementationBytecode, Function initializer) throws IOException {
+        var implementation = deploy(sender, implementationBytecode, JsonABI.newParameters(), new HashMap<>());
+        String proxyBytecode = ResourceLoader.jsonResourceEntryText(
+                PenteHelper.class.getClassLoader(),
+                "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                "bytecode"
+        );
+        JsonABI proxyABI = JsonABI.fromJSONResourceEntry(
+                PenteHelper.class.getClassLoader(),
+                "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                "abi"
+        );
+        var constructor = proxyABI.getABIEntry("constructor", null);
+        return deploy(sender, proxyBytecode, constructor.inputs(), new HashMap<String, Object>() {{
+            put("implementation", implementation.toString());
+            put("_data", FunctionEncoder.encode(initializer));
+        }});
     }
 
     public Testbed.TransactionResult invoke(String methodName, JsonABI.Parameters inputParams, String sender, JsonHex.Address privateAddress, Object inputValues) throws IOException {

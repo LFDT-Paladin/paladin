@@ -31,6 +31,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.kaleido.paladin.pente.domain.PenteConfiguration.GroupTupleJSON;
+import io.kaleido.paladin.pente.domain.helpers.PenteHelper;
 import io.kaleido.paladin.testbed.Testbed;
 import io.kaleido.paladin.toolkit.Algorithms;
 import io.kaleido.paladin.toolkit.JsonABI;
@@ -42,6 +43,7 @@ import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.datatypes.Address;
 import org.web3j.abi.datatypes.Function;
 import org.web3j.abi.datatypes.DynamicBytes;
+import org.web3j.abi.datatypes.Utf8String;
 
 public class DomainIntegrationTests {
 
@@ -214,22 +216,6 @@ public class DomainIntegrationTests {
 
     static final JsonABI notoTrackerABI = new JsonABI(Arrays.asList(
             JsonABI.newFunction(
-                    "deploy",
-                    JsonABI.newParameters(
-                            JsonABI.newTuple("group", "Group", JsonABI.newParameters(
-                                    JsonABI.newParameter("salt", "bytes32"),
-                                    JsonABI.newParameter("members", "string[]")
-                            )),
-                            JsonABI.newParameter("bytecode", "bytes"),
-                            JsonABI.newTuple("inputs", "", JsonABI.newParameters(
-                                    JsonABI.newParameter("name", "string"),
-                                    JsonABI.newParameter("symbol", "string"),
-                                    JsonABI.newParameter("notary", "address")
-                            ))
-                    ),
-                    JsonABI.newParameters()
-            ),
-            JsonABI.newFunction(
                     "balanceOf",
                     JsonABI.newParameters(
                             JsonABI.newTuple("group", "Group", JsonABI.newParameters(
@@ -279,10 +265,6 @@ public class DomainIntegrationTests {
     ) {
     }
 
-    Testbed.TransactionResult getTransactionInfo(LinkedHashMap<String, Object> res) {
-        return new ObjectMapper().convertValue(res, Testbed.TransactionResult.class);
-    }
-
     @Test
     void testNotoPente() throws Exception {
         JsonHex.Address penteFactoryAddress = deployPenteFactory();
@@ -323,14 +305,8 @@ public class DomainIntegrationTests {
             assertNotNull(notoSchema);
 
             // Create the privacy group
-            String penteInstanceAddress = testbed.getRpcClient().request("testbed_deploy",
-                    "pente", "notary",
-                    new PenteConfiguration.PrivacyGroupConstructorParamsJSON(
-                            groupInfo,
-                            "shanghai",
-                            PenteConfiguration.ENDORSEMENT_TYPE__GROUP_SCOPED_IDENTITIES,
-                            true
-                    ));
+            var pente = PenteHelper.newPrivacyGroup("pente", "notary", testbed, groupInfo, true);
+            String penteInstanceAddress = pente.address();
             assertFalse(penteInstanceAddress.isBlank());
 
             // Deploy NotoTracker to the privacy group
@@ -341,27 +317,11 @@ public class DomainIntegrationTests {
                     "contracts/private/NotoTrackerERC20.sol/NotoTrackerERC20.json",
                     "bytecode"
             );
-            var tx = getTransactionInfo(
-                    testbed.getRpcClient().request("testbed_invoke",
-                            new Testbed.TransactionInput(
-                                    "private",
-                                    "",
-                                    "notary",
-                                    JsonHex.addressFrom(penteInstanceAddress),
-                                    new HashMap<>() {{
-                                        put("group", groupInfo);
-                                        put("bytecode", notoTrackerBytecode);
-                                        put("inputs", new HashMap<>() {{
-                                            put("name", "NOTO");
-                                            put("symbol", "NOTO");
-                                            put("notary", notaryAddress);
-                                        }});
-                                    }},
-                                    notoTrackerABI,
-                                    "deploy"
-                            ), true));
-            var domainReceipt = mapper.convertValue(tx.domainReceipt(), PenteEVMTransaction.JSONReceipt.class);
-            var notoTrackerAddress = domainReceipt.receipt().contractAddress();
+            var notoTrackerAddress = pente.deployProxy("notary", notoTrackerBytecode, new Function(
+                    "initialize",
+                    Arrays.asList(new Utf8String("NOTO"), new Utf8String("NOTO"), new Address(notaryAddress)),
+                    Arrays.asList()
+            ));
 
             // Create Noto token
             String notoInstanceAddress = testbed.getRpcClient().request("testbed_deploy",

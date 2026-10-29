@@ -15,6 +15,10 @@
 
 configurations {
     // Resolvable configurations
+    contractCompile {
+        canBeConsumed = false
+        canBeResolved = true
+    }
     buildSDK {
         canBeConsumed = false
         canBeResolved = true
@@ -27,6 +31,7 @@ configurations {
 }
 
 dependencies {
+    contractCompile project(path: ':solidity', configuration: 'compiledContracts')
     buildSDK project(path: ':sdk:typescript', configuration: 'buildSDK')
 }
 
@@ -51,7 +56,17 @@ task install(type: Exec, dependsOn: install_sdk) {
     outputs.dir('node_modules')
 }
 
-task build(type: Exec, dependsOn: install) {
+task copyABI(type: Exec, dependsOn: install) {
+    executable 'npm'
+    args 'run'
+    args 'abi'
+
+    inputs.files(configurations.contractCompile)
+    inputs.dir('scripts')
+    outputs.dir('contracts/abis')
+}
+
+task build(type: Exec, dependsOn: [install, copyABI]) {
     executable 'npm'
     args 'run'
     args 'build'

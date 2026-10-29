@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {NotoTrackerERC20} from "./NotoTrackerERC20.sol";
+import {NotoTrackerERC20Base} from "./NotoTrackerERC20Base.sol";
 import {InvestorList} from "./InvestorList.sol";
 
 /**
  * @title BondTracker
  * @dev Hook logic to model a simple bond lifecycle on top of Noto.
  */
-contract BondTracker is NotoTrackerERC20 {
+contract BondTracker is NotoTrackerERC20Base {
     enum Status {
         INITIALIZED,
         ISSUED,
@@ -33,12 +33,13 @@ contract BondTracker is NotoTrackerERC20 {
         _;
     }
 
-    constructor(
+    function initialize(
         string memory name,
         string memory symbol,
         address custodian,
         address publicTracker
-    ) NotoTrackerERC20(name, symbol, custodian) {
+    ) external initializer {
+        __NotoTrackerERC20_init(name, symbol, custodian);
         _status = Status.INITIALIZED;
         _publicTracker = publicTracker;
         _issuer = msg.sender;
@@ -151,7 +152,7 @@ contract BondTracker is NotoTrackerERC20 {
         bytes calldata data,
         PreparedTransaction calldata prepared
     ) external virtual override onlyLockOwner(sender, lockId) {
-        _checkTransfers(sender, _locks.ownerOf(lockId), recipients);
+        _checkTransfers(sender, lockOwner(lockId), recipients);
         _onUnlock(sender, lockId, recipients, data, prepared);
     }
 
@@ -162,7 +163,7 @@ contract BondTracker is NotoTrackerERC20 {
         bytes calldata data,
         PreparedTransaction calldata prepared
     ) external virtual override onlyLockOwner(sender, lockId) {
-        _checkTransfers(sender, _locks.ownerOf(lockId), recipients);
+        _checkTransfers(sender, lockOwner(lockId), recipients);
         _onPrepareUnlock(sender, lockId, recipients, data, prepared);
     }
 }

@@ -6,18 +6,7 @@ import {INotoHooks} from "../domains/interfaces/INotoHooks.sol";
 /**
  * Helpers for tracking locked amounts from Noto hooks contracts.
  */
-contract NotoLocks {
-    address internal immutable _owner;
-
-    // Details on all currently active locks and their possible unlocks
-    mapping(bytes32 => LockDetail) internal _locks;
-
-    // Balances locked by address (still logically owned by that address)
-    mapping(address => uint256) public lockedBalance;
-
-    // Pending balances from prepared unlocks (not yet owned, but approved to be owned when unlocked)
-    mapping(address => uint256) public pendingBalance;
-
+abstract contract NotoLocks {
     // What a spend of the prepared unlock does with the value
     enum SpendKind {
         Transfer,
@@ -32,61 +21,88 @@ contract NotoLocks {
         SpendKind spendKind;
     }
 
-    modifier onlyOwner() {
-        require(msg.sender == _owner, "Caller is not the owner");
-        _;
+    /// @custom:storage-location erc7201:paladin.storage.NotoLocks
+    struct NotoLocksStorage {
+        // Details on all currently active locks and their possible unlocks
+        mapping(bytes32 => LockDetail) locks;
+        // Balances locked by address (still logically owned by that address)
+        mapping(address => uint256) lockedBalance;
+        // Pending balances from prepared unlocks (not yet owned, but approved to be owned when unlocked)
+        mapping(address => uint256) pendingBalance;
     }
 
-    constructor() {
-        _owner = msg.sender;
+    // keccak256(abi.encode(uint256(keccak256("paladin.storage.NotoLocks")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant NotoLocksStorageLocation =
+        0x62561cd9d94a7be9f06c0f75bf340f8dc936c64a38b9be102c1a636477d67300;
+
+    function _getNotoLocksStorage()
+        private
+        pure
+        returns (NotoLocksStorage storage $)
+    {
+        assembly {
+            $.slot := NotoLocksStorageLocation
+        }
     }
 
-    function getLock(bytes32 lockId) public view returns (LockDetail memory) {
-        return _locks[lockId];
+    function lockOwner(bytes32 lockId) public view returns (address) {
+        return _getNotoLocksStorage().locks[lockId].from;
     }
 
-    function ownerOf(bytes32 lockId) public view returns (address) {
-        return _locks[lockId].from;
+    function lockedBalance(address account) public view returns (uint256) {
+        return _getNotoLocksStorage().lockedBalance[account];
     }
 
-    function onLock(bytes32 lockId, address from, uint256 amount) public onlyOwner {
-        LockDetail storage lock = _locks[lockId];
+    function pendingBalance(address account) public view returns (uint256) {
+        return _getNotoLocksStorage().pendingBalance[account];
+    }
+
+    function _getLock(
+        bytes32 lockId
+    ) internal view returns (LockDetail memory) {
+        return _getNotoLocksStorage().locks[lockId];
+    }
+
+    function _onLock(bytes32 lockId, address from, uint256 amount) internal {
+        NotoLocksStorage storage $ = _getNotoLocksStorage();
+        LockDetail storage lock = $.locks[lockId];
         lock.from = from;
         lock.amount = amount;
-        lockedBalance[from] += amount;
+        $.lockedBalance[from] += amount;
     }
 
-    function onUnlock(
+    function _onUnlock(
         bytes32 lockId,
         INotoHooks.UnlockRecipient[] calldata recipients
-    ) public onlyOwner {
-        LockDetail storage lock = _locks[lockId];
+    ) internal {
+        NotoLocksStorage storage $ = _getNotoLocksStorage();
+        LockDetail storage lock = $.locks[lockId];
         for (uint256 i = 0; i < recipients.length; i++) {
             lock.amount -= recipients[i].amount;
-            lockedBalance[lock.from] -= recipients[i].amount;
+            $.lockedBalance[lock.from] -= recipients[i].amount;
         }
 
         _releasePending(lock);
         if (lock.amount == 0) {
-            delete _locks[lockId];
+            delete $.locks[lockId];
         }
     }
 
-    function onPrepareUnlock(
+    function _onPrepareUnlock(
         bytes32 lockId,
-        INotoHooks.UnlockRecipient[] calldata recipients
-    ) public onlyOwner {
+        INotoHooks.UnlockRecipient[] memory recipients
+    ) internal {
         _prepareUnlock(lockId, SpendKind.Transfer, recipients);
     }
 
-    function onPrepareMintUnlock(
+    function _onPrepareMintUnlock(
         bytes32 lockId,
-        INotoHooks.UnlockRecipient[] calldata recipients
-    ) public onlyOwner {
+        INotoHooks.UnlockRecipient[] memory recipients
+    ) internal {
         _prepareUnlock(lockId, SpendKind.Mint, recipients);
     }
 
-    function onPrepareBurnUnlock(bytes32 lockId) public onlyOwner {
+    function _onPrepareBurnUnlock(bytes32 lockId) internal {
         _prepareUnlock(
             lockId,
             SpendKind.Burn,
@@ -98,48 +114,53 @@ contract NotoLocks {
         bytes32 lockId,
         SpendKind spendKind,
         INotoHooks.UnlockRecipient[] memory recipients
-    ) internal {
-        LockDetail storage lock = _locks[lockId];
+    ) private {
+        NotoLocksStorage storage $ = _getNotoLocksStorage();
+        LockDetail storage lock = $.locks[lockId];
         lock.spendKind = spendKind;
         _releasePending(lock);
 
         for (uint256 i = 0; i < recipients.length; i++) {
-            pendingBalance[recipients[i].to] += recipients[i].amount;
+            $.pendingBalance[recipients[i].to] += recipients[i].amount;
             lock.recipients.push(recipients[i]);
         }
     }
 
-    function handleDelegateUnlock(
+    function _handleDelegateUnlock(
         bytes32 lockId,
         INotoHooks.UnlockRecipient[] calldata recipients
-    ) public onlyOwner {
-        LockDetail storage lock = _locks[lockId];
+    ) internal {
+        NotoLocksStorage storage $ = _getNotoLocksStorage();
+        LockDetail storage lock = $.locks[lockId];
         _releasePending(lock);
         if (lock.spendKind == SpendKind.Mint) {
             // Nothing was locked: a spend mints to the recipients and a cancel has none
-            delete _locks[lockId];
-        } else if (isBurnSpend(lockId, recipients)) {
-            lockedBalance[lock.from] -= lock.amount;
-            delete _locks[lockId];
+            delete $.locks[lockId];
+        } else if (_isBurnSpend(lockId, recipients)) {
+            $.lockedBalance[lock.from] -= lock.amount;
+            delete $.locks[lockId];
         } else {
-            onUnlock(lockId, recipients);
+            _onUnlock(lockId, recipients);
         }
     }
 
-    function _releasePending(LockDetail storage lock) internal {
+    function _releasePending(LockDetail storage lock) private {
+        NotoLocksStorage storage $ = _getNotoLocksStorage();
         for (uint256 i = 0; i < lock.recipients.length; i++) {
-            pendingBalance[lock.recipients[i].to] -= lock.recipients[i].amount;
+            $.pendingBalance[lock.recipients[i].to] -= lock
+                .recipients[i]
+                .amount;
         }
         delete lock.recipients;
     }
 
     // A burn spend has no recipients, and a burn cancel returns the whole amount to the owner
-    function isBurnSpend(
+    function _isBurnSpend(
         bytes32 lockId,
         INotoHooks.UnlockRecipient[] calldata recipients
-    ) public view returns (bool) {
+    ) internal view returns (bool) {
         return
-            _locks[lockId].spendKind == SpendKind.Burn &&
+            _getNotoLocksStorage().locks[lockId].spendKind == SpendKind.Burn &&
             recipients.length == 0;
     }
 }

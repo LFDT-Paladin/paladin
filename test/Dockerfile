@@ -36,6 +36,7 @@ COPY --from=solidity-builder /workspace/solidity/artifacts/contracts/testcontrac
 COPY --from=solidity-builder /workspace/solidity/artifacts/contracts/testcontracts/RevertableTarget.sol/RevertableTarget.json test/internal/contracts/abis/
 COPY --from=solidity-builder /workspace/solidity/artifacts/contracts/testcontracts/NotoHooksRevertable.sol/NotoHooksRevertable.json test/internal/contracts/abis/
 COPY --from=solidity-builder /workspace/solidity/artifacts/contracts/private/NotoTrackerERC20.sol/NotoTrackerERC20.json test/internal/contracts/abis/
+COPY --from=solidity-builder /workspace/solidity/artifacts/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json test/internal/contracts/abis/
 
 ARG BUILD_VERSION=canary
 ARG BUILD_DATE=unknown

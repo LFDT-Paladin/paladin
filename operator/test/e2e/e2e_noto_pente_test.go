@@ -51,6 +51,9 @@ var ERC20SimpleBuildJSON []byte
 //go:embed abis/NotoTrackerERC20.json
 var NotoTrackerERC20BuildJSON []byte
 
+//go:embed abis/ERC1967Proxy.json
+var ERC1967ProxyBuildJSON []byte
+
 const node1HttpURL = "http://127.0.0.1:31548"
 const node2HttpURL = "http://127.0.0.1:31648"
 const node3HttpURL = "http://127.0.0.1:31748"
@@ -514,19 +517,36 @@ var _ = Describe("noto/pente - simple", Ordered, func() {
 			notoTracker := solutils.MustLoadBuild(NotoTrackerERC20BuildJSON)
 			notaryAddress := getEthAddress(ctx, rpc[paladinPrefix+"1"], "notary.on", paladinPrefix+"1")
 
-			deploy := rpc[paladinPrefix+"1"].TxBuilder(ctx).
+			implDeploy := rpc[paladinPrefix+"1"].TxBuilder(ctx).
 				PrivacyGroup(penteGroup).
 				SolidityBuild(notoTracker).
 				Constructor().
+				From(notary).
+				Send()
+			res := implDeploy.Wait(5 * time.Second)
+			testLog("Deployed NotoTrackerERC20 implementation into privacy group in transaction %s", implDeploy.ID())
+			Expect(res.Error()).To(BeNil())
+			implReceipt, err := implDeploy.GetReceiptFull()
+			Expect(err).To(BeNil())
+			var implPR pldapi.PenteDomainReceipt
+			Expect(json.Unmarshal(implReceipt.DomainReceipt, &implPR)).To(BeNil())
+
+			initCallData, err := notoTracker.ABI.Functions()["initialize"].EncodeCallDataJSON(
+				[]byte(fmt.Sprintf(`{"name":"NOTO","symbol":"NOTO","notary":%q}`, notaryAddress.String())))
+			Expect(err).To(BeNil())
+
+			deploy := rpc[paladinPrefix+"1"].TxBuilder(ctx).
+				PrivacyGroup(penteGroup).
+				SolidityBuild(solutils.MustLoadBuild(ERC1967ProxyBuildJSON)).
+				Constructor().
 				Inputs(map[string]any{
-					"name":   "NOTO",
-					"symbol": "NOTO",
-					"notary": notaryAddress,
+					"implementation": implPR.Receipt.ContractAddress,
+					"_data":          pldtypes.HexBytes(initCallData),
 				}).
 				From(notary).
 				Send()
-			res := deploy.Wait(5 * time.Second)
-			testLog("Deployed NotoTrackerERC20 contract into privacy group in transaction %s", deploy.ID())
+			res = deploy.Wait(5 * time.Second)
+			testLog("Deployed NotoTrackerERC20 proxy into privacy group in transaction %s", deploy.ID())
 			Expect(res.Error()).To(BeNil())
 			notoTrackerDeploy = deploy
 		})

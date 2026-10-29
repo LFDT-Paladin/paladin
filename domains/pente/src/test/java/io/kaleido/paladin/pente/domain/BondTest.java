@@ -285,12 +285,8 @@ public class BondTest {
                     }});
 
             // Deploy private bond tracker to the issuer/custodian privacy group
-            var bondTracker = BondTrackerHelper.deploy(issuerCustodianInstance, bondIssuer, new HashMap<>() {{
-                put("name", "BOND");
-                put("symbol", "BOND");
-                put("custodian", custodianAddress);
-                put("publicTracker", bondTrackerPublicAddress);
-            }});
+            var bondTracker = BondTrackerHelper.deploy(issuerCustodianInstance, bondIssuer,
+                    "BOND", "BOND", custodianAddress, bondTrackerPublicAddress);
 
             // Create Noto bond token
             var notoBond = NotoHelper.deploy("noto", bondCustodian, testbed,

@@ -13,10 +13,9 @@ import {NotoLocks} from "../private/NotoLocks.sol";
  * Real-world applications should use the private NotoTrackerERC20 contract in a
  * Pente privacy group instead.
  */
-contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
+contract NotoTrackerPublicERC20 is INotoHooks, ERC20, NotoLocks {
     using Address for address;
 
-    NotoLocks internal _locks = new NotoLocks();
     address internal _notary;
 
     modifier onlyNotary(address sender) {
@@ -31,7 +30,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
 
     modifier onlyLockOwner(address sender, bytes32 lockId) {
         require(
-            sender == _locks.ownerOf(lockId),
+            sender == lockOwner(lockId),
             "Sender is not the lock owner"
         );
         _;
@@ -83,7 +82,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlySelf(sender, from) {
-        _locks.onLock(lockId, from, amount);
+        NotoLocks._onLock(lockId, from, amount);
         _executeOperation(prepared);
     }
 
@@ -94,7 +93,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external virtual override onlyNotary(sender) {
-        _locks.onPrepareUnlock(lockId, recipients);
+        NotoLocks._onPrepareUnlock(lockId, recipients);
         _executeOperation(prepared);
     }
 
@@ -117,8 +116,8 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlyLockOwner(sender, lockId) {
-        address from = _locks.ownerOf(lockId);
-        _locks.onUnlock(lockId, recipients);
+        address from = lockOwner(lockId);
+        NotoLocks._onUnlock(lockId, recipients);
         for (uint256 i = 0; i < recipients.length; i++) {
             _transfer(from, recipients[i].to, recipients[i].amount);
         }
@@ -132,7 +131,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlyLockOwner(sender, lockId) {
-        _locks.onPrepareUnlock(lockId, recipients);
+        NotoLocks._onPrepareUnlock(lockId, recipients);
         _executeOperation(prepared);
     }
 
@@ -145,8 +144,8 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlyLockOwner(sender, lockId) {
-        _locks.onLock(lockId, from, amount);
-        _locks.onPrepareUnlock(lockId, recipients);
+        NotoLocks._onLock(lockId, from, amount);
+        NotoLocks._onPrepareUnlock(lockId, recipients);
         _executeOperation(prepared);
     }
 
@@ -157,7 +156,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlyLockOwner(sender, lockId) {
-        _locks.onPrepareUnlock(lockId, recipients);
+        NotoLocks._onPrepareUnlock(lockId, recipients);
         _executeOperation(prepared);
     }
 
@@ -169,7 +168,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlyLockOwner(sender, lockId) {
-        _locks.onLock(lockId, from, amount);
+        NotoLocks._onLock(lockId, from, amount);
         _executeOperation(prepared);
     }
 
@@ -188,8 +187,8 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         UnlockRecipient[] calldata recipients,
         bytes calldata /* data */
     ) external override {
-        address from = _locks.ownerOf(lockId);
-        _locks.handleDelegateUnlock(lockId, recipients);
+        address from = lockOwner(lockId);
+        NotoLocks._handleDelegateUnlock(lockId, recipients);
         for (uint256 i = 0; i < recipients.length; i++) {
             _transfer(from, recipients[i].to, recipients[i].amount);
         }

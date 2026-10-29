@@ -26,6 +26,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
@@ -131,13 +132,9 @@ func (s *notoPenteTrackerSuite) Setup() error {
 	if err != nil {
 		return err
 	}
-
-	var trackerConstructor *abi.Entry
-	for _, entry := range notoTracker.ABI {
-		if entry.Type == abi.Constructor {
-			trackerConstructor = entry
-			break
-		}
+	proxy, err := contracts.LoadERC1967ProxyContract()
+	if err != nil {
+		return err
 	}
 
 	notaryAddress, err := notaryNode.HTTPClient.PTX().ResolveVerifier(s.ctx, s.notary, notoResolveAlgorithm, notoResolveVerifierType)
@@ -145,41 +142,21 @@ func (s *notoPenteTrackerSuite) Setup() error {
 		return fmt.Errorf("failed to resolve verifier for %s: %w", s.notary, err)
 	}
 
-	log.Info("Deploying NotoTrackerERC20 to privacy group...")
-	trackerDeployTxID, err := notaryNode.HTTPClient.PrivacyGroups().SendTransaction(s.ctx, &pldapi.PrivacyGroupEVMTXInput{
-		Domain: "pente",
-		Group:  group.ID,
-		PrivacyGroupEVMTX: pldapi.PrivacyGroupEVMTX{
-			From:     "member",
-			Bytecode: notoTracker.Bytecode,
-			Function: trackerConstructor,
-			Input:    pldtypes.RawJSON(fmt.Sprintf(`{"name":"NOTO","symbol":"NOTO","notary":%q}`, notaryAddress)),
-		},
-	})
+	trackerImplAddress, err := s.deployPrivateContract(notaryNode.HTTPClient, group.ID, "NotoTrackerERC20 implementation", notoTracker, pldtypes.RawJSON(`{}`))
 	if err != nil {
-		return fmt.Errorf("failed to deploy NotoTrackerERC20: %w", err)
+		return err
 	}
 
-	log.Info("Waiting for NotoTrackerERC20 deployment receipt...")
-	trackerReceipt, err := util.WaitForTransactionReceiptFull(s.ctx, notaryNode.HTTPClient, trackerDeployTxID, 60*time.Second)
+	trackerInit, err := notoTracker.ABI.Functions()["initialize"].EncodeCallDataJSON(
+		[]byte(fmt.Sprintf(`{"name":"NOTO","symbol":"NOTO","notary":%q}`, notaryAddress)))
 	if err != nil {
-		return fmt.Errorf("failed to get NotoTrackerERC20 deployment receipt: %w", err)
-	}
-	if !trackerReceipt.Success {
-		return fmt.Errorf("NotoTrackerERC20 deployment failed: %s", trackerReceipt.FailureMessage)
+		return fmt.Errorf("failed to encode NotoTrackerERC20 initialize: %w", err)
 	}
 
-	var trackerPrivateAddress *pldtypes.EthAddress
-	if trackerReceipt.DomainReceipt != nil {
-		var domainReceipt pldapi.PenteDomainReceipt
-		if err := json.Unmarshal(trackerReceipt.DomainReceipt, &domainReceipt); err == nil {
-			if domainReceipt.Receipt != nil && domainReceipt.Receipt.ContractAddress != nil {
-				trackerPrivateAddress = domainReceipt.Receipt.ContractAddress
-			}
-		}
-	}
-	if trackerPrivateAddress == nil {
-		return fmt.Errorf("NotoTrackerERC20 private contract address not found in domain receipt")
+	trackerPrivateAddress, err := s.deployPrivateContract(notaryNode.HTTPClient, group.ID, "NotoTrackerERC20 proxy", proxy,
+		pldtypes.RawJSON(fmt.Sprintf(`{"implementation":%q,"_data":%q}`, trackerImplAddress, pldtypes.HexBytes(trackerInit))))
+	if err != nil {
+		return err
 	}
 	log.Infof("NotoTrackerERC20 deployed at private address: %s", *trackerPrivateAddress)
 
@@ -285,6 +262,50 @@ func (s *notoPenteTrackerSuite) Setup() error {
 
 	log.Info("Noto pente tracker test setup complete")
 	return nil
+}
+
+func (s *notoPenteTrackerSuite) deployPrivateContract(client pldclient.PaladinClient, groupID pldtypes.HexBytes, name string, contract *contracts.Contract, input pldtypes.RawJSON) (*pldtypes.EthAddress, error) {
+	var constructor *abi.Entry
+	for _, entry := range contract.ABI {
+		if entry.Type == abi.Constructor {
+			constructor = entry
+			break
+		}
+	}
+
+	log.Infof("Deploying %s to privacy group...", name)
+	txID, err := client.PrivacyGroups().SendTransaction(s.ctx, &pldapi.PrivacyGroupEVMTXInput{
+		Domain: "pente",
+		Group:  groupID,
+		PrivacyGroupEVMTX: pldapi.PrivacyGroupEVMTX{
+			From:     "member",
+			Bytecode: contract.Bytecode,
+			Function: constructor,
+			Input:    input,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to deploy %s: %w", name, err)
+	}
+
+	log.Infof("Waiting for %s deployment receipt...", name)
+	receipt, err := util.WaitForTransactionReceiptFull(s.ctx, client, txID, 60*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get %s deployment receipt: %w", name, err)
+	}
+	if !receipt.Success {
+		return nil, fmt.Errorf("%s deployment failed: %s", name, receipt.FailureMessage)
+	}
+
+	if receipt.DomainReceipt != nil {
+		var domainReceipt pldapi.PenteDomainReceipt
+		if err := json.Unmarshal(receipt.DomainReceipt, &domainReceipt); err == nil {
+			if domainReceipt.Receipt != nil && domainReceipt.Receipt.ContractAddress != nil {
+				return domainReceipt.Receipt.ContractAddress, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("%s private contract address not found in domain receipt", name)
 }
 
 func (s *notoPenteTrackerSuite) Subscribe() (rpcclient.Subscription, error) {

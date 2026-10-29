@@ -3,7 +3,7 @@ import PaladinClient, {
   PentePrivacyGroup,
   PentePrivateContract,
 } from "@lfdecentralizedtrust/paladin-sdk";
-import { DEFAULT_POLL_TIMEOUT } from "paladin-example-common";
+import { DEFAULT_POLL_TIMEOUT, deployPrivateProxy } from "paladin-example-common";
 import bondTracker from "../abis/BondTracker.json";
 import { InvestorList } from "./investorlist";
 
@@ -24,15 +24,10 @@ export const newBondTracker = async (
   from: PaladinVerifier,
   params: BondTrackerConstructorParams
 ) => {
-  const deployFuture = pente.deploy({
-    abi: bondTracker.abi,
-    bytecode: bondTracker.bytecode,
-    from: from.lookup,
-    inputs: params,
-  });
-  const address = await deployFuture.waitForDeploy(DEFAULT_POLL_TIMEOUT);
+  const deployFuture = await deployPrivateProxy(pente, from, bondTracker, params);
+  const address = await deployFuture?.waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (address) {
-    console.log(`  txID: ${await deployFuture.id}`);
+    console.log(`  txID: ${await deployFuture?.id}`);
   }
   return address ? new BondTracker(pente, address) : undefined;
 };

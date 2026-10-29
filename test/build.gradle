@@ -32,6 +32,7 @@ task copySolidity(type: Copy, dependsOn: [":solidity:compile"]) {
         include 'contracts/testcontracts/RevertableTarget.sol/RevertableTarget.json'
         include 'contracts/testcontracts/NotoHooksRevertable.sol/NotoHooksRevertable.json'
         include 'contracts/private/NotoTrackerERC20.sol/NotoTrackerERC20.json'
+        include '@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json'
     }
 
     // Flatten all paths into the destination folder
