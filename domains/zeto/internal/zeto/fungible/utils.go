@@ -240,7 +240,7 @@ func makeLeafIndexesFromCoinOwners(ctx context.Context, inputOwner string, outpu
 // the same function is used for both the transfer and lock transactions because they
 // both require the same proof from the transfer circuit
 func formatTransferProvingRequest(ctx context.Context, callbacks plugintk.DomainCallbacks, merkleTreeRootSchema *prototk.StateSchema, merkleTreeNodeSchema *prototk.StateSchema, hasher utxocore.Hasher, inputCoins, outputCoins []*types.ZetoCoin, circuit *zetosignerapi.Circuit, tokenName, stateQueryContext string, contractAddress *pldtypes.EthAddress, delegate ...string) ([]byte, error) {
-	inputSize := common.GetInputSize(len(inputCoins))
+	inputSize := common.GetCircuitSize(len(inputCoins), len(outputCoins))
 	inputCommitments := make([]string, inputSize)
 	inputValueInts := make([]uint64, inputSize)
 	inputSalts := make([]string, inputSize)
