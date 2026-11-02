@@ -85,8 +85,14 @@ import org.lfdt.paladin.sdk.core.types.HexUint64;
  */
 public final class TxBuilder {
 
-  /** Maximum default delay between receipt polls. */
-  public static final Duration DEFAULT_POLLING_INTERVAL = Duration.ofSeconds(1);
+  /**
+   * Delay before the first receipt re-poll, doubled on each miss up to {@link
+   * #MAXIMUM_BACKOFF_POLLING_INTERVAL}, used unless {@link #pollingInterval(Duration)} is set.
+   */
+  public static final Duration DEFAULT_POLLING_INTERVAL = Duration.ofMillis(100);
+
+  /** Upper bound the default receipt polling backoff settles at. */
+  public static final Duration MAXIMUM_BACKOFF_POLLING_INTERVAL = Duration.ofSeconds(1);
 
   /** Default receipt wait, used unless {@link #receiptTimeout(Duration)} is set. */
   public static final Duration DEFAULT_RECEIPT_TIMEOUT = Duration.ofSeconds(30);
@@ -109,8 +115,8 @@ public final class TxBuilder {
   private final List<AbiEntry> abi = new ArrayList<>();
   private HexBytes bytecode;
 
-  private Duration pollingInterval = DEFAULT_POLLING_INTERVAL;
-  private Duration initialPollingInterval = Duration.ofMillis(100);
+  private Duration initialPollingInterval = DEFAULT_POLLING_INTERVAL;
+  private Duration maximumPollingInterval = MAXIMUM_BACKOFF_POLLING_INTERVAL;
   private Duration receiptTimeout = DEFAULT_RECEIPT_TIMEOUT;
 
   private PaladinInvalidTransactionException deferredError;
@@ -455,8 +461,9 @@ public final class TxBuilder {
       defer("polling interval must be positive, got: " + pollingInterval, null);
       return this;
     }
-    this.pollingInterval = pollingInterval;
+    // Equal initial and maximum intervals disable the backoff.
     this.initialPollingInterval = pollingInterval;
+    this.maximumPollingInterval = pollingInterval;
     return this;
   }
 
@@ -539,7 +546,8 @@ public final class TxBuilder {
     } catch (final PaladinInvalidTransactionException e) {
       id = CompletableFuture.failedFuture(e);
     }
-    return new SentTransaction(ptx, id, initialPollingInterval, pollingInterval, receiptTimeout);
+    return new SentTransaction(
+        ptx, id, initialPollingInterval, maximumPollingInterval, receiptTimeout);
   }
 
   // ---------------------------------------------------------------------------------------------

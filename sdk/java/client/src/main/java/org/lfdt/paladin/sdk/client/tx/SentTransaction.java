@@ -60,7 +60,7 @@ public final class SentTransaction {
   private final PtxClient ptx;
   private final CompletableFuture<UUID> id;
   private final Duration initialPollingInterval;
-  private final Duration pollingInterval;
+  private final Duration maximumPollingInterval;
   private final Duration receiptTimeout;
 
   /**
@@ -71,13 +71,14 @@ public final class SentTransaction {
       final PtxClient ptx,
       final CompletableFuture<UUID> id,
       final Duration initialPollingInterval,
-      final Duration pollingInterval,
+      final Duration maximumPollingInterval,
       final Duration receiptTimeout) {
     this.ptx = Objects.requireNonNull(ptx, "ptx");
     this.id = Objects.requireNonNull(id, "id");
     this.initialPollingInterval =
         Objects.requireNonNull(initialPollingInterval, "initialPollingInterval");
-    this.pollingInterval = Objects.requireNonNull(pollingInterval, "pollingInterval");
+    this.maximumPollingInterval =
+        Objects.requireNonNull(maximumPollingInterval, "maximumPollingInterval");
     this.receiptTimeout = Objects.requireNonNull(receiptTimeout, "receiptTimeout");
   }
 
@@ -230,7 +231,7 @@ public final class SentTransaction {
                 CompletableFuture.delayedExecutor(delayNanos, TimeUnit.NANOSECONDS);
             // Add rather than multiply so a caller's large fixed interval cannot overflow.
             final long nextDelay =
-                delayNanos + Math.min(delayNanos, pollingInterval.toNanos() - delayNanos);
+                delayNanos + Math.min(delayNanos, maximumPollingInterval.toNanos() - delayNanos);
             delayed.execute(() -> pollForReceipt(txId, result, nextDelay));
           }
         });

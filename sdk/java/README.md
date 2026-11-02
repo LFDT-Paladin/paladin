@@ -18,10 +18,11 @@ Work in progress...
 ## Waiting for transaction receipts
 
 `TxBuilder.send()` returns a `SentTransaction` immediately. Calling `waitForReceipt()`
-queries immediately, then waits 100, 200, 400, and 800 milliseconds between unsuccessful
-queries before settling at one second. This reduces detection delay for fast transactions
-while limiting the extra queries for long-running transactions. Setting
-`pollingInterval(Duration)` explicitly selects a fixed interval instead.
+queries immediately, then (with the default polling configuration) waits 100, 200, 400,
+and 800 milliseconds between unsuccessful queries before settling at one second. This
+reduces detection delay for fast transactions while limiting the extra queries for
+long-running transactions. Setting `pollingInterval(Duration)` explicitly selects a fixed
+interval instead.
 
 The receipt timeout starts after submission returns the transaction ID and also applies
 while a receipt RPC is pending. Cancelling the wait stops further polling. It does not
