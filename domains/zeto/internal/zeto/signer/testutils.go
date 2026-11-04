@@ -45,10 +45,10 @@ func NewTestProver(t *testing.T) signerapi.InMemorySigner {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
-	testCircuitLoader := func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, variantDir string, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		return &testWitnessCalculator{}, []byte("proving key"), nil
 	}
 	prover.circuitLoader = testCircuitLoader

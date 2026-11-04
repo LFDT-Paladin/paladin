@@ -44,7 +44,7 @@ func TestNewProver(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 	assert.NotNil(t, prover.circuitsCache)
 	assert.NotNil(t, prover.provingKeysCache)
@@ -109,7 +109,7 @@ func TestConcurrentSnarkProofGeneration(t *testing.T) {
 		ProvingKeysDir:      "test",
 		MaxProverPerCircuit: confutil.P(50), // equal to the default cache size, so all provers can be cached at once
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	circuitLoadedTotal := 0
@@ -119,7 +119,7 @@ func TestConcurrentSnarkProofGeneration(t *testing.T) {
 	totalProvingRequestCount := 0
 	peakProverCountMutex := &sync.Mutex{}
 
-	testCircuitLoader := func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, variantDir string, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		circuitLoadedTotalMutex.Lock()
 		defer circuitLoadedTotalMutex.Unlock()
 		circuitLoadedTotal++
@@ -200,7 +200,7 @@ func TestConcurrentSnarkProofGeneration(t *testing.T) {
 
 	for i := 0; i < expectReqCount; i++ {
 		go func() {
-			proof, err := prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+			proof, err := prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 			require.NoError(t, err)
 			assert.Equal(t, 36, len(proof))
 			reqChan <- struct{}{}
@@ -223,7 +223,7 @@ func TestSnarkProveErrorCircuit(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	alice := common.NewTestKeypair()
@@ -254,7 +254,7 @@ func TestSnarkProveErrorCircuit(t *testing.T) {
 	payload, err := proto.Marshal(&req)
 	require.NoError(t, err)
 
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 	assert.ErrorContains(t, err, "circuit ID is required")
 }
 
@@ -263,7 +263,7 @@ func TestSnarkProveErrorInputs(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	alice := common.NewTestKeypair()
@@ -291,7 +291,7 @@ func TestSnarkProveErrorInputs(t *testing.T) {
 	}
 	payload, err := proto.Marshal(&req)
 	require.NoError(t, err)
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 	assert.ErrorContains(t, err, "anon.wasm: no such file or directory")
 }
 
@@ -300,10 +300,10 @@ func TestSnarkProveErrorLoadcircuits(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
-	testCircuitLoader := func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, variantDir string, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		return nil, nil, fmt.Errorf("bang!")
 	}
 	prover.circuitLoader = testCircuitLoader
@@ -352,8 +352,8 @@ func TestSnarkProveErrorLoadcircuits(t *testing.T) {
 	payload, err := proto.Marshal(&req)
 	require.NoError(t, err)
 
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
-	assert.EqualError(t, err, "bang!")
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	assert.EqualError(t, err, "PD210163: Failed to load artifacts for circuit anon at Zeto variant V0: bang!")
 }
 
 func TestSnarkProveErrorGenerateProof(t *testing.T) {
@@ -361,10 +361,10 @@ func TestSnarkProveErrorGenerateProof(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
-	testCircuitLoader := func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, variantDir string, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		return &testWitnessCalculator{}, []byte("proving key"), nil
 	}
 	prover.circuitLoader = testCircuitLoader
@@ -409,7 +409,7 @@ func TestSnarkProveErrorGenerateProof(t *testing.T) {
 	payload, err := proto.Marshal(&req)
 	require.NoError(t, err)
 
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 	assert.ErrorContains(t, err, "witness is empty")
 }
 
@@ -418,10 +418,10 @@ func TestSnarkProveErrorGenerateProof2(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
-	testCircuitLoader := func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, variantDir string, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		return &testWitnessCalculator{}, []byte("proving key"), nil
 	}
 	prover.circuitLoader = testCircuitLoader
@@ -470,7 +470,7 @@ func TestSnarkProveErrorGenerateProof2(t *testing.T) {
 	}
 	payload, err := proto.Marshal(&req)
 	require.NoError(t, err)
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 	assert.ErrorContains(t, err, "PD210084: Failed to parse input commitment")
 
 	req = pb.ProvingRequest{
@@ -492,7 +492,7 @@ func TestSnarkProveErrorGenerateProof2(t *testing.T) {
 	}
 	payload, err = proto.Marshal(&req)
 	require.NoError(t, err)
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 	assert.ErrorContains(t, err, "PD210082: Failed to parse input salt")
 }
 
@@ -598,12 +598,12 @@ func TestSerializeProofResponse(t *testing.T) {
 }
 
 func TestZKPProverInvalidAlgos(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	config := &zetosignerapi.SnarkProverConfig{
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	_, err = prover.GetVerifier(ctx, "domain:zeto:unsupported", "", nil)
@@ -630,12 +630,12 @@ func TestZKPProverInvalidAlgos(t *testing.T) {
 }
 
 func TestGetVerifier(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	config := &zetosignerapi.SnarkProverConfig{
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	keyBytes := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20}
@@ -1015,18 +1015,18 @@ func TestNewSnarkProver(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := NewSnarkProver(config)
+	prover, err := NewSnarkProver(config, false)
 	require.NoError(t, err)
 	assert.NotNil(t, prover)
 }
 
 func TestSnarkProverSign(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	config := &zetosignerapi.SnarkProverConfig{
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	t.Run("Invalid algorithm", func(t *testing.T) {

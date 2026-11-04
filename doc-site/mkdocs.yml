@@ -146,6 +146,7 @@ nav:
     - Configuration: administration/configuration.md
     - L1 and L2 Chains: administration/l1-and-l2-chains.md
     - Logging: administration/logging.md
+    - Zeto Variants: administration/zeto-variants.md
   - Reference:
       - APIs: reference/apis/*.md
       - Types: reference/types/*.md

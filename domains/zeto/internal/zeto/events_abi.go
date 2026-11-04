@@ -45,11 +45,11 @@ var zetoKycJSON_V0 []byte
 //go:embed abis/IZetoKyc_V1.json
 var zetoKycJSON_V1 []byte
 
-// zetoTargetCoreABIs holds the target-core interface ABIs for each ZetoReleaseGeneration. Adding a generation means
-// adding the three embeds and one row here — the merge and dispatch below are generation-agnostic.
-var zetoTargetCoreABIs = map[types.ZetoReleaseGeneration]struct{ core, lockable, kyc []byte }{
-	types.ZetoRelease_V0: {core: zetoCoreJSON_V0, lockable: zetoLockableJSON_V0, kyc: zetoKycJSON_V0},
-	types.ZetoRelease_V1: {core: zetoCoreJSON_V1, lockable: zetoLockableJSON_V1, kyc: zetoKycJSON_V1},
+// zetoTargetCoreABIs holds the target-core interface ABIs for each ZetoVariant. Adding a variant means adding the three
+// embeds and one row here — the merge and dispatch below are variant-agnostic.
+var zetoTargetCoreABIs = map[types.ZetoVariant]struct{ core, lockable, kyc []byte }{
+	types.ZetoVariant_V0: {core: zetoCoreJSON_V0, lockable: zetoLockableJSON_V0, kyc: zetoKycJSON_V0},
+	types.ZetoVariant_V1: {core: zetoCoreJSON_V1, lockable: zetoLockableJSON_V1, kyc: zetoKycJSON_V1},
 }
 
 func mergeZetoCoreEvents(core *solutils.SolidityBuild, lockableJSON, kycJSON []byte) abi.ABI {
@@ -60,19 +60,19 @@ func mergeZetoCoreEvents(core *solutils.SolidityBuild, lockableJSON, kycJSON []b
 	return dedupEvents(events)
 }
 
-// zetoEventABISet returns merged events for one ZetoReleaseGeneration.
-func zetoEventABISet(g types.ZetoReleaseGeneration) abi.ABI {
-	set, ok := zetoTargetCoreABIs[g]
+// zetoEventABISet returns merged events for one ZetoVariant.
+func zetoEventABISet(v types.ZetoVariant) abi.ABI {
+	set, ok := zetoTargetCoreABIs[v]
 	if !ok {
-		panic(fmt.Sprintf("unsupported zeto release generation: %d", int64(g)))
+		panic(fmt.Sprintf("unsupported zeto variant: %s", v))
 	}
 	return mergeZetoCoreEvents(solutils.MustLoadBuild(set.core), set.lockable, set.kyc)
 }
 
-// getAllZetoEventAbis merges events from all supported generations for ConfigureDomain (Paladin ABI index).
+// getAllZetoEventAbis merges events from all supported variants for ConfigureDomain (Paladin ABI index).
 func getAllZetoEventAbis() abi.ABI {
 	var events abi.ABI
-	for _, v := range types.SupportedZetoReleaseGenerations {
+	for _, v := range types.SupportedZetoVariants {
 		events = append(events, zetoEventABISet(v)...)
 	}
 	return dedupEvents(events)

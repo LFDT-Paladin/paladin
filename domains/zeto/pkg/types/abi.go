@@ -32,29 +32,26 @@ var zetoFungibleJSON_V1 []byte
 //go:embed abis/IZetoNonFungible_V0.json
 var zetoNonFungibleJSON_V0 []byte
 
-// zetoFungibleABIBuilds holds one parsed private ABI per ZetoFungibleABIVersion. Adding a generation means adding an
-// embed above and a row here; nothing else dispatches on the axis.
-var zetoFungibleABIBuilds = map[ZetoFungibleABIVersion]abi.ABI{
-	ZetoFungibleABI_V0: solutils.MustParseBuildABI(zetoFungibleJSON_V0),
-	ZetoFungibleABI_V1: solutils.MustParseBuildABI(zetoFungibleJSON_V1),
+// zetoFungibleABIBuilds holds one parsed private ABI per ZetoVariant. Adding a variant means adding an embed above and
+// a row here; nothing else is needed to serve its private ABI.
+var zetoFungibleABIBuilds = map[ZetoVariant]abi.ABI{
+	ZetoVariant_V0: solutils.MustParseBuildABI(zetoFungibleJSON_V0),
+	ZetoVariant_V1: solutils.MustParseBuildABI(zetoFungibleJSON_V1),
 }
 
-// ZetoNonFungibleABI_V0 is the only non-fungible generation today. The _V0 suffix is deliberate: it asserts the axis
-// exists for non-fungible too, so a future generation is an added row rather than a rename.
+// ZetoNonFungibleABI_V0 is the only non-fungible variant today. The _V0 suffix is deliberate: it asserts the variant
+// exists for non-fungible too, so a future variant is an added row rather than a rename.
 var ZetoNonFungibleABI_V0 = solutils.MustParseBuildABI(zetoNonFungibleJSON_V0)
 
-// ZetoFungibleFungibleABIForVersion returns the private ABI for a fungible ABI generation, falling back to V0 for a
-// value this build does not know (callers validate with ValidateZetoFungibleABIVersion where the value is untrusted).
-func ZetoFungibleABIForVersion(v ZetoFungibleABIVersion) abi.ABI {
-	if build, ok := zetoFungibleABIBuilds[v]; ok {
-		return build
-	}
-	return zetoFungibleABIBuilds[ZetoFungibleABI_V0]
+// ZetoFungibleABIForVariant returns the private ABI for a variant, or nil for a value this build does not know (callers
+// validate with ValidateZetoVariant where the value is untrusted).
+func ZetoFungibleABIForVariant(variant ZetoVariant) abi.ABI {
+	return zetoFungibleABIBuilds[variant]
 }
 
-// ZetoFungibleFunctionForVariant resolves the function entry using ZetoFungibleABIVersion (axis 1; IZetoFungible_V*.json).
-func ZetoFungibleFunctionForVariant(zetoVariant pldtypes.HexUint64, name string) *abi.Entry {
-	return ZetoFungibleABIForVersion(FungibleABIVersion(zetoVariant)).Functions()[name]
+// ZetoFungibleFunctionForVariant resolves the function entry using the variant's private ABI (IZetoFungible_V*.json).
+func ZetoFungibleFunctionForVariant(variant ZetoVariant, name string) *abi.Entry {
+	return ZetoFungibleABIForVariant(variant).Functions()[name]
 }
 
 const (
@@ -75,17 +72,9 @@ type InitializerParams struct {
 	Symbol    string `json:"symbol"`
 	TokenName string `json:"tokenName"`
 	// InitialOwner string `json:"initialOwner"` // TODO: allow the initial owner to be specified by the deploy request
-
-	// DomainConfigSchema "v1" opts into prefixed on-chain config encoding (see types.DecodeDomainInstanceConfig).
-	// Empty or "v0" keeps legacy encoding for registration bytes.
-	DomainConfigSchema string `json:"domainConfigSchema,omitempty"`
-	// ZetoVariant is ZetoFungibleABIVersion persisted for v1 configs (see versions.go). Typed rather than a bare
-	// uint64 so it decodes a deploy that arrived through the ABI path, where uint256 renders as a decimal string.
-	ZetoVariant ZetoFungibleABIVersion `json:"zetoVariant,omitempty"`
-	// ReleaseGeneration is ZetoReleaseGeneration (see versions.go); wire name stays "factoryVersion".
-	ReleaseGeneration ZetoReleaseGeneration `json:"factoryVersion,omitempty"`
-	// CircuitBundleId selects DomainContract.bundleId for circuit resolution when non-empty.
-	CircuitBundleId string `json:"circuitBundleId,omitempty"`
+	// Variant is omitted to deploy at the domain's default variant. Typed rather than a bare uint64 because the
+	// deploy params are serialized from the constructor ABI, where uint256 renders as a decimal string.
+	Variant *ZetoVariant `json:"variant,omitempty"`
 }
 
 type DeployParams struct {
@@ -137,7 +126,7 @@ type LockParams struct {
 	Delegate *pldtypes.EthAddress `json:"delegate"`
 }
 
-// CreateLockParams is the Paladin domain JSON for IZetoFungible_V1.createLock (see ZetoFungibleABI_V1 / IZetoFungible_V1.sol).
+// CreateLockParams is the Paladin domain JSON for IZetoFungible_V1.createLock (see ZetoVariant_V1 / IZetoFungible_V1.sol).
 //
 // Surface: from, recipients, unlockData, data — used for validation, proving, and off-chain lock info.
 // unlockData is application-specific opaque bytes copied into lock info and on-chain outer data; locked value is the sum of recipients' amounts.
@@ -150,7 +139,7 @@ type CreateLockParams struct {
 	Data       pldtypes.HexBytes `json:"data"`
 }
 
-// SpendLockParams is the Paladin domain JSON for IZetoFungible_V1.spendLock (see ZetoFungibleABI_V1).
+// SpendLockParams is the Paladin domain JSON for IZetoFungible_V1.spendLock (see ZetoVariant_V1).
 //
 // The prepared public transaction uses ILockableCapability.spendLock on the pool (lockId, spendArgs, data);
 // ZetoSpendLockArgs from IZetoLockableCapability is ABI-encoded in spendArgs (see types.LockableCapabilitySpendLockABI).
@@ -165,7 +154,7 @@ type SpendLockParams struct {
 	Data pldtypes.HexBytes `json:"data"`
 }
 
-// CancelLockParams is the Paladin domain JSON for IZetoFungible_V1.cancelLock (see ZetoFungibleABI_V1).
+// CancelLockParams is the Paladin domain JSON for IZetoFungible_V1.cancelLock (see ZetoVariant_V1).
 //
 // The prepared public transaction uses ILockableCapability.cancelLock on the pool (lockId, cancelArgs, data);
 // ZetoSpendLockArgs from IZetoLockableCapability is ABI-encoded in cancelArgs (see types.LockableCapabilityCancelLockABI).

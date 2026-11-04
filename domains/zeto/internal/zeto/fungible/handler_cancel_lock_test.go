@@ -61,7 +61,7 @@ func TestCancelLockInitAndEndorse(t *testing.T) {
 }
 
 func TestCancelLockPrepare_EncodesCancelArgs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("88", 32))
 	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestCancelLockPrepare_EncodesCancelArgs(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", Variant: types.ZetoVariant_V1},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -104,7 +104,7 @@ func TestCancelLockPrepare_EncodesCancelArgs(t *testing.T) {
 }
 
 func TestCancelLockPrepare_V0DiscreteProofParams(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("77", 32))
 	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
 	require.NoError(t, err)
@@ -126,7 +126,7 @@ func TestCancelLockPrepare_V0DiscreteProofParams(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, Variant: types.ZetoVariant_V0},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -148,7 +148,7 @@ func TestCancelLockPrepare_V0DiscreteProofParams(t *testing.T) {
 }
 
 func TestCancelLockPrepare_V1PinnedCancelOutputs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("99", 32))
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
@@ -175,7 +175,7 @@ func TestCancelLockPrepare_V1PinnedCancelOutputs(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", Variant: types.ZetoVariant_V1},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -190,7 +190,7 @@ func TestCancelLockPrepare_V1PinnedCancelOutputs(t *testing.T) {
 }
 
 func TestCancelLockPrepare_NullifierTokenUsesPublicInputs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("aa", 32))
 	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
 	require.NoError(t, err)
@@ -212,7 +212,7 @@ func TestCancelLockPrepare_NullifierTokenUsesPublicInputs(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, Variant: types.ZetoVariant_V0},
 		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{

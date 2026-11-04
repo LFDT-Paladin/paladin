@@ -241,7 +241,7 @@ func (h *cancelLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransac
 	fnABI := types.LockableCapabilityCancelLockABI
 	var prepParams map[string]any
 	useNullifiers := common.IsNullifiersToken(tx.DomainConfig.TokenName)
-	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(tx.DomainConfig.ZetoVariant)) {
+	if types.UseZetoOnchainPackedProofCalldata(tx.DomainConfig.Variant) {
 		proofBytes, err := common.EncodeZetoOnchainTransferProofBytes(ctx, tx.DomainConfig.TokenName, proofRes.Proof, proofRes.PublicInputs, true)
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorMarshalPrepedParams)

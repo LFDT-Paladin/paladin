@@ -215,7 +215,7 @@ func (h *depositHandler) Prepare(ctx context.Context, tx *types.ParsedTransactio
 	amount := pldtypes.MustParseHexUint256(*req.DomainData)
 	depositFunction := depositABI
 	var params map[string]any
-	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(tx.DomainConfig.ZetoVariant)) {
+	if types.UseZetoOnchainPackedProofCalldata(tx.DomainConfig.Variant) {
 		depositFunction = depositOnchainPackedABI
 		proofBytes, err := common.EncodeZetoOnchainDepositProofBytes(ctx, proofRes.Proof)
 		if err != nil {

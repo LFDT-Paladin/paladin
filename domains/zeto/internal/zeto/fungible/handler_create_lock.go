@@ -346,7 +346,7 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	// Lock info is an off-chain output state (not a coin UTXO). Prepare skips non-coin outputs for proof encoding.
 	assembledOutputStates = append(assembledOutputStates, lockInfoState)
 
-	proofOutputCoins := lockTransitionOutputCoinsForProof(tx.DomainConfig.ZetoVariant, remainderOutputCoins, lockedOutputCoins)
+	proofOutputCoins := lockTransitionOutputCoinsForProof(tx.DomainConfig.Variant, remainderOutputCoins, lockedOutputCoins)
 	// createLock spends unlocked inputs, using the proof circuit for the transfer method
 	circuit := (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER]
 	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, signercommon.GetHasher(), inputCoins, proofOutputCoins, circuit, tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress, false)

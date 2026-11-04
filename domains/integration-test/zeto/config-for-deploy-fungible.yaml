@@ -1,9 +1,9 @@
 # Upstream implementation + verifier ABI+bytecode: helpers/abis/zkp/v0.2.2/ (Gradle copyZetoUpstreamContractAbis_*).
-# Paladin factory ABI stays at helpers/abis/. Use with ZKP root v0.2.2 (helpers.ZetoZKArtifactRootV022).
+# Paladin factory ABI stays at helpers/abis/. Use with variant V0, ZKP root v0.2.2.
 contracts:
   factory:
     abiAndBytecode:
-      path: ./helpers/abis/ZetoFactory_V0.json
+      path: ./helpers/abis/ZetoFactory_V1.json
   # the Zeto factory is a CloneFactory, which needs implementation
   # contracts to be set
   implementations:

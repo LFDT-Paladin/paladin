@@ -255,9 +255,9 @@ func (h *transferHandler) Prepare(ctx context.Context, tx *types.ParsedTransacti
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorEncodeTxData, err)
 	}
-	transferFunction := getTransferABI(tx.DomainConfig.TokenName, tx.DomainConfig.ZetoVariant)
+	transferFunction := getTransferABI(tx.DomainConfig.TokenName, tx.DomainConfig.Variant)
 	var params map[string]any
-	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(tx.DomainConfig.ZetoVariant)) {
+	if types.UseZetoOnchainPackedProofCalldata(tx.DomainConfig.Variant) {
 		proofBytes, err := common.EncodeZetoOnchainTransferProofBytes(ctx, tx.DomainConfig.TokenName, proofRes.Proof, proofRes.PublicInputs, false)
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorMarshalPrepedParams)
@@ -314,8 +314,8 @@ func (h *transferHandler) Prepare(ctx context.Context, tx *types.ParsedTransacti
 	}, nil
 }
 
-func getTransferABI(tokenName string, zetoVariant pldtypes.HexUint64) *abi.Entry {
-	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(zetoVariant)) {
+func getTransferABI(tokenName string, variant types.ZetoVariant) *abi.Entry {
+	if types.UseZetoOnchainPackedProofCalldata(variant) {
 		return fungibleTransferOnchainPackedABI
 	}
 	transferFunction := transferABI

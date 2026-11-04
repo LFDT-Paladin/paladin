@@ -1,8 +1,8 @@
-# Upstream ABI+bytecode under helpers/abis/zkp/v0.2.2/; factory at helpers/abis/. ZKP root v0.2.2.
+# Upstream ABI+bytecode under helpers/abis/zkp/v0.2.2/; factory at helpers/abis/. Variant V0, ZKP root v0.2.2.
 contracts:
   factory:
     abiAndBytecode:
-      path: ./helpers/abis/ZetoFactory_V0.json
+      path: ./helpers/abis/ZetoFactory_V1.json
   # the Zeto factory is a CloneFactory, which needs implementation
   # contracts to be set
   implementations:

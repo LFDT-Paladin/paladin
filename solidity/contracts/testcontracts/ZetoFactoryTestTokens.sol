@@ -4,9 +4,9 @@ pragma solidity ^0.8.27;
 import {IZetoInitializable as IZetoInitializableV022} from "zeto-contracts-0.2.2/contracts/lib/interfaces/izeto_initializable.sol";
 import {IZetoInitializable as IZetoInitializableV051} from "zeto-contracts-0.5.1/contracts/lib/interfaces/IZetoInitializable.sol";
 
-/// Test-only clone targets for ZetoFactory_V0. Each one implements the real `IZetoInitializable` of its upstream
-/// zeto-contracts release — imported from the package itself, not hand-copied — so that ZetoFactory_V0.ts proves the
-/// single 0.5.1-based factory can clone and initialize implementations from either generation.
+/// Test-only clone targets for the Zeto factories. Each one implements the real `IZetoInitializable` of its upstream
+/// zeto-contracts release — imported from the package itself, not hand-copied — so that ZetoFactory_V1.ts proves both
+/// factories can clone and initialize implementations from either release.
 abstract contract RecordingZetoToken {
     string public name;
     string public symbol;

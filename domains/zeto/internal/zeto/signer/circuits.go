@@ -29,28 +29,15 @@ import (
 	"github.com/iden3/go-rapidsnark/witness/wasmer"
 )
 
-// generationDirName is the per-generation artifact subdirectory, matching ZetoReleaseGeneration.ArtifactDirName().
+// variantDirName is the per-variant artifact subdirectory, matching ZetoVariant.ArtifactDirName().
 // It is duplicated here rather than imported to keep the signer free of a dependency on the domain types package.
-func generationDirName(generation uint64) string {
-	return fmt.Sprintf("V%d", generation)
+func variantDirName(variant uint64) string {
+	return fmt.Sprintf("V%d", variant)
 }
 
-// resolveArtifact returns the path to an artifact for a generation, preferring the per-generation layout
-//
-//	<root>/V<n>/<rel>
-//
-// and falling back to the legacy flat layout <root>/<rel> when the generation directory is not present. The fallback
-// keeps nodes working across an upgrade where the mounted artifact volume has not been re-laid-out yet; a node that
-// must serve more than one generation needs the per-generation layout, because circuit names collide across releases.
-func resolveArtifact(root string, generation uint64, rel string) string {
-	versioned := path.Join(root, generationDirName(generation), rel)
-	if _, err := os.Stat(versioned); err == nil {
-		return versioned
-	}
-	return path.Join(root, rel)
-}
-
-func loadCircuit(ctx context.Context, generation uint64, circuitName string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+// loadCircuit reads the circuit's artifacts from <dir>/<variantDir>/, where variantDir is empty for a prover whose
+// artifacts are not laid out per variant.
+func loadCircuit(ctx context.Context, variantDir string, circuitName string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 	if config.CircuitsDir == "" {
 		return nil, []byte{}, i18n.NewError(ctx, msgs.MsgInvalidConfigCircuitRoot)
 	}
@@ -59,15 +46,13 @@ func loadCircuit(ctx context.Context, generation uint64, circuitName string, con
 	}
 
 	// load the wasm file for the circuit
-	wasmRel := path.Join(fmt.Sprintf("%s_js", circuitName), fmt.Sprintf("%s.wasm", circuitName))
-	wasmBytes, err := os.ReadFile(resolveArtifact(config.CircuitsDir, generation, wasmRel))
+	wasmBytes, err := os.ReadFile(path.Join(config.CircuitsDir, variantDir, fmt.Sprintf("%s_js", circuitName), fmt.Sprintf("%s.wasm", circuitName)))
 	if err != nil {
 		return nil, []byte{}, err
 	}
 
 	// create the prover
-	zkeyRel := fmt.Sprintf("%s.zkey", circuitName)
-	zkeyBytes, err := os.ReadFile(resolveArtifact(config.ProvingKeysDir, generation, zkeyRel))
+	zkeyBytes, err := os.ReadFile(path.Join(config.ProvingKeysDir, variantDir, fmt.Sprintf("%s.zkey", circuitName)))
 	if err != nil {
 		return nil, []byte{}, err
 	}

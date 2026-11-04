@@ -7,5 +7,5 @@ import (
 )
 
 func NewSnarkProver(conf *zetosignerapi.SnarkProverConfig) (signerapi.InMemorySigner, error) {
-	return signer.NewSnarkProver(conf)
+	return signer.NewSnarkProver(conf, false)
 }

@@ -9,7 +9,6 @@ package zeto
 import (
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
@@ -41,15 +40,14 @@ func TestPickZetoFactoryDeploy7Arg_Errors(t *testing.T) {
 	assert.Contains(t, err.Error(), "multiple 7-argument deploy")
 }
 
-// TestZetoFactoryLegacyDeploySelectors pins the two `deploy` selectors of the consolidated ZetoFactory_V0 wrapper. They must
-// never change: the domain plugin encodes calls with this ABI against factory addresses deployed long before the wrapper
-// was consolidated — including the legacy, non-upgradeable ZetoTokenFactory generation, which exposes no initialize() or
-// upgradeToAndCall() but does expose exactly these two entry points.
+// TestZetoFactoryLegacyDeploySelectors pins the two `deploy` selectors of ZetoFactory_V1. They must never change: the
+// domain plugin encodes calls with this ABI against factories already deployed, including the non-upgradeable
+// ZetoFactory_V0, which exposes no initialize() or upgradeToAndCall() but does expose exactly these two entry points.
 func TestZetoFactoryLegacyDeploySelectors(t *testing.T) {
 	expected := map[string]string{
 		"deploy(bytes32,string,string,string,address,bytes,bool)": "0x653bf99c",
 		"deploy(bytes32,string,string,string,address,bytes)":      "0x05c98c83",
-		// registerImplementation is invoked against factories of both generations when wiring up a domain
+		// registerImplementation is invoked against both factory versions when wiring up a domain
 		"registerImplementation(string,(address,(address,address,address,address,address,address,address,address,address)))": "0x3924a044",
 	}
 	found := make(map[string]string)
@@ -69,13 +67,8 @@ func TestZetoFactoryLegacyDeploySelectors(t *testing.T) {
 	assert.Equal(t, expected, found)
 }
 
-// TestZetoFactoryABIServesBothFactoryVersions asserts the single wrapper covers every factoryVersion the plugin accepts.
-func TestZetoFactoryABIServesBothFactoryVersions(t *testing.T) {
-	for _, fv := range []types.ZetoReleaseGeneration{types.ZetoRelease_V0, types.ZetoRelease_V1} {
-		entry, err := pickZetoFactoryDeploy7Arg(zetoFactoryBuild.ABI)
-		require.NoError(t, err, "factoryVersion %d", fv)
-		require.NotNil(t, entry)
-	}
+// TestZetoFactoryUpgradeableABI asserts the single wrapper is the upgradeable factory.
+func TestZetoFactoryUpgradeableABI(t *testing.T) {
 	// the upgradeable lifecycle entry points the ERC1967Proxy deployment flow depends on
 	fns := zetoFactoryBuild.ABI.Functions()
 	require.NotNil(t, fns["initialize"])

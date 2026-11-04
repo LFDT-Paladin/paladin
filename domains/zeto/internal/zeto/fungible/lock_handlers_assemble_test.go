@@ -636,7 +636,7 @@ func TestLoadCoinStatesByIDs(t *testing.T) {
 }
 
 func TestSpendLockPrepare_PinnedOutputsPath(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("99", 32))
 	lockedID := "0x" + strings.Repeat("ab", 32)
 	spendID := "0x" + strings.Repeat("cd", 32)
@@ -656,7 +656,7 @@ func TestSpendLockPrepare_PinnedOutputsPath(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "spender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", Variant: types.ZetoVariant_V1},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "spender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{

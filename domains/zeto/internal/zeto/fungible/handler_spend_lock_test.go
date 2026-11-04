@@ -56,7 +56,7 @@ func TestSpendLockValidateParams_WireJSON(t *testing.T) {
 }
 
 func TestSpendLockPrepare_V1EncodesZetoSpendLockArgs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("11", 32))
 	spendData := pldtypes.HexBytes{0xde, 0xad}
 	lockInfoJSON, err := json.Marshal(&types.ZetoLockInfoState{
@@ -91,7 +91,7 @@ func TestSpendLockPrepare_V1EncodesZetoSpendLockArgs(t *testing.T) {
 		},
 		DomainConfig: &types.DomainInstanceConfig{
 			TokenName:   "Zeto_AnonNullifier",
-			ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1),
+			Variant: types.ZetoVariant_V1,
 			Circuits: &zetosignerapi.Circuits{
 				// v0.5 Zeto_AnonNullifier: lock spend uses the plain "anon" circuit + Groth16Verifier_Anon (see zeto ignition zeto_anon_nullifier).
 				"transferLocked": {Name: "anon", UsesNullifiers: false},
@@ -268,7 +268,7 @@ func TestSpendLockInitAndEndorse(t *testing.T) {
 }
 
 func TestSpendLockPrepare_V0UsesDiscreteProofParams(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("55", 32))
 	spendData := pldtypes.HexBytes{0x01}
 	lockInfoJSON, err := json.Marshal(&types.ZetoLockInfoState{LockID: lockID, SpendData: spendData})
@@ -299,7 +299,7 @@ func TestSpendLockPrepare_V0UsesDiscreteProofParams(t *testing.T) {
 		Transaction: &prototk.TransactionSpecification{From: "sender@node"},
 		DomainConfig: &types.DomainInstanceConfig{
 			TokenName:   constants.TOKEN_ANON,
-			ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0),
+			Variant: types.ZetoVariant_V0,
 		},
 		Params: &types.SpendLockParams{LockId: lockID, From: "sender@node"},
 	}
@@ -322,7 +322,7 @@ func TestSpendLockPrepare_V0UsesDiscreteProofParams(t *testing.T) {
 }
 
 func TestSpendLockPrepare_NullifierV0UsesPublicInputs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("66", 32))
 	lockInfoJSON, err := json.Marshal(&types.ZetoLockInfoState{LockID: lockID, SpendData: []byte{0x01}})
 	require.NoError(t, err)
@@ -350,7 +350,7 @@ func TestSpendLockPrepare_NullifierV0UsesPublicInputs(t *testing.T) {
 
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, Variant: types.ZetoVariant_V0},
 		Params:       &types.SpendLockParams{LockId: lockID, From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{

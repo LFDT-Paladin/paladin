@@ -54,8 +54,8 @@ type zetoDomainTestSuite struct {
 	pldClient         pldclient.PaladinWSClient
 	tb                testbed.Testbed
 	done              func()
-	// zkpArtifactRoot is domains/zeto/zkp/<tag> (e.g. v0.2.2). Empty uses helpers.EffectiveZetoZKArtifactRoot().
-	zkpArtifactRoot string
+	// variant is served by a domain configured with domainContracts when it is V0, and with variants otherwise
+	variant types.ZetoVariant
 }
 
 func (s *zetoDomainTestSuite) SetupSuite() {
@@ -64,14 +64,15 @@ func (s *zetoDomainTestSuite) SetupSuite() {
 	ctx := context.Background()
 	domainName := "zeto_" + pldtypes.RandHex(8)
 	log.L(ctx).Infof("Domain name = %s", domainName)
-	zkpRoot := s.zkpArtifactRoot
-	if zkpRoot == "" {
-		zkpRoot = helpers.EffectiveZetoZKArtifactRoot()
-	}
-	log.L(ctx).Infof("Zeto ZKP artifact root = %s (%s)", zkpRoot, helpers.ZetoZKArtifactsDir(zkpRoot))
-	domainContracts := helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, s.contractsFile, controllerName, zkpRoot)
+	log.L(ctx).Infof("Zeto variant = %s", s.variant)
+	domainContracts := helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, s.contractsFile, controllerName, s.variant)
 	s.deployedContracts = domainContracts
-	config := helpers.PrepareZetoConfig(s.T(), s.deployedContracts, helpers.ZetoZKArtifactsDir(zkpRoot))
+	var config *types.DomainFactoryConfig
+	if s.variant == types.ZetoVariant_V0 {
+		config = helpers.PrepareZetoConfig(s.T(), s.deployedContracts)
+	} else {
+		config = helpers.PrepareZetoVariantConfig(s.T(), s.variant, map[types.ZetoVariant]*helpers.ZetoDomainContracts{s.variant: domainContracts})
+	}
 	waitForZeto, zetoTestbed := newZetoDomain(s.T(), config, domainContracts.FactoryAddress)
 	done, _, tb, rpc, pldClient := newTestbed(s.T(), s.hdWalletSeed, map[string]*testbed.TestbedDomain{
 		domainName: zetoTestbed,

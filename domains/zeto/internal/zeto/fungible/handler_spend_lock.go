@@ -298,7 +298,7 @@ func (h *spendLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransact
 	fnABI := types.LockableCapabilitySpendLockABI
 	var prepParams map[string]any
 	useNullifiers := common.IsNullifiersToken(tx.DomainConfig.TokenName)
-	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(tx.DomainConfig.ZetoVariant)) {
+	if types.UseZetoOnchainPackedProofCalldata(tx.DomainConfig.Variant) {
 		// lockedInputs=true: for nullifier *tokens*, on-chain proof bytes are tuple-only (no root+tuple) because
 		// lock spend does not use unlocked-UTXO nullifier public inputs; spendArgs is ABI-encoded ZetoSpendLockArgs.
 		proofBytes, err := common.EncodeZetoOnchainTransferProofBytes(ctx, tx.DomainConfig.TokenName, proofRes.Proof, proofRes.PublicInputs, true)

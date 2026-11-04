@@ -24,138 +24,96 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-// Paladin Zeto has two independent version axes. Both are recorded per pool in DomainInstanceConfig, and both must
-// keep accepting every value they have ever written: the values are persisted on chain.
+// A Zeto pool's variant identifies the on-chain contracts and proving artifacts it was deployed with.
 //
-//	(1) ZetoFungibleABIVersion — Paladin's own transaction API generation. Selects the private/JSON ABI that fungible
-//	    transaction signatures are validated against (pkg/types/abis/IZetoFungible_V*.json) and the Prepare-side
-//	    calldata shape. Independent of upstream because Paladin can change its own request shape without a new zeto
-//	    release. Persisted as DomainInstanceConfig.ZetoVariant (historical wire field name "zetoVariant").
+// One variant selects all the things that cannot diverge from one another for a pool:
+//   - the private/JSON ABI that fungible transaction signatures are validated against (pkg/types/abis/IZetoFungible_V*.json)
+//     and the Prepare-side calldata shape,
+//   - the target-core interface ABIs used for event dispatch (internal/zeto/abis/IZeto*_V*.json),
+//   - the circuit / proving-key tree used to produce proofs for the pool.
 //
-//	(2) ZetoReleaseGeneration — which upstream zeto-contracts generation a pool was deployed from. One value selects
-//	    all three things that are properties of that release and cannot diverge from one another:
-//	      - the target-core interface ABIs used for event dispatch (internal/zeto/abis/IZeto*_V*.json),
-//	      - the on-chain factory generation the pool was deployed through,
-//	      - the circuit / proving-key tree used to produce proofs for the pool.
-//	    Proving artifacts belong on this axis rather than an axis of their own: a pool's .zkey has to match the
-//	    Groth16 verifier contract registered beside its token implementation, and both come from the same release.
-//	    Persisted as DomainInstanceConfig.ReleaseGeneration, whose wire field name stays "factoryVersion" — the axis
-//	    was introduced under that name and existing pools carry it.
+// A node proves every pool at a variant with that variant's single artifact tree, and a .zkey only works against the
+// Groth16 verifier contract it was generated with. So every upstream release a variant covers must accept proofs from
+// that tree and the same calldata shape; a release that changes either needs a new variant, even a patch release.
 //
-// Generation ordinals are Paladin's own and are deliberately decoupled from upstream semver, so that a patch release
-// upstream does not force a new generation here. The mapping is:
+// Within a variant the private ABI may gain functions, provided their handlers work against every release the variant
+// covers. Changing an existing function's signature needs a new variant, which may map to the same upstream release as
+// an earlier one; existing pools keep the variant they were deployed at.
 //
-//	Generation | upstream zeto-contracts | notes
-//	-----------+-------------------------+--------------------------------------------------------------------
-//	V0         | ~v0.2.x (v0.2.2)        | snake_case interface files; discrete proof tuple in Prepare calldata;
-//	           |                         | lock() concatenates change outputs || lockedOutputs before verifyProof
-//	V1         | ~v0.5.x (v0.5.1)        | PascalCase interface files; single packed `bytes proof` calldata;
-//	           |                         | _doLockTransition builds lockedOutputs || change outputs
+// Variant ordinals are Paladin's own, not upstream version numbers. The mapping is:
 //
-// When adding a generation, add the constant, extend SupportedZetoReleaseGenerations, add its row above, and add the
-// matching zetoVersions entry in domains/zeto/build.gradle.
+//	Variant    | zeto-contracts  | notes
+//	-----------+-----------------+--------------------------------------------------------------------
+//	V0         | v0.2.x (v0.2.2) | snake_case interface files; discrete proof tuple in Prepare calldata;
+//	           |                 | lock() concatenates change outputs || lockedOutputs before verifyProof
+//	V1         | v0.5.x (v0.5.1) | PascalCase interface files; single packed `bytes proof` calldata;
+//	           |                 | _doLockTransition builds lockedOutputs || change outputs
+//
+// When adding a variant, add the constant, extend SupportedZetoVariants, add its row above, and add the matching
+// zetoVersions entry in domains/zeto/build.gradle.
 
-// ZetoFungibleABIVersion selects pkg/types/abis/IZetoFungible_V*.json for fungible handler ABI validation.
-// Defined type rather than an alias so that a raw HexUint64 cannot be passed by accident; use FungibleABIVersion()
-// to convert at the persisted-config boundary.
-type ZetoFungibleABIVersion pldtypes.HexUint64
+// ZetoVariant identifies the on-chain contracts and proving artifacts a pool was deployed with.
+type ZetoVariant uint64
 
 const (
-	// ZetoFungibleABI_V0 selects IZetoFungible_V0.json.
-	ZetoFungibleABI_V0 ZetoFungibleABIVersion = 0
-	// ZetoFungibleABI_V1 selects IZetoFungible_V1.json.
-	ZetoFungibleABI_V1 ZetoFungibleABIVersion = 1
+	// ZetoVariant_V0 is the zeto-contracts ~v0.2.x variant. Pools deployed before the variant was persisted decode as
+	// 0, which is correct for them: they predate any later variant.
+	ZetoVariant_V0 ZetoVariant = 0
+	// ZetoVariant_V1 is the zeto-contracts ~v0.5.x variant.
+	ZetoVariant_V1 ZetoVariant = 1
 )
 
-// SupportedZetoFungibleABIVersions is the authoritative list of accepted values; validation reads from it.
-var SupportedZetoFungibleABIVersions = []ZetoFungibleABIVersion{
-	ZetoFungibleABI_V0,
-	ZetoFungibleABI_V1,
+// SupportedZetoVariants is the authoritative list of accepted values. Every variant listed here must have a private ABI
+// embedded under pkg/types/abis, target-core ABIs embedded under internal/zeto/abis and a proving-artifact tree named
+// by ArtifactDirName().
+var SupportedZetoVariants = []ZetoVariant{
+	ZetoVariant_V0,
+	ZetoVariant_V1,
 }
 
-// FungibleABIVersion converts a persisted numeric zetoVariant into the typed axis value.
-func FungibleABIVersion(v pldtypes.HexUint64) ZetoFungibleABIVersion {
-	return ZetoFungibleABIVersion(v)
-}
+// ArtifactDirName is the per-variant subdirectory holding this variant's circuits and proving keys, under the
+// configured circuitsDir / provingKeysDir. A node serves every variant at once by holding one such directory each.
+func (v ZetoVariant) ArtifactDirName() string { return v.String() }
 
-// Uint64 returns the persisted numeric form.
-func (v ZetoFungibleABIVersion) Uint64() uint64 { return uint64(v) }
+func (v ZetoVariant) String() string { return fmt.Sprintf("V%d", uint64(v)) }
 
-func (v ZetoFungibleABIVersion) String() string { return fmt.Sprintf("V%d", uint64(v)) }
-
-// ValidateZetoFungibleABIVersion rejects values this build does not know how to serve.
-func ValidateZetoFungibleABIVersion(ctx context.Context, v ZetoFungibleABIVersion) error {
-	for _, allowed := range SupportedZetoFungibleABIVersions {
+// ValidateZetoVariant rejects values this build does not know how to serve.
+func ValidateZetoVariant(ctx context.Context, v ZetoVariant) error {
+	for _, allowed := range SupportedZetoVariants {
 		if v == allowed {
 			return nil
 		}
 	}
-	return i18n.NewError(ctx, msgs.MsgUnsupportedZetoFungibleABIVersion, uint64(v))
+	return i18n.NewError(ctx, msgs.MsgUnsupportedZetoVariant, v.String())
+}
+
+// ParseZetoVariantKey parses a domain config variant key of the form V<n>.
+func ParseZetoVariantKey(ctx context.Context, key string) (ZetoVariant, error) {
+	n, err := strconv.ParseUint(strings.TrimPrefix(key, "V"), 10, 64)
+	if err != nil || ZetoVariant(n).String() != key {
+		return 0, i18n.NewError(ctx, msgs.MsgInvalidZetoVariantKey, key)
+	}
+	v := ZetoVariant(n)
+	return v, ValidateZetoVariant(ctx, v)
 }
 
 // UseZetoOnchainPackedProofCalldata is true when the target Zeto fungible token expects `transfer` / `deposit` / `withdraw`
 // calldata with a single ABI-encoded `bytes proof` blob (Groth16 struct, optionally prefixed by root or encryption metadata),
-// as implemented in upstream zeto solidity (~v0.5.x). V0 Paladin configs keep discrete proof tuple + public fields in Prepare.
-func UseZetoOnchainPackedProofCalldata(zetoVariant ZetoFungibleABIVersion) bool {
-	return zetoVariant != ZetoFungibleABI_V0
+// as implemented in upstream zeto solidity (~v0.5.x). V0 pools keep discrete proof tuple + public fields in Prepare.
+func UseZetoOnchainPackedProofCalldata(variant ZetoVariant) bool {
+	return variant != ZetoVariant_V0
 }
 
 // LockTransitionVerifierOutputOrderLockedFirst is true when the on-chain pool builds the ZK public-output vector as
 // lockedOutputs || change outputs (ZetoFungible._doLockTransition in zeto-contracts ~v0.5+). Legacy ~v0.2.x tokens concatenate
-// change outputs || lockedOutputs inside lock() before verifyProof; use ZetoFungibleABI_V0 / default deploy for that order.
-func LockTransitionVerifierOutputOrderLockedFirst(zetoVariant ZetoFungibleABIVersion) bool {
-	return zetoVariant == ZetoFungibleABI_V1
+// change outputs || lockedOutputs inside lock() before verifyProof; use ZetoVariant_V0 for that order.
+func LockTransitionVerifierOutputOrderLockedFirst(variant ZetoVariant) bool {
+	return variant == ZetoVariant_V1
 }
 
-// ZetoReleaseGeneration identifies the upstream zeto-contracts generation a pool was deployed from. It selects the
-// target-core ABIs, the factory generation, and the proving-artifact tree together — see the axis notes above.
-type ZetoReleaseGeneration int64
-
-const (
-	// ZetoRelease_V0 is the zeto-contracts ~v0.2.x generation. Pools deployed before this axis was persisted decode
-	// as 0, which is correct for them: they predate any later generation.
-	ZetoRelease_V0 ZetoReleaseGeneration = 0
-	// ZetoRelease_V1 is the zeto-contracts ~v0.5.x generation.
-	ZetoRelease_V1 ZetoReleaseGeneration = 1
-)
-
-// SupportedZetoReleaseGenerations is the authoritative list of accepted values. Every generation listed here must
-// have target-core ABIs embedded under internal/zeto/abis and a proving-artifact tree named by ArtifactDirName().
-var SupportedZetoReleaseGenerations = []ZetoReleaseGeneration{
-	ZetoRelease_V0,
-	ZetoRelease_V1,
-}
-
-// zetoReleaseUpstreamTag documents which upstream release each generation was cut from. It is the single place the
-// generation ordinal is tied to a zeto-contracts version; keep it aligned with zetoVersions in domains/zeto/build.gradle.
-var zetoReleaseUpstreamTag = map[ZetoReleaseGeneration]string{
-	ZetoRelease_V0: "v0.2.2",
-	ZetoRelease_V1: "v0.5.1",
-}
-
-// UpstreamTag returns the zeto-contracts release this generation was cut from, e.g. "v0.5.1".
-func (g ZetoReleaseGeneration) UpstreamTag() string { return zetoReleaseUpstreamTag[g] }
-
-// ArtifactDirName is the per-generation subdirectory holding this generation's circuits and proving keys, under the
-// configured circuitsDir / provingKeysDir. A node serves every generation at once by holding one such directory each.
-func (g ZetoReleaseGeneration) ArtifactDirName() string { return g.String() }
-
-func (g ZetoReleaseGeneration) String() string { return fmt.Sprintf("V%d", int64(g)) }
-
-// ValidateZetoReleaseGeneration rejects values this build does not know how to serve.
-func ValidateZetoReleaseGeneration(ctx context.Context, g ZetoReleaseGeneration) error {
-	for _, allowed := range SupportedZetoReleaseGenerations {
-		if g == allowed {
-			return nil
-		}
-	}
-	return i18n.NewError(ctx, msgs.MsgUnsupportedZetoReleaseGeneration, int64(g))
-}
-
-// parseVersionOrdinal accepts either a JSON number or a string. Both axes are declared as uint256 wherever they cross
+// parseVersionOrdinal accepts either a JSON number or a string. The variant is declared as uint256 wherever it crosses
 // an ABI boundary (the deploy constructor, the persisted domain config), and the ABI serializer renders uint256 as a
 // decimal string — so a plain numeric Go field silently fails to decode a deploy that came through that path.
 func parseVersionOrdinal(b []byte, field string) (uint64, error) {
@@ -180,27 +138,14 @@ func parseVersionOrdinal(b []byte, field string) (uint64, error) {
 }
 
 // UnmarshalJSON accepts a number or a numeric string — see parseVersionOrdinal.
-func (v *ZetoFungibleABIVersion) UnmarshalJSON(b []byte) error {
-	n, err := parseVersionOrdinal(b, "zetoVariant")
+func (v *ZetoVariant) UnmarshalJSON(b []byte) error {
+	n, err := parseVersionOrdinal(b, "variant")
 	if err != nil {
 		return err
 	}
-	*v = ZetoFungibleABIVersion(n)
+	*v = ZetoVariant(n)
 	return nil
 }
 
-// MarshalJSON emits a number, matching how the axis is declared in Go-side configs.
-func (v ZetoFungibleABIVersion) MarshalJSON() ([]byte, error) { return json.Marshal(uint64(v)) }
-
-// UnmarshalJSON accepts a number or a numeric string — see parseVersionOrdinal.
-func (g *ZetoReleaseGeneration) UnmarshalJSON(b []byte) error {
-	n, err := parseVersionOrdinal(b, "factoryVersion")
-	if err != nil {
-		return err
-	}
-	*g = ZetoReleaseGeneration(n)
-	return nil
-}
-
-// MarshalJSON emits a number, matching how the axis is declared in Go-side configs.
-func (g ZetoReleaseGeneration) MarshalJSON() ([]byte, error) { return json.Marshal(int64(g)) }
+// MarshalJSON emits a number, matching how the variant is declared in Go-side configs.
+func (v ZetoVariant) MarshalJSON() ([]byte, error) { return json.Marshal(uint64(v)) }

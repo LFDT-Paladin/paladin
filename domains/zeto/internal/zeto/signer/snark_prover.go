@@ -55,20 +55,24 @@ type snarkProver struct {
 	workerPerCircuit              int
 	circuitsWorkerIndexChanRWLock sync.RWMutex
 	circuitsWorkerIndexChan       map[string]chan *int
-	circuitLoader                 func(ctx context.Context, generation uint64, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error)
+	artifactsPerVariant           bool
+	circuitLoader                 func(ctx context.Context, variantDir string, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error)
 	proofGenerator                func(ctx context.Context, witness []byte, provingKey []byte) (*types.ZKProof, error)
 }
 
-func NewSnarkProver(conf *zetosignerapi.SnarkProverConfig) (signerapi.InMemorySigner, error) {
-	return newSnarkProver(conf)
+// NewSnarkProver reads each variant's artifacts from a V<n>/ subdirectory of the configured directories when
+// artifactsPerVariant is set, and directly from the configured directories otherwise.
+func NewSnarkProver(conf *zetosignerapi.SnarkProverConfig, artifactsPerVariant bool) (signerapi.InMemorySigner, error) {
+	return newSnarkProver(conf, artifactsPerVariant)
 }
 
-func newSnarkProver(conf *zetosignerapi.SnarkProverConfig) (*snarkProver, error) {
+func newSnarkProver(conf *zetosignerapi.SnarkProverConfig, artifactsPerVariant bool) (*snarkProver, error) {
 	cacheConfig := pldconf.CacheConfig{
 		Capacity: confutil.P(50),
 	}
 	return &snarkProver{
 		zkpProverConfig:         conf,
+		artifactsPerVariant:     artifactsPerVariant,
 		circuitsCache:           cache.NewCache[string, witness.Calculator](&cacheConfig, &cacheConfig),
 		provingKeysCache:        cache.NewCache[string, []byte](&cacheConfig, &cacheConfig),
 		circuitLoader:           loadCircuit,
@@ -136,11 +140,11 @@ func (sp *snarkProver) Sign(ctx context.Context, algorithm, payloadType string, 
 	// obtain a slot for the proof generation for this specific circuit
 	// check whether this is a controlling channel
 	sp.circuitsWorkerIndexChanRWLock.RLock()
-	// Circuit names are not unique across release generations, so every cache and worker-pool key is scoped by the
-	// pool's generation. Without this a V1 pool could be served a V0 proving key that happens to share a name.
-	generation := inputs.Circuit.GetGeneration()
+	// Circuit names are not unique across variants, so every cache and worker-pool key is scoped by the pool's
+	// variant. Without this a V1 pool could be served a V0 proving key that happens to share a name.
+	variant := inputs.Circuit.GetVariant()
 	circuitId := circuit.Name
-	circuitKey := fmt.Sprintf("%s/%s", generationDirName(generation), circuitId)
+	circuitKey := fmt.Sprintf("%s/%s", variantDirName(variant), circuitId)
 	ccChan, chanelFound := sp.circuitsWorkerIndexChan[circuitKey]
 	sp.circuitsWorkerIndexChanRWLock.RUnlock()
 	if !chanelFound {
@@ -183,9 +187,14 @@ func (sp *snarkProver) Sign(ctx context.Context, algorithm, payloadType string, 
 		if witnessCalculator == nil || provingKey == nil {
 			// the generated WASM instance can only generate one proof at a time, circuitsWorkerIndexChan is used to ensure only 1 proof request
 			// is served per WASM instance at any given time
-			c, p, err := sp.circuitLoader(ctx, generation, circuitId, sp.zkpProverConfig)
+			variantDir := ""
+			if sp.artifactsPerVariant {
+				variantDir = variantDirName(variant)
+			}
+			c, p, err := sp.circuitLoader(ctx, variantDir, circuitId, sp.zkpProverConfig)
 			if err != nil {
-				return nil, err
+				sp.proverCacheRWLock.Unlock()
+				return nil, i18n.WrapError(ctx, err, msgs.MsgErrorLoadCircuit, circuitId, variantDirName(variant))
 			}
 			sp.circuitsCache.Set(workerID, c)
 			sp.provingKeysCache.Set(workerID, p)

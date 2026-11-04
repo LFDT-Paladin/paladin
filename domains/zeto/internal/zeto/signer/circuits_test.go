@@ -16,7 +16,6 @@
 package signer
 
 import (
-	"context"
 	_ "embed"
 	"os"
 	"path"
@@ -52,7 +51,7 @@ func loadTestCircuit(t *testing.T) (witness.Calculator, []byte) {
 	config.CircuitsDir = tmpDir
 	config.ProvingKeysDir = tmpDir
 
-	circuit, provingKey, err := loadCircuit(context.Background(), 0, "test", config)
+	circuit, provingKey, err := loadCircuit(t.Context(), "", "test", config)
 	require.NoError(t, err)
 	return circuit, provingKey
 }
@@ -70,8 +69,8 @@ func TestLoadCircuit(t *testing.T) {
 	config.CircuitsDir = tmpDir
 	config.ProvingKeysDir = tmpDir
 
-	ctx := context.Background()
-	circuit, provingKey, err := loadCircuit(ctx, 0, "test", config)
+	ctx := t.Context()
+	circuit, provingKey, err := loadCircuit(ctx, "", "test", config)
 	assert.EqualError(t, err, "Export `getFieldNumLen32` does not exist")
 	assert.Nil(t, circuit)
 	assert.Equal(t, []byte{}, provingKey)
@@ -88,13 +87,13 @@ func TestLoadCircuitFail(t *testing.T) {
 	err = os.WriteFile(path.Join(tmpDir, "test_js", "test.wasm"), mockWASMModule(), 0644)
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	config := &zetosignerapi.SnarkProverConfig{}
-	_, _, err = loadCircuit(ctx, 0, "test", config)
+	_, _, err = loadCircuit(ctx, "", "test", config)
 	assert.EqualError(t, err, "PD210074: Circuits root must be set via the configuration file")
 
 	config.CircuitsDir = tmpDir
-	_, _, err = loadCircuit(ctx, 0, "test", config)
+	_, _, err = loadCircuit(ctx, "", "test", config)
 	assert.EqualError(t, err, "PD210075: Proving keys root must be set via the configuration file")
 }
 
@@ -105,8 +104,8 @@ func TestLoadCircuitFailRead(t *testing.T) {
 	config.CircuitsDir = tmpDir
 	config.ProvingKeysDir = tmpDir
 
-	ctx := context.Background()
-	_, _, err := loadCircuit(ctx, 0, "test", config)
+	ctx := t.Context()
+	_, _, err := loadCircuit(ctx, "", "test", config)
 	assert.ErrorContains(t, err, "test.wasm: no such file or directory")
 }
 
@@ -121,7 +120,7 @@ func TestLoadCircuitFailReadZKey(t *testing.T) {
 	config.CircuitsDir = tmpDir
 	config.ProvingKeysDir = tmpDir
 
-	ctx := context.Background()
-	_, _, err = loadCircuit(ctx, 0, "test", config)
+	ctx := t.Context()
+	_, _, err = loadCircuit(ctx, "", "test", config)
 	assert.ErrorContains(t, err, "test.zkey: no such file or directory")
 }

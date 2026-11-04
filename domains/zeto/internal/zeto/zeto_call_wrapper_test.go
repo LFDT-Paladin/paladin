@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"strings"
 	"testing"
 
@@ -39,11 +38,11 @@ func TestCheckStateCompletion(t *testing.T) {
 
 func balanceOfCallTxSpec(t *testing.T) *prototk.TransactionSpecification {
 	t.Helper()
-	fnABI := types.ZetoFungibleFunctionForVariant(pldtypes.HexUint64(types.ZetoFungibleABI_V0), types.METHOD_BALANCE_OF)
+	fnABI := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V0, types.METHOD_BALANCE_OF)
 	require.NotNil(t, fnABI)
 	fnJSON, err := json.Marshal(fnABI)
 	require.NoError(t, err)
-	domainConfig := &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)}
+	domainConfig := &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, Variant: types.ZetoVariant_V0}
 	dcJSON, err := json.Marshal(domainConfig)
 	require.NoError(t, err)
 	paramsJSON, err := json.Marshal(&types.FungibleBalanceOfParam{Account: "alice@node"})
