@@ -237,11 +237,7 @@ task extractZetoPrimaryZkp {
 
 // The target-core interface ABIs below are the V0 variant's, so this reads the zetoTargetAbiV0VersionId tree rather
 // than the primary one — see the ext block for why the two are pinned separately.
-task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", "extractZetoZkp_${zetoTargetAbiV0VersionId}"]) {
-    inputs.files(configurations.contractCompile)
-    from fileTree(configurations.contractCompile.asPath) {
-        include 'contracts/domains/zeto/ZetoFactory_V1.sol/ZetoFactory_V1.json'
-    }
+task copySolidity(type: Copy, dependsOn: [protoc, "extractZetoZkp_${zetoTargetAbiV0VersionId}"]) {
     from fileTree("${zetoTargetAbiV0Root}/artifacts/contracts") {
         include 'lib/interfaces/izeto.sol/IZeto.json'
         include 'lib/interfaces/izeto_kyc.sol/IZetoKyc.json'
@@ -253,25 +249,16 @@ task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", "extractZ
     // so the suffix is added here; IZetoLockable is the V0 spelling of the role that v0.5.x renamed to
     // ILockableCapability, and copyZetoSolidityAbi_* maps that one onto IZetoLockable_V1.json.
     eachFile { details ->
-        switch (details.name) {
-            case 'IZeto.json':
-            case 'IZetoKyc.json':
-            case 'IZetoLockable.json':
-                details.relativePath = new RelativePath(true, details.name.replace('.json', '_V0.json'))
-                break
-            default:
-                details.relativePath = new RelativePath(true, details.name)
-        }
+        details.relativePath = new RelativePath(true, details.name.replace('.json', '_V0.json'))
     }
     includeEmptyDirs = false
 }
 
-// Paladin ZetoFactory wrappers (go:embed factoryabis/ZetoFactory_V*.json); not checked into git.
+// Paladin ZetoFactory wrapper (go:embed factoryabis/ZetoFactory_V1.json); not checked into git.
 task copyFactoryAbis(type: Copy, dependsOn: [":solidity:compile"]) {
     inputs.files(configurations.contractCompile)
     from fileTree(configurations.contractCompile.asPath) {
         include 'contracts/domains/zeto/ZetoFactory_V1.sol/ZetoFactory_V1.json'
-        include 'contracts/domains/zeto/ZetoFactory_V0.sol/ZetoFactory_V0.json'
     }
     into 'internal/zeto/factoryabis'
     eachFile { path = name }
