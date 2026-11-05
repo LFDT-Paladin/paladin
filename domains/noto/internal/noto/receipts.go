@@ -40,8 +40,23 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		if err != nil {
 			return nil, err
 		}
-		receipt.Data = info.Data
 		variant = info.Variant
+
+		// The data states share a schema, so if one of them is unavailable the last available one might not be
+		// the transaction's own. Every data state is distributed to everyone in the transaction, so we only trust
+		// the data when we have every state the manifest lists for us. The variant and sender are the same in
+		// each data state, so are safe to use regardless.
+		dataComplete := true
+		if req.UnavailableStates && variant != types.NotoVariantV0 {
+			if dataComplete, err = n.hasRequiredStates(ctx, req); err != nil {
+				return nil, err
+			}
+		}
+		if dataComplete {
+			receipt.Data = info.Data
+		} else {
+			log.L(ctx).Debugf("Omitting data from receipt for transaction %s as states it requires are unavailable", req.TransactionId)
+		}
 
 		// Extract requester information from TransactionData info state
 		if info.From != nil {
@@ -99,6 +114,30 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 	return &prototk.BuildReceiptResponse{
 		ReceiptJson: string(receiptJSON),
 	}, nil
+}
+
+// hasRequiredStates returns true if the manifest is available, along with every state it lists for this node
+func (n *Noto) hasRequiredStates(ctx context.Context, req *prototk.BuildReceiptRequest) (bool, error) {
+	manifestState := n.findManifest(req.InfoStates)
+	if manifestState == nil {
+		return false, nil
+	}
+	requiredStateIDs, err := n.requiredStateIDs(ctx, manifestState)
+	if err != nil {
+		return false, err
+	}
+	available := make(map[string]bool)
+	for _, states := range [][]*prototk.EndorsableState{req.InputStates, req.ReadStates, req.OutputStates, req.InfoStates} {
+		for _, s := range states {
+			available[s.Id] = true
+		}
+	}
+	for _, requiredStateID := range requiredStateIDs {
+		if !available[requiredStateID] {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (n *Noto) receiptStates(ctx context.Context, states []*prototk.EndorsableState) ([]*types.ReceiptState, error) {

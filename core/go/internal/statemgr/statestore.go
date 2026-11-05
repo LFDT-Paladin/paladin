@@ -262,8 +262,8 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 
 }
 
-// sortRecordsByIndex sorts the records of one type by the index the domain reported them in, leaving them
-// in DB order if any were recorded before indexes were
+// sortRecordsByIndex sorts the by the idx stored in the DB, or leave in DB order if any were recorded
+// before indexes were added.
 func sortRecordsByIndex(records []*transactionStateRecord) {
 	for _, s := range records {
 		if s.Index == nil {

@@ -219,10 +219,6 @@ message HandleEventBatchRequest {
   repeated OnChainEvent events = 4; // The list of events from the block indexer
 }
 
-// The spent, read, confirmed and info states are each an ordered list per transaction, and Paladin returns them
-// in that order whenever it passes the transaction's states back to the domain.
-// Domains that support partial state availability should report the transaction's manifest as its first info state,
-// so that when the manifest is unavailable it is the first_unavailable_id passed to CheckStateCompletion.
 message HandleEventBatchResponse {
   repeated CompletedTransaction transactions_complete = 1; // A list of Paladin transactions that may be considered complete
   repeated StateUpdate spent_states = 2; // A list of states that are now spent
@@ -284,10 +280,6 @@ message UnavailableStates {
   repeated string info_state_ids = 5; // unavailable info state ids, in the order the domain reported them when the transaction was indexed
 }
 
-// A domain using a manifest cannot recognize it from its ID alone when it is unavailable. If the manifest is not
-// among the available info states, the domain should return first_unavailable_id, which is the manifest when
-// the domain reported it as the first info state. The exception is transactions indexed before Paladin recorded
-// state order, where the order of states is not known.
 message CheckStateCompletionRequest {
   string transaction_id = 1; // the transaction ID
   repeated EndorsableState input_states = 2; // available input states, in the order the domain reported them when the transaction was indexed
