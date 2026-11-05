@@ -20,7 +20,9 @@ import (
 	"encoding/json"
 	"math/big"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -31,12 +33,13 @@ import (
 func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptRequest) (res *prototk.BuildReceiptResponse, err error) {
 	receipt := &types.NotoDomainReceipt{}
 
-	infoStates := n.filterSchema(req.InfoStates, []string{n.dataSchemaV0.Id, n.dataSchemaV1.Id, n.dataSchemaV2.Id})
+	txDataState, err := n.transactionDataState(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 	var variant pldtypes.HexUint64
-	if len(infoStates) > 0 {
-		// For prepareUnlock we have two data states - one for the unlockData, and one for the prepareUnlock data.
-		// So we take the last one in the list
-		info, err := n.unmarshalInfo(infoStates[len(infoStates)-1].StateDataJson)
+	if txDataState != nil {
+		info, err := n.unmarshalInfo(txDataState.StateDataJson)
 		if err != nil {
 			return nil, err
 		}
@@ -99,6 +102,52 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 	return &prototk.BuildReceiptResponse{
 		ReceiptJson: string(receiptJSON),
 	}, nil
+}
+
+// A transaction has a single TransactionData state for its own data, except when it prepares a lock
+// spend and cancel, where it also has one for the unlock data. Info states have no order, but the
+// spend and cancel manifests reference the unlock data and not the transaction's own data.
+// Returns nil when the transaction's own data state cannot be identified from the available states.
+func (n *Noto) transactionDataState(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.EndorsableState, error) {
+	dataStates := n.filterSchema(req.InfoStates, []string{n.dataSchemaV0.Id, n.dataSchemaV1.Id, n.dataSchemaV2.Id})
+	switch len(dataStates) {
+	case 1:
+		return dataStates[0], nil
+	case 2:
+		ids := make([]pldtypes.Bytes32, len(dataStates))
+		for i, state := range dataStates {
+			id, err := pldtypes.ParseBytes32Ctx(ctx, state.Id)
+			if err != nil {
+				return nil, err
+			}
+			ids[i] = id
+		}
+		// We look at all the manifests. For a prepare unlock, or a create lock operation that includes the prepare
+		// (e.g. createTransferLock) there will be 3 manifests: one for the operation itself, and one for each of
+		// the prepared spend and cancel. The spend and cancel will only reference the unlock transaction data info
+		// state, whereas the manifest for this operation will reference both. Therefore if we find a manifest that
+		// only references one of the two transaction data info states, we know that the unreferenced transaction
+		// data info state is the one we want.
+		for _, manifestState := range n.filterSchema(req.InfoStates, []string{n.manifestSchema.Id}) {
+			var manifest types.NotoManifest
+			if err := json.Unmarshal([]byte(manifestState.StateDataJson), &manifest); err != nil {
+				return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidManifestState, manifestState.Id)
+			}
+			refs := [2]bool{}
+			for _, entry := range manifest.States {
+				for i, id := range ids {
+					refs[i] = refs[i] || entry.ID == id
+				}
+			}
+			if refs[0] != refs[1] {
+				if refs[0] {
+					return dataStates[1], nil
+				}
+				return dataStates[0], nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 func (n *Noto) receiptStates(ctx context.Context, states []*prototk.EndorsableState) ([]*types.ReceiptState, error) {

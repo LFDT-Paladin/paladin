@@ -224,6 +224,20 @@ func TestBuildReceiptBadDataState(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestBuildReceiptBadManifest(t *testing.T) {
+	ctx, _, n := newNotoFullSchemaSet(t)
+
+	_, err := n.BuildReceipt(ctx, &prototk.BuildReceiptRequest{
+		TransactionId: uuid.New().String(),
+		InfoStates: []*prototk.EndorsableState{
+			{Id: pldtypes.RandBytes32().String(), SchemaId: n.dataSchemaV2.Id, StateDataJson: `{}`},
+			{Id: pldtypes.RandBytes32().String(), SchemaId: n.dataSchemaV2.Id, StateDataJson: `{}`},
+			{Id: pldtypes.RandBytes32().String(), SchemaId: n.manifestSchema.Id, StateDataJson: `{! bad data`},
+		},
+	})
+	assert.Regexp(t, "PD200036", err)
+}
+
 func TestBuildReceiptBadCoinSchemaId(t *testing.T) {
 	n := Noto{
 		dataSchemaV0: testSchema("data"),

@@ -452,6 +452,24 @@ func TestCreateTransferLock(t *testing.T) {
 	require.Equal(t, lockInfo.LockID, receipt.LockInfo.LockID)
 	require.Equal(t, "spendLock", receipt.LockInfo.UnlockFunction)
 	require.NotNil(t, receipt.LockInfo.UnlockParams)
+
+	dataStates := newStateToEndorsableState([]*prototk.NewState{unlockDataState, dataState})
+	manifests := newStateToEndorsableState([]*prototk.NewState{manifestState, unlockManifestState, cancelManifestState})
+	receiptData := func(infoStates ...*prototk.EndorsableState) string {
+		receipt := testGetDomainReceipt(t, n, &prototk.BuildReceiptRequest{
+			TransactionId:     tx.TransactionId,
+			UnavailableStates: true,
+			InputStates:       inputStates,
+			InfoStates:        infoStates,
+		})
+		return receipt.Data.String()
+	}
+	assert.Equal(t, "0x1234", receiptData(dataStates[0], dataStates[1], manifests[0], manifests[1], manifests[2]))
+	assert.Equal(t, "0x1234", receiptData(manifests[2], manifests[1], manifests[0], dataStates[1], dataStates[0]))
+	assert.Equal(t, "0x1234", receiptData(dataStates[1], dataStates[0], manifests[0], manifests[1]))
+	assert.Equal(t, "0x1234", receiptData(dataStates[0], dataStates[1], manifests[2]))
+	assert.Equal(t, "", receiptData(dataStates[0], dataStates[1], manifests[0]))
+	assert.Equal(t, "", receiptData(dataStates[0], dataStates[1]))
 }
 
 func TestCreateTransferLockInsufficientFunds(t *testing.T) {
