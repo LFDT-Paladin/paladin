@@ -453,12 +453,14 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 	}
 
 	stateInfoRecords := make([]*pldapi.StateInfoRecord, len(res.InfoStates))
+	infoPositions := make(map[uuid.UUID]int)
 	for i, state := range res.InfoStates {
 		txUUID, stateID, err := d.prepareIndexRecord(ctx, state.TransactionId, state.Id)
 		if err != nil {
 			return nil, err
 		}
-		stateInfoRecords[i] = &pldapi.StateInfoRecord{DomainName: d.name, State: stateID, Transaction: txUUID}
+		stateInfoRecords[i] = &pldapi.StateInfoRecord{DomainName: d.name, State: stateID, Transaction: txUUID, Position: infoPositions[txUUID]}
+		infoPositions[txUUID]++
 	}
 
 	newStates := make([]*components.StateUpsertOutsideContext, 0)

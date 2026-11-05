@@ -231,6 +231,64 @@ func TestGetTransactionStatesAvailable(t *testing.T) {
 	assert.Equal(t, widgets[3].ID, txStates.Info[0].ID)
 }
 
+func TestGetTransactionStatesInfoOrdered(t *testing.T) {
+
+	ctx, ss, m, done := newDBTestStateManager(t)
+	defer done()
+
+	_ = mockDomain(t, m, "domain1", false)
+	mockStateCallback(m)
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, widgetABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+
+	widgets := makeWidgets(t, ctx, ss, "domain1", pldtypes.RandAddress(), schema.ID(), []string{
+		`{"size": 11111, "color": "red",  "price": 100}`,
+		`{"size": 22222, "color": "red",  "price": 150}`,
+	})
+	unavailable1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	unavailable3 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	txID := uuid.New()
+	err = ss.WriteStateFinalizations(ctx, ss.p.NOTX(), nil, nil, nil,
+		[]*pldapi.StateInfoRecord{
+			{DomainName: "domain1", State: widgets[0].ID, Transaction: txID, Position: 2},
+			{DomainName: "domain1", State: unavailable3, Transaction: txID, Position: 3},
+			{DomainName: "domain1", State: widgets[1].ID, Transaction: txID, Position: 1},
+			{DomainName: "domain1", State: unavailable1, Transaction: txID, Position: 0},
+		})
+	require.NoError(t, err)
+
+	txStates, err := ss.GetTransactionStates(ctx, ss.p.NOTX(), txID)
+	require.NoError(t, err)
+	assert.True(t, txStates.InfoOrdered)
+	assert.Equal(t, unavailable1, txStates.FirstInfo)
+	require.Len(t, txStates.Info, 2)
+	assert.Equal(t, widgets[1].ID, txStates.Info[0].ID)
+	assert.Equal(t, widgets[0].ID, txStates.Info[1].ID)
+	assert.Equal(t, []pldtypes.HexBytes{unavailable1, unavailable3}, txStates.Unavailable.Info)
+}
+
+func TestGetTransactionStatesInfoUnordered(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	txID := uuid.New()
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	err := ss.p.DB(ctx).Exec(`INSERT INTO state_info_records ("domain_name", "state", "transaction") VALUES (?, ?, ?)`,
+		"domain1", stateID, txID).Error
+	require.NoError(t, err)
+
+	txStates, err := ss.GetTransactionStates(ctx, ss.p.NOTX(), txID)
+	require.NoError(t, err)
+	assert.False(t, txStates.InfoOrdered)
+	assert.Nil(t, txStates.FirstInfo)
+	assert.Equal(t, []pldtypes.HexBytes{stateID}, txStates.Unavailable.Info)
+}
+
 func TestGetTransactionStatesReadInfoMultiTx(t *testing.T) {
 
 	ctx, ss, _, done := newDBTestStateManager(t)

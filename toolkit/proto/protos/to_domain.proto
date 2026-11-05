@@ -201,7 +201,7 @@ message BuildReceiptRequest {
   repeated EndorsableState input_states = 3; // available input states
   repeated EndorsableState read_states = 4; // available read states
   repeated EndorsableState output_states = 5; // available output states
-  repeated EndorsableState info_states = 6; // available info states  
+  repeated EndorsableState info_states = 6; // available info states, in the order the domain reported them when the transaction was indexed
   bool unavailable_states = 7; // some domains only process complete data sets. If true, then there were additional states referenced in this request, but which are not currently available.
 }
 
@@ -285,7 +285,7 @@ message CheckStateCompletionRequest {
   repeated EndorsableState input_states = 2; // available input states
   repeated EndorsableState read_states = 3; // available read states
   repeated EndorsableState output_states = 4; // available output states
-  repeated EndorsableState info_states = 5; // available info states
+  repeated EndorsableState info_states = 5; // available info states, in the order the domain reported them when the transaction was indexed
   UnavailableStates unavailable_states = 6; // details of unavailable states by classification, including a pre-calculated boolean for a quick completion check
 }
 

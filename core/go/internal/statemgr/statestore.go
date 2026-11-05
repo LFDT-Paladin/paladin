@@ -19,6 +19,7 @@ package statemgr
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -200,16 +201,16 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 		// Previously we used OR join condition to join the records table with the states table.
 		// This prevented the planner from using the states.id index, forcing a full table scan.
 		// Instead we use union all to join the records table with the states table.
-		Raw(`SELECT "states".*, "records"."state", "records"."transaction", "records"."record_type" FROM ( `+
-			`SELECT "transaction", "state", 'spent' AS "record_type" FROM "state_spend_records" WHERE "transaction" = ? `+
+		Raw(`SELECT "states".*, "records"."state", "records"."transaction", "records"."record_type", "records"."position" FROM ( `+
+			`SELECT "transaction", "state", 'spent' AS "record_type", CAST(NULL AS INT) AS "position" FROM "state_spend_records" WHERE "transaction" = ? `+
 			`  AND NOT EXISTS (SELECT 1 FROM "state_nullifiers" WHERE "state_nullifiers"."id" = "state_spend_records"."state") `+
 			`UNION ALL `+
-			`SELECT "transaction", "state", 'read'      AS "record_type" FROM "state_read_records"    WHERE "transaction" = ? UNION ALL `+
-			`SELECT "transaction", "state", 'confirmed' AS "record_type" FROM "state_confirm_records" WHERE "transaction" = ? UNION ALL `+
-			`SELECT "transaction", "state", 'info'      AS "record_type" FROM "state_info_records"    WHERE "transaction" = ? `+
+			`SELECT "transaction", "state", 'read'      AS "record_type", CAST(NULL AS INT) AS "position" FROM "state_read_records"    WHERE "transaction" = ? UNION ALL `+
+			`SELECT "transaction", "state", 'confirmed' AS "record_type", CAST(NULL AS INT) AS "position" FROM "state_confirm_records" WHERE "transaction" = ? UNION ALL `+
+			`SELECT "transaction", "state", 'info'      AS "record_type", "position"                      FROM "state_info_records"    WHERE "transaction" = ? `+
 			`) AS "records" LEFT JOIN "states" ON "states"."id" = "records"."state" `+
 			`UNION ALL `+
-			`SELECT "states".*, "sn"."id" AS "state", "sr"."transaction", 'spent' AS "record_type" `+
+			`SELECT "states".*, "sn"."id" AS "state", "sr"."transaction", 'spent' AS "record_type", CAST(NULL AS INT) AS "position" `+
 			`FROM "state_spend_records" "sr" `+
 			`JOIN "state_nullifiers" "sn" ON "sn"."id" = "sr"."state" `+
 			`LEFT JOIN "states" ON "states"."id" = "sn"."state" `+
@@ -223,7 +224,32 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 	hasUnavailable := false
 	unavailable := &pldapi.UnavailableStates{}
 	txStates := &pldapi.TransactionStates{
-		None: len(records) == 0, // if we have no confirmation records at all then this is an unknown transaction
+		None:        len(records) == 0, // if we have no confirmation records at all then this is an unknown transaction
+		InfoOrdered: true,
+	}
+	var infoRecords []*transactionStateRecord
+	for _, s := range records {
+		if s.RecordType == "info" {
+			infoRecords = append(infoRecords, s)
+			if s.Position == nil {
+				// Recorded before positions were, so the order is unknown
+				txStates.InfoOrdered = false
+			}
+		}
+	}
+	if txStates.InfoOrdered && len(infoRecords) > 0 {
+		slices.SortFunc(infoRecords, func(a, b *transactionStateRecord) int {
+			return *a.Position - *b.Position
+		})
+		txStates.FirstInfo = infoRecords[0].State
+	}
+	for _, s := range infoRecords {
+		if s.ID == nil {
+			hasUnavailable = true
+			unavailable.Info = append(unavailable.Info, s.State)
+		} else {
+			txStates.Info = append(txStates.Info, &s.StateBase)
+		}
 	}
 	for _, s := range records {
 		switch s.RecordType {
@@ -247,13 +273,6 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 				unavailable.Confirmed = append(unavailable.Confirmed, s.State)
 			} else {
 				txStates.Confirmed = append(txStates.Confirmed, &s.StateBase)
-			}
-		case "info":
-			if s.ID == nil {
-				hasUnavailable = true
-				unavailable.Info = append(unavailable.Info, s.State)
-			} else {
-				txStates.Info = append(txStates.Info, &s.StateBase)
 			}
 		}
 	}

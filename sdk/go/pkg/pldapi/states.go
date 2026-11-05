@@ -147,6 +147,8 @@ type TransactionStates struct {
 	Confirmed   []*StateBase       `docstruct:"TransactionStates" json:"confirmed,omitempty"`
 	Info        []*StateBase       `docstruct:"TransactionStates" json:"info,omitempty"`
 	Unavailable *UnavailableStates `docstruct:"TransactionStates" json:"unavailable,omitempty"` // nil if we have the data for all states
+	InfoOrdered bool               `json:"-"`                                                   // true if Info and Unavailable.Info are each in the order the domain reported them
+	FirstInfo   pldtypes.HexBytes  `json:"-"`                                                   // when InfoOrdered, the ID of the first info state the domain reported, whether or not it is available
 }
 
 func (ts *TransactionStates) FirstUnavailable() pldtypes.HexBytes {
@@ -225,6 +227,7 @@ type StateInfoRecord struct {
 	DomainName  string            `json:"-"                 gorm:"primaryKey"`
 	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
 	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction" gorm:"primaryKey"`
+	Position    int               `json:"-"` // index among the transaction's info states, in the order the domain reported them
 }
 
 

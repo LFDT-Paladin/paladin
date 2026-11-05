@@ -34,8 +34,8 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 	infoStates := n.filterSchema(req.InfoStates, []string{n.dataSchemaV0.Id, n.dataSchemaV1.Id, n.dataSchemaV2.Id})
 	var variant pldtypes.HexUint64
 	if len(infoStates) > 0 {
-		// For prepareUnlock we have two data states - one for the unlockData, and one for the prepareUnlock data.
-		// So we take the last one in the list
+		// A transaction that prepares a lock spend and cancel also has a data state for the unlock data,
+		// which it reports before its own, so we take the last one in the list
 		info, err := n.unmarshalInfo(infoStates[len(infoStates)-1].StateDataJson)
 		if err != nil {
 			return nil, err
