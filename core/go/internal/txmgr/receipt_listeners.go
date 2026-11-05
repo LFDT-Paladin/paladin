@@ -1124,6 +1124,11 @@ func (l *receiptListener) runListener() {
 				log.L(l.ctx).Warnf("listener stopping (processing stale gaps): %s", err) // cancelled context
 				return
 			}
+
+			// Closing a gap can unblock receipts that were inserted after the checkpoint while the gap
+			// was open (the head query skipped them, and the gap replay stops at the checkpoint).
+			// Re-read the head so they are delivered now, rather than when the next receipt arrives.
+			newReceipts = true
 		}
 
 		if newReceipts {
