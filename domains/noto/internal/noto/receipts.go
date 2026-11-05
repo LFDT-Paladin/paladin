@@ -34,31 +34,35 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 	infoStates := n.filterSchema(req.InfoStates, []string{n.dataSchemaV0.Id, n.dataSchemaV1.Id, n.dataSchemaV2.Id})
 	var variant pldtypes.HexUint64
 	if len(infoStates) > 0 {
-		// A transaction that prepares a lock spend and cancel also has a data state for the unlock data,
-		// which it reports before its own, so we take the last one in the list
+		// We have at least one data state (the manifest has already been removed).
+		// A transaction that prepares a lock spend and cancel has two:
+		// 1. the unlock data
+		// 2. the transaction's own receipt data
+		// So we take the last one, and the variant from it.
 		info, err := n.unmarshalInfo(infoStates[len(infoStates)-1].StateDataJson)
 		if err != nil {
 			return nil, err
 		}
 		variant = info.Variant
 
-		// The data states share a schema, so if one of them is unavailable the last available one might not be
-		// the transaction's own. Every data state is distributed to everyone in the transaction, so we only trust
-		// the data when we have every state the manifest lists for us. The variant and sender are the same in
-		// each data state, so are safe to use regardless.
-		dataComplete := true
+		// Whether that last data state is the receipt data depends on what we have:
+		// 1. V0 - there is no manifest, and every party receives every data state, so it is the receipt data.
+		// 2. V1+, and we have every state the manifest lists for us. So we know the last data state is the receipt data.
+		// 3. V1+, and the manifest shows we're missing some states (or the whole manifest was missing). Don't use it
+		// Note: Case (3) is only possible if we're asked for a receipt before waiting for all states to arrive.
+		haveRequiredStates := true
 		if req.UnavailableStates && variant != types.NotoVariantV0 {
-			if dataComplete, err = n.hasRequiredStates(ctx, req); err != nil {
-				return nil, err
+			if haveRequiredStates, err = n.hasRequiredStates(ctx, req); err != nil {
+				return nil, err // failed to decode the manifest, or to look up our keys
 			}
 		}
-		if dataComplete {
+		if haveRequiredStates {
 			receipt.Data = info.Data
 		} else {
 			log.L(ctx).Debugf("Omitting data from receipt for transaction %s as states it requires are unavailable", req.TransactionId)
 		}
 
-		// Extract requester information from TransactionData info state
+		// The sender is the same in every data state, as they are all built from this transaction
 		if info.From != nil {
 			receipt.Sender = info.From
 		}
