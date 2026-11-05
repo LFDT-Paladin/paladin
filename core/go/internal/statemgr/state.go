@@ -42,7 +42,7 @@ type transactionStateRecord struct {
 	pldapi.StateBase
 	State          pldtypes.HexBytes `gorm:"column:state"`
 	RecordType     string            `gorm:"column:record_type"`
-	Position       *int              `gorm:"column:position"`
+	Index          *int              `gorm:"column:idx"` // nil for records written before indexes were recorded
 	SpentState     pldtypes.HexBytes `gorm:"column:spent_state"`
 	ReadState      pldtypes.HexBytes `gorm:"column:read_state"`
 	ConfirmedState pldtypes.HexBytes `gorm:"column:confirmed_state"`

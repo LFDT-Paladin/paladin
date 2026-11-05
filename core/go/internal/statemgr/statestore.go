@@ -28,6 +28,7 @@ import (
 	statemetrics "github.com/LFDT-Paladin/paladin/core/internal/statemgr/metrics"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
@@ -201,16 +202,16 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 		// Previously we used OR join condition to join the records table with the states table.
 		// This prevented the planner from using the states.id index, forcing a full table scan.
 		// Instead we use union all to join the records table with the states table.
-		Raw(`SELECT "states".*, "records"."state", "records"."transaction", "records"."record_type", "records"."position" FROM ( `+
-			`SELECT "transaction", "state", 'spent' AS "record_type", CAST(NULL AS INT) AS "position" FROM "state_spend_records" WHERE "transaction" = ? `+
+		Raw(`SELECT "states".*, "records"."state", "records"."transaction", "records"."record_type", "records"."idx" FROM ( `+
+			`SELECT "transaction", "state", 'spent' AS "record_type", "idx" FROM "state_spend_records" WHERE "transaction" = ? `+
 			`  AND NOT EXISTS (SELECT 1 FROM "state_nullifiers" WHERE "state_nullifiers"."id" = "state_spend_records"."state") `+
 			`UNION ALL `+
-			`SELECT "transaction", "state", 'read'      AS "record_type", CAST(NULL AS INT) AS "position" FROM "state_read_records"    WHERE "transaction" = ? UNION ALL `+
-			`SELECT "transaction", "state", 'confirmed' AS "record_type", CAST(NULL AS INT) AS "position" FROM "state_confirm_records" WHERE "transaction" = ? UNION ALL `+
-			`SELECT "transaction", "state", 'info'      AS "record_type", "position"                      FROM "state_info_records"    WHERE "transaction" = ? `+
+			`SELECT "transaction", "state", 'read'      AS "record_type", "idx" FROM "state_read_records"    WHERE "transaction" = ? UNION ALL `+
+			`SELECT "transaction", "state", 'confirmed' AS "record_type", "idx" FROM "state_confirm_records" WHERE "transaction" = ? UNION ALL `+
+			`SELECT "transaction", "state", 'info'      AS "record_type", "idx" FROM "state_info_records"    WHERE "transaction" = ? `+
 			`) AS "records" LEFT JOIN "states" ON "states"."id" = "records"."state" `+
 			`UNION ALL `+
-			`SELECT "states".*, "sn"."id" AS "state", "sr"."transaction", 'spent' AS "record_type", CAST(NULL AS INT) AS "position" `+
+			`SELECT "states".*, "sn"."id" AS "state", "sr"."transaction", 'spent' AS "record_type", "sr"."idx" `+
 			`FROM "state_spend_records" "sr" `+
 			`JOIN "state_nullifiers" "sn" ON "sn"."id" = "sr"."state" `+
 			`LEFT JOIN "states" ON "states"."id" = "sn"."state" `+
@@ -221,65 +222,55 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 	if err != nil {
 		return nil, err
 	}
+
+	byType := make(map[string][]*transactionStateRecord)
+	for _, s := range records {
+		byType[s.RecordType] = append(byType[s.RecordType], s)
+	}
+
+	// Return each type in the order the domain reported it when indexing the transaction.
+	for _, typeRecords := range byType {
+		sortRecordsByIndex(typeRecords)
+	}
+
 	hasUnavailable := false
 	unavailable := &pldapi.UnavailableStates{}
 	txStates := &pldapi.TransactionStates{
-		None:        len(records) == 0, // if we have no confirmation records at all then this is an unknown transaction
-		InfoOrdered: true,
+		None: len(records) == 0, // if we have no confirmation records at all then this is an unknown transaction
 	}
-	var infoRecords []*transactionStateRecord
-	for _, s := range records {
-		if s.RecordType == "info" {
-			infoRecords = append(infoRecords, s)
-			if s.Position == nil {
-				// Recorded before positions were, so the order is unknown
-				txStates.InfoOrdered = false
-			}
-		}
-	}
-	if txStates.InfoOrdered && len(infoRecords) > 0 {
-		slices.SortFunc(infoRecords, func(a, b *transactionStateRecord) int {
-			return *a.Position - *b.Position
-		})
-		txStates.FirstInfo = infoRecords[0].State
-	}
-	for _, s := range infoRecords {
-		if s.ID == nil {
-			hasUnavailable = true
-			unavailable.Info = append(unavailable.Info, s.State)
-		} else {
-			txStates.Info = append(txStates.Info, &s.StateBase)
-		}
-	}
-	for _, s := range records {
-		switch s.RecordType {
-		case "spent":
+	split := func(typeRecords []*transactionStateRecord) (available []*pldapi.StateBase, unavailableIDs []pldtypes.HexBytes) {
+		for _, s := range typeRecords {
 			if s.ID == nil {
 				hasUnavailable = true
-				unavailable.Spent = append(unavailable.Spent, s.State)
+				unavailableIDs = append(unavailableIDs, s.State)
 			} else {
-				txStates.Spent = append(txStates.Spent, &s.StateBase)
-			}
-		case "read":
-			if s.ID == nil {
-				hasUnavailable = true
-				unavailable.Read = append(unavailable.Read, s.State)
-			} else {
-				txStates.Read = append(txStates.Read, &s.StateBase)
-			}
-		case "confirmed":
-			if s.ID == nil {
-				hasUnavailable = true
-				unavailable.Confirmed = append(unavailable.Confirmed, s.State)
-			} else {
-				txStates.Confirmed = append(txStates.Confirmed, &s.StateBase)
+				available = append(available, &s.StateBase)
 			}
 		}
+		return available, unavailableIDs
 	}
+	txStates.Spent, unavailable.Spent = split(byType["spent"])
+	txStates.Read, unavailable.Read = split(byType["read"])
+	txStates.Confirmed, unavailable.Confirmed = split(byType["confirmed"])
+	txStates.Info, unavailable.Info = split(byType["info"])
+
 	// Only set to non-nil if we have unavailable
 	if hasUnavailable {
 		txStates.Unavailable = unavailable
 	}
 	return txStates, nil
 
+}
+
+// sortRecordsByIndex sorts the records of one type by the index the domain reported them in, leaving them
+// in DB order if any were recorded before indexes were
+func sortRecordsByIndex(records []*transactionStateRecord) {
+	for _, s := range records {
+		if s.Index == nil {
+			return
+		}
+	}
+	slices.SortStableFunc(records, func(a, b *transactionStateRecord) int {
+		return *a.Index - *b.Index
+	})
 }

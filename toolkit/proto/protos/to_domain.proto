@@ -198,9 +198,9 @@ message ExecCallResponse {
 // **RECEIPT** given the available details of a confirmed transation, returns a domain specific receipt payload that an application can process
 message BuildReceiptRequest {
   string transaction_id = 1; // the transaction ID
-  repeated EndorsableState input_states = 3; // available input states
-  repeated EndorsableState read_states = 4; // available read states
-  repeated EndorsableState output_states = 5; // available output states
+  repeated EndorsableState input_states = 3; // available input states, in the order the domain reported them when the transaction was indexed
+  repeated EndorsableState read_states = 4; // available read states, in the order the domain reported them when the transaction was indexed
+  repeated EndorsableState output_states = 5; // available output states, in the order the domain reported them when the transaction was indexed
   repeated EndorsableState info_states = 6; // available info states, in the order the domain reported them when the transaction was indexed
   bool unavailable_states = 7; // some domains only process complete data sets. If true, then there were additional states referenced in this request, but which are not currently available.
 }
@@ -219,6 +219,10 @@ message HandleEventBatchRequest {
   repeated OnChainEvent events = 4; // The list of events from the block indexer
 }
 
+// The spent, read, confirmed and info states are each an ordered list per transaction, and Paladin returns them
+// in that order whenever it passes the transaction's states back to the domain.
+// Domains that support partial state availability should report the transaction's manifest as its first info state,
+// so that when the manifest is unavailable it is the first_unavailable_id passed to CheckStateCompletion.
 message HandleEventBatchResponse {
   repeated CompletedTransaction transactions_complete = 1; // A list of Paladin transactions that may be considered complete
   repeated StateUpdate spent_states = 2; // A list of states that are now spent
@@ -273,18 +277,22 @@ message InvokeRPCResponse {
 }
 
 message UnavailableStates {
-  optional string first_unavailable_id = 1; // convenience check - set in the order info, input, output, read
-  repeated string input_state_ids = 2; // unavailable input state ids
-  repeated string read_state_ids = 3; // unavailable read state ids
-  repeated string output_state_ids = 4; // unavailable output state ids
-  repeated string info_state_ids = 5; // unavailable info state ids
+  optional string first_unavailable_id = 1; // convenience check - set in the order info, input, output, read, and within each in the order the domain reported them when the transaction was indexed
+  repeated string input_state_ids = 2; // unavailable input state ids, in the order the domain reported them when the transaction was indexed
+  repeated string read_state_ids = 3; // unavailable read state ids, in the order the domain reported them when the transaction was indexed
+  repeated string output_state_ids = 4; // unavailable output state ids, in the order the domain reported them when the transaction was indexed
+  repeated string info_state_ids = 5; // unavailable info state ids, in the order the domain reported them when the transaction was indexed
 }
 
+// A domain using a manifest cannot recognize it from its ID alone when it is unavailable. If the manifest is not
+// among the available info states, the domain should return first_unavailable_id, which is the manifest when
+// the domain reported it as the first info state. The exception is transactions indexed before Paladin recorded
+// state order, where the order of states is not known.
 message CheckStateCompletionRequest {
   string transaction_id = 1; // the transaction ID
-  repeated EndorsableState input_states = 2; // available input states
-  repeated EndorsableState read_states = 3; // available read states
-  repeated EndorsableState output_states = 4; // available output states
+  repeated EndorsableState input_states = 2; // available input states, in the order the domain reported them when the transaction was indexed
+  repeated EndorsableState read_states = 3; // available read states, in the order the domain reported them when the transaction was indexed
+  repeated EndorsableState output_states = 4; // available output states, in the order the domain reported them when the transaction was indexed
   repeated EndorsableState info_states = 5; // available info states, in the order the domain reported them when the transaction was indexed
   UnavailableStates unavailable_states = 6; // details of unavailable states by classification, including a pre-calculated boolean for a quick completion check
 }

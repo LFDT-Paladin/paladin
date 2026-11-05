@@ -736,12 +736,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 			//
 			// This avoids the need for every transaction from every participant in the network to be
 			// passed to the domain for complex processing when we have zero states.
-			//
-			// Info states recorded before order was captured don't say which is first, so for those we
-			// can only tell the manifest is missing when every info state is.
-			if fr.States.InfoOrdered && len(fr.States.Unavailable.Info) > 0 && fr.States.Unavailable.Info[0].Equals(fr.States.FirstInfo) {
-				nextMissingStateID = fr.States.FirstInfo
-			} else if !fr.States.InfoOrdered && len(fr.States.Info) == 0 && len(fr.States.Unavailable.Info) > 0 {
+			if len(fr.States.Info) == 0 && len(fr.States.Unavailable.Info) > 0 {
 				// We don't have the manifest - no point in calling the domain.
 				// Trigger again when the first info state is available.
 				nextMissingStateID = fr.States.Unavailable.Info[0]

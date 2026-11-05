@@ -147,8 +147,6 @@ type TransactionStates struct {
 	Confirmed   []*StateBase       `docstruct:"TransactionStates" json:"confirmed,omitempty"`
 	Info        []*StateBase       `docstruct:"TransactionStates" json:"info,omitempty"`
 	Unavailable *UnavailableStates `docstruct:"TransactionStates" json:"unavailable,omitempty"` // nil if we have the data for all states
-	InfoOrdered bool               `json:"-"`                                                   // true if Info and Unavailable.Info are each in the order the domain reported them
-	FirstInfo   pldtypes.HexBytes  `json:"-"`                                                   // when InfoOrdered, the ID of the first info state the domain reported, whether or not it is available
 }
 
 func (ts *TransactionStates) FirstUnavailable() pldtypes.HexBytes {
@@ -192,6 +190,7 @@ type StateConfirmRecord struct {
 	DomainName  string            `json:"-"                 gorm:"primaryKey"`
 	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
 	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction"`
+	Index       int               `json:"-"                 gorm:"column:idx"`
 }
 
 // A spend record is written when indexing the blockchain, and can be written regardless
@@ -209,6 +208,7 @@ type StateSpendRecord struct {
 	DomainName  string            `json:"-"                 gorm:"primaryKey"`
 	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
 	Transaction uuid.UUID         `docstruct:"StateSpend" json:"transaction"`
+	Index       int               `json:"-"                 gorm:"column:idx"`
 }
 
 // We also record when we simply read a state during a transaction, without creating or
@@ -218,6 +218,7 @@ type StateReadRecord struct {
 	DomainName  string            `json:"-"                 gorm:"primaryKey"`
 	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
 	Transaction uuid.UUID         `docstruct:"StateRead"    json:"transaction" gorm:"primaryKey"`
+	Index       int               `json:"-"                 gorm:"column:idx"`
 }
 
 // Transactions can also refer to state that never exists before or after the transaction.
@@ -227,9 +228,8 @@ type StateInfoRecord struct {
 	DomainName  string            `json:"-"                 gorm:"primaryKey"`
 	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
 	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction" gorm:"primaryKey"`
-	Position    int               `json:"-"` // index among the transaction's info states, in the order the domain reported them
+	Index       int               `json:"-"                 gorm:"column:idx"`
 }
-
 
 // State nullifiers are used when a domain chooses to use a separate identifier
 // specifically for spending states (i.e. not the state ID).
