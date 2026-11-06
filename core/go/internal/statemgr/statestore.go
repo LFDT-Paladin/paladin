@@ -262,8 +262,8 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 
 }
 
-// sortRecordsByIndex sorts the by the idx stored in the DB, or leave in DB order if any were recorded
-// before indexes were added.
+// sortRecordsByIndex sorts the records by the idx stored in the DB. If any were recorded before indexes were
+// added, they are left in the order the query returned them, which is not guaranteed to be insertion order.
 func sortRecordsByIndex(records []*transactionStateRecord) {
 	for _, s := range records {
 		if s.Index == nil {

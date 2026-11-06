@@ -415,7 +415,7 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 		return nil, err
 	}
 
-	// The domain returns flat a flat lists of all state updates, across all transactions in the event batch.
+	// The domain returns a flat list of all state updates, across all transactions in the event batch.
 	// We add a per-transaction, per-type index to these - so within each group later we can preserve the order.
 	nextIndex := func(nextIndexByTxID map[uuid.UUID]int, txID uuid.UUID) int {
 		idx := nextIndexByTxID[txID]
