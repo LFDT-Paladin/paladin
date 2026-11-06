@@ -1121,7 +1121,7 @@ func TestProcessStaleGapFailRetryingReadGapPage(t *testing.T) {
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
 
-	err = l.processStaleGaps()
+	_, err = l.processStaleGaps()
 	assert.Regexp(t, "pop", err)
 	close(l.done)
 
@@ -1149,7 +1149,7 @@ func TestProcessStaleGapFailRetryingReadPage(t *testing.T) {
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
 
-	err = l.processStaleGaps()
+	_, err = l.processStaleGaps()
 	assert.Regexp(t, "pop", err)
 	close(l.done)
 
@@ -1179,7 +1179,7 @@ func TestProcessStaleGapFailRetryingProcessPage(t *testing.T) {
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
 
-	err = l.processStaleGaps()
+	_, err = l.processStaleGaps()
 	assert.Regexp(t, "pop", err)
 	close(l.done)
 
@@ -1215,7 +1215,7 @@ func TestProcessStaleGapFailRetryingUpdateGapForPage(t *testing.T) {
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
 
-	err = l.processStaleGaps()
+	_, err = l.processStaleGaps()
 	assert.Regexp(t, "pop", err)
 	close(l.done)
 
