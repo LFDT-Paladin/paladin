@@ -415,33 +415,44 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 		return nil, err
 	}
 
+	// The domain returns a flat list of all state updates, across all transactions in the event batch.
+	// We add a per-transaction, per-type index to these - so within each group later we can preserve the order.
+	nextIndex := func(nextIndexByTxID map[uuid.UUID]int, txID uuid.UUID) int {
+		idx := nextIndexByTxID[txID]
+		nextIndexByTxID[txID] = idx + 1
+		return idx
+	}
+
+	nextSpendIndexes := make(map[uuid.UUID]int)
 	stateSpends := make([]*pldapi.StateSpendRecord, len(res.SpentStates))
 	for i, state := range res.SpentStates {
 		txUUID, stateID, err := d.prepareIndexRecord(ctx, state.TransactionId, state.Id)
 		if err != nil {
 			return nil, err
 		}
-		stateSpends[i] = &pldapi.StateSpendRecord{DomainName: d.name, State: stateID, Transaction: txUUID}
+		stateSpends[i] = &pldapi.StateSpendRecord{DomainName: d.name, State: stateID, Transaction: txUUID, Index: nextIndex(nextSpendIndexes, txUUID)}
 	}
 
+	nextReadIndexes := make(map[uuid.UUID]int)
 	stateReads := make([]*pldapi.StateReadRecord, len(res.ReadStates))
 	for i, state := range res.ReadStates {
 		txUUID, stateID, err := d.prepareIndexRecord(ctx, state.TransactionId, state.Id)
 		if err != nil {
 			return nil, err
 		}
-		stateReads[i] = &pldapi.StateReadRecord{DomainName: d.name, State: stateID, Transaction: txUUID}
+		stateReads[i] = &pldapi.StateReadRecord{DomainName: d.name, State: stateID, Transaction: txUUID, Index: nextIndex(nextReadIndexes, txUUID)}
 	}
 
 	// Only confirmed states are tracked for the completion index
 	confirmedStateIDsByTX := make(map[uuid.UUID]map[string]pldtypes.HexBytes)
+	nextConfirmIndexes := make(map[uuid.UUID]int)
 	stateConfirms := make([]*pldapi.StateConfirmRecord, len(res.ConfirmedStates))
 	for i, state := range res.ConfirmedStates {
 		txUUID, stateID, err := d.prepareIndexRecord(ctx, state.TransactionId, state.Id)
 		if err != nil {
 			return nil, err
 		}
-		stateConfirms[i] = &pldapi.StateConfirmRecord{DomainName: d.name, State: stateID, Transaction: txUUID}
+		stateConfirms[i] = &pldapi.StateConfirmRecord{DomainName: d.name, State: stateID, Transaction: txUUID, Index: nextIndex(nextConfirmIndexes, txUUID)}
 		if d.FullStateAvailablityRequired() {
 			if len(stateID) > 0 {
 				if confirmedStateIDsByTX[txUUID] == nil {
@@ -453,12 +464,13 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 	}
 
 	stateInfoRecords := make([]*pldapi.StateInfoRecord, len(res.InfoStates))
+	nextInfoIndexes := make(map[uuid.UUID]int)
 	for i, state := range res.InfoStates {
 		txUUID, stateID, err := d.prepareIndexRecord(ctx, state.TransactionId, state.Id)
 		if err != nil {
 			return nil, err
 		}
-		stateInfoRecords[i] = &pldapi.StateInfoRecord{DomainName: d.name, State: stateID, Transaction: txUUID}
+		stateInfoRecords[i] = &pldapi.StateInfoRecord{DomainName: d.name, State: stateID, Transaction: txUUID, Index: nextIndex(nextInfoIndexes, txUUID)}
 	}
 
 	newStates := make([]*components.StateUpsertOutsideContext, 0)
@@ -486,7 +498,7 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 		})
 
 		// These have implicit confirmations
-		stateConfirms = append(stateConfirms, &pldapi.StateConfirmRecord{DomainName: d.name, State: id, Transaction: *txUUID})
+		stateConfirms = append(stateConfirms, &pldapi.StateConfirmRecord{DomainName: d.name, State: id, Transaction: *txUUID, Index: nextIndex(nextConfirmIndexes, *txUUID)})
 	}
 
 	// Write any new states first
