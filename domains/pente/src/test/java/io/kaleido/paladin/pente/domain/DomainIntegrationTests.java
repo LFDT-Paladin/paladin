@@ -223,7 +223,8 @@ public class DomainIntegrationTests {
                             JsonABI.newParameter("bytecode", "bytes"),
                             JsonABI.newTuple("inputs", "", JsonABI.newParameters(
                                     JsonABI.newParameter("name", "string"),
-                                    JsonABI.newParameter("symbol", "string")
+                                    JsonABI.newParameter("symbol", "string"),
+                                    JsonABI.newParameter("notary", "address")
                             ))
                     ),
                     JsonABI.newParameters()
@@ -333,6 +334,8 @@ public class DomainIntegrationTests {
             assertFalse(penteInstanceAddress.isBlank());
 
             // Deploy NotoTracker to the privacy group
+            String notaryAddress = testbed.getRpcClient().request("testbed_resolveVerifier",
+                    "notary", Algorithms.ECDSA_SECP256K1, Verifiers.ETH_ADDRESS);
             String notoTrackerBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
                     "contracts/private/NotoTrackerERC20.sol/NotoTrackerERC20.json",
@@ -351,6 +354,7 @@ public class DomainIntegrationTests {
                                         put("inputs", new HashMap<>() {{
                                             put("name", "NOTO");
                                             put("symbol", "NOTO");
+                                            put("notary", notaryAddress);
                                         }});
                                     }},
                                     notoTrackerABI,
