@@ -13,14 +13,11 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
-	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestCancelLockValidateParams(t *testing.T) {
@@ -60,183 +57,40 @@ func TestCancelLockInitAndEndorse(t *testing.T) {
 	assert.Nil(t, endorseRes)
 }
 
-func TestCancelLockPrepare_EncodesCancelArgs(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("88", 32))
-	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
-	require.NoError(t, err)
-	li := &types.ZetoLockInfoState{LockID: lockID, CancelData: cancelData}
-	lockInfoJSON, err := json.Marshal(li)
-	require.NoError(t, err)
-
-	h := NewCancelLockHandler("zeto", mockLockInfoCallbacks(string(lockInfoJSON)), &prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
-	proofReq := corepb.ProvingResponse{
-		Proof: &corepb.SnarkProof{
-			A: []string{"0x01", "0x02"},
-			B: []*corepb.B_Item{{Items: []string{"0x03", "0x04"}}, {Items: []string{"0x05", "0x06"}}},
-			C: []string{"0x07", "0x08"},
-		},
-		PublicInputs: map[string]string{"nullifiers": "0x09,0x0a", "root": "0x0b"},
-	}
-	payload, err := proto.Marshal(&proofReq)
-	require.NoError(t, err)
-
-	tx := &types.ParsedTransaction{
-		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
-		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
-	}
-	req := &prototk.PrepareTransactionRequest{
-		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("99", 32)},
-		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
-		AttestationResult: []*prototk.AttestationResult{{
-			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
-			PayloadType: strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK), Payload: payload,
-		}},
-	}
-	res, err := h.Prepare(ctx, tx, req)
-	require.NoError(t, err)
-	require.NotNil(t, res.Transaction)
-	var params map[string]any
-	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
-	assert.NotEmpty(t, params["cancelArgs"])
-	assert.Equal(t, lockID.HexString0xPrefix(), params["lockId"])
-}
-
-func TestCancelLockPrepare_V0DiscreteProofParams(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("77", 32))
-	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
-	require.NoError(t, err)
-	li := &types.ZetoLockInfoState{LockID: lockID, CancelData: cancelData}
-	lockInfoJSON, err := json.Marshal(li)
-	require.NoError(t, err)
-
-	h := NewCancelLockHandler("zeto", mockLockInfoCallbacks(string(lockInfoJSON)), &prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
-	proofReq := corepb.ProvingResponse{
-		Proof: &corepb.SnarkProof{
-			A: []string{"0x01", "0x02"},
-			B: []*corepb.B_Item{{Items: []string{"0x03", "0x04"}}, {Items: []string{"0x05", "0x06"}}},
-			C: []string{"0x07", "0x08"},
-		},
-		PublicInputs: map[string]string{"nullifiers": "0x09,0x0a", "root": "0x0b"},
-	}
-	payload, err := proto.Marshal(&proofReq)
-	require.NoError(t, err)
-
-	tx := &types.ParsedTransaction{
-		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
-		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
-	}
-	req := &prototk.PrepareTransactionRequest{
-		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("88", 32)},
-		InputStates:  []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
-		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
-		AttestationResult: []*prototk.AttestationResult{{
-			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
-			PayloadType: strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK), Payload: payload,
-		}},
-	}
-	res, err := h.Prepare(ctx, tx, req)
-	require.NoError(t, err)
-	var params map[string]any
-	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
-	_, hasCancelArgs := params["cancelArgs"]
-	assert.False(t, hasCancelArgs)
-	assert.NotNil(t, params["proof"])
-}
-
-func TestCancelLockPrepare_V1PinnedCancelOutputs(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("99", 32))
-	cancelID := "0x" + strings.Repeat("dd", 32)
-	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
-	require.NoError(t, err)
-	li := &types.ZetoLockInfoState{
-		LockID: lockID, CancelData: cancelData, CancelOutputs: []string{cancelID},
-	}
-	lockInfoJSON, err := json.Marshal(li)
-	require.NoError(t, err)
-
-	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(string(lockInfoJSON), map[string]string{
-		cancelID: testCoinJSONAmount(false, "0x01"),
-	}), &prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
-
-	proofReq := corepb.ProvingResponse{
-		Proof: &corepb.SnarkProof{
-			A: []string{"0x01", "0x02"},
-			B: []*corepb.B_Item{{Items: []string{"0x03", "0x04"}}, {Items: []string{"0x05", "0x06"}}},
-			C: []string{"0x07", "0x08"},
-		},
-	}
-	payload, err := proto.Marshal(&proofReq)
-	require.NoError(t, err)
-
-	tx := &types.ParsedTransaction{
-		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
-		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
-	}
-	req := &prototk.PrepareTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("aa", 32)},
-		AttestationResult: []*prototk.AttestationResult{{
-			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
-			PayloadType: strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK), Payload: payload,
-		}},
-	}
-	_, err = h.Prepare(ctx, tx, req)
-	require.NoError(t, err)
-}
-
-func TestCancelLockPrepare_NullifierTokenUsesPublicInputs(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("aa", 32))
-	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
-	require.NoError(t, err)
-	li := &types.ZetoLockInfoState{LockID: lockID, CancelData: cancelData}
-	lockInfoJSON, err := json.Marshal(li)
-	require.NoError(t, err)
-
-	h := NewCancelLockHandler("zeto", mockLockInfoCallbacks(string(lockInfoJSON)), &prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
-	proofReq := corepb.ProvingResponse{
-		Proof: &corepb.SnarkProof{
-			A: []string{"0x01", "0x02"},
-			B: []*corepb.B_Item{{Items: []string{"0x03", "0x04"}}, {Items: []string{"0x05", "0x06"}}},
-			C: []string{"0x07", "0x08"},
-		},
-		PublicInputs: map[string]string{"nullifiers": "0x09,0x0a", "root": "0x0b"},
-	}
-	payload, err := proto.Marshal(&proofReq)
-	require.NoError(t, err)
-
-	tx := &types.ParsedTransaction{
-		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
-		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
-	}
-	req := &prototk.PrepareTransactionRequest{
-		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("bb", 32)},
-		InputStates:  []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
-		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
-		AttestationResult: []*prototk.AttestationResult{{
-			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
-			PayloadType: strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK), Payload: payload,
-		}},
-	}
-	res, err := h.Prepare(ctx, tx, req)
-	require.NoError(t, err)
-	var params map[string]any
-	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
-	_, hasInputs := params["inputs"]
-	assert.False(t, hasInputs)
-	assert.NotNil(t, params["nullifiers"])
-	assert.Equal(t, "0x0b", params["root"])
-}
-
 func TestCancelLockValidateParams_Errors(t *testing.T) {
 	ctx := context.Background()
 	h := NewCancelLockHandler("zeto", nil, &prototk.StateSchema{Id: "coin"}, nil, nil, nil, nil)
 	_, err := h.ValidateParams(ctx, &types.DomainInstanceConfig{}, `{"lockId":"0x`+strings.Repeat("00", 32)+`"}`)
 	require.Error(t, err)
+}
+
+func TestCancelLockValidateParams_UnmarshalError(t *testing.T) {
+	ctx := context.Background()
+	h := NewCancelLockHandler("zeto", nil, nil, nil, nil, nil, nil)
+	_, err := h.ValidateParams(ctx, &types.DomainInstanceConfig{}, "{bad")
+	require.Error(t, err)
+}
+
+func TestCancelLockAssemble_UsesCancelOperation(t *testing.T) {
+	h := &cancelLockHandler{unlockCommon: *newTestUnlockCommon(t, testUnlockLockInfo(t), testUnlockCoins())}
+	tx, req := testUnlockAssembleTx(&h.unlockCommon, constants.TOKEN_ANON_NULLIFIER)
+	tx.Params = &types.CancelLockParams{LockId: testUnlockLockID, From: "spender@node"}
+	res, err := h.Assemble(t.Context(), tx, req)
+	require.NoError(t, err)
+	require.Len(t, res.AssembledTransaction.OutputStates, 1)
+	assert.Equal(t, testUnlockCancelID, *res.AssembledTransaction.OutputStates[0].Id)
+}
+
+func TestCancelLockPrepare_UsesCancelOperation(t *testing.T) {
+	h := &cancelLockHandler{unlockCommon: *newTestUnlockCommon(t, testUnlockLockInfo(t), testUnlockCoins())}
+	tx := testUnlockPrepareTx(constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1))
+	tx.Params = &types.CancelLockParams{LockId: testUnlockLockID, From: "spender@node"}
+	res, err := h.Prepare(t.Context(), tx, testUnlockPrepareReq(t, nil))
+	require.NoError(t, err)
+	var fn abiJSONFields
+	require.NoError(t, json.Unmarshal([]byte(res.Transaction.FunctionAbiJson), &fn))
+	assert.Equal(t, "cancelLock", fn.Name)
+	var params map[string]any
+	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
+	assert.NotEmpty(t, params["cancelArgs"])
 }

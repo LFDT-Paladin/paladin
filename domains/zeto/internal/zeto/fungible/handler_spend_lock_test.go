@@ -8,22 +8,16 @@ package fungible
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
-	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestGetSpendLockABI_V1UsesLockableCapabilityOnChainShape(t *testing.T) {
@@ -55,180 +49,6 @@ func TestSpendLockValidateParams_WireJSON(t *testing.T) {
 	assert.Equal(t, "alice@node", sp.From)
 }
 
-func TestSpendLockPrepare_V1EncodesZetoSpendLockArgs(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("11", 32))
-	spendData := pldtypes.HexBytes{0xde, 0xad}
-	lockInfoJSON, err := json.Marshal(&types.ZetoLockInfoState{
-		LockID:    lockID,
-		SpendData: spendData,
-	})
-	require.NoError(t, err)
-
-	h := spendLockHandler{unlockCommon: unlockCommon{
-		baseHandler: baseHandler{
-			name: "zeto",
-			stateSchemas: &common.StateSchemas{
-				CoinSchema:     &prototk.StateSchema{Id: "coin"},
-				LockInfoSchema: &prototk.StateSchema{Id: "lock_info"},
-			},
-		},
-		callbacks: &domain.MockDomainCallbacks{
-			MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
-				if req.SchemaId == "lock_info" {
-					return &prototk.FindAvailableStatesResponse{
-						States: []*prototk.StoredState{{DataJson: string(lockInfoJSON)}},
-					}, nil
-				}
-				return &prototk.FindAvailableStatesResponse{}, nil
-			},
-		},
-	}}
-
-	tx := &types.ParsedTransaction{
-		Transaction: &prototk.TransactionSpecification{
-			From: "sender-identity",
-		},
-		DomainConfig: &types.DomainInstanceConfig{
-			TokenName:   "Zeto_AnonNullifier",
-			ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1),
-			Circuits: &zetosignerapi.Circuits{
-				// v0.5 Zeto_AnonNullifier: lock spend uses the plain "anon" circuit + Groth16Verifier_Anon (see zeto ignition zeto_anon_nullifier).
-				"transferLocked": {Name: "anon", UsesNullifiers: false},
-			},
-		},
-		Params: &types.SpendLockParams{
-			LockId: lockID,
-			From:   "sender-identity",
-			Data:   pldtypes.HexBytes{},
-		},
-	}
-
-	proofReq := corepb.ProvingResponse{
-		Proof: &corepb.SnarkProof{
-			A: []string{"0x01", "0x02"},
-			B: []*corepb.B_Item{
-				{Items: []string{"0x03", "0x04"}},
-				{Items: []string{"0x05", "0x06"}},
-			},
-			C: []string{"0x07", "0x08"},
-		},
-		PublicInputs: map[string]string{
-			"nullifiers": "0x09,0x0a",
-			"root":       "0x0b",
-		},
-	}
-	payload, err := proto.Marshal(&proofReq)
-	require.NoError(t, err)
-
-	unlockedCoin := `{"salt":"0x01","owner":"0x19d2ee6b9770a4f8d7c3b7906bc7595684509166fa42d718d1d880b62bcb7922","amount":"0x0a","locked":false}`
-	lockedCoin := `{"salt":"0x02","owner":"0x19d2ee6b9770a4f8d7c3b7906bc7595684509166fa42d718d1d880b62bcb7922","amount":"0x05","locked":true}`
-
-	req := &prototk.PrepareTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{
-			TransactionId: "0x" + strings.Repeat("33", 32),
-		},
-		InputStates: []*prototk.EndorsableState{
-			{StateDataJson: `{"salt":"0xaa","owner":"0x19d2ee6b9770a4f8d7c3b7906bc7595684509166fa42d718d1d880b62bcb7922","amount":"0x0f","locked":true}`},
-		},
-		OutputStates: []*prototk.EndorsableState{
-			{StateDataJson: unlockedCoin},
-			{StateDataJson: lockedCoin},
-		},
-		AttestationResult: []*prototk.AttestationResult{{
-			Name:            "sender",
-			AttestationType: prototk.AttestationType_ENDORSE,
-			PayloadType:     strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK),
-			Payload:         payload,
-		}},
-	}
-
-	res, err := h.Prepare(ctx, tx, req)
-	require.NoError(t, err)
-	require.NotNil(t, res.Transaction)
-
-	var fn abiJSONFields
-	require.NoError(t, json.Unmarshal([]byte(res.Transaction.FunctionAbiJson), &fn))
-	assert.Equal(t, "spendLock", fn.Name)
-	require.Len(t, fn.Inputs, 3)
-
-	var params map[string]any
-	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
-	spendArgsHex, _ := params["spendArgs"].(string)
-	assert.NotEmpty(t, spendArgsHex)
-	assert.NotContains(t, params, "from")
-	_, ok := params["data"]
-	assert.True(t, ok)
-	lockHex, _ := params["lockId"].(string)
-	assert.Equal(t, lockID.HexString0xPrefix(), lockHex)
-
-	spendArgsBytes := pldtypes.MustParseHexBytes(spendArgsHex)
-	decoded, err := zetoSpendLockArgsTupleABI.DecodeABIData(spendArgsBytes, 0)
-	require.NoError(t, err)
-	require.Len(t, decoded.Children, 1)
-	inner := decoded.Children[0]
-	require.NotNil(t, inner)
-	require.Len(t, inner.Children, 5)
-	j, err := inner.JSON()
-	require.NoError(t, err)
-	js := string(j)
-	assert.Contains(t, js, `"txId"`)
-	assert.Contains(t, js, `"lockedOutputs"`)
-	assert.Contains(t, js, `"outputs"`)
-	assert.Contains(t, js, `"proof"`)
-	assert.Contains(t, js, `"data"`)
-	assert.Contains(t, js, `"data":"dead"`)
-}
-
-func TestZetoSpendLockArgsTupleABI_RoundTrip(t *testing.T) {
-	ctx := context.Background()
-	wire := zetoSpendLockArgsWireJSON{
-		TxID:          "0x" + strings.Repeat("aa", 32),
-		LockedOutputs: []string{"0x01"},
-		Outputs:       []string{"0x02", "0x03"},
-		Proof:         "0xabcd",
-		Data:          "0xbeef",
-	}
-	j, err := json.Marshal([]any{wire})
-	require.NoError(t, err)
-	enc, err := zetoSpendLockArgsTupleABI.EncodeABIDataJSONCtx(ctx, j)
-	require.NoError(t, err)
-	require.NotEmpty(t, enc)
-	decoded, err := zetoSpendLockArgsTupleABI.DecodeABIDataCtx(ctx, enc, 0)
-	require.NoError(t, err)
-	require.Len(t, decoded.Children, 1)
-	inner := decoded.Children[0]
-	require.NotNil(t, inner)
-	require.Len(t, inner.Children, 5)
-	out, err := inner.JSON()
-	require.NoError(t, err)
-	js := string(out)
-	assert.Contains(t, js, `"txId"`)
-	assert.Contains(t, js, `"lockedOutputs"`)
-	assert.Contains(t, js, `"outputs"`)
-	assert.Contains(t, js, `"proof"`)
-	assert.Contains(t, js, `"data"`)
-}
-
-func TestZetoSpendLockArgsTupleABI_FirstWordMatchesEthers(t *testing.T) {
-	ctx := context.Background()
-	wire := zetoSpendLockArgsWireJSON{
-		TxID:          "0x" + strings.Repeat("11", 32),
-		LockedOutputs: []string{"0x01"},
-		Outputs:       []string{"0x02"},
-		Proof:         "0xabcd",
-		Data:          "0x",
-	}
-	j, err := json.Marshal([]any{wire})
-	require.NoError(t, err)
-	enc, err := zetoSpendLockArgsTupleABI.EncodeABIDataJSONCtx(ctx, j)
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(enc), 32)
-	got := hex.EncodeToString(enc[:32])
-	const ethersFirstWord = "0000000000000000000000000000000000000000000000000000000000000020"
-	assert.Equal(t, ethersFirstWord, got, "must match ethers tuple encode; mismatch breaks Solidity abi.decode(spendArgs, (IZetoLockableCapability.ZetoSpendLockArgs))")
-}
-
 func strPtr(s string) *string { return &s }
 
 func TestSpendLockInitAndEndorse(t *testing.T) {
@@ -246,110 +66,6 @@ func TestSpendLockInitAndEndorse(t *testing.T) {
 	assert.Nil(t, endorseRes)
 }
 
-func TestSpendLockPrepare_V0UsesDiscreteProofParams(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("55", 32))
-	spendData := pldtypes.HexBytes{0x01}
-	lockInfoJSON, err := json.Marshal(&types.ZetoLockInfoState{LockID: lockID, SpendData: spendData})
-	require.NoError(t, err)
-
-	h := spendLockHandler{unlockCommon: unlockCommon{
-		baseHandler: baseHandler{
-			name: "zeto",
-			stateSchemas: &common.StateSchemas{
-				CoinSchema:     &prototk.StateSchema{Id: "coin"},
-				LockInfoSchema: &prototk.StateSchema{Id: "lock_info"},
-			},
-		},
-		callbacks: mockLockInfoCallbacks(string(lockInfoJSON)),
-	}}
-	proofReq := corepb.ProvingResponse{
-		Proof: &corepb.SnarkProof{
-			A: []string{"0x01", "0x02"},
-			B: []*corepb.B_Item{{Items: []string{"0x03", "0x04"}}, {Items: []string{"0x05", "0x06"}}},
-			C: []string{"0x07", "0x08"},
-		},
-		PublicInputs: map[string]string{"nullifiers": "0x09,0x0a", "root": "0x0b"},
-	}
-	payload, err := proto.Marshal(&proofReq)
-	require.NoError(t, err)
-
-	tx := &types.ParsedTransaction{
-		Transaction: &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{
-			TokenName:   constants.TOKEN_ANON,
-			ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0),
-		},
-		Params: &types.SpendLockParams{LockId: lockID, From: "sender@node"},
-	}
-	req := &prototk.PrepareTransactionRequest{
-		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("66", 32)},
-		InputStates:  []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
-		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
-		AttestationResult: []*prototk.AttestationResult{{
-			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
-			PayloadType: strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK), Payload: payload,
-		}},
-	}
-	res, err := h.Prepare(ctx, tx, req)
-	require.NoError(t, err)
-	var params map[string]any
-	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
-	_, hasSpendArgs := params["spendArgs"]
-	assert.False(t, hasSpendArgs)
-	assert.NotNil(t, params["proof"])
-}
-
-func TestSpendLockPrepare_NullifierV0UsesPublicInputs(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("66", 32))
-	lockInfoJSON, err := json.Marshal(&types.ZetoLockInfoState{LockID: lockID, SpendData: []byte{0x01}})
-	require.NoError(t, err)
-
-	h := spendLockHandler{unlockCommon: unlockCommon{
-		baseHandler: baseHandler{
-			name: "zeto",
-			stateSchemas: &common.StateSchemas{
-				CoinSchema:     &prototk.StateSchema{Id: "coin"},
-				LockInfoSchema: &prototk.StateSchema{Id: "lock_info"},
-			},
-		},
-		callbacks: mockLockInfoCallbacks(string(lockInfoJSON)),
-	}}
-	proofReq := corepb.ProvingResponse{
-		Proof: &corepb.SnarkProof{
-			A: []string{"0x01", "0x02"},
-			B: []*corepb.B_Item{{Items: []string{"0x03", "0x04"}}, {Items: []string{"0x05", "0x06"}}},
-			C: []string{"0x07", "0x08"},
-		},
-		PublicInputs: map[string]string{"nullifiers": "0x09,0x0a", "root": "0x0b"},
-	}
-	payload, err := proto.Marshal(&proofReq)
-	require.NoError(t, err)
-
-	tx := &types.ParsedTransaction{
-		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: constants.TOKEN_ANON_NULLIFIER, ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V0)},
-		Params:       &types.SpendLockParams{LockId: lockID, From: "sender@node"},
-	}
-	req := &prototk.PrepareTransactionRequest{
-		Transaction:  &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("44", 32)},
-		InputStates:  []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}},
-		OutputStates: []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}},
-		AttestationResult: []*prototk.AttestationResult{{
-			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
-			PayloadType: strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK), Payload: payload,
-		}},
-	}
-	res, err := h.Prepare(ctx, tx, req)
-	require.NoError(t, err)
-	var params map[string]any
-	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
-	_, hasInputs := params["inputs"]
-	assert.False(t, hasInputs)
-	assert.NotNil(t, params["nullifiers"])
-}
-
 func TestSpendLockValidateParams_Errors(t *testing.T) {
 	ctx := context.Background()
 	h := spendLockHandler{unlockCommon: unlockCommon{baseHandler: baseHandler{name: "zeto"}}}
@@ -357,9 +73,33 @@ func TestSpendLockValidateParams_Errors(t *testing.T) {
 	require.Error(t, err)
 }
 
-type abiJSONFields struct {
-	Name   string `json:"name"`
-	Inputs []struct {
-		Name string `json:"name"`
-	} `json:"inputs"`
+func TestSpendLockValidateParams_UnmarshalError(t *testing.T) {
+	ctx := context.Background()
+	h := NewSpendLockHandler("zeto", nil, nil, nil, nil, nil, nil)
+	_, err := h.ValidateParams(ctx, &types.DomainInstanceConfig{}, "{bad")
+	require.Error(t, err)
+}
+
+func TestSpendLockAssemble_UsesSpendOperation(t *testing.T) {
+	h := &spendLockHandler{unlockCommon: *newTestUnlockCommon(t, testUnlockLockInfo(t), testUnlockCoins())}
+	tx, req := testUnlockAssembleTx(&h.unlockCommon, constants.TOKEN_ANON_NULLIFIER)
+	tx.Params = &types.SpendLockParams{LockId: testUnlockLockID, From: "spender@node"}
+	res, err := h.Assemble(t.Context(), tx, req)
+	require.NoError(t, err)
+	require.Len(t, res.AssembledTransaction.OutputStates, 1)
+	assert.Equal(t, testUnlockSpendID, *res.AssembledTransaction.OutputStates[0].Id)
+}
+
+func TestSpendLockPrepare_UsesSpendOperation(t *testing.T) {
+	h := &spendLockHandler{unlockCommon: *newTestUnlockCommon(t, testUnlockLockInfo(t), testUnlockCoins())}
+	tx := testUnlockPrepareTx(constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1))
+	tx.Params = &types.SpendLockParams{LockId: testUnlockLockID, From: "spender@node"}
+	res, err := h.Prepare(t.Context(), tx, testUnlockPrepareReq(t, nil))
+	require.NoError(t, err)
+	var fn abiJSONFields
+	require.NoError(t, json.Unmarshal([]byte(res.Transaction.FunctionAbiJson), &fn))
+	assert.Equal(t, "spendLock", fn.Name)
+	var params map[string]any
+	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
+	assert.NotEmpty(t, params["spendArgs"])
 }

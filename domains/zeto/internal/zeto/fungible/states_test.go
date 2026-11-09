@@ -18,6 +18,7 @@ package fungible
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
@@ -25,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrepareInputs(t *testing.T) {
@@ -89,4 +91,52 @@ func TestClearNullifierSpecs(t *testing.T) {
 	}
 	clearNullifierSpecs(states)
 	assert.Nil(t, states[0].NullifierSpecs)
+}
+
+func TestLoadCoinStatesByIDs_RevertWhenMissing(t *testing.T) {
+	ctx := context.Background()
+	id := "0x" + strings.Repeat("ee", 32)
+	cb := mockLockAssembleCallbacks("", map[string]string{})
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	require.Error(t, err)
+	assert.True(t, revert)
+}
+
+func TestLoadCoinStatesByIDs_SpendOutputLockedReverts(t *testing.T) {
+	ctx := context.Background()
+	id := "0x" + strings.Repeat("ee", 32)
+	cb := mockLockAssembleCallbacks("", map[string]string{id: testCoinJSONAmount(true, "0x01")})
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, false)
+	require.Error(t, err)
+	assert.True(t, revert)
+}
+
+func TestLoadCoinStatesByIDs_InputNotLockedReverts(t *testing.T) {
+	ctx := context.Background()
+	id := "0x" + strings.Repeat("ef", 32)
+	cb := mockLockAssembleCallbacks("", map[string]string{id: testCoinJSONAmount(false, "0x01")})
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	require.Error(t, err)
+	assert.True(t, revert)
+}
+
+func TestLoadCoinStatesByIDs_UnmarshalErrorReverts(t *testing.T) {
+	ctx := context.Background()
+	id := "0x" + strings.Repeat("f0", 32)
+	cb := mockLockAssembleCallbacks("", map[string]string{id: "not-json"})
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	require.Error(t, err)
+	assert.True(t, revert)
+}
+
+func TestLoadCoinStatesByIDs(t *testing.T) {
+	ctx := context.Background()
+	id := "0x" + strings.Repeat("ee", 32)
+	cb := mockLockAssembleCallbacks("", map[string]string{id: testCoinJSONAmount(true, "0x01")})
+	prepared, stored, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	require.NoError(t, err)
+	assert.False(t, revert)
+	require.Len(t, prepared.coins, 1)
+	require.Len(t, stored, 1)
+	assert.True(t, prepared.coins[0].Locked)
 }
