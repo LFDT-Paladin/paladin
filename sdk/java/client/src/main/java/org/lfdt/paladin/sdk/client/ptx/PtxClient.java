@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import org.lfdt.paladin.sdk.client.privacygroup.PrivacyGroupClient;
 import org.lfdt.paladin.sdk.client.rpc.RpcClient;
 import org.lfdt.paladin.sdk.client.tx.TxBuilder;
 import org.lfdt.paladin.sdk.core.abi.ABIDecodedData;
@@ -51,7 +52,8 @@ import org.lfdt.paladin.sdk.core.types.HexBytes;
  * subtype. This covers the full HTTP method surface: the transaction lifecycle (send, prepare,
  * update, call, get and query), receipts, state, prepared and public transactions, stored ABIs,
  * decode, verifier resolution, receipt and blockchain-event listeners, and dispatch queries. The
- * WebSocket-only subscribe/unsubscribe methods are added with the WS transport.
+ * WebSocket subscriptions are available through {@link
+ * org.lfdt.paladin.sdk.client.websocket.WebSocketSubscriptionClient}.
  */
 public final class PtxClient {
 
@@ -86,7 +88,7 @@ public final class PtxClient {
    * @return a new builder bound to this client
    */
   public TxBuilder newTx() {
-    return TxBuilder.on(this);
+    return TxBuilder.on(this, new PrivacyGroupClient(rpc));
   }
 
   /**
