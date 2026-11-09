@@ -164,7 +164,7 @@ func testLockInfoForAssemble(t *testing.T, lockID pldtypes.Bytes32, lockedID, sp
 	require.NoError(t, err)
 	return &types.ZetoLockInfoState{
 		LockID:        lockID,
-		Spender:       "0x74e71b05854ee819cb9397be01c82570a178d019",
+		Spender:       pldtypes.MustEthAddress("0x74e71b05854ee819cb9397be01c82570a178d019"),
 		LockedOutputs: testCommitments(lockedID),
 		SpendOutputs:  testCommitments(spendID),
 		SpendData:     spendData,
@@ -285,54 +285,6 @@ func TestSpendLockAssemble_RevertInsufficientInput(t *testing.T) {
 	require.NotNil(t, res.RevertReason)
 }
 
-func TestSpendLockAssemble_DelegateIdentityResolvedToEth(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("88", 32))
-	lockedID := "0x" + strings.Repeat("aa", 32)
-	spendID := "0x" + strings.Repeat("bb", 32)
-	li := testLockInfoForAssemble(t, lockID, lockedID, spendID, 1)
-	li.Spender = "spender@node"
-	lockInfoJSON, err := json.Marshal(li)
-	require.NoError(t, err)
-
-	h := NewSpendLockHandler("zeto", mockLockAssembleCallbacks(string(lockInfoJSON), map[string]string{
-		lockedID: testCoinJSONAmount(true, "0x01"),
-		spendID:  testCoinJSONAmount(false, "0x01"),
-	}), testAssembleSchemas().CoinSchema, testAssembleSchemas().MerkleTreeRootSchema, testAssembleSchemas().MerkleTreeNodeSchema, nil, testAssembleSchemas().LockInfoSchema)
-
-	tx := &types.ParsedTransaction{
-		Transaction: &prototk.TransactionSpecification{
-			From: "spender@node",
-			ContractInfo: &prototk.ContractInfo{
-				ContractAddress: "0x1234567890123456789012345678901234567890",
-			},
-		},
-		DomainConfig: &types.DomainInstanceConfig{
-			TokenName: "Zeto_Anon",
-			Circuits: &zetosignerapi.Circuits{
-				types.METHOD_TRANSFER_LOCKED: {Name: "anon", UsesNullifiers: false},
-			},
-		},
-		Params: &types.SpendLockParams{LockId: lockID, From: "spender@node"},
-	}
-	req := &prototk.AssembleTransactionRequest{
-		Transaction: tx.Transaction,
-		ResolvedVerifiers: []*prototk.ResolvedVerifier{
-			{
-				Lookup: "spender@node", Verifier: testCoinOwnerBJJ,
-				Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X,
-			},
-			{
-				Lookup: "spender@node", Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019",
-				Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS,
-			},
-		},
-	}
-	res, err := h.Assemble(ctx, tx, req)
-	require.NoError(t, err)
-	require.Equal(t, prototk.AssembleTransactionResponse_OK, res.AssemblyResult)
-}
-
 func TestSpendLockAssemble_Errors(t *testing.T) {
 	ctx := context.Background()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("99", 32))
@@ -354,45 +306,6 @@ func TestSpendLockAssemble_Errors(t *testing.T) {
 		}},
 	})
 	require.Error(t, err)
-}
-
-func TestCancelLockAssemble_DelegateIdentityResolvedToEth(t *testing.T) {
-	ctx := t.Context()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32))
-	lockedID := "0x" + strings.Repeat("cc", 32)
-	cancelID := "0x" + strings.Repeat("dd", 32)
-	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 1)
-	li.Spender = "spender@node"
-	li.CancelOutputs = testCommitments(cancelID)
-	lockInfoJSON, err := json.Marshal(li)
-	require.NoError(t, err)
-
-	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(string(lockInfoJSON), map[string]string{
-		lockedID: testCoinJSONAmount(true, "0x01"),
-		cancelID: testCoinJSONAmount(false, "0x01"),
-	}), testAssembleSchemas().CoinSchema, testAssembleSchemas().MerkleTreeRootSchema, testAssembleSchemas().MerkleTreeNodeSchema, nil, testAssembleSchemas().LockInfoSchema)
-
-	tx := &types.ParsedTransaction{
-		Transaction: &prototk.TransactionSpecification{
-			From:         "spender@node",
-			ContractInfo: &prototk.ContractInfo{ContractAddress: "0x1234567890123456789012345678901234567890"},
-		},
-		DomainConfig: &types.DomainInstanceConfig{
-			TokenName: "Zeto_Anon",
-			Circuits:  &zetosignerapi.Circuits{types.METHOD_TRANSFER_LOCKED: {Name: "anon", UsesNullifiers: false}},
-		},
-		Params: &types.CancelLockParams{LockId: lockID, From: "spender@node"},
-	}
-	req := &prototk.AssembleTransactionRequest{
-		Transaction: tx.Transaction,
-		ResolvedVerifiers: []*prototk.ResolvedVerifier{
-			{Lookup: "spender@node", Verifier: testCoinOwnerBJJ, Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X},
-			{Lookup: "spender@node", Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019", Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS},
-		},
-	}
-	res, err := h.Assemble(ctx, tx, req)
-	require.NoError(t, err)
-	require.Equal(t, prototk.AssembleTransactionResponse_OK, res.AssemblyResult)
 }
 
 func TestCancelLockAssemble_RevertOutputTotalMismatch(t *testing.T) {

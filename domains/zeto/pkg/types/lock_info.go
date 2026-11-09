@@ -33,8 +33,8 @@ type ZetoLockInfoState struct {
 	Salt   *pldtypes.HexUint256 `json:"salt"`
 	LockID pldtypes.Bytes32     `json:"lockId"`
 
-	Owner   string `json:"owner"`   // 0x-prefixed ETH address hex
-	Spender string `json:"spender"` // 0x-prefixed ETH address hex
+	Owner   *pldtypes.EthAddress `json:"owner"`
+	Spender *pldtypes.EthAddress `json:"spender"`
 
 	// Locked collateral commitments (shared proof inputs for spendLock and cancelLock).
 	LockedOutputs []pldtypes.HexUint256 `json:"lockedOutputs"`

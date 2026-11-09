@@ -324,8 +324,8 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	lockInfo := &types.ZetoLockInfoState{
 		Salt:             (*pldtypes.HexUint256)(salt),
 		LockID:           lockID,
-		Owner:            resolvedEth.Verifier,
-		Spender:          resolvedEthAddr.String(),
+		Owner:            resolvedEthAddr,
+		Spender:          resolvedEthAddr,
 		LockedOutputs:    lockedOutputs,
 		SpendOutputs:     proposedSpendOutputs,
 		SpendData:        append(pldtypes.HexBytes(nil), proposedSpendDataJSON...),

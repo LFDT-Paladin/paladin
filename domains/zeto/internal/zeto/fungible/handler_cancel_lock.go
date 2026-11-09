@@ -20,12 +20,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -98,20 +96,10 @@ func (h *cancelLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoEmptyLockedInputs, params.LockId.HexString0xPrefix())
 	}
 
-	delegateLookup := strings.TrimSpace(li.Spender)
-	if delegateLookup == "" {
+	if li.Spender == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "persisted lock info is missing spender")
 	}
-	var delegateAddr string
-	if _, parseErr := pldtypes.ParseEthAddress(delegateLookup); parseErr != nil {
-		resolvedDelegate := domain.FindVerifier(delegateLookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, req.ResolvedVerifiers)
-		if resolvedDelegate == nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorResolveVerifier, delegateLookup)
-		}
-		delegateAddr = resolvedDelegate.Verifier
-	} else {
-		delegateAddr = delegateLookup
-	}
+	delegateAddr := li.Spender.String()
 
 	inputStates, revert, err := loadLockedCoins(ctx, h.callbacks, h.stateSchemas.CoinSchema, li.LockedOutputs, useNullifiers, req.StateQueryContext)
 	if err != nil {
