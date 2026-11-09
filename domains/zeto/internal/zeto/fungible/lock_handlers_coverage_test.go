@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
@@ -360,67 +359,6 @@ func TestSpendLockAssemble_RevertOutputTotalMismatch(t *testing.T) {
 	res, err := h.Assemble(ctx, tx, req)
 	require.NoError(t, err)
 	require.Equal(t, prototk.AssembleTransactionResponse_REVERT, res.AssemblyResult)
-}
-
-func TestSpendLockProofOutputs_FromOutputStatesSkipsLockedAndSchema(t *testing.T) {
-	ctx := context.Background()
-	h := &spendLockHandler{
-		baseHandler: baseHandler{
-			stateSchemas: &common.StateSchemas{CoinSchema: &prototk.StateSchema{Id: "coin"}},
-		},
-	}
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("2c", 32))
-	req := &prototk.PrepareTransactionRequest{
-		OutputStates: []*prototk.EndorsableState{
-			{SchemaId: "other", StateDataJson: testCoinStateJSON(false)},
-			{StateDataJson: testCoinStateJSON(true)},
-			{StateDataJson: testCoinStateJSON(false)},
-		},
-	}
-	outs, err := h.spendLockProofOutputs(ctx, lockID, req, false, common.GetInputSize(2))
-	require.NoError(t, err)
-	require.NotEmpty(t, outs)
-}
-
-func TestSpendLockProofOutputs_UnmarshalError(t *testing.T) {
-	ctx := context.Background()
-	h := &spendLockHandler{
-		baseHandler: baseHandler{
-			stateSchemas: &common.StateSchemas{CoinSchema: &prototk.StateSchema{Id: "coin"}},
-		},
-	}
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("2d", 32))
-	req := &prototk.PrepareTransactionRequest{
-		OutputStates: []*prototk.EndorsableState{{StateDataJson: "not json"}},
-	}
-	_, err := h.spendLockProofOutputs(ctx, lockID, req, false, 2)
-	require.Error(t, err)
-}
-
-func TestSpendLockProofOutputs_PinnedSpendOutputs(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("2e", 32))
-	lockedID := "0x" + strings.Repeat("aa", 32)
-	spendID := "0x" + strings.Repeat("bb", 32)
-	li := testLockInfoForAssemble(t, lockID, lockedID, spendID, 1)
-	lockInfoJSON, err := json.Marshal(li)
-	require.NoError(t, err)
-
-	h := &spendLockHandler{
-		baseHandler: baseHandler{
-			stateSchemas: &common.StateSchemas{
-				CoinSchema:     &prototk.StateSchema{Id: "coin"},
-				LockInfoSchema: &prototk.StateSchema{Id: "lock_info"},
-			},
-		},
-		callbacks: mockLockAssembleCallbacks(string(lockInfoJSON), map[string]string{
-			spendID: testCoinJSONAmount(false, "0x01"),
-		}),
-	}
-	req := &prototk.PrepareTransactionRequest{StateQueryContext: "ctx"}
-	outs, err := h.spendLockProofOutputs(ctx, lockID, req, false, common.GetInputSize(1))
-	require.NoError(t, err)
-	require.NotEmpty(t, outs)
 }
 
 func TestCancelLockPrepare_MissingAttestation(t *testing.T) {
@@ -1051,17 +989,6 @@ func TestSpendLockValidateParams_UnmarshalError(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestSpendRecipientsFromLockInfo_Errors(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("3d", 32))
-	_, err := spendRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID})
-	require.Error(t, err)
-	_, err = spendRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID, SpendData: []byte("not-json")})
-	require.Error(t, err)
-	_, err = spendRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID, SpendData: []byte("[]")})
-	require.Error(t, err)
-}
-
 func TestCreateLockAssemble_MissingRecipientVerifier(t *testing.T) {
 	ctx := context.Background()
 	h := NewCreateLockHandler("zeto", mockLockAssembleCallbacks("", nil),
@@ -1230,37 +1157,3 @@ func TestCancelLockAssemble_IdentityDelegateWithEthVerifier(t *testing.T) {
 	assert.Equal(t, prototk.AssembleTransactionResponse_OK, res.AssemblyResult)
 }
 
-func TestSpendPinnedOutputStatesForNullifiers_Success(t *testing.T) {
-	ctx := context.Background()
-	spendID := "0x" + strings.Repeat("ef", 32)
-	coin, err := makeCoin(testCoinJSONAmount(false, "0x01"))
-	require.NoError(t, err)
-	recipients := []*types.FungibleTransferParamEntry{{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)}}
-	states, err := spendPinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto",
-		[]string{spendID}, []*types.ZetoCoin{coin}, recipients)
-	require.NoError(t, err)
-	require.Len(t, states, 1)
-	require.Equal(t, spendID, *states[0].Id)
-}
-
-func TestSpendPinnedOutputStatesForNullifiers_LengthMismatch(t *testing.T) {
-	ctx := context.Background()
-	coin, err := makeCoin(testCoinJSONAmount(false, "0x01"))
-	require.NoError(t, err)
-	_, err = spendPinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto",
-		[]string{"0x" + strings.Repeat("ef", 32), "0x" + strings.Repeat("ee", 32)},
-		[]*types.ZetoCoin{coin},
-		[]*types.FungibleTransferParamEntry{{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)}})
-	require.Error(t, err)
-}
-
-func TestSpendLockProofOutputs_BadOutputStateJSON(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("44", 32))
-	h := NewSpendLockHandler("zeto", nil, &prototk.StateSchema{Id: "coin"}, nil, nil, nil, nil)
-	req := &prototk.PrepareTransactionRequest{
-		OutputStates: []*prototk.EndorsableState{{StateDataJson: "bad-json", SchemaId: "coin"}},
-	}
-	_, err := h.spendLockProofOutputs(ctx, lockID, req, false, 2)
-	require.Error(t, err)
-}

@@ -234,15 +234,6 @@ func TestCancelLockPrepare_NullifierTokenUsesPublicInputs(t *testing.T) {
 	assert.Equal(t, "0x0b", params["root"])
 }
 
-func TestCancelLockPinnedCoinsForPrepare_Revert(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("cc", 32))
-	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks("", map[string]string{}),
-		&prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
-	_, err := h.pinnedCoinsForPrepare(ctx, lockID, []string{"0x" + strings.Repeat("11", 32)}, "ctx", false)
-	require.Error(t, err)
-}
-
 func TestCancelLockValidateParams_Errors(t *testing.T) {
 	ctx := context.Background()
 	h := NewCancelLockHandler("zeto", nil, &prototk.StateSchema{Id: "coin"}, nil, nil, nil, nil)
