@@ -14,7 +14,7 @@ and Maven publishing are still in progress.
 | `core`             | Data models, primitives, and subscription batches |
 | `client`           | HTTP RPC, namespace clients, transaction builder, and WebSocket subscriptions |
 | `domains`          | Planned helpers for Noto, Pente, and Zeto        |
-| `testing`          | Planned test utilities                           |
+| `testing`          | Mock client, WireMock stubs, Testcontainers nodes, fixtures and assertions |
 | `integration-test` | Planned end-to-end tests against a Paladin node  |
 
 ## Building
@@ -70,6 +70,79 @@ verify automatic resubscription and rejection of stale acknowledgments. It delet
 afterward. Where a local privacy group exists, it sends a uniquely tagged test message that remains
 in that group's history; otherwise it checks only message subscription and unsubscription.
 The test is skipped unless `PALADIN_LIVE_TEST=true`.
+
+## Testing your code (`testing` module)
+
+Add `org.lfdt.paladin.sdk:testing` as a test dependency. It offers three levels of fidelity, all
+returning the same `PaladinClient` your code already uses.
+
+**Unit tests, no network** — `MockRpcClient` answers JSON-RPC calls in memory and records them:
+
+```java
+MockRpcClient rpc = new MockRpcClient();
+rpc.on("ptx_sendTransaction").thenReturn(txId);
+rpc.on("ptx_getTransactionReceipt", txId)
+    .thenReturn(null)                                         // still pending
+    .thenReturn(PaladinFixtures.successReceipt(txId).build()); // then mined
+
+PaladinClient client = rpc.paladinClient();
+// ... exercise the code under test with `client` ...
+TransactionInput sent = rpc.lastCall("ptx_sendTransaction").param(0, TransactionInput.class);
+```
+
+Unstubbed methods fail with JSON-RPC `-32601` (method not found), as a node would.
+
+**Over HTTP** — `PaladinWireMock` runs a WireMock server, and `PaladinRpcStubs` matches calls by
+JSON-RPC method and parameters:
+
+```java
+try (PaladinWireMock node = PaladinWireMock.start();
+    PaladinClient client = node.paladinClient()) {
+  node.stub(PaladinRpcStubs.sendTransaction(txId))
+      .stub(PaladinRpcStubs.transactionReceipt(PaladinFixtures.successReceipt(txId).build()))
+      .stub(rpc("ptx_getTransaction").willReturn(error(-32602, "bad id")));
+  // ...
+}
+```
+
+**Against a real node** — `PaladinTestNetwork` starts a single-validator Besu chain and Paladin
+nodes in Docker. `PaladinTestNetwork.shared()` is started once per JVM and reused by every test
+class; `PaladinNetworkExtension` injects it:
+
+```java
+@Tag("testcontainers")
+@ExtendWith(PaladinNetworkExtension.class)
+class MyNodeTest {
+  @Test
+  void deploys(PaladinClient client) {
+    PaladinAssertions.assertSuccess(client.newTx()...send(), Duration.ofSeconds(60));
+  }
+}
+```
+
+Tests that need several nodes or extra node configuration build their own network:
+
+```java
+try (PaladinTestNetwork network =
+    PaladinTestNetwork.builder()
+        .nodes("node1", "node2")
+        .configure("node2", node -> node.withLogLevel("debug").withConfigSection("domains: ..."))
+        .start()) {
+  PaladinClient node1 = network.client("node1");
+}
+```
+
+The node image defaults to `ghcr.io/lfdt-paladin/paladin:main`; set the `paladin.image` system
+property to use another, such as a local build. The module's own container smoke tests run only
+through:
+
+```bash
+./gradlew :sdk:java:testing:containerTest                       # needs Docker
+./gradlew :sdk:java:testing:containerTest -Ppaladin.image=paladin:local
+```
+
+`PaladinAssertions` (`assertSuccess`, `assertFailed`, `assertRpcError`) and `Await.until` (poll
+until state settles) work under any test framework.
 
 ## Code quality
 
