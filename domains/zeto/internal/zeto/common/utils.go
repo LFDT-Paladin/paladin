@@ -111,6 +111,12 @@ func GetInputSize(sizeOfEndorsableStates int) int {
 	return 10
 }
 
+// the circuits take the same number of inputs and outputs, so the larger of the two
+// counts determines the circuit size (e.g. 1 input and 3 outputs needs the batch circuit)
+func GetCircuitSize(inputCount, outputCount int) int {
+	return GetInputSize(max(inputCount, outputCount))
+}
+
 func HexUint256To32ByteHexString(v *pldtypes.HexUint256) string {
 	paddedBytes := IntTo32ByteSlice(v.Int())
 	return hex.EncodeToString(paddedBytes)

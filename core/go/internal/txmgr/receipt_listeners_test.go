@@ -1121,7 +1121,7 @@ func TestProcessStaleGapFailRetryingReadGapPage(t *testing.T) {
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
 
-	err = l.processStaleGaps()
+	_, err = l.processStaleGaps()
 	assert.Regexp(t, "pop", err)
 	close(l.done)
 
@@ -1149,7 +1149,7 @@ func TestProcessStaleGapFailRetryingReadPage(t *testing.T) {
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
 
-	err = l.processStaleGaps()
+	_, err = l.processStaleGaps()
 	assert.Regexp(t, "pop", err)
 	close(l.done)
 
@@ -1179,7 +1179,7 @@ func TestProcessStaleGapFailRetryingProcessPage(t *testing.T) {
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
 
-	err = l.processStaleGaps()
+	_, err = l.processStaleGaps()
 	assert.Regexp(t, "pop", err)
 	close(l.done)
 
@@ -1215,7 +1215,7 @@ func TestProcessStaleGapFailRetryingUpdateGapForPage(t *testing.T) {
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
 
-	err = l.processStaleGaps()
+	_, err = l.processStaleGaps()
 	assert.Regexp(t, "pop", err)
 	close(l.done)
 
@@ -1856,4 +1856,107 @@ func TestReceiptListenerSetActiveAlreadyActive(t *testing.T) {
 	registered.SetActive()
 	assert.Len(t, l.receivers, 1)
 	assert.Len(t, l.pendingReceivers, 0)
+}
+
+// A receipt for a contract that is inserted after the head read that created a gap on that
+// contract (and is the only new receipt, so the checkpoint does not move past it) must be
+// delivered once the gap closes - without needing some unrelated receipt to arrive first.
+//
+//  1. TX1 on contract1 is missing a state  -> gap created on contract1, checkpoint = seq(TX1)
+//  2. TX2 on contract1 is finalized         -> head re-poll skips it (contract1 is gapped);
+//     page is empty so the checkpoint stays at seq(TX1)
+//  3. The missing state arrives             -> stale-gap replay reads seq >= seq(TX1) AND
+//     seq <= checkpoint, delivers TX1 only, deletes the gap
+//  4. TX2 must then be delivered by a head re-read, not left until another receipt arrives
+func TestGapClosedDeliversReceiptsQueuedBehindGap(t *testing.T) {
+	txID1 := testUUID("txID1")
+	txID2 := testUUID("txID2")
+	missingStateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	ctx, txm, done := newTestTransactionManager(t, true,
+		mockDomainStateCompletion,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			// TX1 is missing a state the first time it is evaluated
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID1).
+				Return(&pldapi.TransactionStates{
+					Unavailable: &pldapi.UnavailableStates{
+						Confirmed: []pldtypes.HexBytes{missingStateID},
+					},
+				}, nil).
+				Once()
+			// Everything else (including TX1 on re-evaluation, and TX2) is complete
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, mock.Anything).
+				Return(&pldapi.TransactionStates{}, nil)
+		},
+	)
+	defer done()
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name: "listener1",
+		Filters: pldapi.TransactionReceiptFilters{
+			Type:   confutil.P(pldapi.TransactionTypePrivate.Enum()),
+			Domain: "domain1",
+		},
+		Options: pldapi.TransactionReceiptListenerOptions{
+			IncompleteStateReceiptBehavior: pldapi.IncompleteStateReceiptBehaviorBlockContract.Enum(),
+		},
+	})
+	require.NoError(t, err)
+
+	r1 := newTestReceiptReceiver(nil)
+	close1, err := txm.AddReceiptReceiver(ctx, "listener1", r1)
+	require.NoError(t, err)
+	close1.SetActive()
+	defer close1.Close()
+
+	contract1 := pldtypes.RandAddress()
+	finalize := func(txID uuid.UUID) {
+		err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+			return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID,
+				OnChain:       randOnChain(contract1),
+			}})
+		})
+		require.NoError(t, err)
+	}
+
+	// 1. TX1 is incomplete -> gap on contract1
+	finalize(txID1)
+	require.Eventually(t, func() bool {
+		var gaps []*persistedReceiptGap
+		err := txm.p.DB(ctx).
+			Where("listener = ?", "listener1").
+			Where("source = ?", contract1).
+			Find(&gaps).Error
+		require.NoError(t, err)
+		return len(gaps) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// 2. TX2 arrives on the same contract while the gap is open. It is correctly held back.
+	finalize(txID2)
+	select {
+	case r := <-r1.receipts:
+		t.Fatalf("receipt %s delivered while contract was gapped", r.ID)
+	case <-time.After(500 * time.Millisecond):
+		// give the listener time to process the new-receipt notification against the gap
+	}
+
+	// 3. The missing state arrives, and the stale-gap check closes the gap
+	err = txm.p.DB(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+		missingStateID, pldtypes.TimestampNow(), "domain1", contract1,
+	).Error
+	require.NoError(t, err)
+	txm.NotifyStatesDBChanged(ctx)
+
+	requireStrEqual(t, txID1, (<-r1.receipts).ID)
+
+	// 4. TX2 must now be delivered, with no other receipt arriving to prod the listener
+	select {
+	case r := <-r1.receipts:
+		requireStrEqual(t, txID2, r.ID)
+	case <-time.After(5 * time.Second):
+		t.Fatalf("receipt %s was not delivered after the gap on %s closed", txID2, contract1)
+	}
 }
