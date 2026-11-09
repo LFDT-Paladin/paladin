@@ -132,7 +132,7 @@ public final class PaladinNodeConfig {
                 static:
                   keys:
                     seed:
-                      encoding: none
+                      encoding: hex
                       inline: %s
         """
             .formatted(RPC_HTTP_PORT, RPC_WS_PORT, blockchainHttpUrl, blockchainWsUrl, seed));

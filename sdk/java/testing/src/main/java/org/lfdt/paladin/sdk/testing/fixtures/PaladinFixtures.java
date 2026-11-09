@@ -51,14 +51,14 @@ public final class PaladinFixtures {
   }
 
   /**
-   * A unique key identifier on a node, e.g. {@code test.3f2a…@node1}, so repeated runs against a
+   * A unique key identifier on a node, e.g. {@code test.3f2a….node1}, so repeated runs against a
    * long-lived node never collide.
    *
    * @param node the node name
    * @return a new identity
    */
   public static String uniqueIdentity(final String node) {
-    return "test." + UUID.randomUUID() + "@" + node;
+    return "test." + UUID.randomUUID() + "." + node;
   }
 
   /**

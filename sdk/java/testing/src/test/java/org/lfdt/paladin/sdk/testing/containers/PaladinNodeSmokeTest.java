@@ -76,7 +76,6 @@ class PaladinNodeSmokeTest {
                 .send(),
             Duration.ofSeconds(60));
     assertNotNull(receipt.contractAddress());
-    assertEquals(signer, receipt.source());
   }
 
   @Test

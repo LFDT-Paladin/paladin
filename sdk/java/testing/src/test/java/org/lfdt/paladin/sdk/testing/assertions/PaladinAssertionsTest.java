@@ -50,7 +50,7 @@ class PaladinAssertionsTest {
     assertEquals(contract, deployed.contractAddress());
     assertEquals("reverted", failed.failureMessage());
     assertNotEquals(PaladinFixtures.randomBytes32(), PaladinFixtures.randomBytes32());
-    assertTrue(PaladinFixtures.uniqueIdentity("node1").matches("test\\.[0-9a-f-]{36}@node1"));
+    assertTrue(PaladinFixtures.uniqueIdentity("node1").matches("test\\.[0-9a-f-]{36}\\.node1"));
   }
 
   @Test

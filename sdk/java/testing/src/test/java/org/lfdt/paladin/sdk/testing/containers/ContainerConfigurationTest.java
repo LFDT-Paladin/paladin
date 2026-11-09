@@ -50,6 +50,7 @@ class ContainerConfigurationTest {
     assertTrue(yaml.contains("port: 8549"));
     assertTrue(yaml.contains("url: http://besu:8545"));
     assertTrue(yaml.contains("url: ws://besu:8546"));
+    assertTrue(yaml.contains("encoding: hex"));
     assertTrue(yaml.contains("inline: " + SEED));
     assertTrue(yaml.endsWith("domains:\n  noto: {}\n"));
   }
