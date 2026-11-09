@@ -703,3 +703,18 @@ func TestFormatTransferProvingRequest_paddedOutputOwnersMirrorInflateOwners(t *t
 	require.Len(t, req.Common.OutputOwners, 2)
 	assert.Equal(t, req.Common.OutputOwners[0], req.Common.OutputOwners[1])
 }
+
+func TestCoinHashes(t *testing.T) {
+	ctx := t.Context()
+	coin, err := makeCoin(testCoinJSONAmount(false, "0x01"))
+	require.NoError(t, err)
+	expected, err := coin.Hash(ctx)
+	require.NoError(t, err)
+
+	hashes, err := coinHashes(ctx, []*types.ZetoCoin{coin})
+	require.NoError(t, err)
+	assert.Equal(t, []pldtypes.HexUint256{*expected}, hashes)
+
+	_, err = coinHashes(ctx, []*types.ZetoCoin{{Owner: pldtypes.HexBytes{0x01}}})
+	assert.Regexp(t, "PD210047.*PD210001", err)
+}

@@ -88,17 +88,17 @@ func TestLoadLockInfoByLockID(t *testing.T) {
 }
 
 func TestLoadLockedCoins(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockedID := "0x" + strings.Repeat("aa", 32)
 	cb := mockLockAssembleCallbacks("", map[string]string{
 		lockedID: testCoinJSONAmount(true, "0x01"),
 	})
-	prepared, revert, err := loadLockedCoins(ctx, cb, &prototk.StateSchema{Id: "coin"}, []string{lockedID}, false, "ctx")
+	prepared, revert, err := loadLockedCoins(ctx, cb, &prototk.StateSchema{Id: "coin"}, testCommitments(lockedID), false, "ctx")
 	require.NoError(t, err)
 	assert.False(t, revert)
 	require.Len(t, prepared.coins, 1)
 
-	_, _, err = loadLockedCoins(ctx, cb, &prototk.StateSchema{Id: "coin"}, []string{"not-valid-id"}, false, "ctx")
+	_, _, err = loadLockedCoins(ctx, cb, &prototk.StateSchema{Id: "coin"}, testCommitments(overflowCommitment), false, "ctx")
 	require.Error(t, err)
 }
 
@@ -130,39 +130,37 @@ func TestValidateSpendLockParams(t *testing.T) {
 }
 
 func TestPinnedOutputStatesForNullifiers(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	coin, err := makeCoin(testCoinStateJSON(false))
 	require.NoError(t, err)
-	spendID := "0x" + strings.Repeat("cd", 32)
 	recipients := []*types.FungibleTransferParamEntry{
 		{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)},
 	}
-	out, err := pinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto", []string{spendID}, []*types.ZetoCoin{coin}, recipients)
+	out, err := pinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto", []*types.ZetoCoin{coin}, recipients)
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	require.NotNil(t, out[0].Id)
-	assert.Equal(t, spendID, *out[0].Id)
+	assert.Equal(t, testCoinStateID(t, coin), *out[0].Id)
 
-	_, err = pinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto", []string{spendID}, []*types.ZetoCoin{}, recipients)
+	_, err = pinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto", []*types.ZetoCoin{}, recipients)
 	require.Error(t, err)
 }
 
 func TestSpendPinnedOutputStatesForNullifiers(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	coin, err := makeCoin(testCoinStateJSON(false))
 	require.NoError(t, err)
-	spendID := "0x" + strings.Repeat("ef", 32)
 	recipients := []*types.FungibleTransferParamEntry{
 		{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)},
 	}
-	out, err := spendPinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto", []string{spendID}, []*types.ZetoCoin{coin}, recipients)
+	out, err := spendPinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto", []*types.ZetoCoin{coin}, recipients)
 	require.NoError(t, err)
 	require.Len(t, out, 1)
-	assert.Equal(t, spendID, *out[0].Id)
+	assert.Equal(t, testCoinStateID(t, coin), *out[0].Id)
 }
 
 func TestLockUnlockProofOutputs_PinnedCoinsPath(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("55", 32))
 	spendID := "0x" + strings.Repeat("cd", 32)
 	li := testLockInfoForAssemble(t, lockID, "0x"+strings.Repeat("aa", 32), spendID, 1)
@@ -181,13 +179,13 @@ func TestLockUnlockProofOutputs_PinnedCoinsPath(t *testing.T) {
 		}),
 	}
 	req := &prototk.PrepareTransactionRequest{StateQueryContext: "ctx"}
-	outs, err := lockUnlockProofOutputs(ctx, h, lockID, li.SpendOutputs, req, false, common.GetInputSize(1))
+	outs, err := lockUnlockProofOutputs(ctx, h, lockID, testStateIDs(spendID), req, false, common.GetInputSize(1))
 	require.NoError(t, err)
 	require.NotEmpty(t, outs)
 }
 
 func TestPinnedCoinsForPrepare(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("66", 32))
 	spendID := "0x" + strings.Repeat("cd", 32)
 	li := testLockInfoForAssemble(t, lockID, "0x"+strings.Repeat("aa", 32), spendID, 1)
@@ -202,12 +200,12 @@ func TestPinnedCoinsForPrepare(t *testing.T) {
 			spendID: testCoinJSONAmount(false, "0x01"),
 		}),
 	}
-	coins, err := h.pinnedCoinsForPrepare(ctx, lockID, []string{spendID}, "ctx", false)
+	coins, err := h.pinnedCoinsForPrepare(ctx, lockID, testStateIDs(spendID), "ctx", false)
 	require.NoError(t, err)
 	require.Len(t, coins, 1)
 
 	missingID := "0x" + strings.Repeat("ff", 32)
-	_, err = h.pinnedCoinsForPrepare(ctx, lockID, []string{missingID}, "ctx", false)
+	_, err = h.pinnedCoinsForPrepare(ctx, lockID, testStateIDs(missingID), "ctx", false)
 	require.Error(t, err)
 }
 

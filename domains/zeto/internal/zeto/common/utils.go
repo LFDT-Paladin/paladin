@@ -18,11 +18,9 @@ package common
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"strings"
 
 	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
@@ -115,57 +113,16 @@ func GetInputSize(sizeOfEndorsableStates int) int {
 	return 10
 }
 
-func HexUint256To32ByteHexString(v *pldtypes.HexUint256) string {
-	paddedBytes := IntTo32ByteSlice(v.Int())
-	return "0x" + hex.EncodeToString(paddedBytes)
-}
-
-func IntTo32ByteSlice(bigInt *big.Int) (res []byte) {
-	return bigInt.FillBytes(make([]byte, 32))
-}
-
-func IntTo32ByteHexString(bigInt *big.Int) string {
-	paddedBytes := bigInt.FillBytes(make([]byte, 32))
-	return "0x" + hex.EncodeToString(paddedBytes)
-}
-
-// CoinStateIDFromPersistedString normalizes a coin state .id from lock-info persistence.
-// lockedOutputs uses uint256[] in the AbiStateSchema; after storage round-trip values may be
-// 0x-prefixed hex (as written at createLock) or base-10 decimal strings. Decimal values must not
-// be parsed as hexadecimal (that inflates the integer and can panic in FillBytes).
-func CoinStateIDFromPersistedString(ctx context.Context, s string) (string, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "empty coin state id")
-	}
-	if after, ok := strings.CutPrefix(s, "0x"); ok {
-		b, err := pldtypes.ParseHexBytes(ctx, "0x"+after)
+func CoinStateIDs(ctx context.Context, commitments []pldtypes.HexUint256) ([]pldtypes.Bytes32, error) {
+	ids := make([]pldtypes.Bytes32, len(commitments))
+	for i := range commitments {
+		id, err := commitments[i].Bytes32(ctx)
 		if err != nil {
-			return "", i18n.WrapError(ctx, err, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
+			return nil, err
 		}
-		if len(b) != 32 {
-			return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
-		}
-		return b.String(), nil
+		ids[i] = id
 	}
-	if after, ok := strings.CutPrefix(s, "0X"); ok {
-		b, err := pldtypes.ParseHexBytes(ctx, "0x"+after)
-		if err != nil {
-			return "", i18n.WrapError(ctx, err, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
-		}
-		if len(b) != 32 {
-			return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
-		}
-		return b.String(), nil
-	}
-	bi, ok := new(big.Int).SetString(s, 10)
-	if !ok {
-		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
-	}
-	if bi.Sign() < 0 || bi.BitLen() > 256 {
-		return "", i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid lockedOutputs entry in lock info")
-	}
-	return IntTo32ByteHexString(bi), nil
+	return ids, nil
 }
 
 func LoadBabyJubKey(payload []byte) (*babyjub.PublicKey, error) {

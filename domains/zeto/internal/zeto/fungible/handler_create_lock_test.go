@@ -30,7 +30,7 @@ import (
 
 // TestZetoCreateLockArgsTupleABI_RoundTrip ensures createArgs bytes match Solidity abi.decode(createArgs, (ZetoCreateLockArgs)).
 func TestZetoCreateLockArgsTupleABI_RoundTrip(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	wire := zetoCreateLockArgsWireJSON{
 		TxID:          "0x" + strings.Repeat("aa", 32),
 		Inputs:        []string{"0x01", "0x02"},
@@ -64,7 +64,7 @@ func TestZetoCreateLockArgsTupleABI_RoundTrip(t *testing.T) {
 // ethers v6: AbiCoder.encode(["tuple(bytes32,uint256[],uint256[],uint256[],bytes)"], [obj])
 // prefixes the payload with a 0x20 offset word (see zeto_anon.ts encodeCreateArgs).
 func TestZetoCreateLockArgsTupleABI_FirstWordMatchesEthers(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	wire := zetoCreateLockArgsWireJSON{
 		TxID:          "0x" + strings.Repeat("11", 32),
 		Inputs:        []string{"0x01", "0x02"},

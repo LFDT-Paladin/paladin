@@ -148,13 +148,13 @@ func TestCancelLockPrepare_V0DiscreteProofParams(t *testing.T) {
 }
 
 func TestCancelLockPrepare_V1PinnedCancelOutputs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("99", 32))
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
 	require.NoError(t, err)
 	li := &types.ZetoLockInfoState{
-		LockID: lockID, CancelData: cancelData, CancelOutputs: []string{cancelID},
+		LockID: lockID, CancelData: cancelData, CancelOutputs: testCommitments(cancelID),
 	}
 	lockInfoJSON, err := json.Marshal(li)
 	require.NoError(t, err)
@@ -235,11 +235,11 @@ func TestCancelLockPrepare_NullifierTokenUsesPublicInputs(t *testing.T) {
 }
 
 func TestCancelLockPinnedCoinsForPrepare_Revert(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("cc", 32))
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks("", map[string]string{}),
 		&prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
-	_, err := h.pinnedCoinsForPrepare(ctx, lockID, []string{"0x" + strings.Repeat("11", 32)}, "ctx", false)
+	_, err := h.pinnedCoinsForPrepare(ctx, lockID, testStateIDs("0x"+strings.Repeat("11", 32)), "ctx", false)
 	require.Error(t, err)
 }
 

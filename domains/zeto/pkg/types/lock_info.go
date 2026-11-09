@@ -37,17 +37,17 @@ type ZetoLockInfoState struct {
 	Spender string `json:"spender"` // 0x-prefixed ETH address hex
 
 	// Locked collateral commitments (shared proof inputs for spendLock and cancelLock).
-	LockedOutputs []string `json:"lockedOutputs"`
+	LockedOutputs []pldtypes.HexUint256 `json:"lockedOutputs"`
 
 	// Preimage for spend commitment (see _buildUnlockHash with _SPEND_HASH_DOMAIN).
-	SpendOutputs    []string          `json:"spendOutputs"`
-	SpendData       pldtypes.HexBytes `json:"spendData"`
-	SpendCommitment pldtypes.Bytes32  `json:"spendCommitment"`
+	SpendOutputs    []pldtypes.HexUint256 `json:"spendOutputs"`
+	SpendData       pldtypes.HexBytes     `json:"spendData"`
+	SpendCommitment pldtypes.Bytes32      `json:"spendCommitment"`
 
 	// Preimage for cancel commitment (see _buildUnlockHash with _CANCEL_HASH_DOMAIN).
-	CancelOutputs    []string          `json:"cancelOutputs"`
-	CancelData       pldtypes.HexBytes `json:"cancelData"`
-	CancelCommitment pldtypes.Bytes32  `json:"cancelCommitment"`
+	CancelOutputs    []pldtypes.HexUint256 `json:"cancelOutputs"`
+	CancelData       pldtypes.HexBytes     `json:"cancelData"`
+	CancelCommitment pldtypes.Bytes32      `json:"cancelCommitment"`
 
 	// Opaque copy of IZetoFungible_V1.createLock unlockData from the createLock request.
 	// No omitempty: ZetoLockInfoState AbiStateSchema validation requires this key (bytes may be empty "0x").

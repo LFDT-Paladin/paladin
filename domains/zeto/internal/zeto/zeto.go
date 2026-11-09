@@ -744,11 +744,15 @@ func (z *Zeto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.Sig
 		if err == nil {
 			hashInt, err = signercommon.CalculateNullifier(coin.Amount.Int(), coin.Salt.Int(), babyjub.SkToBigInt(keyPair))
 		}
+		var nullifier pldtypes.Bytes32
+		if err == nil {
+			nullifier, err = (*pldtypes.HexUint256)(hashInt).Bytes32(ctx)
+		}
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgNullifierGenerationFailed)
 		}
 		return &prototk.SignResponse{
-			Payload: common.IntTo32ByteSlice(hashInt),
+			Payload: nullifier.Bytes(),
 		}, nil
 	case zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK:
 		proof, err := z.snarkProver.Sign(ctx, req.Algorithm, req.PayloadType, req.PrivateKey, req.Payload)
@@ -796,10 +800,13 @@ func (z *Zeto) validateDataState(ctx context.Context, state *prototk.EndorsableS
 }
 
 func (z *Zeto) validateStateHash(ctx context.Context, hash *pldtypes.HexUint256, state *prototk.EndorsableState) (string, error) {
-	hashString := common.HexUint256To32ByteHexString(hash)
 	if state.Id == "" {
 		// if the requested state ID is empty, we simply set it
-		return hashString, nil
+		id, err := hash.Bytes32(ctx)
+		if err != nil {
+			return "", err
+		}
+		return id.String(), nil
 	}
 	// if the requested state ID is set, we compare it with the calculated hash
 	stateId, _ := pldtypes.ParseHexUint256(ctx, state.Id)

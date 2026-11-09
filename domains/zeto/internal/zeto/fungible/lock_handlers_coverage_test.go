@@ -75,9 +75,9 @@ func TestCancelLockAssemble_LockNotFound(t *testing.T) {
 }
 
 func TestCancelLockAssemble_EmptyLockedOutputs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("02", 32))
-	li := &types.ZetoLockInfoState{LockID: lockID, Spender: "0x74e71b05854ee819cb9397be01c82570a178d019", CancelOutputs: []string{"0x" + strings.Repeat("dd", 32)}}
+	li := &types.ZetoLockInfoState{LockID: lockID, Spender: "0x74e71b05854ee819cb9397be01c82570a178d019", CancelOutputs: testCommitments("0x" + strings.Repeat("dd", 32))}
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), nil),
 		testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
 	tx, req := anonLockAssembleTx(lockID, true)
@@ -86,11 +86,11 @@ func TestCancelLockAssemble_EmptyLockedOutputs(t *testing.T) {
 }
 
 func TestCancelLockAssemble_EmptySpender(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("03", 32))
 	li := &types.ZetoLockInfoState{
-		LockID: lockID, LockedOutputs: []string{"0x" + strings.Repeat("aa", 32)},
-		CancelOutputs: []string{"0x" + strings.Repeat("dd", 32)},
+		LockID: lockID, LockedOutputs: testCommitments("0x" + strings.Repeat("aa", 32)),
+		CancelOutputs: testCommitments("0x" + strings.Repeat("dd", 32)),
 	}
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), nil),
 		testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
@@ -100,13 +100,13 @@ func TestCancelLockAssemble_EmptySpender(t *testing.T) {
 }
 
 func TestCancelLockAssemble_DelegateNotResolved(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("04", 32))
 	lockedID := "0x" + strings.Repeat("aa", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 1)
 	li.Spender = "delegate@node"
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		lockedID: testCoinJSONAmount(true, "0x01"),
 		cancelID: testCoinJSONAmount(false, "0x01"),
@@ -117,11 +117,11 @@ func TestCancelLockAssemble_DelegateNotResolved(t *testing.T) {
 }
 
 func TestCancelLockAssemble_InvalidLockedOutputID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("05", 32))
 	cancelID := "0x" + strings.Repeat("dd", 32)
-	li := testLockInfoForAssemble(t, lockID, "not-a-valid-id", cancelID, 1)
-	li.CancelOutputs = []string{cancelID}
+	li := testLockInfoForAssemble(t, lockID, overflowCommitment, cancelID, 1)
+	li.CancelOutputs = testCommitments(cancelID)
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), nil),
 		testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
 	tx, req := anonLockAssembleTx(lockID, true)
@@ -130,11 +130,11 @@ func TestCancelLockAssemble_InvalidLockedOutputID(t *testing.T) {
 }
 
 func TestCancelLockAssemble_InvalidCancelOutputID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("06", 32))
 	lockedID := "0x" + strings.Repeat("aa", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, "0x"+strings.Repeat("bb", 32), 1)
-	li.CancelOutputs = []string{"bad-cancel-id"}
+	li.CancelOutputs = testCommitments(overflowCommitment)
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		lockedID: testCoinJSONAmount(true, "0x01"),
 	}), testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
@@ -158,13 +158,13 @@ func TestCancelLockAssemble_EmptyCancelOutputs(t *testing.T) {
 }
 
 func TestCancelLockAssemble_EmptyCancelData(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("08", 32))
 	lockedID := "0x" + strings.Repeat("aa", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := &types.ZetoLockInfoState{
 		LockID: lockID, Spender: "0x74e71b05854ee819cb9397be01c82570a178d019",
-		LockedOutputs: []string{lockedID}, CancelOutputs: []string{cancelID},
+		LockedOutputs: testCommitments(lockedID), CancelOutputs: testCommitments(cancelID),
 	}
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		lockedID: testCoinJSONAmount(true, "0x01"),
@@ -176,12 +176,12 @@ func TestCancelLockAssemble_EmptyCancelData(t *testing.T) {
 }
 
 func TestCancelLockAssemble_RevertLockedCoinsMissing(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("09", 32))
 	lockedID := "0x" + strings.Repeat("aa", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 1)
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		cancelID: testCoinJSONAmount(false, "0x01"),
 	}), testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
@@ -192,12 +192,12 @@ func TestCancelLockAssemble_RevertLockedCoinsMissing(t *testing.T) {
 }
 
 func TestCancelLockAssemble_RevertCancelPinnedMissing(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("0a", 32))
 	lockedID := "0x" + strings.Repeat("aa", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 1)
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		lockedID: testCoinJSONAmount(true, "0x01"),
 	}), testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
@@ -218,9 +218,9 @@ func TestSpendLockAssemble_LockNotFound(t *testing.T) {
 }
 
 func TestSpendLockAssemble_EmptyLockedOutputs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("22", 32))
-	li := &types.ZetoLockInfoState{LockID: lockID, Spender: "0x74e71b05854ee819cb9397be01c82570a178d019", SpendOutputs: []string{"0x" + strings.Repeat("bb", 32)}}
+	li := &types.ZetoLockInfoState{LockID: lockID, Spender: "0x74e71b05854ee819cb9397be01c82570a178d019", SpendOutputs: testCommitments("0x" + strings.Repeat("bb", 32))}
 	h := NewSpendLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), nil),
 		testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
 	tx, req := anonLockAssembleTx(lockID, false)
@@ -229,11 +229,11 @@ func TestSpendLockAssemble_EmptyLockedOutputs(t *testing.T) {
 }
 
 func TestSpendLockAssemble_EmptySpender(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("23", 32))
 	li := &types.ZetoLockInfoState{
-		LockID: lockID, LockedOutputs: []string{"0x" + strings.Repeat("aa", 32)},
-		SpendOutputs: []string{"0x" + strings.Repeat("bb", 32)},
+		LockID: lockID, LockedOutputs: testCommitments("0x" + strings.Repeat("aa", 32)),
+		SpendOutputs: testCommitments("0x" + strings.Repeat("bb", 32)),
 	}
 	h := NewSpendLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), nil),
 		testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
@@ -259,10 +259,10 @@ func TestSpendLockAssemble_DelegateNotResolved(t *testing.T) {
 }
 
 func TestSpendLockAssemble_InvalidLockedOutputID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("25", 32))
 	spendID := "0x" + strings.Repeat("bb", 32)
-	li := testLockInfoForAssemble(t, lockID, "invalid", spendID, 1)
+	li := testLockInfoForAssemble(t, lockID, overflowCommitment, spendID, 1)
 	h := NewSpendLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), nil),
 		testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
 	tx, req := anonLockAssembleTx(lockID, false)
@@ -271,11 +271,11 @@ func TestSpendLockAssemble_InvalidLockedOutputID(t *testing.T) {
 }
 
 func TestSpendLockAssemble_InvalidSpendOutputID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("26", 32))
 	lockedID := "0x" + strings.Repeat("aa", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, "0x"+strings.Repeat("bb", 32), 1)
-	li.SpendOutputs = []string{"not-valid"}
+	li.SpendOutputs = testCommitments(overflowCommitment)
 	h := NewSpendLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		lockedID: testCoinJSONAmount(true, "0x01"),
 	}), testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
@@ -299,13 +299,13 @@ func TestSpendLockAssemble_EmptySpendOutputs(t *testing.T) {
 }
 
 func TestSpendLockAssemble_EmptySpendData(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("28", 32))
 	lockedID := "0x" + strings.Repeat("aa", 32)
 	spendID := "0x" + strings.Repeat("bb", 32)
 	li := &types.ZetoLockInfoState{
 		LockID: lockID, Spender: "0x74e71b05854ee819cb9397be01c82570a178d019",
-		LockedOutputs: []string{lockedID}, SpendOutputs: []string{spendID},
+		LockedOutputs: testCommitments(lockedID), SpendOutputs: testCommitments(spendID),
 	}
 	h := NewSpendLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		lockedID: testCoinJSONAmount(true, "0x01"),
@@ -450,12 +450,12 @@ func TestSpendLockPrepare_MissingAttestation(t *testing.T) {
 }
 
 func TestCancelLockAssemble_ETHDelegateDirectPath(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("32", 32))
 	lockedID := "0x" + strings.Repeat("aa", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 1)
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		lockedID: testCoinJSONAmount(true, "0x01"),
 		cancelID: testCoinJSONAmount(false, "0x01"),
@@ -483,13 +483,13 @@ func TestSpendLockAssemble_ETHDelegateDirectPath(t *testing.T) {
 }
 
 func TestCancelLockPrepare_V0WithPinnedCancelOutputs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("35", 32))
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
 	require.NoError(t, err)
 	li := &types.ZetoLockInfoState{
-		LockID: lockID, CancelData: cancelData, CancelOutputs: []string{cancelID},
+		LockID: lockID, CancelData: cancelData, CancelOutputs: testCommitments(cancelID),
 	}
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		cancelID: testCoinJSONAmount(false, "0x01"),
@@ -549,12 +549,11 @@ func TestCancelLockPrepare_BadProofUnmarshal(t *testing.T) {
 }
 
 func TestCancelLockPrepare_InvalidCancelOutputID(t *testing.T) {
-	ctx := context.Background()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("44", 32))
 	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
 	require.NoError(t, err)
 	li := &types.ZetoLockInfoState{
-		LockID: lockID, CancelData: cancelData, CancelOutputs: []string{"not-valid-id"},
+		LockID: lockID, CancelData: cancelData, CancelOutputs: testCommitments(overflowCommitment),
 	}
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), nil),
 		&prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
@@ -565,30 +564,32 @@ func TestCancelLockPrepare_InvalidCancelOutputID(t *testing.T) {
 	}}
 	payload, err := proto.Marshal(&proofReq)
 	require.NoError(t, err)
-	tx := &types.ParsedTransaction{
-		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
-		Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
+	for _, variant := range []types.ZetoFungibleABIVersion{types.ZetoFungibleABI_V0, types.ZetoFungibleABI_V1} {
+		tx := &types.ParsedTransaction{
+			Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
+			DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(variant)},
+			Params:       &types.CancelLockParams{LockId: lockID, From: "sender@node"},
+		}
+		req := &prototk.PrepareTransactionRequest{
+			Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("45", 32)},
+			AttestationResult: []*prototk.AttestationResult{{
+				Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
+				PayloadType: strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK), Payload: payload,
+			}},
+		}
+		_, err = h.Prepare(t.Context(), tx, req)
+		assert.Regexp(t, "PD020027", err)
 	}
-	req := &prototk.PrepareTransactionRequest{
-		Transaction: &prototk.TransactionSpecification{TransactionId: "0x" + strings.Repeat("45", 32)},
-		AttestationResult: []*prototk.AttestationResult{{
-			Name: "sender", AttestationType: prototk.AttestationType_ENDORSE,
-			PayloadType: strPtr(zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK), Payload: payload,
-		}},
-	}
-	_, err = h.Prepare(ctx, tx, req)
-	require.Error(t, err)
 }
 
 func TestCancelLockPrepare_V0NullifierPublicInputs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("46", 32))
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
 	require.NoError(t, err)
 	li := &types.ZetoLockInfoState{
-		LockID: lockID, CancelData: cancelData, CancelOutputs: []string{cancelID},
+		LockID: lockID, CancelData: cancelData, CancelOutputs: testCommitments(cancelID),
 	}
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		cancelID: testCoinJSONAmount(false, "0x01"),
@@ -744,7 +745,7 @@ func TestSpendLockPrepare_BadTxID(t *testing.T) {
 }
 
 func TestSpendLockPrepare_V1NullifierEncodesSpendArgs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("4c", 32))
 	spendID := "0x" + strings.Repeat("bb", 32)
 	spendData, err := recipientsForLockInfoJSON(&types.CreateLockParams{
@@ -754,7 +755,7 @@ func TestSpendLockPrepare_V1NullifierEncodesSpendArgs(t *testing.T) {
 		},
 	}, "spender@node")
 	require.NoError(t, err)
-	li := &types.ZetoLockInfoState{LockID: lockID, SpendData: spendData, SpendOutputs: []string{spendID}}
+	li := &types.ZetoLockInfoState{LockID: lockID, SpendData: spendData, SpendOutputs: testCommitments(spendID)}
 	h := NewSpendLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		spendID: testCoinJSONAmount(false, "0x01"),
 	}), &prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
@@ -788,13 +789,13 @@ func TestSpendLockPrepare_V1NullifierEncodesSpendArgs(t *testing.T) {
 }
 
 func TestCancelLockPrepare_V1NullifierEncodesCancelArgs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("48", 32))
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	cancelData, err := cancelRecipientsForLockInfoJSON("sender@node", pldtypes.Uint64ToUint256(1))
 	require.NoError(t, err)
 	li := &types.ZetoLockInfoState{
-		LockID: lockID, CancelData: cancelData, CancelOutputs: []string{cancelID},
+		LockID: lockID, CancelData: cancelData, CancelOutputs: testCommitments(cancelID),
 	}
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		cancelID: testCoinJSONAmount(false, "0x01"),
@@ -829,9 +830,9 @@ func TestCancelLockPrepare_V1NullifierEncodesCancelArgs(t *testing.T) {
 }
 
 func TestCancelLockPrepare_InvalidCancelOutputIDInLockInfo(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("4a", 32))
-	li := &types.ZetoLockInfoState{LockID: lockID, CancelOutputs: []string{"bad-output-id"}}
+	li := &types.ZetoLockInfoState{LockID: lockID, CancelOutputs: testCommitments(overflowCommitment)}
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), nil),
 		&prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
 	proofReq := corepb.ProvingResponse{Proof: &corepb.SnarkProof{
@@ -858,11 +859,11 @@ func TestCancelLockPrepare_InvalidCancelOutputIDInLockInfo(t *testing.T) {
 }
 
 func TestCancelLockPrepare_BadTxID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("46", 32))
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, "0x"+strings.Repeat("aa", 32), cancelID, 1)
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		cancelID: testCoinJSONAmount(false, "0x01"),
 	}), &prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
@@ -890,7 +891,7 @@ func TestCancelLockPrepare_BadTxID(t *testing.T) {
 }
 
 func TestSpendLockPrepare_V0NullifierPublicInputs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("37", 32))
 	spendID := "0x" + strings.Repeat("bb", 32)
 	spendData, err := recipientsForLockInfoJSON(&types.CreateLockParams{
@@ -900,7 +901,7 @@ func TestSpendLockPrepare_V0NullifierPublicInputs(t *testing.T) {
 		},
 	}, "spender@node")
 	require.NoError(t, err)
-	li := &types.ZetoLockInfoState{LockID: lockID, SpendData: spendData, SpendOutputs: []string{spendID}}
+	li := &types.ZetoLockInfoState{LockID: lockID, SpendData: spendData, SpendOutputs: testCommitments(spendID)}
 	h := NewSpendLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		spendID: testCoinJSONAmount(false, "0x01"),
 	}), &prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
@@ -967,13 +968,13 @@ func TestCancelLockPrepare_LockNotFound(t *testing.T) {
 }
 
 func TestCancelLockPrepare_PinnedCoinsRevert(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("39", 32))
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	cancelData, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(1))
 	require.NoError(t, err)
 	li := &types.ZetoLockInfoState{
-		LockID: lockID, CancelData: cancelData, CancelOutputs: []string{cancelID},
+		LockID: lockID, CancelData: cancelData, CancelOutputs: testCommitments(cancelID),
 	}
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), nil),
 		&prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
@@ -1001,7 +1002,7 @@ func TestCancelLockPrepare_PinnedCoinsRevert(t *testing.T) {
 }
 
 func TestSpendLockPrepare_SpendPinnedCoinsRevert(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("3b", 32))
 	spendID := "0x" + strings.Repeat("bb", 32)
 	spendData, err := recipientsForLockInfoJSON(&types.CreateLockParams{
@@ -1011,7 +1012,7 @@ func TestSpendLockPrepare_SpendPinnedCoinsRevert(t *testing.T) {
 		},
 	}, "spender@node")
 	require.NoError(t, err)
-	li := &types.ZetoLockInfoState{LockID: lockID, SpendData: spendData, SpendOutputs: []string{spendID}}
+	li := &types.ZetoLockInfoState{LockID: lockID, SpendData: spendData, SpendOutputs: testCommitments(spendID)}
 	h := NewSpendLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), nil),
 		&prototk.StateSchema{Id: "coin"}, nil, nil, nil, &prototk.StateSchema{Id: "lock_info"})
 	proofReq := corepb.ProvingResponse{Proof: &corepb.SnarkProof{
@@ -1209,13 +1210,13 @@ func TestCreateLockAssemble_RevertInsufficientInputs(t *testing.T) {
 }
 
 func TestCancelLockAssemble_IdentityDelegateWithEthVerifier(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("34", 32))
 	lockedID := "0x" + strings.Repeat("aa", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 1)
 	li.Spender = "spender@node"
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(marshalLockInfo(t, li), map[string]string{
 		lockedID: testCoinJSONAmount(true, "0x01"),
 		cancelID: testCoinJSONAmount(false, "0x01"),
@@ -1231,26 +1232,27 @@ func TestCancelLockAssemble_IdentityDelegateWithEthVerifier(t *testing.T) {
 }
 
 func TestSpendPinnedOutputStatesForNullifiers_Success(t *testing.T) {
-	ctx := context.Background()
-	spendID := "0x" + strings.Repeat("ef", 32)
+	ctx := t.Context()
 	coin, err := makeCoin(testCoinJSONAmount(false, "0x01"))
 	require.NoError(t, err)
 	recipients := []*types.FungibleTransferParamEntry{{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)}}
 	states, err := spendPinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto",
-		[]string{spendID}, []*types.ZetoCoin{coin}, recipients)
+		[]*types.ZetoCoin{coin}, recipients)
 	require.NoError(t, err)
 	require.Len(t, states, 1)
-	require.Equal(t, spendID, *states[0].Id)
+	require.Equal(t, testCoinStateID(t, coin), *states[0].Id)
 }
 
 func TestSpendPinnedOutputStatesForNullifiers_LengthMismatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	coin, err := makeCoin(testCoinJSONAmount(false, "0x01"))
 	require.NoError(t, err)
 	_, err = spendPinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto",
-		[]string{"0x" + strings.Repeat("ef", 32), "0x" + strings.Repeat("ee", 32)},
 		[]*types.ZetoCoin{coin},
-		[]*types.FungibleTransferParamEntry{{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)}})
+		[]*types.FungibleTransferParamEntry{
+			{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)},
+			{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)},
+		})
 	require.Error(t, err)
 }
 

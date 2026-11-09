@@ -127,13 +127,9 @@ func (h *cancelLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	if len(li.CancelOutputs) == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoEmptyCancelOutputs, params.LockId.HexString0xPrefix())
 	}
-	cancelOutputIDs := make([]string, 0, len(li.CancelOutputs))
-	for _, s := range li.CancelOutputs {
-		id, err := common.CoinStateIDFromPersistedString(ctx, s)
-		if err != nil {
-			return nil, err
-		}
-		cancelOutputIDs = append(cancelOutputIDs, id)
+	cancelOutputIDs, err := common.CoinStateIDs(ctx, li.CancelOutputs)
+	if err != nil {
+		return nil, err
 	}
 	outputPrepared, revert, err := h.loadPinnedOutputsByIDs(ctx, cancelOutputIDs, useNullifiers, req.StateQueryContext)
 	if err != nil {
@@ -174,7 +170,7 @@ func (h *cancelLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 
 	var outputStates []*pb.NewState
 	if useNullifiers {
-		outputStates, err = pinnedOutputStatesForNullifiers(ctx, h.stateSchemas.CoinSchema, h.name, cancelOutputIDs, outputPrepared.coins, recipients)
+		outputStates, err = pinnedOutputStatesForNullifiers(ctx, h.stateSchemas.CoinSchema, h.name, outputPrepared.coins, recipients)
 		if err != nil {
 			return nil, err
 		}
@@ -246,13 +242,9 @@ func (h *cancelLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransac
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgErrorMarshalPrepedParams)
 		}
-		cancelOutputIDs := make([]string, 0, len(li.CancelOutputs))
-		for _, s := range li.CancelOutputs {
-			id, err := common.CoinStateIDFromPersistedString(ctx, s)
-			if err != nil {
-				return nil, err
-			}
-			cancelOutputIDs = append(cancelOutputIDs, id)
+		cancelOutputIDs, err := common.CoinStateIDs(ctx, li.CancelOutputs)
+		if err != nil {
+			return nil, err
 		}
 		cancelCoins, err := h.pinnedCoinsForPrepare(ctx, cancelParams.LockId, cancelOutputIDs, req.StateQueryContext, useNullifiers)
 		if err != nil {
@@ -292,13 +284,9 @@ func (h *cancelLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransac
 		if err != nil {
 			return nil, err
 		}
-		cancelOutputIDs := make([]string, 0, len(li.CancelOutputs))
-		for _, s := range li.CancelOutputs {
-			id, err := common.CoinStateIDFromPersistedString(ctx, s)
-			if err != nil {
-				return nil, err
-			}
-			cancelOutputIDs = append(cancelOutputIDs, id)
+		cancelOutputIDs, err := common.CoinStateIDs(ctx, li.CancelOutputs)
+		if err != nil {
+			return nil, err
 		}
 		cancelCoins, err := h.pinnedCoinsForPrepare(ctx, cancelParams.LockId, cancelOutputIDs, req.StateQueryContext, useNullifiers)
 		if err != nil {
@@ -340,7 +328,7 @@ func (h *cancelLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransac
 	}, nil
 }
 
-func (h *cancelLockHandler) pinnedCoinsForPrepare(ctx context.Context, lockID pldtypes.Bytes32, outputStateIDs []string, stateQueryContext string, useNullifiers bool) ([]*types.ZetoCoin, error) {
+func (h *cancelLockHandler) pinnedCoinsForPrepare(ctx context.Context, lockID pldtypes.Bytes32, outputStateIDs []pldtypes.Bytes32, stateQueryContext string, useNullifiers bool) ([]*types.ZetoCoin, error) {
 	prepared, revert, err := h.loadPinnedOutputsByIDs(ctx, outputStateIDs, useNullifiers, stateQueryContext)
 	if err != nil {
 		return nil, err

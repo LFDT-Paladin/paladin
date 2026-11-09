@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -58,7 +59,9 @@ func (z *Zeto) handleMintEvent(ctx context.Context, smtTree *common.MerkleTreeSp
 			return nil
 		}
 		z.recordTransactionInfo(ev, txData, res)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, mint.Outputs)...)
+		if err := appendEventStates(ctx, res, txData.TransactionID, nil, mint.Outputs); err != nil {
+			return err
+		}
 		if common.IsNullifiersToken(tokenName) {
 			err := z.updateMerkleTree(ctx, smtTree.Tree, smtTree.Storage, txData.TransactionID, mint.Outputs)
 			if err != nil {
@@ -80,8 +83,9 @@ func (z *Zeto) handleTransferEvent(ctx context.Context, smtTree *common.MerkleTr
 			return nil
 		}
 		z.recordTransactionInfo(ev, txData, res)
-		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txData.TransactionID, transfer.Inputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, transfer.Outputs)...)
+		if err := appendEventStates(ctx, res, txData.TransactionID, transfer.Inputs, transfer.Outputs); err != nil {
+			return err
+		}
 		if common.IsNullifiersToken(tokenName) {
 			err := z.updateMerkleTree(ctx, smtTree.Tree, smtTree.Storage, txData.TransactionID, transfer.Outputs)
 			if err != nil {
@@ -103,8 +107,9 @@ func (z *Zeto) handleTransferWithEncryptionEvent(ctx context.Context, smtTree *c
 			return nil
 		}
 		z.recordTransactionInfo(ev, txData, res)
-		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txData.TransactionID, transfer.Inputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, transfer.Outputs)...)
+		if err := appendEventStates(ctx, res, txData.TransactionID, transfer.Inputs, transfer.Outputs); err != nil {
+			return err
+		}
 		if common.IsNullifiersToken(tokenName) {
 			err := z.updateMerkleTree(ctx, smtTree.Tree, smtTree.Storage, txData.TransactionID, transfer.Outputs)
 			if err != nil {
@@ -126,8 +131,9 @@ func (z *Zeto) handleWithdrawEvent(ctx context.Context, smtTree *common.MerkleTr
 			return nil
 		}
 		z.recordTransactionInfo(ev, txData, res)
-		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txData.TransactionID, withdraw.Inputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, []pldtypes.HexUint256{withdraw.Output})...)
+		if err := appendEventStates(ctx, res, txData.TransactionID, withdraw.Inputs, []pldtypes.HexUint256{withdraw.Output}); err != nil {
+			return err
+		}
 		if common.IsNullifiersToken(tokenName) {
 			err := z.updateMerkleTree(ctx, smtTree.Tree, smtTree.Storage, txData.TransactionID, []pldtypes.HexUint256{withdraw.Output})
 			if err != nil {
@@ -150,9 +156,9 @@ func (z *Zeto) handleLockedEvent(ctx context.Context, smtTree *common.MerkleTree
 			return nil
 		}
 		z.recordTransactionInfo(ev, txData, res)
-		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txData.TransactionID, lock.Inputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, lock.Outputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, lock.LockedOutputs)...)
+		if err := appendEventStates(ctx, res, txData.TransactionID, lock.Inputs, slices.Concat(lock.Outputs, lock.LockedOutputs)); err != nil {
+			return err
+		}
 		if common.IsNullifiersToken(tokenName) {
 			err := z.updateMerkleTree(ctx, smtTree.Tree, smtTree.Storage, txData.TransactionID, lock.Outputs)
 			if err != nil {
@@ -180,9 +186,9 @@ func (z *Zeto) handleZetoLockCreatedEvent(ctx context.Context, stateQueryContext
 			return nil
 		}
 		z.recordTransactionInfo(ev, txData, res)
-		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txData.TransactionID, lock.Inputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, lock.Outputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, lock.LockedOutputs)...)
+		if err := appendEventStates(ctx, res, txData.TransactionID, lock.Inputs, slices.Concat(lock.Outputs, lock.LockedOutputs)); err != nil {
+			return err
+		}
 		res.ConfirmedStates = append(res.ConfirmedStates, parseStateUpdatesFromBytes32(txData.TransactionID, []pldtypes.Bytes32{lock.LockId})...)
 		if common.IsNullifiersToken(tokenName) {
 			// the locked outputs are not added to the nullifier SMT, because they are not spent with nullifiers
@@ -256,13 +262,13 @@ func (z *Zeto) confirmProposedSpendOutputsForLock(ctx context.Context, stateQuer
 	}
 	txIDStr := txID.String()
 	for _, out := range row.info.SpendOutputs {
-		coinID, err := common.CoinStateIDFromPersistedString(ctx, out)
+		coinID, err := out.Bytes32(ctx)
 		if err != nil {
-			log.L(ctx).Warnf("Skipping invalid spendOutputs entry %q for lock %s: %s", out, lockID.HexString0xPrefix(), err)
+			log.L(ctx).Warnf("Skipping invalid spendOutputs entry %s for lock %s: %s", out.String(), lockID.HexString0xPrefix(), err)
 			continue
 		}
 		res.ConfirmedStates = append(res.ConfirmedStates, &prototk.StateUpdate{
-			Id:            coinID,
+			Id:            coinID.String(),
 			TransactionId: txIDStr,
 		})
 	}
@@ -295,9 +301,9 @@ func (z *Zeto) handleZetoLockSpentLikeEvent(ctx context.Context, stateQueryConte
 				Location:      ev.Location,
 			})
 		}
-		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txID, payload.LockedInputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txID, payload.Outputs)...)
-		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txID, payload.LockedOutputs)...)
+		if err := appendEventStates(ctx, res, txID, payload.LockedInputs, slices.Concat(payload.Outputs, payload.LockedOutputs)); err != nil {
+			return err
+		}
 		if err := z.spendLockInfoStateForLock(ctx, stateQueryContext, payload.LockId, txID, res); err != nil {
 			return err
 		}
@@ -385,7 +391,7 @@ func (z *Zeto) addOutputToMerkleTree(ctx context.Context, tree core.SparseMerkle
 	return nil
 }
 
-func parseStatesFromEvent(txID pldtypes.Bytes32, states []pldtypes.HexUint256) []*prototk.StateUpdate {
+func parseStatesFromEvent(ctx context.Context, txID pldtypes.Bytes32, states []pldtypes.HexUint256) ([]*prototk.StateUpdate, error) {
 	refs := make([]*prototk.StateUpdate, 0, len(states))
 	for _, state := range states {
 		if state.NilOrZero() {
@@ -395,12 +401,30 @@ func parseStatesFromEvent(txID pldtypes.Bytes32, states []pldtypes.HexUint256) [
 			// domain receipt from ever being built.
 			continue
 		}
+		id, err := state.Bytes32(ctx)
+		if err != nil {
+			return nil, err
+		}
 		refs = append(refs, &prototk.StateUpdate{
-			Id:            common.HexUint256To32ByteHexString(&state),
+			Id:            id.String(),
 			TransactionId: txID.String(),
 		})
 	}
-	return refs
+	return refs, nil
+}
+
+func appendEventStates(ctx context.Context, res *prototk.HandleEventBatchResponse, txID pldtypes.Bytes32, spent, confirmed []pldtypes.HexUint256) error {
+	spentRefs, err := parseStatesFromEvent(ctx, txID, spent)
+	if err != nil {
+		return err
+	}
+	confirmedRefs, err := parseStatesFromEvent(ctx, txID, confirmed)
+	if err != nil {
+		return err
+	}
+	res.SpentStates = append(res.SpentStates, spentRefs...)
+	res.ConfirmedStates = append(res.ConfirmedStates, confirmedRefs...)
+	return nil
 }
 
 func parseStateUpdatesFromBytes32(txID pldtypes.Bytes32, states []pldtypes.Bytes32) []*prototk.StateUpdate {

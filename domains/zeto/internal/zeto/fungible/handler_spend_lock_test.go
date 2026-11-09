@@ -181,7 +181,7 @@ func TestSpendLockPrepare_V1EncodesZetoSpendLockArgs(t *testing.T) {
 }
 
 func TestZetoSpendLockArgsTupleABI_RoundTrip(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	wire := zetoSpendLockArgsWireJSON{
 		TxID:          "0x" + strings.Repeat("aa", 32),
 		LockedOutputs: []string{"0x01"},
@@ -211,7 +211,7 @@ func TestZetoSpendLockArgsTupleABI_RoundTrip(t *testing.T) {
 }
 
 func TestZetoSpendLockArgsTupleABI_FirstWordMatchesEthers(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	wire := zetoSpendLockArgsWireJSON{
 		TxID:          "0x" + strings.Repeat("11", 32),
 		LockedOutputs: []string{"0x01"},

@@ -157,13 +157,9 @@ func (h *spendLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransac
 		delegateAddr = delegateLookup
 	}
 
-	lockedInputIDs := make([]string, 0, len(li.LockedOutputs))
-	for _, s := range li.LockedOutputs {
-		id, err := common.CoinStateIDFromPersistedString(ctx, s)
-		if err != nil {
-			return nil, err
-		}
-		lockedInputIDs = append(lockedInputIDs, id)
+	lockedInputIDs, err := common.CoinStateIDs(ctx, li.LockedOutputs)
+	if err != nil {
+		return nil, err
 	}
 	// useNullifiers only steers state-query indexing for this token; locked inputs are resolved by commitment id
 	// (lockedOutputs → coin .id), not by treating them as nullifier spends of the unlocked UTXO tree.
@@ -181,13 +177,9 @@ func (h *spendLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransac
 	if len(li.SpendOutputs) == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoEmptySpendOutputs, params.LockId.HexString0xPrefix())
 	}
-	spendOutputIDs := make([]string, 0, len(li.SpendOutputs))
-	for _, s := range li.SpendOutputs {
-		id, err := common.CoinStateIDFromPersistedString(ctx, s)
-		if err != nil {
-			return nil, err
-		}
-		spendOutputIDs = append(spendOutputIDs, id)
+	spendOutputIDs, err := common.CoinStateIDs(ctx, li.SpendOutputs)
+	if err != nil {
+		return nil, err
 	}
 	outputPrepared, revert, err := h.loadSpendOutputs(ctx, spendOutputIDs, useNullifiers, req.StateQueryContext)
 	if err != nil {
@@ -229,7 +221,7 @@ func (h *spendLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransac
 	// collateral into those pinned outputs — do not mint a separate return-to-owner output (that duplicates value).
 	var outputStates []*pb.NewState
 	if useNullifiers {
-		outputStates, err = spendPinnedOutputStatesForNullifiers(ctx, h.stateSchemas.CoinSchema, h.name, spendOutputIDs, outputPrepared.coins, recipients)
+		outputStates, err = spendPinnedOutputStatesForNullifiers(ctx, h.stateSchemas.CoinSchema, h.name, outputPrepared.coins, recipients)
 		if err != nil {
 			return nil, err
 		}
@@ -398,15 +390,15 @@ func (h *spendLockHandler) loadLockInfoByLockID(ctx context.Context, lockID pldt
 	return &info, nil
 }
 
-func (h *spendLockHandler) loadCoins(ctx context.Context, stateIDs []string, useNullifiers bool, stateQueryContext string) (*preparedInputs, bool, error) {
+func (h *spendLockHandler) loadCoins(ctx context.Context, stateIDs []pldtypes.Bytes32, useNullifiers bool, stateQueryContext string) (*preparedInputs, bool, error) {
 	inputs, _, revert, err := loadCoinStatesByIDs(ctx, h.callbacks, h.stateSchemas.CoinSchema, useNullifiers, stateQueryContext, stateIDs, true)
 	return inputs, revert, err
 }
 
 // spendPinnedOutputStatesForNullifiers builds OutputStates for spend-pinned coins so dispatch can UpsertNullifiers
-// (info states from createLock cannot). State ids must match the rows pre-allocated at createLock.
-func spendPinnedOutputStatesForNullifiers(ctx context.Context, coinSchema *prototk.StateSchema, domainName string, stateIDs []string, coins []*types.ZetoCoin, recipients []*types.FungibleTransferParamEntry) ([]*pb.NewState, error) {
-	if len(stateIDs) != len(coins) || len(coins) != len(recipients) {
+// (info states from createLock cannot). Each state id is its coin hash, so it matches the row pre-allocated at createLock.
+func spendPinnedOutputStatesForNullifiers(ctx context.Context, coinSchema *prototk.StateSchema, domainName string, coins []*types.ZetoCoin, recipients []*types.FungibleTransferParamEntry) ([]*pb.NewState, error) {
+	if len(coins) != len(recipients) {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "spend-pinned outputs/recipients length mismatch")
 	}
 	out := make([]*pb.NewState, 0, len(coins))
@@ -415,8 +407,6 @@ func spendPinnedOutputStatesForNullifiers(ctx context.Context, coinSchema *proto
 		if err != nil {
 			return nil, err
 		}
-		id := stateIDs[i]
-		ns.Id = &id
 		out = append(out, ns)
 	}
 	return out, nil
@@ -463,13 +453,9 @@ func (h *spendLockHandler) spendPinnedCoinsForPrepare(ctx context.Context, lockI
 	if li == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoNotFound, lockID.HexString0xPrefix())
 	}
-	spendOutputIDs := make([]string, 0, len(li.SpendOutputs))
-	for _, s := range li.SpendOutputs {
-		id, err := common.CoinStateIDFromPersistedString(ctx, s)
-		if err != nil {
-			return nil, err
-		}
-		spendOutputIDs = append(spendOutputIDs, id)
+	spendOutputIDs, err := common.CoinStateIDs(ctx, li.SpendOutputs)
+	if err != nil {
+		return nil, err
 	}
 	prepared, revert, err := h.loadSpendOutputs(ctx, spendOutputIDs, useNullifiers, stateQueryContext)
 	if err != nil {
@@ -481,7 +467,7 @@ func (h *spendLockHandler) spendPinnedCoinsForPrepare(ctx context.Context, lockI
 	return prepared.coins, nil
 }
 
-func (h *spendLockHandler) loadSpendOutputs(ctx context.Context, stateIDs []string, useNullifiers bool, stateQueryContext string) (*pinnedOutputLoad, bool, error) {
+func (h *spendLockHandler) loadSpendOutputs(ctx context.Context, stateIDs []pldtypes.Bytes32, useNullifiers bool, stateQueryContext string) (*pinnedOutputLoad, bool, error) {
 	// Spend-pinned coins are InfoStates at createLock; load by id even before ZetoLockSpent confirms them.
 	prepared, stored, revert, err := loadCoinStatesByIDs(ctx, h.callbacks, h.stateSchemas.CoinSchema, useNullifiers, stateQueryContext, stateIDs, false)
 	if err != nil {

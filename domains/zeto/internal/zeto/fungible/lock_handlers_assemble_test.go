@@ -9,6 +9,7 @@ package fungible
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -64,6 +65,35 @@ func (c *lockAssembleCallbacks) GetStatesByID(ctx context.Context, req *prototk.
 	return &prototk.GetStatesByIDResponse{States: states}, nil
 }
 
+// respelledIDCallbacks returns each state ID unprefixed and in upper case
+type respelledIDCallbacks struct{ *lockAssembleCallbacks }
+
+func (c respelledIDCallbacks) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error) {
+	res, err := c.lockAssembleCallbacks.GetStatesByID(ctx, req)
+	for _, st := range res.States {
+		st.Id = strings.ToUpper(strings.TrimPrefix(st.Id, "0x"))
+	}
+	return res, err
+}
+
+type reversedOrderCallbacks struct{ *lockAssembleCallbacks }
+
+func (c reversedOrderCallbacks) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error) {
+	res, err := c.lockAssembleCallbacks.GetStatesByID(ctx, req)
+	slices.Reverse(res.States)
+	return res, err
+}
+
+type malformedIDCallbacks struct{ *lockAssembleCallbacks }
+
+func (c malformedIDCallbacks) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error) {
+	res, err := c.lockAssembleCallbacks.GetStatesByID(ctx, req)
+	for _, st := range res.States {
+		st.Id = "not-hex"
+	}
+	return res, err
+}
+
 func (c *lockAssembleCallbacks) EncodeData(context.Context, *prototk.EncodeDataRequest) (*prototk.EncodeDataResponse, error) {
 	return nil, nil
 }
@@ -84,6 +114,34 @@ func (c *lockAssembleCallbacks) ReverseKeyLookup(context.Context, *prototk.Rever
 }
 func (c *lockAssembleCallbacks) ValidateStates(context.Context, *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
 	return nil, nil
+}
+
+// overflowCommitment is one bit too wide to be a 32 byte state id
+var overflowCommitment = "0x1" + strings.Repeat("0", 64)
+
+func testCommitments(ids ...string) []pldtypes.HexUint256 {
+	out := make([]pldtypes.HexUint256, len(ids))
+	for i, id := range ids {
+		out[i] = *pldtypes.MustParseHexUint256(id)
+	}
+	return out
+}
+
+func testCoinStateID(t *testing.T, coin *types.ZetoCoin) string {
+	t.Helper()
+	hash, err := coin.Hash(t.Context())
+	require.NoError(t, err)
+	id, err := hash.Bytes32(t.Context())
+	require.NoError(t, err)
+	return id.String()
+}
+
+func testStateIDs(ids ...string) []pldtypes.Bytes32 {
+	out := make([]pldtypes.Bytes32, len(ids))
+	for i, id := range ids {
+		out[i] = pldtypes.MustParseBytes32(id)
+	}
+	return out
 }
 
 func mockLockAssembleCallbacks(lockInfoJSON string, coinsByID map[string]string) *lockAssembleCallbacks {
@@ -107,11 +165,11 @@ func testLockInfoForAssemble(t *testing.T, lockID pldtypes.Bytes32, lockedID, sp
 	return &types.ZetoLockInfoState{
 		LockID:        lockID,
 		Spender:       "0x74e71b05854ee819cb9397be01c82570a178d019",
-		LockedOutputs: []string{lockedID},
-		SpendOutputs:  []string{spendID},
+		LockedOutputs: testCommitments(lockedID),
+		SpendOutputs:  testCommitments(spendID),
 		SpendData:     spendData,
 		CancelData:    cancelData,
-		CancelOutputs: []string{spendID},
+		CancelOutputs: testCommitments(spendID),
 	}
 }
 
@@ -180,12 +238,12 @@ func TestSpendLockAssemble_NullifierTokenBuildsOutputStates(t *testing.T) {
 }
 
 func TestCancelLockAssemble_NullifierTokenBuildsOutputStates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("44", 32))
 	lockedID := "0x" + strings.Repeat("cc", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 1)
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	lockInfoJSON, err := json.Marshal(li)
 	require.NoError(t, err)
 
@@ -299,13 +357,13 @@ func TestSpendLockAssemble_Errors(t *testing.T) {
 }
 
 func TestCancelLockAssemble_DelegateIdentityResolvedToEth(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32))
 	lockedID := "0x" + strings.Repeat("cc", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 1)
 	li.Spender = "spender@node"
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	lockInfoJSON, err := json.Marshal(li)
 	require.NoError(t, err)
 
@@ -338,12 +396,12 @@ func TestCancelLockAssemble_DelegateIdentityResolvedToEth(t *testing.T) {
 }
 
 func TestCancelLockAssemble_RevertOutputTotalMismatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("bc", 32))
 	lockedID := "0x" + strings.Repeat("cc", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 5)
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	lockInfoJSON, err := json.Marshal(li)
 	require.NoError(t, err)
 
@@ -362,12 +420,12 @@ func TestCancelLockAssemble_RevertOutputTotalMismatch(t *testing.T) {
 }
 
 func TestCancelLockAssemble_RevertInsufficientInput(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("bb", 32))
 	lockedID := "0x" + strings.Repeat("cc", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 50)
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	lockInfoJSON, err := json.Marshal(li)
 	require.NoError(t, err)
 
@@ -440,12 +498,12 @@ func TestSpendLockAssemble_Success(t *testing.T) {
 }
 
 func TestCancelLockAssemble_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("22", 32))
 	lockedID := "0x" + strings.Repeat("cc", 32)
 	cancelID := "0x" + strings.Repeat("dd", 32)
 	li := testLockInfoForAssemble(t, lockID, lockedID, cancelID, 1)
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	lockInfoJSON, err := json.Marshal(li)
 	require.NoError(t, err)
 
@@ -588,51 +646,90 @@ func TestCreateLockAssemble_Success(t *testing.T) {
 }
 
 func TestLoadCoinStatesByIDs_RevertWhenMissing(t *testing.T) {
-	ctx := context.Background()
-	id := "0x" + strings.Repeat("ee", 32)
+	ctx := t.Context()
+	id := pldtypes.MustParseBytes32("0x" + strings.Repeat("ee", 32))
 	cb := mockLockAssembleCallbacks("", map[string]string{})
-	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []pldtypes.Bytes32{id}, true)
 	require.Error(t, err)
 	assert.True(t, revert)
 }
 
 func TestLoadCoinStatesByIDs_SpendOutputLockedReverts(t *testing.T) {
-	ctx := context.Background()
-	id := "0x" + strings.Repeat("ee", 32)
-	cb := mockLockAssembleCallbacks("", map[string]string{id: testCoinJSONAmount(true, "0x01")})
-	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, false)
+	ctx := t.Context()
+	id := pldtypes.MustParseBytes32("0x" + strings.Repeat("ee", 32))
+	cb := mockLockAssembleCallbacks("", map[string]string{id.String(): testCoinJSONAmount(true, "0x01")})
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []pldtypes.Bytes32{id}, false)
 	require.Error(t, err)
 	assert.True(t, revert)
 }
 
 func TestLoadCoinStatesByIDs_InputNotLockedReverts(t *testing.T) {
-	ctx := context.Background()
-	id := "0x" + strings.Repeat("ef", 32)
-	cb := mockLockAssembleCallbacks("", map[string]string{id: testCoinJSONAmount(false, "0x01")})
-	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	ctx := t.Context()
+	id := pldtypes.MustParseBytes32("0x" + strings.Repeat("ef", 32))
+	cb := mockLockAssembleCallbacks("", map[string]string{id.String(): testCoinJSONAmount(false, "0x01")})
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []pldtypes.Bytes32{id}, true)
 	require.Error(t, err)
 	assert.True(t, revert)
 }
 
 func TestLoadCoinStatesByIDs_UnmarshalErrorReverts(t *testing.T) {
-	ctx := context.Background()
-	id := "0x" + strings.Repeat("f0", 32)
-	cb := mockLockAssembleCallbacks("", map[string]string{id: "not-json"})
-	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	ctx := t.Context()
+	id := pldtypes.MustParseBytes32("0x" + strings.Repeat("f0", 32))
+	cb := mockLockAssembleCallbacks("", map[string]string{id.String(): "not-json"})
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []pldtypes.Bytes32{id}, true)
 	require.Error(t, err)
 	assert.True(t, revert)
 }
 
 func TestLoadCoinStatesByIDs(t *testing.T) {
-	ctx := context.Background()
-	id := "0x" + strings.Repeat("ee", 32)
-	cb := mockLockAssembleCallbacks("", map[string]string{id: testCoinJSONAmount(true, "0x01")})
-	prepared, stored, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	ctx := t.Context()
+	id := pldtypes.MustParseBytes32("0x" + strings.Repeat("ee", 32))
+	cb := mockLockAssembleCallbacks("", map[string]string{id.String(): testCoinJSONAmount(true, "0x01")})
+	prepared, stored, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []pldtypes.Bytes32{id}, true)
 	require.NoError(t, err)
 	assert.False(t, revert)
 	require.Len(t, prepared.coins, 1)
 	require.Len(t, stored, 1)
 	assert.True(t, prepared.coins[0].Locked)
+}
+
+func TestLoadCoinStatesByIDs_MatchesIDRegardlessOfSpelling(t *testing.T) {
+	ctx := t.Context()
+	id := pldtypes.MustParseBytes32("0x" + strings.Repeat("ee", 32))
+	cb := respelledIDCallbacks{mockLockAssembleCallbacks("", map[string]string{id.String(): testCoinJSONAmount(true, "0x01")})}
+	prepared, stored, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []pldtypes.Bytes32{id}, true)
+	require.NoError(t, err)
+	assert.False(t, revert)
+	require.Len(t, prepared.coins, 1)
+	require.Len(t, stored, 1)
+}
+
+func TestLoadCoinStatesByIDs_ReturnsRequestOrder(t *testing.T) {
+	ids := testStateIDs("0x"+strings.Repeat("e1", 32), "0x"+strings.Repeat("e2", 32), "0x"+strings.Repeat("e3", 32))
+	cb := reversedOrderCallbacks{mockLockAssembleCallbacks("", map[string]string{
+		ids[0].String(): testCoinJSONAmount(true, "0x01"),
+		ids[1].String(): testCoinJSONAmount(true, "0x02"),
+		ids[2].String(): testCoinJSONAmount(true, "0x03"),
+	})}
+	prepared, stored, revert, err := loadCoinStatesByIDs(t.Context(), cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", ids, true)
+	require.NoError(t, err)
+	assert.False(t, revert)
+	require.Len(t, stored, 3)
+	require.Len(t, prepared.coins, 3)
+	require.Len(t, prepared.states, 3)
+	for i, id := range ids {
+		assert.Equal(t, id.String(), stored[i].Id)
+		assert.Equal(t, id.String(), prepared.states[i].Id)
+		assert.Equal(t, int64(i+1), prepared.coins[i].Amount.Int().Int64())
+	}
+	assert.Equal(t, int64(6), prepared.total.Int64())
+}
+
+func TestGetCoinStatesByIDs_UnparseableIDFromCore(t *testing.T) {
+	id := pldtypes.MustParseBytes32("0x" + strings.Repeat("ee", 32))
+	cb := mockLockAssembleCallbacks("", map[string]string{id.String(): testCoinJSONAmount(true, "0x01")})
+	_, err := getCoinStatesByIDs(t.Context(), malformedIDCallbacks{cb}, &prototk.StateSchema{Id: "coin"}, "ctx", []pldtypes.Bytes32{id})
+	assert.Regexp(t, "PD020007", err)
 }
 
 func TestSpendLockPrepare_PinnedOutputsPath(t *testing.T) {
@@ -687,11 +784,11 @@ func TestSpendPinnedCoinsForPrepare_Success(t *testing.T) {
 }
 
 func TestSpendPinnedCoinsForPrepare_InvalidSpendOutputID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("98", 32))
 	li := &types.ZetoLockInfoState{
 		LockID:       lockID,
-		SpendOutputs: []string{"not-a-valid-coin-id"},
+		SpendOutputs: testCommitments(overflowCommitment),
 	}
 	lockInfoJSON, err := json.Marshal(li)
 	require.NoError(t, err)
@@ -703,18 +800,18 @@ func TestSpendPinnedCoinsForPrepare_InvalidSpendOutputID(t *testing.T) {
 }
 
 func TestCancelPinnedCoinsForPrepare_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("97", 32))
 	cancelID := "0x" + strings.Repeat("de", 32)
 	li := testLockInfoForAssemble(t, lockID, "0x"+strings.Repeat("ab", 32), cancelID, 1)
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 	lockInfoJSON, err := json.Marshal(li)
 	require.NoError(t, err)
 	h := NewCancelLockHandler("zeto", mockLockAssembleCallbacks(string(lockInfoJSON), map[string]string{
 		cancelID: testCoinJSONAmount(false, "0x01"),
 	}), testAssembleSchemas().CoinSchema, nil, nil, nil, testAssembleSchemas().LockInfoSchema)
 
-	coins, err := h.pinnedCoinsForPrepare(ctx, lockID, li.CancelOutputs, "ctx", false)
+	coins, err := h.pinnedCoinsForPrepare(ctx, lockID, testStateIDs(cancelID), "ctx", false)
 	require.NoError(t, err)
 	require.Len(t, coins, 1)
 }

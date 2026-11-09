@@ -73,20 +73,16 @@ func loadLockInfoByLockID(ctx context.Context, callbacks plugintk.DomainCallback
 	return &info, nil
 }
 
-func loadLockedCoins(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, lockedOutputStrs []string, useNullifiers bool, stateQueryContext string) (*preparedInputs, bool, error) {
-	lockedInputIDs := make([]string, 0, len(lockedOutputStrs))
-	for _, s := range lockedOutputStrs {
-		id, err := common.CoinStateIDFromPersistedString(ctx, s)
-		if err != nil {
-			return nil, false, err
-		}
-		lockedInputIDs = append(lockedInputIDs, id)
+func loadLockedCoins(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, lockedOutputs []pldtypes.HexUint256, useNullifiers bool, stateQueryContext string) (*preparedInputs, bool, error) {
+	lockedInputIDs, err := common.CoinStateIDs(ctx, lockedOutputs)
+	if err != nil {
+		return nil, false, err
 	}
 	inputs, _, revert, err := loadCoinStatesByIDs(ctx, callbacks, coinSchema, useNullifiers, stateQueryContext, lockedInputIDs, true)
 	return inputs, revert, err
 }
 
-func loadPinnedOutputs(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, outputIDs []string, useNullifiers bool, stateQueryContext string) (*pinnedOutputLoad, bool, error) {
+func loadPinnedOutputs(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, outputIDs []pldtypes.Bytes32, useNullifiers bool, stateQueryContext string) (*pinnedOutputLoad, bool, error) {
 	prepared, stored, revert, err := loadCoinStatesByIDs(ctx, callbacks, coinSchema, useNullifiers, stateQueryContext, outputIDs, false)
 	if err != nil {
 		return nil, revert, err
@@ -94,8 +90,8 @@ func loadPinnedOutputs(ctx context.Context, callbacks plugintk.DomainCallbacks, 
 	return &pinnedOutputLoad{coins: prepared.coins, stored: stored, total: prepared.total}, false, nil
 }
 
-func pinnedOutputStatesForNullifiers(ctx context.Context, coinSchema *prototk.StateSchema, domainName string, stateIDs []string, coins []*types.ZetoCoin, recipients []*types.FungibleTransferParamEntry) ([]*pb.NewState, error) {
-	if len(stateIDs) != len(coins) || len(coins) != len(recipients) {
+func pinnedOutputStatesForNullifiers(ctx context.Context, coinSchema *prototk.StateSchema, domainName string, coins []*types.ZetoCoin, recipients []*types.FungibleTransferParamEntry) ([]*pb.NewState, error) {
+	if len(coins) != len(recipients) {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "pinned outputs/recipients length mismatch")
 	}
 	out := make([]*pb.NewState, 0, len(coins))
@@ -104,8 +100,6 @@ func pinnedOutputStatesForNullifiers(ctx context.Context, coinSchema *prototk.St
 		if err != nil {
 			return nil, err
 		}
-		id := stateIDs[i]
-		ns.Id = &id
 		out = append(out, ns)
 	}
 	return out, nil
@@ -121,7 +115,7 @@ func validateLockUnlockParams(ctx context.Context, lockID pldtypes.Bytes32, from
 	return nil
 }
 
-func lockUnlockProofOutputs(ctx context.Context, h *lockUnlockHandler, lockID pldtypes.Bytes32, outputStateIDs []string, req *pb.PrepareTransactionRequest, useNullifiers bool, inputSize int) ([]string, error) {
+func lockUnlockProofOutputs(ctx context.Context, h *lockUnlockHandler, lockID pldtypes.Bytes32, outputStateIDs []pldtypes.Bytes32, req *pb.PrepareTransactionRequest, useNullifiers bool, inputSize int) ([]string, error) {
 	if len(req.OutputStates) > 0 {
 		var unlockedOutputStates []*pb.EndorsableState
 		coinSchemaID := h.stateSchemas.CoinSchema.Id
@@ -159,7 +153,7 @@ type lockUnlockHandler struct {
 	callbacks plugintk.DomainCallbacks
 }
 
-func (h *lockUnlockHandler) pinnedCoinsForPrepare(ctx context.Context, lockID pldtypes.Bytes32, outputStateIDs []string, stateQueryContext string, useNullifiers bool) ([]*types.ZetoCoin, error) {
+func (h *lockUnlockHandler) pinnedCoinsForPrepare(ctx context.Context, lockID pldtypes.Bytes32, outputStateIDs []pldtypes.Bytes32, stateQueryContext string, useNullifiers bool) ([]*types.ZetoCoin, error) {
 	prepared, revert, err := h.loadPinnedOutputsByIDs(ctx, outputStateIDs, useNullifiers, stateQueryContext)
 	if err != nil {
 		return nil, err
@@ -170,6 +164,6 @@ func (h *lockUnlockHandler) pinnedCoinsForPrepare(ctx context.Context, lockID pl
 	return prepared.coins, nil
 }
 
-func (h *lockUnlockHandler) loadPinnedOutputsByIDs(ctx context.Context, outputStateIDs []string, useNullifiers bool, stateQueryContext string) (*pinnedOutputLoad, bool, error) {
+func (h *lockUnlockHandler) loadPinnedOutputsByIDs(ctx context.Context, outputStateIDs []pldtypes.Bytes32, useNullifiers bool, stateQueryContext string) (*pinnedOutputLoad, bool, error) {
 	return loadPinnedOutputs(ctx, h.callbacks, h.stateSchemas.CoinSchema, outputStateIDs, useNullifiers, stateQueryContext)
 }

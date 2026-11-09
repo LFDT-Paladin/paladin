@@ -2,7 +2,7 @@ package common
 
 import (
 	"context"
-	"encoding/hex"
+	"encoding/json"
 	"math/big"
 	"testing"
 
@@ -26,66 +26,24 @@ func TestIsNullifiersToken(t *testing.T) {
 	assert.False(t, IsNullifiersToken("other"))
 }
 
-// HexUint256To32ByteHexString
-func TestHexUint256To32ByteHexString(t *testing.T) {
-	// Create a big.Int and cast it to *pldtypes.HexUint256.
-	x := big.NewInt(7890)
-	hexUint := (*pldtypes.HexUint256)(x)
-	result := HexUint256To32ByteHexString(hexUint)
-	expected := "0x" + hex.EncodeToString(x.FillBytes(make([]byte, 32)))
-	assert.Equal(t, expected, result)
-}
-
-// IntTo32ByteSlice
-func TestIntTo32ByteSlice(t *testing.T) {
-	x := big.NewInt(123456)
-	bs := IntTo32ByteSlice(x)
-	assert.Len(t, bs, 32)
-	expected := x.FillBytes(make([]byte, 32))
-	assert.Equal(t, expected, bs)
-}
-
-func TestCoinStateIDFromPersistedString(t *testing.T) {
-	ctx := context.Background()
+func TestCoinStateIDs(t *testing.T) {
+	ctx := t.Context()
 	hexID := "0x0d7b11e7bb9f808761aba8e35b8c57839d8c17b2479f7a89b88f5dfa58d0df13"
-	gotHex, err := CoinStateIDFromPersistedString(ctx, hexID)
+
+	// The state store serializes uint256 as base-10
+	var commitments []pldtypes.HexUint256
+	err := json.Unmarshal([]byte(`["6097512797744793758821124728700260884882015502756931181589044059211954183955","0x1234"]`), &commitments)
 	require.NoError(t, err)
-	assert.Equal(t, hexID, gotHex)
-
-	decimalID := "6097512797744793758821124728700260884882015502756931181589044059211954183955"
-	gotDec, err := CoinStateIDFromPersistedString(ctx, decimalID)
+	ids, err := CoinStateIDs(ctx, commitments)
 	require.NoError(t, err)
-	assert.Equal(t, hexID, gotDec)
-
-	_, err = CoinStateIDFromPersistedString(ctx, decimalID+"ff")
-	require.Error(t, err)
-
-	upper := "0X0d7b11e7bb9f808761aba8e35b8c57839d8c17b2479f7a89b88f5dfa58d0df13"
-	gotUpper, err := CoinStateIDFromPersistedString(ctx, upper)
-	require.NoError(t, err)
-	assert.Equal(t, hexID, gotUpper)
-
-	_, err = CoinStateIDFromPersistedString(ctx, "")
-	require.Error(t, err)
-
-	_, err = CoinStateIDFromPersistedString(ctx, "0x1234")
-	require.Error(t, err)
-
-	neg := new(big.Int).SetInt64(-1)
-	_, err = CoinStateIDFromPersistedString(ctx, neg.String())
-	require.Error(t, err)
+	assert.Equal(t, []pldtypes.Bytes32{
+		pldtypes.MustParseBytes32(hexID),
+		pldtypes.MustParseBytes32("0x0000000000000000000000000000000000000000000000000000000000001234"),
+	}, ids)
 
 	tooLarge := new(big.Int).Exp(big.NewInt(2), big.NewInt(257), nil)
-	_, err = CoinStateIDFromPersistedString(ctx, tooLarge.String())
-	require.Error(t, err)
-}
-
-// IntTo32ByteHexString
-func TestIntTo32ByteHexString(t *testing.T) {
-	x := big.NewInt(123456)
-	hexStr := IntTo32ByteHexString(x)
-	expected := "0x" + hex.EncodeToString(x.FillBytes(make([]byte, 32)))
-	assert.Equal(t, expected, hexStr)
+	_, err = CoinStateIDs(ctx, []pldtypes.HexUint256{pldtypes.HexUint256(*tooLarge)})
+	assert.Regexp(t, "PD020027", err)
 }
 
 // EncodeProof: Create a dummy SnarkProof and verify the output.
