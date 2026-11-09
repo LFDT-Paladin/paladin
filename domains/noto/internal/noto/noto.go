@@ -1320,20 +1320,61 @@ func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckState
 		return res, nil
 	}
 	// Determine if we have a manifest available.
-	var manifestState *prototk.EndorsableState
-	for _, potentialManifest := range req.InfoStates {
-		if potentialManifest.SchemaId == n.ManifestSchemaID() {
-			manifestState = potentialManifest
-			break
-		}
-	}
+	manifestState := n.findManifest(req.InfoStates)
 	// If we don't (Noto V0, or just not available yet) then we return the pre-calculated FirstUnavailableId
-	// provided by us by Paladin.
+	// provided by us by Paladin. Paladin promises an unavailable info state is picked ahead of other types.
 	if manifestState == nil {
 		res.NextMissingStateId = req.UnavailableStates.FirstUnavailableId
 		log.L(ctx).Debugf("No manifest available. Returning pre-calculated first unavailable state for transaction %s: %s", req.TransactionId, *res.NextMissingStateId)
 		return res, nil
 	}
+	requiredStateIDs, err := n.requiredStateIDs(ctx, manifestState)
+	if err != nil {
+		return nil, err
+	}
+	// The states could be in any set of unavailable
+	for _, requiredStateID := range requiredStateIDs {
+		for _, unavailableID := range req.UnavailableStates.InfoStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required info state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.InputStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required input state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.OutputStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required output state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.ReadStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required read state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
+			}
+		}
+	}
+	return res, nil
+}
+
+// findManifest returns the manifest from the available info states of a transaction, or nil if it is not
+// available (or this is Noto V0, which has no manifest). The manifest is identified by its schema.
+func (n *Noto) findManifest(infoStates []*prototk.EndorsableState) *prototk.EndorsableState {
+	for _, potentialManifest := range infoStates {
+		if potentialManifest.SchemaId == n.ManifestSchemaID() {
+			return potentialManifest
+		}
+	}
+	return nil
+}
+
+// requiredStateIDs returns the IDs of the states in the manifest that are distributed to a key owned by this node
+func (n *Noto) requiredStateIDs(ctx context.Context, manifestState *prototk.EndorsableState) ([]string, error) {
 	// Decode the manifest
 	var manifest types.NotoManifest
 	if err := json.Unmarshal([]byte(manifestState.StateDataJson), &manifest); err != nil {
@@ -1374,34 +1415,7 @@ func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckState
 			}
 		}
 	}
-	// The states could be in any set of unavailable
-	for _, requiredStateID := range requiredStateIDs {
-		for _, unavailableID := range req.UnavailableStates.InfoStateIds {
-			if unavailableID == requiredStateID {
-				log.L(ctx).Warnf("Required info state %s unavailable for transaction %s", unavailableID, req.TransactionId)
-				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
-			}
-		}
-		for _, unavailableID := range req.UnavailableStates.InputStateIds {
-			if unavailableID == requiredStateID {
-				log.L(ctx).Warnf("Required input state %s unavailable for transaction %s", unavailableID, req.TransactionId)
-				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
-			}
-		}
-		for _, unavailableID := range req.UnavailableStates.OutputStateIds {
-			if unavailableID == requiredStateID {
-				log.L(ctx).Warnf("Required output state %s unavailable for transaction %s", unavailableID, req.TransactionId)
-				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
-			}
-		}
-		for _, unavailableID := range req.UnavailableStates.ReadStateIds {
-			if unavailableID == requiredStateID {
-				log.L(ctx).Warnf("Required read state %s unavailable for transaction %s", unavailableID, req.TransactionId)
-				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
-			}
-		}
-	}
-	return res, nil
+	return requiredStateIDs, nil
 }
 
 // getInterfaceABI returns the appropriate interface ABI based on the variant
