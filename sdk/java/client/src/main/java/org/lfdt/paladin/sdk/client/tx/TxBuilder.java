@@ -86,7 +86,7 @@ import org.lfdt.paladin.sdk.core.types.HexUint64;
  * <p>{@link #send()} submits and returns immediately, exactly as Go's {@code Send()} and
  * TypeScript's {@code sendTransaction()} do. Waiting is a second, explicit step on the returned
  * {@link SentTransaction}: {@link SentTransaction#waitForReceipt()} polls {@code
- * ptx_getTransactionReceipt} every {@link #pollingInterval(Duration)} (default one second) until a
+ * ptx_getTransactionReceipt} with increasing delays (100ms up to one second by default) until a
  * receipt lands or {@link #receiptTimeout(Duration)} (default 30 seconds) elapses, at which point
  * the future fails with a {@link PaladinTimeoutException}. Take the transaction id alone, without
  * waiting, from {@link SentTransaction#id()}.
@@ -96,8 +96,14 @@ import org.lfdt.paladin.sdk.core.types.HexUint64;
  */
 public final class TxBuilder {
 
-  /** Default delay between receipt polls, used unless {@link #pollingInterval(Duration)} is set. */
-  public static final Duration DEFAULT_POLLING_INTERVAL = Duration.ofSeconds(1);
+  /**
+   * Delay before the first receipt re-poll, doubled on each miss up to {@link
+   * #MAXIMUM_BACKOFF_POLLING_INTERVAL}, used unless {@link #pollingInterval(Duration)} is set.
+   */
+  public static final Duration DEFAULT_POLLING_INTERVAL = Duration.ofMillis(100);
+
+  /** Upper bound the default receipt polling backoff settles at. */
+  public static final Duration MAXIMUM_BACKOFF_POLLING_INTERVAL = Duration.ofSeconds(1);
 
   /** Default receipt wait, used unless {@link #receiptTimeout(Duration)} is set. */
   public static final Duration DEFAULT_RECEIPT_TIMEOUT = Duration.ofSeconds(30);
@@ -124,7 +130,8 @@ public final class TxBuilder {
   private final List<AbiEntry> abi = new ArrayList<>();
   private HexBytes bytecode;
 
-  private Duration pollingInterval = DEFAULT_POLLING_INTERVAL;
+  private Duration initialPollingInterval = DEFAULT_POLLING_INTERVAL;
+  private Duration maximumPollingInterval = MAXIMUM_BACKOFF_POLLING_INTERVAL;
   private Duration receiptTimeout = DEFAULT_RECEIPT_TIMEOUT;
 
   private PaladinInvalidTransactionException deferredError;
@@ -537,8 +544,9 @@ public final class TxBuilder {
   }
 
   /**
-   * Sets the delay between receipt polls used by {@link SentTransaction#waitForReceipt()}. A
-   * non-positive or {@code null} interval is deferred, not thrown.
+   * Sets a fixed delay between receipt polls, replacing the default exponential backoff from 100ms
+   * to one second, used by {@link SentTransaction#waitForReceipt()}. A non-positive or {@code null}
+   * interval is deferred, not thrown.
    *
    * @param pollingInterval the delay between polls
    * @return this builder
@@ -548,7 +556,9 @@ public final class TxBuilder {
       defer("polling interval must be positive, got: " + pollingInterval, null);
       return this;
     }
-    this.pollingInterval = pollingInterval;
+    // Equal initial and maximum intervals disable the backoff.
+    this.initialPollingInterval = pollingInterval;
+    this.maximumPollingInterval = pollingInterval;
     return this;
   }
 
@@ -642,7 +652,8 @@ public final class TxBuilder {
     } catch (final PaladinInvalidTransactionException e) {
       id = CompletableFuture.failedFuture(e);
     }
-    return new SentTransaction(ptx, id, pollingInterval, receiptTimeout);
+    return new SentTransaction(
+        ptx, id, initialPollingInterval, maximumPollingInterval, receiptTimeout);
   }
 
   /**
