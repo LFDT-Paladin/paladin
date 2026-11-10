@@ -26,6 +26,22 @@ import (
 
 type BlockIndex interface {
 	RPCModule
+
+	GetBlockByNumber(ctx context.Context, blockNumber pldtypes.HexUint64) (block *pldapi.IndexedBlock, err error)
+
+	GetTransactionByHash(ctx context.Context, transactionHash pldtypes.Bytes32) (transaction *pldapi.IndexedTransaction, err error)
+	GetTransactionByNonce(ctx context.Context, from pldtypes.EthAddress, nonce pldtypes.HexUint64) (transaction *pldapi.IndexedTransaction, err error)
+
+	GetBlockTransactionsByNumber(ctx context.Context, blockNumber pldtypes.HexUint64) (transactions []*pldapi.IndexedTransaction, err error)
+	GetTransactionEventsByHash(ctx context.Context, transactionHash pldtypes.Bytes32) (transactions []*pldapi.IndexedEvent, err error)
+
+	QueryIndexedBlocks(ctx context.Context, query *query.QueryJSON) (blocks []*pldapi.IndexedBlock, err error)
+	QueryIndexedTransactions(ctx context.Context, query *query.QueryJSON) (transactions []*pldapi.IndexedTransaction, err error)
+	QueryIndexedEvents(ctx context.Context, query *query.QueryJSON) (events []*pldapi.IndexedEvent, err error)
+
+	GetConfirmedBlockHeight(ctx context.Context) (blockHeight pldtypes.HexUint64, err error)
+
+	DecodeTransactionEvents(ctx context.Context, transactionHash pldtypes.Bytes32, abi abi.ABI, resultFormat pldtypes.JSONFormatOptions) (events []*pldapi.EventWithData, err error)
 }
 
 // This is necessary because there's no way to introspect function parameter names via reflection
