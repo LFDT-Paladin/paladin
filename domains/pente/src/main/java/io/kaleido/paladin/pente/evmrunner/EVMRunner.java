@@ -272,11 +272,10 @@
          if (messageFrame != null) {
              var frameLogs = messageFrame.getLogs();
              if (frameLogs != null) {
-                 var addr = new JsonHex.Address(messageFrame.getContractAddress().toArray());
                  for (int i = 0; i < frameLogs.size(); i++) {
                      var log = frameLogs.get(i);
                      logAccumulator.add(new JsonEVMLog(
-                             addr,
+                             new JsonHex.Address(log.getLogger().toArray()),
                              log.getTopics().stream().map(t -> new JsonHex.Bytes32(t.toArray())).toList(),
                              new JsonHex.Bytes(log.getData().toArray()),
                              i

@@ -17,6 +17,7 @@ package io.kaleido.paladin.pente;
 
 import io.kaleido.paladin.pente.evmrunner.EVMRunner;
 import io.kaleido.paladin.pente.evmrunner.EVMVersion;
+import io.kaleido.paladin.toolkit.JsonHex;
 import org.apache.tuweni.bytes.Bytes;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -95,6 +96,12 @@ public class SimpleStorageWrappedGetSetTest {
         listContains(evmRunner.getWorld().getQueriedAccounts(), smartContractAddress.toString());
         Optional<Address> deployedContract = firstNonMatch(evmRunner.getWorld().getQueriedAccounts(), sender, smartContractAddress);
         assertTrue(deployedContract.isPresent());
+
+        // The Changed events from the constructor and set are emitted by the embedded contract
+        assertEquals(2, logs.size());
+        for (var log : logs) {
+            assertEquals(new JsonHex.Address(deployedContract.get().toArray()), log.address());
+        }
 
         // Get the nonce of the first contract, as that should now be incremented as the deployer of the second
         assertEquals(1L, evmRunner.getWorld().get(smartContractAddress).getNonce());
