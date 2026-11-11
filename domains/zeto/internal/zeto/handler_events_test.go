@@ -850,17 +850,17 @@ func TestHandleZetoLockSpentLikeEvent_ZeroTxIDSkips(t *testing.T) {
 	assert.Empty(t, res.TransactionsComplete)
 }
 
-func TestLoadLockInfoRowByLockID_NilSchema(t *testing.T) {
-	ctx := context.Background()
+func TestFindLockInfo_NilSchema(t *testing.T) {
+	ctx := t.Context()
 	z, _ := newTestZeto()
 	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
-	row, err := z.loadLockInfoRowByLockID(ctx, "ctx", lockID)
+	li, _, err := z.findLockInfo(ctx, "ctx", lockID)
 	require.NoError(t, err)
-	assert.Nil(t, row)
+	assert.Nil(t, li)
 }
 
-func TestLoadLockInfoRowByLockID(t *testing.T) {
-	ctx := context.Background()
+func TestFindLockInfo(t *testing.T) {
+	ctx := t.Context()
 	z, cb := newTestZeto()
 	z.lockInfoSchema = &prototk.StateSchema{Id: "lock_info"}
 	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
@@ -875,61 +875,67 @@ func TestLoadLockInfoRowByLockID(t *testing.T) {
 		}
 		return &prototk.FindAvailableStatesResponse{}, nil
 	}
-	row, err := z.loadLockInfoRowByLockID(ctx, "ctx", lockID)
+	got, stateID, err := z.findLockInfo(ctx, "ctx", lockID)
 	require.NoError(t, err)
-	require.NotNil(t, row)
-	assert.Equal(t, lockID, row.info.LockID)
+	require.NotNil(t, got)
+	assert.Equal(t, lockID, got.LockID)
+	assert.Equal(t, lockID.HexString0xPrefix(), stateID)
 }
 
-func TestConfirmProposedSpendOutputsForLock(t *testing.T) {
-	ctx := context.Background()
-	z, cb := newTestZeto()
-	z.lockInfoSchema = &prototk.StateSchema{Id: "lock_info"}
+func TestHandleZetoLockSpentLikeEvent_WithLockInfo(t *testing.T) {
 	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
 	spendOut := "0x0d7b11e7bb9f808761aba8e35b8c57839d8c17b2479f7a89b88f5dfa58d0df13"
-	li := &types.ZetoLockInfoState{LockID: lockID, SpendOutputs: []pldtypes.HexUint256{*pldtypes.MustParseHexUint256(spendOut)}}
-	raw, err := json.Marshal(li)
-	require.NoError(t, err)
-	cb.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
-		if req.SchemaId == "lock_info" {
-			return &prototk.FindAvailableStatesResponse{
-				States: []*prototk.StoredState{{Id: lockID.HexString0xPrefix(), DataJson: string(raw)}},
-			}, nil
-		}
-		return &prototk.FindAvailableStatesResponse{}, nil
-	}
-	txID := pldtypes.RandBytes32()
-	res := &prototk.HandleEventBatchResponse{}
-	err = z.confirmProposedSpendOutputsForLock(ctx, "ctx", lockID, txID, res)
-	require.NoError(t, err)
-	require.Len(t, res.ConfirmedStates, 1)
-	assert.Equal(t, spendOut, res.ConfirmedStates[0].Id)
-}
+	cancelOut := "0x1e8c22f8cc0f919872cb9f46c9d68940ae9d28c3580f8b9ac99f6efb69e1ef24"
+	lockedOut := "0x0000000000000000000000000000000000000000000000000000000000000190"
+	for _, tc := range []struct {
+		eventName string
+		output    string
+	}{
+		{eventName: "ZetoLockSpent", output: spendOut},
+		{eventName: "ZetoLockCancelled", output: cancelOut},
+	} {
+		t.Run(tc.eventName, func(t *testing.T) {
+			z, cb := newTestZeto()
+			z.lockInfoSchema = &prototk.StateSchema{Id: "lock_info"}
+			li := &types.ZetoLockInfoState{LockID: lockID, SpendOutputs: []pldtypes.HexUint256{*pldtypes.MustParseHexUint256(spendOut)}, CancelOutputs: []pldtypes.HexUint256{*pldtypes.MustParseHexUint256(cancelOut)}}
+			raw, err := json.Marshal(li)
+			require.NoError(t, err)
+			cb.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+				if req.SchemaId == "lock_info" {
+					return &prototk.FindAvailableStatesResponse{
+						States: []*prototk.StoredState{{Id: lockID.HexString0xPrefix(), DataJson: string(raw)}},
+					}, nil
+				}
+				return &prototk.FindAvailableStatesResponse{}, nil
+			}
+			data, err := json.Marshal(map[string]any{
+				"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
+				"lockId":        lockID.HexString0xPrefix(),
+				"spender":       "0x74e71b05854ee819cb9397be01c82570a178d019",
+				"lockedInputs":  []string{"300"},
+				"lockedOutputs": []string{lockedOut},
+				"outputs":       []string{tc.output},
+				"proof":         "0x",
+				"data":          "0x",
+			})
+			require.NoError(t, err)
+			ev := &prototk.OnChainEvent{DataJson: string(data)}
+			res := &prototk.HandleEventBatchResponse{}
+			err = z.handleZetoLockSpentLikeEvent(t.Context(), "ctx", nil, ev, "Zeto_Anon", res, tc.eventName)
+			require.NoError(t, err)
 
-func TestConfirmProposedSpendOutputsForLock_InvalidOutputSkipped(t *testing.T) {
-	ctx := context.Background()
-	z, cb := newTestZeto()
-	z.lockInfoSchema = &prototk.StateSchema{Id: "lock_info"}
-	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
-	li := &types.ZetoLockInfoState{LockID: lockID, SpendOutputs: []pldtypes.HexUint256{
-		*pldtypes.MustParseHexUint256("0x1" + strings.Repeat("0", 64)),
-		*pldtypes.MustParseHexUint256("0x0d7b11e7bb9f808761aba8e35b8c57839d8c17b2479f7a89b88f5dfa58d0df13"),
-	}}
-	raw, err := json.Marshal(li)
-	require.NoError(t, err)
-	cb.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
-		if req.SchemaId == "lock_info" {
-			return &prototk.FindAvailableStatesResponse{
-				States: []*prototk.StoredState{{Id: lockID.HexString0xPrefix(), DataJson: string(raw)}},
-			}, nil
-		}
-		return &prototk.FindAvailableStatesResponse{}, nil
+			confirmed := make([]string, 0, len(res.ConfirmedStates))
+			for _, s := range res.ConfirmedStates {
+				confirmed = append(confirmed, s.Id)
+			}
+			assert.Equal(t, []string{tc.output, lockedOut}, confirmed)
+			spent := make([]string, 0, len(res.SpentStates))
+			for _, s := range res.SpentStates {
+				spent = append(spent, s.Id)
+			}
+			assert.Contains(t, spent, lockID.HexString0xPrefix())
+		})
 	}
-	txID := pldtypes.RandBytes32()
-	res := &prototk.HandleEventBatchResponse{}
-	err = z.confirmProposedSpendOutputsForLock(ctx, "ctx", lockID, txID, res)
-	require.NoError(t, err)
-	require.Len(t, res.ConfirmedStates, 1)
 }
 
 func TestSpendLockInfoStateForLock(t *testing.T) {

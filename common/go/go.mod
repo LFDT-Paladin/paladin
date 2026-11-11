@@ -13,7 +13,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
-require golang.org/x/sys v0.28.0 // indirect
+require golang.org/x/sys v0.47.0 // indirect
 
 require (
 	github.com/docker/go-units v0.5.0 // indirect

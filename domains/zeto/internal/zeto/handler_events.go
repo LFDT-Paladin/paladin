@@ -26,10 +26,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/fungible"
 	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
@@ -204,74 +204,23 @@ func (z *Zeto) handleZetoLockCreatedEvent(ctx context.Context, stateQueryContext
 	return nil
 }
 
-type lockInfoRow struct {
-	stateID string
-	info    *types.ZetoLockInfoState
-}
-
-func (z *Zeto) loadLockInfoRowByLockID(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32) (*lockInfoRow, error) {
+func (z *Zeto) findLockInfo(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32) (*types.ZetoLockInfoState, string, error) {
 	if z.lockInfoSchema == nil || lockID.IsZero() {
-		return nil, nil
+		return nil, "", nil
 	}
-	queryJSON := query.NewQueryBuilder().Limit(1).Equal("lockId", lockID).Query().String()
-	res, err := z.Callbacks.FindAvailableStates(ctx, &prototk.FindAvailableStatesRequest{
-		StateQueryContext: stateQueryContext,
-		SchemaId:          z.lockInfoSchema.Id,
-		QueryJson:         queryJSON,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if res == nil || len(res.States) == 0 {
-		return nil, nil
-	}
-	st := res.States[0]
-	var li types.ZetoLockInfoState
-	if err := json.Unmarshal([]byte(st.DataJson), &li); err != nil {
-		return nil, err
-	}
-	return &lockInfoRow{stateID: st.Id, info: &li}, nil
+	return fungible.FindLockInfo(ctx, z.Callbacks, z.lockInfoSchema, stateQueryContext, lockID)
 }
 
 // spendLockInfoStateForLock consumes the off-chain lock-info row when a lock is spent or cancelled (Noto OldLockState).
 func (z *Zeto) spendLockInfoStateForLock(ctx context.Context, stateQueryContext string, lockID, txID pldtypes.Bytes32, res *prototk.HandleEventBatchResponse) error {
-	row, err := z.loadLockInfoRowByLockID(ctx, stateQueryContext, lockID)
-	if err != nil || row == nil {
+	li, stateID, err := z.findLockInfo(ctx, stateQueryContext, lockID)
+	if err != nil || li == nil {
 		return err
 	}
 	res.SpentStates = append(res.SpentStates, &prototk.StateUpdate{
-		Id:            row.stateID,
+		Id:            stateID,
 		TransactionId: txID.String(),
 	})
-	return nil
-}
-
-// confirmProposedSpendOutputsForLock makes pre-pinned spend coin InfoStates available to recipients when a lock is spent.
-// spendLock proof outputs are the pinned commitments (payload.Outputs); this confirms the Paladin state rows by id.
-// They are created at createLock assemble but must not confirm until ZetoLockSpent (not ZetoLockCreated).
-func (z *Zeto) confirmProposedSpendOutputsForLock(ctx context.Context, stateQueryContext string, lockID, txID pldtypes.Bytes32, res *prototk.HandleEventBatchResponse) error {
-	if z.lockInfoSchema == nil || lockID.IsZero() {
-		return nil
-	}
-	row, err := z.loadLockInfoRowByLockID(ctx, stateQueryContext, lockID)
-	if err != nil {
-		return err
-	}
-	if row == nil {
-		return nil
-	}
-	txIDStr := txID.String()
-	for _, out := range row.info.SpendOutputs {
-		coinID, err := out.Bytes32(ctx)
-		if err != nil {
-			log.L(ctx).Warnf("Skipping invalid spendOutputs entry %s for lock %s: %s", out.String(), lockID.HexString0xPrefix(), err)
-			continue
-		}
-		res.ConfirmedStates = append(res.ConfirmedStates, &prototk.StateUpdate{
-			Id:            coinID.String(),
-			TransactionId: txIDStr,
-		})
-	}
 	return nil
 }
 
@@ -306,11 +255,6 @@ func (z *Zeto) handleZetoLockSpentLikeEvent(ctx context.Context, stateQueryConte
 		}
 		if err := z.spendLockInfoStateForLock(ctx, stateQueryContext, payload.LockId, txID, res); err != nil {
 			return err
-		}
-		if eventName == "ZetoLockSpent" {
-			if err := z.confirmProposedSpendOutputsForLock(ctx, stateQueryContext, payload.LockId, txID, res); err != nil {
-				return err
-			}
 		}
 		if common.IsNullifiersToken(tokenName) {
 			// the locked outputs are not added to the nullifier SMT, because they are not spent with nullifiers
