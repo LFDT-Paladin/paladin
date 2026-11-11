@@ -244,7 +244,7 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxOutputs, err)
 	}
-	// Proposed spend states (coin schema) are InfoStates until ZetoLockSpent; their Paladin state ids are
+	// Proposed spend states (coin schema) are InfoStates until ZetoLockSpent; their commitments are
 	// recorded in lock info SpendOutputs below. Lock info itself is an OutputState (lock-info schema).
 	// No NullifierSpecs here — info states are not in creatingStates (PD010126); spendLock registers them.
 	clearNullifierSpecs(proposedSpendStates)
@@ -286,30 +286,26 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 
 	// compute the lock id for the lock using the same logic as the onchain Zeto contract
 	lockID := types.ComputeZetoLockIDV1(*contractAddress, *resolvedEthAddr, txID32)
-	lockedOutputCommitmentStrs := make([]string, 0, len(lockedOutputCoins))
-	for _, coin := range lockedOutputCoins {
-		hh, err := coin.Hash(ctx)
-		if err != nil {
-			return nil, err
-		}
-		lockedOutputCommitmentStrs = append(lockedOutputCommitmentStrs, common.HexUint256To32ByteHexString(hh))
+	lockedOutputs, err := coinHashes(ctx, lockedOutputCoins)
+	if err != nil {
+		return nil, err
 	}
-	proposedSpendStateIDs := make([]string, 0, len(proposedSpendStates))
-	for _, st := range proposedSpendStates {
-		if st.Id != nil {
-			proposedSpendStateIDs = append(proposedSpendStateIDs, *st.Id)
-		}
+	lockedOutputCommitmentStrs := make([]string, len(lockedOutputs))
+	for i := range lockedOutputs {
+		lockedOutputCommitmentStrs[i] = lockedOutputs[i].String()
+	}
+	proposedSpendOutputs, err := coinHashes(ctx, proposedSpendCoins)
+	if err != nil {
+		return nil, err
 	}
 	salt := crypto.NewSalt()
 	proposedSpendDataJSON, err := recipientsForLockInfoJSON(params, tx.Transaction.From)
 	if err != nil {
 		return nil, err
 	}
-	proposedCancelStateIDs := make([]string, 0, len(proposedCancelStates))
-	for _, st := range proposedCancelStates {
-		if st.Id != nil {
-			proposedCancelStateIDs = append(proposedCancelStateIDs, *st.Id)
-		}
+	proposedCancelOutputs, err := coinHashes(ctx, proposedCancelCoins)
+	if err != nil {
+		return nil, err
 	}
 	proposedCancelDataJSON, err := cancelRecipientsForLockInfoJSON(tx.Transaction.From, &lockedTotalHex)
 	if err != nil {
@@ -329,13 +325,13 @@ func (h *createLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransa
 	lockInfo := &types.ZetoLockInfoState{
 		Salt:             (*pldtypes.HexUint256)(salt),
 		LockID:           lockID,
-		Owner:            resolvedEth.Verifier,
-		Spender:          resolvedEthAddr.String(),
-		LockedOutputs:    lockedOutputCommitmentStrs,
-		SpendOutputs:     proposedSpendStateIDs,
+		Owner:            resolvedEthAddr,
+		Spender:          resolvedEthAddr,
+		LockedOutputs:    lockedOutputs,
+		SpendOutputs:     proposedSpendOutputs,
 		SpendData:        append(pldtypes.HexBytes(nil), proposedSpendDataJSON...),
 		SpendCommitment:  spendCommitment,
-		CancelOutputs:    proposedCancelStateIDs,
+		CancelOutputs:    proposedCancelOutputs,
 		CancelData:       append(pldtypes.HexBytes(nil), proposedCancelDataJSON...),
 		CancelCommitment: cancelCommitment,
 		UnlockData:       append(pldtypes.HexBytes(nil), params.UnlockData...),

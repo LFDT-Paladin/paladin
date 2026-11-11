@@ -97,7 +97,7 @@ func TestLoadCoinStatesByIDs_RevertWhenMissing(t *testing.T) {
 	ctx := context.Background()
 	id := "0x" + strings.Repeat("ee", 32)
 	cb := mockLockAssembleCallbacks("", map[string]string{})
-	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", testStateIDs(id), true)
 	require.Error(t, err)
 	assert.True(t, revert)
 }
@@ -106,7 +106,7 @@ func TestLoadCoinStatesByIDs_SpendOutputLockedReverts(t *testing.T) {
 	ctx := context.Background()
 	id := "0x" + strings.Repeat("ee", 32)
 	cb := mockLockAssembleCallbacks("", map[string]string{id: testCoinJSONAmount(true, "0x01")})
-	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, false)
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", testStateIDs(id), false)
 	require.Error(t, err)
 	assert.True(t, revert)
 }
@@ -115,7 +115,7 @@ func TestLoadCoinStatesByIDs_InputNotLockedReverts(t *testing.T) {
 	ctx := context.Background()
 	id := "0x" + strings.Repeat("ef", 32)
 	cb := mockLockAssembleCallbacks("", map[string]string{id: testCoinJSONAmount(false, "0x01")})
-	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", testStateIDs(id), true)
 	require.Error(t, err)
 	assert.True(t, revert)
 }
@@ -124,7 +124,7 @@ func TestLoadCoinStatesByIDs_UnmarshalErrorReverts(t *testing.T) {
 	ctx := context.Background()
 	id := "0x" + strings.Repeat("f0", 32)
 	cb := mockLockAssembleCallbacks("", map[string]string{id: "not-json"})
-	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	_, _, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", testStateIDs(id), true)
 	require.Error(t, err)
 	assert.True(t, revert)
 }
@@ -133,7 +133,7 @@ func TestLoadCoinStatesByIDs(t *testing.T) {
 	ctx := context.Background()
 	id := "0x" + strings.Repeat("ee", 32)
 	cb := mockLockAssembleCallbacks("", map[string]string{id: testCoinJSONAmount(true, "0x01")})
-	prepared, stored, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", []string{id}, true)
+	prepared, stored, revert, err := loadCoinStatesByIDs(ctx, cb, &prototk.StateSchema{Id: "coin"}, false, "ctx", testStateIDs(id), true)
 	require.NoError(t, err)
 	assert.False(t, revert)
 	require.Len(t, prepared.coins, 1)

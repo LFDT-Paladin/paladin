@@ -120,6 +120,18 @@ func utxosFromCoins(ctx context.Context, coins []*types.ZetoCoin, desiredSize in
 	return utxos, nil
 }
 
+func coinHashes(ctx context.Context, coins []*types.ZetoCoin) ([]pldtypes.HexUint256, error) {
+	hashes := make([]pldtypes.HexUint256, len(coins))
+	for i, coin := range coins {
+		hash, err := coin.Hash(ctx)
+		if err != nil {
+			return nil, i18n.NewError(ctx, msgs.MsgErrorParseOutputStates, err)
+		}
+		hashes[i] = *hash
+	}
+	return hashes, nil
+}
+
 func utxosFromStates(ctx context.Context, states []*prototk.EndorsableState, desiredSize int, isInputs bool) ([]string, error) {
 	utxos := make([]string, desiredSize)
 	for i := 0; i < desiredSize; i++ {

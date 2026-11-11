@@ -31,12 +31,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger-firefly/signer/pkg/abi"
 	"google.golang.org/protobuf/proto"
 )
@@ -73,7 +71,7 @@ type zetoSpendLockArgsWireJSON struct {
 
 // unlockOperation selects which of the two outcomes pinned in the lock info at createLock a transaction carries out
 type unlockOperation struct {
-	outputs           func(li *types.ZetoLockInfoState) []string
+	outputs           func(li *types.ZetoLockInfoState) []pldtypes.HexUint256
 	data              func(li *types.ZetoLockInfoState) pldtypes.HexBytes
 	dataName          string
 	emptyOutputsError i18n.ErrorMessageKey
@@ -83,7 +81,7 @@ type unlockOperation struct {
 }
 
 var spendLockOperation = &unlockOperation{
-	outputs:           func(li *types.ZetoLockInfoState) []string { return li.SpendOutputs },
+	outputs:           func(li *types.ZetoLockInfoState) []pldtypes.HexUint256 { return li.SpendOutputs },
 	data:              func(li *types.ZetoLockInfoState) pldtypes.HexBytes { return li.SpendData },
 	dataName:          "spendData",
 	emptyOutputsError: msgs.MsgErrorLockInfoEmptySpendOutputs,
@@ -93,7 +91,7 @@ var spendLockOperation = &unlockOperation{
 }
 
 var cancelLockOperation = &unlockOperation{
-	outputs:           func(li *types.ZetoLockInfoState) []string { return li.CancelOutputs },
+	outputs:           func(li *types.ZetoLockInfoState) []pldtypes.HexUint256 { return li.CancelOutputs },
 	data:              func(li *types.ZetoLockInfoState) pldtypes.HexBytes { return li.CancelData },
 	dataName:          "cancelData",
 	emptyOutputsError: msgs.MsgErrorLockInfoEmptyCancelOutputs,
@@ -125,8 +123,8 @@ func FindLockInfo(ctx context.Context, callbacks plugintk.DomainCallbacks, lockI
 	return info, states[0].Id, nil
 }
 
-func loadLockedCoins(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, lockedOutputStrs []string, useNullifiers bool, stateQueryContext string) (*preparedInputs, bool, error) {
-	lockedInputIDs, err := coinStateIDsFromPersisted(ctx, lockedOutputStrs)
+func loadLockedCoins(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, lockedOutputs []pldtypes.HexUint256, useNullifiers bool, stateQueryContext string) (*preparedInputs, bool, error) {
+	lockedInputIDs, err := common.CoinStateIDs(ctx, lockedOutputs)
 	if err != nil {
 		return nil, false, err
 	}
@@ -134,7 +132,7 @@ func loadLockedCoins(ctx context.Context, callbacks plugintk.DomainCallbacks, co
 	return inputs, revert, err
 }
 
-func loadPinnedOutputs(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, outputIDs []string, useNullifiers bool, stateQueryContext string) (*pinnedOutputLoad, bool, error) {
+func loadPinnedOutputs(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, outputIDs []pldtypes.Bytes32, useNullifiers bool, stateQueryContext string) (*pinnedOutputLoad, bool, error) {
 	// Pinned coins are InfoStates at createLock; load by id even before ZetoLockSpent/ZetoLockCancelled confirms them.
 	prepared, stored, revert, err := loadCoinStatesByIDs(ctx, callbacks, coinSchema, useNullifiers, stateQueryContext, outputIDs, false)
 	if err != nil {
@@ -143,22 +141,10 @@ func loadPinnedOutputs(ctx context.Context, callbacks plugintk.DomainCallbacks, 
 	return &pinnedOutputLoad{coins: prepared.coins, stored: stored, total: prepared.total}, false, nil
 }
 
-func coinStateIDsFromPersisted(ctx context.Context, persisted []string) ([]string, error) {
-	ids := make([]string, 0, len(persisted))
-	for _, s := range persisted {
-		id, err := common.CoinStateIDFromPersistedString(ctx, s)
-		if err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, nil
-}
-
 // pinnedOutputStatesForNullifiers builds OutputStates for pinned coins so dispatch can UpsertNullifiers
-// (info states from createLock cannot). State ids must match the rows pre-allocated at createLock.
-func pinnedOutputStatesForNullifiers(ctx context.Context, coinSchema *prototk.StateSchema, domainName string, stateIDs []string, coins []*types.ZetoCoin, recipients []*types.FungibleTransferParamEntry) ([]*pb.NewState, error) {
-	if len(stateIDs) != len(coins) || len(coins) != len(recipients) {
+// (info states from createLock cannot). Each state id is its coin hash, so it matches the row pre-allocated at createLock.
+func pinnedOutputStatesForNullifiers(ctx context.Context, coinSchema *prototk.StateSchema, domainName string, coins []*types.ZetoCoin, recipients []*types.FungibleTransferParamEntry) ([]*pb.NewState, error) {
+	if len(coins) != len(recipients) {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "pinned outputs/recipients length mismatch")
 	}
 	out := make([]*pb.NewState, 0, len(coins))
@@ -167,8 +153,6 @@ func pinnedOutputStatesForNullifiers(ctx context.Context, coinSchema *prototk.St
 		if err != nil {
 			return nil, err
 		}
-		id := stateIDs[i]
-		ns.Id = &id
 		out = append(out, ns)
 	}
 	return out, nil
@@ -269,20 +253,10 @@ func (h *unlockCommon) assemble(ctx context.Context, tx *types.ParsedTransaction
 		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoEmptyLockedInputs, lockID.HexString0xPrefix())
 	}
 
-	delegateLookup := strings.TrimSpace(li.Spender)
-	if delegateLookup == "" {
+	if li.Spender == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "persisted lock info is missing spender")
 	}
-	var delegateAddr string
-	if _, parseErr := pldtypes.ParseEthAddress(delegateLookup); parseErr != nil {
-		resolvedDelegate := domain.FindVerifier(delegateLookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, req.ResolvedVerifiers)
-		if resolvedDelegate == nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorResolveVerifier, delegateLookup)
-		}
-		delegateAddr = resolvedDelegate.Verifier
-	} else {
-		delegateAddr = delegateLookup
-	}
+	delegateAddr := li.Spender.String()
 
 	// useNullifiers only steers state-query indexing for this token; locked inputs are resolved by commitment id
 	// (lockedOutputs → coin .id), not by treating them as nullifier spends of the unlocked UTXO tree.
@@ -296,7 +270,7 @@ func (h *unlockCommon) assemble(ctx context.Context, tx *types.ParsedTransaction
 	if len(op.outputs(li)) == 0 {
 		return nil, i18n.NewError(ctx, op.emptyOutputsError, lockID.HexString0xPrefix())
 	}
-	outputIDs, err := coinStateIDsFromPersisted(ctx, op.outputs(li))
+	outputIDs, err := common.CoinStateIDs(ctx, op.outputs(li))
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +302,7 @@ func (h *unlockCommon) assemble(ctx context.Context, tx *types.ParsedTransaction
 	// collateral into those pinned outputs — do not mint a separate return-to-owner output (that duplicates value).
 	var outputStates []*pb.NewState
 	if useNullifiers {
-		outputStates, err = pinnedOutputStatesForNullifiers(ctx, h.stateSchemas.CoinSchema, h.name, outputIDs, outputPrepared.coins, recipients)
+		outputStates, err = pinnedOutputStatesForNullifiers(ctx, h.stateSchemas.CoinSchema, h.name, outputPrepared.coins, recipients)
 		if err != nil {
 			return nil, err
 		}
@@ -388,7 +362,7 @@ func (h *unlockCommon) proofOutputs(ctx context.Context, req *pb.PrepareTransact
 		}
 		return trimZeroUtxos(outputs), nil
 	}
-	outputIDs, err := coinStateIDsFromPersisted(ctx, op.outputs(li))
+	outputIDs, err := common.CoinStateIDs(ctx, op.outputs(li))
 	if err != nil {
 		return nil, err
 	}

@@ -97,7 +97,7 @@ func TestSpendLockAssemble_UsesSpendOperation(t *testing.T) {
 	res, err := h.Assemble(t.Context(), tx, req)
 	require.NoError(t, err)
 	require.Len(t, res.AssembledTransaction.OutputStates, 1)
-	assert.Equal(t, testUnlockSpendID, *res.AssembledTransaction.OutputStates[0].Id)
+	assert.Equal(t, testUnlockPinnedStateID(t, testUnlockSpendID), *res.AssembledTransaction.OutputStates[0].Id)
 }
 
 func TestSpendLockPrepare_UsesSpendOperation(t *testing.T) {

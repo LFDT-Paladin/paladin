@@ -30,10 +30,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -59,6 +57,34 @@ func mockLockInfoCallbacks(lockInfoJSON string) *domain.MockDomainCallbacks {
 			return &prototk.FindAvailableStatesResponse{}, nil
 		},
 	}
+}
+
+// overflowCommitment is one bit too wide to be a 32 byte state id
+var overflowCommitment = "0x1" + strings.Repeat("0", 64)
+
+func testCommitments(ids ...string) []pldtypes.HexUint256 {
+	out := make([]pldtypes.HexUint256, len(ids))
+	for i, id := range ids {
+		out[i] = *pldtypes.MustParseHexUint256(id)
+	}
+	return out
+}
+
+func testCoinStateID(t *testing.T, coin *types.ZetoCoin) string {
+	t.Helper()
+	hash, err := coin.Hash(t.Context())
+	require.NoError(t, err)
+	id, err := hash.Bytes32(t.Context())
+	require.NoError(t, err)
+	return id.String()
+}
+
+func testStateIDs(ids ...string) []pldtypes.Bytes32 {
+	out := make([]pldtypes.Bytes32, len(ids))
+	for i, id := range ids {
+		out[i] = pldtypes.MustParseBytes32(id)
+	}
+	return out
 }
 
 func TestValidateLockUnlockParams(t *testing.T) {
@@ -142,12 +168,12 @@ func TestLoadLockedCoins(t *testing.T) {
 	cb := mockLockAssembleCallbacks("", map[string]string{
 		lockedID: testCoinJSONAmount(true, "0x01"),
 	})
-	prepared, revert, err := loadLockedCoins(ctx, cb, &prototk.StateSchema{Id: "coin"}, []string{lockedID}, false, "ctx")
+	prepared, revert, err := loadLockedCoins(ctx, cb, &prototk.StateSchema{Id: "coin"}, testCommitments(lockedID), false, "ctx")
 	require.NoError(t, err)
 	assert.False(t, revert)
 	require.Len(t, prepared.coins, 1)
 
-	_, _, err = loadLockedCoins(ctx, cb, &prototk.StateSchema{Id: "coin"}, []string{"not-valid-id"}, false, "ctx")
+	_, _, err = loadLockedCoins(ctx, cb, &prototk.StateSchema{Id: "coin"}, testCommitments(overflowCommitment), false, "ctx")
 	require.Error(t, err)
 }
 
@@ -191,17 +217,16 @@ func TestPinnedOutputStatesForNullifiers(t *testing.T) {
 	ctx := t.Context()
 	coin, err := makeCoin(testCoinStateJSON(false))
 	require.NoError(t, err)
-	spendID := "0x" + strings.Repeat("cd", 32)
 	recipients := []*types.FungibleTransferParamEntry{
 		{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)},
 	}
-	out, err := pinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto", []string{spendID}, []*types.ZetoCoin{coin}, recipients)
+	out, err := pinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto", []*types.ZetoCoin{coin}, recipients)
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	require.NotNil(t, out[0].Id)
-	assert.Equal(t, spendID, *out[0].Id)
+	assert.Equal(t, testCoinStateID(t, coin), *out[0].Id)
 
-	_, err = pinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto", []string{spendID}, []*types.ZetoCoin{}, recipients)
+	_, err = pinnedOutputStatesForNullifiers(ctx, &prototk.StateSchema{Id: "coin"}, "zeto", []*types.ZetoCoin{}, recipients)
 	require.Error(t, err)
 }
 
@@ -230,7 +255,7 @@ func TestProofOutputs_PinnedOutputsForOperation(t *testing.T) {
 	spendID := "0x" + strings.Repeat("cd", 32)
 	cancelID := "0x" + strings.Repeat("ce", 32)
 	li := testLockInfoForAssemble(t, lockID, "0x"+strings.Repeat("aa", 32), spendID, 1)
-	li.CancelOutputs = []string{cancelID}
+	li.CancelOutputs = testCommitments(cancelID)
 
 	h := &unlockCommon{
 		baseHandler: baseHandler{
@@ -248,7 +273,7 @@ func TestProofOutputs_PinnedOutputsForOperation(t *testing.T) {
 	_, err = h.proofOutputs(ctx, req, spendLockOperation, li, false, common.GetInputSize(1))
 	require.Error(t, err)
 
-	li.SpendOutputs = []string{"not-a-valid-coin-id"}
+	li.SpendOutputs = testCommitments(overflowCommitment)
 	_, err = h.proofOutputs(ctx, req, spendLockOperation, li, false, common.GetInputSize(1))
 	require.Error(t, err)
 }
@@ -328,7 +353,7 @@ type testUnlockOp struct {
 	op               *unlockOperation
 	outputID         string
 	recipient        string
-	setOutputs       func(li *types.ZetoLockInfoState, outputs []string)
+	setOutputs       func(li *types.ZetoLockInfoState, outputs []pldtypes.HexUint256)
 	setData          func(li *types.ZetoLockInfoState, data pldtypes.HexBytes)
 	emptyOutputsCode string
 	missingDataCode  string
@@ -340,7 +365,7 @@ var testUnlockOps = []testUnlockOp{
 		op:               spendLockOperation,
 		outputID:         testUnlockSpendID,
 		recipient:        "recipient@node",
-		setOutputs:       func(li *types.ZetoLockInfoState, outputs []string) { li.SpendOutputs = outputs },
+		setOutputs:       func(li *types.ZetoLockInfoState, outputs []pldtypes.HexUint256) { li.SpendOutputs = outputs },
 		setData:          func(li *types.ZetoLockInfoState, data pldtypes.HexBytes) { li.SpendData = data },
 		emptyOutputsCode: "PD210152",
 		missingDataCode:  "PD210151",
@@ -350,7 +375,7 @@ var testUnlockOps = []testUnlockOp{
 		op:               cancelLockOperation,
 		outputID:         testUnlockCancelID,
 		recipient:        "spender@node",
-		setOutputs:       func(li *types.ZetoLockInfoState, outputs []string) { li.CancelOutputs = outputs },
+		setOutputs:       func(li *types.ZetoLockInfoState, outputs []pldtypes.HexUint256) { li.CancelOutputs = outputs },
 		setData:          func(li *types.ZetoLockInfoState, data pldtypes.HexBytes) { li.CancelData = data },
 		emptyOutputsCode: "PD210155",
 		missingDataCode:  "PD210154",
@@ -359,7 +384,7 @@ var testUnlockOps = []testUnlockOp{
 
 func testUnlockLockInfo(t *testing.T) *types.ZetoLockInfoState {
 	li := testLockInfoForAssemble(t, testUnlockLockID, testUnlockLockedID, testUnlockSpendID, 1)
-	li.CancelOutputs = []string{testUnlockCancelID}
+	li.CancelOutputs = testCommitments(testUnlockCancelID)
 	return li
 }
 
@@ -367,8 +392,16 @@ func testUnlockCoins() map[string]string {
 	return map[string]string{
 		testUnlockLockedID: testCoinJSONAmount(true, "0x01"),
 		testUnlockSpendID:  testCoinJSONAmount(false, "0x01"),
-		testUnlockCancelID: testCoinJSONAmount(false, "0x01"),
+		// distinct salt so the cancel coin hash (its state id) differs from the spend coin
+		testUnlockCancelID: `{"salt":"0x03","owner":"` + testCoinOwnerBJJ + `","amount":"0x01","locked":false}`,
 	}
+}
+
+// testUnlockPinnedStateID is the state id assembled for a pinned output coin - its commitment hash
+func testUnlockPinnedStateID(t *testing.T, outputID string) string {
+	coin, err := makeCoin(testUnlockCoins()[outputID])
+	require.NoError(t, err)
+	return testCoinStateID(t, coin)
 }
 
 func newTestUnlockCommon(t *testing.T, li *types.ZetoLockInfoState, coinsByID map[string]string) *unlockCommon {
@@ -419,7 +452,7 @@ func TestUnlockAssemble_NullifierTokenReissuesOperationOutputs(t *testing.T) {
 			require.Len(t, res.AssembledTransaction.InputStates, 1)
 			assert.Equal(t, testUnlockLockedID, res.AssembledTransaction.InputStates[0].Id)
 			require.Len(t, res.AssembledTransaction.OutputStates, 1)
-			assert.Equal(t, tc.outputID, *res.AssembledTransaction.OutputStates[0].Id)
+			assert.Equal(t, testUnlockPinnedStateID(t, tc.outputID), *res.AssembledTransaction.OutputStates[0].Id)
 			assert.Equal(t, []string{tc.recipient}, res.AssembledTransaction.OutputStates[0].DistributionList)
 			require.Len(t, res.AttestationPlan, 1)
 			assert.Equal(t, []string{"spender@node"}, res.AttestationPlan[0].Parties)
@@ -435,20 +468,6 @@ func TestUnlockAssemble_NoOutputStatesWithoutNullifiers(t *testing.T) {
 	require.Equal(t, prototk.AssembleTransactionResponse_OK, res.AssemblyResult)
 	assert.Empty(t, res.AssembledTransaction.OutputStates)
 	assert.NotEmpty(t, res.AttestationPlan)
-}
-
-func TestUnlockAssemble_DelegateIdentityResolvedToEth(t *testing.T) {
-	li := testUnlockLockInfo(t)
-	li.Spender = "spender@node"
-	h := newTestUnlockCommon(t, li, testUnlockCoins())
-	tx, req := testUnlockAssembleTx(h, constants.TOKEN_ANON)
-	req.ResolvedVerifiers = append(req.ResolvedVerifiers, &prototk.ResolvedVerifier{
-		Lookup: "spender@node", Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019",
-		Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS,
-	})
-	res, err := h.assemble(t.Context(), tx, req, spendLockOperation, testUnlockLockID)
-	require.NoError(t, err)
-	assert.Equal(t, prototk.AssembleTransactionResponse_OK, res.AssemblyResult)
 }
 
 func TestUnlockAssemble_Errors(t *testing.T) {
@@ -480,21 +499,16 @@ func TestUnlockAssemble_Errors(t *testing.T) {
 		},
 		{
 			name:       "missing spender",
-			lockInfo:   func(li *types.ZetoLockInfoState) *types.ZetoLockInfoState { li.Spender = ""; return li },
+			lockInfo:   func(li *types.ZetoLockInfoState) *types.ZetoLockInfoState { li.Spender = nil; return li },
 			errContent: "missing spender",
-		},
-		{
-			name:       "delegate not resolved",
-			lockInfo:   func(li *types.ZetoLockInfoState) *types.ZetoLockInfoState { li.Spender = "delegate@node"; return li },
-			errContent: "PD210036",
 		},
 		{
 			name: "invalid locked output id",
 			lockInfo: func(li *types.ZetoLockInfoState) *types.ZetoLockInfoState {
-				li.LockedOutputs = []string{"not-a-valid-id"}
+				li.LockedOutputs = testCommitments(overflowCommitment)
 				return li
 			},
-			errContent: "PD210015",
+			errContent: "PD020027",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -521,7 +535,7 @@ func TestUnlockAssemble_OperationErrors(t *testing.T) {
 				mutate     func(li *types.ZetoLockInfoState)
 				errContent string
 			}{
-				{"invalid output id", func(li *types.ZetoLockInfoState) { tc.setOutputs(li, []string{"not-a-valid-id"}) }, "PD210015"},
+				{"invalid output id", func(li *types.ZetoLockInfoState) { tc.setOutputs(li, testCommitments(overflowCommitment)) }, "PD020027"},
 				{"empty outputs", func(li *types.ZetoLockInfoState) { tc.setOutputs(li, nil) }, tc.emptyOutputsCode},
 				{"missing data", func(li *types.ZetoLockInfoState) { tc.setData(li, nil) }, tc.missingDataCode},
 			} {
@@ -585,7 +599,7 @@ func TestUnlockAssemble_Reverts(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			li := testLockInfoForAssemble(t, testUnlockLockID, testUnlockLockedID, testUnlockSpendID, tc.amount)
-			li.CancelOutputs = []string{testUnlockCancelID}
+			li.CancelOutputs = testCommitments(testUnlockCancelID)
 			coins := testUnlockCoins()
 			if tc.coins != nil {
 				tc.coins(coins)
@@ -732,10 +746,10 @@ func TestUnlockPrepare_Errors(t *testing.T) {
 		{
 			name: "invalid pinned output id",
 			lockInfo: func(li *types.ZetoLockInfoState) *types.ZetoLockInfoState {
-				li.SpendOutputs = []string{"not-a-valid-id"}
+				li.SpendOutputs = testCommitments(overflowCommitment)
 				return li
 			},
-			errContent: "PD210015",
+			errContent: "PD020027",
 		},
 		{
 			name:       "pinned output missing",
@@ -849,12 +863,12 @@ func testLockInfoForAssemble(t *testing.T, lockID pldtypes.Bytes32, lockedID, sp
 	require.NoError(t, err)
 	return &types.ZetoLockInfoState{
 		LockID:        lockID,
-		Spender:       "0x74e71b05854ee819cb9397be01c82570a178d019",
-		LockedOutputs: []string{lockedID},
-		SpendOutputs:  []string{spendID},
+		Spender:       pldtypes.MustEthAddress("0x74e71b05854ee819cb9397be01c82570a178d019"),
+		LockedOutputs: testCommitments(lockedID),
+		SpendOutputs:  testCommitments(spendID),
 		SpendData:     spendData,
 		CancelData:    cancelData,
-		CancelOutputs: []string{spendID},
+		CancelOutputs: testCommitments(spendID),
 	}
 }
 

@@ -118,3 +118,26 @@ func TestHexUint256(t *testing.T) {
 	assert.Nil(t, dbv)
 
 }
+
+func TestHexUint256Bytes32(t *testing.T) {
+	ctx := t.Context()
+
+	b, err := MustParseHexUint256("0x1234").Bytes32(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000001234", b.String())
+
+	maxUint256 := "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	b, err = MustParseHexUint256(maxUint256).Bytes32(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, maxUint256, b.String())
+
+	b, err = ((*HexUint256)(nil)).Bytes32(ctx)
+	require.NoError(t, err)
+	assert.True(t, b.IsZero())
+
+	_, err = MustParseHexUint256("0x1" + maxUint256[2:]).Bytes32(ctx)
+	assert.Regexp(t, "PD020027", err)
+
+	_, err = MustParseHexUint256("-1").Bytes32(ctx)
+	assert.Regexp(t, "PD020027", err)
+}

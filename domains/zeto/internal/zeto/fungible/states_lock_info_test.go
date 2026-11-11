@@ -27,11 +27,11 @@ import (
 )
 
 func TestMakeNewLockInfoState_UsesLockIDAsStateID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
 	li := &types.ZetoLockInfoState{
 		LockID:  lockID,
-		Spender: "0x74e71b05854ee819cb9397be01c82570a178d019",
+		Spender: pldtypes.MustEthAddress("0x74e71b05854ee819cb9397be01c82570a178d019"),
 	}
 	ns, err := makeNewLockInfoState(ctx, &prototk.StateSchema{Id: "lock_info"}, li, []string{"sender@node1"})
 	require.NoError(t, err)

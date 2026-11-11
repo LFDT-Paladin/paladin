@@ -88,7 +88,7 @@ func TestCancelLockAssemble_UsesCancelOperation(t *testing.T) {
 	res, err := h.Assemble(t.Context(), tx, req)
 	require.NoError(t, err)
 	require.Len(t, res.AssembledTransaction.OutputStates, 1)
-	assert.Equal(t, testUnlockCancelID, *res.AssembledTransaction.OutputStates[0].Id)
+	assert.Equal(t, testUnlockPinnedStateID(t, testUnlockCancelID), *res.AssembledTransaction.OutputStates[0].Id)
 }
 
 func TestCancelLockPrepare_UsesCancelOperation(t *testing.T) {

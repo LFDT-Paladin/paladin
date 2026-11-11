@@ -199,7 +199,7 @@ func TestHandleEventBatch_LockSpentConfirmsPinnedOutputs(t *testing.T) {
 
 	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
 	spendOut := "0x0d7b11e7bb9f808761aba8e35b8c57839d8c17b2479f7a89b88f5dfa58d0df13"
-	li := &types.ZetoLockInfoState{LockID: lockID, SpendOutputs: []string{spendOut}}
+	li := &types.ZetoLockInfoState{LockID: lockID, SpendOutputs: []pldtypes.HexUint256{*pldtypes.MustParseHexUint256(spendOut)}}
 	liJSON, err := json.Marshal(li)
 	require.NoError(t, err)
 	origFind := testCallbacks.MockFindAvailableStates
