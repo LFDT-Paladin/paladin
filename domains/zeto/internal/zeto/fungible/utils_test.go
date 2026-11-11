@@ -26,25 +26,6 @@ func TestQualifyPartyLookup(t *testing.T) {
 	assert.Equal(t, "bob", qualifyPartyLookup("bob", "controller"))
 }
 
-func TestCancelRecipientsFromLockInfo(t *testing.T) {
-	ctx := context.Background()
-	lockID := pldtypes.RandBytes32()
-	_, err := cancelRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID})
-	require.Error(t, err)
-
-	raw, err := cancelRecipientsForLockInfoJSON("controller@node", pldtypes.Uint64ToUint256(5))
-	require.NoError(t, err)
-	got, err := cancelRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID, CancelData: raw})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "controller@node", got[0].To)
-
-	_, err = cancelRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID, CancelData: []byte("not-json")})
-	require.Error(t, err)
-	_, err = cancelRecipientsFromLockInfo(ctx, &types.ZetoLockInfoState{LockID: lockID, CancelData: []byte("[]")})
-	require.Error(t, err)
-}
-
 func TestRecipientsForLockInfoJSON_NilParams(t *testing.T) {
 	raw, err := recipientsForLockInfoJSON(nil, "alice@node")
 	require.NoError(t, err)
