@@ -83,7 +83,7 @@ func TestReceiptTransfers(t *testing.T) {
 	assert.ElementsMatch(t, []*types.ReceiptTransfer{{
 		From:   nil,
 		To:     owner1,
-		Amount: pldtypes.Int64ToInt256(1),
+		Amount: pldtypes.Uint64ToUint256(1),
 	}}, transfers)
 
 	// Simple burn
@@ -102,7 +102,7 @@ func TestReceiptTransfers(t *testing.T) {
 	assert.ElementsMatch(t, []*types.ReceiptTransfer{{
 		From:   owner1,
 		To:     nil,
-		Amount: pldtypes.Int64ToInt256(1),
+		Amount: pldtypes.Uint64ToUint256(1),
 	}}, transfers)
 
 	// Burn with returned remainder
@@ -128,7 +128,7 @@ func TestReceiptTransfers(t *testing.T) {
 	assert.ElementsMatch(t, []*types.ReceiptTransfer{{
 		From:   owner1,
 		To:     nil,
-		Amount: pldtypes.Int64ToInt256(2),
+		Amount: pldtypes.Uint64ToUint256(2),
 	}}, transfers)
 
 	// Simple transfer
@@ -154,7 +154,7 @@ func TestReceiptTransfers(t *testing.T) {
 	assert.ElementsMatch(t, []*types.ReceiptTransfer{{
 		From:   owner1,
 		To:     owner2,
-		Amount: pldtypes.Int64ToInt256(1),
+		Amount: pldtypes.Uint64ToUint256(1),
 	}}, transfers)
 
 	// Unlock to multiple recipients, with locked remainder
@@ -201,11 +201,11 @@ func TestReceiptTransfers(t *testing.T) {
 	assert.ElementsMatch(t, []*types.ReceiptTransfer{{
 		From:   owner1,
 		To:     owner2,
-		Amount: pldtypes.Int64ToInt256(1),
+		Amount: pldtypes.Uint64ToUint256(1),
 	}, {
 		From:   owner1,
 		To:     owner3,
-		Amount: pldtypes.Int64ToInt256(2),
+		Amount: pldtypes.Uint64ToUint256(2),
 	}}, transfers)
 }
 
