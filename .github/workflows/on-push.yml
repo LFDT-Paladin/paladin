@@ -1,8 +1,6 @@
 name: Build (push)
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 on:
   push:
@@ -27,6 +25,9 @@ jobs:
    
   release-image:
     # run only on pushes to main or manual triggers
+    permissions:
+      contents: read
+      packages: write # GITHUB_TOKEN is passed below as the ghcr.io push credential
     uses: ./.github/workflows/cross-build-images.yaml
     with:
       registry: ghcr.io
