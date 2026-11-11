@@ -46,6 +46,20 @@ public record NotoConstructorParams(
     Objects.requireNonNull(notary, "notary");
     Objects.requireNonNull(notaryMode, "notaryMode");
     Objects.requireNonNull(options, "options");
+    switch (notaryMode) {
+      case BASIC -> {
+        if (options.basic() == null || options.hooks() != null) {
+          throw new IllegalArgumentException(
+              "BASIC notary mode requires basic options and no hooks options");
+        }
+      }
+      case HOOKS -> {
+        if (options.basic() != null || options.hooks() == null) {
+          throw new IllegalArgumentException(
+              "HOOKS notary mode requires hooks options and no basic options");
+        }
+      }
+    }
   }
 
   /**

@@ -15,6 +15,7 @@
 package org.lfdt.paladin.sdk.domains.noto;
 
 import java.util.Objects;
+import java.util.Optional;
 import org.lfdt.paladin.sdk.client.PaladinClient;
 
 /**
@@ -23,7 +24,10 @@ import org.lfdt.paladin.sdk.client.PaladinClient;
  * <pre>{@code
  * NotoInstance token =
  *     new NotoFactory(paladin, "noto")
- *         .newNoto("notary", NotoConstructorParams.basic("notary").withName("Cash"))
+ *         .newNoto(
+ *             "notary",
+ *             NotoConstructorParams.basic("notary").withName("Cash"),
+ *             Optional.empty())
  *         .waitForDeploy()
  *         .join();
  * }</pre>
@@ -72,21 +76,19 @@ public final class NotoFactory {
    * @param params the token configuration
    * @return a handle on the in-flight deployment
    */
-  public NotoDeployment newNoto(final String from, final NotoConstructorParams params) {
-    return newNoto(from, params, null);
-  }
-
   /**
    * Deploys a new Noto token with an idempotency key, so that a retried submission is not deployed
    * twice.
    *
    * @param from lookup string of the identity that signs the deployment
    * @param params the token configuration
-   * @param idempotencyKey a key unique to this deployment, or {@code null}
+   * @param idempotencyKey a key unique to this deployment, or {@link Optional#empty()}
    * @return a handle on the in-flight deployment
    */
   public NotoDeployment newNoto(
-      final String from, final NotoConstructorParams params, final String idempotencyKey) {
+      final String from,
+      final NotoConstructorParams params,
+      final Optional<String> idempotencyKey) {
     Objects.requireNonNull(params, "params");
     return new NotoDeployment(
         paladin,
@@ -98,7 +100,7 @@ public final class NotoFactory {
             .constructor()
             .abiEntry(NotoAbi.constructor(params.notaryMode()))
             .from(from)
-            .idempotencyKey(idempotencyKey)
+            .idempotencyKey(Objects.requireNonNull(idempotencyKey, "idempotencyKey").orElse(null))
             .inputs(params)
             .send());
   }

@@ -15,14 +15,13 @@
 package org.lfdt.paladin.sdk.domains.noto;
 
 /**
- * Rules applied by a notary in {@link NotaryMode#BASIC} mode. A {@code null} flag is left for the
- * domain to default, which enables it.
+ * Rules applied by a notary in {@link NotaryMode#BASIC} mode.
  *
  * @param restrictMint whether only the notary may mint
  * @param allowBurn whether token holders may burn their tokens
  * @param allowLock whether token holders may lock their tokens
  */
-public record NotoBasicOptions(Boolean restrictMint, Boolean allowBurn, Boolean allowLock) {
+public record NotoBasicOptions(boolean restrictMint, boolean allowBurn, boolean allowLock) {
 
   /**
    * The default rules: minting restricted to the notary, burning and locking allowed.

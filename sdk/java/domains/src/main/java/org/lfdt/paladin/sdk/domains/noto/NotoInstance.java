@@ -17,6 +17,7 @@ package org.lfdt.paladin.sdk.domains.noto;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.lfdt.paladin.sdk.client.PaladinClient;
 import org.lfdt.paladin.sdk.client.tx.SentTransaction;
@@ -31,7 +32,10 @@ import org.lfdt.paladin.sdk.core.types.EthAddress;
  * <pre>{@code
  * TransactionReceipt receipt =
  *     token
- *         .transfer("alice", new NotoTransferParams("bob@node2", HexUint256.of(10), null))
+ *         .transfer(
+ *             "alice",
+ *             new NotoTransferParams("bob@node2", HexUint256.of(10), null),
+ *             Optional.empty())
  *         .waitForReceipt()
  *         .join();
  * }</pre>
@@ -105,39 +109,17 @@ public final class NotoInstance {
   }
 
   /**
-   * Mints new tokens to a recipient.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction mint(final String from, final NotoMintParams params) {
-    return mint(from, params, null);
-  }
-
-  /**
    * Mints new tokens to a recipient. The idempotency key prevents a retried submission from
    * executing twice.
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction mint(
-      final String from, final NotoMintParams params, final String idempotencyKey) {
+      final String from, final NotoMintParams params, final Optional<String> idempotencyKey) {
     return sendPrivate("mint", from, params, idempotencyKey);
-  }
-
-  /**
-   * Transfers the sender's tokens to a recipient.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction transfer(final String from, final NotoTransferParams params) {
-    return transfer(from, params, null);
   }
 
   /**
@@ -146,23 +128,12 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction transfer(
-      final String from, final NotoTransferParams params, final String idempotencyKey) {
+      final String from, final NotoTransferParams params, final Optional<String> idempotencyKey) {
     return sendPrivate("transfer", from, params, idempotencyKey);
-  }
-
-  /**
-   * Transfers another identity's tokens to a recipient.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction transferFrom(final String from, final NotoTransferFromParams params) {
-    return transferFrom(from, params, null);
   }
 
   /**
@@ -171,23 +142,14 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction transferFrom(
-      final String from, final NotoTransferFromParams params, final String idempotencyKey) {
+      final String from,
+      final NotoTransferFromParams params,
+      final Optional<String> idempotencyKey) {
     return sendPrivate("transferFrom", from, params, idempotencyKey);
-  }
-
-  /**
-   * Burns the sender's tokens.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction burn(final String from, final NotoBurnParams params) {
-    return burn(from, params, null);
   }
 
   /**
@@ -196,23 +158,12 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction burn(
-      final String from, final NotoBurnParams params, final String idempotencyKey) {
+      final String from, final NotoBurnParams params, final Optional<String> idempotencyKey) {
     return sendPrivate("burn", from, params, idempotencyKey);
-  }
-
-  /**
-   * Burns another identity's tokens.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction burnFrom(final String from, final NotoBurnFromParams params) {
-    return burnFrom(from, params, null);
   }
 
   /**
@@ -221,78 +172,42 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction burnFrom(
-      final String from, final NotoBurnFromParams params, final String idempotencyKey) {
+      final String from, final NotoBurnFromParams params, final Optional<String> idempotencyKey) {
     return sendPrivate("burnFrom", from, params, idempotencyKey);
   }
 
   /**
-   * Locks some of the sender's tokens.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   * @deprecated use {@link #createLock(String, NotoLockParams)} instead
-   */
-  @Deprecated
-  public SentTransaction lock(final String from, final NotoLockParams params) {
-    return lock(from, params, null);
-  }
-
-  /**
    * Locks some of the sender's tokens. The idempotency key prevents a retried submission from
    * executing twice.
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
-   * @deprecated use {@link #createLock(String, NotoLockParams, String)} instead
+   * @deprecated use {@link #createLock(String, NotoLockParams, Optional)} instead
    */
   @Deprecated
   public SentTransaction lock(
-      final String from, final NotoLockParams params, final String idempotencyKey) {
+      final String from, final NotoLockParams params, final Optional<String> idempotencyKey) {
     return sendPrivate("lock", from, params, idempotencyKey);
   }
 
   /**
-   * Locks some of the sender's tokens.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction createLock(final String from, final NotoLockParams params) {
-    return createLock(from, params, null);
-  }
-
-  /**
    * Locks some of the sender's tokens. The idempotency key prevents a retried submission from
    * executing twice.
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction createLock(
-      final String from, final NotoLockParams params, final String idempotencyKey) {
+      final String from, final NotoLockParams params, final Optional<String> idempotencyKey) {
     return sendPrivate("createLock", from, params, idempotencyKey);
-  }
-
-  /**
-   * Locks tokens and fixes the transfer that will spend the lock.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction createTransferLock(
-      final String from, final NotoCreateTransferLockParams params) {
-    return createTransferLock(from, params, null);
   }
 
   /**
@@ -301,23 +216,14 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction createTransferLock(
-      final String from, final NotoCreateTransferLockParams params, final String idempotencyKey) {
+      final String from,
+      final NotoCreateTransferLockParams params,
+      final Optional<String> idempotencyKey) {
     return sendPrivate("createTransferLock", from, params, idempotencyKey);
-  }
-
-  /**
-   * Creates a lock whose spend mints new tokens.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction createMintLock(final String from, final NotoCreateMintLockParams params) {
-    return createMintLock(from, params, null);
   }
 
   /**
@@ -326,23 +232,14 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction createMintLock(
-      final String from, final NotoCreateMintLockParams params, final String idempotencyKey) {
+      final String from,
+      final NotoCreateMintLockParams params,
+      final Optional<String> idempotencyKey) {
     return sendPrivate("createMintLock", from, params, idempotencyKey);
-  }
-
-  /**
-   * Locks tokens and fixes the burn that will spend the lock.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction createBurnLock(final String from, final NotoCreateBurnLockParams params) {
-    return createBurnLock(from, params, null);
   }
 
   /**
@@ -351,23 +248,14 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction createBurnLock(
-      final String from, final NotoCreateBurnLockParams params, final String idempotencyKey) {
+      final String from,
+      final NotoCreateBurnLockParams params,
+      final Optional<String> idempotencyKey) {
     return sendPrivate("createBurnLock", from, params, idempotencyKey);
-  }
-
-  /**
-   * Releases locked tokens to the given recipients.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction unlock(final String from, final NotoUnlockParams params) {
-    return unlock(from, params, null);
   }
 
   /**
@@ -376,23 +264,12 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction unlock(
-      final String from, final NotoUnlockParams params, final String idempotencyKey) {
+      final String from, final NotoUnlockParams params, final Optional<String> idempotencyKey) {
     return sendPrivate("unlock", from, params, idempotencyKey);
-  }
-
-  /**
-   * Prepares a transfer that spends a lock, for later execution.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction prepareUnlock(final String from, final NotoPrepareUnlockParams params) {
-    return prepareUnlock(from, params, null);
   }
 
   /**
@@ -401,24 +278,14 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction prepareUnlock(
-      final String from, final NotoPrepareUnlockParams params, final String idempotencyKey) {
+      final String from,
+      final NotoPrepareUnlockParams params,
+      final Optional<String> idempotencyKey) {
     return sendPrivate("prepareUnlock", from, params, idempotencyKey);
-  }
-
-  /**
-   * Prepares a mint that spends a lock, for later execution.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction prepareMintUnlock(
-      final String from, final NotoPrepareMintUnlockParams params) {
-    return prepareMintUnlock(from, params, null);
   }
 
   /**
@@ -427,24 +294,14 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction prepareMintUnlock(
-      final String from, final NotoPrepareMintUnlockParams params, final String idempotencyKey) {
+      final String from,
+      final NotoPrepareMintUnlockParams params,
+      final Optional<String> idempotencyKey) {
     return sendPrivate("prepareMintUnlock", from, params, idempotencyKey);
-  }
-
-  /**
-   * Prepares a burn that spends a lock, for later execution.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction prepareBurnUnlock(
-      final String from, final NotoPrepareBurnUnlockParams params) {
-    return prepareBurnUnlock(from, params, null);
   }
 
   /**
@@ -453,23 +310,14 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction prepareBurnUnlock(
-      final String from, final NotoPrepareBurnUnlockParams params, final String idempotencyKey) {
+      final String from,
+      final NotoPrepareBurnUnlockParams params,
+      final Optional<String> idempotencyKey) {
     return sendPrivate("prepareBurnUnlock", from, params, idempotencyKey);
-  }
-
-  /**
-   * Delegates control of a lock to another address.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction delegateLock(final String from, final NotoDelegateLockParams params) {
-    return delegateLock(from, params, null);
   }
 
   /**
@@ -478,23 +326,14 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction delegateLock(
-      final String from, final NotoDelegateLockParams params, final String idempotencyKey) {
+      final String from,
+      final NotoDelegateLockParams params,
+      final Optional<String> idempotencyKey) {
     return sendPrivate("delegateLock", from, params, idempotencyKey);
-  }
-
-  /**
-   * Spends a prepared lock with a public transaction on the base ledger.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction spendLock(final String from, final NotoSpendLockParams params) {
-    return spendLock(from, params, null);
   }
 
   /**
@@ -503,23 +342,12 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction spendLock(
-      final String from, final NotoSpendLockParams params, final String idempotencyKey) {
+      final String from, final NotoSpendLockParams params, final Optional<String> idempotencyKey) {
     return sendPublic("spendLock", from, params, idempotencyKey);
-  }
-
-  /**
-   * Cancels a prepared lock with a public transaction on the base ledger.
-   *
-   * @param from lookup string of the identity that signs the transaction
-   * @param params the operation inputs
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction cancelLock(final String from, final NotoCancelLockParams params) {
-    return cancelLock(from, params, null);
   }
 
   /**
@@ -528,11 +356,11 @@ public final class NotoInstance {
    *
    * @param from lookup string of the identity that signs the transaction
    * @param params the operation inputs
-   * @param idempotencyKey a key unique to this operation, or {@code null}
+   * @param idempotencyKey a key unique to this operation, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction cancelLock(
-      final String from, final NotoCancelLockParams params, final String idempotencyKey) {
+      final String from, final NotoCancelLockParams params, final Optional<String> idempotencyKey) {
     return sendPublic("cancelLock", from, params, idempotencyKey);
   }
 
@@ -580,21 +408,27 @@ public final class NotoInstance {
   }
 
   private SentTransaction sendPrivate(
-      final String function, final String from, final Object params, final String idempotencyKey) {
+      final String function,
+      final String from,
+      final Object params,
+      final Optional<String> idempotencyKey) {
     return invoke(function, from, params)
         .privateTx()
         .domain(domain)
         .abi(NotoAbi.PRIVATE)
-        .idempotencyKey(idempotencyKey)
+        .idempotencyKey(Objects.requireNonNull(idempotencyKey, "idempotencyKey").orElse(null))
         .send();
   }
 
   private SentTransaction sendPublic(
-      final String function, final String from, final Object params, final String idempotencyKey) {
+      final String function,
+      final String from,
+      final Object params,
+      final Optional<String> idempotencyKey) {
     return invoke(function, from, params)
         .publicTx()
         .abi(NotoAbi.PUBLIC)
-        .idempotencyKey(idempotencyKey)
+        .idempotencyKey(Objects.requireNonNull(idempotencyKey, "idempotencyKey").orElse(null))
         .send();
   }
 

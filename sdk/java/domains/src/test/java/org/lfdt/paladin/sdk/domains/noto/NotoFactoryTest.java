@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,7 +62,8 @@ class NotoFactoryTest {
     final NotoDeployment deployment =
         factory.newNoto(
             "alice",
-            NotoConstructorParams.basic("notary@node1").withName("Cash").withSymbol("CSH"));
+            NotoConstructorParams.basic("notary@node1").withName("Cash").withSymbol("CSH"),
+            Optional.empty());
 
     assertEquals(UUID.fromString(TX_ID), deployment.id().join());
     assertSame(deployment.id(), deployment.transaction().id());
@@ -97,7 +99,7 @@ class NotoFactoryTest {
             new NotoPrivateGroup(Bytes32.fromString("0x" + "01".repeat(32)), List.of("a", "b")),
             null);
 
-    factory.newNoto("alice", NotoConstructorParams.hooks("notary", hooks), "deploy-1");
+    factory.newNoto("alice", NotoConstructorParams.hooks("notary", hooks), Optional.of("deploy-1"));
 
     final JsonNode body = rpc.lastCall("ptx_sendTransaction").body();
     assertEquals("deploy-1", body.get("idempotencyKey").asText());
@@ -117,7 +119,10 @@ class NotoFactoryTest {
     rpc.respond("ptx_getTransactionReceipt", receipt(true));
 
     final NotoInstance token =
-        factory.newNoto("alice", NotoConstructorParams.basic("notary")).waitForDeploy().join();
+        factory
+            .newNoto("alice", NotoConstructorParams.basic("notary"), Optional.empty())
+            .waitForDeploy()
+            .join();
 
     assertEquals(EthAddress.fromString(CONTRACT), token.address());
     assertEquals("noto", token.domain());
@@ -130,7 +135,7 @@ class NotoFactoryTest {
 
     final NotoInstance token =
         factory
-            .newNoto("alice", NotoConstructorParams.basic("notary"))
+            .newNoto("alice", NotoConstructorParams.basic("notary"), Optional.empty())
             .waitForDeploy(Duration.ofSeconds(5))
             .join();
 
@@ -140,7 +145,8 @@ class NotoFactoryTest {
   @Test
   void waitForDeployFailsWhenTheDeploymentFails() {
     rpc.respond("ptx_getTransactionReceipt", receipt(false));
-    final NotoDeployment deployment = factory.newNoto("alice", NotoConstructorParams.basic("n"));
+    final NotoDeployment deployment =
+        factory.newNoto("alice", NotoConstructorParams.basic("n"), Optional.empty());
 
     final CompletionException failure =
         assertThrows(CompletionException.class, () -> deployment.waitForDeploy().join());
@@ -154,7 +160,8 @@ class NotoFactoryTest {
   void waitForDeployFailsWhenNoContractWasCreated() {
     rpc.respond(
         "ptx_getTransactionReceipt", "{\"id\":\"" + TX_ID + "\",\"sequence\":1,\"success\":true}");
-    final NotoDeployment deployment = factory.newNoto("alice", NotoConstructorParams.basic("n"));
+    final NotoDeployment deployment =
+        factory.newNoto("alice", NotoConstructorParams.basic("n"), Optional.empty());
 
     final CompletionException failure =
         assertThrows(
@@ -170,7 +177,7 @@ class NotoFactoryTest {
         new FakeRpcClient().respond("ptx_sendTransaction", "\"" + TX_ID + "\"");
 
     final NotoFactory moved = factory.using(PaladinClient.wrap(other));
-    moved.newNoto("alice", NotoConstructorParams.basic("notary"));
+    moved.newNoto("alice", NotoConstructorParams.basic("notary"), Optional.empty());
 
     assertEquals("noto", moved.domain());
     assertEquals(1, other.calls().size());
@@ -182,7 +189,8 @@ class NotoFactoryTest {
     final PaladinClient paladin = PaladinClient.wrap(rpc);
     assertThrows(NullPointerException.class, () -> new NotoFactory(null, "noto"));
     assertThrows(NullPointerException.class, () -> new NotoFactory(paladin, null));
-    assertThrows(NullPointerException.class, () -> factory.newNoto("alice", null));
+    assertThrows(
+        NullPointerException.class, () -> factory.newNoto("alice", null, Optional.empty()));
     assertTrue(rpc.calls().isEmpty());
   }
 

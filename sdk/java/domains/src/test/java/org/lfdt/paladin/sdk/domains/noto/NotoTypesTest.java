@@ -122,7 +122,7 @@ class NotoTypesTest {
 
   @Test
   void constructorParamsCanBeRenamed() {
-    final NotoBasicOptions rules = new NotoBasicOptions(false, null, true);
+    final NotoBasicOptions rules = new NotoBasicOptions(false, false, true);
     final NotoConstructorParams params =
         NotoConstructorParams.basic("notary", rules).withName("Cash").withSymbol("CSH");
 
@@ -132,7 +132,7 @@ class NotoTypesTest {
 
     final JsonNode json = MAPPER.valueToTree(params);
     assertFalse(json.get("options").get("basic").get("restrictMint").asBoolean());
-    assertFalse(json.get("options").get("basic").has("allowBurn"));
+    assertFalse(json.get("options").get("basic").get("allowBurn").asBoolean());
   }
 
   @Test
@@ -158,6 +158,20 @@ class NotoTypesTest {
     assertThrows(
         NullPointerException.class,
         () -> new NotoConstructorParams("n", "s", "x", NotaryMode.BASIC, null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new NotoConstructorParams(
+                "n", "s", "x", NotaryMode.BASIC, new NotoOptions(null, null)));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new NotoConstructorParams(
+                "n",
+                "s",
+                "x",
+                NotaryMode.HOOKS,
+                new NotoOptions(NotoBasicOptions.defaults(), null)));
     assertThrows(NullPointerException.class, () -> NotoConstructorParams.basic("x", null));
     assertThrows(NullPointerException.class, () -> NotoConstructorParams.hooks("x", null));
   }

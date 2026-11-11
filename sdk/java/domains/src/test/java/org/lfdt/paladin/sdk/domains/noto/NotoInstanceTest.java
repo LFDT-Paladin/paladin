@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -101,47 +102,65 @@ class NotoInstanceTest {
     final NotoCancelLockParams cancelLock =
         new NotoCancelLockParams(LOCK_ID, HexBytes.fromString("0x02"), DATA);
     return Stream.of(
-            new Op("mint", mint, false, t -> t.mint("alice", mint)),
-            new Op("transfer", transfer, false, t -> t.transfer("alice", transfer)),
-            new Op("transferFrom", transferFrom, false, t -> t.transferFrom("alice", transferFrom)),
-            new Op("burn", burn, false, t -> t.burn("alice", burn)),
-            new Op("burnFrom", burnFrom, false, t -> t.burnFrom("alice", burnFrom)),
-            new Op("lock", lock, false, t -> t.lock("alice", lock)),
-            new Op("createLock", lock, false, t -> t.createLock("alice", lock)),
+            new Op("mint", mint, false, t -> t.mint("alice", mint, Optional.empty())),
+            new Op(
+                "transfer", transfer, false, t -> t.transfer("alice", transfer, Optional.empty())),
+            new Op(
+                "transferFrom",
+                transferFrom,
+                false,
+                t -> t.transferFrom("alice", transferFrom, Optional.empty())),
+            new Op("burn", burn, false, t -> t.burn("alice", burn, Optional.empty())),
+            new Op(
+                "burnFrom", burnFrom, false, t -> t.burnFrom("alice", burnFrom, Optional.empty())),
+            new Op("lock", lock, false, t -> t.lock("alice", lock, Optional.empty())),
+            new Op("createLock", lock, false, t -> t.createLock("alice", lock, Optional.empty())),
             new Op(
                 "createTransferLock",
                 createTransferLock,
                 false,
-                t -> t.createTransferLock("alice", createTransferLock)),
+                t -> t.createTransferLock("alice", createTransferLock, Optional.empty())),
             new Op(
                 "createMintLock",
                 createMintLock,
                 false,
-                t -> t.createMintLock("alice", createMintLock)),
+                t -> t.createMintLock("alice", createMintLock, Optional.empty())),
             new Op(
                 "createBurnLock",
                 createBurnLock,
                 false,
-                t -> t.createBurnLock("alice", createBurnLock)),
-            new Op("unlock", unlock, false, t -> t.unlock("alice", unlock)),
+                t -> t.createBurnLock("alice", createBurnLock, Optional.empty())),
+            new Op("unlock", unlock, false, t -> t.unlock("alice", unlock, Optional.empty())),
             new Op(
                 "prepareUnlock",
                 prepareUnlock,
                 false,
-                t -> t.prepareUnlock("alice", prepareUnlock)),
+                t -> t.prepareUnlock("alice", prepareUnlock, Optional.empty())),
             new Op(
                 "prepareMintUnlock",
                 prepareMintUnlock,
                 false,
-                t -> t.prepareMintUnlock("alice", prepareMintUnlock)),
+                t -> t.prepareMintUnlock("alice", prepareMintUnlock, Optional.empty())),
             new Op(
                 "prepareBurnUnlock",
                 prepareBurnUnlock,
                 false,
-                t -> t.prepareBurnUnlock("alice", prepareBurnUnlock)),
-            new Op("delegateLock", delegateLock, false, t -> t.delegateLock("alice", delegateLock)),
-            new Op("spendLock", spendLock, true, t -> t.spendLock("alice", spendLock)),
-            new Op("cancelLock", cancelLock, true, t -> t.cancelLock("alice", cancelLock)))
+                t -> t.prepareBurnUnlock("alice", prepareBurnUnlock, Optional.empty())),
+            new Op(
+                "delegateLock",
+                delegateLock,
+                false,
+                t -> t.delegateLock("alice", delegateLock, Optional.empty())),
+            new Op(
+                "spendLock",
+                spendLock,
+                true,
+                t -> t.spendLock("alice", spendLock, Optional.empty())),
+            new Op(
+                "cancelLock",
+                cancelLock,
+                true,
+                t -> t.cancelLock("alice", cancelLock, Optional.empty())))
         .map(Arguments::of);
   }
 
@@ -168,7 +187,8 @@ class NotoInstanceTest {
 
   @Test
   void sendsInputsUnderTheirAbiNames() {
-    token.unlock("alice", new NotoUnlockParams(LOCK_ID, "alice", RECIPIENTS, null));
+    token.unlock(
+        "alice", new NotoUnlockParams(LOCK_ID, "alice", RECIPIENTS, null), Optional.empty());
 
     final JsonNode data = rpc.lastCall("ptx_sendTransaction").body().get("data");
     assertEquals(LOCK_ID.toString(), data.get("lockId").asText());
@@ -180,8 +200,8 @@ class NotoInstanceTest {
 
   @Test
   void forwardsTheIdempotencyKey() {
-    token.mint("alice", new NotoMintParams("bob", AMOUNT, DATA), "mint-1");
-    token.spendLock("alice", new NotoSpendLockParams(LOCK_ID, DATA, DATA), "spend-1");
+    token.mint("alice", new NotoMintParams("bob", AMOUNT, DATA), Optional.of("mint-1"));
+    token.spendLock("alice", new NotoSpendLockParams(LOCK_ID, DATA, DATA), Optional.of("spend-1"));
 
     final List<FakeRpcClient.Call> sends =
         rpc.calls().stream().filter(c -> c.method().equals("ptx_sendTransaction")).toList();
@@ -235,7 +255,7 @@ class NotoInstanceTest {
         new FakeRpcClient().respond("ptx_sendTransaction", "\"" + TX_ID + "\"");
 
     final NotoInstance moved = token.using(PaladinClient.wrap(other));
-    moved.burn("alice", new NotoBurnParams(AMOUNT, null));
+    moved.burn("alice", new NotoBurnParams(AMOUNT, null), Optional.empty());
 
     assertEquals(ADDRESS, moved.address());
     assertEquals("noto-test", moved.domain());
@@ -249,7 +269,7 @@ class NotoInstanceTest {
     assertThrows(NullPointerException.class, () -> new NotoInstance(null, ADDRESS));
     assertThrows(NullPointerException.class, () -> new NotoInstance(paladin, null, ADDRESS));
     assertThrows(NullPointerException.class, () -> new NotoInstance(paladin, "noto", null));
-    assertThrows(NullPointerException.class, () -> token.mint("alice", null));
+    assertThrows(NullPointerException.class, () -> token.mint("alice", null, Optional.empty()));
     assertThrows(NullPointerException.class, () -> token.balanceOf("alice", null));
     assertTrue(rpc.calls().isEmpty());
   }
@@ -260,7 +280,7 @@ class NotoInstanceTest {
     final NotoInstance broken = token.using(PaladinClient.wrap(failing));
 
     final SentTransaction sent =
-        broken.transfer("alice", new NotoTransferParams("bob", AMOUNT, null));
+        broken.transfer("alice", new NotoTransferParams("bob", AMOUNT, null), Optional.empty());
 
     assertSame(
         IllegalStateException.class,
