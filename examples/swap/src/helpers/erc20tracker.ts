@@ -23,6 +23,7 @@ import { DEFAULT_POLL_TIMEOUT } from "paladin-example-common";
 export interface ERC20TrackerConstructorParams {
   name: string;
   symbol: string;
+  notary: string;
 }
 
 export const newERC20Tracker = async (
