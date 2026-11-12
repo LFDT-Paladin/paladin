@@ -201,6 +201,21 @@ func action_NotifyDependentsOfRevertedConfirmation(ctx context.Context, txn *coo
 
 func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx context.Context) error {
 	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s (dependents will repool/move to preassembly blocked)", t.pt.ID.String())
+	// Remove the read dependency links before notifying, so a spender that re-checks its dependencies is no
+	// longer held by this transaction as a reader.
+	readDependents := t.dependencyTracker.GetReadDeps().GetDependents(ctx, t.pt.ID)
+	t.dependencyTracker.GetReadDeps().Delete(ctx, t.pt.ID)
+	for _, dependentId := range readDependents {
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ReadDependencyRemovedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentId,
+			},
+			SourceTransactionID: t.pt.ID,
+		})
+		if err != nil {
+			return err
+		}
+	}
 	dependents := t.dependencyTracker.GetPostAssemblyDeps().GetDependents(ctx, t.pt.ID)
 	chainedDependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
 	for _, dependentId := range append(dependents, chainedDependents...) {

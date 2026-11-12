@@ -1153,3 +1153,97 @@ func Test_PreAssembleDependencyFinalized_StaysBlockedWithChainedDeps(t *testing.
 	assert.False(t, ok)
 	assert.Equal(t, State_PreAssembly_Blocked, txn.GetCurrentState())
 }
+
+func Test_action_NotifyDependentsOfReset_ReadDependentNotRepooled(t *testing.T) {
+	ctx := t.Context()
+	g, depTracker := newTestGrapher()
+	stateID := uuid.NewString()
+
+	spender, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(g).DependencyTracker(depTracker).
+		Build()
+	reader, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(g).DependencyTracker(depTracker).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			spender.pt.ID: spender,
+		}).
+		Build()
+	spender.getCoordinatorTransactionState = coordinatorTransactionStateLookup(map[uuid.UUID]CoordinatorTransaction{
+		spender.pt.ID: spender,
+		reader.pt.ID:  reader,
+	})
+
+	g.LockMintsOnReadAndSpend(ctx, []*prototk.EndorsableState{{Id: stateID}}, nil, reader.pt.ID)
+	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: stateID}}, spender.pt.ID)
+	require.True(t, spender.hasDependenciesNotReady(ctx))
+
+	err := action_NotifyDependentsOfReset(ctx, reader, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, State_Confirming_Dispatchable, spender.GetCurrentState())
+	assert.Empty(t, depTracker.GetReadDeps().GetPrerequisites(ctx, spender.pt.ID))
+}
+
+func Test_NotifyDependentsActions_ReadDependentHandleEventError(t *testing.T) {
+	for name, action := range map[string]func(context.Context, *coordinatorTransaction, common.Event) error{
+		"reset":              action_NotifyDependentsOfReset,
+		"reverted confirmed": action_NotifyDependentsOfRevertedConfirmation,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			g, depTracker := newTestGrapher()
+
+			// The spender's transition to Confirming_Dispatchable fails to hash when PostAssembly is nil.
+			spender, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+				Grapher(g).DependencyTracker(depTracker).
+				Build()
+			spender.pt.PostAssembly = nil
+			reader, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+				Grapher(g).DependencyTracker(depTracker).
+				CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+					spender.pt.ID: spender,
+				}).
+				Build()
+			spender.getCoordinatorTransactionState = coordinatorTransactionStateLookup(map[uuid.UUID]CoordinatorTransaction{
+				spender.pt.ID: spender,
+			})
+			stateID := uuid.NewString()
+			g.LockMintsOnReadAndSpend(ctx, []*prototk.EndorsableState{{Id: stateID}}, nil, reader.pt.ID)
+			g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: stateID}}, spender.pt.ID)
+
+			err := action(ctx, reader, nil)
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "PD012645")
+			assert.Empty(t, depTracker.GetReadDeps().GetPrerequisites(ctx, spender.pt.ID))
+		})
+	}
+}
+
+func Test_action_NotifyDependentsOfRevertedConfirmation_UnblocksReadDependent(t *testing.T) {
+	ctx := t.Context()
+	g, depTracker := newTestGrapher()
+	stateID := uuid.NewString()
+
+	spender, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(g).DependencyTracker(depTracker).
+		Build()
+	reader, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(g).DependencyTracker(depTracker).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			spender.pt.ID: spender,
+		}).
+		Build()
+	spender.getCoordinatorTransactionState = coordinatorTransactionStateLookup(map[uuid.UUID]CoordinatorTransaction{
+		spender.pt.ID: spender,
+		reader.pt.ID:  reader,
+	})
+
+	g.LockMintsOnReadAndSpend(ctx, []*prototk.EndorsableState{{Id: stateID}}, nil, reader.pt.ID)
+	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: stateID}}, spender.pt.ID)
+	require.True(t, spender.hasDependenciesNotReady(ctx))
+
+	err := action_NotifyDependentsOfRevertedConfirmation(ctx, reader, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, State_Confirming_Dispatchable, spender.GetCurrentState())
+}

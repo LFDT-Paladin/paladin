@@ -65,3 +65,26 @@ func dependencyResetToPreAssemblyOrPool() EventHandlers {
 		}},
 	}
 }
+
+// dependencyReadyHandler handles Event_DependencyReady for State_Blocked.
+var dependencyReadyHandler = dependencyReadyToConfirmingDispatchable()
+
+// readDependencyRemovedHandler handles Event_ReadDependencyRemoved for State_Blocked.
+var readDependencyRemovedHandler = dependencyReadyToConfirmingDispatchable()
+
+func dependencyReadyToConfirmingDispatchable() EventHandlers {
+	return EventHandlers{
+		Match: statemachine.MatchFirst,
+		Handlers: []EventHandler{{
+			Actions: []ActionRule{
+				{
+					Action: action_UpdateSigningIdentity,
+					If:     statemachine.GuardNot(guard_HasSigner),
+				}},
+			Transitions: []Transition{{
+				To: State_Confirming_Dispatchable,
+				If: statemachine.GuardNot(guard_HasDependenciesNotReady),
+			}},
+		}},
+	}
+}
