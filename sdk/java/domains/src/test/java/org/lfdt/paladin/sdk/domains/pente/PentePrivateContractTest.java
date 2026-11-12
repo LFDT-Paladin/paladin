@@ -27,6 +27,7 @@ import static org.lfdt.paladin.sdk.domains.pente.PentePrivacyGroupTest.TX_ID;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,7 +66,8 @@ class PentePrivateContractTest {
 
   @Test
   void sendsByFunctionName() {
-    final SentTransaction sent = contract.sendTransaction("alice", "set", Map.of("x", 5), "k");
+    final SentTransaction sent =
+        contract.sendTransaction("alice", "set", Map.of("x", 5), Optional.of("k"));
 
     assertEquals(UUID.fromString(TX_ID), sent.id().join());
     final JsonNode body = rpc.lastCall("pgroup_sendTransaction").body();
@@ -78,7 +80,7 @@ class PentePrivateContractTest {
 
   @Test
   void missingDataIsAnEmptyArgumentList() {
-    contract.sendTransaction("alice", "set", null);
+    contract.sendTransaction("alice", "set", null, Optional.empty());
 
     final JsonNode input = rpc.lastCall("pgroup_sendTransaction").body().get("input");
     assertTrue(input.isArray() && input.isEmpty(), input.toString());
@@ -94,7 +96,7 @@ class PentePrivateContractTest {
 
   @Test
   void unknownFunctionsFailWithoutAnRpc() {
-    final SentTransaction sent = contract.sendTransaction("alice", "nope", null);
+    final SentTransaction sent = contract.sendTransaction("alice", "nope", null, Optional.empty());
     final Throwable sendFailure =
         assertThrows(CompletionException.class, () -> sent.id().join()).getCause();
     final Throwable callFailure =
@@ -113,7 +115,7 @@ class PentePrivateContractTest {
         new FakeRpcClient().respond("pgroup_sendTransaction", "\"" + TX_ID + "\"");
     final PentePrivateContract moved = contract.using(PaladinClient.wrap(other));
 
-    moved.sendTransaction("bob", "set", List.of(1));
+    moved.sendTransaction("bob", "set", List.of(1), Optional.empty());
 
     assertNotSame(contract, moved);
     assertEquals(ADDRESS, moved.address());
@@ -129,5 +131,9 @@ class PentePrivateContractTest {
     assertThrows(NullPointerException.class, () -> new PentePrivateContract(group, null, ADDRESS));
     assertThrows(
         NullPointerException.class, () -> new PentePrivateContract(group, List.of(), null));
+    assertThrows(
+        NullPointerException.class, () -> contract.sendTransaction("alice", "set", null, null));
+    assertThrows(
+        NullPointerException.class, () -> contract.sendTransaction("alice", "nope", null, null));
   }
 }

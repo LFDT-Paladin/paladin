@@ -17,6 +17,7 @@ package org.lfdt.paladin.sdk.domains.pente;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.lfdt.paladin.sdk.client.PaladinClient;
 import org.lfdt.paladin.sdk.client.tx.SentTransaction;
@@ -33,8 +34,16 @@ import org.lfdt.paladin.sdk.core.types.HexBytes;
  *
  * <pre>{@code
  * EthAddress contract =
- *     group.deploy(new PenteDeployParams(abi, bytecode, "alice@node1", Map.of())).waitForDeploy().join();
- * group.sendTransaction(new PenteGroupTransactionParams("alice@node1", contract, setAbi, Map.of("x", 1)))
+ *     group
+ *         .deploy(
+ *             new PenteDeployParams(abi, bytecode, "alice@node1", Map.of()), Optional.empty())
+ *         .waitForDeploy()
+ *         .join();
+ * group
+ *     .sendTransaction(
+ *         new PenteGroupTransactionParams(
+ *             "alice@node1", contract, setAbi, Map.of("x", 1)),
+ *         Optional.empty())
  *     .waitForReceipt()
  *     .join();
  * }</pre>
@@ -136,25 +145,15 @@ public final class PentePrivacyGroup {
   }
 
   /**
-   * Deploys a private contract into the group.
+   * Deploys a private contract into the group. The idempotency key prevents a retried submission
+   * from being deployed twice.
    *
    * @param params the contract and its constructor arguments
-   * @return a handle on the in-flight deployment
-   */
-  public PentePrivateDeployment deploy(final PenteDeployParams params) {
-    return deploy(params, null);
-  }
-
-  /**
-   * Deploys a private contract into the group with an idempotency key, so that a retried submission
-   * is not deployed twice.
-   *
-   * @param params the contract and its constructor arguments
-   * @param idempotencyKey a key unique to this deployment, or {@code null}
+   * @param idempotencyKey a key unique to this deployment, or {@link Optional#empty()}
    * @return a handle on the in-flight deployment
    */
   public PentePrivateDeployment deploy(
-      final PenteDeployParams params, final String idempotencyKey) {
+      final PenteDeployParams params, final Optional<String> idempotencyKey) {
     Objects.requireNonNull(params, "params");
     final AbiEntry constructor =
         params.abi().stream()
@@ -166,7 +165,7 @@ public final class PentePrivacyGroup {
             .from(params.from())
             .abiEntry(constructor)
             .bytecode(params.bytecode())
-            .idempotencyKey(idempotencyKey);
+            .idempotencyKey(Objects.requireNonNull(idempotencyKey, "idempotencyKey").orElse(null));
     if (params.inputs() != null) {
       tx.inputs(params.inputs());
     }
@@ -174,26 +173,19 @@ public final class PentePrivacyGroup {
   }
 
   /**
-   * Submits a transaction to a private contract in the group.
+   * Submits a transaction to a private contract in the group. The idempotency key prevents a
+   * retried submission from executing twice.
    *
    * @param params the function invocation
-   * @return a handle on the submitted transaction
-   */
-  public SentTransaction sendTransaction(final PenteGroupTransactionParams params) {
-    return sendTransaction(params, null);
-  }
-
-  /**
-   * Submits a transaction to a private contract in the group with an idempotency key.
-   *
-   * @param params the function invocation
-   * @param idempotencyKey a key unique to this transaction, or {@code null}
+   * @param idempotencyKey a key unique to this transaction, or {@link Optional#empty()}
    * @return a handle on the submitted transaction
    */
   public SentTransaction sendTransaction(
-      final PenteGroupTransactionParams params, final String idempotencyKey) {
+      final PenteGroupTransactionParams params, final Optional<String> idempotencyKey) {
     Objects.requireNonNull(params, "params");
-    return invoke(params, params.from()).idempotencyKey(idempotencyKey).send();
+    return invoke(params, params.from())
+        .idempotencyKey(Objects.requireNonNull(idempotencyKey, "idempotencyKey").orElse(null))
+        .send();
   }
 
   /**

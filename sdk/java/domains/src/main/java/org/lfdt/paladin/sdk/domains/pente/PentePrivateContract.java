@@ -33,7 +33,10 @@ import org.lfdt.paladin.sdk.core.types.EthAddress;
  *
  * <pre>{@code
  * PentePrivateContract storage = new PentePrivateContract(group, storageAbi, address);
- * storage.sendTransaction("alice@node1", "store", Map.of("num", 42)).waitForReceipt().join();
+ * storage
+ *     .sendTransaction("alice@node1", "store", Map.of("num", 42), Optional.empty())
+ *     .waitForReceipt()
+ *     .join();
  * JsonNode value = storage.call("alice@node1", "retrieve", null).join();
  * }</pre>
  */
@@ -95,31 +98,22 @@ public class PentePrivateContract {
   }
 
   /**
-   * Submits a transaction invoking a function of the contract.
+   * Submits a transaction invoking a function of the contract. The idempotency key prevents a
+   * retried submission from executing twice.
    *
    * @param from lookup string of the signing identity
    * @param function the function name
    * @param data the function arguments; an empty argument list when {@code null}
+   * @param idempotencyKey a key unique to this transaction, or {@link Optional#empty()}
    * @return a handle on the submitted transaction; its futures fail with a {@link
    *     PaladinInvalidTransactionException} if the ABI has no such function
    */
   public SentTransaction sendTransaction(
-      final String from, final String function, final Object data) {
-    return sendTransaction(from, function, data, null);
-  }
-
-  /**
-   * Submits a transaction invoking a function of the contract, with an idempotency key.
-   *
-   * @param from lookup string of the signing identity
-   * @param function the function name
-   * @param data the function arguments; an empty argument list when {@code null}
-   * @param idempotencyKey a key unique to this transaction, or {@code null}
-   * @return a handle on the submitted transaction; its futures fail with a {@link
-   *     PaladinInvalidTransactionException} if the ABI has no such function
-   */
-  public SentTransaction sendTransaction(
-      final String from, final String function, final Object data, final String idempotencyKey) {
+      final String from,
+      final String function,
+      final Object data,
+      final Optional<String> idempotencyKey) {
+    Objects.requireNonNull(idempotencyKey, "idempotencyKey");
     return method(function)
         .map(m -> group.sendTransaction(params(from, m, data), idempotencyKey))
         .orElseGet(

@@ -27,6 +27,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -133,7 +134,7 @@ class PentePrivacyGroupTest {
                 HexBytes.fromString("0x6000"),
                 "alice",
                 Map.of("initial", 7)),
-            "deploy-1");
+            Optional.of("deploy-1"));
 
     assertEquals(UUID.fromString(TX_ID), deployment.id().join());
     assertSame(deployment.id(), deployment.transaction().id());
@@ -151,7 +152,9 @@ class PentePrivacyGroupTest {
 
   @Test
   void deployDefaultsToAnEmptyConstructor() {
-    group.deploy(new PenteDeployParams(null, HexBytes.fromString("0x6000"), "alice", null));
+    group.deploy(
+        new PenteDeployParams(null, HexBytes.fromString("0x6000"), "alice", null),
+        Optional.empty());
 
     final JsonNode body = rpc.lastCall("pgroup_sendTransaction").body();
     assertEquals("constructor", body.get("function").get("type").asText());
@@ -163,7 +166,9 @@ class PentePrivacyGroupTest {
   void waitForDeployReadsTheDomainReceipt() {
     receipts(true, "{\"receipt\":{\"contractAddress\":\"" + PRIVATE_ADDRESS + "\"}}");
     final PentePrivateDeployment deployment =
-        group.deploy(new PenteDeployParams(List.of(), HexBytes.fromString("0x6000"), "a", null));
+        group.deploy(
+            new PenteDeployParams(List.of(), HexBytes.fromString("0x6000"), "a", null),
+            Optional.empty());
 
     assertEquals(EthAddress.fromString(PRIVATE_ADDRESS), deployment.waitForDeploy().join());
     assertEquals(
@@ -176,7 +181,9 @@ class PentePrivacyGroupTest {
   void waitForDeployFailsForAFailedDeployment() {
     receipts(false, "null");
     final PentePrivateDeployment deployment =
-        group.deploy(new PenteDeployParams(List.of(), HexBytes.fromString("0x6000"), "a", null));
+        group.deploy(
+            new PenteDeployParams(List.of(), HexBytes.fromString("0x6000"), "a", null),
+            Optional.empty());
 
     final Throwable cause = failure(() -> deployment.waitForDeploy().join());
 
@@ -190,7 +197,9 @@ class PentePrivacyGroupTest {
         List.of("null", "{}", "{\"receipt\":{}}", "{\"receipt\":{\"contractAddress\":1}}")) {
       receipts(true, domainReceipt);
       final PentePrivateDeployment deployment =
-          group.deploy(new PenteDeployParams(List.of(), HexBytes.fromString("0x6000"), "a", null));
+          group.deploy(
+              new PenteDeployParams(List.of(), HexBytes.fromString("0x6000"), "a", null),
+              Optional.empty());
 
       final Throwable cause = failure(() -> deployment.waitForDeploy().join());
 
@@ -204,7 +213,7 @@ class PentePrivacyGroupTest {
     group.sendTransaction(
         new PenteGroupTransactionParams(
             "alice", EthAddress.fromString(PRIVATE_ADDRESS), SET, Map.of("x", 1)),
-        "tx-1");
+        Optional.of("tx-1"));
 
     final JsonNode body = rpc.lastCall("pgroup_sendTransaction").body();
     assertEquals("alice", body.get("from").asText());
@@ -221,7 +230,8 @@ class PentePrivacyGroupTest {
         group
             .sendTransaction(
                 new PenteGroupTransactionParams(
-                    "alice", EthAddress.fromString(PRIVATE_ADDRESS), SET, null))
+                    "alice", EthAddress.fromString(PRIVATE_ADDRESS), SET, null),
+                Optional.empty())
             .id()
             .join());
 
@@ -268,7 +278,8 @@ class PentePrivacyGroupTest {
     final PentePrivacyGroup moved = group.using(PaladinClient.wrap(other));
 
     moved.sendTransaction(
-        new PenteGroupTransactionParams("bob", EthAddress.fromString(PRIVATE_ADDRESS), SET, null));
+        new PenteGroupTransactionParams("bob", EthAddress.fromString(PRIVATE_ADDRESS), SET, null),
+        Optional.empty());
 
     assertNotSame(group, moved);
     assertEquals(group.address(), moved.address());
@@ -278,8 +289,14 @@ class PentePrivacyGroupTest {
 
   @Test
   void rejectsNullParams() {
-    assertThrows(NullPointerException.class, () -> group.deploy(null));
-    assertThrows(NullPointerException.class, () -> group.sendTransaction(null));
+    final PenteDeployParams deployParams =
+        new PenteDeployParams(List.of(), HexBytes.fromString("0x6000"), "a", null);
+    final PenteGroupTransactionParams txParams =
+        new PenteGroupTransactionParams("alice", EthAddress.fromString(PRIVATE_ADDRESS), SET, null);
+    assertThrows(NullPointerException.class, () -> group.deploy(null, Optional.empty()));
+    assertThrows(NullPointerException.class, () -> group.deploy(deployParams, null));
+    assertThrows(NullPointerException.class, () -> group.sendTransaction(null, Optional.empty()));
+    assertThrows(NullPointerException.class, () -> group.sendTransaction(txParams, null));
     assertThrows(NullPointerException.class, () -> group.call(null));
   }
 }
