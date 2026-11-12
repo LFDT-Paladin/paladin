@@ -900,7 +900,7 @@ func TestImportStatesAndLocks_ExistingOutputStatePreserved(t *testing.T) {
 	// Build an import with a confirmed lock for the same state ID but different AllowedNodes.
 	blockNum := uint64(10)
 	importState := &prototk.SnapshotState{State: &prototk.EndorsableState{Id: stateID.String()}, AllowedNodes: []string{"node2"}}
-	lock := &prototk.SnapshotStateLock{StateId: stateID.String(), Type: prototk.SnapshotStateLock_SPEND, ConfirmedAtBlock: &blockNum}
+	lock := &prototk.SnapshotStateLock{StateId: stateID.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &blockNum}
 
 	// ImportStatesAndLocks should skip the state because an existing entry already exists.
 	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{States: []*prototk.SnapshotState{importState}, Locks: []*prototk.SnapshotStateLock{lock}})
@@ -929,6 +929,37 @@ func TestImportStatesAndLocks_IgnoresReadLocks(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, data.GetLocks(), 1)
 	assert.Equal(t, prototk.SnapshotStateLock_SPEND, data.GetLocks()[0].GetType())
+}
+
+func TestImportStatesAndLocks_SkipsOutputStateWithoutCreateLock(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("da", 32))
+	confirmedAt := uint64(30)
+
+	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{
+		States: []*prototk.SnapshotState{{State: &prototk.EndorsableState{Id: s.String()}, AllowedNodes: []string{"test-node"}, Labels: &prototk.StateLabels{}}},
+		Locks:  []*prototk.SnapshotStateLock{{StateId: s.String(), Type: prototk.SnapshotStateLock_SPEND, ConfirmedAtBlock: &confirmedAt}},
+	})
+
+	assert.Empty(t, g.stateVisibilityTracker.GetForNode("test-node"))
+}
+
+func TestImportStatesAndLocks_CreateAndSpendLocksOnOneState(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("d9", 32))
+	createdAt, spentAt := uint64(30), uint64(31)
+
+	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{Locks: []*prototk.SnapshotStateLock{
+		{StateId: s.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &createdAt},
+		{StateId: s.String(), Type: prototk.SnapshotStateLock_SPEND, ConfirmedAtBlock: &spentAt},
+	}})
+
+	require.Contains(t, g.createLocksByStateID, s.String())
+	assert.Equal(t, createdAt, g.createLocksByStateID[s.String()].GetConfirmedAtBlock())
+	require.Contains(t, g.spendLocksByStateID, s.String())
+	assert.Equal(t, spentAt, g.spendLocksByStateID[s.String()].GetConfirmedAtBlock())
 }
 
 func TestExportStatesAndLocks_SpendLockSuppressesPrivateStateData(t *testing.T) {

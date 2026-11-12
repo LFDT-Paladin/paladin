@@ -250,12 +250,15 @@ func (g *grapher) ImportStatesAndLocks(ctx context.Context, snapshot *prototk.St
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	// Build a map of confirmed locks only. In-flight locks are skipped.
-	confirmedLockByStateID := make(map[string]*prototk.SnapshotStateLock, len(snapshot.GetLocks()))
+	// Import confirmed locks only, preserving existing entries. In-flight locks are skipped.
+	// Route each lock into the appropriate type-segregated map, as one state can hold both a create and a spend lock.
+	confirmedCreateLockStateIDs := make(map[string]bool, len(snapshot.GetLocks()))
 	for _, lock := range snapshot.GetLocks() {
 		stateID := lock.GetStateId()
 		if lock.GetType() == prototk.SnapshotStateLock_READ {
 			// A confirmed read places no constraint on later transactions.
+			// Read locks are now removed from snapshots, but a node running an earlier version
+			// might still send one.
 			log.L(ctx).Debugf("ImportStatesAndLocks: skipping read lock on state %s", stateID)
 			continue
 		}
@@ -267,30 +270,11 @@ func (g *grapher) ImportStatesAndLocks(ctx context.Context, snapshot *prototk.St
 			log.L(ctx).Warnf("ImportStatesAndLocks: skipping lock on state %s — no transaction and no ConfirmedAtBlock", stateID)
 			continue
 		}
-		confirmedLockByStateID[stateID] = lock
-	}
-
-	// Import output states that have a corresponding confirmed lock.
-	for _, state := range snapshot.GetStates() {
-		stateID := state.GetState().GetId()
-		if _, ok := confirmedLockByStateID[stateID]; !ok {
-			log.L(ctx).Debugf("ImportStatesAndLocks: skipping output state %s — no corresponding confirmed lock found", stateID)
-			continue
-		}
-		if g.stateVisibilityTracker.ImportIfAbsent(stateID, state) {
-			log.L(ctx).Debugf("ImportStatesAndLocks: imported output state %s", stateID)
-		} else {
-			log.L(ctx).Debugf("ImportStatesAndLocks: skipping output state %s — existing entry takes precedence", stateID)
-		}
-	}
-
-	// Import confirmed locks, preserving existing entries.
-	// Route each lock into the appropriate type-segregated map.
-	for stateID, lock := range confirmedLockByStateID {
 		var targetMap map[string]*prototk.SnapshotStateLock
 		switch lock.GetType() {
 		case prototk.SnapshotStateLock_CREATE:
 			targetMap = g.createLocksByStateID
+			confirmedCreateLockStateIDs[stateID] = true
 		default:
 			targetMap = g.spendLocksByStateID
 		}
@@ -300,6 +284,20 @@ func (g *grapher) ImportStatesAndLocks(ctx context.Context, snapshot *prototk.St
 		}
 		targetMap[stateID] = lock
 		log.L(ctx).Debugf("ImportStatesAndLocks: imported confirmed lock on state %s", stateID)
+	}
+
+	// Import output states that have a corresponding confirmed create lock
+	for _, state := range snapshot.GetStates() {
+		stateID := state.GetState().GetId()
+		if !confirmedCreateLockStateIDs[stateID] {
+			log.L(ctx).Debugf("ImportStatesAndLocks: skipping output state %s — no corresponding confirmed create lock found", stateID)
+			continue
+		}
+		if g.stateVisibilityTracker.ImportIfAbsent(stateID, state) {
+			log.L(ctx).Debugf("ImportStatesAndLocks: imported output state %s", stateID)
+		} else {
+			log.L(ctx).Debugf("ImportStatesAndLocks: skipping output state %s — existing entry takes precedence", stateID)
+		}
 	}
 }
 
