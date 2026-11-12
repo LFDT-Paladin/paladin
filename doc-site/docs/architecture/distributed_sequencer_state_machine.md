@@ -94,18 +94,31 @@ stateDiagram-v2
     Signing --> Blocked
     Signing --> Pooled
     Signing --> Evicted
+    Signing --> PreAssembly_Blocked
+    Signing --> Reverted
     Endorsement_Gathering --> Confirming_Dispatchable
     Endorsement_Gathering --> Blocked
     Endorsement_Gathering --> Reverted
     Endorsement_Gathering --> Pooled
+    Endorsement_Gathering --> PreAssembly_Blocked
     Blocked --> Confirming_Dispatchable
+    Blocked --> PreAssembly_Blocked
+    Blocked --> Pooled
+    Blocked --> Reverted
     Confirming_Dispatchable --> Preparing
     Confirming_Dispatchable --> Pooled
     Confirming_Dispatchable --> Evicted
     Confirming_Dispatchable --> Final
+    Confirming_Dispatchable --> PreAssembly_Blocked
+    Confirming_Dispatchable --> Reverted
     Preparing --> Ready_For_Dispatch
     Preparing --> Pooled
+    Preparing --> PreAssembly_Blocked
+    Preparing --> Reverted
     Ready_For_Dispatch --> Dispatched
+    Ready_For_Dispatch --> PreAssembly_Blocked
+    Ready_For_Dispatch --> Pooled
+    Ready_For_Dispatch --> Reverted
     Dispatched --> Confirmed
     Dispatched --> PreAssembly_Blocked
     Dispatched --> Pooled
