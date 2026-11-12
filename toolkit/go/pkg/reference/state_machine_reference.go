@@ -117,12 +117,96 @@ func parseFile(path, statesPath, name string) (smData, error) {
 		return smData{}, fmt.Errorf("parsing %s: %w", statesPath, err)
 	}
 
+	decls, err := parsePackageDecls(fset, filepath.Dir(path))
+	if err != nil {
+		return smData{}, err
+	}
+
 	return smData{
 		name:        name,
 		stateDescs:  stateDescs,
 		stateOrder:  stateOrder,
-		transitions: parseTransitions(f),
+		transitions: parseTransitions(f, decls),
 	}, nil
+}
+
+// packageDecls indexes the package-level variables and functions of a state machine's package, so
+// that event handlers declared outside stateDefinitionsMap can be followed.
+type packageDecls struct {
+	vars  map[string]ast.Expr
+	funcs map[string]*ast.FuncDecl
+}
+
+func parsePackageDecls(fset *token.FileSet, dir string) (*packageDecls, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	if err != nil {
+		return nil, err
+	}
+	decls := &packageDecls{
+		vars:  make(map[string]ast.Expr),
+		funcs: make(map[string]*ast.FuncDecl),
+	}
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", path, err)
+		}
+		decls.add(f)
+	}
+	return decls, nil
+}
+
+func (d *packageDecls) add(f *ast.File) {
+	for _, decl := range f.Decls {
+		switch decl := decl.(type) {
+		case *ast.GenDecl:
+			if decl.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range decl.Specs {
+				vs := spec.(*ast.ValueSpec)
+				for i, name := range vs.Names {
+					if i < len(vs.Values) {
+						d.vars[name.Name] = vs.Values[i]
+					}
+				}
+			}
+		case *ast.FuncDecl:
+			if decl.Recv == nil {
+				d.funcs[decl.Name.Name] = decl
+			}
+		}
+	}
+}
+
+// resolveCompositeLit follows a variable, or a call to a function whose body is a single return, to
+// the composite literal it stands for.
+func (d *packageDecls) resolveCompositeLit(expr ast.Expr) (*ast.CompositeLit, bool) {
+	switch e := expr.(type) {
+	case *ast.CompositeLit:
+		return e, true
+	case *ast.Ident:
+		if v, ok := d.vars[e.Name]; ok {
+			return d.resolveCompositeLit(v)
+		}
+	case *ast.CallExpr:
+		fn, ok := e.Fun.(*ast.Ident)
+		if !ok {
+			return nil, false
+		}
+		fd, ok := d.funcs[fn.Name]
+		if !ok || fd.Body == nil || len(fd.Body.List) != 1 {
+			return nil, false
+		}
+		ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
+		if ok && len(ret.Results) == 1 {
+			return d.resolveCompositeLit(ret.Results[0])
+		}
+	}
+	return nil, false
 }
 
 // parseConstStates returns State_* constant names in source order from the file's const blocks.
@@ -189,7 +273,7 @@ func parseEnStates(path string) (map[string]string, error) {
 	return msgs, nil
 }
 
-func parseTransitions(f *ast.File) []transition {
+func parseTransitions(f *ast.File, decls *packageDecls) []transition {
 	var result []transition
 	ast.Inspect(f, func(n ast.Node) bool {
 		vs, ok := n.(*ast.ValueSpec)
@@ -219,14 +303,14 @@ func parseTransitions(f *ast.File) []transition {
 			if !ok {
 				continue
 			}
-			result = append(result, transitionsFromStateDef(stateName, stateDef)...)
+			result = append(result, transitionsFromStateDef(stateName, stateDef, decls)...)
 		}
 		return false
 	})
 	return result
 }
 
-func transitionsFromStateDef(stateName string, stateDef *ast.CompositeLit) []transition {
+func transitionsFromStateDef(stateName string, stateDef *ast.CompositeLit, decls *packageDecls) []transition {
 	var result []transition
 	for _, elt := range stateDef.Elts {
 		skv, ok := elt.(*ast.KeyValueExpr)
@@ -246,7 +330,7 @@ func transitionsFromStateDef(stateName string, stateDef *ast.CompositeLit) []tra
 			if !strings.HasPrefix(eventName, "Event_") {
 				continue
 			}
-			handlersCL, ok := ekv.Value.(*ast.CompositeLit)
+			handlersCL, ok := decls.resolveCompositeLit(ekv.Value)
 			if !ok {
 				continue
 			}
