@@ -1,4 +1,53 @@
 // Mock client, WireMock stubs, and Testcontainers support
+apply plugin: 'java-library'
+
+ext {
+    testcontainersVersion = '2.0.5'
+    wiremockVersion = '3.13.2'
+}
+
 dependencies {
-    implementation project(':sdk:java:client')
+    // Exposed as `api`: consumers see these types in this module's public signatures
+    // (PaladinClient, MappingBuilder, GenericContainer, JUnit Extension).
+    api project(':sdk:java:client')
+    api project(':sdk:java:core')
+    api 'com.fasterxml.jackson.core:jackson-databind:2.18.6'
+    api "org.wiremock:wiremock-standalone:${wiremockVersion}"
+    api "org.testcontainers:testcontainers:${testcontainersVersion}"
+    api platform('org.junit:junit-bom:5.9+')
+    api 'org.junit.jupiter:junit-jupiter-api'
+}
+
+// Container tests pull images and boot Besu + Paladin, so they never run in an ordinary build.
+test {
+    useJUnitPlatform { excludeTags 'testcontainers' }
+}
+
+tasks.register('containerTest', Test) {
+    description = 'Boots Besu and a Paladin node in Docker and runs the Testcontainers smoke tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'testcontainers' }
+    // Let callers pick the node image, e.g. -Ppaladin.image=paladin:local for a local build.
+    if (project.hasProperty('paladin.image')) {
+        systemProperty 'paladin.image', project.property('paladin.image')
+    }
+    // Docker state is external to Gradle's inputs.
+    outputs.upToDateWhen { false }
+}
+
+// The Docker start-up path (container start, wait strategy, mapped URLs) only executes under
+// `containerTest`, so it is left out of the unit-test coverage floor. Its configuration logic
+// (node YAML, container settings) is unit tested and stays measured.
+jacocoTestCoverageVerification {
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                'org/lfdt/paladin/sdk/testing/containers/JsonRpcWaitStrategy*',
+                'org/lfdt/paladin/sdk/testing/containers/PaladinTestNetwork*',
+                'org/lfdt/paladin/sdk/testing/containers/PaladinNetworkExtension*',
+            ])
+        }))
+    }
 }
