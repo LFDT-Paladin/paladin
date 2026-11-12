@@ -106,7 +106,9 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	// State_Pooled or State_PreAssembly_Blocked.
 	// For the initial transition from State_Initial and the transition from State_Assembling to State_Pooled
 	// the only dependents we expect are chained dependencies
-	txn.notifyDependentsOfReset(ctx)
+	if err := txn.notifyDependentsOfReset(ctx); err != nil {
+		return err
+	}
 
 	// Once dependents have been notified of reset, remove ourselves from the grapher (and indirectly
 	// clear post-assemble dependencies) so repeated reset events while dispatched are no-ops and stale
@@ -115,7 +117,7 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	return nil
 }
 
-func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) {
+func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) error {
 	for _, dependentID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetDependents(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)...) {
 		err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencyResetEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -124,9 +126,10 @@ func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) {
 			SourceTransactionID: t.pt.ID,
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error notifying dependents of reset for TX %s: %s", t.pt.ID, err)
+			return err
 		}
 	}
+	return nil
 }
 
 // guard_HasRevertedChainedDependency returns true if any chained dependency is in State_Reverted.

@@ -778,6 +778,39 @@ func Test_addToDelegatedTransactions_MockTransactionHandleEventReturnsError(t *t
 	assert.False(t, ok)
 }
 
+func Test_addToDelegatedTransactions_HandleEventErrorRemovesDependencyLinks(t *testing.T) {
+	ctx := t.Context()
+	originator := "sender@senderNode"
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _ := builder.Build()
+	txn1 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
+	txn2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
+
+	pooledTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	pooledTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DelegatedEvent")).Return(nil)
+	pooledTxn.EXPECT().GetCurrentState().Return(transaction.State_Pooled)
+	pooledTxn.EXPECT().GetID().Return(txn1.ID)
+	failingTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	failingTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DelegatedEvent")).Return(fmt.Errorf("handle delegated event failed"))
+
+	createTransaction := func(
+		_ context.Context,
+		_ string, _ string, _ string,
+		pt *components.PrivateTransaction,
+	) transaction.CoordinatorTransaction {
+		if pt.ID == txn1.ID {
+			return pooledTxn
+		}
+		return failingTxn
+	}
+
+	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn1, txn2}, "delegation-1", createTransaction)
+	require.Error(t, err)
+
+	_, ok := c.dependencyTracker.GetPreassemblyDeps().GetDependent(ctx, txn1.ID)
+	assert.False(t, ok, "a transaction removed after a failed delegation must not remain a dependent of the previous transaction")
+}
+
 func Test_addToDelegatedTransactions_SubsequentTransactionGetsPreviousTransactionError(t *testing.T) {
 	ctx := t.Context()
 	originator := "sender@senderNode"
