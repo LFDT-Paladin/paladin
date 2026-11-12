@@ -19,13 +19,20 @@ import com.sun.jna.Native;
 import io.kaleido.paladin.logging.PaladinLogging;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class PluginJNA extends Plugin {
 
     private static final Logger LOGGER = PaladinLogging.getLogger(PluginJNA.class);
+
+    // A loaded library keeps its own threads and signal handlers active in this process even
+    // when no plugin instance is running in it, so unloading it is unsafe. JNA unloads a library
+    // once its proxy is unreachable; this map keeps each one loaded for the life of the process.
+    private static final Map<String, PluginCShared> loadedLibs = new ConcurrentHashMap<>();
 
     private final String libName;
 
@@ -50,7 +57,7 @@ public class PluginJNA extends Plugin {
     @Override
     public synchronized void loadAndStart() throws Exception {
         LOGGER.info("Loading plugin via JNA: {}", libName);
-        lib = Native.load(libName, PluginCShared.class);
+        lib = loadedLibs.computeIfAbsent(libName, n -> Native.load(n, PluginCShared.class));
         CompletableFuture.runAsync(() -> {
             LOGGER.info("starting {} {} [{}]", info.pluginType(), info.name(), info.instanceId());
             int rc = lib.Run(this.grpcTarget, info.instanceId());
